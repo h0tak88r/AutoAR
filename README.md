@@ -1,27 +1,30 @@
-# ReconRaptor
+# autoAr - Automated Attack and Reconnaissance Tool
 
-ReconRaptor is a comprehensive reconnaissance tool designed to perform extensive scanning and enumeration of domains and subdomains. It integrates various open-source tools and APIs to provide detailed information about the target.
+```
+ ▗▄▖ ▗▖ ▗▖▗▄▄▄▖▗▄▖  ▗▄▖ ▗▄▄▖ 
+▐▌ ▐▌▐▌ ▐▌  █ ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌
+▐▛▀▜▌▐▌ ▐▌  █ ▐▌ ▐▌▐▛▀▜▌▐▛▀▚▖
+▐▌ ▐▌▝▚▄▞▘  █ ▝▚▄▞▘▐▌ ▐▌▐▌ ▐▌
+                              By: h0tak88r
+```
+
+autoAr is a comprehensive automated reconnaissance and vulnerability scanning tool designed for security researchers and penetration testers. It combines multiple security tools to perform thorough domain analysis and vulnerability assessment.
 
 ## Features
-- Subdomain enumeration using multiple APIs and SubFinder
-- URL fetching using Waymore
-- Subdomain takeover detection
-- JavaScript exposure scanning
-- Live host filtering
-- Port scanning using Naabu
-- Exposed panel detection
-- Reflection scanning
-- GF pattern-based scanning
-- XSS scanning using Dalfox
-- Fuzzing with ffuf
-- SQL injection scanning with sqlmap
-- Send Results file and logs to your discord server using discord webhook url you can yours  to web webhook at `DISCORD_WEBHOOK="" # Here Add your webhook`
 
+- Subdomain Enumeration
+- URL Discovery and Analysis
+- Port Scanning
+- Parameter Discovery and Analysis
+- JavaScript File Analysis
+- Vulnerability Scanning
+- Discord Integration for Notifications
+- Customizable Scanning Options
 
-## Installation
+## Prerequisites
 
-### Prerequisites
-Make sure you have the following tools installed:
+The following tools need to be installed:
+
 - subfinder
 - httpx
 - waymore
@@ -30,61 +33,136 @@ Make sure you have the following tools installed:
 - naabu
 - kxss
 - qsreplace
-- gf
+- paramx
 - dalfox
 - ffuf
 - interlace
 - urldedupe
 
-## Setup 
-```sh
-bash setup.sh
+## Installation
+
+1. Clone the repository:
+```bash
+git clone [repository-url]
+cd autoAr
 ```
 
-## Clone the repository
-```sh
-git clone https://github.com/h0tak88r/ReconRaptor.git
-cd ReconRaptor
+2. Install required tools:
+```bash
+# Example installation commands for some tools
+go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+go install github.com/cyinnove/paramx/cmd/paramx@latest
+# ... Install other required tools
 ```
 
-### Setup GF Patterns
-```sh
-git clone https://github.com/1ndianl33t/Gf-Patterns
-mkdir -p ~/.gf
-cp Gf-Patterns/*.json ~/.gf
-echo 'source $GOPATH/src/github.com/tomnomnom/gf/gf-completion.bash' >> ~/.bashrc
-source ~/.bashrc
+3. Make the script executable:
+```bash
+chmod +x autoAr.sh
 ```
 
 ## Usage
 
-```sh
-./reconraptor.sh <target_domain> [-s single_subdomain]
+Basic usage:
+```bash
+./autoAr.sh -d example.com
 ```
 
 ### Options
-- `<target_domain>`: The main domain to be scanned.
-- `-s single_subdomain`: (Optional) Specify a single subdomain to scan.
+
+- `-d DOMAIN` : Single target domain
+- `-l FILE` : File containing list of domains
+- `-s SUBDOMAIN` : Single subdomain to scan
+- `-w WEBHOOK` : Discord webhook URL for notifications
+- `-o DIR` : Output directory (default: results)
+- `-t DIR` : ParamX templates directory (default: paramx-templates)
+- `-v` : Verbose output
+- `--skip-ports` : Skip port scanning
+- `--skip-fuzz` : Skip fuzzing
+- `--skip-sqli` : Skip SQL injection scanning
+- `--skip-paramx` : Skip ParamX scanning
 
 ### Examples
-- Scan a domain:
-  ```sh
-  ./reconraptor.sh example.com
-  ```
 
-- Scan a single subdomain:
-  ```sh
-  ./reconraptor.sh example.com -s sub.example.com
-  ```
+1. Scan a single domain:
+```bash
+./autoAr.sh -d example.com
+```
 
-## Output
-Results are saved in the `results` directory, which is recreated for each run.
+2. Scan multiple domains from a file:
+```bash
+./autoAr.sh -l domains.txt -w https://discord.webhook.url
+```
 
-## Logging
-All log messages are saved to `reconraptor.log`.
+3. Scan with specific options:
+```bash
+./autoAr.sh -d example.com -s sub.example.com --skip-ports --skip-sqli
+```
+
+4. Use custom ParamX templates:
+```bash
+./autoAr.sh -d example.com -t /path/to/paramx/templates
+```
+
+## Output Structure
+
+Results are organized in the following directory structure:
+```
+results/
+└── domain.com/
+    ├── subs/
+    ├── urls/
+    ├── vulnerabilities/
+    │   ├── xss/
+    │   ├── sqli/
+    │   ├── ssrf/
+    │   ├── ssti/
+    │   ├── lfi/
+    │   ├── rce/
+    │   └── idor/
+    ├── fuzzing/
+    └── ports/
+```
+
+## Features in Detail
+
+1. **Subdomain Enumeration**
+   - Uses multiple tools and sources
+   - Includes passive and active enumeration
+   - Subdomain takeover checks
+
+2. **URL Discovery**
+   - Crawls and discovers URLs
+   - Filters live endpoints
+   - Organizes by functionality
+
+3. **Vulnerability Scanning**
+   - XSS Detection
+   - SQL Injection
+   - SSRF
+   - Template Injection
+   - Local File Inclusion
+   - Remote Code Execution
+   - IDOR
+
+4. **JavaScript Analysis**
+   - Extracts JavaScript files
+   - Analyzes for sensitive information
+   - Checks for potential vulnerabilities
+
+5. **Reporting**
+   - Organized output structure
+   - Discord notifications
+   - Detailed logging
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Author
+
+Created by h0tak88r
 
 ## License
-This project is licensed under the MIT License.
 
-## Contributions
-Contributions are welcome! Please fork the repository and create a pull request.
+This project is licensed under the MIT License - see the LICENSE file for details
