@@ -1,15 +1,26 @@
-# AutoAR (Automated Attack and Reconnaissance Tool)
+# AutoAR - Automated Attack and Reconnaissance Tool
+
+```
+ ▗▄▖ ▗▖ ▗▖▗▄▄▄▖▗▄▖  ▗▄▖ ▗▄▄▖ 
+▐▌ ▐▌▐▌ ▐▌  █ ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌
+▐▛▀▜▌▐▌ ▐▌  █ ▐▌ ▐▌▐▛▀▜▌▐▛▀▚▖
+▐▌ ▐▌▝▚▄▞▘  █ ▝▚▄▞▘▐▌ ▐▌▐▌ ▐▌
+                              By: h0tak88r
+```
 
 AutoAR is a comprehensive web-based security scanning and vulnerability management platform that automates the process of reconnaissance and vulnerability assessment across multiple domains.
 
-## Features
+## Core Features
 
-### Core Functionality
-- Automated security scanning and reconnaissance
-- Multi-domain support
-- Comprehensive vulnerability assessment
-- Real-time scan monitoring
-- Configurable scanning options
+### Command Line Tool
+- Subdomain Enumeration
+- URL Discovery and Analysis
+- Port Scanning
+- Parameter Discovery and Analysis
+- JavaScript File Analysis
+- Vulnerability Scanning
+- Discord Integration for Notifications
+- Customizable Scanning Options
 
 ### Web Interface Components
 1. **Dashboard**
@@ -37,6 +48,24 @@ AutoAR is a comprehensive web-based security scanning and vulnerability manageme
    - Categorized best practices
    - Severity-based guidance
 
+## Prerequisites
+
+The following tools need to be installed:
+
+- subfinder
+- httpx
+- waymore
+- subov88r
+- nuclei
+- naabu
+- kxss
+- qsreplace
+- paramx
+- dalfox
+- ffuf
+- interlace
+- urldedupe
+
 ## Technology Stack
 
 ### Backend
@@ -52,51 +81,76 @@ AutoAR is a comprehensive web-based security scanning and vulnerability manageme
 
 ## Project Structure
 ```
-autoAR-web/
-├── backend/
-│   ├── app.py
-│   └── venv/
-├── frontend/
-│   ├── components/
-│   ├── pages/
-│   ├── styles/
-│   └── public/
-└── README.md
+autoAR/
+├── autoAr.sh              # Main command line tool
+├── autoAR-web/           # Web interface
+│   ├── backend/
+│   │   ├── app.py
+│   │   └── venv/
+│   ├── frontend/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── styles/
+│   │   └── public/
+│   └── README.md
+└── results/              # Scan results directory
 ```
 
-## Setup and Installation
+## Installation
 
-### Backend Setup
-1. Create and activate virtual environment:
-   ```bash
-   cd backend
-   python3 -m venv venv
-   source venv/bin/activate  # On Unix/macOS
-   ```
+1. Clone the repository:
+```bash
+git clone https://github.com/h0tak88r/AutoAR.git
+cd AutoAR
+```
 
-2. Install dependencies:
-   ```bash
-   pip install flask flask-cors
-   ```
+2. Install required tools:
+```bash
+# Example installation commands for some tools
+go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+go install github.com/cyinnove/paramx/cmd/paramx@latest
+# ... Install other required tools
+```
 
-3. Start the Flask server:
-   ```bash
-   python app.py
-   ```
-   The backend will run on http://localhost:5000
+3. Make the script executable:
+```bash
+chmod +x autoAr.sh
+```
 
-### Frontend Setup
-1. Install dependencies:
-   ```bash
-   cd frontend
-   npm install
-   ```
+## Usage
 
-2. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   The frontend will run on http://localhost:3000
+### Command Line Tool
+
+Basic usage:
+```bash
+./autoAr.sh -d example.com
+```
+
+Options:
+- `-d DOMAIN` : Single target domain
+- `-l FILE` : File containing list of domains
+- `-s SUBDOMAIN` : Single subdomain to scan
+
+### Web Interface Setup
+
+1. Backend Setup:
+```bash
+cd autoAR-web/backend
+python3 -m venv venv
+source venv/bin/activate  # On Unix/macOS
+pip install flask flask-cors
+python app.py
+```
+The backend will run on http://localhost:5000
+
+2. Frontend Setup:
+```bash
+cd autoAR-web/frontend
+npm install
+npm run dev
+```
+The frontend will run on http://localhost:3000
 
 ## Features in Development
 - Backend API integration for real data
