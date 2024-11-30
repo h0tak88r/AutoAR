@@ -120,37 +120,92 @@ chmod +x autoAr.sh
 
 ## Usage
 
-### Command Line Tool
+### Command Line Interface (CLI)
 
-Basic usage:
+The tool can be run directly from the command line with various options:
+
 ```bash
+# Basic usage with a single domain
 ./autoAr.sh -d example.com
+
+# Scan multiple domains from a file
+./autoAr.sh -l domains.txt
+
+# Scan a specific subdomain
+./autoAr.sh -s subdomain.example.com
+
+# Full scan with all modules
+./autoAr.sh -d example.com --full
+
+# Custom scan with specific modules
+./autoAr.sh -d example.com --subdomains --urls --ports
+
+# Silent mode (no banner)
+./autoAr.sh -d example.com --silent
+
+# Specify custom output directory
+./autoAr.sh -d example.com -o /path/to/output
 ```
 
-Options:
-- `-d DOMAIN` : Single target domain
-- `-l FILE` : File containing list of domains
-- `-s SUBDOMAIN` : Single subdomain to scan
+Available CLI Options:
+- `-d, --domain` : Single target domain
+- `-l, --list` : File containing list of domains
+- `-s, --subdomain` : Single subdomain to scan
+- `-o, --output` : Custom output directory
+- `--full` : Run all scanning modules
+- `--subdomains` : Run only subdomain enumeration
+- `--urls` : Run only URL discovery
+- `--ports` : Run only port scanning
+- `--params` : Run only parameter discovery
+- `--js` : Run only JavaScript analysis
+- `--vulns` : Run only vulnerability scanning
+- `--silent` : Run without banner and minimal output
+- `--notify` : Enable Discord notifications
+- `--help` : Show help message
 
-### Web Interface Setup
+### Web Interface (GUI)
 
-1. Backend Setup:
+The web interface provides a user-friendly way to manage and visualize scans:
+
+1. Start the Backend Server:
 ```bash
 cd autoAR-web/backend
-python3 -m venv venv
 source venv/bin/activate  # On Unix/macOS
-pip install flask flask-cors
+# or
+.\venv\Scripts\activate  # On Windows
 python app.py
 ```
-The backend will run on http://localhost:5000
+The backend API will be available at `http://localhost:5000`
 
-2. Frontend Setup:
+2. Start the Frontend Server:
 ```bash
 cd autoAR-web/frontend
-npm install
+npm install  # Only needed first time
 npm run dev
 ```
-The frontend will run on http://localhost:3000
+The web interface will be accessible at `http://localhost:3000`
+
+3. Using the Web Interface:
+   - Navigate to `http://localhost:3000` in your browser
+   - Use the dashboard to:
+     - Start new scans
+     - Monitor ongoing scans
+     - View scan results
+     - Configure scan settings
+     - Manage notifications
+     - Export reports
+
+4. API Endpoints (for developers):
+```bash
+# Start a new scan
+curl -X POST http://localhost:5000/api/scan -d '{"domain": "example.com"}'
+
+# Get scan status
+curl http://localhost:5000/api/scan/status/<scan_id>
+
+# Get scan results
+curl http://localhost:5000/api/scan/results/<scan_id>
+```
 
 ## Features in Development
 - Backend API integration for real data
