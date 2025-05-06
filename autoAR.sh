@@ -212,7 +212,7 @@ check_and_clone() {
 
 # Function to check if required tools are installed
 check_tools() {
-    local tools=("subfinder" "httpx" "naabu" "nuclei" "ffuf" "kxss" "qsreplace" "paramx" "dalfox" "urlfinder" "interlace" "jsleak")
+    local tools=("subfinder" "httpx" "naabu" "nuclei" "ffuf" "kxss" "qsreplace" "paramx" "dalfox" "urlfinder" "interlace" "jsleak" "jsfinder")
     local missing_tools=()
     
     for tool in "${tools[@]}"; do
@@ -358,40 +358,49 @@ subEnum() {
 
 # Function to fetch URLs
 fetch_urls() {
-    log INFO "Fetching URLs using URLFinder"
+    log INFO "Fetching URLs using URLFinder and JSFinder"
     
     # Ensure urls directory exists
     mkdir -p "$DOMAIN_DIR/urls"
     
     # Initialize/clear files
     > "$DOMAIN_DIR/urls/all-urls.txt"
-    > "$DOMAIN_DIR/urls/live.txt"
+    > "$DOMAIN_DIR/urls/js-urls.txt"
     
-    # Run URLFinder with all sources and proper filtering
-    urlfinder -d "$TARGET" -all  -silent -o "$DOMAIN_DIR/urls/all-urls.txt"
+    # 1. First collect URLs using urlfinder
+    log INFO "Running URLFinder for initial URL collection"
+    urlfinder -d "$TARGET" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt"
     
-    # Check if we found any URLs
-    if [[ -f "$DOMAIN_DIR/urls/all-urls.txt" && -s "$DOMAIN_DIR/urls/all-urls.txt" ]]; then
-        # Filter live URLs using httpx
-        if command -v httpx &> /dev/null; then
-            cat "$DOMAIN_DIR/urls/all-urls.txt" | httpx -silent -mc 200,201,301,302,403 -o "$DOMAIN_DIR/urls/live.txt"
-        else
-            cp "$DOMAIN_DIR/urls/all-urls.txt" "$DOMAIN_DIR/urls/live.txt"
-            log WARNING "[-] httpx not found, skipping live URL filtering"
-        fi
+    # 2. Run JSFinder on live subdomains to find JS files and endpoints
+    if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
+        log INFO "Running JSFinder on live subdomains"
+        jsfinder -l "$DOMAIN_DIR/subs/live-subs.txt" -c 50 -s -o "$DOMAIN_DIR/urls/js-urls.txt"
         
-        # Count URLs
+        # Merge results and remove duplicates
+        if [[ -s "$DOMAIN_DIR/urls/js-urls.txt" ]]; then
+            cat "$DOMAIN_DIR/urls/js-urls.txt" >> "$DOMAIN_DIR/urls/all-urls.txt"
+            sort -u -o "$DOMAIN_DIR/urls/all-urls.txt" "$DOMAIN_DIR/urls/all-urls.txt"
+            
+            # Count URLs
+            local js_urls=$(wc -l < "$DOMAIN_DIR/urls/js-urls.txt")
+            log SUCCESS "Found $js_urls JavaScript files/endpoints using JSFinder"
+        fi
+    fi
+    
+    # Count total unique URLs
+    if [[ -s "$DOMAIN_DIR/urls/all-urls.txt" ]]; then
         local total_urls=$(wc -l < "$DOMAIN_DIR/urls/all-urls.txt")
-        local live_urls=$(wc -l < "$DOMAIN_DIR/urls/live.txt")
-        log SUCCESS "Found $total_urls unique URLs ($live_urls live)"
+        log SUCCESS "Found $total_urls total unique URLs"
         
         if [[ -n "$DISCORD_WEBHOOK" ]]; then
-            send_file_to_discord "$DOMAIN_DIR/urls/live.txt" "Found $live_urls live URLs"
+            send_file_to_discord "$DOMAIN_DIR/urls/all-urls.txt" "Found $total_urls unique URLs"
+            if [[ -s "$DOMAIN_DIR/urls/js-urls.txt" ]]; then
+                send_file_to_discord "$DOMAIN_DIR/urls/js-urls.txt" "Found $js_urls JavaScript files/endpoints"
+            fi
         fi
     else
-        log WARNING "[-] No URLs found for $TARGET"
-        echo "" > "$DOMAIN_DIR/urls/all-urls.txt"
-        echo "" > "$DOMAIN_DIR/urls/live.txt"
+        log WARNING "[-] No URLs found"
+        touch "$DOMAIN_DIR/urls/all-urls.txt"
     fi
 }
 
@@ -618,7 +627,7 @@ scan_js_exposures() {
     
     mkdir -p "$domain_dir/vulnerabilities/js"
     
-    # Extract JS URLs
+    # Extract JS URLs from all collected URLs
     grep -i "\.js" "$domain_dir/urls/all-urls.txt" > "$domain_dir/vulnerabilities/js/js-urls.txt"
     
     # Only proceed if we found JS files
