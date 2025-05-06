@@ -95,6 +95,17 @@ install_python_tool() {
     fi
 }
 
+# Function to install JSFinder
+install_jsfinder() {
+    if [[ ! -d "JSFinder" ]]; then
+        print_msg red "JSFinder - not installed"
+        print_msg yellow "Attempting to install JSFinder"
+        go install -v github.com/kacakb/jsfinder@latest
+    else
+        print_msg green "JSFinder - installed"
+    fi
+}
+
 # Function to check and install required tools
 check_and_install_tools() {
     install_go_tool "subfinder" "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
@@ -112,6 +123,7 @@ check_and_install_tools() {
     install_naabu
     install_massdns
     install_nuclei_templates
+    install_jsfinder
     install_python_tool "waymore" "sudo pip install waymore"
     if ! command -v interlace &> /dev/null; then
         print_msg red "interlace - not installed"
