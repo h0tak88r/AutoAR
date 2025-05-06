@@ -367,9 +367,9 @@ fetch_urls() {
     > "$DOMAIN_DIR/urls/all-urls.txt"
     > "$DOMAIN_DIR/urls/js-urls.txt"
     
-    # 1. First collect URLs using urlfinder
+    # 1. First collect URLs using urlfinder (redirect both stdout and stderr to /dev/null)
     log INFO "Running URLFinder for initial URL collection"
-    urlfinder -d "$TARGET" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt"
+    urlfinder -d "$TARGET" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt" >/dev/null 2>&1
     
     # 2. Run JSFinder on live subdomains to find JS files and endpoints
     if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
