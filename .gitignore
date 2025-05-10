@@ -1,0 +1,164 @@
+# Results and output directories
+results/
+cnm_results/
+**/results/
+**/fuzzing/
+**/ports/
+**/subs/
+**/urls/
+**/vulnerabilities/
+**/subdomains/
+**/domains/
+**/domains_list/
+**/subdomains_list/
+**/urls_list/
+**/vulnerabilities_list/
+**/ports_list/
+**/nuclei_templates/
+**/paramx_templates/
+**/regexes/
+**/tools/
+**/sqlmap/
+**/massdns/
+**/ffuf/
+**/Interlace/
+**/nuclei_templates/
+**/paramx_templates/
+**/regexes/
+**/tools/
+**/sqlmap/
+**/massdns/
+**/ffuf/
+
+# Log files
+*.log
+autoAR.log
+cnm.log
+*.txt
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Wordlists and templates
+Wordlists/
+nuclei_templates/
+nuclei-templates/
+paramx-templates/
+regexes/
+
+# Tool-specific directories
+ffuf/
+Interlace/
+massdns/
+sqlmap/
+tools/
+urldedupe/
+
+# Credentials and sensitive files
+.env
+*.pem
+*.key
+*.crt
+*.cert
+*.pwd
+*.password
+*_token
+*_secret
+*.config
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Node
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Binary files
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+
+# Test files
+test/
+tests/
+testing/
+
+# Backup files
+*.bak
+*.backup
+*_backup
+*.old
+
+# Custom tool output
+*.html
+*.json
+*.xml
+*.csv
+*.xlsx
+*.pdf
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Local development files
+local/
+dev/
+*.local
+*.dev
+
+# Specific to your project
+autoAr.sh.bak
+cnm.sh.bak
+setup.sh.bak
+db_handler.sh.bak
+mongo_db_handler.py.bak
+*.py
+*.log
+*.txt
+*.json
+*.csv
+*.xlsx
+*.pdf
+*.html
+cnm.sh
