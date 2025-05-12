@@ -26,16 +26,16 @@ def load_from_conf(conf_path, key):
 MONGO_URI = os.environ.get("MONGO_URI")
 DB_NAME = os.environ.get("DB_NAME")
 
-# If not set, try secrets.conf in current directory
+# If not set, try autar.conf in current directory
 if not MONGO_URI:
-    MONGO_URI = load_from_conf("./secrets.conf", "MONGO_URI")
+    MONGO_URI = load_from_conf("./autar.conf", "MONGO_URI")
 if not DB_NAME:
-    DB_NAME = load_from_conf("./secrets.conf", "DB_NAME")
+    DB_NAME = load_from_conf("./autar.conf", "DB_NAME")
 if not DB_NAME:
     DB_NAME = "autoar"
 
 if not MONGO_URI:
-    print("Error: MONGO_URI environment variable not set and not found in secrets.conf. Please set it in your config or environment.")
+    print("Error: MONGO_URI environment variable not set and not found in autar.conf. Please set it in your config or environment.")
     sys.exit(1)
 
 DOMAINS_COLLECTION = "domains"
