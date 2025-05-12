@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Load config
+CONFIG_FILE="./secrets.conf"
+if [[ -n "$AUTOAR_CONFIG" ]]; then CONFIG_FILE="$AUTOAR_CONFIG"; fi
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+    export MONGO_URI
+    export DB_NAME
+fi
+
 # CNM (CNAME Matcher) Logo
 printf "==============================\n"
 printf "
