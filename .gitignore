@@ -98,5 +98,6 @@ mongo_db_handler.py.bak
 *.html
 mongo_db_handler.py
 secrets.conf
+secrets.conf
 # Config files
 autoar.conf
