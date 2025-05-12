@@ -9,7 +9,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Default config file location
-CONFIG_FILE="./secrets.conf"
+CONFIG_FILE="./autar.conf"
 
 # Allow override via environment variable
 if [[ -n "$AUTOAR_CONFIG" ]]; then
