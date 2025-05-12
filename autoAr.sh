@@ -8,6 +8,33 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Default config file location
+CONFIG_FILE="./secrets.conf"
+
+# Allow override via environment variable
+if [[ -n "$AUTOAR_CONFIG" ]]; then
+    CONFIG_FILE="$AUTOAR_CONFIG"
+fi
+
+# Load config if it exists
+if [[ -f "$CONFIG_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+    export MONGO_URI
+    export DB_NAME
+    # Use Discord webhook from config if not set via command line
+    if [[ -z "$DISCORD_WEBHOOK" && -n "$DISCORD_WEBHOOK_CONFIG" ]]; then
+        DISCORD_WEBHOOK="$DISCORD_WEBHOOK_CONFIG"
+    fi
+else
+    echo "Warning: Config file $CONFIG_FILE not found. Using environment variables or defaults."
+fi
+
+# Fallback: If DISCORD_WEBHOOK is still empty, use config value
+if [[ -z "$DISCORD_WEBHOOK" && -n "$DISCORD_WEBHOOK_CONFIG" ]]; then
+    DISCORD_WEBHOOK="$DISCORD_WEBHOOK_CONFIG"
+fi
+
 # autoAR Logo
 printf "==============================\n"
 printf "
@@ -25,125 +52,8 @@ printf "==============================\n"
 RESULTS_DIR="results"
 WORDLIST_DIR="Wordlists"
 FUZZ_WORDLIST="$WORDLIST_DIR/quick_fuzz.txt"
-TARGET=""
-SINGLE_SUBDOMAIN=""
 LOG_FILE="autoAR.log"
-DISCORD_WEBHOOK=""
-VERBOSE=false
-SKIP_PORT_SCAN=false
-SKIP_FUZZING=false
-SKIP_SQLI=false
-SKIP_PARAMX=false
-SKIP_DALFOX=false
-PARAMX_TEMPLATES="paramx-templates"
 DOMAIN_DIR=""
-LITE_MODE=false
-SAVE_TO_DB=false  # Default to false
-SECURITYTRAILS_API_KEY=""  # SecurityTrails API key
-
-# Help function
-show_help() {
-    cat << EOF
-Usage: ./autoAr.sh [-d domain.com] [-s subdomain.domain.com] [options]
-
-Options:
-    -l, --lite              Run in lite mode (subdomains, CNAME, live hosts, URLs, JS, nuclei)
-    -h, --help              Show this help message
-    -d, --domain           Target domain (e.g., example.com)
-    -s, --subdomain        Single subdomain to scan (e.g., sub.example.com)
-    -v, --verbose          Enable verbose output
-    -sp, --skip-port            Skip port scanning
-    -sf, --skip-fuzzing         Skip fuzzing scans
-    -ss, --skip-sqli           Skip SQL injection scanning
-    -spx, --skip-paramx         Skip ParamX scanning
-    -sd, --skip-dalfox         Skip Dalfox XSS scanning
-    -dw, --discord-webhook     Discord webhook URL for notifications
-    -st, --save-to-db          Save results to MongoDB database
-    -sk, --securitytrails-key  SecurityTrails API key for additional subdomain enumeration
-
-Examples:
-    ./autoAr.sh -d example.com
-    ./autoAr.sh -s sub.example.com --skip-port
-    ./autoAr.sh -d example.com --skip-fuzzing --skip-sqli
-    ./autoAr.sh -d example.com -l  # Run in lite mode
-EOF
-}
-
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        -d|--domain)
-            TARGET="$2"
-            shift 2
-            ;;
-        -s|--subdomain)
-            SINGLE_SUBDOMAIN="$2"
-            shift 2
-            ;;
-        -v|--verbose)
-            VERBOSE=true
-            shift
-            ;;
-        -sp|--skip-port)
-            SKIP_PORT_SCAN=true
-            shift
-            ;;
-        -sf|--skip-fuzzing)
-            SKIP_FUZZING=true
-            shift
-            ;;
-        -ss|--skip-sqli)
-            SKIP_SQLI=true
-            shift
-            ;;
-        -spx|--skip-paramx)
-            SKIP_PARAMX=true
-            shift
-            ;;
-        -sd|--skip-dalfox)
-            SKIP_DALFOX=true
-            shift
-            ;;
-        -dw|--discord-webhook)
-            DISCORD_WEBHOOK="$2"
-            shift 2
-            ;;
-        -l|--lite)
-            LITE_MODE=true
-            shift
-            ;;
-        -st|--save-to-db)
-            SAVE_TO_DB=true
-            shift
-            ;;
-        -sk|--securitytrails-key)
-            SECURITYTRAILS_API_KEY="$2"
-            shift 2
-            ;;
-        *)
-            echo "Unknown option: $1"
-            show_help
-            exit 1
-            ;;
-    esac
-done
-
-# Validate input
-if [[ -z "$TARGET" ]] && [[ -z "$SINGLE_SUBDOMAIN" ]]; then
-    log ERROR "Error: Must specify either -d (domain) or -s (subdomain)"
-    show_help
-    exit 1
-fi
-
-if [[ -n "$TARGET" ]] && [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-    log ERROR "Error: Cannot specify both domain and subdomain. Choose one."
-    show_help
-    exit 1
-fi
 
 # Improved log function with color and prefix
 log() {
@@ -204,21 +114,9 @@ send_file_to_discord() {
     fi
 }
 
-# Function to check and clone repositories if they do not exist
-check_and_clone() {
-    local dir="$1"
-    local repo_url="$2"
-    if [[ ! -d "$dir" ]]; then
-        log ERROR "Error: $dir directory not found."
-        log ERROR "To clone $dir, run:"
-        log ERROR "git clone $repo_url"
-        exit 1
-    fi
-}
-
 # Function to check if required tools are installed
 check_tools() {
-    local tools=("subfinder" "httpx" "naabu" "nuclei" "ffuf" "kxss" "qsreplace" "paramx" "dalfox" "urlfinder" "interlace" "jsleak" "jsfinder")
+    local tools=("subfinder" "httpx" "naabu" "nuclei" "ffuf" "kxss" "qsreplace" "gf" "dalfox" "urlfinder" "interlace" "jsleak" "jsfinder")
     local missing_tools=()
     
     for tool in "${tools[@]}"; do
@@ -256,18 +154,19 @@ setup_results_dir() {
     fi
     
     # Create fresh domain directory and subdirectories
-    mkdir -p "$DOMAIN_DIR"/{subs,urls,vulnerabilities/{xss,sqli,ssrf,ssti,lfi,rce,idor},fuzzing,ports}
+    mkdir -p "$DOMAIN_DIR"/{subs,urls,vulnerabilities/{xss,sqli,ssrf,ssti,lfi,rce,idor,js,takeovers},fuzzing,ports}
     
     # Create initial empty files
-    touch "$DOMAIN_DIR/urls/live.txt"
     touch "$DOMAIN_DIR/urls/all-urls.txt"
+    touch "$DOMAIN_DIR/urls/js-urls.txt"
     touch "$DOMAIN_DIR/ports/ports.txt"
     touch "$DOMAIN_DIR/vulnerabilities/put-scan.txt"
-    touch "$DOMAIN_DIR/fuzzing/ffufGet.txt"
-    touch "$DOMAIN_DIR/fuzzing/ffufPost.txt"
+    touch "$DOMAIN_DIR/fuzzing/ffuf.html"
+    touch "$DOMAIN_DIR/fuzzing/ffuf-post.html"
     touch "$DOMAIN_DIR/subs/all-subs.txt"
     touch "$DOMAIN_DIR/subs/apis-subs.txt"
     touch "$DOMAIN_DIR/subs/subfinder-subs.txt"
+    touch "$DOMAIN_DIR/subs/live-subs.txt"
     
     log SUCCESS "Created fresh directory structure at $DOMAIN_DIR"
 }
@@ -275,18 +174,45 @@ setup_results_dir() {
 # Function to run fuzzing with ffuf
 run_ffuf() {
     log INFO "Fuzzing with ffuf"
+    
+    # Ensure fuzzing directory exists
+    mkdir -p "$DOMAIN_DIR/fuzzing"
+    
     if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-        ffuf -u "https://$SINGLE_SUBDOMAIN/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique > "$DOMAIN_DIR/fuzzing/ffuf.html"
-        ffuf -u "https://$SINGLE_SUBDOMAIN/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique -X POST > "$DOMAIN_DIR/fuzzing/ffuf-post.html"
-        send_file_to_discord "$DOMAIN_DIRR/fuzzing/ffuf.html" "ffuf GET Fuzz Results"
-        send_file_to_discord "$DOMAIN_DIR/fuzzing/ffuf-post.html" "ffuf POST Fuzz Results"
+        log INFO "Fuzzing single subdomain: $SINGLE_SUBDOMAIN"
+        ffuf -u "https://$SINGLE_SUBDOMAIN/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique > "$DOMAIN_DIR/fuzzing/ffuf.html" 2>> "$LOG_FILE"
+        ffuf -u "https://$SINGLE_SUBDOMAIN/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique -X POST > "$DOMAIN_DIR/fuzzing/ffuf-post.html" 2>> "$LOG_FILE"
+        
+        # Check if files were created and have content
+        if [[ -s "$DOMAIN_DIR/fuzzing/ffuf.html" ]]; then
+            send_file_to_discord "$DOMAIN_DIR/fuzzing/ffuf.html" "ffuf GET Fuzz Results"
+        else
+            log WARNING "No GET fuzzing results found"
+        fi
+        
+        if [[ -s "$DOMAIN_DIR/fuzzing/ffuf-post.html" ]]; then
+            send_file_to_discord "$DOMAIN_DIR/fuzzing/ffuf-post.html" "ffuf POST Fuzz Results"
+        else
+            log WARNING "No POST fuzzing results found"
+        fi
     else
         while IFS= read -r url; do
             log INFO "Fuzzing $url with ffuf"
-            ffuf -u "$url/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique > "$DOMAIN_DIR/fuzzing/ffuf.html"
-            ffuf -u "$url/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique -X POST > "$DOMAIN_DIR/fuzzing/ffuf-post.html"
-            send_file_to_discord "$DOMAIN_DIR/fuzzing/ffuf.html" "ffuf GET Fuzz Results for $url"
-            send_file_to_discord "$DOMAIN_DIR/fuzzing/ffuf-post.html" "ffuf POST Fuzz Results for $url"
+            ffuf -u "$url/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique > "$DOMAIN_DIR/fuzzing/ffuf.html" 2>> "$LOG_FILE"
+            ffuf -u "$url/FUZZ" -w "$FUZZ_WORDLIST" -fc 403,404,400,402,401 -unique -X POST > "$DOMAIN_DIR/fuzzing/ffuf-post.html" 2>> "$LOG_FILE"
+            
+            # Check if files were created and have content
+            if [[ -s "$DOMAIN_DIR/fuzzing/ffuf.html" ]]; then
+                send_file_to_discord "$DOMAIN_DIR/fuzzing/ffuf.html" "ffuf GET Fuzz Results for $url"
+            else
+                log WARNING "No GET fuzzing results found for $url"
+            fi
+            
+            if [[ -s "$DOMAIN_DIR/fuzzing/ffuf-post.html" ]]; then
+                send_file_to_discord "$DOMAIN_DIR/fuzzing/ffuf-post.html" "ffuf POST Fuzz Results for $url"
+            else
+                log WARNING "No POST fuzzing results found for $url"
+            fi
         done < "$DOMAIN_DIR/subs/live-subs.txt"
     fi
 }
@@ -294,14 +220,59 @@ run_ffuf() {
 # Function to run SQL injection scanning with sqlmap
 run_sql_injection_scan() {
     log INFO "SQL Injection Scanning with sqlmap"
-    interlace -tL "$DOMAIN_DIR/gf-sqli.txt" -threads 5 -c "sqlmap -u _target_ --batch --dbs --random-agent >> '$DOMAIN_DIR/sqlmap-sqli.txt'"
-    send_file_to_discord "$DOMAIN_DIR/sqlmap-sqli.txt" "SQL Injection Scan Results"
+    
+    # Check if gf results file exists and is not empty
+    if [[ ! -f "$DOMAIN_DIR/vulnerabilities/sqli/gf-results.txt" ]]; then
+        log WARNING "No SQL injection parameters found to scan"
+        return
+    fi
+    
+    if [[ ! -s "$DOMAIN_DIR/vulnerabilities/sqli/gf-results.txt" ]]; then
+        log WARNING "SQL injection parameters file is empty"
+        return
+    fi
+
+    # Create a temporary file with clean URLs
+    local temp_urls="$DOMAIN_DIR/vulnerabilities/sqli/clean_urls.txt"
+    # Clean and validate URLs before passing to interlace
+    while IFS= read -r url; do
+        # Remove any special characters and validate URL format
+        cleaned_url=$(echo "$url" | tr -cd '[:print:]' | grep -E '^https?://')
+        if [[ -n "$cleaned_url" ]]; then
+            echo "$cleaned_url" >> "$temp_urls"
+        fi
+    done < "$DOMAIN_DIR/vulnerabilities/sqli/gf-results.txt"
+
+    if [[ ! -s "$temp_urls" ]]; then
+        log WARNING "No valid URLs found for SQL injection scanning"
+        rm -f "$temp_urls"
+        return
+    fi
+
+    # Run sqlmap scan with proper error handling
+    log INFO "Running sqlmap on $(wc -l < "$temp_urls") URLs"
+    if ! interlace -tL "$temp_urls" -threads 5 -c "sqlmap -u _target_ --batch --dbs --random-agent" -o "$DOMAIN_DIR/vulnerabilities/sqli/sqlmap-results.txt" 2>/dev/null; then
+        log ERROR "Error running sqlmap scan"
+    fi
+
+    # Check results
+    if [[ -s "$DOMAIN_DIR/vulnerabilities/sqli/sqlmap-results.txt" ]]; then
+        log SUCCESS "SQL injection scan completed. Results saved to sqlmap-results.txt"
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            send_file_to_discord "$DOMAIN_DIR/vulnerabilities/sqli/sqlmap-results.txt" "SQL Injection Scan Results"
+        fi
+    else
+        log WARNING "No SQL injection vulnerabilities found"
+    fi
+
+    # Cleanup
+    rm -f "$temp_urls"
 }
 
 # Function to run reflection scanning
 run_reflection_scan() {
     log INFO "Reflection Scanning"
-    kxss < "$DOMAIN_DIR/urls/all-urls.txt" | tee "$DOMAIN_DIR/vulnerabilities/kxss-results.txt"
+    kxss < "$DOMAIN_DIR/urls/all-urls.txt" | tee "$DOMAIN_DIR/vulnerabilities/kxss-results.txt" >> "$LOG_FILE" 2>&1
     send_file_to_discord "$DOMAIN_DIR/vulnerabilities/kxss-results.txt" "Reflection Scan Results"
 }
 
@@ -324,14 +295,14 @@ subEnum() {
     
     # Collect subdomains from various sources
     log INFO "Collecting subdomains from APIs..."
-    curl -s "https://api.hackertarget.com/hostsearch/?q=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file"
-    curl -s "https://riddler.io/search/exportcsv?q=pld:$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file"
-    curl -s "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file"
-    curl -s "https://api.hackertarget.com/hostsearch/?q=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file"
-    curl -s "https://certspotter.com/api/v0/certs?domain=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file"
-    curl -s "https://crt.sh/?q=%.$domain&output=json" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file"
-    curl -s "https://jldc.me/anubis/subdomains/$domain" | grep -Po "((http|https):\/\/)?(([\w.-]*)\.([\w]*)\.([A-z]))\w+" >> "$tmp_file"
-    curl -s "https://otx.alienvault.com/api/v1/indicators/domain/$domain/passive_dns" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file"
+    curl -s "https://api.hackertarget.com/hostsearch/?q=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" 2>> "$LOG_FILE"
+    curl -s "https://riddler.io/search/exportcsv?q=pld:$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" 2>> "$LOG_FILE"
+    curl -s "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" 2>> "$LOG_FILE"
+    curl -s "https://api.hackertarget.com/hostsearch/?q=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" 2>> "$LOG_FILE"
+    curl -s "https://certspotter.com/api/v0/certs?domain=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" 2>> "$LOG_FILE"
+    curl -s "https://crt.sh/?q=%.$domain&output=json" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" 2>> "$LOG_FILE"
+    curl -s "https://jldc.me/anubis/subdomains/$domain" | grep -Po "((http|https):\/\/)?(([\w.-]*)\.([\w]*)\.([A-z]))\w+" >> "$tmp_file" 2>> "$LOG_FILE"
+    curl -s "https://otx.alienvault.com/api/v1/indicators/domain/$domain/passive_dns" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" 2>> "$LOG_FILE"
     
     # SecurityTrails API Integration
     if [[ -n "$SECURITYTRAILS_API_KEY" ]]; then
@@ -366,7 +337,7 @@ subEnum() {
     # Run subfinder
     log INFO "Running subfinder..."
     if command -v subfinder &> /dev/null; then
-        subfinder -d "$domain" -all -silent -o "$DOMAIN_DIR/subs/subfinder-subs.txt"
+        subfinder -d "$domain" -all -silent -o "$DOMAIN_DIR/subs/subfinder-subs.txt" >> "$LOG_FILE" 2>&1
     else
         log WARNING "[-] subfinder not found, skipping subfinder enumeration"
     fi
@@ -378,8 +349,14 @@ subEnum() {
     local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
     log SUCCESS "Found $total_subs unique subdomains"
     
+    # Save to MongoDB
     if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
-        log SUCCESS "Subdomain Enumeration completed. Results saved in $DOMAIN_DIR/subs/all-subs.txt"
+        log INFO "Saving results to MongoDB..."
+        
+        # Then add all subdomains from file
+        ./mongo_db_handler.py add_subdomains_file "$domain" "$DOMAIN_DIR/subs/all-subs.txt"
+        
+        log SUCCESS "Subdomain Enumeration completed. Results saved in MongoDB and $DOMAIN_DIR/subs/all-subs.txt"
         send_file_to_discord "$DOMAIN_DIR/subs/all-subs.txt" "Subdomain Enumeration completed - Found $total_subs subdomains"
     else
         log WARNING "[-] No subdomains found for $domain"
@@ -388,7 +365,7 @@ subEnum() {
 
 # Function to fetch URLs
 fetch_urls() {
-    log INFO "Fetching URLs using URLFinder and JSFinder"
+    log INFO "Fetching URLs using URLFinder and extracting JS files"
     
     # Ensure urls directory exists
     mkdir -p "$DOMAIN_DIR/urls"
@@ -396,25 +373,37 @@ fetch_urls() {
     # Initialize/clear files
     > "$DOMAIN_DIR/urls/all-urls.txt"
     > "$DOMAIN_DIR/urls/js-urls.txt"
-    
-    # 1. First collect URLs using urlfinder (redirect both stdout and stderr to /dev/null)
-    log INFO "Running URLFinder for initial URL collection"
-    urlfinder -d "$TARGET" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt" >/dev/null 2>&1
-    
-    # 2. Run JSFinder on live subdomains to find JS files and endpoints
-    if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
-        log INFO "Running JSFinder on live subdomains"
-        jsfinder -l "$DOMAIN_DIR/subs/live-subs.txt" -c 50 -s -o "$DOMAIN_DIR/urls/js-urls.txt"
+
+    # Check if we're working with a single subdomain or full domain
+    if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
+        # For single subdomain, only fetch URLs for that subdomain
+        log INFO "Fetching URLs for single subdomain: $SINGLE_SUBDOMAIN"
+        urlfinder -d "$SINGLE_SUBDOMAIN" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt" >> "$LOG_FILE" 2>&1
+        jsfinder -l "$DOMAIN_DIR/subs/live-subs.txt" -c 50 -s -o "$DOMAIN_DIR/urls/js-urls.txt" >> "$LOG_FILE" 2>&1
         
-        # Merge results and remove duplicates
-        if [[ -s "$DOMAIN_DIR/urls/js-urls.txt" ]]; then
-            cat "$DOMAIN_DIR/urls/js-urls.txt" >> "$DOMAIN_DIR/urls/all-urls.txt"
-            sort -u -o "$DOMAIN_DIR/urls/all-urls.txt" "$DOMAIN_DIR/urls/all-urls.txt"
-            
-            # Count URLs
-            local js_urls=$(wc -l < "$DOMAIN_DIR/urls/js-urls.txt")
-            log SUCCESS "Found $js_urls JavaScript files/endpoints using JSFinder"
+    elif [[ -n "$TARGET" ]]; then
+        # 1. First collect URLs using urlfinder
+        log INFO "Running URLFinder for initial URL collection"
+        urlfinder -d "$TARGET" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt" >> "$LOG_FILE" 2>&1
+        
+        # 2. Run JSFinder on live subdomains to find JS files and endpoints
+        if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
+            log INFO "Running JSFinder on live subdomains"
+            jsfinder -l "$DOMAIN_DIR/subs/live-subs.txt" -c 50 -s -o "$DOMAIN_DIR/urls/js-urls.txt" >> "$LOG_FILE" 2>&1
         fi
+    fi
+
+            # Extract .js URLs from all-urls.txt if it exists
+    if [[ -s "$DOMAIN_DIR/urls/all-urls.txt" ]]; then
+        log INFO "Extracting .js URLs from collected URLs"
+        grep -i "\.js" "$DOMAIN_DIR/urls/all-urls.txt" >> "$DOMAIN_DIR/urls/js-urls.txt"
+        
+        # Remove duplicates from js-urls.txt
+        sort -u -o "$DOMAIN_DIR/urls/js-urls.txt" "$DOMAIN_DIR/urls/js-urls.txt"
+        
+        # Merge results and remove duplicates from all-urls.txt
+        cat "$DOMAIN_DIR/urls/js-urls.txt" >> "$DOMAIN_DIR/urls/all-urls.txt"
+        sort -u -o "$DOMAIN_DIR/urls/all-urls.txt" "$DOMAIN_DIR/urls/all-urls.txt"
     fi
     
     # Count total unique URLs
@@ -425,6 +414,7 @@ fetch_urls() {
         if [[ -n "$DISCORD_WEBHOOK" ]]; then
             send_file_to_discord "$DOMAIN_DIR/urls/all-urls.txt" "Found $total_urls unique URLs"
             if [[ -s "$DOMAIN_DIR/urls/js-urls.txt" ]]; then
+                local js_urls=$(wc -l < "$DOMAIN_DIR/urls/js-urls.txt")
                 send_file_to_discord "$DOMAIN_DIR/urls/js-urls.txt" "Found $js_urls JavaScript files/endpoints"
             fi
         fi
@@ -445,7 +435,7 @@ filter_live_hosts() {
     mkdir -p "$DOMAIN_DIR/subs"
     
     if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
-        cat "$DOMAIN_DIR/subs/all-subs.txt" | httpx -silent -mc 200,201,301,302,403 -o "$DOMAIN_DIR/subs/live-subs.txt"
+        cat "$DOMAIN_DIR/subs/all-subs.txt" | httpx -silent -nc -o "$DOMAIN_DIR/subs/live-subs.txt" >> "$LOG_FILE" 2>&1
         local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
         local live_subs=$(wc -l < "$DOMAIN_DIR/subs/live-subs.txt")
         log SUCCESS "Found $live_subs live subdomains out of $total_subs total"
@@ -458,8 +448,8 @@ filter_live_hosts() {
 # Function to run port scanning
 run_port_scan() {
     log INFO "Port Scanning with naabu"
-    if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
-        naabu -l "$DOMAIN_DIR/subs/all-subs.txt" -p - -o "$DOMAIN_DIR/ports/ports.txt"
+    if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
+        naabu -l "$DOMAIN_DIR/subs/live-subs.txt" -p - -o "$DOMAIN_DIR/ports/ports.txt" >> "$LOG_FILE" 2>&1
         if [[ -s "$DOMAIN_DIR/ports/ports.txt" ]]; then
             send_file_to_discord "$DOMAIN_DIR/ports/ports.txt" "Port Scan Results"
         else
@@ -470,66 +460,59 @@ run_port_scan() {
     fi
 }
 
-# Function to run ParamX scans
-run_paramx_scans() {
-    log INFO "Running ParamX scans for different vulnerability patterns"
+# Function to run GF pattern scans
+run_gf_scans() {
+    log INFO "Starting GF pattern scanning"
     
     # Create vulnerabilities directory if it doesn't exist
     mkdir -p "$DOMAIN_DIR/vulnerabilities"
     
-    # Define vulnerability patterns to scan for
-    local patterns=("xss" "sqli" "lfi" "rce" "idor" "ssrf" "ssti" "redirect")
-    
     # Check if we have URLs to scan
     if [[ ! -f "$DOMAIN_DIR/urls/all-urls.txt" ]]; then
-        log WARNING "[!] No URLs found to scan"
+        log WARNING "No URLs file found at $DOMAIN_DIR/urls/all-urls.txt"
         return
     fi
+
+    # Check if URLs file is empty
+    if [[ ! -s "$DOMAIN_DIR/urls/all-urls.txt" ]]; then
+        log WARNING "URLs file is empty, nothing to scan"
+        return
+    fi
+
+    local total_urls=$(wc -l < "$DOMAIN_DIR/urls/all-urls.txt")
+    log INFO "Found $total_urls URLs to scan"
     
-    # Scan for each vulnerability pattern
+    # Get available GF patterns
+    local patterns=(debug_logic idor iext img-traversal iparams isubs jsvar lfi rce redirect sqli ssrf ssti xss)
+    
+    # Scan for each GF pattern
     for pattern in "${patterns[@]}"; do
         # Create directory for this vulnerability type
         mkdir -p "$DOMAIN_DIR/vulnerabilities/$pattern"
         
-        log INFO "  [*] Scanning for $pattern parameters"
-        cat "$DOMAIN_DIR/urls/all-urls.txt" | paramx -tp "$PARAMX_TEMPLATES" -tag "$pattern" -o "$DOMAIN_DIR/vulnerabilities/$pattern/paramx-results.txt"
+        log INFO "Scanning for $pattern pattern ($(date '+%H:%M:%S'))"
         
-        # Check if we found any parameters
-        if [[ -s "$DOMAIN_DIR/vulnerabilities/$pattern/paramx-results.txt" ]]; then
-            local count=$(wc -l < "$DOMAIN_DIR/vulnerabilities/$pattern/paramx-results.txt")
-            log SUCCESS "  [+] Found $count potential $pattern parameters"
+        # Run GF scan and save results
+        if ! cat "$DOMAIN_DIR/urls/all-urls.txt" | gf "$pattern" > "$DOMAIN_DIR/vulnerabilities/$pattern/gf-results.txt" 2>> "$LOG_FILE"; then
+            log ERROR "GF scan failed for $pattern pattern"
+            continue
+        fi
+        
+        # Check if we found any matches
+        if [[ -s "$DOMAIN_DIR/vulnerabilities/$pattern/gf-results.txt" ]]; then
+            local count=$(wc -l < "$DOMAIN_DIR/vulnerabilities/$pattern/gf-results.txt")
+            log SUCCESS "Found $count potential $pattern matches"
             
             if [[ -n "$DISCORD_WEBHOOK" ]]; then
-                send_file_to_discord "$DOMAIN_DIR/vulnerabilities/$pattern/paramx-results.txt" "Found $count potential $pattern parameters"
+                send_file_to_discord "$DOMAIN_DIR/vulnerabilities/$pattern/gf-results.txt" "[$pattern] Found $count potentially vulnerable endpoints"
             fi
+        else
+            log INFO "No $pattern matches found"
+            rm -f "$DOMAIN_DIR/vulnerabilities/$pattern/gf-results.txt"
         fi
     done
-}
 
-# Function to check and setup paramx templates
-setup_paramx_templates() {
-    # Check if templates directory exists
-    if [[ ! -d "$PARAMX_TEMPLATES" ]]; then
-        log INFO "Creating ParamX templates directory"
-        mkdir -p "$PARAMX_TEMPLATES"
-        
-        # Clone default templates if directory is empty
-        if [[ -z "$(ls -A "$PARAMX_TEMPLATES")" ]]; then
-            log INFO "Cloning default ParamX templates"
-            git clone https://github.com/cyinnove/paramx-templates.git tmp_templates
-            cp -r tmp_templates/* "$PARAMX_TEMPLATES/"
-            rm -rf tmp_templates
-        fi
-    fi
-    
-    # Verify templates exist
-    if [[ -z "$(ls -A "$PARAMX_TEMPLATES")" ]]; then
-        log ERROR "Error: No ParamX templates found in $PARAMX_TEMPLATES"
-        log ERROR "Please add your templates to this directory or use -t to specify a different directory"
-        exit 1
-    fi
-    
-    log SUCCESS "Using ParamX templates from: $PARAMX_TEMPLATES"
+    log SUCCESS "GF pattern scanning completed at $(date '+%H:%M:%S')"
 }
 
 # Function to check CNAME records
@@ -578,23 +561,81 @@ check_cname_records() {
 # Function to check enabled PUT Method
 put_scan() {
     local domain_dir="$1"
-    log INFO "Checking for PUT method"
+    local output_file="$domain_dir/vulnerabilities/put-scan.txt"
+    local total_hosts=0
+    local vulnerable_hosts=0
+
+    log INFO "Starting PUT method vulnerability scan"
+
+    # Count total hosts
+    total_hosts=$(wc -l < "$domain_dir/subs/live-subs.txt")
+    log INFO "Scanning $total_hosts hosts for PUT method vulnerabilities"
+
+    # Clear output file
+    > "$output_file"
+
+    # Test each host
     while IFS= read -r host; do
         local path="evil.txt"
-        curl -s -X PUT -d "hello world" "${host}/${path}" > /dev/null
-        if curl -s -o /dev/null -w "%{http_code}" -X GET "${host}/${path}" | grep -q "200"; then
-            echo "$host" >> "$domain_dir/vulnerabilities/put-scan.txt"
+        local test_url="${host}/${path}"
+        
+        # Try to upload file via PUT
+        curl -s -X PUT -d "hello world" "$test_url" > /dev/null 2>&1
+        
+        # Check if file exists
+        if curl -s -o /dev/null -w "%{http_code}" -X GET "$test_url" 2>/dev/null | grep -q "200"; then
+            echo "[VULNERABLE] $host" >> "$output_file"
+            ((vulnerable_hosts++))
+            log SUCCESS "PUT vulnerability found: $host"
         fi
     done < "$domain_dir/subs/live-subs.txt"
-    send_file_to_discord "$domain_dir/vulnerabilities/put-scan.txt" "PUT Scan results"
-    log SUCCESS "PUT Method scan completed"
+
+    # Report results
+    if [[ $vulnerable_hosts -gt 0 ]]; then
+        log SUCCESS "Found $vulnerable_hosts vulnerable hosts out of $total_hosts"
+        send_file_to_discord "$output_file" "PUT Method Vulnerabilities Found ($vulnerable_hosts hosts)"
+    else
+        log WARNING "No PUT vulnerabilities found across $total_hosts hosts"
+    fi
+
+    log SUCCESS "PUT Method vulnerability scan completed"
 }
 
 # Function to run Dalfox scans
 run_dalfox_scan() {
-    log INFO "Dalfox Scanning"
-    dalfox file "$DOMAIN_DIR/gf-xss.txt" --no-spinner --only-poc r --ignore-return 302,404,403 --skip-bav -b "XSS Server here" -w 50 -o "$DOMAIN_DIR/dalfox-results.txt"
-    send_file_to_discord "$DOMAIN_DIR/dalfox-results.txt" "Dalfox XSS Scan Results"
+    log INFO "Starting Dalfox XSS scanning..."
+
+    # Check if input file exists
+    if [[ ! -f "$DOMAIN_DIR/vulnerabilities/xss/gf-results.txt" ]]; then
+        log WARNING "No parameters file found for XSS scanning"
+        return
+    fi
+
+    # Count number of URLs to scan
+    local total_urls=$(wc -l < "$DOMAIN_DIR/vulnerabilities/xss/gf-results.txt")
+    log INFO "Found $total_urls URLs to scan for XSS vulnerabilities"
+
+    # Run Dalfox scan
+    log INFO "Running Dalfox with 50 workers and custom XSS payload"
+    dalfox file "$DOMAIN_DIR/vulnerabilities/xss/gf-results.txt" \
+        --no-spinner \
+        --only-poc r \
+        --ignore-return 302,404,403 \
+        --skip-bav \
+        -b "0x88.xss.cl" \
+        -w 50 \
+        -o "$DOMAIN_DIR/dalfox-results.txt" \
+        2>> "$LOG_FILE"
+
+    # Check results
+    if [[ -s "$DOMAIN_DIR/dalfox-results.txt" ]]; then
+        local vuln_count=$(grep -c "POC" "$DOMAIN_DIR/dalfox-results.txt")
+        log SUCCESS "Dalfox scan completed. Found $vuln_count potential XSS vulnerabilities"
+        send_file_to_discord "$DOMAIN_DIR/dalfox-results.txt" "Dalfox XSS Scan Results - Found $vuln_count vulnerabilities"
+    else
+        log WARNING "Dalfox scan completed. No XSS vulnerabilities found"
+        touch "$DOMAIN_DIR/dalfox-results.txt"
+    fi
 }
 
 # Function to run subdomain takeover scanning
@@ -613,15 +654,15 @@ subdomain_takeover_scan() {
     # Run subov88r if available
     if command -v subov88r &> /dev/null; then
         log INFO "Running subov88r for Azure services check"
-        subov88r -f "$domain_dir/subs/all-subs.txt" -o "$domain_dir/vulnerabilities/takeovers/azureSDT.txt"
+        subov88r -f "$domain_dir/subs/all-subs.txt" > "$domain_dir/vulnerabilities/takeovers/azureSDT.txt" 2>> "$LOG_FILE"
     else
         log WARNING "[-] subov88r not found, skipping Azure subdomain takeover check"
     fi
     
     # Run nuclei scans
-    if [[ -d "nuclei_templates" ]]; then
+    if [[ -d "nuclei-templates" ]]; then
         log INFO "Running nuclei takeover templates"
-        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei_templates/http/takeovers/ -o "$domain_dir/vulnerabilities/takeovers/nuclei-results.txt"
+        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei-templates/http/takeovers/ -o "$domain_dir/vulnerabilities/takeovers/nuclei-results.txt" >> "$LOG_FILE" 2>&1
         
         if [[ -s "$domain_dir/vulnerabilities/takeovers/nuclei-results.txt" ]]; then
             send_file_to_discord "$domain_dir/vulnerabilities/takeovers/nuclei-results.txt" "Nuclei Takeover Scan Results"
@@ -630,7 +671,7 @@ subdomain_takeover_scan() {
     
     if [[ -d "nuclei_templates" ]]; then
         log INFO "Running custom takeover templates"
-        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei_templates/takeover/detect-all-takeover.yaml -o "$domain_dir/vulnerabilities/takeovers/custom-results.txt"
+        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei_templates/takeover/detect-all-takeover.yaml -o "$domain_dir/vulnerabilities/takeovers/custom-results.txt" >> "$LOG_FILE" 2>&1
         
         if [[ -s "$domain_dir/vulnerabilities/takeovers/custom-results.txt" ]]; then
             send_file_to_discord "$domain_dir/vulnerabilities/takeovers/custom-results.txt" "Custom Takeover Scan Results"
@@ -656,13 +697,10 @@ scan_js_exposures() {
     fi
     
     mkdir -p "$domain_dir/vulnerabilities/js"
-    
-    # Extract JS URLs from all collected URLs
-    grep -i "\.js" "$domain_dir/urls/all-urls.txt" > "$domain_dir/vulnerabilities/js/js-urls.txt"
-    
+        
     # Only proceed if we found JS files
-    if [[ -s "$domain_dir/vulnerabilities/js/js-urls.txt" ]]; then
-        local js_count=$(wc -l < "$domain_dir/vulnerabilities/js/js-urls.txt")
+    if [[ -s "$domain_dir/urls/js-urls.txt" ]]; then
+        local js_count=$(wc -l < "$domain_dir/urls/js-urls.txt")
         log SUCCESS "Analyzing $js_count JavaScript files"
         
         # Initialize findings array
@@ -670,7 +708,7 @@ scan_js_exposures() {
         local files_to_send=()
         
         # 1. Find secrets using trufflehog patterns
-        cat "$domain_dir/vulnerabilities/js/js-urls.txt" | jsleak -t regexes/trufflehog-v3.yaml -s -c 20 > "$domain_dir/vulnerabilities/js/trufflehog.txt" 2>/dev/null
+        cat "$domain_dir/urls/js-urls.txt" | jsleak -t regexes/trufflehog-v3.yaml -s -c 20 > "$domain_dir/vulnerabilities/js/trufflehog.txt" 2>/dev/null
         local secrets_count=$(wc -l < "$domain_dir/vulnerabilities/js/trufflehog.txt" 2>/dev/null || echo 0)
         if [[ $secrets_count -gt 0 ]]; then
             findings+=("trufflehog: $secrets_count")
@@ -678,7 +716,7 @@ scan_js_exposures() {
         fi
         
         # 2. Find links and endpoints
-        cat "$domain_dir/vulnerabilities/js/js-urls.txt" | jsleak -l -e -c 20 > "$domain_dir/vulnerabilities/js/links.txt" 2>/dev/null
+        cat "$domain_dir/urls/js-urls.txt" | jsleak -l -e -c 20 > "$domain_dir/vulnerabilities/js/links.txt" 2>/dev/null
         local links_count=$(wc -l < "$domain_dir/vulnerabilities/js/links.txt" 2>/dev/null || echo 0)
         if [[ $links_count -gt 0 ]]; then
             findings+=("links: $links_count")
@@ -686,7 +724,7 @@ scan_js_exposures() {
         fi
         
         # 3. Check active URLs
-        cat "$domain_dir/vulnerabilities/js/links.txt" | jsleak -c 20 -k > "$domain_dir/vulnerabilities/js/active-urls.txt" 2>/dev/null
+        cat  "$domain_dir/urls/js-urls.txt" | jsleak -c 20 -k > "$domain_dir/vulnerabilities/js/active-urls.txt" 2>/dev/null
         local active_count=$(wc -l < "$domain_dir/vulnerabilities/js/active-urls.txt" 2>/dev/null || echo 0)
         if [[ $active_count -gt 0 ]]; then
             findings+=("active-urls: $active_count")
@@ -705,7 +743,7 @@ scan_js_exposures() {
         
         for regex_file in "${regex_files[@]}"; do
             local filename=$(basename "$regex_file" .yaml)
-            cat "$domain_dir/vulnerabilities/js/js-urls.txt" | jsleak -t "$regex_file" -s -c 20 > "$domain_dir/vulnerabilities/js/$filename.txt" 2>/dev/null
+            cat "$domain_dir/urls/js-urls.txt" | jsleak -t "$regex_file" -s -c 20 > "$domain_dir/vulnerabilities/js/$filename.txt" 2>/dev/null
             local count=$(wc -l < "$domain_dir/vulnerabilities/js/$filename.txt" 2>/dev/null || echo 0)
             if [[ $count -gt 0 ]]; then
                 findings+=("$filename: $count")
@@ -736,13 +774,13 @@ scan_js_exposures() {
 # Function to run nuclei scans
 run_nuclei_scans() {
     local domain_dir="$1"
-    log INFO "Nuclei Scanning with severity filtering (medium,high,critical)"
+    log INFO "Nuclei Scanning with severity filtering"
     if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-        nuclei -u "https://$SINGLE_SUBDOMAIN" -s medium,high,critical -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt"
-        nuclei -u "https://$SINGLE_SUBDOMAIN" -s medium,high,critical -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt"
+        nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
     else
-        nuclei -l "$domain_dir/subs/live-subs.txt" -s medium,high,critical -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt"
-        nuclei -l "$domain_dir/subs/live-subs.txt" -s medium,high,critical -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt"
+        nuclei -l "$domain_dir/subs/live-subs.txt" -s low,medium,high,critical -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -l "$domain_dir/subs/live-subs.txt" -s low,medium,high,critical -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
     fi
     send_file_to_discord "$domain_dir/vulnerabilities/nuclei_templates-results.txt" "Collected Templates Nuclei Scans Results"
     send_file_to_discord "$domain_dir/vulnerabilities/nuclei-templates-results.txt" "Public Nuclei Scans Results"
@@ -756,7 +794,7 @@ detect_technologies() {
     log INFO "Detecting technologies with httpx"
     local tech_file="$DOMAIN_DIR/subs/tech-detect.txt"
     if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
-        httpx -l "$DOMAIN_DIR/subs/live-subs.txt" -tech-detect -title -status-code -server -silent -o "$tech_file"
+        httpx -l "$DOMAIN_DIR/subs/live-subs.txt" -tech-detect -title -status-code -server -nc -silent -o "$tech_file" >> "$LOG_FILE" 2>&1
         local tech_count=$(wc -l < "$tech_file")
         log SUCCESS "Technology detection completed for $tech_count hosts (saved to $tech_file)"
         if [[ -n "$DISCORD_WEBHOOK" ]]; then
@@ -790,6 +828,8 @@ lite_scan() {
     log INFO "Detecting technologies on live hosts"
     detect_technologies
     
+    put_scan "$DOMAIN_DIR"
+
     # 4. URL Collection
     log INFO "Collecting URLs"
     fetch_urls
@@ -811,178 +851,194 @@ lite_scan() {
 # Function to scan a single subdomain
 scan_single_subdomain() {
     local subdomain="$1"
-    
     log INFO "Running scans on subdomain: $subdomain"
     
-    # Create initial URL list and discover URLs
-    mkdir -p "$DOMAIN_DIR/urls"
-    echo "https://$subdomain" > "$DOMAIN_DIR/urls/live.txt"
-    echo "http://$subdomain" >> "$DOMAIN_DIR/urls/live.txt"
+    # Create necessary directories and initialize files
+    mkdir -p "$DOMAIN_DIR"/{subs,urls,vulnerabilities/{xss,sqli,ssrf,ssti,lfi,rce,idor,js,takeovers},fuzzing,ports}
     
-    # Use urlfinder to discover URLs
-    log INFO "Running urlfinder on subdomain"
-    urlfinder -d "$subdomain" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt"
+    # Initialize subdomain files
+    echo "$subdomain" > "$DOMAIN_DIR/subs/all-subs.txt"
+    echo "https://$subdomain" > "$DOMAIN_DIR/subs/live-subs.txt"
     
-    # Check CNAME records
-    check_cname_records "$DOMAIN_DIR"
+    # Initialize empty files
+    touch "$DOMAIN_DIR/urls/all-urls.txt"
+    touch "$DOMAIN_DIR/urls/js-urls.txt"
+    touch "$DOMAIN_DIR/fuzzing/ffuf.html"
+    touch "$DOMAIN_DIR/fuzzing/ffuf-post.html"
     
-    # Filter live hosts (simulate for single subdomain)
-    echo "$subdomain" > "$DOMAIN_DIR/subs/live-subs.txt"
-    
-    # Technology detection
-    detect_technologies
-    
-    put_scan "$DOMAIN_DIR"
+    # Run scans
+    fetch_urls
     scan_js_exposures "$DOMAIN_DIR"
+    run_reflection_scan
+    check_cname_records "$DOMAIN_DIR"
+    detect_technologies
+    put_scan "$DOMAIN_DIR"
+    subdomain_takeover_scan "$DOMAIN_DIR"
+    run_port_scan
     run_nuclei_scans "$DOMAIN_DIR"
-
-    # Run focused scans
-    if [[ "$SKIP_FUZZING" != "true" ]]; then
-        run_ffuf
-    fi
-    
-    if [[ "$SKIP_SQLI" != "true" ]]; then
-        run_sql_injection_scan
-    fi
-    
-    if [[ "$SKIP_DALFOX" != "true" ]]; then
-        run_dalfox_scan
-    fi
+    run_ffuf
+    run_gf_scans
+    run_sql_injection_scan
+    run_dalfox_scan
 }
 
 # Function to scan entire domain
 scan_domain() {
     local domain="$1"
     log INFO "Running scans on domain: $domain"
-    
-    # Initial domain reconnaissance
     subEnum "$domain"
     fetch_urls
     filter_live_hosts
-    
-    # Technology detection
+    run_reflection_scan
     detect_technologies
-    
-    # Check CNAME records
     check_cname_records "$DOMAIN_DIR"
-    
-    # Create vulnerabilities directory
-    mkdir -p "$DOMAIN_DIR/vulnerabilities"
-    
     put_scan "$DOMAIN_DIR"
     subdomain_takeover_scan "$DOMAIN_DIR"
+    run_port_scan
     scan_js_exposures "$DOMAIN_DIR"
-    
-    # Run port scan if not skipped
-    if [[ "$SKIP_PORT_SCAN" != "true" ]]; then
-        log INFO "[+] Port scanning enabled"
-        run_port_scan
-    else
-        log WARNING "[-] Port scanning disabled"
-    fi
-    
-    # Run security scans
-    if [[ "$SKIP_FUZZING" != "true" ]]; then
-        run_ffuf
-    fi
-    
-    if [[ "$SKIP_SQLI" != "true" ]]; then
-        run_sql_injection_scan
-    fi
-    
-    if [[ "$SKIP_DALFOX" != "true" ]]; then
-        run_dalfox_scan
-    else
-        log WARNING "[-] Dalfox scanning disabled"
-    fi
+    run_nuclei_scans "$DOMAIN_DIR"
+    run_ffuf
+    run_gf_scans
+    run_sql_injection_scan
+    run_dalfox_scan
 }
 
-# Function to save all discovered subdomains to MongoDB
-save_subdomains_to_mongodb() {
-    if [[ "$SAVE_TO_DB" != "true" ]]; then
-        return
-    fi
 
-    log INFO "Saving results to MongoDB database"
-    
-    # If scanning a full domain
-    if [[ -n "$TARGET" && -z "$SINGLE_SUBDOMAIN" ]]; then
-        if [[ -f "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
-            log INFO "Adding subdomains to database for $TARGET"
-            ./mongo_db_handler.py add_subdomains_file "$TARGET" "$DOMAIN_DIR/subs/all-subs.txt"
-        fi
-    # If scanning a single subdomain
-    elif [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-        local domain=$(echo "$SINGLE_SUBDOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
-        if [[ -n "$domain" ]]; then
-            log INFO "Adding single subdomain to database"
-            ./mongo_db_handler.py add_subdomain "$domain" "$SINGLE_SUBDOMAIN"
-        fi
-    fi
+# Help function
+show_help() {
+    cat << EOF
+    Usage: ./autoAr.sh <subcommand> [options]
+
+    Subcommands:
+        domain      Full scan mode (customizable with skip flags)
+        subdomain   Scan a single subdomain
+        liteScan    Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)
+        fastLook    Fast look (subenum, live subdomains, collect urls, tech detect, cname checker)
+        help        Show this help message
+
+    Examples:
+        ./autoAr.sh domain -d example.com
+        ./autoAr.sh subdomain -s sub.example.com
+        ./autoAr.sh liteScan -d example.com
+        ./autoAr.sh fastLook -d example.com
+EOF
 }
 
-# Main function
-main() {
-    # Check required tools first
-    check_tools
-    
-    # Validate input
-    if [[ -z "$TARGET" ]] && [[ -z "$SINGLE_SUBDOMAIN" ]]; then
-        log ERROR "Error: Must specify either -d (domain) or -s (subdomain)"
-        show_help
-        exit 1
-    fi
-    
-    if [[ -n "$TARGET" ]] && [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-        log ERROR "Error: Cannot specify both domain and subdomain. Choose one."
-        show_help
-        exit 1
-    fi
-    
-    # Setup results directory and structure
-    setup_results_dir
-    
-    # Clone required repositories if they don't exist
-    if [[ ! -d "$WORDLIST_DIR" ]]; then
-        log INFO "[+] Cloning wordlists repository..."
-        git clone https://github.com/h0tak88r/Wordlists.git "$WORDLIST_DIR"
-    fi
-    
-    if [[ ! -d "nuclei_templates" ]]; then
-        log INFO "[+] Cloning nuclei templates..."
-        git clone https://github.com/h0tak88r/nuclei_templates.git
-    fi
-    
-    # Setup ParamX templates if not skipping
-    if [[ "$SKIP_PARAMX" != "true" ]]; then
-        setup_paramx_templates
-    fi
-    
-    # Execute appropriate scan based on input and mode
-    if [[ "$LITE_MODE" == "true" ]]; then
-        if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-            log ERROR "Error: Lite mode is not supported for single subdomain scanning"
-            exit 1
-        fi
-        lite_scan "$TARGET"
-    else
-        if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-            scan_single_subdomain "$SINGLE_SUBDOMAIN"
-        else
+# Subcommand parser (should be right after all functions and config)
+if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|help|--help|-h)$ ]]; then
+    subcommand="$1"
+    shift
+    case "$subcommand" in
+        domain)
+            # Parse flags for domain scan
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    -d|--domain)
+                        TARGET="$2"; shift 2;;
+                    -v|--verbose)
+                        VERBOSE=true; shift;;
+                    -dw|--discord-webhook)
+                        DISCORD_WEBHOOK="$2"; shift 2;;
+                    -st|--save-to-db)
+                        SAVE_TO_DB=true; shift;;
+                    -sk|--securitytrails-key)
+                        SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                    *)
+                        echo "Unknown option: $1"; show_help; exit 1;;
+                esac
+            done
+            if [[ -z "$TARGET" ]]; then
+                echo "Error: Must specify a domain with -d"; show_help; exit 1;
+            fi
+            setup_results_dir
             scan_domain "$TARGET"
-        fi
-    fi
-    
-    # Final reporting
-    log SUCCESS "All scans completed successfully!"
-    log SUCCESS "Results are saved in: $DOMAIN_DIR"
-    
-    if [[ -n "$DISCORD_WEBHOOK" ]]; then
-        send_to_discord "🎉 AutoAR scan completed! Check $DOMAIN_DIR for detailed findings."
-    fi
+            exit 0
+            ;;
+        subdomain)
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    -s|--subdomain)
+                        SINGLE_SUBDOMAIN="$2"; shift 2;;
+                    -v|--verbose)
+                        VERBOSE=true; shift;;
+                    -dw|--discord-webhook)
+                        DISCORD_WEBHOOK="$2"; shift 2;;
+                    -st|--save-to-db)
+                        SAVE_TO_DB=true; shift;;
+                    *)
+                        echo "Unknown option: $1"; show_help; exit 1;;
+                esac
+            done
+            if [[ -z "$SINGLE_SUBDOMAIN" ]]; then
+                echo "Error: Must specify a subdomain with -s"; show_help; exit 1;
+            fi
+            setup_results_dir
+            scan_single_subdomain "$SINGLE_SUBDOMAIN"
+            exit 0
+            ;;
+        liteScan)
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    -d|--domain)
+                        TARGET="$2"; shift 2;;
+                    -v|--verbose)
+                        VERBOSE=true; shift;;
+                    -dw|--discord-webhook)
+                        DISCORD_WEBHOOK="$2"; shift 2;;
+                    -st|--save-to-db)
+                        SAVE_TO_DB=true; shift;;
+                    -sk|--securitytrails-key)
+                        SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                    *)
+                        echo "Unknown option: $1"; show_help; exit 1;;
+                esac
+            done
+            if [[ -z "$TARGET" ]]; then
+                echo "Error: Must specify a domain with -d"; show_help; exit 1;
+            fi
+            setup_results_dir
+            lite_scan "$TARGET"
+            exit 0
+            ;;
+        fastLook)
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    -d|--domain)
+                        TARGET="$2"; shift 2;;
+                    -v|--verbose)
+                        VERBOSE=true; shift;;
+                    -dw|--discord-webhook)
+                        DISCORD_WEBHOOK="$2"; shift 2;;
+                    -sk|--securitytrails-key)
+                        SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                    *)
+                        echo "Unknown option: $1"; show_help; exit 1;;
+                esac
+            done
+            if [[ -z "$TARGET" ]]; then
+                echo "Error: Must specify a domain with -d"; show_help; exit 1;
+            fi
+            setup_results_dir
+            subEnum "$TARGET"
+            filter_live_hosts
+            fetch_urls
+            detect_technologies
+            check_cname_records "$DOMAIN_DIR"
+            exit 0
+            ;;
+        help|--help|-h)
+            show_help
+            exit 0
+            ;;
+    esac
+fi
 
-    # Save subdomains to database before exiting (for both domain and subdomain scans)
-    save_subdomains_to_mongodb
-}
-
-main
+# Only run main if script is executed directly, not sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # If no subcommand provided, show help
+    if [[ $# -eq 0 ]]; then
+        show_help
+        exit 1
+    fi
+    main "$@"
+fi
