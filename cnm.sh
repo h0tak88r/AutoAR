@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Load config
-CONFIG_FILE="./secrets.conf"
+CONFIG_FILE="./autar.conf"
 if [[ -n "$AUTOAR_CONFIG" ]]; then CONFIG_FILE="$AUTOAR_CONFIG"; fi
 if [[ -f "$CONFIG_FILE" ]]; then
     source "$CONFIG_FILE"
