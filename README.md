@@ -10,10 +10,20 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
 - Port scanning
 - URL discovery and JavaScript analysis
 - Vulnerability scanning with nuclei
+- Pattern matching using GF tool for:
+  - Debug logic
+  - IDOR
+  - LFI
+  - RCE
+  - Redirects
+  - SQL Injection
+  - SSRF
+  - SSTI
+  - XSS
+  - And more...
 - Fuzzing capabilities
 - SQL injection scanning
-- XSS detection
-- Parameter discovery
+- XSS detection with Dalfox
 - JavaScript security analysis
 - Subdomain takeover detection
 - PUT method scanning
@@ -55,6 +65,19 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
    ./mongo_db_handler.py help
    ```
 
+## Configuration
+
+Create a file named `autoar.conf` in the project root with the following content:
+
+```bash
+MONGO_URI="mongodb://user:pass@host:port"
+SECURITYTRAILS_API_KEY="your_key"
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/..."
+# ...other secrets
+```
+
+You can also set the environment variable `AUTOAR_CONFIG` to point to a different config file.
+
 ## Usage
 
 ### Basic Usage:
@@ -88,110 +111,11 @@ Options:
     -sp, --skip-port           Skip port scanning
     -sf, --skip-fuzzing        Skip fuzzing scans
     -ss, --skip-sqli           Skip SQL injection scanning
-    -spx, --skip-paramx        Skip ParamX scanning
     -sd, --skip-dalfox         Skip Dalfox XSS scanning
     -dw, --discord-webhook     Discord webhook URL for notifications
     -st, --save-to-db          Save results to MongoDB database
     -sk, --securitytrails-key  SecurityTrails API key for additional subdomain enumeration
 ```
-
-## MongoDB Integration
-
-The tool supports MongoDB integration for persistent storage of domains and subdomains. To use this feature, you'll need to create your own MongoDB database handler.
-
-### Setting Up MongoDB Integration
-
-1. **Create a MongoDB Database:**
-   - Set up a MongoDB instance (local or cloud service like MongoDB Atlas/Railway)
-   - Create a database named `autoar` (or your preferred name)
-   - Create collections: `domains` and `subdomains`
-
-2. **Create Your Database Handler:**
-   Create a Python script named `mongo_db_handler.py` with this structure:
-
-   ```python
-   #!/usr/bin/env python3
-   from pymongo import MongoClient, UpdateOne
-   import sys
-   import os
-   
-   # Your MongoDB connection details
-   MONGO_URI = "your_mongodb_connection_string"
-   DB_NAME = "your_database_name"
-   DOMAINS_COLLECTION = "domains"
-   SUBDOMAINS_COLLECTION = "subdomains"
-   
-   class DatabaseHandler:
-       def __init__(self):
-           self.client = MongoClient(MONGO_URI)
-           self.db = self.client[DB_NAME]
-   
-       def add_domain(self, domain: str) -> bool:
-           # Implementation for adding a domain
-           pass
-   
-       def add_subdomain(self, domain: str, subdomain: str) -> bool:
-           # Implementation for adding a subdomain
-           pass
-   
-       def add_subdomains_from_file(self, domain: str, file_path: str) -> None:
-           # Implementation for adding subdomains from file
-           pass
-   
-       def list_domains(self) -> None:
-           # Implementation for listing domains
-           pass
-   
-       def get_subdomains(self, domain: str) -> None:
-           # Implementation for getting subdomains
-           pass
-   
-   # Command-line interface implementation
-   ```
-
-3. **Required Functions:**
-   Your handler should implement these commands:
-   ```bash
-   ./mongo_db_handler.py add_domain <domain>                # Add a single domain
-   ./mongo_db_handler.py add_subdomain <domain> <subdomain> # Add a single subdomain
-   ./mongo_db_handler.py list_domains                       # List all domains
-   ./mongo_db_handler.py get_subdomains <domain>           # Get subdomains for domain
-   ./mongo_db_handler.py add_subdomains_file <domain> <file> # Add subdomains from file
-   ```
-
-4. **Security Best Practices:**
-   - Store your MongoDB URI in an environment variable
-   - Use strong authentication
-   - Implement proper error handling
-   - Add input validation for domains and subdomains
-   - Use indexes for better performance
-
-5. **Enable MongoDB Storage:**
-   Once your handler is set up, use the `--save-to-db` flag:
-   ```bash
-   ./autoAr.sh -d example.com --save-to-db
-   ```
-
-### Database Schema
-
-Recommended schema for your MongoDB collections:
-
-```javascript
-// domains collection
-{
-    "_id": ObjectId,
-    "domain": String  // indexed, unique
-}
-
-// subdomains collection
-{
-    "_id": ObjectId,
-    "domain_id": ObjectId,  // reference to domains collection
-    "subdomain": String     // indexed
-}
-```
-
-For a complete implementation example or assistance, please open an issue on the GitHub repository.
 
 ## Output Structure
 
@@ -209,13 +133,15 @@ results/
     │   ├── all-urls.txt
     │   └── js-urls.txt
     ├── vulnerabilities/
-    │   ├── xss/
+    │   ├── debug_logic/
+    │   ├── idor/
+    │   ├── lfi/
+    │   ├── rce/
+    │   ├── redirect/
     │   ├── sqli/
     │   ├── ssrf/
     │   ├── ssti/
-    │   ├── lfi/
-    │   ├── rce/
-    │   ├── idor/
+    │   ├── xss/
     │   └── js/
     ├── fuzzing/
     │   ├── ffufGet.txt
@@ -256,4 +182,5 @@ The tool will send:
 - Use lite mode (-l) for quick reconnaissance
 - Consider using skip flags for targeted scanning
 - MongoDB integration provides persistent storage of findings
-- SecurityTrails API integration enhances subdomain discovery (API key required) 
+- SecurityTrails API integration enhances subdomain discovery (API key required)
+- GF patterns provide efficient vulnerability pattern matching 
