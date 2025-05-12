@@ -67,16 +67,33 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
 
 ## Configuration
 
-Create a file named `autoar.conf` in the project root with the following content:
+Create a file named `autoar.conf` in the project root with the following content (this file is used to parse secrets and configuration variables):
 
 ```bash
-MONGO_URI="mongodb://user:pass@host:port"
-SECURITYTRAILS_API_KEY="your_key"
-DISCORD_WEBHOOK="https://discord.com/api/webhooks/..."
-# ...other secrets
+# MongoDB Configuration
+MONGO_URI="mongourl"
+DB_NAME="autoar"
+DOMAINS_COLLECTION="domains"
+SUBDOMAINS_COLLECTION="subdomains"
+
+# API Keys
+SECURITYTRAILS_API_KEY=""
+YWH_TOKEN=""
+H1_TOKEN=""
+H1_USERNAME="0x88"
+
+# Discord Configuration
+DISCORD_WEBHOOK_CONFIG="discordwebhookurl"
+
+# Tool Configuration
+SAVE_TO_DB=true
+VERBOSE=true
 ```
 
-You can also set the environment variable `AUTOAR_CONFIG` to point to a different config file.
+- The script will automatically load `autoar.conf` from the project root. You can override the config file location by setting the `AUTOAR_CONFIG` environment variable.
+- The `DISCORD_WEBHOOK_CONFIG` variable is used for Discord notifications if not set via command line.
+- `SAVE_TO_DB` and `VERBOSE` can be set to control database saving and verbosity.
+- All secrets and API keys should be placed in this file for secure and centralized configuration.
 
 ## Usage
 
