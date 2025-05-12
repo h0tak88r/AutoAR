@@ -449,7 +449,7 @@ filter_live_hosts() {
 run_port_scan() {
     log INFO "Port Scanning with naabu"
     if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
-        naabu -l "$DOMAIN_DIR/subs/live-subs.txt" -p - -o "$DOMAIN_DIR/ports/ports.txt" >> "$LOG_FILE" 2>&1
+        naabu -l "$DOMAIN_DIR/subs/live-subs.txt"-tp 10000 -ec -c 500 -Pn --silent -rate 1000 -o "$DOMAIN_DIR/ports/ports.txt" >> "$LOG_FILE" 2>&1
         if [[ -s "$DOMAIN_DIR/ports/ports.txt" ]]; then
             send_file_to_discord "$DOMAIN_DIR/ports/ports.txt" "Port Scan Results"
         else
@@ -787,9 +787,6 @@ run_nuclei_scans() {
 }
 
 # Function to detect technologies using httpx
-# Stores results in $DOMAIN_DIR/subs/tech-detect.txt and sends to Discord
-# Only runs if live-subs.txt exists and is not empty
-
 detect_technologies() {
     log INFO "Detecting technologies with httpx"
     local tech_file="$DOMAIN_DIR/subs/tech-detect.txt"
@@ -838,7 +835,11 @@ lite_scan() {
     log INFO "Extracting and analyzing JavaScript files"
     scan_js_exposures "$DOMAIN_DIR"
     
-    # 6. Nuclei Scanning
+    # 6. Reflection Scan
+    log INFO "Running Reflection Scan"
+    run_reflection_scan
+    
+    # 7. Nuclei Scanning
     log INFO "Running Nuclei scans"
     run_nuclei_scans "$DOMAIN_DIR"
     
