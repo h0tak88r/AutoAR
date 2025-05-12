@@ -96,4 +96,7 @@ mongo_db_handler.py.bak
 *.xlsx
 *.pdf
 *.html
-cnm.sh
+mongo_db_handler.py
+
+# Config files
+autoar.conf
