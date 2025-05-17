@@ -67,32 +67,32 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
 
 ## Configuration
 
-Create a file named `autoar.conf` in the project root with the following content (this file is used to parse secrets and configuration variables):
+Create a file named `autoar.yaml` in the project root with the following content (this file is used to parse secrets and configuration variables):
 
-```bash
-# MongoDB Configuration
-MONGO_URI="mongourl"
-DB_NAME="autoar"
-DOMAINS_COLLECTION="domains"
-SUBDOMAINS_COLLECTION="subdomains"
+```yaml
+mongodb:
+  uri: "mongourl"
+  db: "autoar"
+  domains_collection: "domains"
+  subdomains_collection: "subdomains"
 
-# API Keys
-SECURITYTRAILS_API_KEY=""
-YWH_TOKEN=""
-H1_TOKEN=""
-H1_USERNAME="0x88"
+api_keys:
+  securitytrails: ""
+  ywh: ""
+  h1_token: ""
+  h1_username: "0x88"
 
-# Discord Configuration
-DISCORD_WEBHOOK_CONFIG="discordwebhookurl"
+discord:
+  webhook: "discordwebhookurl"
 
-# Tool Configuration
-SAVE_TO_DB=true
-VERBOSE=true
+tool_config:
+  save_to_db: true
+  verbose: true
 ```
 
-- The script will automatically load `autoar.conf` from the project root. You can override the config file location by setting the `AUTOAR_CONFIG` environment variable.
-- The `DISCORD_WEBHOOK_CONFIG` variable is used for Discord notifications if not set via command line.
-- `SAVE_TO_DB` and `VERBOSE` can be set to control database saving and verbosity.
+- The script will automatically load `autoar.yaml` from the project root. You can override the config file location by setting the `AUTOAR_CONFIG` environment variable (if you add support for it in the scripts).
+- The `discord.webhook` variable is used for Discord notifications if not set via command line.
+- `save_to_db` and `verbose` can be set to control database saving and verbosity.
 - All secrets and API keys should be placed in this file for secure and centralized configuration.
 
 ## Usage
