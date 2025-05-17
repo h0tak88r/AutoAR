@@ -3,6 +3,8 @@ import sys
 from pymongo import MongoClient, UpdateOne
 import os
 from typing import List, Set, Optional
+import tldextract
+import yaml
 
 # Helper to load config file if env var is not set
 
@@ -22,24 +24,20 @@ def load_from_conf(conf_path, key):
         pass
     return None
 
-# Try environment variable first
-MONGO_URI = os.environ.get("MONGO_URI")
-DB_NAME = os.environ.get("DB_NAME")
+def load_yaml_config(path):
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
 
-# If not set, try autar.conf in current directory
-if not MONGO_URI:
-    MONGO_URI = load_from_conf("./autar.conf", "MONGO_URI")
-if not DB_NAME:
-    DB_NAME = load_from_conf("./autar.conf", "DB_NAME")
-if not DB_NAME:
-    DB_NAME = "autoar"
+config = load_yaml_config('./autoar.yaml')
+
+MONGO_URI = config['MONGO_URI']
+DB_NAME = config['DB_NAME']
+DOMAINS_COLLECTION = config.get('DOMAINS_COLLECTION', 'domains')
+SUBDOMAINS_COLLECTION = config.get('SUBDOMAINS_COLLECTION', 'subdomains')
 
 if not MONGO_URI:
     print("Error: MONGO_URI environment variable not set and not found in autar.conf. Please set it in your config or environment.")
     sys.exit(1)
-
-DOMAINS_COLLECTION = "domains"
-SUBDOMAINS_COLLECTION = "subdomains"
 
 def show_help():
     """Display help message with available commands and usage."""
@@ -96,17 +94,37 @@ class DatabaseHandler:
             print(f"Error adding domain: {str(e)}")
             return False
 
+    def _extract_root_domain(self, domain: str) -> str:
+        try:
+            ext = tldextract.extract(domain)
+            if ext.domain and ext.suffix:
+                return f"{ext.domain}.{ext.suffix}"
+            else:
+                # fallback: last two labels
+                parts = domain.split('.')
+                if len(parts) >= 2:
+                    return '.'.join(parts[-2:])
+                return domain
+        except Exception:
+            parts = domain.split('.')
+            if len(parts) >= 2:
+                return '.'.join(parts[-2:])
+            return domain
+
     def add_subdomain(self, domain: str, subdomain: str) -> bool:
         """Add a subdomain to a domain."""
         try:
+            # Extract root domain if needed
+            root_domain = self._extract_root_domain(domain)
+            if root_domain != domain:
+                print(f"[!] Provided domain '{domain}' looks like a subdomain. Using root domain '{root_domain}' instead.")
+            domain = root_domain
             if not self._is_valid_domain(domain) or not self._is_valid_domain(subdomain):
                 print("Error: Invalid domain or subdomain format")
                 return False
-
             if not subdomain.endswith(domain):
                 print(f"Error: Subdomain {subdomain} must be part of domain {domain}")
                 return False
-
             if self.add_domain(domain):
                 domain_doc = self.db[DOMAINS_COLLECTION].find_one({"domain": domain})
                 if domain_doc:
@@ -159,26 +177,27 @@ class DatabaseHandler:
     def add_subdomains_from_file(self, domain: str, file_path: str) -> None:
         """Add multiple subdomains from a file using bulk operations."""
         try:
+            # Extract root domain if needed
+            root_domain = self._extract_root_domain(domain)
+            if root_domain != domain:
+                print(f"[!] Provided domain '{domain}' looks like a subdomain. Using root domain '{root_domain}' instead.")
+            domain = root_domain
             if not self._is_valid_domain(domain):
                 print(f"Error: Invalid domain format: {domain}")
                 return
-
             if not os.path.exists(file_path):
                 print(f"Error: File not found: {file_path}")
                 return
-
             # First ensure domain exists and get its ID
             domain_result = self.db[DOMAINS_COLLECTION].update_one(
                 {"domain": domain},
                 {"$set": {"domain": domain}},
                 upsert=True
             )
-            
             domain_doc = self.db[DOMAINS_COLLECTION].find_one({"domain": domain})
             if not domain_doc:
                 print(f"Error: Could not find or create domain {domain}")
                 return
-
             # Read and validate subdomains
             subdomains = set()
             with open(file_path, 'r') as f:
@@ -186,11 +205,9 @@ class DatabaseHandler:
                     subdomain = line.strip()
                     if subdomain and self._is_valid_domain(subdomain):
                         subdomains.add(subdomain)
-
             if not subdomains:
                 print("No valid subdomains found in file")
                 return
-
             # Prepare bulk operations
             bulk_operations = []
             for subdomain in subdomains:
@@ -209,14 +226,12 @@ class DatabaseHandler:
                         upsert=True
                     )
                 )
-
             # Execute bulk operation
             if bulk_operations:
                 print(f"Processing {len(bulk_operations)} subdomains...")
                 result = self.db[SUBDOMAINS_COLLECTION].bulk_write(bulk_operations, ordered=False)
                 print(f"Successfully processed {len(subdomains)} subdomains for {domain}")
                 print(f"Upserted: {result.upserted_count}, Modified: {result.modified_count}")
-
         except Exception as e:
             print(f"Error processing file: {str(e)}")
 

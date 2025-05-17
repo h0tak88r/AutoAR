@@ -8,32 +8,23 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Default config file location
-CONFIG_FILE="./autar.conf"
+# Path to YAML config
+CONFIG_FILE="./autoar.yaml"
 
-# Allow override via environment variable
-if [[ -n "$AUTOAR_CONFIG" ]]; then
-    CONFIG_FILE="$AUTOAR_CONFIG"
-fi
+# Helper to get a value from YAML using yq
+yaml_get() {
+    yq -r "$1" "$CONFIG_FILE"
+}
 
-# Load config if it exists
-if [[ -f "$CONFIG_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$CONFIG_FILE"
-    export MONGO_URI
-    export DB_NAME
-    # Use Discord webhook from config if not set via command line
-    if [[ -z "$DISCORD_WEBHOOK" && -n "$DISCORD_WEBHOOK_CONFIG" ]]; then
-        DISCORD_WEBHOOK="$DISCORD_WEBHOOK_CONFIG"
-    fi
-else
-    echo "Warning: Config file $CONFIG_FILE not found. Using environment variables or defaults."
-fi
-
-# Fallback: If DISCORD_WEBHOOK is still empty, use config value
-if [[ -z "$DISCORD_WEBHOOK" && -n "$DISCORD_WEBHOOK_CONFIG" ]]; then
-    DISCORD_WEBHOOK="$DISCORD_WEBHOOK_CONFIG"
-fi
+MONGO_URI=$(yaml_get '.MONGO_URI')
+DB_NAME=$(yaml_get '.DB_NAME')
+DOMAINS_COLLECTION=$(yaml_get '.mongodb.domains_collection')
+SUBDOMAINS_COLLECTION=$(yaml_get '.mongodb.subdomains_collection')
+SECURITYTRAILS_API_KEY=$(yaml_get '.securitytrails[0]')
+DISCORD_WEBHOOK=$(yaml_get '.DISCORD_WEBHOOK')
+SAVE_TO_DB=$(yaml_get '.SAVE_TO_DB')
+VERBOSE=$(yaml_get '.VERBOSE')
+GITHUB_TOKEN=$(yaml_get '.github[0]')
 
 # autoAR Logo
 printf "==============================\n"
@@ -337,7 +328,7 @@ subEnum() {
     # Run subfinder
     log INFO "Running subfinder..."
     if command -v subfinder &> /dev/null; then
-        subfinder -d "$domain" -all -silent -o "$DOMAIN_DIR/subs/subfinder-subs.txt" >> "$LOG_FILE" 2>&1
+        subfinder -d "$domain" -all -silent -o "$DOMAIN_DIR/subs/subfinder-subs.txt" -pc $CONFIG_FILE >> "$LOG_FILE" 2>&1
     else
         log WARNING "[-] subfinder not found, skipping subfinder enumeration"
     fi
@@ -384,7 +375,7 @@ fetch_urls() {
     elif [[ -n "$TARGET" ]]; then
         # 1. First collect URLs using urlfinder
         log INFO "Running URLFinder for initial URL collection"
-        urlfinder -d "$TARGET" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt" >> "$LOG_FILE" 2>&1
+        urlfinder -d "$TARGET" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt" -pc $CONFIG_FILE >> "$LOG_FILE" 2>&1
         
         # 2. Run JSFinder on live subdomains to find JS files and endpoints
         if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
@@ -439,6 +430,7 @@ filter_live_hosts() {
         local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
         local live_subs=$(wc -l < "$DOMAIN_DIR/subs/live-subs.txt")
         log SUCCESS "Found $live_subs live subdomains out of $total_subs total"
+        send_file_to_discord "$DOMAIN_DIR/subs/live-subs.txt" "Live Subdomains Found ($live_subs out of $total_subs)"
     else
         log WARNING "[-] No subdomains found to filter"
         touch "$DOMAIN_DIR/subs/live-subs.txt"
@@ -577,16 +569,24 @@ put_scan() {
     # Test each host
     while IFS= read -r host; do
         local path="evil.txt"
-        local test_url="${host}/${path}"
-        
+        # Remove trailing slash if present
+        host=$(echo "$host" | sed 's:/*$::')
+        # Determine protocol
+        if [[ "$host" =~ ^https?:// ]]; then
+            local test_url="${host}/${path}"
+        else
+            local test_url="https://${host}/${path}"
+        fi
+
         # Try to upload file via PUT
         curl -s -X PUT -d "hello world" "$test_url" > /dev/null 2>&1
-        
-        # Check if file exists
-        if curl -s -o /dev/null -w "%{http_code}" -X GET "$test_url" 2>/dev/null | grep -q "200"; then
-            echo "[VULNERABLE] $host" >> "$output_file"
+
+        # Only check if GET returns 200
+        local get_response=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$test_url" 2>/dev/null)
+        if [[ "$get_response" == "200" ]]; then
+            echo "[VULNERABLE] $test_url" >> "$output_file"
             ((vulnerable_hosts++))
-            log SUCCESS "PUT vulnerability found: $host"
+            log SUCCESS "PUT vulnerability found: $test_url"
         fi
     done < "$domain_dir/subs/live-subs.txt"
 
@@ -754,7 +754,7 @@ scan_js_exposures() {
         # Print summary
         log SUCCESS "JS Analysis Summary:"
         for finding in "${findings[@]}"; do
-            log INFO "    $finding"
+            log SUCCESS "    $finding"
         done
         
         # Send files to Discord if webhook is set
@@ -815,6 +815,7 @@ lite_scan() {
     subEnum "$domain"
     
     # 2. CNAME Check
+    log INFO "Running CNAME check"
     check_cname_records "$DOMAIN_DIR"
     
     # 3. Filter Live Hosts
@@ -904,7 +905,6 @@ scan_domain() {
     run_dalfox_scan
 }
 
-
 # Help function
 show_help() {
     cat << EOF
@@ -926,120 +926,136 @@ EOF
 }
 
 # Subcommand parser (should be right after all functions and config)
-if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|help|--help|-h)$ ]]; then
-    subcommand="$1"
-    shift
-    case "$subcommand" in
-        domain)
-            # Parse flags for domain scan
-            while [[ $# -gt 0 ]]; do
-                case $1 in
-                    -d|--domain)
-                        TARGET="$2"; shift 2;;
-                    -v|--verbose)
-                        VERBOSE=true; shift;;
-                    -dw|--discord-webhook)
-                        DISCORD_WEBHOOK="$2"; shift 2;;
-                    -st|--save-to-db)
-                        SAVE_TO_DB=true; shift;;
-                    -sk|--securitytrails-key)
-                        SECURITYTRAILS_API_KEY="$2"; shift 2;;
-                    *)
-                        echo "Unknown option: $1"; show_help; exit 1;;
-                esac
-            done
-            if [[ -z "$TARGET" ]]; then
-                echo "Error: Must specify a domain with -d"; show_help; exit 1;
-            fi
-            setup_results_dir
-            scan_domain "$TARGET"
-            exit 0
-            ;;
-        subdomain)
-            while [[ $# -gt 0 ]]; do
-                case $1 in
-                    -s|--subdomain)
-                        SINGLE_SUBDOMAIN="$2"; shift 2;;
-                    -v|--verbose)
-                        VERBOSE=true; shift;;
-                    -dw|--discord-webhook)
-                        DISCORD_WEBHOOK="$2"; shift 2;;
-                    -st|--save-to-db)
-                        SAVE_TO_DB=true; shift;;
-                    *)
-                        echo "Unknown option: $1"; show_help; exit 1;;
-                esac
-            done
-            if [[ -z "$SINGLE_SUBDOMAIN" ]]; then
-                echo "Error: Must specify a subdomain with -s"; show_help; exit 1;
-            fi
-            setup_results_dir
-            scan_single_subdomain "$SINGLE_SUBDOMAIN"
-            exit 0
-            ;;
-        liteScan)
-            while [[ $# -gt 0 ]]; do
-                case $1 in
-                    -d|--domain)
-                        TARGET="$2"; shift 2;;
-                    -v|--verbose)
-                        VERBOSE=true; shift;;
-                    -dw|--discord-webhook)
-                        DISCORD_WEBHOOK="$2"; shift 2;;
-                    -st|--save-to-db)
-                        SAVE_TO_DB=true; shift;;
-                    -sk|--securitytrails-key)
-                        SECURITYTRAILS_API_KEY="$2"; shift 2;;
-                    *)
-                        echo "Unknown option: $1"; show_help; exit 1;;
-                esac
-            done
-            if [[ -z "$TARGET" ]]; then
-                echo "Error: Must specify a domain with -d"; show_help; exit 1;
-            fi
-            setup_results_dir
-            lite_scan "$TARGET"
-            exit 0
-            ;;
-        fastLook)
-            while [[ $# -gt 0 ]]; do
-                case $1 in
-                    -d|--domain)
-                        TARGET="$2"; shift 2;;
-                    -v|--verbose)
-                        VERBOSE=true; shift;;
-                    -dw|--discord-webhook)
-                        DISCORD_WEBHOOK="$2"; shift 2;;
-                    -sk|--securitytrails-key)
-                        SECURITYTRAILS_API_KEY="$2"; shift 2;;
-                    *)
-                        echo "Unknown option: $1"; show_help; exit 1;;
-                esac
-            done
-            if [[ -z "$TARGET" ]]; then
-                echo "Error: Must specify a domain with -d"; show_help; exit 1;
-            fi
-            setup_results_dir
-            subEnum "$TARGET"
-            filter_live_hosts
-            fetch_urls
-            detect_technologies
-            check_cname_records "$DOMAIN_DIR"
-            exit 0
-            ;;
-        help|--help|-h)
-            show_help
-            exit 0
-            ;;
-    esac
-fi
-
-# Only run main if script is executed directly, not sourced
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # If no subcommand provided, show help
+main() {
     if [[ $# -eq 0 ]]; then
         show_help
         exit 1
     fi
-    main "$@"
+    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|help|--help|-h)$ ]]; then
+        subcommand="$1"
+        shift
+        case "$subcommand" in
+            domain)
+                # Parse flags for domain scan
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -d|--domain)
+                            TARGET="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        -st|--save-to-db)
+                            SAVE_TO_DB=true; shift;;
+                        -sk|--securitytrails-key)
+                            SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$TARGET" ]]; then
+                    echo "Error: Must specify a domain with -d"; show_help; exit 1;
+                fi
+                setup_results_dir
+                scan_domain "$TARGET"
+                exit 0
+                ;;
+            subdomain)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -s|--subdomain)
+                            SINGLE_SUBDOMAIN="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        -st|--save-to-db)
+                            SAVE_TO_DB=true; shift;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$SINGLE_SUBDOMAIN" ]]; then
+                    echo "Error: Must specify a subdomain with -s"; show_help; exit 1;
+                fi
+                setup_results_dir
+                scan_single_subdomain "$SINGLE_SUBDOMAIN"
+                exit 0
+                ;;
+            liteScan)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -d|--domain)
+                            TARGET="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        -st|--save-to-db)
+                            SAVE_TO_DB=true; shift;;
+                        -sk|--securitytrails-key)
+                            SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$TARGET" ]]; then
+                    echo "Error: Must specify a domain with -d"; show_help; exit 1;
+                fi
+                setup_results_dir
+                lite_scan "$TARGET"
+                exit 0
+                ;;
+            fastLook)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -d|--domain)
+                            TARGET="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        -sk|--securitytrails-key)
+                            SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$TARGET" ]]; then
+                    echo "Error: Must specify a domain with -d"; show_help; exit 1;
+                fi
+                setup_results_dir
+                subEnum "$TARGET"
+                filter_live_hosts
+                fetch_urls
+                detect_technologies
+                check_cname_records "$DOMAIN_DIR"
+                exit 0
+                ;;
+            help|--help|-h)
+                show_help
+                exit 0
+                ;;
+        esac
+    else
+        show_help
+        exit 1
+    fi
+}
+
+# Log config file detection and variable loading
+if [[ -f "$CONFIG_FILE" ]]; then
+    log INFO "Config file $CONFIG_FILE found."
+else
+    log ERROR "Config file $CONFIG_FILE not found!"
 fi
+
+log INFO "MONGO_URI: $MONGO_URI"
+log INFO "DB_NAME: $DB_NAME"
+log INFO "DISCORD_WEBHOOK: ${DISCORD_WEBHOOK:0:10}..."
+log INFO "SAVE_TO_DB: $SAVE_TO_DB"
+log INFO "VERBOSE: $VERBOSE"
+log INFO "GITHUB_TOKEN: ${GITHUB_TOKEN:0:6}..."
+log INFO "SECURITYTRAILS_API_KEY: ${SECURITYTRAILS_API_KEY:0:6}..."
+
+main "$@"

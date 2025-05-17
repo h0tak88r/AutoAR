@@ -1,13 +1,20 @@
 #!/bin/bash
 
 # Load config
-CONFIG_FILE="./autar.conf"
-if [[ -n "$AUTOAR_CONFIG" ]]; then CONFIG_FILE="$AUTOAR_CONFIG"; fi
-if [[ -f "$CONFIG_FILE" ]]; then
-    source "$CONFIG_FILE"
-    export MONGO_URI
-    export DB_NAME
-fi
+CONFIG_FILE="./autoar.yaml"
+
+# Helper to get a value from YAML using yq
+yaml_get() {
+    yq -r "$1" "$CONFIG_FILE"
+}
+
+MONGO_URI=$(yaml_get '.MONGO_URI')
+DB_NAME=$(yaml_get '.DB_NAME')
+DISCORD_WEBHOOK=$(yaml_get '.DISCORD_WEBHOOK')
+SAVE_TO_DB=$(yaml_get '.SAVE_TO_DB')
+VERBOSE=$(yaml_get '.VERBOSE')
+# Example for provider tokens:
+# GITHUB_TOKEN=$(yaml_get '.github[0]')
 
 # CNM (CNAME Matcher) Logo
 printf "==============================\n"
@@ -25,8 +32,6 @@ printf "==============================\n"
 TARGET=""
 DOMAIN_FILE=""
 RESULTS_DIR="cnm_results"
-VERBOSE=false
-DISCORD_WEBHOOK=""
 SEND_INDIVIDUAL=false
 DEBUG=false
 CNAME_FILTERS=() # Array to hold CNAME filters
@@ -38,7 +43,7 @@ YWH_TOKEN=""
 SUBDOMAINS_FILE="subdomains.txt" # File to store all subdomains
 MATCHES_FILE="cnm_matches.txt" # File to store all CNAME matches
 SUBDOMAINS_INPUT_FILE="" # User-supplied subdomains file
-SAVE_TO_DB=false  # Default to false
+SAVE_TO_DB=$(yaml_get '.tool_config.save_to_db')
 RAW_SCOPE_FILE=""  # New variable to store raw scope file path
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -879,7 +884,33 @@ main() {
     
     # Process based on input type
     if [[ -n "$DOMAIN_FILE" ]]; then
-        process_domains_file "$DOMAIN_FILE"
+        log "[+] Processing domain list from $DOMAIN_FILE"
+        while IFS= read -r domain || [[ -n "$domain" ]]; do
+            domain=$(echo "$domain" | xargs) # trim whitespace
+            if [[ -z "$domain" ]]; then
+                continue
+            fi
+            log "[+] Processing domain: $domain"
+            TARGET="$domain"
+            setup_results_dir
+            scan_domain "$TARGET"
+            
+            # Send results to Discord if webhook configured and results exist
+            if [[ -n "$DISCORD_WEBHOOK" && -f "$RESULTS_DIR/$TARGET/cname_results.txt" ]]; then
+                if [[ -s "$RESULTS_DIR/$TARGET/cname_results.txt" ]]; then
+                    send_file_to_discord "$RESULTS_DIR/$TARGET/cname_results.txt" "CNAME Matches for $TARGET"
+                else
+                    log "[-] No matching CNAMEs found for $TARGET"
+                fi
+            fi
+            
+            # Save to MongoDB if enabled
+            if [[ "$SAVE_TO_DB" == "true" ]]; then
+                save_subdomains_to_mongodb
+            fi
+            
+        done < "$DOMAIN_FILE"
+        exit 0
     else
         scan_domain "$TARGET"
         
