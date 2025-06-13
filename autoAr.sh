@@ -9,14 +9,13 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Path to YAML config
-CONFIG_FILE="./autoar.yaml"
+CONFIG_FILE="/home/sallam/AutoAR/autoar.yaml"
 
 # Helper to get a value from YAML using yq
 yaml_get() {
     yq -r "$1" "$CONFIG_FILE"
 }
 
-MONGO_URI=$(yaml_get '.MONGO_URI')
 DB_NAME=$(yaml_get '.DB_NAME')
 DOMAINS_COLLECTION=$(yaml_get '.mongodb.domains_collection')
 SUBDOMAINS_COLLECTION=$(yaml_get '.mongodb.subdomains_collection')
@@ -25,6 +24,9 @@ DISCORD_WEBHOOK=$(yaml_get '.DISCORD_WEBHOOK')
 SAVE_TO_DB=$(yaml_get '.SAVE_TO_DB')
 VERBOSE=$(yaml_get '.VERBOSE')
 GITHUB_TOKEN=$(yaml_get '.github[0]')
+
+# At the top of the script, after other globals:
+JS_MONITOR_MODE=0
 
 # autoAR Logo
 printf "==============================\n"
@@ -107,7 +109,7 @@ send_file_to_discord() {
 
 # Function to check if required tools are installed
 check_tools() {
-    local tools=("subfinder" "httpx" "naabu" "nuclei" "ffuf" "kxss" "qsreplace" "gf" "dalfox" "urlfinder" "interlace" "jsleak" "jsfinder")
+    local tools=("subfinder" "httpx" "naabu" "nuclei" "ffuf" "kxss" "qsreplace" "gf" "dalfox" "urlfinder" "interlace" "jsleak" "jsfinder" "dnsx")
     local missing_tools=()
     
     for tool in "${tools[@]}"; do
@@ -263,8 +265,27 @@ run_sql_injection_scan() {
 # Function to run reflection scanning
 run_reflection_scan() {
     log INFO "Reflection Scanning"
-    kxss < "$DOMAIN_DIR/urls/all-urls.txt" | tee "$DOMAIN_DIR/vulnerabilities/kxss-results.txt" >> "$LOG_FILE" 2>&1
-    send_file_to_discord "$DOMAIN_DIR/vulnerabilities/kxss-results.txt" "Reflection Scan Results"
+    
+    # Create temp file for filtered results
+    local temp_results="/tmp/kxss_filtered.txt"
+    
+    # Run kxss and filter out empty reflection results
+    kxss < "$DOMAIN_DIR/urls/all-urls.txt" | grep -v "Unfiltered: \[\]" > "$temp_results"
+    
+    # Only save and send non-empty results
+    if [[ -s "$temp_results" ]]; then
+        cp "$temp_results" "$DOMAIN_DIR/vulnerabilities/kxss-results.txt"
+        log SUCCESS "Found reflection points, saved to kxss-results.txt"
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            send_file_to_discord "$DOMAIN_DIR/vulnerabilities/kxss-results.txt" "Reflection Scan Results"
+        fi
+    else
+        log INFO "No reflection points found"
+        touch "$DOMAIN_DIR/vulnerabilities/kxss-results.txt"
+    fi
+    
+    # Cleanup
+    rm -f "$temp_results"
 }
 
 # Function to run subdomain enumeration
@@ -340,15 +361,18 @@ subEnum() {
     local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
     log SUCCESS "Found $total_subs unique subdomains"
     
-    # Save to MongoDB
+    # Save to SQLite only if <= 3000
     if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
-        log INFO "Saving results to MongoDB..."
-        
-        # Then add all subdomains from file
-        ./mongo_db_handler.py add_subdomains_file "$domain" "$DOMAIN_DIR/subs/all-subs.txt"
-        
-        log SUCCESS "Subdomain Enumeration completed. Results saved in MongoDB and $DOMAIN_DIR/subs/all-subs.txt"
-        send_file_to_discord "$DOMAIN_DIR/subs/all-subs.txt" "Subdomain Enumeration completed - Found $total_subs subdomains"
+        if [[ "$total_subs" -le 3000 ]]; then
+            log INFO "Saving results to SQLite..."
+            ./sqlite_db_handler.py add_subdomains_file "$domain" "$DOMAIN_DIR/subs/all-subs.txt"
+            log SUCCESS "Subdomain Enumeration completed. Results saved in SQLite and $DOMAIN_DIR/subs/all-subs.txt"
+        else
+            log WARNING "Too many subdomains ($total_subs > 2000). Skipping database insert to avoid overload."
+        fi
+        if [[ $JS_MONITOR_MODE -ne 1 ]]; then
+            send_file_to_discord "$DOMAIN_DIR/subs/all-subs.txt" "Subdomain Enumeration completed - Found $total_subs subdomains"
+        fi
     else
         log WARNING "[-] No subdomains found for $domain"
     fi
@@ -369,7 +393,8 @@ fetch_urls() {
     if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
         # For single subdomain, only fetch URLs for that subdomain
         log INFO "Fetching URLs for single subdomain: $SINGLE_SUBDOMAIN"
-        urlfinder -d "$SINGLE_SUBDOMAIN" -all -silent -o "$DOMAIN_DIR/urls/all-urls.txt" >> "$LOG_FILE" 2>&1
+        urlfinder -d "$SINGLE_SUBDOMAIN" -all -silent -config $CONFIG_FILE -o "$DOMAIN_DIR/urls/all-urls.txt" >> "$LOG_FILE" 2>&1
+        log INFO "Running JSFinder on $SINGLE_SUBDOMAIN"
         jsfinder -l "$DOMAIN_DIR/subs/live-subs.txt" -c 50 -s -o "$DOMAIN_DIR/urls/js-urls.txt" >> "$LOG_FILE" 2>&1
         
     elif [[ -n "$TARGET" ]]; then
@@ -400,9 +425,10 @@ fetch_urls() {
     # Count total unique URLs
     if [[ -s "$DOMAIN_DIR/urls/all-urls.txt" ]]; then
         local total_urls=$(wc -l < "$DOMAIN_DIR/urls/all-urls.txt")
+        local js_urls=$(wc -l < "$DOMAIN_DIR/urls/js-urls.txt")
         log SUCCESS "Found $total_urls total unique URLs"
-        
-        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+        log SUCCESS "Found $js_urls JavaScript files/endpoints"
+        if [[ -n "$DISCORD_WEBHOOK" && $JS_MONITOR_MODE -ne 1 ]]; then
             send_file_to_discord "$DOMAIN_DIR/urls/all-urls.txt" "Found $total_urls unique URLs"
             if [[ -s "$DOMAIN_DIR/urls/js-urls.txt" ]]; then
                 local js_urls=$(wc -l < "$DOMAIN_DIR/urls/js-urls.txt")
@@ -430,7 +456,9 @@ filter_live_hosts() {
         local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
         local live_subs=$(wc -l < "$DOMAIN_DIR/subs/live-subs.txt")
         log SUCCESS "Found $live_subs live subdomains out of $total_subs total"
-        send_file_to_discord "$DOMAIN_DIR/subs/live-subs.txt" "Live Subdomains Found ($live_subs out of $total_subs)"
+        if [[ $JS_MONITOR_MODE -ne 1 ]]; then
+            send_file_to_discord "$DOMAIN_DIR/subs/live-subs.txt" "Live Subdomains Found ($live_subs out of $total_subs)"
+        fi
     else
         log WARNING "[-] No subdomains found to filter"
         touch "$DOMAIN_DIR/subs/live-subs.txt"
@@ -507,31 +535,19 @@ run_gf_scans() {
     log SUCCESS "GF pattern scanning completed at $(date '+%H:%M:%S')"
 }
 
-# Function to check CNAME records
+# Function to check CNAME records using dnsx
 check_cname_records() {
     local domain_dir="$1"
-    log INFO "Checking CNAME records"
-    
-    # Create a temporary file for formatted CNAME records
-    local temp_cname_file="$domain_dir/subs/temp_cname.txt"
-    > "$temp_cname_file"
+    log INFO "Checking CNAME records using dnsx"
     
     if [[ -s "$domain_dir/subs/all-subs.txt" ]]; then
-        while IFS= read -r subdomain; do
-            local cname=$(dig CNAME "$subdomain" +short 2>/dev/null)
-            if [[ -n "$cname" ]]; then
-                echo "$subdomain -> $cname" >> "$temp_cname_file"
-            fi
-        done < "$domain_dir/subs/all-subs.txt"
+        # Use dnsx to get CNAME records - much faster than dig
+        log INFO "Collecting CNAME records with dnsx..."
+        cat "$domain_dir/subs/all-subs.txt" | dnsx -cname -silent -resp -nc -o "$domain_dir/subs/cname-records.txt" 2>/dev/null
         
-        # Sort and format the CNAME records
-        if [[ -s "$temp_cname_file" ]]; then
-            sort -u "$temp_cname_file" > "$domain_dir/subs/cname-records.txt"
-            rm "$temp_cname_file"
-            
+        if [[ -s "$domain_dir/subs/cname-records.txt" ]]; then
             local cname_count=$(wc -l < "$domain_dir/subs/cname-records.txt")
-            log SUCCESS "Found $cname_count CNAME records"
-            log SUCCESS "CNAME records saved to $domain_dir/subs/cname-records.txt"
+            log SUCCESS "Found $cname_count CNAME records using dnsx"
             
             # Print a sample of the CNAME records
             log INFO "Sample CNAME records:"
@@ -539,7 +555,7 @@ check_cname_records() {
                 log INFO "    $line"
             done
             
-            send_file_to_discord "$domain_dir/subs/cname-records.txt" "CNAME Records Found"
+            send_file_to_discord "$domain_dir/subs/cname-records.txt" "CNAME Records Found ($cname_count records)"
         else
             log WARNING "[-] No CNAME records found"
             touch "$domain_dir/subs/cname-records.txt"
@@ -550,39 +566,86 @@ check_cname_records() {
     fi
 }
 
-# Function to check enabled PUT Method
+# Function to check NS records using dnsx
+check_ns_records() {
+    local domain_dir="$1"
+    log INFO "Checking NS records using dnsx"
+    
+    if [[ -s "$domain_dir/subs/all-subs.txt" ]]; then
+        # Use dnsx to get NS records
+        log INFO "Collecting NS records with dnsx..."
+        cat "$domain_dir/subs/all-subs.txt" | dnsx -ns -resp -silent > "$domain_dir/subs/ns-records-raw.txt" 2>/dev/null
+        
+        # Format the output for better readability
+        if [[ -s "$domain_dir/subs/ns-records-raw.txt" ]]; then
+            # Convert dnsx output format to readable format
+            sed 's/\[NS\] \[/ -> /g; s/\]$//g' "$domain_dir/subs/ns-records-raw.txt" > "$domain_dir/subs/ns-records.txt"
+            rm "$domain_dir/subs/ns-records-raw.txt"
+            
+            local ns_count=$(wc -l < "$domain_dir/subs/ns-records.txt")
+            log SUCCESS "Found $ns_count NS records using dnsx"
+            
+            # Print a sample of the NS records
+            log INFO "Sample NS records:"
+            head -n 5 "$domain_dir/subs/ns-records.txt" | while read -r line; do
+                log INFO "    $line"
+            done
+            
+            send_file_to_discord "$domain_dir/subs/ns-records.txt" "NS Records Found ($ns_count records)"
+        else
+            log WARNING "[-] No NS records found"
+            touch "$domain_dir/subs/ns-records.txt"
+        fi
+    else
+        log WARNING "[-] No subdomains found to check NS records"
+        touch "$domain_dir/subs/ns-records.txt"
+    fi
+}
+
+# Function to check enabled PUT Method and S3 bucket vulnerabilities
 put_scan() {
     local domain_dir="$1"
-    local output_file="$domain_dir/vulnerabilities/put-scan.txt"
+    local target_domain="$2"
+    local web_output="$domain_dir/vulnerabilities/put-scan.txt"
+    local s3_output="$domain_dir/vulnerabilities/put-s3-scan.txt"
+
+    # --- Web PUT Scan ---
+    _scan_web_put "$domain_dir" "$web_output"
+
+    # --- S3 Bucket PUT Scan ---
+    _scan_s3_put "$domain_dir" "$s3_output" "$target_domain"
+}
+
+# Helper function for web PUT scanning
+_scan_web_put() {
+    local domain_dir="$1"
+    local output_file="$2"
     local total_hosts=0
     local vulnerable_hosts=0
 
     log INFO "Starting PUT method vulnerability scan"
 
-    # Count total hosts
+    # Count total hosts and initialize output
     total_hosts=$(wc -l < "$domain_dir/subs/live-subs.txt")
     log INFO "Scanning $total_hosts hosts for PUT method vulnerabilities"
-
-    # Clear output file
     > "$output_file"
 
     # Test each host
     while IFS= read -r host; do
         local path="evil.txt"
-        # Remove trailing slash if present
+        # Clean host and build URL
         host=$(echo "$host" | sed 's:/*$::')
-        # Determine protocol
+        local test_url
         if [[ "$host" =~ ^https?:// ]]; then
-            local test_url="${host}/${path}"
+            test_url="${host}/${path}"
         else
-            local test_url="https://${host}/${path}"
+            test_url="https://${host}/${path}"
         fi
 
-        # Try to upload file via PUT
+        # Try PUT request and verify with GET
         curl -s -X PUT -d "hello world" "$test_url" > /dev/null 2>&1
-
-        # Only check if GET returns 200
         local get_response=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$test_url" 2>/dev/null)
+        
         if [[ "$get_response" == "200" ]]; then
             echo "[VULNERABLE] $test_url" >> "$output_file"
             ((vulnerable_hosts++))
@@ -599,6 +662,235 @@ put_scan() {
     fi
 
     log SUCCESS "PUT Method vulnerability scan completed"
+}
+
+# Helper function for S3 bucket PUT scanning
+_scan_s3_put() {
+    local domain_dir="$1" 
+    local output_file="$2"
+    local target_domain="$3"  # Pass the target domain directly
+
+    log INFO "Starting parallel S3 bucket PUT scan using root domain..."
+    > "$output_file"
+
+    # Extract root domain (e.g., hackerone.com -> hackerone)
+    local root_domain=$(echo "$target_domain" | sed 's/\..*$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')
+    
+    log INFO "Using root domain: $root_domain for S3 bucket generation"
+
+    # Check if mutations wordlist exists and load it
+    local mutations_file="Wordlists/mutations.txt"
+    local mutations=()
+    
+    if [[ ! -f "$mutations_file" ]]; then
+        log WARNING "Mutations wordlist not found at $mutations_file"
+        log WARNING "Using basic suffixes instead"
+        mutations=("" "-files" "-data" "-backup" "-static" "-uploads" "-assets" "-media" "-images" "-docs" "-api" "-storage" "-logs" "-tmp" "-web" "-admin")
+    else
+        log INFO "Loading mutations from $mutations_file"
+        # Read mutations from file into array
+        while IFS= read -r mutation; do
+            [[ -n "$mutation" && ! "$mutation" =~ ^# ]] && mutations+=("$mutation")
+        done < "$mutations_file"
+        log INFO "Loaded ${#mutations[@]} mutations from wordlist"
+    fi
+
+    # Generate bucket names using root domain + mutations
+    local bucket_names=()
+    local valid_buckets=()
+    local vulnerable_buckets=()
+    
+    # Add root domain without any mutation
+    bucket_names+=("$root_domain")
+    
+    # Generate permutations with mutations
+    for mutation in "${mutations[@]}"; do
+        # Skip empty mutations that are already covered
+        [[ -z "$mutation" ]] && continue
+        
+        # Add mutation as suffix
+        bucket_names+=("${root_domain}${mutation}")
+        
+        # Add mutation as prefix (for some patterns that start with letters)
+        if [[ "$mutation" =~ ^[a-z] ]]; then
+            bucket_names+=("${mutation}${root_domain}")
+        fi
+    done
+
+    log INFO "Generated ${#bucket_names[@]} potential bucket names"
+
+    # Create temporary directory for parallel processing
+    local temp_dir="/tmp/s3_scan_$$"
+    mkdir -p "$temp_dir"
+
+    # Function to check a single bucket (will be called in parallel)
+    check_single_bucket() {
+        local bucket="$1"
+        local temp_dir="$2"
+        local result_file="$temp_dir/result_$bucket"
+        
+        # Only test the most common HTTPS format with short timeout
+        local bucket_url="https://$bucket.s3.amazonaws.com/"
+        
+        # Fast check with minimal timeout
+        local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1 --max-time 2 "$bucket_url" 2>/dev/null)
+        
+        # Check for bucket existence indicators
+        if [[ "$http_code" =~ ^(200|403|301|302)$ ]]; then
+            echo "EXISTS|$bucket_url|$http_code|DIRECT" > "$result_file"
+            return 0
+        elif [[ "$http_code" == "404" ]]; then
+            # For 404, test with common paths that often exist in buckets
+            local test_paths=("1" "test" "robots.txt" "favicon.ico" "index.html" "uploads/1" "files/1" "images/1" "assets/1" "categories/1" "products/1")
+            
+            for test_path in "${test_paths[@]}"; do
+                local test_url="${bucket_url}${test_path}"
+                local test_resp=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1 --max-time 1 "$test_url" 2>/dev/null)
+                
+                # If we get 200 (file exists) or 403 (access denied but bucket exists)
+                if [[ "$test_resp" =~ ^(200|403)$ ]]; then
+                    echo "EXISTS|$bucket_url|$http_code|LISTING_DISABLED_$test_path" > "$result_file"
+                    return 0
+                fi
+            done
+        fi
+        
+        # No bucket found
+        return 1
+    }
+
+    # Export the function for parallel execution
+    export -f check_single_bucket
+
+    # Phase 1: Parallel bucket existence check
+    log INFO "Phase 1: Parallel bucket existence check..."
+    local exists_count=0
+
+    # Use GNU parallel if available, otherwise use xargs
+    if command -v parallel &> /dev/null; then
+        log INFO "Using GNU parallel for maximum speed..."
+        printf '%s\n' "${bucket_names[@]}" | parallel -j 50 --no-notice check_single_bucket {} "$temp_dir"
+    else
+        log INFO "Using xargs for parallel processing..."
+        printf '%s\n' "${bucket_names[@]}" | xargs -n 1 -P 20 -I {} bash -c 'check_single_bucket "$1" "$2"' _ {} "$temp_dir"
+    fi
+
+    # Collect results
+    log INFO "Collecting results..."
+    
+    for result_file in "$temp_dir"/result_*; do
+        if [[ -f "$result_file" ]]; then
+            IFS='|' read -r status bucket_url http_code method < "$result_file"
+            if [[ "$status" == "EXISTS" ]]; then
+                valid_buckets+=("$bucket_url")
+                ((exists_count++))
+                
+                if [[ "$method" =~ ^LISTING_DISABLED ]]; then
+                    detected_via=$(echo "$method" | cut -d'_' -f3-)
+                    log SUCCESS "Found existing bucket: $bucket_url (Listing Disabled - found $detected_via)"
+                    echo "[EXISTS] $bucket_url (Listing Disabled - found $detected_via)" >> "$output_file"
+                else
+                    log SUCCESS "Found existing bucket: $bucket_url (HTTP $http_code)"
+                    echo "[EXISTS] $bucket_url (HTTP $http_code)" >> "$output_file"
+                fi
+            fi
+        fi
+    done
+
+    # Cleanup temp directory
+    rm -rf "$temp_dir"
+
+    log INFO "Phase 1 complete: Found $exists_count existing buckets out of ${#bucket_names[@]} tested"
+
+    # Phase 2: Test PUT operations on existing buckets
+    if [[ ${#valid_buckets[@]} -gt 0 ]]; then
+        log INFO "Phase 2: Testing PUT operations on ${#valid_buckets[@]} existing buckets..."
+        
+        for bucket_url in "${valid_buckets[@]}"; do
+            # Test PUT operation with short timeout
+            local test_file="test-put-autoar-$(date +%s).txt"
+            local put_url="${bucket_url%/}/$test_file"
+            
+            log INFO "Testing PUT on: $put_url"
+            
+            # Try PUT request with short timeout
+            local put_resp=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 3 -X PUT --data "autoar-test-$(date)" "$put_url" 2>/dev/null)
+            
+            if [[ "$put_resp" == "200" || "$put_resp" == "201" ]]; then
+                vulnerable_buckets+=("$put_url")
+                echo "[VULNERABLE] Writable S3 bucket: $put_url (HTTP $put_resp)" | tee -a "$output_file"
+                log SUCCESS "VULNERABLE: Writable S3 bucket found: $put_url"
+                
+                # Quick verification
+                local get_resp=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1 --max-time 2 -X GET "$put_url" 2>/dev/null)
+                if [[ "$get_resp" == "200" ]]; then
+                    echo "[CONFIRMED] File successfully written and readable: $put_url" >> "$output_file"
+                    log SUCCESS "CONFIRMED: File write/read successful on $put_url"
+                fi
+                
+            elif [[ "$put_resp" == "403" ]]; then
+                echo "[FORBIDDEN] Bucket exists but PUT not allowed: $put_url (HTTP 403)" >> "$output_file"
+                log INFO "Bucket exists but not writable: $put_url"
+            elif [[ "$put_resp" == "405" ]]; then
+                echo "[METHOD_NOT_ALLOWED] PUT method not allowed: $put_url (HTTP 405)" >> "$output_file"
+            else
+                echo "[INFO] PUT test result: HTTP $put_resp for $put_url" >> "$output_file"
+            fi
+        done
+    else
+        log INFO "No existing buckets found to test PUT operations"
+    fi
+
+    # Generate summary
+    {
+        echo "=== S3 BUCKET SCAN SUMMARY ==="
+        echo "Target Domain: $target_domain"
+        echo "Root Domain Used: $root_domain"
+        echo "Total Bucket Names Generated: ${#bucket_names[@]} (using mutations.txt)"
+        echo "Existing Buckets Found: $exists_count"
+        echo "Vulnerable Buckets Found: ${#vulnerable_buckets[@]}"
+        echo ""
+        
+        if [[ ${#vulnerable_buckets[@]} -gt 0 ]]; then
+            echo "=== VULNERABLE BUCKETS ==="
+            for vuln_bucket in "${vulnerable_buckets[@]}"; do
+                echo "- $vuln_bucket"
+            done
+            echo ""
+        fi
+        
+        echo "=== EXPLOITATION NOTES ==="
+        echo "1. Vulnerable buckets allow file uploads via PUT requests"
+        echo "2. You can upload malicious files or defacement content"
+        echo "3. Check bucket policies and permissions for further access"
+        echo "4. Look for sensitive files that might be stored in these buckets"
+        echo ""
+        echo "Example exploitation:"
+        if [[ ${#vulnerable_buckets[@]} -gt 0 ]]; then
+            echo "curl -X PUT --data 'Your content here' '${vulnerable_buckets[0]}'"
+        else
+            echo "curl -X PUT --data 'Your content here' 'https://bucket.s3.amazonaws.com/yourfile.txt'"
+        fi
+        
+    } >> "$output_file"
+
+    # Send results to Discord
+    if [[ -s "$output_file" ]]; then
+        local summary_msg="**S3 Bucket Scan Results for $target_domain**\n"
+        summary_msg+="\`\`\`"
+        summary_msg+="Root Domain: $root_domain\n"
+        summary_msg+="Bucket Names Generated: ${#bucket_names[@]} (using mutations.txt)\n"
+        summary_msg+="Existing Buckets: $exists_count\n"
+        summary_msg+="Vulnerable Buckets: ${#vulnerable_buckets[@]}"
+        summary_msg+="\`\`\`"
+        
+        send_to_discord "$summary_msg"
+        send_file_to_discord "$output_file" "S3 Bucket Scan Results - $exists_count existing, ${#vulnerable_buckets[@]} vulnerable"
+    else
+        log INFO "No S3 buckets found for $target_domain"
+    fi
+
+    log SUCCESS "S3 bucket scan completed. Found $exists_count existing buckets, ${#vulnerable_buckets[@]} vulnerable"
 }
 
 # Function to run Dalfox scans
@@ -638,143 +930,101 @@ run_dalfox_scan() {
     fi
 }
 
-# Function to run subdomain takeover scanning
-subdomain_takeover_scan() {
-    local domain_dir="$1"
-    log INFO "Subdomain Takeover Scanning"
-    
-    # Check if subs.txt exists
-    if [[ ! -f "$domain_dir/subs/all-subs.txt" ]]; then
-        log WARNING "[-] No subdomains file found at $domain_dir/subs/all-subs.txt"
-        return
-    fi
-    
-    mkdir -p "$domain_dir/vulnerabilities/takeovers"
-    
-    # Run subov88r if available
-    if command -v subov88r &> /dev/null; then
-        log INFO "Running subov88r for Azure services check"
-        subov88r -f "$domain_dir/subs/all-subs.txt" > "$domain_dir/vulnerabilities/takeovers/azureSDT.txt" 2>> "$LOG_FILE"
-    else
-        log WARNING "[-] subov88r not found, skipping Azure subdomain takeover check"
-    fi
-    
-    # Run nuclei scans
-    if [[ -d "nuclei-templates" ]]; then
-        log INFO "Running nuclei takeover templates"
-        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei-templates/http/takeovers/ -o "$domain_dir/vulnerabilities/takeovers/nuclei-results.txt" >> "$LOG_FILE" 2>&1
-        
-        if [[ -s "$domain_dir/vulnerabilities/takeovers/nuclei-results.txt" ]]; then
-            send_file_to_discord "$domain_dir/vulnerabilities/takeovers/nuclei-results.txt" "Nuclei Takeover Scan Results"
-        fi
-    fi
-    
-    if [[ -d "nuclei_templates" ]]; then
-        log INFO "Running custom takeover templates"
-        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei_templates/takeover/detect-all-takeover.yaml -o "$domain_dir/vulnerabilities/takeovers/custom-results.txt" >> "$LOG_FILE" 2>&1
-        
-        if [[ -s "$domain_dir/vulnerabilities/takeovers/custom-results.txt" ]]; then
-            send_file_to_discord "$domain_dir/vulnerabilities/takeovers/custom-results.txt" "Custom Takeover Scan Results"
-        fi
-    fi
-    
-    # Send Azure results if they exist and are not empty
-    if [[ -s "$domain_dir/vulnerabilities/takeovers/azureSDT.txt" ]]; then
-        send_file_to_discord "$domain_dir/vulnerabilities/takeovers/azureSDT.txt" "Azure Subdomain Takeover Results"
-    fi
-    
-}
-
 # Function to scan for JS exposures
 scan_js_exposures() {
     local domain_dir="$1"
+    local js_urls_file="${2:-$domain_dir/urls/js-urls.txt}"
     log INFO "Starting JS Analysis"
     
-    # Check if urls.txt exists
-    if [[ ! -f "$domain_dir/urls/all-urls.txt" ]]; then
-        log WARNING "[-] No URLs found to analyze"
+    if [[ ! -f "$js_urls_file" || ! -s "$js_urls_file" ]]; then
+        log WARNING "[-] No JavaScript files found to analyze"
         return
     fi
     
     mkdir -p "$domain_dir/vulnerabilities/js"
-        
-    # Only proceed if we found JS files
-    if [[ -s "$domain_dir/urls/js-urls.txt" ]]; then
-        local js_count=$(wc -l < "$domain_dir/urls/js-urls.txt")
-        log SUCCESS "Analyzing $js_count JavaScript files"
-        
-        # Initialize findings array
-        local findings=()
-        local files_to_send=()
-        
-        # 1. Find secrets using trufflehog patterns
-        cat "$domain_dir/urls/js-urls.txt" | jsleak -t regexes/trufflehog-v3.yaml -s -c 20 > "$domain_dir/vulnerabilities/js/trufflehog.txt" 2>/dev/null
-        local secrets_count=$(wc -l < "$domain_dir/vulnerabilities/js/trufflehog.txt" 2>/dev/null || echo 0)
-        if [[ $secrets_count -gt 0 ]]; then
-            findings+=("trufflehog: $secrets_count")
-            files_to_send+=("$domain_dir/vulnerabilities/js/trufflehog.txt")
+    
+    local js_count=$(wc -l < "$js_urls_file")
+    log SUCCESS "Analyzing $js_count JavaScript files"
+    
+    local findings=()
+    local files_to_send=()
+    
+    # 1. Find secrets using trufflehog patterns
+    log INFO "Running trufflehog scan on JavaScript files"
+    cat "$js_urls_file" | jsleak -t regexes/trufflehog-v3.yaml -s -c 20 > "$domain_dir/vulnerabilities/js/trufflehog.txt" 2>/dev/null
+    local secrets_count=$(wc -l < "$domain_dir/vulnerabilities/js/trufflehog.txt" 2>/dev/null || echo 0)
+    if [[ $secrets_count -gt 0 ]]; then
+        findings+=("trufflehog: $secrets_count")
+        files_to_send+=("$domain_dir/vulnerabilities/js/trufflehog.txt")
+    fi
+    
+    # 2. Find links and endpoints
+    log INFO "Running jsleak scan on JavaScript files"
+    cat "$js_urls_file" | jsleak -l -e -c 20 > "$domain_dir/vulnerabilities/js/links.txt" 2>/dev/null
+    local links_count=$(wc -l < "$domain_dir/vulnerabilities/js/links.txt" 2>/dev/null || echo 0)
+    if [[ $links_count -gt 0 ]]; then
+        findings+=("links: $links_count")
+        files_to_send+=("$domain_dir/vulnerabilities/js/links.txt")
+    fi
+    
+    # 3. Check active URLs
+    log INFO "Running jsleak URLS scan on JavaScript files"
+    cat "$js_urls_file" | jsleak -c 20 -k > "$domain_dir/vulnerabilities/js/active-urls.txt" 2>/dev/null
+    local active_count=$(wc -l < "$domain_dir/vulnerabilities/js/active-urls.txt" 2>/dev/null || echo 0)
+    if [[ $active_count -gt 0 ]]; then
+        findings+=("active-urls: $active_count")
+        files_to_send+=("$domain_dir/vulnerabilities/js/active-urls.txt")
+    fi
+    
+    # 4. Scan with various regex patterns
+    local regex_files=(
+        "regexes/confident-regexes.yaml"
+        "regexes/nuclei-regexes.yaml"
+        "regexes/nuclei-generic.yaml"
+        "regexes/pii-regexes.yaml"
+        "regexes/risky-regexes.yaml"
+        "regexes/rules-regexes.yaml"
+    )
+    log INFO "Running jsleak regex scan on JavaScript files"
+    for regex_file in "${regex_files[@]}"; do
+        local filename=$(basename "$regex_file" .yaml)
+        cat "$js_urls_file" | jsleak -t "$regex_file" -s -c 20 > "$domain_dir/vulnerabilities/js/$filename.txt" 2>/dev/null
+        local count=$(wc -l < "$domain_dir/vulnerabilities/js/$filename.txt" 2>/dev/null || echo 0)
+        if [[ $count -gt 0 ]]; then
+            findings+=("$filename: $count")
+            files_to_send+=("$domain_dir/vulnerabilities/js/$filename.txt")
         fi
-        
-        # 2. Find links and endpoints
-        cat "$domain_dir/urls/js-urls.txt" | jsleak -l -e -c 20 > "$domain_dir/vulnerabilities/js/links.txt" 2>/dev/null
-        local links_count=$(wc -l < "$domain_dir/vulnerabilities/js/links.txt" 2>/dev/null || echo 0)
-        if [[ $links_count -gt 0 ]]; then
-            findings+=("links: $links_count")
-            files_to_send+=("$domain_dir/vulnerabilities/js/links.txt")
-        fi
-        
-        # 3. Check active URLs
-        cat  "$domain_dir/urls/js-urls.txt" | jsleak -c 20 -k > "$domain_dir/vulnerabilities/js/active-urls.txt" 2>/dev/null
-        local active_count=$(wc -l < "$domain_dir/vulnerabilities/js/active-urls.txt" 2>/dev/null || echo 0)
-        if [[ $active_count -gt 0 ]]; then
-            findings+=("active-urls: $active_count")
-            files_to_send+=("$domain_dir/vulnerabilities/js/active-urls.txt")
-        fi
-        
-        # 4. Scan with various regex patterns
-        local regex_files=(
-            "regexes/confident-regexes.yaml"
-            "regexes/nuclei-regexes.yaml"
-            "regexes/nuclei-generic.yaml"
-            "regexes/pii-regexes.yaml"
-            "regexes/risky-regexes.yaml"
-            "regexes/rules-regexes.yaml"
-        )
-        
-        for regex_file in "${regex_files[@]}"; do
-            local filename=$(basename "$regex_file" .yaml)
-            cat "$domain_dir/urls/js-urls.txt" | jsleak -t "$regex_file" -s -c 20 > "$domain_dir/vulnerabilities/js/$filename.txt" 2>/dev/null
-            local count=$(wc -l < "$domain_dir/vulnerabilities/js/$filename.txt" 2>/dev/null || echo 0)
-            if [[ $count -gt 0 ]]; then
-                findings+=("$filename: $count")
-                files_to_send+=("$domain_dir/vulnerabilities/js/$filename.txt")
+    done
+    
+    # 5. Scan with nuclei
+    log INFO "Running nuclei scan on JavaScript files"
+    nuclei -l "$js_urls_file" -t nuclei_templates/js/js-exposures.yaml -o "$domain_dir/vulnerabilities/js/nuclei-js.txt" >> "$LOG_FILE" 2>&1
+    local nuclei_count=$(wc -l < "$domain_dir/vulnerabilities/js/nuclei-js.txt" 2>/dev/null || echo 0)
+    if [[ $nuclei_count -gt 0 ]]; then
+        findings+=("nuclei: $nuclei_count")
+        files_to_send+=("$domain_dir/vulnerabilities/js/nuclei-js.txt")
+    fi
+    
+    log SUCCESS "JS Analysis Summary:"
+    for finding in "${findings[@]}"; do
+        log SUCCESS "    $finding"
+    done
+    
+    if [[ -n "$DISCORD_WEBHOOK" && ${#files_to_send[@]} -gt 0 ]]; then
+        for file in "${files_to_send[@]}"; do
+            if [[ -f "$file" && -s "$file" ]]; then
+                local filename=$(basename "$file")
+                sort -u -o "$file" "$file"
+                send_file_to_discord "$file" "Found Regex Matches in $filename"
             fi
         done
-        
-        # Print summary
-        log SUCCESS "JS Analysis Summary:"
-        for finding in "${findings[@]}"; do
-            log SUCCESS "    $finding"
-        done
-        
-        # Send files to Discord if webhook is set
-        if [[ -n "$DISCORD_WEBHOOK" && ${#files_to_send[@]} -gt 0 ]]; then
-            for file in "${files_to_send[@]}"; do
-                if [[ -f "$file" && -s "$file" ]]; then
-                    local filename=$(basename "$file")
-                    send_file_to_discord "$file" "Found Regex Matches in $filename"
-                fi
-            done
-        fi
-    else
-        log WARNING "[-] No JavaScript files found to analyze"
     fi
 }
 
 # Function to run nuclei scans
 run_nuclei_scans() {
     local domain_dir="$1"
-    log INFO "Nuclei Scanning with severity filtering"
+    log INFO "Nuclei Scanning"
     if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
         nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
         nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
@@ -782,8 +1032,18 @@ run_nuclei_scans() {
         nuclei -l "$domain_dir/subs/live-subs.txt" -s low,medium,high,critical -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
         nuclei -l "$domain_dir/subs/live-subs.txt" -s low,medium,high,critical -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
     fi
-    send_file_to_discord "$domain_dir/vulnerabilities/nuclei_templates-results.txt" "Collected Templates Nuclei Scans Results"
-    send_file_to_discord "$domain_dir/vulnerabilities/nuclei-templates-results.txt" "Public Nuclei Scans Results"
+    if [[ -s "$domain_dir/vulnerabilities/nuclei_templates-results.txt" && -n "$DISCORD_WEBHOOK" ]]; then
+        send_file_to_discord "$domain_dir/vulnerabilities/nuclei_templates-results.txt" "Collected Templates Nuclei Scans Results"
+    else
+        log WARNING "No nuclei_templates-results.txt file found"
+        send_to_discord "No Nuclei Collected Templates Scans Results"
+    fi
+    if [[ -s "$domain_dir/vulnerabilities/nuclei-templates-results.txt" && -n "$DISCORD_WEBHOOK" ]]; then
+        send_file_to_discord "$domain_dir/vulnerabilities/nuclei-templates-results.txt" "Public Nuclei Scans Results"
+    else
+        log WARNING "No nuclei-templates-results.txt file found"
+        send_to_discord "No Nuclei Public Scans Results"
+    fi
 }
 
 # Function to detect technologies using httpx
@@ -800,6 +1060,128 @@ detect_technologies() {
     else
         log WARNING "No live subdomains found for technology detection"
     fi
+}
+
+# Function to scan for dangling DNS records using dnsx
+scan_dangling_dns() {
+    local domain_dir="$1"
+    log INFO "Starting Unified DNS Takeover Scan (CNAME & NS)"
+    
+    if [[ ! -f "$domain_dir/subs/all-subs.txt" ]]; then
+        log WARNING "[-] No subdomains file found at $domain_dir/subs/all-subs.txt"
+        return
+    fi
+    
+    mkdir -p "$domain_dir/vulnerabilities/dns-takeover"
+    local findings_dir="$domain_dir/vulnerabilities/dns-takeover"
+    > "$findings_dir/nuclei-takeover-public.txt"
+    > "$findings_dir/nuclei-takeover-custom.txt"
+    > "$findings_dir/azureSDT.txt"
+    > "$findings_dir/ns-takeover-raw.txt"
+    > "$findings_dir/ns-takeover-vuln.txt"
+    > "$findings_dir/ns-servers.txt"
+    > "$findings_dir/ns-servers-vuln.txt"
+    > "$findings_dir/dns-takeover-summary.txt"
+    > "$findings_dir/dnsreaper-results.txt"
+    > "$findings_dir/filtered-ns-takeover-vuln.txt"
+
+    # --- CNAME Takeover: Nuclei and subov88r only ---
+    log INFO "Running Nuclei public takeover templates..."
+    if [[ -d "nuclei-templates" ]]; then
+        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei-templates/http/takeovers/ -o "$findings_dir/nuclei-takeover-public.txt" >> "$LOG_FILE" 2>&1
+        if [[ -s "$findings_dir/nuclei-takeover-public.txt" && -n "$DISCORD_WEBHOOK" ]]; then
+            send_file_to_discord "$findings_dir/nuclei-takeover-public.txt" "Nuclei Public Takeover Findings"
+        fi
+    fi
+    
+    log INFO "Running Nuclei custom takeover templates..."
+    if [[ -d "nuclei_templates" ]]; then
+        nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei_templates/takeover/detect-all-takeover.yaml -o "$findings_dir/nuclei-takeover-custom.txt" >> "$LOG_FILE" 2>&1
+        if [[ -s "$findings_dir/nuclei-takeover-custom.txt" && -n "$DISCORD_WEBHOOK" ]]; then
+            send_file_to_discord "$findings_dir/nuclei-takeover-custom.txt" "Nuclei Custom Takeover Findings"
+        fi
+    fi
+
+    # Run DNSReaper scan
+    log INFO "Running DNSReaper scan..."
+    cp "$domain_dir/subs/all-subs.txt" "$findings_dir/dnsreaper-input.txt"
+    docker run -it --rm -v "$(pwd):/etc/dnsreaper" punksecurity/dnsreaper file --filename "/etc/dnsreaper/$findings_dir/dnsreaper-input.txt" > "$findings_dir/dnsreaper-results.txt" 2>> "$LOG_FILE"
+    if [[ -s "$findings_dir/dnsreaper-results.txt" && -n "$DISCORD_WEBHOOK" ]]; then
+        send_file_to_discord "$findings_dir/dnsreaper-results.txt" "DNSReaper Takeover Results"
+    fi
+
+    if command -v subov88r &> /dev/null; then
+        log INFO "Running subov88r for Azure and AWS subdomain takeover check..."
+        subov88r -f "$domain_dir/subs/all-subs.txt" -awsto -nc -asto > "$findings_dir/subov88r-results.txt" 2>> "$LOG_FILE"
+        if [[ -s "$findings_dir/subov88r-results.txt" && -n "$DISCORD_WEBHOOK" ]]; then
+            send_file_to_discord "$findings_dir/subov88r-results.txt" "Azure and AWS Subdomain Takeover Results (subov88r)"
+        fi
+    fi
+
+    # --- NS Takeover: Enhanced scanning ---
+    log INFO "Running enhanced NS takeover scan..."
+    
+    # First get all NS records
+    log INFO "Extracting NS records..."
+    dnsx -l "$domain_dir/subs/all-subs.txt" -ns -silent -ro > "$findings_dir/ns-servers.txt"
+    
+    # Check both subdomains and NS servers for DNS errors
+    log INFO "Checking subdomains for DNS errors..."
+    dnsx -l "$domain_dir/subs/all-subs.txt" -rcode servfail,refused -silent > "$findings_dir/ns-takeover-raw.txt"
+    
+    log INFO "Checking NS servers for DNS errors..."
+    dnsx -l "$findings_dir/ns-servers.txt" -rcode servfail,refused -silent >> "$findings_dir/ns-servers-vuln.txt"
+    
+    local ns_takeover_raw_count=$(wc -l < "$findings_dir/ns-takeover-raw.txt")
+    local ns_servers_vuln_count=$(wc -l < "$findings_dir/ns-servers-vuln.txt")
+    
+    log INFO "Found $ns_takeover_raw_count subdomains and $ns_servers_vuln_count NS servers with DNS errors"
+
+    if [[ $ns_takeover_raw_count -gt 0 && -n "$DISCORD_WEBHOOK" ]]; then
+        send_file_to_discord "$findings_dir/ns-takeover-raw.txt" "NS Takeover Candidates (Subdomain DNS Errors)"
+    fi
+
+    if [[ $ns_servers_vuln_count -gt 0 && -n "$DISCORD_WEBHOOK" ]]; then
+        send_file_to_discord "$findings_dir/ns-servers-vuln.txt" "NS Takeover Candidates (NS Server DNS Errors)"
+    fi
+
+    # Filter for known vulnerable/edge-case NS providers
+    local ns_vuln_regex='ns1-.*\.azure-dns\.com|ns2-.*\.azure-dns\.net|ns3-.*\.azure-dns\.org|ns4-.*\.azure-dns\.info|ns1\.dnsimple\.com|ns2\.dnsimple\.com|ns3\.dnsimple\.com|ns4\.dnsimple\.com|ns1\.domain\.com|ns2\.domain\.com|ns1\.dreamhost\.com|ns2\.dreamhost\.com|ns3\.dreamhost\.com|ns-cloud-.*\.googledomains\.com|ns5\.he\.net|ns4\.he\.net|ns3\.he\.net|ns2\.he\.net|ns1\.he\.net|ns1\.linode\.com|ns2\.linode\.com|ns1.*\.name\.com|ns2.*\.name\.com|ns3.*\.name\.com|ns4.*\.name\.com|ns1\.domaindiscover\.com|ns2\.domaindiscover\.com|yns1\.yahoo\.com|yns2\.yahoo\.com|ns1\.reg\.ru|ns2\.reg\.ru'
+    grep -Ei "$ns_vuln_regex" "$findings_dir/ns-takeover-raw.txt" > "$findings_dir/ns-takeover-vuln.txt"
+    local ns_takeover_vuln_count=$(wc -l < "$findings_dir/filtered-ns-takeover-vuln.txt")
+    
+    if [[ -s "$findings_dir/filtered-ns-takeover-vuln.txt" && -n "$DISCORD_WEBHOOK" ]]; then
+        send_file_to_discord "$findings_dir/filtered-ns-takeover-vuln.txt" "NS Takeover Filtered Targets (Vulnerable Providers)"
+    fi
+
+    # --- Summary/reporting ---
+    {
+        echo "=== DNS TAKEOVER SCAN SUMMARY ==="
+        echo "Scan Date: $(date)"
+        echo "Total Subdomains Scanned: $(wc -l < "$domain_dir/subs/all-subs.txt")"
+        echo "Tools Used: dnsx, nuclei, subov88r, dnsreaper"
+        echo ""
+        echo "CNAME Takeover (Nuclei public): $(wc -l < "$findings_dir/nuclei-takeover-public.txt")"
+        echo "CNAME Takeover (Nuclei custom): $(wc -l < "$findings_dir/nuclei-takeover-custom.txt")"
+        echo "DNSReaper Results: $(wc -l < "$findings_dir/dnsreaper-results.txt")"
+        echo "Azure Subdomain Takeover (subov88r): $(wc -l < "$findings_dir/azureSDT.txt")"
+        echo "NS Takeover (Subdomain DNS Errors): $ns_takeover_raw_count"
+        echo "NS Takeover (NS Server DNS Errors): $ns_servers_vuln_count"
+        echo "NS Takeover (Vulnerable Providers): $ns_takeover_vuln_count"
+        echo ""
+        echo "=== Exploitation Notes ==="
+        echo "- CNAME Takeover: Use Nuclei/subov88r/DNSReaper findings for actionable subdomain takeovers."
+        echo "- NS Takeover: Check both subdomain and NS server DNS errors, prioritize those matching known vulnerable providers."
+        echo "- Always verify manually before reporting."
+        echo ""
+        echo "References:"
+        echo "- https://github.com/indianajson/can-i-take-over-dns"
+        echo "- https://trickest.com/blog/dns-takeover-explained-protect-your-online-domain/"
+        echo "- https://hackerone.com/reports/1226891"
+        echo "- https://github.com/punk-security/dnsreaper"
+    } > "$findings_dir/dns-takeover-summary.txt"
+
+    log SUCCESS "DNS Takeover scan completed. Results saved in $findings_dir/"
 }
 
 # Function to run lite scan
@@ -825,8 +1207,17 @@ lite_scan() {
     # 3.5 Technology Detection
     log INFO "Detecting technologies on live hosts"
     detect_technologies
-    
-    put_scan "$DOMAIN_DIR"
+
+    # 4. Dangling DNS Scan
+    log INFO "Running Dangling DNS Scan"
+    scan_dangling_dns "$DOMAIN_DIR"
+
+    # 5. Reflection Scan
+    log INFO "Running Reflection Scan"
+    run_reflection_scan
+
+    # put scan
+    put_scan "$DOMAIN_DIR" "$domain"
 
     # 4. URL Collection
     log INFO "Collecting URLs"
@@ -835,12 +1226,8 @@ lite_scan() {
     # 5. JS File Extraction and Analysis
     log INFO "Extracting and analyzing JavaScript files"
     scan_js_exposures "$DOMAIN_DIR"
-    
-    # 6. Reflection Scan
-    log INFO "Running Reflection Scan"
-    run_reflection_scan
-    
-    # 7. Nuclei Scanning
+
+    # Nuclei Scanning
     log INFO "Running Nuclei scans"
     run_nuclei_scans "$DOMAIN_DIR"
     
@@ -874,14 +1261,14 @@ scan_single_subdomain() {
     run_reflection_scan
     check_cname_records "$DOMAIN_DIR"
     detect_technologies
-    put_scan "$DOMAIN_DIR"
-    subdomain_takeover_scan "$DOMAIN_DIR"
+    put_scan "$DOMAIN_DIR" "$subdomain"
     run_port_scan
     run_nuclei_scans "$DOMAIN_DIR"
     run_ffuf
     run_gf_scans
     run_sql_injection_scan
     run_dalfox_scan
+    scan_dangling_dns "$DOMAIN_DIR"
 }
 
 # Function to scan entire domain
@@ -894,8 +1281,8 @@ scan_domain() {
     run_reflection_scan
     detect_technologies
     check_cname_records "$DOMAIN_DIR"
-    put_scan "$DOMAIN_DIR"
-    subdomain_takeover_scan "$DOMAIN_DIR"
+    scan_dangling_dns "$DOMAIN_DIR"
+    put_scan "$DOMAIN_DIR" "$domain"
     run_port_scan
     scan_js_exposures "$DOMAIN_DIR"
     run_nuclei_scans "$DOMAIN_DIR"
@@ -903,6 +1290,105 @@ scan_domain() {
     run_gf_scans
     run_sql_injection_scan
     run_dalfox_scan
+}
+
+# Function to monitor JS files for a domain
+js_monitor() {
+    local domain="$1"
+    local subdomain="$2"
+    if [[ -n "$subdomain" ]]; then
+        log INFO "[jsMonitor] Monitoring single subdomain: $subdomain"
+        SINGLE_SUBDOMAIN="$subdomain"
+        setup_results_dir
+        echo "$subdomain" > "$DOMAIN_DIR/subs/all-subs.txt"
+        echo "https://$subdomain" > "$DOMAIN_DIR/subs/live-subs.txt"
+        fetch_urls
+    else
+        log INFO "[jsMonitor] Starting JS monitoring for $domain"
+        setup_results_dir
+        subEnum "$domain"
+        fetch_urls
+    fi
+
+    local js_urls_file="$DOMAIN_DIR/urls/js-urls.txt"
+    local tmp_dir="/tmp/jsmonitor_${subdomain:-$domain}"
+    mkdir -p "$tmp_dir"
+
+    if [[ ! -s "$js_urls_file" ]]; then
+        log WARNING "[jsMonitor] No JS files found for ${subdomain:-$domain}"
+        return
+    fi
+
+    local js_url_count=$(wc -l < "$js_urls_file")
+    log INFO "[jsMonitor] Found $js_url_count JS URLs in this scan."
+
+    # Get previous JS file info from DB
+    local prev_file="$tmp_dir/prev_jsfiles.json"
+    log INFO "[jsMonitor] Fetching previous JS file metadata from database..."
+    ./sqlite_db_handler.py get_jsfiles "${subdomain:-$domain}" > "$prev_file"
+    local prev_count=$(jq length "$prev_file" 2>/dev/null || echo 0)
+    log INFO "[jsMonitor] Found $prev_count JS file records in database."
+
+    # Prepare temp file for new/changed JS URLs
+    local changed_js_urls="$tmp_dir/changed_js_urls.txt"
+    > "$changed_js_urls"
+    > "$tmp_dir/jsfile_list.json"
+    echo '[' > "$tmp_dir/jsfile_list.json"
+    local first=1
+    local changed_count=0
+
+    while IFS= read -r jsurl; do
+        local jsfile="$tmp_dir/$(echo "$jsurl" | md5sum | awk '{print $1}')"
+        curl -s --max-time 10 "$jsurl" -o "$jsfile"
+        local clen=$(stat -c %s "$jsfile" 2>/dev/null || echo 0)
+        local now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        # Find previous size
+        local prev_meta=$(jq -c --arg url "$jsurl" 'map(select(.url==$url)) | .[0]' "$prev_file")
+        local prev_size=$(echo "$prev_meta" | jq -r '.size // empty')
+
+        # If new or size changed by >20 bytes, add to changed list
+        local size_diff=0
+        if [[ -z "$prev_size" ]]; then
+            size_diff=$clen
+        else
+            size_diff=$(( clen > prev_size ? clen - prev_size : prev_size - clen ))
+        fi
+        if [[ -z "$prev_size" ]]; then
+            log INFO "[jsMonitor] New JS file detected: $jsurl (size: $clen bytes)"
+            echo "$jsurl" >> "$changed_js_urls"
+            ((changed_count++))
+            if [[ $first -eq 0 ]]; then echo ',' >> "$tmp_dir/jsfile_list.json"; fi
+            echo -n '{' >> "$tmp_dir/jsfile_list.json"
+            echo -n "\"url\": \"$jsurl\", \"size\": $clen, \"last_seen\": \"$now\"" >> "$tmp_dir/jsfile_list.json"
+            echo -n '}' >> "$tmp_dir/jsfile_list.json"
+            first=0
+        elif [[ $size_diff -gt 20 ]]; then
+            log INFO "[jsMonitor] Changed JS file detected: $jsurl (old size: $prev_size, new size: $clen, diff: $size_diff bytes)"
+            echo "$jsurl" >> "$changed_js_urls"
+            ((changed_count++))
+            if [[ $first -eq 0 ]]; then echo ',' >> "$tmp_dir/jsfile_list.json"; fi
+            echo -n '{' >> "$tmp_dir/jsfile_list.json"
+            echo -n "\"url\": \"$jsurl\", \"size\": $clen, \"last_seen\": \"$now\"" >> "$tmp_dir/jsfile_list.json"
+            echo -n '}' >> "$tmp_dir/jsfile_list.json"
+            first=0
+        else
+            log INFO "[jsMonitor] Unchanged JS file: $jsurl (size: $clen bytes, previous: $prev_size bytes)"
+        fi
+    done < "$js_urls_file"
+    echo ']' >> "$tmp_dir/jsfile_list.json"
+
+    log INFO "[jsMonitor] $changed_count JS files are new or changed and will be scanned."
+
+    # Scan only new/changed JS files
+    if [[ -s "$changed_js_urls" ]]; then
+        scan_js_exposures "$DOMAIN_DIR" "$changed_js_urls"
+        log INFO "[jsMonitor] Updating database with $changed_count new/changed JS files."
+        ./sqlite_db_handler.py add_jsfiles "${subdomain:-$domain}" "$tmp_dir/jsfile_list.json"
+    fi
+
+    rm -rf "$tmp_dir"
+    log SUCCESS "[jsMonitor] Monitoring complete for ${subdomain:-$domain}"
 }
 
 # Help function
@@ -915,6 +1401,8 @@ show_help() {
         subdomain   Scan a single subdomain
         liteScan    Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)
         fastLook    Fast look (subenum, live subdomains, collect urls, tech detect, cname checker)
+        jsMonitor   Monitor JS files for a domain or single subdomain and alert on changes
+        monitor     Run the Python monitoring script
         help        Show this help message
 
     Examples:
@@ -922,6 +1410,11 @@ show_help() {
         ./autoAr.sh subdomain -s sub.example.com
         ./autoAr.sh liteScan -d example.com
         ./autoAr.sh fastLook -d example.com
+        ./autoAr.sh jsMonitor -d example.com
+        ./autoAr.sh jsMonitor -s sub.example.com
+        ./autoAr.sh monitor
+        ./autoAr.sh monitor --all
+        ./autoAr.sh monitor -c company
 EOF
 }
 
@@ -931,7 +1424,7 @@ main() {
         show_help
         exit 1
     fi
-    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|help|--help|-h)$ ]]; then
+    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|jsMonitor|monitor|help|--help|-h)$ ]]; then
         subcommand="$1"
         shift
         case "$subcommand" in
@@ -1030,6 +1523,42 @@ main() {
                 fetch_urls
                 detect_technologies
                 check_cname_records "$DOMAIN_DIR"
+                run_reflection_scan
+                exit 0
+                ;;
+            jsMonitor)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -d|--domain)
+                            TARGET="$2"; shift 2;;
+                        -s|--subdomain)
+                            SINGLE_SUBDOMAIN="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                JS_MONITOR_MODE=1
+                if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
+                    js_monitor "" "$SINGLE_SUBDOMAIN"
+                elif [[ -n "$TARGET" ]]; then
+                    js_monitor "$TARGET" ""
+                else
+                    echo "Error: Must specify a domain with -d or a subdomain with -s"; show_help; exit 1;
+                fi
+                exit 0
+                ;;
+            monitor)
+                # Convert '-c all' to '--all' for compatibility
+                if [[ "$1" == "-c" && "$2" == "all" ]]; then
+                    shift 2
+                    python3 monitor-comapany.py --all "$@"
+                else
+                    python3 monitor-comapany.py "$@"
+                fi
                 exit 0
                 ;;
             help|--help|-h)
@@ -1050,12 +1579,11 @@ else
     log ERROR "Config file $CONFIG_FILE not found!"
 fi
 
-log INFO "MONGO_URI: $MONGO_URI"
 log INFO "DB_NAME: $DB_NAME"
 log INFO "DISCORD_WEBHOOK: ${DISCORD_WEBHOOK:0:10}..."
 log INFO "SAVE_TO_DB: $SAVE_TO_DB"
 log INFO "VERBOSE: $VERBOSE"
 log INFO "GITHUB_TOKEN: ${GITHUB_TOKEN:0:6}..."
-log INFO "SECURITYTRAILS_API_KEY: ${SECURITYTRAILS_API_KEY:0:6}..."
+log INFO "SECURITYTRAILS_API_KEY: ${SECURITYTRAILS_API_KEY:0:6}..."              
 
 main "$@"
