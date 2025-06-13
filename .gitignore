@@ -1,15 +1,16 @@
 # Results and output directories
-**/
-nuclei_templates/
-templates/
+results/
+cnm_results/
+mongo_backups/
+subOv88r/
+Wordlists/
+regexes/
 nuclei_templates/
 nuclei-templates/
-paramx_templates/
-regexes/
-tools/
 sqlmap/
-massdns/
 ffuf/
+Interlace/
+urldedupe/
 massdns/
 
 # Log files
@@ -99,6 +100,7 @@ mongo_db_handler.py.bak
 mongo_db_handler.py
 secrets.conf
 secrets.conf
+
 # Config files
 autoar.conf
 autoar.yaml
