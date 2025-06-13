@@ -63,18 +63,13 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
 Create a file named `autoar.yaml` in the project root with the following content:
 
 ```yaml
-api_keys:
-  securitytrails: ""
-  ywh: ""
-  h1_token: ""
-  h1_username: "0x88"
-
-discord:
-  webhook: ""
-
-tool_config:
-  save_to_db: true
-  verbose: true
+securitytrails: ""
+ywh: ""
+h1_token: ""
+h1_username: "0x88"
+webhook: ""
+save_to_db: true
+verbose: true
 ```
 
 - The script will automatically load `autoar.yaml` from the project root

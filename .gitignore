@@ -12,6 +12,13 @@ ffuf/
 Interlace/
 urldedupe/
 massdns/
+subOv88r/
+urldedupe/
+massdns/
+*/
+**/
+ffuf/
+sqlmap/
 
 # Log files
 *.log
