@@ -1,11 +1,11 @@
 # autoAr
 
-An automated reconnaissance and vulnerability scanning tool that combines multiple tools for comprehensive web application security assessment, with integrated MongoDB storage for findings.
+An automated reconnaissance and vulnerability scanning tool that combines multiple tools for comprehensive web application security assessment, with integrated SQLite storage for findings.
 
 ## Features
 
 - Subdomain enumeration using multiple sources and APIs
-- MongoDB integration for persistent storage of findings
+- SQLite database integration for persistent storage of findings
 - Live host detection and technology fingerprinting
 - Port scanning
 - URL discovery and JavaScript analysis
@@ -58,24 +58,11 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
    # - rules-regexes.yaml
    ```
 
-4. **Configure MongoDB (Optional):**
-   - Update the MongoDB connection string in `mongo_db_handler.py`
-   - Test the connection:
-   ```bash
-   ./mongo_db_handler.py help
-   ```
-
 ## Configuration
 
-Create a file named `autoar.yaml` in the project root with the following content (this file is used to parse secrets and configuration variables):
+Create a file named `autoar.yaml` in the project root with the following content:
 
 ```yaml
-mongodb:
-  uri: "mongourl"
-  db: "autoar"
-  domains_collection: "domains"
-  subdomains_collection: "subdomains"
-
 api_keys:
   securitytrails: ""
   ywh: ""
@@ -83,17 +70,39 @@ api_keys:
   h1_username: "0x88"
 
 discord:
-  webhook: "discordwebhookurl"
+  webhook: ""
 
 tool_config:
   save_to_db: true
   verbose: true
 ```
 
-- The script will automatically load `autoar.yaml` from the project root. You can override the config file location by setting the `AUTOAR_CONFIG` environment variable (if you add support for it in the scripts).
-- The `discord.webhook` variable is used for Discord notifications if not set via command line.
-- `save_to_db` and `verbose` can be set to control database saving and verbosity.
-- All secrets and API keys should be placed in this file for secure and centralized configuration.
+- The script will automatically load `autoar.yaml` from the project root
+- The `discord.webhook` variable is used for Discord notifications if not set via command line
+- `save_to_db` and `verbose` can be set to control database saving and verbosity
+- All secrets and API keys should be placed in this file for secure and centralized configuration
+
+## Database Management
+
+The project uses SQLite for data storage. You can manage the database using the `sqlite_db_handler.py` script:
+
+```bash
+# Add a domain
+./sqlite_db_handler.py add_domain example.com
+
+# Add subdomains from a file
+./sqlite_db_handler.py add_subdomains_file example.com subs.txt
+
+# List all domains with stats
+./sqlite_db_handler.py list_domains_stats
+
+# Get all subdomains for a domain
+./sqlite_db_handler.py get_subdomains example.com
+
+# Manage JS files
+./sqlite_db_handler.py add_jsfiles example.com jsfiles.json
+./sqlite_db_handler.py list_jsfiles example.com
+```
 
 ## Usage
 
@@ -112,11 +121,6 @@ tool_config:
 ./autoAr.sh -d example.com -l
 ```
 
-### With MongoDB Storage:
-```bash
-./autoAr.sh -d example.com --save-to-db
-```
-
 ### Available Options:
 ```bash
 Options:
@@ -130,7 +134,6 @@ Options:
     -ss, --skip-sqli           Skip SQL injection scanning
     -sd, --skip-dalfox         Skip Dalfox XSS scanning
     -dw, --discord-webhook     Discord webhook URL for notifications
-    -st, --save-to-db          Save results to MongoDB database
     -sk, --securitytrails-key  SecurityTrails API key for additional subdomain enumeration
 ```
 
@@ -198,6 +201,6 @@ The tool will send:
 - For best results, run full scans with all options enabled
 - Use lite mode (-l) for quick reconnaissance
 - Consider using skip flags for targeted scanning
-- MongoDB integration provides persistent storage of findings
+- SQLite database provides persistent storage of findings
 - SecurityTrails API integration enhances subdomain discovery (API key required)
 - GF patterns provide efficient vulnerability pattern matching 
