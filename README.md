@@ -29,6 +29,10 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
 - PUT method scanning
 - Discord integration for notifications
 - SecurityTrails API integration (optional)
+- Company monitoring integration
+- JavaScript file monitoring
+- Fast reconnaissance mode
+- Customizable scan modes
 
 ## Setup Instructions
 
@@ -63,13 +67,42 @@ An automated reconnaissance and vulnerability scanning tool that combines multip
 Create a file named `autoar.yaml` in the project root with the following content:
 
 ```yaml
-securitytrails: ""
-ywh: ""
-h1_token: ""
-h1_username: "0x88"
-webhook: ""
-save_to_db: true
-verbose: true
+WORDPRESS: []
+bevigil: []
+binaryedge: []
+urlscan: []
+bufferoverflow: []
+c99: []
+censys: []
+certspotter: []
+chaos: []
+chinaz: []
+dnsdb: []
+fofa: []
+fullhunt: []
+github: []
+intelx: []
+passivetotal: []
+quake: []
+robtex: []
+securitytrails: []
+shodan: []
+threatbook: []
+virustotal: []
+whoisxmlapi: []
+zoomeye: []
+zoomeyeapi: []
+dnsrepo: []
+hunter: []
+H1_API_KEY: ""
+INTEGRITI_API_KEY: ""
+MONGO_URI:  ""
+DISCORD_WEBHOOK:  ""
+SAVE_TO_DB: true
+VERBOSE: true
+DB_NAME:  "autoar"
+DOMAINS_COLLECTION:  ""
+SUBDOMAINS_COLLECTION:  ""
 ```
 
 - The script will automatically load `autoar.yaml` from the project root
@@ -101,19 +134,43 @@ The project uses SQLite for data storage. You can manage the database using the 
 
 ## Usage
 
+### Available Subcommands:
+
+```bash
+domain      Full scan mode (customizable with skip flags)
+subdomain   Scan a single subdomain
+liteScan    Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)
+fastLook    Fast look (subenum, live subdomains, collect urls, tech detect, cname checker)
+jsMonitor   Monitor JS files for a domain or single subdomain and alert on changes
+monitor     Run the Python monitoring script
+help        Show help message
+```
+
 ### Basic Usage:
 ```bash
-./autoAr.sh -d example.com
+./autoAr.sh domain -d example.com
 ```
 
 ### Single Subdomain Scan:
 ```bash
-./autoAr.sh -s subdomain.example.com
+./autoAr.sh subdomain -s subdomain.example.com
 ```
 
 ### Lite Mode (Quick Scan):
 ```bash
-./autoAr.sh -d example.com -l
+./autoAr.sh liteScan -d example.com
+```
+
+### Fast Look Mode:
+```bash
+./autoAr.sh fastLook -d example.com
+```
+
+### JavaScript Monitoring:
+```bash
+./autoAr.sh jsMonitor -d example.com
+# or for a single subdomain
+./autoAr.sh jsMonitor -s sub.example.com
 ```
 
 ### Available Options:
@@ -130,6 +187,78 @@ Options:
     -sd, --skip-dalfox         Skip Dalfox XSS scanning
     -dw, --discord-webhook     Discord webhook URL for notifications
     -sk, --securitytrails-key  SecurityTrails API key for additional subdomain enumeration
+```
+
+## Company Monitoring Integration
+
+AutoAR supports integration with custom company monitoring scripts. You can create your own Python script to monitor specific companies and integrate it with AutoAR. The monitoring script should:
+
+1. Be placed in the project root directory
+2. Follow the naming convention `monitor-*.py`
+3. Implement Discord webhook integration for notifications
+4. Use the configuration from `autoar.yaml`
+
+Example monitoring script structure:
+```python
+#!/usr/bin/env python3
+import requests
+import time
+import sys
+import os
+import logging
+from bs4 import BeautifulSoup
+import json
+import argparse
+
+# Use the same config file as AutoAR
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "autoar.yaml")
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+def get_discord_webhook():
+    # Load from autoar.yaml
+    try:
+        import yaml
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, "r") as f:
+                config = yaml.safe_load(f)
+                return config.get("DISCORD_WEBHOOK")
+    except Exception as e:
+        logging.error(f"Error loading config: {e}")
+        return None
+
+def send_discord_message(content):
+    webhook_url = get_discord_webhook()
+    if not webhook_url:
+        logging.error("Discord webhook not configured")
+        return
+    data = {"content": content}
+    try:
+        requests.post(webhook_url, json=data)
+    except Exception as e:
+        logging.error(f"Failed to send Discord message: {e}")
+
+# Your monitoring logic here
+def monitor_company():
+    # Implement your monitoring logic
+    pass
+
+if __name__ == "__main__":
+    monitor_company()
+```
+
+To use your custom monitoring script:
+```bash
+./autoAr.sh monitor
+# or for specific company
+./autoAr.sh monitor -c company_name
+# or monitor all companies
+./autoAr.sh monitor --all
 ```
 
 ## Output Structure
@@ -188,6 +317,7 @@ The tool will send:
 - Vulnerability findings
 - Port scan results
 - Fuzzing results
+- Company monitoring alerts
 
 ## Notes
 - All log and status messages appear in your terminal with color and emoji formatting
@@ -198,4 +328,7 @@ The tool will send:
 - Consider using skip flags for targeted scanning
 - SQLite database provides persistent storage of findings
 - SecurityTrails API integration enhances subdomain discovery (API key required)
-- GF patterns provide efficient vulnerability pattern matching 
+- GF patterns provide efficient vulnerability pattern matching
+- Create custom monitoring scripts to track specific companies
+- Use the fast look mode for quick initial reconnaissance
+- JavaScript monitoring helps track changes in JS files 
