@@ -22,6 +22,7 @@ cnm.log
 *.db
 *.sqlite
 *.sqlite3
+autoar.sqlite
 
 # Temporary files
 *.tmp
@@ -88,7 +89,6 @@ cnm.sh.bak
 setup.sh.bak
 db_handler.sh.bak
 mongo_db_handler.py.bak
-*.py
 *.log
 *.txt
 *.json
@@ -102,3 +102,6 @@ secrets.conf
 # Config files
 autoar.conf
 autoar.yaml
+
+# Monitoring scripts
+monitor-comapany.py
