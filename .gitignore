@@ -114,3 +114,5 @@ autoar.yaml
 
 # Monitoring scripts
 monitor-comapany.py
+# Ignore apkX project
+apkX/
