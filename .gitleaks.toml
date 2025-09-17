@@ -1,0 +1,23 @@
+title = "AutoAR gitleaks config"
+
+[allowlist]
+paths = [
+  "autoar.sample.yaml",
+  "**/README.md",
+  "**/DEMO.md",
+]
+
+[[rules]]
+id = "discord-webhook"
+regex = '''https://discord\.com/api/webhooks/[0-9A-Za-z_-]+/[0-9A-Za-z_-]+'''
+keywords = ["discord", "webhook"]
+
+[[rules]]
+id = "generic-api-key"
+regex = '''(?i)(api[_-]?key|secret|token)\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]'''
+
+[[rules]]
+id = "mongo-uri"
+regex = '''mongodb(\+srv)?:\/\/[^\s]+'''
+
+

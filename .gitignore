@@ -116,3 +116,6 @@ autoar.yaml
 monitor-comapany.py
 # Ignore apkX project
 apkX/
+
+# Ignore large mobile packages
+*.xapk
