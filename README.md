@@ -2,7 +2,7 @@
 
 An automated reconnaissance and vulnerability scanning tool that combines multiple tools for comprehensive web application security assessment, with integrated SQLite storage for findings.
 
-<img width="1271" height="1162" alt="image" src="https://github.com/user-attachments/assets/0a08b273-07c2-42b0-ada4-ab15099af700" />
+<img width="1253" height="894" alt="image" src="https://github.com/user-attachments/assets/f139409c-c27d-4c6b-a0c3-218f8f9825d8" />
 
 
 ## What’s new (Web UI)
