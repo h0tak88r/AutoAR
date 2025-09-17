@@ -1,0 +1,41 @@
+id: kibana-internal-msearch
+
+info:
+  name: Kibana Internal _msearch Endpoint Access
+  author: drakenkun
+  severity: medium
+  description: |
+    Attempts to access Kibana's internal _msearch endpoint with a basic match_all query.
+  tags: kibana,unauth,exposure
+
+http:
+  - method: POST
+    path:
+      - "{{BaseURL}}/internal/_msearch"
+
+    headers:
+      Kbn-Version: 8.0.0-SNAPSHOT
+      Content-Type: application/json
+      Accept: "*/*"
+
+    body: |
+      {"searches":[
+        {
+          "header": { "index": "*" },
+          "body": { "size": 500, "query": { "match_all": {} }, "_source": false }
+        }
+      ]}
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - '"hits"'
+          - '"status"'
+        condition: and
+
+    extractors:
+      - type: json
+        part: body
+        json:
+          - ".responses"

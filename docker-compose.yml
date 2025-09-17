@@ -1,0 +1,18 @@
+version: '3.9'
+services:
+  autoar-web:
+    build:
+      context: .
+      dockerfile: autoar-web/Dockerfile
+    image: autoar-web:dev
+    container_name: autoar-web
+    environment:
+      - PORT=8888
+      - AUTOAR_CONFIG=/srv/config/autoar.yaml
+      - APKX_ROOT=/srv
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./autoar-web/web-data:/srv/web-data
+      - ./autoar.yaml:/srv/config/autoar.yaml:ro
+    restart: unless-stopped

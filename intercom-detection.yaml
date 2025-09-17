@@ -1,0 +1,19 @@
+id: intercom-detect
+info:
+  name: Intercom Widget Detection
+  author: yourname
+  severity: info
+  tags: tech,intercom
+
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+    matchers-condition: or
+    matchers:
+      - type: word
+        words:
+          - "widget.intercom.io"
+      - type: word
+        words:
+          - "intercomSettings"
