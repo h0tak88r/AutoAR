@@ -14,6 +14,7 @@ CONFIG=(
     [RESULTS_DIR]="cnm_results"
     [SUBDOMAINS_FILE]="subdomains.txt"
     [MATCHES_FILE]="cnm_matches.txt"
+    [NUCLEI_TEMPLATES]="/home/sallam/AutoAR/nuclei-templates"  # Default nuclei templates directory
 )
 
 # Global variables
@@ -24,6 +25,12 @@ TARGET=""
 DOMAIN_FILE=""
 CNAME_FILTERS=()
 SUBDOMAINS_INPUT_FILE=""
+
+# Add new global variables
+NUCLEI_TEMPLATE=""
+NUCLEI_SEVERITY=""
+NUCLEI_RATE_LIMIT="150"
+NUCLEI_CONCURRENCY="25"
 
 # ======================
 # Utility Functions
@@ -340,7 +347,7 @@ record_cname_match() {
     printf "%s\n" "$finding" >> "${CONFIG[RESULTS_DIR]}/${CONFIG[MATCHES_FILE]}"
     
     if [[ -n "${CONFIG[DISCORD_WEBHOOK]}" && "$SEND_INDIVIDUAL" == "true" ]]; then
-        send_message_to_discord "$finding"
+        echo "[CNAME] $finding" | notify -p discord
     fi
 }
 
@@ -439,27 +446,7 @@ process_domains_file() {
 # Discord Integration
 # ======================
 
-send_message_to_discord() {
-    local message="$1"
-    
-    if [[ -z "${CONFIG[DISCORD_WEBHOOK]}" ]]; then
-        debug "Discord webhook not configured, skipping notification"
-        return
-    fi
-
-    local webhook_url="${CONFIG[DISCORD_WEBHOOK]}"
-    webhook_url=$(echo "$webhook_url" | sed 's/^\[*https\?:\/\///g' | sed 's/\]*$//g')
-    
-    local result=$(curl -s -H "Content-Type: application/json" \
-                       -d "{\"content\": \"$message\"}" \
-                       "https://$webhook_url" 2>&1)
-    
-    if [[ $? -eq 0 ]]; then
-        debug "Successfully sent Discord message"
-    else
-        error "Failed to send Discord message: $result"
-    fi
-}
+# Remove the old send_message_to_discord function since we're using notify now
 
 # ======================
 # Command Handlers
@@ -623,6 +610,173 @@ handle_check_cname_command() {
     fi
 }
 
+# Add new function for nuclei scanning
+run_nuclei_scan() {
+    local target="$1"
+    local dir="${CONFIG[RESULTS_DIR]}/$target"
+    local subdomains_file="$dir/subs/all-subs.txt"
+    local nuclei_output="$dir/nuclei_results.txt"
+    
+    log "[+] Starting nuclei scan for $target"
+    
+    # Check if we have subdomains to scan
+    if [[ ! -s "$subdomains_file" ]]; then
+        log "[-] No subdomains found to scan in $subdomains_file"
+        return 1
+    fi
+    
+    # Get the number of subdomains to scan
+    local sub_count=$(wc -l < "$subdomains_file" | tr -d ' ')
+    log "[+] Running nuclei scan on $sub_count subdomains for $target"
+    
+    # Build the pipeline command
+    local pipeline_cmd="cat $subdomains_file | httpx -silent"
+    
+    # Add template if specified
+    if [[ -n "$NUCLEI_TEMPLATE" ]]; then
+        if [[ -f "$NUCLEI_TEMPLATE" ]]; then
+            pipeline_cmd="$pipeline_cmd | nuclei -t $NUCLEI_TEMPLATE"
+        elif [[ -d "$NUCLEI_TEMPLATE" ]]; then
+            pipeline_cmd="$pipeline_cmd | nuclei -t $NUCLEI_TEMPLATE"
+        else
+            error "Template not found: $NUCLEI_TEMPLATE"
+            return 1
+        fi
+    fi
+    
+    # Add severity if specified
+    if [[ -n "$NUCLEI_SEVERITY" ]]; then
+        pipeline_cmd="$pipeline_cmd -severity $NUCLEI_SEVERITY"
+    fi
+    
+    # Add rate limit and concurrency
+    pipeline_cmd="$pipeline_cmd -c $NUCLEI_CONCURRENCY"
+    
+    # Always add notify to discord at the end of the pipeline
+    pipeline_cmd="$pipeline_cmd | notify -p discord"
+    
+    # Run the pipeline and save output
+    log "[+] Running pipeline: $pipeline_cmd"
+    eval "$pipeline_cmd" | tee "$nuclei_output"
+    
+    # Check if we found any results
+    if [[ -s "$nuclei_output" ]]; then
+        local findings=$(wc -l < "$nuclei_output" | tr -d ' ')
+        log "[+] Found $findings potential vulnerabilities"
+    else
+        log "[+] No vulnerabilities found"
+    fi
+    
+    log "[+] Nuclei scan completed for $target"
+    return 0
+}
+
+# Add new command handler
+handle_nuclei_scan_command() {
+    # Parse nuclei-scan-specific options
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -d|--domain)
+                TARGET="$2"
+                shift 2
+                ;;
+            -l|--file)
+                DOMAIN_FILE="$2"
+                shift 2
+                ;;
+            -t|--template)
+                NUCLEI_TEMPLATE="$2"
+                shift 2
+                ;;
+            -s|--severity)
+                NUCLEI_SEVERITY="$2"
+                shift 2
+                ;;
+            -r|--rate-limit)
+                NUCLEI_RATE_LIMIT="$2"
+                shift 2
+                ;;
+            -c|--concurrency)
+                NUCLEI_CONCURRENCY="$2"
+                shift 2
+                ;;
+            --send-individual)
+                SEND_INDIVIDUAL=true
+                shift
+                ;;
+            *)
+                error "Unknown option for nuclei-scan command: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Validate template
+    if [[ -z "$NUCLEI_TEMPLATE" ]]; then
+        error "Template not specified. Use -t option."
+        show_help
+        exit 1
+    fi
+    
+    if [[ -n "$TARGET" ]]; then
+        # Single domain mode
+        setup_results_dir "$TARGET"
+        collect_subdomains "$TARGET"
+        run_nuclei_scan "$TARGET"
+    elif [[ -n "$DOMAIN_FILE" ]]; then
+        # Multiple domains mode
+        local domain_count=$(grep -v '^#' "$DOMAIN_FILE" | grep -v '^$' | wc -l)
+        log "[+] Processing $domain_count domains from $DOMAIN_FILE"
+        
+        # Process each domain sequentially
+        while IFS= read -r domain || [[ -n "$domain" ]]; do
+            # Skip empty lines and comments
+            if [[ -z "$domain" || "$domain" =~ ^[[:space:]]*# ]]; then
+                continue
+            fi
+            
+            # Trim whitespace
+            domain=$(echo "$domain" | tr -d ' \t\r\n')
+            
+            # Skip if still empty after trimming
+            if [[ -z "$domain" ]]; then
+                continue
+            fi
+            
+            log "[+] Processing domain: $domain"
+            
+            # Setup directory and collect subdomains
+            if setup_results_dir "$domain"; then
+                # Collect subdomains for this domain
+                log "[+] Collecting subdomains for $domain"
+                collect_subdomains "$domain"
+                
+                # Get the number of subdomains found
+                local subs_file="${CONFIG[RESULTS_DIR]}/$domain/subs/all-subs.txt"
+                if [[ -f "$subs_file" ]]; then
+                    local sub_count=$(wc -l < "$subs_file" | tr -d ' ')
+                    log "[+] Found $sub_count subdomains for $domain"
+                    
+                    # Run nuclei scan only on this domain's subdomains
+                    log "[+] Starting nuclei scan for $domain's subdomains"
+                    run_nuclei_scan "$domain"
+                else
+                    log "[-] No subdomains file found for $domain"
+                    continue
+                fi
+            else
+                log "[-] Failed to setup directory for domain: $domain"
+                continue
+            fi
+        done < "$DOMAIN_FILE"
+    else
+        error "No input specified. Use -d or -l option."
+        show_help
+        exit 1
+    fi
+}
+
 # ======================
 # Help Function
 # ======================
@@ -637,6 +791,7 @@ show_help() {
             collect         Collect subdomains and save to SQLite database
             scan           Full scan: collect subdomains, check CNAMEs, and process results
             check-cname    Only check CNAMEs for given domains/subdomains
+            nuclei-scan    Collect subdomains and run nuclei scan
             help           Show this help message
 
         Common Options:
@@ -659,11 +814,20 @@ show_help() {
             -f, --filter FILTERS     Comma-separated list of CNAME filters
             --send-individual        Send individual results for each domain
 
+        Nuclei-Scan Command Options:
+            -t, --template PATH      Path to nuclei template or directory
+            -s, --severity LEVEL     Severity level (critical,high,medium,low,info)
+            -r, --rate-limit NUM     Rate limit for requests (default: 150)
+            -c, --concurrency NUM    Number of concurrent requests (default: 25)
+            --send-individual        Send individual results to Discord
+
         Examples:
             $0 collect -d example.com
             $0 collect -l domains.txt
             $0 scan -l domains.txt --filter zendesk,freshdesk
             $0 check-cname -s subdomains.txt -f zendesk
+            $0 nuclei-scan -d example.com -t /path/to/template.yaml
+            $0 nuclei-scan -l domains.txt -t /path/to/templates/dir -s high
 EOF
 }
 
@@ -698,7 +862,7 @@ main() {
     
     # Show configuration with sensitive info for operational commands
     case "$command" in
-        collect|scan|check-cname)
+        collect|scan|check-cname|nuclei-scan)
             print_config true  # Show sensitive info for operational commands
             ;;
         *)
@@ -716,6 +880,9 @@ main() {
             ;;
         check-cname)
             handle_check_cname_command "$@"
+            ;;
+        nuclei-scan)
+            handle_nuclei_scan_command "$@"
             ;;
         *)
             error "Unknown command: $command"

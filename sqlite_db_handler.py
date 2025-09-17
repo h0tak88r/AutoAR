@@ -61,6 +61,8 @@ Commands:
     list_domains                            List all domains
     list_domains_stats                      List all domains with their subdomain counts
     get_subdomains <domain>                 Get all subdomains for a domain
+    get_subdomains_multi <domain1> [domain2] [domain3] ... Get subdomains for multiple domains
+    get_subdomains_file <file>              Get subdomains for all domains listed in a file
     get_all_subdomains                      Get all subdomains from database
     delete_domain <domain>                  Delete a domain and all its subdomains
     add_jsfiles <domain> <jsfile_list.json> Add or update JS files for a domain
@@ -161,6 +163,73 @@ def get_subdomains(domain: str):
     for row in cur.fetchall():
         print(row['subdomain'])
     conn.close()
+
+def get_subdomains_multi(domains: List[str]):
+    """Get subdomains for multiple domains"""
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Get all domain IDs for the provided domains
+    placeholders = ','.join(['?' for _ in domains])
+    cur.execute(f'SELECT id, domain FROM domains WHERE domain IN ({placeholders})', domains)
+    domain_map = {row['domain']: row['id'] for row in cur.fetchall()}
+    
+    # Check for missing domains
+    missing_domains = [d for d in domains if d not in domain_map]
+    if missing_domains:
+        print(f"Warning: The following domains were not found: {', '.join(missing_domains)}")
+    
+    if not domain_map:
+        print("No valid domains found.")
+        conn.close()
+        return
+    
+    # Get subdomains for all found domains
+    domain_ids = list(domain_map.values())
+    placeholders = ','.join(['?' for _ in domain_ids])
+    cur.execute(f'''
+        SELECT d.domain, s.subdomain 
+        FROM subdomains s 
+        JOIN domains d ON s.domain_id = d.id 
+        WHERE d.id IN ({placeholders})
+        ORDER BY d.domain, s.subdomain
+    ''', domain_ids)
+    
+    current_domain = None
+    for row in cur.fetchall():
+        if row['domain'] != current_domain:
+            if current_domain is not None:
+                print()  # Add blank line between domains
+            print(f"Domain: {row['domain']}")
+            print("-" * (len(row['domain']) + 8))
+            current_domain = row['domain']
+        print(f"  {row['subdomain']}")
+    
+    conn.close()
+
+def get_subdomains_file(file_path: str):
+    """Get subdomains for all domains listed in a file"""
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}")
+        return
+    
+    # Read domains from file
+    domains = []
+    with open(file_path, 'r') as f:
+        for line in f:
+            domain = line.strip()
+            if domain and not domain.startswith('#'):  # Skip empty lines and comments
+                domains.append(domain)
+    
+    if not domains:
+        print(f"No valid domains found in file: {file_path}")
+        return
+    
+    print(f"Processing {len(domains)} domains from file: {file_path}")
+    print("=" * 60)
+    
+    # Use the existing multi-domain function
+    get_subdomains_multi(domains)
 
 def get_all_subdomains():
     conn = get_conn()
@@ -292,6 +361,11 @@ def main():
             list_domains_stats()
         elif cmd == "get_subdomains" and len(sys.argv) == 3:
             get_subdomains(sys.argv[2])
+        elif cmd == "get_subdomains_multi" and len(sys.argv) > 2:
+            domains_to_get = sys.argv[2:]
+            get_subdomains_multi(domains_to_get)
+        elif cmd == "get_subdomains_file" and len(sys.argv) == 3:
+            get_subdomains_file(sys.argv[2])
         elif cmd == "get_all_subdomains":
             get_all_subdomains()
         elif cmd == "delete_domain" and len(sys.argv) == 3:

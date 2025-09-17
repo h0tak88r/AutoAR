@@ -1027,10 +1027,12 @@ run_nuclei_scans() {
     log INFO "Nuclei Scanning"
     if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
         nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei_templates/cves/ -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
         nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
     else
-        nuclei -l "$domain_dir/subs/live-subs.txt" -s low,medium,high,critical -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
-        nuclei -l "$domain_dir/subs/live-subs.txt" -s low,medium,high,critical -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -l "$domain_dir/subs/live-subs.txt"  -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -l "$domain_dir/subs/live-subs.txt"  -t nuclei_templates/cves/ -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -l "$domain_dir/subs/live-subs.txt"  -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
     fi
     if [[ -s "$domain_dir/vulnerabilities/nuclei_templates-results.txt" && -n "$DISCORD_WEBHOOK" ]]; then
         send_file_to_discord "$domain_dir/vulnerabilities/nuclei_templates-results.txt" "Collected Templates Nuclei Scans Results"
@@ -1322,6 +1324,14 @@ js_monitor() {
     local js_url_count=$(wc -l < "$js_urls_file")
     log INFO "[jsMonitor] Found $js_url_count JS URLs in this scan."
 
+    # Create files for tracking old and new findings
+    local old_findings="$tmp_dir/old_findings.txt"
+    local new_findings="$tmp_dir/new_findings.txt"
+    local all_findings="$tmp_dir/all_findings.txt"
+    > "$old_findings"
+    > "$new_findings"
+    > "$all_findings"
+
     # Get previous JS file info from DB
     local prev_file="$tmp_dir/prev_jsfiles.json"
     log INFO "[jsMonitor] Fetching previous JS file metadata from database..."
@@ -1354,9 +1364,14 @@ js_monitor() {
         else
             size_diff=$(( clen > prev_size ? clen - prev_size : prev_size - clen ))
         fi
+
+        # Add to all findings
+        echo "$jsurl" >> "$all_findings"
+
         if [[ -z "$prev_size" ]]; then
             log INFO "[jsMonitor] New JS file detected: $jsurl (size: $clen bytes)"
             echo "$jsurl" >> "$changed_js_urls"
+            echo "$jsurl" >> "$new_findings"
             ((changed_count++))
             if [[ $first -eq 0 ]]; then echo ',' >> "$tmp_dir/jsfile_list.json"; fi
             echo -n '{' >> "$tmp_dir/jsfile_list.json"
@@ -1366,6 +1381,7 @@ js_monitor() {
         elif [[ $size_diff -gt 20 ]]; then
             log INFO "[jsMonitor] Changed JS file detected: $jsurl (old size: $prev_size, new size: $clen, diff: $size_diff bytes)"
             echo "$jsurl" >> "$changed_js_urls"
+            echo "$jsurl" >> "$new_findings"
             ((changed_count++))
             if [[ $first -eq 0 ]]; then echo ',' >> "$tmp_dir/jsfile_list.json"; fi
             echo -n '{' >> "$tmp_dir/jsfile_list.json"
@@ -1373,7 +1389,8 @@ js_monitor() {
             echo -n '}' >> "$tmp_dir/jsfile_list.json"
             first=0
         else
-            log INFO "[jsMonitor] Unchanged JS file: $jsurl (size: $clen bytes, previous: $prev_size bytes)"
+            # Add to old findings
+            echo "$jsurl" >> "$old_findings"
         fi
     done < "$js_urls_file"
     echo ']' >> "$tmp_dir/jsfile_list.json"
@@ -1385,6 +1402,39 @@ js_monitor() {
         scan_js_exposures "$DOMAIN_DIR" "$changed_js_urls"
         log INFO "[jsMonitor] Updating database with $changed_count new/changed JS files."
         ./sqlite_db_handler.py add_jsfiles "${subdomain:-$domain}" "$tmp_dir/jsfile_list.json"
+
+        # Use anew to get only new findings
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            # For each vulnerability type, use anew to get only new findings
+            for vuln_type in js xss sqli ssrf ssti lfi rce idor; do
+                local vuln_dir="$DOMAIN_DIR/vulnerabilities/$vuln_type"
+                if [[ -d "$vuln_dir" ]]; then
+                    for file in "$vuln_dir"/*.txt; do
+                        if [[ -f "$file" && -s "$file" ]]; then
+                            local filename=$(basename "$file")
+                            local old_file="$tmp_dir/old_${filename}"
+                            local new_file="$tmp_dir/new_${filename}"
+                            
+                            # Create old findings file if it doesn't exist
+                            touch "$old_file"
+                            
+                            # Use anew to get only new findings
+                            cat "$file" | anew "$old_file" > "$new_file"
+                            
+                            # If there are new findings, send to Discord
+                            if [[ -s "$new_file" ]]; then
+                                local new_count=$(wc -l < "$new_file")
+                                send_file_to_discord "$new_file" "[$vuln_type] Found $new_count new findings in $filename"
+                            fi
+                            
+                            # Update old findings file
+                            cat "$file" >> "$old_file"
+                            sort -u -o "$old_file" "$old_file"
+                        fi
+                    done
+                fi
+            done
+        fi
     fi
 
     rm -rf "$tmp_dir"
