@@ -10,9 +10,15 @@ services:
       - PORT=8888
       - AUTOAR_CONFIG=/srv/config/autoar.yaml
       - APKX_ROOT=/srv
+      - PATH=/root/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     ports:
       - "8888:8888"
     volumes:
       - ./autoar-web/web-data:/srv/web-data
       - ./autoar.yaml:/srv/config/autoar.yaml:ro
+      - ./results:/srv/results
+      - ./Wordlists:/srv/Wordlists
+      - ./regexes:/srv/regexes
+      - ./nuclei_templates:/srv/nuclei_templates
+      - ./nuclei-templates:/srv/nuclei-templates
     restart: unless-stopped
