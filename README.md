@@ -2,6 +2,8 @@
 
 An automated reconnaissance and vulnerability scanning tool that combines multiple tools for comprehensive web application security assessment, with integrated SQLite storage for findings.
 
+<img width="1253" height="894" alt="AutoAR Web Portal" src="https://github.com/user-attachments/assets/f139409c-c27d-4c6b-a0c3-218f8f9825d8" />
+
 ## What's new (v2.0.0) - Web Portal & Dockerization
 - **🌐 Modern Web Portal** at `autoar-web/`
   - Async job queue with live status updates
