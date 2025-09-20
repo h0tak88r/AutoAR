@@ -2,16 +2,25 @@
 
 An automated reconnaissance and vulnerability scanning tool that combines multiple tools for comprehensive web application security assessment, with integrated SQLite storage for findings.
 
-## What’s new (Web UI)
-- Modern web portal at `autoar-web/`
-  - Async job queue with live status
-  - Cancel running jobs
-  - HTML report per scan (`/reports/<scan_id>/report.html`)
+## What's new (v2.0.0) - Web Portal & Dockerization
+- **🌐 Modern Web Portal** at `autoar-web/`
+  - Async job queue with live status updates
+  - Cancel running jobs with one click
+  - HTML report generation per scan (`/reports/<scan_id>/report.html`)
   - Browse raw logs and copied artefacts
-  - Delete scan result (removes all files)
-- Smart tool-root detection (no apkx coupling)
-- Safer repo (secrets ignored, gitleaks CI)
-- Docker/Compose and GitHub Actions release
+  - Delete scan results (removes all files)
+  - Real-time progress monitoring
+- **🐳 Full Dockerization Support**
+  - Complete Docker image with all recon tools
+  - Docker Compose for easy deployment
+  - Smart config path detection
+  - Volume mounting for persistent data
+- **🔧 Enhanced Features**
+  - Smart tool-root detection (no external dependencies)
+  - Safer repository (secrets ignored, gitleaks CI)
+  - GitHub Actions for automated releases
+  - Multi-platform binary builds
+  - Comprehensive error handling
 
 ## Quick start (Web UI, native)
 ```bash
@@ -35,31 +44,37 @@ All subcommands remain available through `autoAr.sh`.
 ./autoAr.sh domain   -d example.com
 ```
 
-## Docker (UI-only image)
-The image serves the web UI. It doesn’t include recon tools inside the container by default. Use it to browse results or drive scans that run on the host (artefacts will appear in mounted web-data).
+## Docker (Complete Solution)
+The Docker image includes the web UI AND all recon tools, making it a complete solution for reconnaissance.
 
-Build:
+### Quick Start with Docker Compose
+```bash
+cd /home/sallam/AutoAR
+docker compose up --build -d
+# Open http://localhost:8888
+```
+
+### Manual Docker Build
 ```bash
 docker build -t autoar-web -f autoar-web/Dockerfile .
 ```
-Run (recommended mounts):
+
+### Docker Run (Complete)
 ```bash
 docker run --rm -p 8888:8888 \
   -v "$(pwd)/autoar-web/web-data:/srv/web-data" \
   -v "$(pwd)/autoar.yaml:/srv/config/autoar.yaml:ro" \
+  -v "$(pwd)/results:/srv/results" \
+  -v "$(pwd)/Wordlists:/srv/Wordlists" \
+  -v "$(pwd)/regexes:/srv/regexes" \
+  -v "$(pwd)/nuclei_templates:/srv/nuclei_templates" \
   autoar-web
-# Open http://localhost:8888
 ```
-Run (full repo mounted – lets the container see autoAr.sh path, still UI-only):
-```bash
-docker run --rm -p 8888:8888 \
-  -v "$(pwd):/srv" \
-  autoar-web -root /srv/autoar-web -config /srv/autoar.yaml -addr :8888
-```
-Environment/flags:
-- `PORT` or `-addr`
-- `AUTOAR_CONFIG` or `-config` (default `/srv/config/autoar.yaml` in Docker)
-- `AUTOAR_ROOT` or auto-detect (uses config dir, upward search for `autoAr.sh`, `$HOME/AutoAR`, etc.)
+
+### Environment Variables
+- `PORT` or `-addr` (default: 8888)
+- `AUTOAR_CONFIG` or `-config` (default: `/srv/config/autoar.yaml`)
+- `APKX_ROOT` (default: `/srv`)
 
 ## Docker Compose
 Compose is provided to avoid buildx and simplify local runs.

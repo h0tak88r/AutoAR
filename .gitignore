@@ -15,6 +15,7 @@ massdns/
 subOv88r/
 urldedupe/
 massdns/
+autoar.yaml
 */
 **/
 ffuf/
@@ -119,3 +120,34 @@ apkX/
 
 # Ignore large mobile packages
 *.xapk
+
+# Ignore virtual environments
+venv/
+env/
+.env/
+
+# Ignore large wordlists and dictionaries
+rockyou.txt
+*.txt.gz
+*.zip
+
+# Ignore temporary and cache files
+*.tmp
+*.temp
+*.cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Ignore IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore OS files
+.DS_Store
+Thumbs.db

@@ -8,8 +8,16 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Path to YAML config
-CONFIG_FILE="/home/sallam/AutoAR/autoar.yaml"
+# Path to YAML config - detect based on environment
+if [[ -n "$AUTOAR_CONFIG" ]]; then
+    CONFIG_FILE="$AUTOAR_CONFIG"
+elif [[ -f "/srv/config/autoar.yaml" ]]; then
+    CONFIG_FILE="/srv/config/autoar.yaml"
+elif [[ -f "/home/sallam/AutoAR/autoar.yaml" ]]; then
+    CONFIG_FILE="/home/sallam/AutoAR/autoar.yaml"
+else
+    CONFIG_FILE="autoar.yaml"
+fi
 
 # Helper to get a value from YAML using yq
 yaml_get() {
