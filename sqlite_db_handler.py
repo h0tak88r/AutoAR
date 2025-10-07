@@ -1,398 +1,459 @@
 #!/usr/bin/env python3
-import sys
+"""
+SQLite Database Handler for AutoAR
+Manages domains, subdomains, and JS file URLs storage
+"""
+
 import sqlite3
-import os
 import json
-from typing import List, Dict
+import sys
+import os
+from datetime import datetime
+from typing import List, Dict, Any, Optional
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'autoar.sqlite')
-
-# --- Schema ---
-SCHEMA = [
-    '''CREATE TABLE IF NOT EXISTS domains (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        domain TEXT UNIQUE NOT NULL
-    )''',
-    '''CREATE TABLE IF NOT EXISTS subdomains (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        domain_id INTEGER NOT NULL,
-        subdomain TEXT NOT NULL,
-        UNIQUE(domain_id, subdomain),
-        FOREIGN KEY(domain_id) REFERENCES domains(id) ON DELETE CASCADE
-    )''',
-    '''CREATE TABLE IF NOT EXISTS jsfiles (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        domain_id INTEGER NOT NULL,
-        url TEXT NOT NULL,
-        size INTEGER,
-        last_seen TEXT,
-        meta TEXT,
-        UNIQUE(domain_id, url),
-        FOREIGN KEY(domain_id) REFERENCES domains(id) ON DELETE CASCADE
-    )'''
-]
-
-# --- DB Helper ---
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-    for stmt in SCHEMA:
-        cur.execute(stmt)
-    conn.commit()
-    conn.close()
-
-# --- CLI ---
-def show_help():
-    print('''\
-SQLite DB Handler - Manage domains and subdomains
-
-Usage:
-    ./sqlite_db_handler.py <command> [arguments]
-
-Commands:
-    add_domain <domain>                     Add a single domain
-    add_subdomain <domain> <subdomain>      Add a single subdomain to a domain
-    add_subdomains_file <domain> <file>     Add multiple subdomains from a file
-    list_domains                            List all domains
-    list_domains_stats                      List all domains with their subdomain counts
-    get_subdomains <domain>                 Get all subdomains for a domain
-    get_subdomains_multi <domain1> [domain2] [domain3] ... Get subdomains for multiple domains
-    get_subdomains_file <file>              Get subdomains for all domains listed in a file
-    get_all_subdomains                      Get all subdomains from database
-    delete_domain <domain>                  Delete a domain and all its subdomains
-    add_jsfiles <domain> <jsfile_list.json> Add or update JS files for a domain
-    get_jsfiles <domain>                    Get all JS file records for a domain
-    list_jsfiles <domain>                   List all JS files for a domain
-    get_jsfile <domain> <url>               Get a specific JS file record for a domain
-    update_jsfile <domain> <url> <meta>     Update a specific JS file record for a domain
-    help                                    Show this help message
-''')
-
-# --- Domain Functions ---
-def add_domain(domain: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute('INSERT OR IGNORE INTO domains(domain) VALUES (?)', (domain,))
-        conn.commit()
-        print(f"Added domain: {domain}")
-    except Exception as e:
-        print(f"Error adding domain: {e}")
-    finally:
-        conn.close()
-
-def get_domain_id(domain: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT id FROM domains WHERE domain=?', (domain,))
-    row = cur.fetchone()
-    conn.close()
-    return row['id'] if row else None
-
-def add_subdomain(domain: str, subdomain: str):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        add_domain(domain)
-        domain_id = get_domain_id(domain)
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute('INSERT OR IGNORE INTO subdomains(domain_id, subdomain) VALUES (?, ?)', (domain_id, subdomain))
-        conn.commit()
-        print(f"Added subdomain: {subdomain} to domain: {domain}")
-    except Exception as e:
-        print(f"Error adding subdomain: {e}")
-    finally:
-        conn.close()
-
-def add_subdomains_file(domain: str, file_path: str):
-    if not os.path.exists(file_path):
-        print(f"File not found: {file_path}")
-        return
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        add_domain(domain)
-        domain_id = get_domain_id(domain)
-    conn = get_conn()
-    cur = conn.cursor()
-    count = 0
-    with open(file_path, 'r') as f:
-        for line in f:
-            subdomain = line.strip()
-            if subdomain:
+class AutoARDatabase:
+    def __init__(self, db_path: str = "autoar.db"):
+        """Initialize database connection and create tables if they don't exist"""
+        self.db_path = db_path
+        self.init_database()
+    
+    def init_database(self):
+        """Create database tables if they don't exist"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Create domains table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS domains (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_scan TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    scan_count INTEGER DEFAULT 0
+                )
+            ''')
+            
+            # Create subdomains table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS subdomains (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain_id INTEGER,
+                    subdomain TEXT NOT NULL,
+                    is_live BOOLEAN DEFAULT FALSE,
+                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (domain_id) REFERENCES domains (id),
+                    UNIQUE(domain_id, subdomain)
+                )
+            ''')
+            
+            # Create js_files table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS js_files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain_id INTEGER,
+                    url TEXT NOT NULL,
+                    size INTEGER DEFAULT 0,
+                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (domain_id) REFERENCES domains (id),
+                    UNIQUE(domain_id, url)
+                )
+            ''')
+            
+            # Create scan_history table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS scan_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain_id INTEGER,
+                    scan_type TEXT NOT NULL,
+                    scan_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    subdomains_found INTEGER DEFAULT 0,
+                    js_files_found INTEGER DEFAULT 0,
+                    vulnerabilities_found INTEGER DEFAULT 0,
+                    FOREIGN KEY (domain_id) REFERENCES domains (id)
+                )
+            ''')
+            
+            # Create indexes for better performance
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_subdomains_domain ON subdomains(domain_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_js_files_domain ON js_files(domain_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_scan_history_domain ON scan_history(domain_id)')
+            
+            conn.commit()
+    
+    def get_or_create_domain(self, domain: str) -> int:
+        """Get domain ID or create new domain entry"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Try to get existing domain
+            cursor.execute('SELECT id FROM domains WHERE domain = ?', (domain,))
+            result = cursor.fetchone()
+            
+            if result:
+                domain_id = result[0]
+                # Update last_scan and scan_count
+                cursor.execute('''
+                    UPDATE domains 
+                    SET last_scan = CURRENT_TIMESTAMP, scan_count = scan_count + 1 
+                    WHERE id = ?
+                ''', (domain_id,))
+                return domain_id
+            else:
+                # Create new domain
+                cursor.execute('INSERT INTO domains (domain) VALUES (?)', (domain,))
+                return cursor.lastrowid
+    
+    def add_subdomains_file(self, domain: str, subdomains_file: str):
+        """Add subdomains from file to database"""
+        if not os.path.exists(subdomains_file):
+            print(f"Error: Subdomains file {subdomains_file} not found")
+            return
+        
+        domain_id = self.get_or_create_domain(domain)
+        subdomains_added = 0
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            with open(subdomains_file, 'r') as f:
+                for line in f:
+                    subdomain = line.strip()
+                    if not subdomain:
+                        continue
+                    
+                    try:
+                        cursor.execute('''
+                            INSERT OR REPLACE INTO subdomains 
+                            (domain_id, subdomain, last_seen) 
+                            VALUES (?, ?, CURRENT_TIMESTAMP)
+                        ''', (domain_id, subdomain))
+                        subdomains_added += 1
+                    except sqlite3.Error as e:
+                        print(f"Error adding subdomain {subdomain}: {e}")
+            
+            conn.commit()
+        
+        print(f"Added {subdomains_added} subdomains for domain {domain}")
+    
+    def add_subdomains_list(self, domain: str, subdomains: List[str]):
+        """Add subdomains from list to database"""
+        domain_id = self.get_or_create_domain(domain)
+        subdomains_added = 0
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            for subdomain in subdomains:
+                if not subdomain.strip():
+                    continue
+                
                 try:
-                    cur.execute('INSERT OR IGNORE INTO subdomains(domain_id, subdomain) VALUES (?, ?)', (domain_id, subdomain))
-                    count += 1
-                except Exception as e:
-                    print(f"Error adding subdomain: {subdomain}: {e}")
-    conn.commit()
-    conn.close()
-    print(f"Added {count} subdomains to domain: {domain}")
-
-def list_domains():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT domain FROM domains ORDER BY domain')
-    for row in cur.fetchall():
-        print(row['domain'])
-    conn.close()
-
-def list_domains_stats():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT d.domain, COUNT(s.id) as sub_count FROM domains d LEFT JOIN subdomains s ON d.id = s.domain_id GROUP BY d.id ORDER BY d.domain')
-    print(f"{'Domain':<40} {'Subdomains':<10}")
-    print('-' * 60)
-    for row in cur.fetchall():
-        print(f"{row['domain']:<40} {row['sub_count']:<10}")
-    conn.close()
-
-def get_subdomains(domain: str):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        print(f"Domain not found: {domain}")
-        return
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT subdomain FROM subdomains WHERE domain_id=? ORDER BY subdomain', (domain_id,))
-    for row in cur.fetchall():
-        print(row['subdomain'])
-    conn.close()
-
-def get_subdomains_multi(domains: List[str]):
-    """Get subdomains for multiple domains"""
-    conn = get_conn()
-    cur = conn.cursor()
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO subdomains 
+                        (domain_id, subdomain, last_seen) 
+                        VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ''', (domain_id, subdomain.strip()))
+                    subdomains_added += 1
+                except sqlite3.Error as e:
+                    print(f"Error adding subdomain {subdomain}: {e}")
+            
+            conn.commit()
+        
+        print(f"Added {subdomains_added} subdomains for domain {domain}")
     
-    # Get all domain IDs for the provided domains
-    placeholders = ','.join(['?' for _ in domains])
-    cur.execute(f'SELECT id, domain FROM domains WHERE domain IN ({placeholders})', domains)
-    domain_map = {row['domain']: row['id'] for row in cur.fetchall()}
-    
-    # Check for missing domains
-    missing_domains = [d for d in domains if d not in domain_map]
-    if missing_domains:
-        print(f"Warning: The following domains were not found: {', '.join(missing_domains)}")
-    
-    if not domain_map:
-        print("No valid domains found.")
-        conn.close()
-        return
-    
-    # Get subdomains for all found domains
-    domain_ids = list(domain_map.values())
-    placeholders = ','.join(['?' for _ in domain_ids])
-    cur.execute(f'''
-        SELECT d.domain, s.subdomain 
-        FROM subdomains s 
-        JOIN domains d ON s.domain_id = d.id 
-        WHERE d.id IN ({placeholders})
-        ORDER BY d.domain, s.subdomain
-    ''', domain_ids)
-    
-    current_domain = None
-    for row in cur.fetchall():
-        if row['domain'] != current_domain:
-            if current_domain is not None:
-                print()  # Add blank line between domains
-            print(f"Domain: {row['domain']}")
-            print("-" * (len(row['domain']) + 8))
-            current_domain = row['domain']
-        print(f"  {row['subdomain']}")
-    
-    conn.close()
-
-def get_subdomains_file(file_path: str):
-    """Get subdomains for all domains listed in a file"""
-    if not os.path.exists(file_path):
-        print(f"File not found: {file_path}")
-        return
-    
-    # Read domains from file
-    domains = []
-    with open(file_path, 'r') as f:
-        for line in f:
-            domain = line.strip()
-            if domain and not domain.startswith('#'):  # Skip empty lines and comments
-                domains.append(domain)
-    
-    if not domains:
-        print(f"No valid domains found in file: {file_path}")
-        return
-    
-    print(f"Processing {len(domains)} domains from file: {file_path}")
-    print("=" * 60)
-    
-    # Use the existing multi-domain function
-    get_subdomains_multi(domains)
-
-def get_all_subdomains():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT d.domain, s.subdomain FROM subdomains s JOIN domains d ON s.domain_id = d.id ORDER BY d.domain, s.subdomain')
-    for row in cur.fetchall():
-        print(f"{row['subdomain']}")
-    conn.close()
-
-def delete_domain(domain: str):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        print(f"Domain not found: {domain}")
-        return
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('DELETE FROM domains WHERE id=?', (domain_id,))
-    conn.commit()
-    conn.close()
-    print(f"Deleted domain: {domain} and all associated subdomains and jsfiles.")
-
-# --- JSFiles Functions ---
-def add_jsfiles(domain: str, jsfile_list: List[Dict]):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        add_domain(domain)
-        domain_id = get_domain_id(domain)
-    conn = get_conn()
-    cur = conn.cursor()
-    count = 0
-    for jsf in jsfile_list:
-        url = jsf.get('url')
-        size = jsf.get('size')
-        last_seen = jsf.get('last_seen')
-        meta = json.dumps({k: v for k, v in jsf.items() if k not in ('url', 'size', 'last_seen')})
+    def add_jsfiles(self, domain: str, jsfiles_json: str):
+        """Add JS files from JSON to database"""
+        domain_id = self.get_or_create_domain(domain)
+        js_files_added = 0
+        
         try:
-            cur.execute('INSERT OR REPLACE INTO jsfiles(domain_id, url, size, last_seen, meta) VALUES (?, ?, ?, ?, ?)',
-                        (domain_id, url, size, last_seen, meta))
-            count += 1
-        except Exception as e:
-            print(f"Error adding jsfile: {url}: {e}")
-    conn.commit()
-    conn.close()
-    print(f"Added/updated {count} JS files for domain: {domain}")
+            with open(jsfiles_json, 'r') as f:
+                js_files_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error reading JS files JSON: {e}")
+            return
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            for js_file in js_files_data:
+                if not isinstance(js_file, dict) or 'url' not in js_file:
+                    continue
+                
+                url = js_file['url']
+                size = js_file.get('size', 0)
+                
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO js_files 
+                        (domain_id, url, size, last_seen) 
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ''', (domain_id, url, size))
+                    js_files_added += 1
+                except sqlite3.Error as e:
+                    print(f"Error adding JS file {url}: {e}")
+            
+            conn.commit()
+        
+        print(f"Added {js_files_added} JS files for domain {domain}")
+    
+    def get_subdomains(self, domain: str) -> List[Dict[str, Any]]:
+        """Get all subdomains for a domain"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT s.subdomain, s.is_live, s.first_seen, s.last_seen
+                FROM subdomains s
+                JOIN domains d ON s.domain_id = d.id
+                WHERE d.domain = ?
+                ORDER BY s.subdomain
+            ''', (domain,))
+            
+            columns = ['subdomain', 'is_live', 'first_seen', 'last_seen']
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def get_jsfiles(self, domain: str) -> List[Dict[str, Any]]:
+        """Get all JS files for a domain"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT j.url, j.size, j.first_seen, j.last_seen
+                FROM js_files j
+                JOIN domains d ON j.domain_id = d.id
+                WHERE d.domain = ?
+                ORDER BY j.url
+            ''', (domain,))
+            
+            columns = ['url', 'size', 'first_seen', 'last_seen']
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def get_domains(self) -> List[Dict[str, Any]]:
+        """Get all domains in database"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT d.domain, d.created_at, d.last_scan, d.scan_count,
+                       COUNT(DISTINCT s.id) as subdomain_count,
+                       COUNT(DISTINCT j.id) as js_file_count
+                FROM domains d
+                LEFT JOIN subdomains s ON d.id = s.domain_id
+                LEFT JOIN js_files j ON d.id = j.domain_id
+                GROUP BY d.id
+                ORDER BY d.last_scan DESC
+            ''')
+            
+            columns = ['domain', 'created_at', 'last_scan', 'scan_count', 'subdomain_count', 'js_file_count']
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def get_domain_stats(self, domain: str) -> Dict[str, Any]:
+        """Get comprehensive stats for a domain"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get domain info
+            cursor.execute('SELECT * FROM domains WHERE domain = ?', (domain,))
+            domain_info = cursor.fetchone()
+            
+            if not domain_info:
+                return {}
+            
+            # Get subdomain count
+            cursor.execute('SELECT COUNT(*) FROM subdomains WHERE domain_id = ?', (domain_info[0],))
+            subdomain_count = cursor.fetchone()[0]
+            
+            # Get live subdomain count
+            cursor.execute('SELECT COUNT(*) FROM subdomains WHERE domain_id = ? AND is_live = 1', (domain_info[0],))
+            live_subdomain_count = cursor.fetchone()[0]
+            
+            # Get JS file count
+            cursor.execute('SELECT COUNT(*) FROM js_files WHERE domain_id = ?', (domain_info[0],))
+            js_file_count = cursor.fetchone()[0]
+            
+            # Get scan history
+            cursor.execute('''
+                SELECT scan_type, scan_date, subdomains_found, js_files_found, vulnerabilities_found
+                FROM scan_history 
+                WHERE domain_id = ? 
+                ORDER BY scan_date DESC 
+                LIMIT 10
+            ''', (domain_info[0],))
+            
+            scan_history = [dict(zip(['scan_type', 'scan_date', 'subdomains_found', 'js_files_found', 'vulnerabilities_found'], row)) 
+                           for row in cursor.fetchall()]
+            
+            return {
+                'domain': domain,
+                'created_at': domain_info[2],
+                'last_scan': domain_info[3],
+                'scan_count': domain_info[4],
+                'subdomain_count': subdomain_count,
+                'live_subdomain_count': live_subdomain_count,
+                'js_file_count': js_file_count,
+                'recent_scans': scan_history
+            }
+    
+    def update_subdomain_live_status(self, domain: str, subdomain: str, is_live: bool):
+        """Update live status of a subdomain"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE subdomains 
+                SET is_live = ?, last_seen = CURRENT_TIMESTAMP
+                WHERE domain_id = (SELECT id FROM domains WHERE domain = ?) 
+                AND subdomain = ?
+            ''', (is_live, domain, subdomain))
+            
+            conn.commit()
+    
+    def add_scan_record(self, domain: str, scan_type: str, subdomains_found: int = 0, 
+                       js_files_found: int = 0, vulnerabilities_found: int = 0):
+        """Add scan record to history"""
+        domain_id = self.get_or_create_domain(domain)
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO scan_history 
+                (domain_id, scan_type, subdomains_found, js_files_found, vulnerabilities_found)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (domain_id, scan_type, subdomains_found, js_files_found, vulnerabilities_found))
+            
+            conn.commit()
+    
+    def search_subdomains(self, domain: str, pattern: str) -> List[Dict[str, Any]]:
+        """Search subdomains by pattern"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT s.subdomain, s.is_live, s.first_seen, s.last_seen
+                FROM subdomains s
+                JOIN domains d ON s.domain_id = d.id
+                WHERE d.domain = ? AND s.subdomain LIKE ?
+                ORDER BY s.subdomain
+            ''', (domain, f'%{pattern}%'))
+            
+            columns = ['subdomain', 'is_live', 'first_seen', 'last_seen']
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def cleanup_old_data(self, days: int = 30):
+        """Clean up old data older than specified days"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Delete old scan history
+            cursor.execute('''
+                DELETE FROM scan_history 
+                WHERE scan_date < datetime('now', '-{} days')
+            '''.format(days))
+            
+            deleted_scans = cursor.rowcount
+            
+            # Delete domains with no subdomains and no recent activity
+            cursor.execute('''
+                DELETE FROM domains 
+                WHERE id NOT IN (
+                    SELECT DISTINCT domain_id FROM subdomains
+                    UNION
+                    SELECT DISTINCT domain_id FROM js_files
+                ) AND last_scan < datetime('now', '-{} days')
+            '''.format(days))
+            
+            deleted_domains = cursor.rowcount
+            
+            conn.commit()
+            
+            print(f"Cleaned up {deleted_scans} old scan records and {deleted_domains} inactive domains")
 
-def get_jsfiles(domain: str):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        print("[]")
-        return
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT url, size, last_seen, meta FROM jsfiles WHERE domain_id=?', (domain_id,))
-    result = []
-    for row in cur.fetchall():
-        meta = json.loads(row['meta']) if row['meta'] else {}
-        jsf = {'url': row['url'], 'size': row['size'], 'last_seen': row['last_seen']}
-        jsf.update(meta)
-        result.append(jsf)
-    print(json.dumps(result, ensure_ascii=False))
-    conn.close()
-
-def list_jsfiles(domain: str):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        print(f"Domain not found: {domain}")
-        return
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT url, size, last_seen FROM jsfiles WHERE domain_id=?', (domain_id,))
-    for row in cur.fetchall():
-        print(row['url'], row['size'], row['last_seen'])
-    conn.close()
-
-def get_jsfile(domain: str, url: str):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        print("{}")
-        return
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT url, size, last_seen, meta FROM jsfiles WHERE domain_id=? AND url=?', (domain_id, url))
-    row = cur.fetchone()
-    if row:
-        meta = json.loads(row['meta']) if row['meta'] else {}
-        jsf = {'url': row['url'], 'size': row['size'], 'last_seen': row['last_seen']}
-        jsf.update(meta)
-        print(json.dumps(jsf, ensure_ascii=False))
-    else:
-        print("{}")
-    conn.close()
-
-def update_jsfile(domain: str, url: str, meta: dict):
-    domain_id = get_domain_id(domain)
-    if not domain_id:
-        print(f"Domain not found: {domain}")
-        return
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('SELECT id FROM jsfiles WHERE domain_id=? AND url=?', (domain_id, url))
-    row = cur.fetchone()
-    if not row:
-        print(f"JS file not found: {url}")
-        conn.close()
-        return
-    # Update meta fields
-    cur.execute('UPDATE jsfiles SET meta=? WHERE domain_id=? AND url=?', (json.dumps(meta), domain_id, url))
-    conn.commit()
-    conn.close()
-    print(f"Updated JS file: {url}")
-
-# --- Main ---
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] in ['-h', '--help', 'help']:
-        show_help()
-        sys.exit(0)
-    init_db()
-    cmd = sys.argv[1]
+    """Command line interface for the database handler"""
+    if len(sys.argv) < 2:
+        print("Usage: python3 sqlite_db_handler.py <command> [args...]")
+        print("\nCommands:")
+        print("  add_subdomains_file <domain> <file>     - Add subdomains from file")
+        print("  add_subdomains_list <domain> <sub1> <sub2> ... - Add subdomains from list")
+        print("  add_jsfiles <domain> <json_file>        - Add JS files from JSON")
+        print("  get_subdomains <domain>                 - Get all subdomains for domain")
+        print("  get_jsfiles <domain>                    - Get all JS files for domain")
+        print("  get_domains                             - Get all domains")
+        print("  get_stats <domain>                      - Get domain statistics")
+        print("  search_subdomains <domain> <pattern>    - Search subdomains by pattern")
+        print("  cleanup <days>                          - Clean up old data")
+        sys.exit(1)
+    
+    db = AutoARDatabase()
+    command = sys.argv[1]
+    
     try:
-        if cmd == "add_domain" and len(sys.argv) == 3:
-            add_domain(sys.argv[2])
-        elif cmd == "add_subdomain" and len(sys.argv) == 4:
-            add_subdomain(sys.argv[2], sys.argv[3])
-        elif cmd == "add_subdomains_file" and len(sys.argv) == 4:
-            add_subdomains_file(sys.argv[2], sys.argv[3])
-        elif cmd == "list_domains":
-            list_domains()
-        elif cmd == "list_domains_stats":
-            list_domains_stats()
-        elif cmd == "get_subdomains" and len(sys.argv) == 3:
-            get_subdomains(sys.argv[2])
-        elif cmd == "get_subdomains_multi" and len(sys.argv) > 2:
-            domains_to_get = sys.argv[2:]
-            get_subdomains_multi(domains_to_get)
-        elif cmd == "get_subdomains_file" and len(sys.argv) == 3:
-            get_subdomains_file(sys.argv[2])
-        elif cmd == "get_all_subdomains":
-            get_all_subdomains()
-        elif cmd == "delete_domain" and len(sys.argv) == 3:
-            delete_domain(sys.argv[2])
-        elif cmd == "add_jsfiles" and len(sys.argv) == 4:
-            with open(sys.argv[3], 'r') as f:
-                jsfiles = json.load(f)
-            add_jsfiles(sys.argv[2], jsfiles)
-        elif cmd == "get_jsfiles" and len(sys.argv) == 3:
-            get_jsfiles(sys.argv[2])
-        elif cmd == "list_jsfiles" and len(sys.argv) == 3:
-            list_jsfiles(sys.argv[2])
-        elif cmd == "get_jsfile" and len(sys.argv) == 4:
-            get_jsfile(sys.argv[2], sys.argv[3])
-        elif cmd == "update_jsfile" and len(sys.argv) == 5:
-            meta = json.loads(sys.argv[4])
-            update_jsfile(sys.argv[2], sys.argv[3], meta)
+        if command == "add_subdomains_file":
+            if len(sys.argv) < 4:
+                print("Usage: add_subdomains_file <domain> <file>")
+                sys.exit(1)
+            db.add_subdomains_file(sys.argv[2], sys.argv[3])
+        
+        elif command == "add_subdomains_list":
+            if len(sys.argv) < 3:
+                print("Usage: add_subdomains_list <domain> <sub1> <sub2> ...")
+                sys.exit(1)
+            subdomains = sys.argv[3:]
+            db.add_subdomains_list(sys.argv[2], subdomains)
+        
+        elif command == "add_jsfiles":
+            if len(sys.argv) < 4:
+                print("Usage: add_jsfiles <domain> <json_file>")
+                sys.exit(1)
+            db.add_jsfiles(sys.argv[2], sys.argv[3])
+        
+        elif command == "get_subdomains":
+            if len(sys.argv) < 3:
+                print("Usage: get_subdomains <domain>")
+                sys.exit(1)
+            subdomains = db.get_subdomains(sys.argv[2])
+            print(json.dumps(subdomains, indent=2, default=str))
+        
+        elif command == "get_jsfiles":
+            if len(sys.argv) < 3:
+                print("Usage: get_jsfiles <domain>")
+                sys.exit(1)
+            js_files = db.get_jsfiles(sys.argv[2])
+            print(json.dumps(js_files, indent=2, default=str))
+        
+        elif command == "get_domains":
+            domains = db.get_domains()
+            print(json.dumps(domains, indent=2, default=str))
+        
+        elif command == "get_stats":
+            if len(sys.argv) < 3:
+                print("Usage: get_stats <domain>")
+                sys.exit(1)
+            stats = db.get_domain_stats(sys.argv[2])
+            print(json.dumps(stats, indent=2, default=str))
+        
+        elif command == "search_subdomains":
+            if len(sys.argv) < 4:
+                print("Usage: search_subdomains <domain> <pattern>")
+                sys.exit(1)
+            results = db.search_subdomains(sys.argv[2], sys.argv[3])
+            print(json.dumps(results, indent=2, default=str))
+        
+        elif command == "cleanup":
+            days = int(sys.argv[2]) if len(sys.argv) > 2 else 30
+            db.cleanup_old_data(days)
+        
         else:
-            print("Error: Invalid command or wrong number of arguments")
-            show_help()
+            print(f"Unknown command: {command}")
             sys.exit(1)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        sys.exit(0)
+    
     except Exception as e:
-        print(f"Unexpected error: {str(e)}")
+        print(f"Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    main()
