@@ -35,6 +35,23 @@ GITHUB_TOKEN=$(yaml_get '.github[0]')
 
 # At the top of the script, after other globals:
 JS_MONITOR_MODE=0
+CLEANUP_ON_EXIT=true
+
+# Cleanup function for graceful shutdown
+cleanup_on_exit() {
+    if [[ "$CLEANUP_ON_EXIT" == "true" ]]; then
+        log INFO "Cleaning up before exit..."
+        if [[ -d "$RESULTS_DIR" ]]; then
+            log INFO "Removing results directory: $RESULTS_DIR"
+            rm -rf "$RESULTS_DIR"
+            log SUCCESS "Cleanup completed"
+        fi
+    fi
+    exit 0
+}
+
+# Set up signal handlers for cleanup
+trap cleanup_on_exit SIGINT SIGTERM EXIT
 
 # autoAR Logo
 printf "==============================\n"
@@ -50,7 +67,7 @@ printf "
 printf "==============================\n"
 
 # Constants
-RESULTS_DIR="results"
+RESULTS_DIR="new-results"
 WORDLIST_DIR="Wordlists"
 FUZZ_WORDLIST="$WORDLIST_DIR/quick_fuzz.txt"
 LOG_FILE="autoAR.log"
@@ -117,23 +134,375 @@ send_file_to_discord() {
 
 # Function to check if required tools are installed
 check_tools() {
-    local tools=("subfinder" "httpx" "naabu" "nuclei" "ffuf" "kxss" "qsreplace" "gf" "dalfox" "urlfinder" "interlace" "jsleak" "jsfinder" "dnsx")
-    local missing_tools=()
+    log INFO "Checking for required tools..."
     
-    for tool in "${tools[@]}"; do
-        if ! command -v "$tool" &> /dev/null; then
-            missing_tools+=("$tool")
+    # Define tools with their installation commands and descriptions
+    declare -A tools_info=(
+        ["subfinder"]="go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
+        ["httpx"]="go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest"
+        ["naabu"]="go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest"
+        ["nuclei"]="go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+        ["ffuf"]="go install github.com/ffuf/ffuf@latest"
+        ["kxss"]="go install github.com/Emoe/kxss@latest"
+        ["qsreplace"]="go install github.com/tomnomnom/qsreplace@latest"
+        ["gf"]="go install github.com/tomnomnom/gf@latest"
+        ["dalfox"]="go install github.com/hahwul/dalfox/v2@latest"
+        ["urlfinder"]="go install github.com/pentest-company/urlfinder@latest"
+        ["interlace"]="pip3 install interlace"
+        ["jsleak"]="go install github.com/channyein1337/jsleak@latest"
+        ["jsfinder"]="go install -v github.com/kacakb/jsfinder@latest"
+        ["dnsx"]="go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
+        ["dig"]="apt-get install dnsutils (Ubuntu/Debian) or yum install bind-utils (RHEL/CentOS)"
+        ["jq"]="apt-get install jq (Ubuntu/Debian) or yum install jq (RHEL/CentOS)"
+        ["yq"]="go install github.com/mikefarah/yq/v4@latest"
+        ["anew"]="go install -v github.com/tomnomnom/anew@latest"
+        ["curl"]="apt-get install curl (Ubuntu/Debian) or yum install curl (RHEL/CentOS)"
+        ["git"]="apt-get install git (Ubuntu/Debian) or yum install git (RHEL/CentOS)"
+        ["docker"]="curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh"
+    )
+    
+    local missing_tools=()
+    local optional_tools=()
+    local installed_count=0
+    local total_tools=${#tools_info[@]}
+    
+    # Check each tool
+    for tool in "${!tools_info[@]}"; do
+        if command -v "$tool" &> /dev/null; then
+            local version=""
+            case "$tool" in
+                "subfinder"|"httpx"|"naabu"|"nuclei"|"dnsx")
+                    version=$($tool -version 2>/dev/null | head -n1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n1)
+                    ;;
+                "ffuf")
+                    version=$($tool -V 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n1)
+                    ;;
+                "nuclei")
+                    version=$($tool -version 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n1)
+                    ;;
+                "git")
+                    version=$($tool --version 2>/dev/null | head -n1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n1)
+                    ;;
+                "docker")
+                    version=$($tool --version 2>/dev/null | head -n1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n1)
+                    ;;
+                "jq")
+                    version=$($tool --version 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n1)
+                    ;;
+                *)
+                    version="installed"
+                    ;;
+            esac
+            
+            if [[ -n "$version" ]]; then
+                log SUCCESS "✓ $tool ($version)"
+            else
+                log SUCCESS "✓ $tool"
+            fi
+            ((installed_count++))
+        else
+            # Check if it's an optional tool
+            case "$tool" in
+                "docker"|"anew")
+                    optional_tools+=("$tool")
+                    log WARNING "⚠ $tool (optional) - ${tools_info[$tool]}"
+                    ;;
+                *)
+                    missing_tools+=("$tool")
+                    log ERROR "✗ $tool - ${tools_info[$tool]}"
+                    ;;
+            esac
         fi
     done
     
+    # Summary
+    log INFO "Tool check complete: $installed_count/$total_tools tools installed"
+    
+    # Check for critical missing tools
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
-        log ERROR "Error: The following tools are not installed:"
+        log ERROR ""
+        log ERROR "❌ CRITICAL: The following required tools are missing:"
         for tool in "${missing_tools[@]}"; do
-            log ERROR "- $tool"
+            log ERROR "   • $tool"
+            log ERROR "     Install: ${tools_info[$tool]}"
         done
-        log ERROR "Please install missing tools before running the script."
+        log ERROR ""
+        log ERROR "Please install the missing tools before running AutoAR."
+        log ERROR "Visit: https://github.com/h0tak88r/AutoAR#installation for detailed instructions"
         exit 1
     fi
+    
+    # Warn about optional tools
+    if [[ ${#optional_tools[@]} -gt 0 ]]; then
+        log WARNING ""
+        log WARNING "⚠️  OPTIONAL: The following tools are recommended but not required:"
+        for tool in "${optional_tools[@]}"; do
+            log WARNING "   • $tool - ${tools_info[$tool]}"
+        done
+        log WARNING ""
+    fi
+    
+    log SUCCESS "🎉 All required tools are installed! Ready to scan."
+}
+
+# Function to ensure proper permissions
+ensure_permissions() {
+    local dir="$1"
+    if [[ -d "$dir" ]]; then
+        chmod -R 777 "$dir" 2>/dev/null || true
+        chown -R $(whoami):$(whoami) "$dir" 2>/dev/null || true
+    fi
+}
+
+# Function to cleanup results directory after scan completion
+cleanup_results() {
+    local domain_dir="$1"
+    local cleanup_delay="${2:-30}"  # Default 30 seconds delay
+    
+    if [[ -z "$domain_dir" || ! -d "$domain_dir" ]]; then
+        log WARNING "No valid results directory to cleanup"
+        return
+    fi
+    
+    log INFO "Results will be cleaned up on script exit"
+    log INFO "Results are available at: $domain_dir"
+    log SUCCESS "Cleanup will happen automatically when script exits"
+}
+
+# Function to disable cleanup (for commands that should keep results)
+disable_cleanup() {
+    CLEANUP_ON_EXIT=false
+    log INFO "Cleanup disabled - results will be preserved"
+}
+
+# Function to enable cleanup (default behavior)
+enable_cleanup() {
+    CLEANUP_ON_EXIT=true
+    log INFO "Cleanup enabled - results will be removed on exit"
+}
+
+# API Management Functions
+API_URL="http://194.163.160.166:8000"
+API_PID_FILE="autoar_api.pid"
+API_LOG_FILE="autoar_api.log"
+API_SCRIPT="api_production.py"
+
+# Function to start API server
+start_api() {
+    log INFO "Starting AutoAR API server..."
+    
+    # Check if API is already running
+    if [[ -f "$API_PID_FILE" ]]; then
+        local api_pid=$(cat "$API_PID_FILE")
+        if ps -p "$api_pid" > /dev/null 2>&1; then
+            log WARNING "API is already running (PID: $api_pid)"
+            return 0
+        else
+            log INFO "Removing stale PID file"
+            rm -f "$API_PID_FILE"
+        fi
+    fi
+    
+    # Check if Python 3 is available
+    if ! command -v python3 &> /dev/null; then
+        log ERROR "Python 3 is required but not installed"
+        return 1
+    fi
+    
+    # Check if API script exists
+    if [[ ! -f "$API_SCRIPT" ]]; then
+        log ERROR "API script not found: $API_SCRIPT"
+        return 1
+    fi
+    
+    # Ensure results directory exists
+    mkdir -p new-results
+    
+    # Start API in background
+    log INFO "Starting API server on $API_URL"
+    nohup python3 "$API_SCRIPT" > "$API_LOG_FILE" 2>&1 &
+    local api_pid=$!
+    echo "$api_pid" > "$API_PID_FILE"
+    
+    # Wait a moment and check if it started successfully
+    sleep 2
+    if ps -p "$api_pid" > /dev/null 2>&1; then
+        log SUCCESS "API started successfully (PID: $api_pid)"
+        log INFO "API Documentation: $API_URL/docs"
+        log INFO "API Health: $API_URL/health"
+        return 0
+    else
+        log ERROR "Failed to start API server"
+        rm -f "$API_PID_FILE"
+        return 1
+    fi
+}
+
+# Function to stop API server
+stop_api() {
+    log INFO "Stopping AutoAR API server..."
+    
+    if [[ -f "$API_PID_FILE" ]]; then
+        local api_pid=$(cat "$API_PID_FILE")
+        if ps -p "$api_pid" > /dev/null 2>&1; then
+            log INFO "Stopping API server (PID: $api_pid)"
+            kill "$api_pid"
+            
+            # Wait for graceful shutdown
+            local count=0
+            while ps -p "$api_pid" > /dev/null 2>&1 && [[ $count -lt 10 ]]; do
+                sleep 1
+                ((count++))
+            done
+            
+            if ps -p "$api_pid" > /dev/null 2>&1; then
+                log WARNING "API didn't stop gracefully, forcing kill"
+                kill -9 "$api_pid" 2>/dev/null || true
+            fi
+            
+            log SUCCESS "API server stopped"
+        else
+            log WARNING "API server was not running (stale PID file)"
+        fi
+        rm -f "$API_PID_FILE"
+    else
+        log WARNING "No PID file found - API may not be running"
+    fi
+}
+
+# Function to restart API server
+restart_api() {
+    log INFO "Restarting AutoAR API server..."
+    stop_api
+    sleep 2
+    start_api
+}
+
+# Function to check API status
+check_api_status() {
+    log INFO "Checking AutoAR API status..."
+    
+    # Check if PID file exists and process is running
+    if [[ -f "$API_PID_FILE" ]]; then
+        local api_pid=$(cat "$API_PID_FILE")
+        if ps -p "$api_pid" > /dev/null 2>&1; then
+            log SUCCESS "API is running (PID: $api_pid)"
+        else
+            log ERROR "API is not running (stale PID file)"
+            rm -f "$API_PID_FILE"
+            return 1
+        fi
+    else
+        log ERROR "API is not running (no PID file)"
+        return 1
+    fi
+    
+    # Check API health endpoint
+    log INFO "Checking API health endpoint..."
+    if curl -s "$API_URL/health" > /dev/null 2>&1; then
+        log SUCCESS "API is responding at $API_URL"
+        local health_response=$(curl -s "$API_URL/health" 2>/dev/null)
+        if [[ -n "$health_response" ]]; then
+            log INFO "Health response:"
+            echo "$health_response" | jq . 2>/dev/null || echo "$health_response"
+        fi
+    else
+        log ERROR "API is not responding at $API_URL"
+        return 1
+    fi
+}
+
+# Function to show API logs
+show_api_logs() {
+    log INFO "Showing AutoAR API logs..."
+    if [[ -f "$API_LOG_FILE" ]]; then
+        if [[ "$1" == "-f" || "$1" == "--follow" ]]; then
+            log INFO "Following logs (Ctrl+C to stop)..."
+            tail -f "$API_LOG_FILE"
+        else
+            log INFO "Last 50 lines of API logs:"
+            tail -n 50 "$API_LOG_FILE"
+        fi
+    else
+        log WARNING "API log file not found: $API_LOG_FILE"
+    fi
+}
+
+# Function to install API as system service
+install_api_service() {
+    log INFO "Installing AutoAR API as system service..."
+    
+    # Check if running as root or with sudo
+    if [[ $EUID -ne 0 ]]; then
+        log ERROR "This command requires sudo privileges"
+        log ERROR "Please run: sudo ./autoAr.sh api install"
+        return 1
+    fi
+    
+    # Create systemd service file
+    local service_file="/etc/systemd/system/autoar-api.service"
+    cat > "$service_file" << EOF
+[Unit]
+Description=AutoAR API Server
+After=network.target
+
+[Service]
+Type=simple
+User=sallam
+WorkingDirectory=/home/sallam/AutoAR
+ExecStart=/usr/bin/python3 /home/sallam/AutoAR/api_production.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Reload systemd
+    log INFO "Reloading systemd daemon..."
+    systemctl daemon-reload
+    
+    # Enable the service
+    log INFO "Enabling AutoAR API service..."
+    systemctl enable autoar-api
+    
+    # Start the service
+    log INFO "Starting AutoAR API service..."
+    systemctl start autoar-api
+    
+    # Check status
+    log INFO "Checking service status..."
+    systemctl status autoar-api --no-pager
+    
+    log SUCCESS "AutoAR API service installed and started!"
+    log INFO "Service will start automatically on boot"
+    log INFO "API URL: $API_URL"
+}
+
+# Function to uninstall API system service
+uninstall_api_service() {
+    log INFO "Removing AutoAR API system service..."
+    
+    # Check if running as root or with sudo
+    if [[ $EUID -ne 0 ]]; then
+        log ERROR "This command requires sudo privileges"
+        log ERROR "Please run: sudo ./autoAr.sh api uninstall"
+        return 1
+    fi
+    
+    # Stop and disable service
+    systemctl stop autoar-api 2>/dev/null || true
+    systemctl disable autoar-api 2>/dev/null || true
+    
+    # Remove service file
+    rm -f /etc/systemd/system/autoar-api.service
+    
+    # Reload systemd
+    systemctl daemon-reload
+    
+    log SUCCESS "AutoAR API service removed"
 }
 
 # Function to setup results directory
@@ -143,31 +512,48 @@ setup_results_dir() {
         DOMAIN_DIR="$RESULTS_DIR/$SINGLE_SUBDOMAIN"
     elif [[ -n "$TARGET" ]]; then
         DOMAIN_DIR="$RESULTS_DIR/$TARGET"
+    elif [[ -n "$GITHUB_REPO" ]]; then
+        # For GitHub scans, use the repository name
+        local repo_name=$(basename "$GITHUB_REPO" .git)
+        DOMAIN_DIR="$RESULTS_DIR/github_$repo_name"
+    elif [[ -n "$GITHUB_ORG" ]]; then
+        # For GitHub organization scans, use the organization name
+        DOMAIN_DIR="$RESULTS_DIR/github_org_$GITHUB_ORG"
     else
         log ERROR "Error: No target specified"
         exit 1
     fi
     
+    # Ensure base results directory exists with proper permissions
+    mkdir -p "$RESULTS_DIR"
+    chmod 777 "$RESULTS_DIR" 2>/dev/null || true
+    
     # Remove domain-specific directory if it exists
     if [[ -d "$DOMAIN_DIR" ]]; then
         log INFO "Removing previous results for ${SINGLE_SUBDOMAIN:-$TARGET}"
-        rm -rf "$DOMAIN_DIR"
+        rm -rf "$DOMAIN_DIR" 2>/dev/null || true
     fi
     
     # Create fresh domain directory and subdirectories
     mkdir -p "$DOMAIN_DIR"/{subs,urls,vulnerabilities/{xss,sqli,ssrf,ssti,lfi,rce,idor,js,takeovers},fuzzing,ports}
     
+    # Ensure proper permissions
+    ensure_permissions "$DOMAIN_DIR"
+    
     # Create initial empty files
-    touch "$DOMAIN_DIR/urls/all-urls.txt"
-    touch "$DOMAIN_DIR/urls/js-urls.txt"
-    touch "$DOMAIN_DIR/ports/ports.txt"
-    touch "$DOMAIN_DIR/vulnerabilities/put-scan.txt"
-    touch "$DOMAIN_DIR/fuzzing/ffuf.html"
-    touch "$DOMAIN_DIR/fuzzing/ffuf-post.html"
-    touch "$DOMAIN_DIR/subs/all-subs.txt"
-    touch "$DOMAIN_DIR/subs/apis-subs.txt"
-    touch "$DOMAIN_DIR/subs/subfinder-subs.txt"
-    touch "$DOMAIN_DIR/subs/live-subs.txt"
+    touch "$DOMAIN_DIR/urls/all-urls.txt" 2>/dev/null || true
+    touch "$DOMAIN_DIR/urls/js-urls.txt" 2>/dev/null || true
+    touch "$DOMAIN_DIR/ports/ports.txt" 2>/dev/null || true
+    touch "$DOMAIN_DIR/vulnerabilities/put-scan.txt" 2>/dev/null || true
+    touch "$DOMAIN_DIR/fuzzing/ffuf.html" 2>/dev/null || true
+    touch "$DOMAIN_DIR/fuzzing/ffuf-post.html" 2>/dev/null || true
+    touch "$DOMAIN_DIR/subs/all-subs.txt" 2>/dev/null || true
+    touch "$DOMAIN_DIR/subs/apis-subs.txt" 2>/dev/null || true
+    touch "$DOMAIN_DIR/subs/subfinder-subs.txt" 2>/dev/null || true
+    touch "$DOMAIN_DIR/subs/live-subs.txt" 2>/dev/null || true
+    
+    # Ensure permissions on created files
+    ensure_permissions "$DOMAIN_DIR"
     
     log SUCCESS "Created fresh directory structure at $DOMAIN_DIR"
 }
@@ -306,12 +692,13 @@ subEnum() {
     
     # Ensure subs directory exists
     mkdir -p "$DOMAIN_DIR/subs"
+    ensure_permissions "$DOMAIN_DIR/subs"
     
     # Initialize/clear files
-    > "$DOMAIN_DIR/subs/apis-subs.txt"
-    > "$DOMAIN_DIR/subs/subfinder-subs.txt"
-    > "$DOMAIN_DIR/subs/all-subs.txt"
-    > "$tmp_file"
+    > "$DOMAIN_DIR/subs/apis-subs.txt" 2>/dev/null || touch "$DOMAIN_DIR/subs/apis-subs.txt"
+    > "$DOMAIN_DIR/subs/subfinder-subs.txt" 2>/dev/null || touch "$DOMAIN_DIR/subs/subfinder-subs.txt"
+    > "$DOMAIN_DIR/subs/all-subs.txt" 2>/dev/null || touch "$DOMAIN_DIR/subs/all-subs.txt"
+    > "$tmp_file" 2>/dev/null || touch "$tmp_file"
     
     # Collect subdomains from various sources
     log INFO "Collecting subdomains from APIs..."
@@ -392,10 +779,11 @@ fetch_urls() {
     
     # Ensure urls directory exists
     mkdir -p "$DOMAIN_DIR/urls"
+    ensure_permissions "$DOMAIN_DIR/urls"
     
     # Initialize/clear files
-    > "$DOMAIN_DIR/urls/all-urls.txt"
-    > "$DOMAIN_DIR/urls/js-urls.txt"
+    > "$DOMAIN_DIR/urls/all-urls.txt" 2>/dev/null || touch "$DOMAIN_DIR/urls/all-urls.txt"
+    > "$DOMAIN_DIR/urls/js-urls.txt" 2>/dev/null || touch "$DOMAIN_DIR/urls/js-urls.txt"
 
     # Check if we're working with a single subdomain or full domain
     if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
@@ -938,6 +1326,744 @@ run_dalfox_scan() {
     fi
 }
 
+# Function to generate HTML report for GitHub secrets
+generate_github_html_report() {
+    local repo_name="$1"
+    local org_name="$2"
+    local json_file="$3"
+    local html_file="$4"
+    local secret_count="$5"
+    
+    cat > "$html_file" <<EOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Secrets Scan Report - $repo_name</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #dc3545;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        .secrets-container {
+            padding: 20px;
+        }
+        .secret-item {
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        .secret-header {
+            background: #fff3cd;
+            padding: 15px;
+            border-bottom: 1px solid #ffeaa7;
+        }
+        .secret-detector {
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 5px;
+            font-size: 1.1em;
+        }
+        .secret-location {
+            color: #6c757d;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .secret-details {
+            padding: 15px;
+        }
+        .secret-raw {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 0.85em;
+            word-break: break-all;
+            border-left: 3px solid #dc3545;
+        }
+        .secret-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        .meta-item {
+            background: #e9ecef;
+            padding: 8px;
+            border-radius: 3px;
+        }
+        .meta-label {
+            font-weight: bold;
+            color: #495057;
+        }
+        .verified {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .not-verified {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+            border-top: 1px solid #e9ecef;
+        }
+        .no-secrets {
+            text-align: center;
+            padding: 40px;
+            color: #28a745;
+            font-size: 1.2em;
+        }
+        .timestamp {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 GitHub Secrets Scan Report</h1>
+            <p>Repository: <strong>$repo_name</strong></p>
+            <p>Organization: <strong>$org_name</strong></p>
+            <p class="timestamp">Generated: $(date)</p>
+        </div>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number">$secret_count</div>
+                <div class="stat-label">Secrets Found</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">$(date +%Y-%m-%d)</div>
+                <div class="stat-label">Scan Date</div>
+            </div>
+        </div>
+        
+        <div class="secrets-container">
+EOF
+
+    if [[ "$secret_count" -gt 0 ]]; then
+        echo "            <h3>🔐 Secrets Found</h3>" >> "$html_file"
+        
+        # Process each secret from JSON
+        jq -r '.[] | @base64' "$json_file" | while read -r secret; do
+            local secret_data=$(echo "$secret" | base64 -d)
+            local detector=$(echo "$secret_data" | jq -r '.DetectorName // "Unknown"')
+            local verified=$(echo "$secret_data" | jq -r '.Verified // false')
+            local raw=$(echo "$secret_data" | jq -r '.Raw // "N/A"')
+            local redacted=$(echo "$secret_data" | jq -r '.Redacted // "N/A"')
+            local file=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.file // "Unknown"')
+            local line=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.line // "Unknown"')
+            local commit=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.commit // "Unknown"')
+            local timestamp=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.timestamp // "Unknown"')
+            local link=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.link // "N/A"')
+            local account=$(echo "$secret_data" | jq -r '.ExtraData.account // "N/A"')
+            local arn=$(echo "$secret_data" | jq -r '.ExtraData.arn // "N/A"')
+            local is_canary=$(echo "$secret_data" | jq -r '.ExtraData.is_canary // "false"')
+            
+            cat >> "$html_file" <<EOF
+            <div class="secret-item">
+                <div class="secret-header">
+                    <div class="secret-detector">$detector</div>
+                    <div class="secret-location">File: $file (Line: $line)</div>
+                </div>
+                <div class="secret-details">
+                    <div class="secret-raw">
+                        <strong>Raw Secret:</strong> $raw
+                    </div>
+                    <div class="secret-meta">
+                        <div class="meta-item">
+                            <span class="meta-label">Verified:</span> 
+                            <span class="$(if [[ "$verified" == "true" ]]; then echo "verified"; else echo "not-verified"; fi)">$verified</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Redacted:</span> $redacted
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Commit:</span> ${commit:0:8}...
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Timestamp:</span> $timestamp
+                        </div>
+EOF
+            
+            if [[ "$account" != "N/A" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Account:</span> $account</div>" >> "$html_file"
+            fi
+            
+            if [[ "$arn" != "N/A" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">ARN:</span> ${arn:0:50}...</div>" >> "$html_file"
+            fi
+            
+            if [[ "$is_canary" == "true" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">⚠️ Canary Token:</span> Yes</div>" >> "$html_file"
+            fi
+            
+            if [[ "$link" != "N/A" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Link:</span> <a href=\"$link\" target=\"_blank\">View in GitHub</a></div>" >> "$html_file"
+            fi
+            
+            echo "                    </div>" >> "$html_file"
+            echo "                </div>" >> "$html_file"
+            echo "            </div>" >> "$html_file"
+        done
+    else
+        echo '            <div class="no-secrets">✅ No secrets found in this repository</div>' >> "$html_file"
+    fi
+    
+    cat >> "$html_file" <<EOF
+        </div>
+        
+        <div class="footer">
+            <p>Generated by AutoAR GitHub Secrets Scanner | Powered by TruffleHog</p>
+            <p>Scan completed at $(date)</p>
+        </div>
+    </div>
+</body>
+</html>
+EOF
+    
+    log SUCCESS "HTML report generated: $html_file"
+}
+
+# Function to scan GitHub organization for secrets using modern TruffleHog
+github_org_scan() {
+    local org_name="$1"
+    local max_repos="${2:-50}"
+    
+    log INFO "Starting GitHub organization scan for: $org_name"
+    log INFO "Maximum repositories to scan: $max_repos"
+    
+    # Create organization results directory
+    local org_dir="$DOMAIN_DIR/org_${org_name}"
+    mkdir -p "$org_dir/vulnerabilities"
+    
+    # Use TruffleHog organization scan
+    local org_results_file="$org_dir/org_secrets.json"
+    log INFO "Scanning organization with TruffleHog..."
+    
+    # Ensure GitHub auth is available to TruffleHog
+    export GH_TOKEN="$GITHUB_TOKEN"
+    export GITHUB_TOKEN="$GITHUB_TOKEN"
+    export TRUFFLEHOG_GITHUB_API_TOKEN="$GITHUB_TOKEN"
+
+    if /home/sallam/.local/bin/trufflehog github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>/dev/null; then
+        # Convert newline-delimited JSON to JSON array for counting
+        local temp_json_array="$org_dir/org_secrets_array.json"
+        if [[ -s "$org_results_file" ]]; then
+            # Filter out any non-finding log lines; keep only real findings
+            jq -s '[.[] | select(.DetectorName != null)]' "$org_results_file" > "$temp_json_array" 2>/dev/null || echo "[]" > "$temp_json_array"
+        else
+            echo "[]" > "$temp_json_array"
+        fi
+        
+        local total_secrets=$(jq length "$temp_json_array" 2>/dev/null || echo "0")
+        
+        if [[ "$total_secrets" -gt 0 ]]; then
+            log SUCCESS "Found $total_secrets secrets in organization $org_name"
+            
+            # Generate HTML report for organization
+            local html_report="$org_dir/org_secrets.html"
+            generate_github_org_html_report "$org_name" "$temp_json_array" "$html_report" "$total_secrets"
+            
+            # Send Discord notification with both reports
+            if [[ -n "$DISCORD_WEBHOOK" ]]; then
+                local message="🔍 **GitHub Organization Scan Results**\n\n"
+                message+="**Organization:** \`$org_name\`\n"
+                message+="**Secrets found:** \`$total_secrets\`\n"
+                message+="**Time:** \`$(date)\`\n"
+                message+="**Reports:** \`JSON + HTML attached\`\n"
+                
+                local payload=$(cat <<EOF
+{
+    "content": "$message",
+    "username": "GitHub Organization Scanner",
+    "avatar_url": "https://github.com/fluidicon.png"
+}
+EOF
+)
+                
+                curl -s -X POST "$DISCORD_WEBHOOK" \
+                    -H "Content-Type: application/json" \
+                    -d "$payload" > /dev/null 2>&1 || true
+                
+                # Send both JSON and HTML files
+                send_file_to_discord "$temp_json_array" "GitHub Organization Scan Results (JSON) for $org_name"
+                send_file_to_discord "$html_report" "GitHub Organization Scan Results (HTML) for $org_name"
+            fi
+            
+            log SUCCESS "Organization scan completed for $org_name - Found $total_secrets secrets"
+        else
+            log INFO "No secrets found in organization $org_name"
+            
+            # Generate empty reports for no findings
+            local html_report="$org_dir/org_secrets.html"
+            generate_github_org_html_report "$org_name" "$temp_json_array" "$html_report" "0"
+            
+            # Send Discord notification
+            if [[ -n "$DISCORD_WEBHOOK" ]]; then
+                local message="🔍 **GitHub Organization Scan Results**\n\n"
+                message+="**Organization:** \`$org_name\`\n"
+                message+="**Secrets found:** \`0\`\n"
+                message+="**Time:** \`$(date)\`\n"
+                message+="**Status:** \`Clean - No secrets found\`\n"
+                message+="**Reports:** \`JSON + HTML attached\`"
+                
+                local payload=$(cat <<EOF
+{
+    "content": "$message",
+    "username": "GitHub Organization Scanner",
+    "avatar_url": "https://github.com/fluidicon.png"
+}
+EOF
+)
+                
+                curl -s -X POST "$DISCORD_WEBHOOK" \
+                    -H "Content-Type: application/json" \
+                    -d "$payload" > /dev/null 2>&1 || true
+                
+                # Send both files
+                send_file_to_discord "$temp_json_array" "GitHub Organization Scan Results (JSON) for $org_name - No secrets found"
+                send_file_to_discord "$html_report" "GitHub Organization Scan Results (HTML) for $org_name - No secrets found"
+            fi
+        fi
+    else
+        error "TruffleHog organization scan failed for $org_name"
+    fi
+}
+
+# Function to generate HTML report for GitHub organization
+generate_github_org_html_report() {
+    local org_name="$1"
+    local json_file="$2"
+    local html_file="$3"
+    local secret_count="$4"
+    
+    cat > "$html_file" <<EOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Organization Secrets Scan Report - $org_name</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #dc3545;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        .secrets-container {
+            padding: 20px;
+        }
+        .secret-item {
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        .secret-header {
+            background: #fff3cd;
+            padding: 15px;
+            border-bottom: 1px solid #ffeaa7;
+        }
+        .secret-detector {
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 5px;
+            font-size: 1.1em;
+        }
+        .secret-location {
+            color: #6c757d;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .secret-details {
+            padding: 15px;
+        }
+        .secret-raw {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 0.85em;
+            word-break: break-all;
+            border-left: 3px solid #dc3545;
+        }
+        .secret-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        .meta-item {
+            background: #e9ecef;
+            padding: 8px;
+            border-radius: 3px;
+        }
+        .meta-label {
+            font-weight: bold;
+            color: #495057;
+        }
+        .verified {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .not-verified {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+            border-top: 1px solid #e9ecef;
+        }
+        .no-secrets {
+            text-align: center;
+            padding: 40px;
+            color: #28a745;
+            font-size: 1.2em;
+        }
+        .timestamp {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 GitHub Organization Secrets Scan Report</h1>
+            <p>Organization: <strong>$org_name</strong></p>
+            <p class="timestamp">Generated: $(date)</p>
+        </div>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number">$secret_count</div>
+                <div class="stat-label">Secrets Found</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">$(date +%Y-%m-%d)</div>
+                <div class="stat-label">Scan Date</div>
+            </div>
+        </div>
+        
+        <div class="secrets-container">
+EOF
+
+    if [[ "$secret_count" -gt 0 ]]; then
+        echo "            <h3>🔐 Secrets Found Across Organization</h3>" >> "$html_file"
+        
+        # Process each secret from JSON
+        jq -r '.[] | @base64' "$json_file" | while read -r secret; do
+            local secret_data=$(echo "$secret" | base64 -d)
+            local detector=$(echo "$secret_data" | jq -r '.DetectorName // "Unknown"')
+            local verified=$(echo "$secret_data" | jq -r '.Verified // false')
+            local raw=$(echo "$secret_data" | jq -r '.Raw // "N/A"')
+            local redacted=$(echo "$secret_data" | jq -r '.Redacted // "N/A"')
+            local file=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.file // "Unknown"')
+            local line=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.line // "Unknown"')
+            local commit=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.commit // "Unknown"')
+            local timestamp=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.timestamp // "Unknown"')
+            local link=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.link // "N/A"')
+            local account=$(echo "$secret_data" | jq -r '.ExtraData.account // "N/A"')
+            local arn=$(echo "$secret_data" | jq -r '.ExtraData.arn // "N/A"')
+            local is_canary=$(echo "$secret_data" | jq -r '.ExtraData.is_canary // "false"')
+            local repository=$(echo "$secret_data" | jq -r '.SourceMetadata.Data.Github.repository // "Unknown"')
+            
+            cat >> "$html_file" <<EOF
+            <div class="secret-item">
+                <div class="secret-header">
+                    <div class="secret-detector">$detector</div>
+                    <div class="secret-location">Repository: $repository | File: $file (Line: $line)</div>
+                </div>
+                <div class="secret-details">
+                    <div class="secret-raw">
+                        <strong>Raw Secret:</strong> $raw
+                    </div>
+                    <div class="secret-meta">
+                        <div class="meta-item">
+                            <span class="meta-label">Verified:</span> 
+                            <span class="$(if [[ "$verified" == "true" ]]; then echo "verified"; else echo "not-verified"; fi)">$verified</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Redacted:</span> $redacted
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Commit:</span> ${commit:0:8}...
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Timestamp:</span> $timestamp
+                        </div>
+EOF
+            
+            if [[ "$account" != "N/A" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Account:</span> $account</div>" >> "$html_file"
+            fi
+            
+            if [[ "$arn" != "N/A" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">ARN:</span> ${arn:0:50}...</div>" >> "$html_file"
+            fi
+            
+            if [[ "$is_canary" == "true" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">⚠️ Canary Token:</span> Yes</div>" >> "$html_file"
+            fi
+            
+            if [[ "$link" != "N/A" ]]; then
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Link:</span> <a href=\"$link\" target=\"_blank\">View in GitHub</a></div>" >> "$html_file"
+            fi
+            
+            echo "                    </div>" >> "$html_file"
+            echo "                </div>" >> "$html_file"
+            echo "            </div>" >> "$html_file"
+        done
+    else
+        echo '            <div class="no-secrets">✅ No secrets found in this organization</div>' >> "$html_file"
+    fi
+    
+    cat >> "$html_file" <<EOF
+        </div>
+        
+        <div class="footer">
+            <p>Generated by AutoAR GitHub Organization Scanner | Powered by TruffleHog</p>
+            <p>Scan completed at $(date)</p>
+        </div>
+    </div>
+</body>
+</html>
+EOF
+    
+    log SUCCESS "Organization HTML report generated: $html_file"
+}
+
+# Function to scan GitHub repository for secrets using modern TruffleHog
+github_scan() {
+    local repo_url="$1"
+    local repo_name=$(basename "$repo_url" .git)
+    local org_name=$(echo "$repo_url" | sed 's|.*github.com/||' | cut -d'/' -f1)
+    
+    log INFO "Starting GitHub secrets scan for: $repo_name"
+    
+    # Create temporary directory for this scan
+    local temp_dir="/tmp/github_scan_$$_$repo_name"
+    mkdir -p "$temp_dir"
+    
+    # Clone the repository
+    log INFO "Cloning $repo_url..."
+    if git clone --depth 1 "$repo_url" "$temp_dir/$repo_name" 2>/dev/null; then
+        log SUCCESS "Cloned $repo_name successfully"
+        
+        # Scan for secrets using modern TruffleHog
+        local secrets_file="$temp_dir/${repo_name}_secrets.json"
+        log INFO "Scanning for secrets using TruffleHog..."
+        
+        # Ensure GitHub auth is available to TruffleHog
+        export GH_TOKEN="$GITHUB_TOKEN"
+        export GITHUB_TOKEN="$GITHUB_TOKEN"
+        export TRUFFLEHOG_GITHUB_API_TOKEN="$GITHUB_TOKEN"
+
+        # Use the modern TruffleHog with proper syntax
+        if /home/sallam/.local/bin/trufflehog github --repo="$repo_url" --issue-comments --pr-comments --json > "$secrets_file" 2>/dev/null; then
+            # Convert newline-delimited JSON to JSON array for counting
+            local temp_json_array="$temp_dir/${repo_name}_secrets_array.json"
+            if [[ -s "$secrets_file" ]]; then
+                # Filter only real findings to avoid info lines
+                jq -s '[.[] | select(.DetectorName != null)]' "$secrets_file" > "$temp_json_array" 2>/dev/null || echo "[]" > "$temp_json_array"
+            else
+                echo "[]" > "$temp_json_array"
+            fi
+            local secret_count=$(jq length "$temp_json_array" 2>/dev/null || echo "0")
+            
+            if [[ "$secret_count" -gt 0 ]]; then
+                log SUCCESS "Found $secret_count secrets in $repo_name"
+                
+                # Generate JSON report for Discord
+                local json_report="$DOMAIN_DIR/vulnerabilities/github_${repo_name}_secrets.json"
+                mkdir -p "$DOMAIN_DIR/vulnerabilities"
+                cp "$temp_json_array" "$json_report"
+                
+                # Generate HTML report
+                local html_report="$DOMAIN_DIR/vulnerabilities/github_${repo_name}_secrets.html"
+                generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
+                
+                # Send Discord notification with both JSON and HTML files
+                if [[ -n "$DISCORD_WEBHOOK" ]]; then
+                    local message="🔍 **GitHub Secrets Scan Results**\n\n"
+                    message+="**Repository:** \`$repo_name\`\n"
+                    message+="**Organization:** \`$org_name\`\n"
+                    message+="**Secrets found:** \`$secret_count\`\n"
+                    message+="**Time:** \`$(date)\`\n"
+                    message+="**Reports:** \`JSON + HTML attached\`\n"
+                    
+                    # Send initial message
+                    local payload=$(cat <<EOF
+{
+    "content": "$message",
+    "username": "GitHub Secrets Scanner",
+    "avatar_url": "https://github.com/fluidicon.png"
+}
+EOF
+)
+                    
+                    curl -s -X POST "$DISCORD_WEBHOOK" \
+                        -H "Content-Type: application/json" \
+                        -d "$payload" > /dev/null 2>&1 || true
+                    
+                    # Send JSON file as attachment
+                    send_file_to_discord "$json_report" "GitHub Secrets Scan Results (JSON) for $repo_name"
+                    
+                    # Send HTML file as attachment
+                    send_file_to_discord "$html_report" "GitHub Secrets Scan Results (HTML) for $repo_name"
+                fi
+                
+                log SUCCESS "GitHub scan completed for $repo_name - Found $secret_count secrets"
+            else
+                log INFO "No secrets found in $repo_name"
+                
+                # Generate empty JSON and HTML reports for no findings
+                local json_report="$DOMAIN_DIR/vulnerabilities/github_${repo_name}_secrets.json"
+                local html_report="$DOMAIN_DIR/vulnerabilities/github_${repo_name}_secrets.html"
+                mkdir -p "$DOMAIN_DIR/vulnerabilities"
+                echo "[]" > "$json_report"
+                generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
+                
+                # Send Discord notification with both reports
+                if [[ -n "$DISCORD_WEBHOOK" ]]; then
+                    local message="🔍 **GitHub Secrets Scan Results**\n\n"
+                    message+="**Repository:** \`$repo_name\`\n"
+                    message+="**Organization:** \`$org_name\`\n"
+                    message+="**Secrets found:** \`0\`\n"
+                    message+="**Time:** \`$(date)\`\n"
+                    message+="**Status:** \`Clean - No secrets found\`\n"
+                    message+="**Reports:** \`JSON + HTML attached\`"
+                    
+                    local payload=$(cat <<EOF
+{
+    "content": "$message",
+    "username": "GitHub Secrets Scanner",
+    "avatar_url": "https://github.com/fluidicon.png"
+}
+EOF
+)
+                    
+                    curl -s -X POST "$DISCORD_WEBHOOK" \
+                        -H "Content-Type: application/json" \
+                        -d "$payload" > /dev/null 2>&1 || true
+                    
+                    # Send both JSON and HTML files
+                    send_file_to_discord "$json_report" "GitHub Secrets Scan Results (JSON) for $repo_name - No secrets found"
+                    send_file_to_discord "$html_report" "GitHub Secrets Scan Results (HTML) for $repo_name - No secrets found"
+                fi
+            fi
+        else
+            error "TruffleHog scan failed for $repo_name"
+        fi
+    else
+        error "Failed to clone $repo_url"
+    fi
+    
+    # Cleanup temporary directory
+    log INFO "Cleaning up temporary directory: $temp_dir"
+    rm -rf "$temp_dir"
+}
+
 # Function to scan for JS exposures
 scan_js_exposures() {
     local domain_dir="$1"
@@ -1029,6 +2155,335 @@ scan_js_exposures() {
     fi
 }
 
+# Function to run JS-only scan
+js_scan() {
+    local domain="$1"
+    local subdomain="$2"
+    log INFO "Starting JS-only scan for: ${subdomain:-$domain}"
+    
+    # Set up results directory
+    if [[ -n "$subdomain" ]]; then
+        SINGLE_SUBDOMAIN="$subdomain"
+        setup_results_dir
+        echo "$subdomain" > "$DOMAIN_DIR/subs/all-subs.txt"
+        echo "https://$subdomain" > "$DOMAIN_DIR/subs/live-subs.txt"
+    else
+        setup_results_dir
+        subEnum "$domain"
+        filter_live_hosts
+    fi
+    
+    # Collect URLs and JS files
+    fetch_urls
+    
+    # Run JS analysis
+    scan_js_exposures "$DOMAIN_DIR"
+    
+    log SUCCESS "JS scan completed for ${subdomain:-$domain}"
+    if [[ -n "$DISCORD_WEBHOOK" ]]; then
+        send_to_discord "JS scan completed for ${subdomain:-$domain}! Check $DOMAIN_DIR for detailed findings."
+    fi
+    
+    # Schedule cleanup after Discord notifications are sent
+    cleanup_results "$DOMAIN_DIR"
+}
+
+# S3 Bucket Scanning Functions
+S3_BUCKET_NAME=""
+S3_REGION=""
+S3_NO_SIGN_REQUEST=false
+S3_TEST_FILE="s3_test_file.txt"
+S3_LOCAL_FILE="/tmp/$S3_TEST_FILE"
+
+# Function to check S3 permissions with AWS CLI
+check_s3_permission() {
+    local perm_name="$1"
+    local aws_command="$2"
+    log INFO "Checking ${perm_name} permission..."
+    if eval "$aws_command" &>/dev/null; then
+        log SUCCESS "✅ ${perm_name}: ALLOWED"
+        return 0
+    else
+        log WARNING "❌ ${perm_name}: DENIED"
+        return 1
+    fi
+}
+
+# Function to get all possible S3 URLs for a given bucket/object
+get_all_s3_urls() {
+    local object="$1"
+    local urls=()
+    # Virtual-hosted–style (global)
+    urls+=("https://${S3_BUCKET_NAME}.s3.amazonaws.com/${object}")
+    # Virtual-hosted–style (regional)
+    if [[ -n "$S3_REGION" ]]; then
+        urls+=("https://${S3_BUCKET_NAME}.s3.${S3_REGION}.amazonaws.com/${object}")
+    fi
+    # Path-style (global)
+    urls+=("https://s3.amazonaws.com/${S3_BUCKET_NAME}/${object}")
+    # Path-style (regional)
+    if [[ -n "$S3_REGION" ]]; then
+        urls+=("https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET_NAME}/${object}")
+        urls+=("https://s3-${S3_REGION}.amazonaws.com/${S3_BUCKET_NAME}/${object}")
+    fi
+    printf '%s\n' "${urls[@]}"
+}
+
+# Function to check permissions with curl for all S3 URL styles
+check_s3_curl_permission_all_styles() {
+    local perm_name="$1"
+    local method="$2"
+    local object="$3"
+    local file="$4" # For PUT
+    local output_file="$5"
+    local urls
+    urls=$(get_all_s3_urls "$object")
+    local url
+    local found_vulnerable=false
+    
+    for url in $urls; do
+        log INFO "Testing ${perm_name} at $url"
+        local result
+        if [[ "$method" == "GET" ]]; then
+            result=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+            if [[ "$result" == "200" ]]; then
+                log SUCCESS "✅ ${perm_name}: ALLOWED"
+                echo "[ALLOWED] ${perm_name}" >> "$output_file"
+                found_vulnerable=true
+                break
+            else
+                log INFO "❌ ${perm_name}: DENIED at $url (HTTP $result)"
+            fi
+        elif [[ "$method" == "PUT" ]]; then
+            result=$(curl -s -o /dev/null -w "%{http_code}" -T "$file" "$url")
+            if [[ "$result" =~ ^2 ]]; then
+                log SUCCESS "✅ ${perm_name}: ALLOWED"
+                echo "[ALLOWED] ${perm_name}" >> "$output_file"
+                found_vulnerable=true
+                break
+            else
+                log INFO "❌ ${perm_name}: DENIED at $url (HTTP $result)"
+            fi
+        elif [[ "$method" == "DELETE" ]]; then
+            result=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$url")
+            if [[ "$result" =~ ^2 ]]; then
+                log SUCCESS "✅ ${perm_name}: ALLOWED"
+                echo "[ALLOWED] ${perm_name}" >> "$output_file"
+                found_vulnerable=true
+                break
+            else
+                log INFO "❌ ${perm_name}: DENIED at $url (HTTP $result)"
+            fi
+        fi
+    done
+    
+    if [[ "$found_vulnerable" == false ]]; then
+        echo "[DENIED] ${perm_name}" >> "$output_file"
+    fi
+    
+    if [[ "$found_vulnerable" == true ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to run S3 bucket scan
+s3_scan() {
+    local bucket_name="$1"
+    local region="$2"
+    local no_sign_request="$3"
+    
+    log INFO "Starting S3 bucket scan for: $bucket_name"
+    
+    # Set up results directory for S3 scan
+    S3_BUCKET_NAME="$bucket_name"
+    S3_REGION="$region"
+    S3_NO_SIGN_REQUEST="$no_sign_request"
+    
+    # Create S3-specific results directory
+    DOMAIN_DIR="$RESULTS_DIR/s3_$bucket_name"
+    mkdir -p "$DOMAIN_DIR"
+    ensure_permissions "$DOMAIN_DIR"
+    
+    # Create S3 scan directory
+    local s3_dir="$DOMAIN_DIR/vulnerabilities/s3"
+    mkdir -p "$s3_dir"
+    ensure_permissions "$s3_dir"
+    
+    # Create output files
+    local aws_results="$s3_dir/aws-cli-results.txt"
+    local curl_results="$s3_dir/curl-results.txt"
+    local public_results="$s3_dir/public-access-results.txt"
+    local summary_file="$s3_dir/s3-scan-summary.txt"
+    
+    # Create empty files
+    touch "$aws_results" "$curl_results" "$public_results" "$summary_file"
+    ensure_permissions "$aws_results" "$curl_results" "$public_results" "$summary_file"
+    
+    # Create a temporary local file for testing write permissions
+    echo "AutoAR S3 test file - $(date)" > "$S3_LOCAL_FILE"
+    
+    # Set AWS command flags
+    local aws_flags=""
+    if [[ "$S3_NO_SIGN_REQUEST" == true ]]; then
+        aws_flags="--no-sign-request"
+    fi
+    if [[ -n "$S3_REGION" ]]; then
+        aws_flags="$aws_flags --region $S3_REGION"
+    fi
+    
+    log INFO "Testing S3 bucket permissions for: $S3_BUCKET_NAME"
+    if [[ -n "$S3_REGION" ]]; then
+        log INFO "Region: $S3_REGION"
+    fi
+    
+    # Run permission checks (AWS CLI)
+    log INFO "Running AWS CLI permission checks..."
+    {
+        echo "AWS CLI PERMISSIONS:"
+        echo "Bucket: $S3_BUCKET_NAME"
+        echo "Region: ${S3_REGION:-'default'}"
+        echo ""
+    } >> "$aws_results"
+    
+    # Check each permission and log results
+    if check_s3_permission "Read" "aws s3 ls s3://$S3_BUCKET_NAME $aws_flags"; then
+        echo "[ALLOWED] Read permission" >> "$aws_results"
+    else
+        echo "[DENIED] Read permission" >> "$aws_results"
+    fi
+    
+    if check_s3_permission "Write" "aws s3 cp $S3_LOCAL_FILE s3://$S3_BUCKET_NAME/$S3_TEST_FILE $aws_flags && aws s3 rm s3://$S3_BUCKET_NAME/$S3_TEST_FILE $aws_flags"; then
+        echo "[ALLOWED] Write permission" >> "$aws_results"
+    else
+        echo "[DENIED] Write permission" >> "$aws_results"
+    fi
+    
+    if check_s3_permission "READ_ACP" "aws s3api get-bucket-acl --bucket $S3_BUCKET_NAME $aws_flags"; then
+        echo "[ALLOWED] READ_ACP permission" >> "$aws_results"
+    else
+        echo "[DENIED] READ_ACP permission" >> "$aws_results"
+    fi
+    
+    if check_s3_permission "WRITE_ACP" "aws s3api put-bucket-acl --bucket $S3_BUCKET_NAME --acl private $aws_flags"; then
+        echo "[ALLOWED] WRITE_ACP permission" >> "$aws_results"
+    else
+        echo "[DENIED] WRITE_ACP permission" >> "$aws_results"
+    fi
+    
+    if check_s3_permission "FULL_CONTROL" "aws s3api put-bucket-acl --bucket $S3_BUCKET_NAME --acl private $aws_flags && aws s3 cp $S3_LOCAL_FILE s3://$S3_BUCKET_NAME/$S3_TEST_FILE $aws_flags && aws s3 rm s3://$S3_BUCKET_NAME/$S3_TEST_FILE $aws_flags && aws s3 ls s3://$S3_BUCKET_NAME $aws_flags"; then
+        echo "[ALLOWED] FULL_CONTROL permission" >> "$aws_results"
+    else
+        echo "[DENIED] FULL_CONTROL permission" >> "$aws_results"
+    fi
+    
+    # Run curl-based permission checks for all S3 URL styles
+    log INFO "Running curl-based permission checks..."
+    {
+        echo "CURL PERMISSIONS:"
+        echo "Bucket: $S3_BUCKET_NAME"
+        echo "Region: ${S3_REGION:-'default'}"
+        echo ""
+    } >> "$curl_results"
+    
+    # Test different operations
+    check_s3_curl_permission_all_styles "List (GET /)" "GET" "" "" "$curl_results"
+    check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE)" "GET" "$S3_TEST_FILE" "" "$curl_results"
+    check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$curl_results"
+    check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE)" "DELETE" "$S3_TEST_FILE" "" "$curl_results"
+    
+    # Test public/anonymous access
+    log INFO "Testing public/anonymous access..."
+    {
+        echo "PUBLIC ACCESS:"
+        echo "Bucket: $S3_BUCKET_NAME"
+        echo "Region: ${S3_REGION:-'default'}"
+        echo ""
+    } >> "$public_results"
+    
+    # Set AWS_FLAGS for public checks
+    local public_aws_flags="--no-sign-request"
+    if [[ -n "$S3_REGION" ]]; then
+        public_aws_flags="$public_aws_flags --region $S3_REGION"
+    fi
+    
+    # Repeat permission checks with no-sign-request (AWS CLI)
+    if check_s3_permission "Read (public)" "aws s3 ls s3://$S3_BUCKET_NAME $public_aws_flags"; then
+        echo "[ALLOWED] Read permission (public)" >> "$public_results"
+    else
+        echo "[DENIED] Read permission (public)" >> "$public_results"
+    fi
+    
+    if check_s3_permission "Write (public)" "aws s3 cp $S3_LOCAL_FILE s3://$S3_BUCKET_NAME/$S3_TEST_FILE $public_aws_flags && aws s3 rm s3://$S3_BUCKET_NAME/$S3_TEST_FILE $public_aws_flags"; then
+        echo "[ALLOWED] Write permission (public)" >> "$public_results"
+    else
+        echo "[DENIED] Write permission (public)" >> "$public_results"
+    fi
+    
+    # Repeat curl-based permission checks for all S3 URL styles (public)
+    check_s3_curl_permission_all_styles "List (GET /, public)" "GET" "" "" "$public_results"
+    check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE, public)" "GET" "$S3_TEST_FILE" "" "$public_results"
+    check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE, public)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$public_results"
+    check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE, public)" "DELETE" "$S3_TEST_FILE" "" "$public_results"
+    
+    # Generate simple summary
+    {
+        echo "=== S3 BUCKET SCAN RESULTS ==="
+        echo "Bucket: $S3_BUCKET_NAME"
+        echo "Region: ${S3_REGION:-'default'}"
+        echo "Scan Date: $(date)"
+        echo ""
+    } > "$summary_file"
+    
+    # Clean up local test file
+    rm -f "$S3_LOCAL_FILE"
+    
+    # Combine all results into a single comprehensive file
+    local combined_results="$s3_dir/s3-scan-results.txt"
+    {
+        echo "S3 BUCKET SCAN RESULTS"
+        echo "======================"
+        echo "Bucket: $S3_BUCKET_NAME"
+        echo "Region: ${S3_REGION:-'default'}"
+        echo "Date: $(date)"
+        echo ""
+        
+        if [[ -s "$aws_results" ]]; then
+            echo "AWS CLI PERMISSIONS:"
+            echo "-------------------"
+            grep -E "\[(ALLOWED|DENIED)\]" "$aws_results" || echo "No AWS CLI results"
+            echo ""
+        fi
+        
+        if [[ -s "$curl_results" ]]; then
+            echo "CURL PERMISSIONS:"
+            echo "----------------"
+            grep -E "\[(ALLOWED|DENIED)\]" "$curl_results" || echo "No curl results"
+            echo ""
+        fi
+        
+        if [[ -s "$public_results" ]]; then
+            echo "PUBLIC ACCESS:"
+            echo "--------------"
+            grep -E "\[(ALLOWED|DENIED)\]" "$public_results" || echo "No public access results"
+            echo ""
+        fi
+        
+    } > "$combined_results"
+    
+    # Send single combined file to Discord
+    if [[ -n "$DISCORD_WEBHOOK" ]]; then
+        send_file_to_discord "$combined_results" "S3 Bucket Complete Scan Results for $S3_BUCKET_NAME"
+    fi
+    
+    log SUCCESS "S3 bucket scan completed for $S3_BUCKET_NAME"
+    log INFO "Results saved in: $s3_dir"
+    
+    # Schedule cleanup after Discord notifications are sent
+    cleanup_results "$DOMAIN_DIR"
+}
+
 # Function to run nuclei scans
 run_nuclei_scans() {
     local domain_dir="$1"
@@ -1070,6 +2525,149 @@ detect_technologies() {
     else
         log WARNING "No live subdomains found for technology detection"
     fi
+}
+
+# Function to check Azure and AWS subdomain takeover vulnerabilities
+check_azure_aws_takeover() {
+    local domain_dir="$1"
+    local findings_dir="$2"
+    
+    log INFO "Checking Azure and AWS subdomain takeover vulnerabilities..."
+    
+    local azure_output="$findings_dir/azure-takeover.txt"
+    local aws_output="$findings_dir/aws-takeover.txt" 
+    local combined_output="$findings_dir/azure-aws-takeover.txt"
+    
+    > "$azure_output"
+    > "$aws_output" 
+    > "$combined_output"
+    
+    local vulnerable_count=0 azure_count=0 aws_count=0
+    
+    [[ ! -f "$domain_dir/subs/all-subs.txt" || ! -s "$domain_dir/subs/all-subs.txt" ]] && { log WARNING "No subdomains file found"; return; }
+    
+    while IFS= read -r subdomain; do
+        [[ -z "$subdomain" ]] && continue
+        
+        local cname="" dig_output="" status=""
+        
+        if dig_output=$(dig +short +noall +answer "$subdomain" CNAME 2>/dev/null); then
+            cname=$(echo "$dig_output" | head -n1 | tr -d '[:space:]')
+        fi
+        
+        if dig_output=$(dig +noall +answer "$subdomain" 2>/dev/null); then
+            if echo "$dig_output" | grep -q "status: NXDOMAIN"; then
+                status="NXDOMAIN"
+            elif echo "$dig_output" | grep -q "status: NOERROR"; then
+                status="NOERROR"
+            elif echo "$dig_output" | grep -q "status: SERVFAIL"; then
+                status="SERVFAIL"
+            else
+                status="UNKNOWN"
+            fi
+        else
+            status="ERROR"
+        fi
+        
+        [[ -z "$cname" || "$status" != "NXDOMAIN" ]] && continue
+        
+        if [[ "$cname" =~ \.(cloudapp\.net|azurewebsites\.net|cloudapp\.azure\.com|trafficmanager\.net)$ ]]; then
+            local service_type=""
+            case "$cname" in
+                *.cloudapp.net) service_type="Azure CloudApp" ;;
+                *.azurewebsites.net) service_type="Azure Websites" ;;
+                *.cloudapp.azure.com) service_type="Azure VM" ;;
+                *.trafficmanager.net) service_type="Azure Traffic Manager" ;;
+            esac
+            
+            echo "[VULNERABLE] [SUBDOMAIN:$subdomain] [CNAME:$cname] [SERVICE:$service_type] [STATUS:$status]" | tee -a "$azure_output" "$combined_output"
+            ((azure_count++))
+            ((vulnerable_count++))
+            log SUCCESS "Azure takeover found: $subdomain -> $cname ($service_type)"
+        fi
+        
+        if [[ "$cname" =~ \.(elasticbeanstalk\.com|s3\.amazonaws\.com|elb\.amazonaws\.com|execute-api\..*\.amazonaws\.com)$ ]]; then
+            local service_type=""
+            case "$cname" in
+                *.elasticbeanstalk.com) service_type="AWS Elastic Beanstalk" ;;
+                *.s3.amazonaws.com) service_type="AWS S3" ;;
+                *.elb.amazonaws.com) service_type="AWS Elastic Load Balancer" ;;
+                *.execute-api.*.amazonaws.com) service_type="AWS API Gateway" ;;
+            esac
+            
+            echo "[VULNERABLE] [SUBDOMAIN:$subdomain] [CNAME:$cname] [SERVICE:$service_type] [STATUS:$status]" | tee -a "$aws_output" "$combined_output"
+            ((aws_count++))
+            ((vulnerable_count++))
+            log SUCCESS "AWS takeover found: $subdomain -> $cname ($service_type)"
+        fi
+        
+    done < "$domain_dir/subs/all-subs.txt"
+    
+    # Generate summary
+    {
+        echo "=== AZURE & AWS SUBDOMAIN TAKEOVER DETECTION SUMMARY ==="
+        echo "Scan Date: $(date)"
+        echo "Total Subdomains Checked: $(wc -l < "$domain_dir/subs/all-subs.txt")"
+        echo "Azure Vulnerabilities Found: $azure_count"
+        echo "AWS Vulnerabilities Found: $aws_count"
+        echo "Total Vulnerabilities: $vulnerable_count"
+        echo ""
+        
+        if [[ $azure_count -gt 0 ]]; then
+            echo "=== AZURE TAKEOVER VULNERABILITIES ==="
+            cat "$azure_output"
+            echo ""
+        fi
+        
+        if [[ $aws_count -gt 0 ]]; then
+            echo "=== AWS TAKEOVER VULNERABILITIES ==="
+            cat "$aws_output"
+            echo ""
+        fi
+        
+        echo "=== EXPLOITATION NOTES ==="
+        echo "Azure Services:"
+        echo "- CloudApp: Register at https://portal.azure.com/?quickstart=True#create/Microsoft.CloudService"
+        echo "- Websites: Register at https://portal.azure.com/#create/Microsoft.WebApp"
+        echo "- VM: Register at https://portal.azure.com/#create/Microsoft.VirtualMachine"
+        echo "- Traffic Manager: Register at https://portal.azure.com/#create/Microsoft.TrafficManager"
+        echo ""
+        echo "AWS Services:"
+        echo "- Elastic Beanstalk: Register at https://console.aws.amazon.com/elasticbeanstalk/"
+        echo "- S3: Register at https://console.aws.amazon.com/s3/"
+        echo "- ELB: Register at https://console.aws.amazon.com/ec2/v2/home#LoadBalancers:"
+        echo "- API Gateway: Register at https://console.aws.amazon.com/apigateway/"
+        echo ""
+        echo "References:"
+        echo "- Azure: https://godiego.co/posts/STO-Azure/"
+        echo "- AWS: https://godiego.co/posts/STO-AWS/"
+        
+    } >> "$combined_output"
+    
+    # Send results to Discord
+    if [[ $vulnerable_count -gt 0 ]]; then
+        log SUCCESS "Found $vulnerable_count subdomain takeover vulnerabilities ($azure_count Azure, $aws_count AWS)"
+        
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            if [[ $azure_count -gt 0 ]]; then
+                send_file_to_discord "$azure_output" "Azure Subdomain Takeover Results ($azure_count vulnerabilities)"
+            fi
+            
+            if [[ $aws_count -gt 0 ]]; then
+                send_file_to_discord "$aws_output" "AWS Subdomain Takeover Results ($aws_count vulnerabilities)"
+            fi
+            
+            send_file_to_discord "$combined_output" "Azure & AWS Subdomain Takeover Summary ($vulnerable_count total)"
+        fi
+    else
+        log INFO "No Azure or AWS subdomain takeover vulnerabilities found"
+        
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            send_file_to_discord "$combined_output" "Azure & AWS Subdomain Takeover Scan - No vulnerabilities found"
+        fi
+    fi
+    
+    log SUCCESS "Azure and AWS takeover detection completed. Found $vulnerable_count total vulnerabilities"
 }
 
 # Function to scan for dangling DNS records using dnsx
@@ -1120,13 +2718,9 @@ scan_dangling_dns() {
         send_file_to_discord "$findings_dir/dnsreaper-results.txt" "DNSReaper Takeover Results"
     fi
 
-    if command -v subov88r &> /dev/null; then
-        log INFO "Running subov88r for Azure and AWS subdomain takeover check..."
-        subov88r -f "$domain_dir/subs/all-subs.txt" -awsto -nc -asto > "$findings_dir/subov88r-results.txt" 2>> "$LOG_FILE"
-        if [[ -s "$findings_dir/subov88r-results.txt" && -n "$DISCORD_WEBHOOK" ]]; then
-            send_file_to_discord "$findings_dir/subov88r-results.txt" "Azure and AWS Subdomain Takeover Results (subov88r)"
-        fi
-    fi
+    # Run Azure and AWS subdomain takeover detection
+    log INFO "Running Azure and AWS subdomain takeover detection..."
+    check_azure_aws_takeover "$domain_dir" "$findings_dir"
 
     # --- NS Takeover: Enhanced scanning ---
     log INFO "Running enhanced NS takeover scan..."
@@ -1169,18 +2763,21 @@ scan_dangling_dns() {
         echo "=== DNS TAKEOVER SCAN SUMMARY ==="
         echo "Scan Date: $(date)"
         echo "Total Subdomains Scanned: $(wc -l < "$domain_dir/subs/all-subs.txt")"
-        echo "Tools Used: dnsx, nuclei, subov88r, dnsreaper"
+        echo "Tools Used: dnsx, nuclei, dnsreaper, dig (bash implementation)"
         echo ""
         echo "CNAME Takeover (Nuclei public): $(wc -l < "$findings_dir/nuclei-takeover-public.txt")"
         echo "CNAME Takeover (Nuclei custom): $(wc -l < "$findings_dir/nuclei-takeover-custom.txt")"
         echo "DNSReaper Results: $(wc -l < "$findings_dir/dnsreaper-results.txt")"
-        echo "Azure Subdomain Takeover (subov88r): $(wc -l < "$findings_dir/azureSDT.txt")"
+        echo "Azure Subdomain Takeover: $(wc -l < "$findings_dir/azure-takeover.txt")"
+        echo "AWS Subdomain Takeover: $(wc -l < "$findings_dir/aws-takeover.txt")"
         echo "NS Takeover (Subdomain DNS Errors): $ns_takeover_raw_count"
         echo "NS Takeover (NS Server DNS Errors): $ns_servers_vuln_count"
         echo "NS Takeover (Vulnerable Providers): $ns_takeover_vuln_count"
         echo ""
         echo "=== Exploitation Notes ==="
-        echo "- CNAME Takeover: Use Nuclei/subov88r/DNSReaper findings for actionable subdomain takeovers."
+        echo "- CNAME Takeover: Use Nuclei/DNSReaper/bash implementation findings for actionable subdomain takeovers."
+        echo "- Azure Takeover: Check azure-takeover.txt for CloudApp, Websites, VM, and Traffic Manager vulnerabilities."
+        echo "- AWS Takeover: Check aws-takeover.txt for Elastic Beanstalk, S3, ELB, and API Gateway vulnerabilities."
         echo "- NS Takeover: Check both subdomain and NS server DNS errors, prioritize those matching known vulnerable providers."
         echo "- Always verify manually before reporting."
         echo ""
@@ -1245,6 +2842,9 @@ lite_scan() {
     if [[ -n "$DISCORD_WEBHOOK" ]]; then
         send_to_discord "🎉 Lite scan completed for $domain! Check $DOMAIN_DIR for detailed findings."
     fi
+    
+    # Schedule cleanup after Discord notifications are sent
+    cleanup_results "$DOMAIN_DIR"
 }
 
 # Function to scan a single subdomain
@@ -1279,6 +2879,14 @@ scan_single_subdomain() {
     run_sql_injection_scan
     run_dalfox_scan
     scan_dangling_dns "$DOMAIN_DIR"
+    
+    log SUCCESS "Subdomain scan completed for $subdomain"
+    if [[ -n "$DISCORD_WEBHOOK" ]]; then
+        send_to_discord "🎯 Subdomain scan completed for $subdomain! Check $DOMAIN_DIR for detailed findings."
+    fi
+    
+    # Schedule cleanup after Discord notifications are sent
+    cleanup_results "$DOMAIN_DIR"
 }
 
 # Function to scan entire domain
@@ -1300,6 +2908,14 @@ scan_domain() {
     run_gf_scans
     run_sql_injection_scan
     run_dalfox_scan
+    
+    log SUCCESS "Domain scan completed for $domain"
+    if [[ -n "$DISCORD_WEBHOOK" ]]; then
+        send_to_discord "🌐 Domain scan completed for $domain! Check $DOMAIN_DIR for detailed findings."
+    fi
+    
+    # Schedule cleanup after Discord notifications are sent
+    cleanup_results "$DOMAIN_DIR"
 }
 
 # Function to monitor JS files for a domain
@@ -1454,25 +3070,50 @@ show_help() {
     cat << EOF
     Usage: ./autoAr.sh <subcommand> [options]
 
-    Subcommands:
-        domain      Full scan mode (customizable with skip flags)
-        subdomain   Scan a single subdomain
-        liteScan    Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)
-        fastLook    Fast look (subenum, live subdomains, collect urls, tech detect, cname checker)
-        jsMonitor   Monitor JS files for a domain or single subdomain and alert on changes
-        monitor     Run the Python monitoring script
-        help        Show this help message
+        Subcommands:
+            domain      Full scan mode (customizable with skip flags)
+            subdomain   Scan a single subdomain
+            liteScan    Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)
+            fastLook    Fast look (subenum, live subdomains, collect urls, tech detect, cname checker)
+            jsScan      JS-focused scan (collect JS files and analyze for secrets, XSS, endpoints)
+            jsMonitor   Monitor JS files for a domain or single subdomain and alert on changes
+            s3Scan      S3 bucket permission scan (test read, write, delete, and public access)
+            github      Scan GitHub repository for secrets using TruffleHog
+            github-org  Scan GitHub organization for secrets using TruffleHog
+            monitor     Run the Python monitoring script
+            check-tools Check if all required tools are installed
+            api         API management (start, stop, restart, status, logs, install, uninstall)
+            help        Show this help message
 
-    Examples:
-        ./autoAr.sh domain -d example.com
-        ./autoAr.sh subdomain -s sub.example.com
-        ./autoAr.sh liteScan -d example.com
-        ./autoAr.sh fastLook -d example.com
-        ./autoAr.sh jsMonitor -d example.com
-        ./autoAr.sh jsMonitor -s sub.example.com
-        ./autoAr.sh monitor
-        ./autoAr.sh monitor --all
-        ./autoAr.sh monitor -c company
+        Examples:
+            ./autoAr.sh domain -d example.com
+            ./autoAr.sh subdomain -s sub.example.com
+            ./autoAr.sh liteScan -d example.com
+            ./autoAr.sh fastLook -d example.com
+            ./autoAr.sh jsScan -d example.com
+            ./autoAr.sh jsScan -s sub.example.com
+            ./autoAr.sh jsMonitor -d example.com
+            ./autoAr.sh jsMonitor -s sub.example.com
+            ./autoAr.sh s3Scan -b my-bucket
+            ./autoAr.sh s3Scan -b my-bucket -r us-east-1
+            ./autoAr.sh s3Scan -b my-bucket -r us-west-2 -n
+            ./autoAr.sh github -r https://github.com/owner/repo
+            ./autoAr.sh github-org -o organization-name
+            ./autoAr.sh monitor
+            ./autoAr.sh monitor --all
+            ./autoAr.sh monitor -c company
+            ./autoAr.sh check-tools
+            ./autoAr.sh api start
+            ./autoAr.sh api stop
+            ./autoAr.sh api restart
+            ./autoAr.sh api status
+            ./autoAr.sh api logs
+            ./autoAr.sh api logs -f
+            ./autoAr.sh api install
+            ./autoAr.sh api uninstall
+
+        Options:
+            --keep-results                         Keep results directory after scan (disable cleanup)
 EOF
 }
 
@@ -1482,9 +3123,42 @@ main() {
         show_help
         exit 1
     fi
-    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|jsMonitor|monitor|help|--help|-h)$ ]]; then
+    # Check for global options first
+    local keep_results=false
+    local args=("$@")
+    local filtered_args=()
+    
+    for arg in "${args[@]}"; do
+        case "$arg" in
+            --keep-results)
+                keep_results=true
+                ;;
+            *)
+                filtered_args+=("$arg")
+                ;;
+        esac
+    done
+    
+    if [[ "$keep_results" == "true" ]]; then
+        disable_cleanup
+    fi
+    
+    # Set arguments to filtered list
+    set -- "${filtered_args[@]}"
+    
+    if [[ $# -eq 0 ]]; then
+        show_help
+        exit 1
+    fi
+    
+    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|jsScan|jsMonitor|s3Scan|github|github-org|monitor|check-tools|api|help|--help|-h)$ ]]; then
         subcommand="$1"
         shift
+        
+        # Check tools before running any scan (except help, monitor, check-tools, and api)
+        if [[ "$subcommand" != "help" && "$subcommand" != "--help" && "$subcommand" != "-h" && "$subcommand" != "monitor" && "$subcommand" != "check-tools" && "$subcommand" != "api" ]]; then
+            check_tools
+        fi
         case "$subcommand" in
             domain)
                 # Parse flags for domain scan
@@ -1584,6 +3258,57 @@ main() {
                 run_reflection_scan
                 exit 0
                 ;;
+            jsScan)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -d|--domain)
+                            TARGET="$2"; shift 2;;
+                        -s|--subdomain)
+                            SINGLE_SUBDOMAIN="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        -sk|--securitytrails-key)
+                            SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
+                    js_scan "" "$SINGLE_SUBDOMAIN"
+                elif [[ -n "$TARGET" ]]; then
+                    js_scan "$TARGET" ""
+                else
+                    echo "Error: Must specify a domain with -d or a subdomain with -s"; show_help; exit 1;
+                fi
+                exit 0
+                ;;
+            s3Scan)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -b|--bucket)
+                            S3_BUCKET_NAME="$2"; shift 2;;
+                        -r|--region)
+                            S3_REGION="$2"; shift 2;;
+                        -n|--no-sign-request)
+                            S3_NO_SIGN_REQUEST=true; shift;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        --help|-h)
+                            show_help; exit 0;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$S3_BUCKET_NAME" ]]; then
+                    echo "Error: Must specify a bucket name with -b"; show_help; exit 1;
+                fi
+                s3_scan "$S3_BUCKET_NAME" "$S3_REGION" "$S3_NO_SIGN_REQUEST"
+                exit 0
+                ;;
             jsMonitor)
                 while [[ $# -gt 0 ]]; do
                     case $1 in
@@ -1609,6 +3334,48 @@ main() {
                 fi
                 exit 0
                 ;;
+            github)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -r|--repo)
+                            GITHUB_REPO="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$GITHUB_REPO" ]]; then
+                    echo "Error: Must specify a GitHub repository with -r"; show_help; exit 1;
+                fi
+                setup_results_dir
+                github_scan "$GITHUB_REPO"
+                exit 0
+                ;;
+            github-org)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -o|--org)
+                            GITHUB_ORG="$2"; shift 2;;
+                        -m|--max-repos)
+                            MAX_REPOS="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$GITHUB_ORG" ]]; then
+                    echo "Error: Must specify a GitHub organization with -o"; show_help; exit 1;
+                fi
+                setup_results_dir
+                github_org_scan "$GITHUB_ORG" "${MAX_REPOS:-50}"
+                exit 0
+                ;;
             monitor)
                 # Convert '-c all' to '--all' for compatibility
                 if [[ "$1" == "-c" && "$2" == "all" ]]; then
@@ -1618,6 +3385,76 @@ main() {
                     python3 monitor-comapany.py "$@"
                 fi
                 exit 0
+                ;;
+            check-tools)
+                check_tools
+                exit 0
+                ;;
+            api)
+                # Parse API subcommands
+                case "${1:-help}" in
+                    start)
+                        start_api
+                        exit 0
+                        ;;
+                    stop)
+                        stop_api
+                        exit 0
+                        ;;
+                    restart)
+                        restart_api
+                        exit 0
+                        ;;
+                    status)
+                        check_api_status
+                        exit 0
+                        ;;
+                    logs)
+                        show_api_logs "$2"
+                        exit 0
+                        ;;
+                    install)
+                        install_api_service
+                        exit 0
+                        ;;
+                    uninstall)
+                        uninstall_api_service
+                        exit 0
+                        ;;
+                    help|--help|-h)
+                        cat << EOF
+AutoAR API Management
+
+Usage: ./autoAr.sh api <command>
+
+Commands:
+    start       Start the API server in background
+    stop        Stop the API server
+    restart     Restart the API server
+    status      Check API server status and health
+    logs        Show API server logs
+    logs -f     Follow API server logs in real-time
+    install     Install API as system service (requires sudo)
+    uninstall   Remove API system service (requires sudo)
+    help        Show this help
+
+Examples:
+    ./autoAr.sh api start
+    ./autoAr.sh api status
+    ./autoAr.sh api logs
+    ./autoAr.sh api logs -f
+    ./autoAr.sh api restart
+    sudo ./autoAr.sh api install
+    sudo ./autoAr.sh api uninstall
+EOF
+                        exit 0
+                        ;;
+                    *)
+                        log ERROR "Unknown API command: $1"
+                        log ERROR "Use './autoAr.sh api help' for available commands"
+                        exit 1
+                        ;;
+                esac
                 ;;
             help|--help|-h)
                 show_help

@@ -788,7 +788,7 @@ show_help() {
         Usage: $0 <command> [options]
 
         Commands:
-            collect         Collect subdomains and save to SQLite database
+            collect        Collect subdomains and save to SQLite database
             scan           Full scan: collect subdomains, check CNAMEs, and process results
             check-cname    Only check CNAMEs for given domains/subdomains
             nuclei-scan    Collect subdomains and run nuclei scan
