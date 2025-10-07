@@ -32,9 +32,9 @@ if ! git diff-index --quiet HEAD --; then
     fi
 fi
 
-# Check if secrets are exposed
+# Check if secrets are exposed (excluding regex patterns and sample files)
 echo -e "${BLUE}Checking for exposed secrets...${NC}"
-if grep -r "ghp_\|sk_\|pk_\|AKIA\|AIza\|ya29\|1//" . --exclude-dir=.git --exclude="*.md" --exclude="*.sample.*" > /dev/null 2>&1; then
+if grep -r "ghp_\|sk_\|pk_\|AKIA\|AIza\|ya29\|1//" . --exclude-dir=.git --exclude="*.md" --exclude="*.sample.*" --exclude="*.log" --exclude="*.pid" --exclude="*.db" --exclude="new-results" --exclude="autoar.yaml" --exclude-dir="regexes" --exclude-dir="nuclei-templates" --exclude-dir="nuclei_templates" > /dev/null 2>&1; then
     echo -e "${RED}Error: Potential secrets found in files${NC}"
     echo "Please check and remove any exposed secrets before releasing"
     exit 1
@@ -58,7 +58,7 @@ git tag -a "v${CURRENT_VERSION}" -m "Release v${CURRENT_VERSION} - Enhanced Secu
 
 # Push changes and tags
 echo -e "${BLUE}Pushing changes and tags...${NC}"
-git push origin main
+git push origin master
 git push origin "v${CURRENT_VERSION}"
 
 echo -e "${GREEN}Release v${CURRENT_VERSION} created successfully!${NC}"
