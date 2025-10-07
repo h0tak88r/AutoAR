@@ -51,3 +51,5 @@ autoAR.log
 *token*
 *webhook*
 *.log
+*.pid
+*.db
