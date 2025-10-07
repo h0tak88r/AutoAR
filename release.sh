@@ -32,13 +32,21 @@ if ! git diff-index --quiet HEAD --; then
     fi
 fi
 
-# Check if secrets are exposed (excluding regex patterns and sample files)
+# Check if secrets are exposed (excluding regex patterns, sample files, and ignored files)
 echo -e "${BLUE}Checking for exposed secrets...${NC}"
-if grep -r "ghp_\|sk_\|pk_\|AKIA\|AIza\|ya29\|1//" . --exclude-dir=.git --exclude="*.md" --exclude="*.sample.*" --exclude="*.log" --exclude="*.pid" --exclude="*.db" --exclude="new-results" --exclude="autoar.yaml" --exclude-dir="regexes" --exclude-dir="nuclei-templates" --exclude-dir="nuclei_templates" > /dev/null 2>&1; then
-    echo -e "${RED}Error: Potential secrets found in files${NC}"
+
+# Create a temporary file with files to check (excluding ignored files)
+git ls-files | grep -v "autoar.yaml" | grep -v "regexes/" | grep -v "nuclei-templates/" | grep -v "nuclei_templates/" > /tmp/files_to_check.txt
+
+# Check for secrets in tracked files only
+if grep -f /tmp/files_to_check.txt -r "ghp_\|sk_\|pk_\|AKIA\|AIza\|ya29\|1//" . --exclude-dir=.git --exclude="*.md" --exclude="*.sample.*" --exclude="*.log" --exclude="*.pid" --exclude="*.db" --exclude="new-results" > /dev/null 2>&1; then
+    echo -e "${RED}Error: Potential secrets found in tracked files${NC}"
     echo "Please check and remove any exposed secrets before releasing"
+    rm -f /tmp/files_to_check.txt
     exit 1
 fi
+
+rm -f /tmp/files_to_check.txt
 
 # Check if autoar.yaml exists (should be ignored)
 if [ -f "autoar.yaml" ]; then
