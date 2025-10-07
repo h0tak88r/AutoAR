@@ -253,13 +253,14 @@ async def run_scan_async(job_id: str, target: str, scan_type: str, verbose: bool
         elif scan_type == 'github_wordlist':
             # Generate org wordlist from ignore files
             cmd = ['bash', '/home/sallam/AutoAR/autoAr.sh', 'github-wordlist', '-o', target]
-            # Optional args
-            if isinstance(threads, int):
-                pass  # not used here
-            if isinstance(timeout, int):
-                pass  # not used here
-            if 'max_repos' in JOBS_DB[job_id]:
-                pass
+            # Pull optional args from job record
+            jr = JOBS_DB.get(job_id, {})
+            gr_max_repos = jr.get('max_repos')
+            gr_files_csv = jr.get('wordlist_files_csv')
+            if isinstance(gr_max_repos, int) and gr_max_repos:
+                cmd.extend(['-m', str(gr_max_repos)])
+            if gr_files_csv:
+                cmd.extend(['--files', gr_files_csv])
             
         # Add optional github_wordlist parameters after parsing request
         
@@ -275,13 +276,6 @@ async def run_scan_async(job_id: str, target: str, scan_type: str, verbose: bool
         # Run the scan
         JOBS_DB[job_id]['progress'] = f'Running {scan_type} scan on {target}...'
         
-        # Inject optional parameters for github_wordlist
-        if scan_type == 'github_wordlist':
-            if isinstance(max_repos, int) and max_repos:
-                cmd.extend(['-m', str(max_repos)])
-            if wordlist_files_csv:
-                cmd.extend(['--files', wordlist_files_csv])
-
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
