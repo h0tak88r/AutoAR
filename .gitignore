@@ -53,3 +53,4 @@ autoAR.log
 *.log
 *.pid
 *.db
+new-results/
