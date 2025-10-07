@@ -50,12 +50,16 @@ MAX_CONCURRENT_SCANS = int(os.environ.get("AUTOAR_MAX_CONCURRENT", "5"))
 # Pydantic models
 class ScanRequest(BaseModel):
     target: str = Field(..., description="Target domain, subdomain, or S3 bucket name to scan")
-    scan_type: str = Field(..., description="Type of scan: fastLook, liteScan, domain, subdomain, jsScan, jsMonitor, s3Scan, github_single_repo, github_org_scan")
+    scan_type: str = Field(..., description="Type of scan: fastLook, liteScan, domain, subdomain, jsScan, jsMonitor, backupScan, s3Scan, github_single_repo, github_org_scan, github_wordlist")
     verbose: bool = Field(False, description="Enable verbose output")
     discord_webhook: Optional[str] = Field(None, description="Discord webhook URL for notifications")
     securitytrails_key: Optional[str] = Field(None, description="SecurityTrails API key")
     region: Optional[str] = Field(None, description="AWS region for S3 scans")
     no_sign_request: bool = Field(False, description="Use no-sign-request for S3 scans")
+    threads: Optional[int] = Field(50, description="Number of threads for backupScan (default: 50)")
+    timeout: Optional[int] = Field(10, description="Timeout per request for backupScan in seconds (default: 10)")
+    max_repos: Optional[int] = Field(200, description="Max repositories to scan for github_wordlist (default: 200)")
+    wordlist_files_csv: Optional[str] = Field(None, description="Comma-separated list of ignore-like files for github_wordlist")
 
 class ScanResponse(BaseModel):
     job_id: str
@@ -214,7 +218,8 @@ def get_available_files(job_id: str) -> List[str]:
 
 async def run_scan_async(job_id: str, target: str, scan_type: str, verbose: bool = False, 
                         discord_webhook: str = None, securitytrails_key: str = None, 
-                        region: str = None, no_sign_request: bool = False):
+                        region: str = None, no_sign_request: bool = False, 
+                        threads: int = 50, timeout: int = 10):
     """Run AutoAR scan asynchronously"""
     try:
         # Update job status
@@ -229,6 +234,10 @@ async def run_scan_async(job_id: str, target: str, scan_type: str, verbose: bool
             cmd.extend(['-d', target])
         elif scan_type == 'subdomain':
             cmd.extend(['-s', target])
+        elif scan_type == 'backupScan':
+            cmd.extend(['-d', target])
+            cmd.extend(['-t', str(threads)])
+            cmd.extend(['-timeout', str(timeout)])
         elif scan_type == 's3Scan':
             cmd.extend(['-b', target])
             if region:
@@ -241,6 +250,18 @@ async def run_scan_async(job_id: str, target: str, scan_type: str, verbose: bool
         elif scan_type == 'github_org_scan':
             # Use the integrated GitHub organization scan function in autoAr.sh
             cmd = ['bash', '/home/sallam/AutoAR/autoAr.sh', 'github-org', '-o', target]
+        elif scan_type == 'github_wordlist':
+            # Generate org wordlist from ignore files
+            cmd = ['bash', '/home/sallam/AutoAR/autoAr.sh', 'github-wordlist', '-o', target]
+            # Optional args
+            if isinstance(threads, int):
+                pass  # not used here
+            if isinstance(timeout, int):
+                pass  # not used here
+            if 'max_repos' in JOBS_DB[job_id]:
+                pass
+            
+        # Add optional github_wordlist parameters after parsing request
         
         if verbose:
             cmd.append('-v')
@@ -254,6 +275,13 @@ async def run_scan_async(job_id: str, target: str, scan_type: str, verbose: bool
         # Run the scan
         JOBS_DB[job_id]['progress'] = f'Running {scan_type} scan on {target}...'
         
+        # Inject optional parameters for github_wordlist
+        if scan_type == 'github_wordlist':
+            if isinstance(max_repos, int) and max_repos:
+                cmd.extend(['-m', str(max_repos)])
+            if wordlist_files_csv:
+                cmd.extend(['--files', wordlist_files_csv])
+
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -307,7 +335,7 @@ async def root(request: Request):
         },
         "available_scan_types": [
             "fastLook", "liteScan", "domain", "subdomain", 
-            "jsScan", "jsMonitor", "s3Scan", "github_single_repo", "github_org_scan"
+            "jsScan", "jsMonitor", "backupScan", "s3Scan", "github_single_repo", "github_org_scan", "github_wordlist"
         ]
     }
 
@@ -341,7 +369,9 @@ async def start_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         request.discord_webhook,
         request.securitytrails_key,
         request.region,
-        request.no_sign_request
+        request.no_sign_request,
+        request.threads,
+        request.timeout
     )
     
     return ScanResponse(

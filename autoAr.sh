@@ -36,16 +36,15 @@ GITHUB_TOKEN=$(yaml_get '.github[0]')
 # At the top of the script, after other globals:
 JS_MONITOR_MODE=0
 CLEANUP_ON_EXIT=true
+CURRENT_SCAN_DIR=""
 
 # Cleanup function for graceful shutdown
 cleanup_on_exit() {
-    if [[ "$CLEANUP_ON_EXIT" == "true" ]]; then
-        log INFO "Cleaning up before exit..."
-        if [[ -d "$RESULTS_DIR" ]]; then
-            log INFO "Removing results directory: $RESULTS_DIR"
-            rm -rf "$RESULTS_DIR"
-            log SUCCESS "Cleanup completed"
-        fi
+    if [[ "$CLEANUP_ON_EXIT" == "true" && -n "$CURRENT_SCAN_DIR" && -d "$CURRENT_SCAN_DIR" ]]; then
+        log INFO "Cleaning up scan results before exit..."
+        log INFO "Removing scan directory: $CURRENT_SCAN_DIR"
+        rm -rf "$CURRENT_SCAN_DIR"
+        log SUCCESS "Scan cleanup completed"
     fi
     exit 0
 }
@@ -159,6 +158,7 @@ check_tools() {
         ["curl"]="apt-get install curl (Ubuntu/Debian) or yum install curl (RHEL/CentOS)"
         ["git"]="apt-get install git (Ubuntu/Debian) or yum install git (RHEL/CentOS)"
         ["docker"]="curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh"
+        ["fuzzuli"]="go install github.com/musana/fuzzuli@latest"
     )
     
     local missing_tools=()
@@ -203,7 +203,7 @@ check_tools() {
         else
             # Check if it's an optional tool
             case "$tool" in
-                "docker"|"anew")
+                "docker"|"anew"|"fuzzuli")
                     optional_tools+=("$tool")
                     log WARNING "⚠ $tool (optional) - ${tools_info[$tool]}"
                     ;;
@@ -245,6 +245,123 @@ check_tools() {
     log SUCCESS "🎉 All required tools are installed! Ready to scan."
 }
 
+# Function to check important directories and files used in scans
+check_directories() {
+    local missing_dirs=()
+    local missing_files=()
+    local warnings=()
+    
+    log INFO "Checking important directories and files..."
+    
+    # Critical directories
+    local critical_dirs=(
+        "Wordlists"
+        "regexes"
+        "nuclei_templates"
+        "nuclei-templates"
+    )
+    
+    # Important files
+    local important_files=(
+        "Wordlists/quick_fuzz.txt"
+        "regexes/trufflehog-v3.yaml"
+        "regexes/confident-regexes.yaml"
+        "regexes/nuclei-regexes.yaml"
+        "regexes/nuclei-generic.yaml"
+        "regexes/pii-regexs.yaml"
+        "regexes/risky-regexes.yaml"
+        "regexes/rules-stable.yaml"
+    )
+    
+    # Check critical directories
+    for dir in "${critical_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            log SUCCESS "✓ Directory $dir exists"
+        else
+            missing_dirs+=("$dir")
+            log ERROR "✗ Directory $dir is missing"
+        fi
+    done
+    
+    # Check important files
+    for file in "${important_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            log SUCCESS "✓ File $file exists"
+        else
+            missing_files+=("$file")
+            log WARNING "✗ File $file is missing"
+        fi
+    done
+    
+    # Check for specific nuclei template directories
+    local nuclei_dirs=(
+        "nuclei_templates/js"
+        "nuclei_templates/takeover"
+        "nuclei_templates/Others"
+        "nuclei_templates/cves"
+        "nuclei-templates/http"
+        "nuclei-templates/http/takeovers"
+    )
+    
+    for dir in "${nuclei_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            log SUCCESS "✓ Nuclei template directory $dir exists"
+        else
+            warnings+=("$dir")
+            log WARNING "⚠ Nuclei template directory $dir is missing"
+        fi
+    done
+    
+    # Check for mutations wordlist
+    if [[ -f "Wordlists/s3.txt" ]]; then
+        log SUCCESS "✓ Mutations wordlist exists"
+    else
+        warnings+=("Wordlists/s3.txt")
+        log WARNING "⚠ Mutations wordlist is missing (optional)"
+    fi
+    
+    # Report missing critical directories
+    if [[ ${#missing_dirs[@]} -gt 0 ]]; then
+        log ERROR "Missing critical directories: ${missing_dirs[*]}"
+        log ERROR "Please create these directories before running scans"
+        
+        # Provide creation commands
+        log INFO "Directory creation commands:"
+        for dir in "${missing_dirs[@]}"; do
+            log INFO "  mkdir -p $dir"
+        done
+        
+        return 1
+    fi
+    
+    # Report missing important files
+    if [[ ${#missing_files[@]} -gt 0 ]]; then
+        log WARNING "Missing important files: ${missing_files[*]}"
+        log WARNING "Some scan features may not work properly"
+        
+        # Provide download/setup commands
+        log INFO "Setup commands:"
+        if [[ " ${missing_files[*]} " =~ " regexes/" ]]; then
+            log INFO "  # Download regex files from your repository"
+            log INFO "  # Or create them manually based on your needs"
+        fi
+        if [[ " ${missing_files[*]} " =~ " Wordlists/" ]]; then
+            log INFO "  # Create wordlists directory and add your wordlists"
+            log INFO "  mkdir -p Wordlists"
+            log INFO "  # Add quick_fuzz.txt and other wordlists"
+        fi
+    fi
+    
+    # Report warnings
+    if [[ ${#warnings[@]} -gt 0 ]]; then
+        log WARNING "Optional directories/files missing: ${warnings[*]}"
+        log INFO "These enhance functionality but scans can still run"
+    fi
+    
+    log SUCCESS "Directory and file check completed!"
+    return 0
+}
+
 # Function to ensure proper permissions
 ensure_permissions() {
     local dir="$1"
@@ -264,6 +381,9 @@ cleanup_results() {
         return
     fi
     
+    # Set the current scan directory for cleanup on exit
+    CURRENT_SCAN_DIR="$domain_dir"
+    
     log INFO "Results will be cleaned up on script exit"
     log INFO "Results are available at: $domain_dir"
     log SUCCESS "Cleanup will happen automatically when script exits"
@@ -272,6 +392,7 @@ cleanup_results() {
 # Function to disable cleanup (for commands that should keep results)
 disable_cleanup() {
     CLEANUP_ON_EXIT=false
+    CURRENT_SCAN_DIR=""  # Clear current scan directory
     log INFO "Cleanup disabled - results will be preserved"
 }
 
@@ -523,6 +644,9 @@ setup_results_dir() {
         log ERROR "Error: No target specified"
         exit 1
     fi
+    
+    # Set the current scan directory for cleanup tracking
+    CURRENT_SCAN_DIR="$DOMAIN_DIR"
     
     # Ensure base results directory exists with proper permissions
     mkdir -p "$RESULTS_DIR"
@@ -1075,7 +1199,7 @@ _scan_s3_put() {
     log INFO "Using root domain: $root_domain for S3 bucket generation"
 
     # Check if mutations wordlist exists and load it
-    local mutations_file="Wordlists/mutations.txt"
+    local mutations_file="Wordlists/s3.txt"
     local mutations=()
     
     if [[ ! -f "$mutations_file" ]]; then
@@ -1242,7 +1366,7 @@ _scan_s3_put() {
         echo "=== S3 BUCKET SCAN SUMMARY ==="
         echo "Target Domain: $target_domain"
         echo "Root Domain Used: $root_domain"
-        echo "Total Bucket Names Generated: ${#bucket_names[@]} (using mutations.txt)"
+        echo "Total Bucket Names Generated: ${#bucket_names[@]} (using s3.txt)"
         echo "Existing Buckets Found: $exists_count"
         echo "Vulnerable Buckets Found: ${#vulnerable_buckets[@]}"
         echo ""
@@ -1275,7 +1399,7 @@ _scan_s3_put() {
         local summary_msg="**S3 Bucket Scan Results for $target_domain**\n"
         summary_msg+="\`\`\`"
         summary_msg+="Root Domain: $root_domain\n"
-        summary_msg+="Bucket Names Generated: ${#bucket_names[@]} (using mutations.txt)\n"
+        summary_msg+="Bucket Names Generated: ${#bucket_names[@]} (using s3.txt)\n"
         summary_msg+="Existing Buckets: $exists_count\n"
         summary_msg+="Vulnerable Buckets: ${#vulnerable_buckets[@]}"
         summary_msg+="\`\`\`"
@@ -1933,6 +2057,237 @@ EOF
     log SUCCESS "Organization HTML report generated: $html_file"
 }
 
+# Function to build a wordlist from an organization's ignore files
+github_org_wordlist() {
+    local org_name="$1"
+    local max_repos="${2:-200}"
+    local files_csv="${3:-}"
+
+    if [[ -z "$org_name" ]]; then
+        log ERROR "GitHub organization is required"
+        return 1
+    fi
+
+    # Ensure minimal deps
+    if ! command -v curl >/dev/null 2>&1; then
+        log ERROR "curl is required for github-wordlist"
+        return 1
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        log ERROR "jq is required for github-wordlist"
+        return 1
+    fi
+
+    # Default ignore file names to fetch
+    local default_files=(
+        ".gitignore" ".git/info/exclude" ".ignore" ".dockerignore" ".eslintignore" ".npmignore" ".slugignore" ".prettierignore" ".stylelintignore" ".pylintignore" ".flakeignore" ".terraformignore"
+    )
+
+    local target_files=()
+    if [[ -n "$files_csv" ]]; then
+        IFS=',' read -r -a target_files <<< "$files_csv"
+    else
+        target_files=("${default_files[@]}")
+    fi
+
+    # Prepare output directories
+    local org_dir="$DOMAIN_DIR/org_${org_name}"
+    mkdir -p "$org_dir"
+    local raw_dir="$org_dir/raw_ignore"
+    mkdir -p "$raw_dir"
+    local output_wordlist="$org_dir/${org_name}_ignore_wordlist.txt"
+    : > "$output_wordlist"
+
+    # GitHub API auth token present?
+    local has_token=false
+    if [[ -n "$GITHUB_TOKEN" && "$GITHUB_TOKEN" != "null" ]]; then
+        has_token=true
+    fi
+
+    log INFO "Fetching repositories for org: $org_name (limit: $max_repos)"
+
+    # Collect repos: prefer gh CLI if available, else GitHub REST via curl
+    local page=1
+    local per_page=100
+    local fetched=0
+    local repos_json
+    local repo_list_file="$org_dir/repos.json"
+    : > "$repo_list_file"
+
+    if command -v gh >/dev/null 2>&1; then
+        # Ensure gh has token non-interactively
+        if [[ "$has_token" == true ]]; then
+            export GH_TOKEN="$GITHUB_TOKEN"
+            export GITHUB_TOKEN="$GITHUB_TOKEN"
+        fi
+        # Use gh to avoid pagination and rate-limit headaches
+        if ! gh repo list "$org_name" --limit "$max_repos" --json name,defaultBranchRef,isArchived \
+            -q '.[] | {name: .name, default_branch: (.defaultBranchRef.name // "main"), archived: (.isArchived // false)}' \
+            >> "$repo_list_file" 2>/dev/null; then
+            log WARNING "gh repo list failed, falling back to REST API"
+        fi
+    fi
+
+    if [[ ! -s "$repo_list_file" ]]; then
+        # Fallback: REST API with pagination
+        while : ; do
+            if [[ "$has_token" == true ]]; then
+                repos_json=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/orgs/$org_name/repos?per_page=$per_page&page=$page")
+            else
+                repos_json=$(curl -s "https://api.github.com/orgs/$org_name/repos?per_page=$per_page&page=$page")
+            fi
+            # Break if empty or error
+            if [[ -z "$repos_json" ]] || [[ "$repos_json" == "[]" ]]; then
+                break
+            fi
+            # If the response is an error object, stop
+            if echo "$repos_json" | jq -e 'type=="object" and .message? != null' >/dev/null 2>&1; then
+                log ERROR "GitHub API error: $(echo "$repos_json" | jq -r .message)"
+                break
+            fi
+            echo "$repos_json" | jq -c ".[] | {name: .name, default_branch: (.default_branch // \"main\"), archived: (.archived // false)}" >> "$repo_list_file"
+            (( page++ ))
+            fetched=$(wc -l < "$repo_list_file")
+            if [[ "$fetched" -ge "$max_repos" ]]; then
+                break
+            fi
+        done
+    fi
+
+    if [[ ! -s "$repo_list_file" ]]; then
+        log WARNING "No repositories found for $org_name"
+        return 0
+    fi
+
+    # Trim to max_repos
+    if [[ $(wc -l < "$repo_list_file") -gt "$max_repos" ]]; then
+        head -n "$max_repos" "$repo_list_file" > "$repo_list_file.tmp" && mv "$repo_list_file.tmp" "$repo_list_file"
+    fi
+
+    log INFO "Collected $(wc -l < "$repo_list_file") repositories. Fetching ignore files..."
+
+    # Iterate repos and fetch ignore files
+    while IFS= read -r repo_line; do
+        local repo_name=$(echo "$repo_line" | jq -r '.name')
+        local default_branch=$(echo "$repo_line" | jq -r '.default_branch')
+        local archived=$(echo "$repo_line" | jq -r '.archived')
+        if [[ "$archived" == "true" ]]; then
+            continue
+        fi
+
+        for rel_path in "${target_files[@]}"; do
+            # Normalize path for filesystem
+            local safe_path=$(echo "$rel_path" | sed 's#[/ ]#_#g')
+            local dest_file="$raw_dir/${repo_name}_${safe_path}"
+
+            # Try with gh first for raw content
+            local fetched_ok=false
+            if command -v gh >/dev/null 2>&1; then
+                if gh api \
+                    -H "Accept: application/vnd.github.v3.raw" \
+                    "/repos/$org_name/$repo_name/contents/$rel_path?ref=$default_branch" \
+                    -o "$dest_file" >/dev/null 2>&1; then
+                    if [[ -s "$dest_file" ]] && ! head -n1 "$dest_file" | grep -qiE '404: Not Found|<!DOCTYPE|<html'; then
+                        fetched_ok=true
+                    else
+                        rm -f "$dest_file" 2>/dev/null || true
+                    fi
+                fi
+            fi
+
+            if [[ "$fetched_ok" != true ]]; then
+                # Fallback to raw.githubusercontent.com
+                local raw_url="https://raw.githubusercontent.com/$org_name/$repo_name/$default_branch/$rel_path"
+                local code
+                code=$(curl -s -L -w "%{http_code}" -o "$dest_file" "$raw_url" 2>/dev/null || echo 000)
+                if [[ "$code" == "200" ]] && [[ -s "$dest_file" ]] && ! head -n1 "$dest_file" | grep -qiE '404: Not Found|<!DOCTYPE|<html'; then
+                    fetched_ok=true
+                else
+                    # Retry with master if main/default failed
+                    raw_url="https://raw.githubusercontent.com/$org_name/$repo_name/master/$rel_path"
+                    code=$(curl -s -L -w "%{http_code}" -o "$dest_file" "$raw_url" 2>/dev/null || echo 000)
+                    if [[ "$code" == "200" ]] && [[ -s "$dest_file" ]] && ! head -n1 "$dest_file" | grep -qiE '404: Not Found|<!DOCTYPE|<html'; then
+                        fetched_ok=true
+                    else
+                        rm -f "$dest_file" 2>/dev/null || true
+                    fi
+                fi
+            fi
+
+            if [[ "$fetched_ok" == true ]]; then
+                log INFO "Fetched $rel_path from $repo_name@$default_branch"
+            else
+                rm -f "$dest_file" 2>/dev/null || true
+            fi
+        done
+    done < "$repo_list_file"
+
+    # Aggregate and sanitize to wordlist
+    local temp_agg="$org_dir/_agg.txt"
+    : > "$temp_agg"
+    if ls "$raw_dir"/* >/dev/null 2>&1; then
+        cat "$raw_dir"/* >> "$temp_agg"
+    fi
+
+    if [[ ! -s "$temp_agg" ]]; then
+        log WARNING "No ignore files found in repos of $org_name"
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            send_to_discord "No ignore files found for org $org_name"
+        fi
+        return 0
+    fi
+
+    # Clean: remove comments and empty, strip patterns, split tokens
+    # 1) Drop comments and empties
+    # 2) Remove leading/trailing spaces, leading '!' and '/'
+    # 3) Remove glob meta chars
+    # 4) Split by '/' and keep segments, also keep cleaned full entry
+    local cleaned_lines="$org_dir/_cleaned.txt"
+    : > "$cleaned_lines"
+
+    # Produce cleaned entries
+    awk 'BEGIN{FS="\n"} {
+        line=$0
+        gsub(/\r/, "", line)
+        if (line ~ /^[[:space:]]*#/ ) next
+        gsub(/^!/, "", line)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+        if (length(line)==0) next
+        gsub(/^\//, "", line)
+        gsub(/[*?{}\[\]]+/, "", line)
+        print line
+    }' "$temp_agg" >> "$cleaned_lines"
+
+    # Extract segments and filenames
+    local segments_file="$org_dir/_segments.txt"
+    : > "$segments_file"
+    while IFS= read -r entry; do
+        [[ -z "$entry" ]] && continue
+        echo "$entry" >> "$segments_file"
+        # split by '/'
+        IFS='/' read -r -a parts <<< "$entry"
+        for part in "${parts[@]}"; do
+            [[ -z "$part" ]] && continue
+            echo "$part" >> "$segments_file"
+        done
+    done < "$cleaned_lines"
+
+    # Finalize wordlist: normalize, filter junk (404s/HTML), enforce charset/length, dedupe
+    sed 's/^\.\+//; s/\.$//; s/^\s\+//; s/\s\+$//' "$segments_file" \
+        | awk 'length($0)>1 && length($0)<=80' \
+        | grep -viE '(^| )404(:| )|not found|<!DOCTYPE|^<html|for more about ignoring files|help\.github\.com|ignoring-files' \
+        | grep -E '^[A-Za-z0-9._\/-]{1,80}$' \
+        | sort -u > "$output_wordlist"
+
+    local total_words=$(wc -l < "$output_wordlist")
+    log SUCCESS "Generated wordlist with $total_words entries at $output_wordlist"
+
+    if [[ -n "$DISCORD_WEBHOOK" ]]; then
+        send_to_discord "Generated GitHub ignore-based wordlist for org $org_name ($total_words entries)"
+        send_file_to_discord "$output_wordlist" "GitHub Org $org_name Ignore Wordlist ($total_words entries)"
+    fi
+}
+
 # Function to scan GitHub repository for secrets using modern TruffleHog
 github_scan() {
     local repo_url="$1"
@@ -2188,6 +2543,141 @@ js_scan() {
     cleanup_results "$DOMAIN_DIR"
 }
 
+# Unified Fuzzuli Backup File Discovery Function
+run_fuzzuli_backup_scan() {
+    local domain="$1"
+    local threads="${2:-50}"
+    local timeout="${3:-10}"
+    local output_dir="${4:-fuzzing}"
+    local subs_file="${5:-}"
+    
+    # Check if fuzzuli is installed
+    if ! command -v fuzzuli &> /dev/null; then
+        log WARNING "fuzzuli is not installed. Install with: go install github.com/musana/fuzzuli@latest"
+        return 1
+    fi
+    
+    log INFO "Starting fuzzuli backup file discovery for: $domain"
+    
+    # Create output directory
+    local fuzz_dir="$DOMAIN_DIR/$output_dir"
+    mkdir -p "$fuzz_dir"
+    ensure_permissions "$fuzz_dir"
+    
+    # Check if we have live subdomains file, if not create one
+    if [[ -z "$subs_file" || ! -f "$subs_file" || ! -s "$subs_file" ]]; then
+        log INFO "No live subdomains file provided, discovering subdomains..."
+        subs_file="$fuzz_dir/live-subs.txt"
+        
+        # Use subfinder to get subdomains and filter with httpx
+        log INFO "Discovering subdomains for $domain..."
+        subfinder -d "$domain" -silent | httpx -silent -mc 200,301,302,403,404 -o "$subs_file" >> "$LOG_FILE" 2>&1
+        
+        if [[ ! -s "$subs_file" ]]; then
+            log WARNING "No live subdomains found for $domain"
+            # Try with just the main domain
+            echo "https://$domain" > "$subs_file"
+            log INFO "Using main domain only: https://$domain"
+        else
+            log INFO "Discovered subdomains:"
+            cat "$subs_file" | head -5 | while read line; do
+                log INFO "  - $line"
+            done
+        fi
+    else
+        log INFO "Using provided live subdomains file: $subs_file"
+        log INFO "Subdomains to scan:"
+        cat "$subs_file" | head -5 | while read line; do
+            log INFO "  - $line"
+        done
+    fi
+    
+    local subs_count=$(wc -l < "$subs_file")
+    log SUCCESS "Found $subs_count live subdomains for backup scanning"
+    
+    # Run fuzzuli on all live subdomains
+    log INFO "Running fuzzuli backup file discovery on $subs_count subdomains"
+    log INFO "Subdomains file: $subs_file"
+    log INFO "Contents of subdomains file:"
+    cat "$subs_file" | while read line; do
+        log INFO "  - $line"
+    done
+    
+    local fuzzuli_output="$fuzz_dir/fuzzuli-results.txt"
+    local fuzzuli_log="$fuzz_dir/fuzzuli.log"
+
+    # Run fuzzuli with all live subdomains
+    log INFO "Executing: fuzzuli -f $subs_file -mt all -w $threads -to $timeout"
+    fuzzuli -f "$subs_file" -mt all -w "$threads" -to "$timeout" 2>&1 | tee "$fuzzuli_log"
+    
+    # Extract findings from the log (lines with [+])
+    grep -E "\[\+\].*URL:" "$fuzzuli_log" > "$fuzzuli_output" 2>/dev/null || true
+    
+    # Check results
+    if [[ -s "$fuzzuli_output" ]]; then
+        local findings_count=$(wc -l < "$fuzzuli_output")
+        log SUCCESS "Fuzzuli scan completed! Found $findings_count potential backup files"
+        
+        # Show first few findings
+        log INFO "Sample findings:"
+        head -5 "$fuzzuli_output" | while read line; do
+            log INFO "  - $line"
+        done
+        
+        # Send to Discord if webhook is configured
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            send_file_to_discord "$fuzzuli_output" "Fuzzuli Backup Discovery Results for $domain"
+        fi
+        
+        log SUCCESS "Results saved to: $fuzz_dir"
+    else
+        log WARNING "No backup files found with fuzzuli"
+        log INFO "Fuzzuli log output:"
+        if [[ -s "$fuzzuli_log" ]]; then
+            tail -10 "$fuzzuli_log" | while read line; do
+                log INFO "  $line"
+            done
+        fi
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            send_to_discord "Fuzzuli scan completed for $domain - No backup files found"
+        fi
+    fi
+    
+    log SUCCESS "Fuzzuli backup scan completed for $domain"
+    log INFO "Results saved in: $fuzz_dir"
+}
+
+# Backup Scan Mode - Dedicated fuzzuli scanning
+backup_scan() {
+    local domain="$1"
+    local threads="${2:-50}"
+    local timeout="${3:-10}"
+    
+    if [[ -z "$domain" ]]; then
+        log ERROR "Error: No domain specified for backup scan"
+        return 1
+    fi
+    
+    log INFO "Starting backup file discovery scan for: $domain"
+    
+    # Check if fuzzuli is installed
+    if ! command -v fuzzuli &> /dev/null; then
+        log ERROR "fuzzuli is not installed. Install with: go install github.com/musana/fuzzuli@latest"
+        log ERROR "Please install fuzzuli before running backup scans"
+        exit 1
+    fi
+    
+    # Set up results directory
+    TARGET="$domain"
+    setup_results_dir
+    
+    # Run the unified fuzzuli function
+    run_fuzzuli_backup_scan "$domain" "$threads" "$timeout" "backup-scan"
+    
+    # Schedule cleanup after Discord notifications are sent
+    cleanup_results "$DOMAIN_DIR"
+}
+
 # S3 Bucket Scanning Functions
 S3_BUCKET_NAME=""
 S3_REGION=""
@@ -2303,6 +2793,7 @@ s3_scan() {
     
     # Create S3-specific results directory
     DOMAIN_DIR="$RESULTS_DIR/s3_$bucket_name"
+    CURRENT_SCAN_DIR="$DOMAIN_DIR"
     mkdir -p "$DOMAIN_DIR"
     ensure_permissions "$DOMAIN_DIR"
     
@@ -2838,6 +3329,23 @@ lite_scan() {
     log INFO "Running Nuclei scans"
     run_nuclei_scans "$DOMAIN_DIR"
     
+    # Fuzzuli Backup File Discovery (if fuzzuli is installed)
+    if command -v fuzzuli &> /dev/null; then
+        log INFO "Running fuzzuli backup file discovery"
+        
+        # Use the unified fuzzuli function with existing live subdomains or main domain
+        if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
+            log INFO "Using discovered live subdomains for fuzzuli scan"
+            run_fuzzuli_backup_scan "$domain" 50 10 "fuzzing" "$DOMAIN_DIR/subs/live-subs.txt"
+        else
+            log INFO "No live subdomains found, running fuzzuli on main domain only"
+            run_fuzzuli_backup_scan "$domain" 50 10 "fuzzing"
+        fi
+    else
+        log INFO "Fuzzuli not installed - skipping backup file discovery"
+        log INFO "Install with: go install github.com/musana/fuzzuli@latest"
+    fi
+    
     log SUCCESS "Lite scan completed successfully!"
     if [[ -n "$DISCORD_WEBHOOK" ]]; then
         send_to_discord "🎉 Lite scan completed for $domain! Check $DOMAIN_DIR for detailed findings."
@@ -2879,6 +3387,15 @@ scan_single_subdomain() {
     run_sql_injection_scan
     run_dalfox_scan
     scan_dangling_dns "$DOMAIN_DIR"
+    
+    # Fuzzuli Backup File Discovery (if fuzzuli is installed)
+    if command -v fuzzuli &> /dev/null; then
+        log INFO "Running fuzzuli backup file discovery on subdomain"
+        run_fuzzuli_backup_scan "$subdomain" 50 10 "fuzzing" "$DOMAIN_DIR/subs/live-subs.txt"
+    else
+        log INFO "Fuzzuli not installed - skipping backup file discovery"
+        log INFO "Install with: go install github.com/musana/fuzzuli@latest"
+    fi
     
     log SUCCESS "Subdomain scan completed for $subdomain"
     if [[ -n "$DISCORD_WEBHOOK" ]]; then
@@ -3077,12 +3594,15 @@ show_help() {
             fastLook    Fast look (subenum, live subdomains, collect urls, tech detect, cname checker)
             jsScan      JS-focused scan (collect JS files and analyze for secrets, XSS, endpoints)
             jsMonitor   Monitor JS files for a domain or single subdomain and alert on changes
+            backupScan  Backup file discovery scan using fuzzuli on live subdomains
             s3Scan      S3 bucket permission scan (test read, write, delete, and public access)
             github      Scan GitHub repository for secrets using TruffleHog
             github-org  Scan GitHub organization for secrets using TruffleHog
+            github-wordlist  Build wordlist from org ignore files and send to Discord
             monitor     Run the Python monitoring script
-            check-tools Check if all required tools are installed
-            api         API management (start, stop, restart, status, logs, install, uninstall)
+            check-tools        Check if all required tools are installed
+            check-directories  Check if all required directories and files exist
+            api                API management (start, stop, restart, status, logs, install, uninstall)
             help        Show this help message
 
         Examples:
@@ -3094,15 +3614,20 @@ show_help() {
             ./autoAr.sh jsScan -s sub.example.com
             ./autoAr.sh jsMonitor -d example.com
             ./autoAr.sh jsMonitor -s sub.example.com
+            ./autoAr.sh backupScan -d example.com
+            ./autoAr.sh backupScan -d example.com -t 100 -timeout 15
             ./autoAr.sh s3Scan -b my-bucket
             ./autoAr.sh s3Scan -b my-bucket -r us-east-1
             ./autoAr.sh s3Scan -b my-bucket -r us-west-2 -n
             ./autoAr.sh github -r https://github.com/owner/repo
             ./autoAr.sh github-org -o organization-name
+            ./autoAr.sh github-wordlist -o organization-name
+            ./autoAr.sh github-wordlist -o org -m 300 --files ".gitignore,.npmignore,.dockerignore"
             ./autoAr.sh monitor
             ./autoAr.sh monitor --all
             ./autoAr.sh monitor -c company
             ./autoAr.sh check-tools
+            ./autoAr.sh check-directories
             ./autoAr.sh api start
             ./autoAr.sh api stop
             ./autoAr.sh api restart
@@ -3151,13 +3676,14 @@ main() {
         exit 1
     fi
     
-    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|jsScan|jsMonitor|s3Scan|github|github-org|monitor|check-tools|api|help|--help|-h)$ ]]; then
+    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|jsScan|jsMonitor|backupScan|s3Scan|github|github-org|github-wordlist|monitor|check-tools|check-directories|api|help|--help|-h)$ ]]; then
         subcommand="$1"
         shift
         
-        # Check tools before running any scan (except help, monitor, check-tools, and api)
-        if [[ "$subcommand" != "help" && "$subcommand" != "--help" && "$subcommand" != "-h" && "$subcommand" != "monitor" && "$subcommand" != "check-tools" && "$subcommand" != "api" ]]; then
+        # Check tools and directories before running any scan (except help, monitor, check-tools, check-directories, and api)
+        if [[ "$subcommand" != "help" && "$subcommand" != "--help" && "$subcommand" != "-h" && "$subcommand" != "monitor" && "$subcommand" != "check-tools" && "$subcommand" != "check-directories" && "$subcommand" != "api" && "$subcommand" != "github-wordlist" ]]; then
             check_tools
+            check_directories
         fi
         case "$subcommand" in
             domain)
@@ -3334,6 +3860,65 @@ main() {
                 fi
                 exit 0
                 ;;
+            backupScan)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -d|--domain)
+                            TARGET="$2"; shift 2;;
+                        -t|--threads)
+                            BACKUP_THREADS="$2"; shift 2;;
+                        -timeout)
+                            BACKUP_TIMEOUT="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        -sk|--securitytrails-key)
+                            SECURITYTRAILS_API_KEY="$2"; shift 2;;
+                        --help|-h)
+                            cat << EOF
+Backup File Discovery Scan
+
+Usage: ./autoAr.sh backupScan -d <domain> [options]
+
+Options:
+    -d, --domain <domain>     Target domain to scan for backup files
+    -t, --threads <num>       Number of threads (default: 50)
+    -timeout <seconds>        Timeout per request (default: 10)
+    -v, --verbose             Enable verbose output
+    -dw, --discord-webhook    Discord webhook URL for notifications
+    -sk, --securitytrails-key SecurityTrails API key
+    --help, -h                Show this help
+
+Description:
+    This mode discovers live subdomains and runs fuzzuli backup file discovery
+    on all of them to find critical backup files, configuration files, and
+    other sensitive files that might be exposed.
+
+Examples:
+    ./autoAr.sh backupScan -d example.com
+    ./autoAr.sh backupScan -d example.com -t 100 -timeout 15
+    ./autoAr.sh backupScan -d example.com -v -dw "https://discord.com/api/webhooks/..."
+EOF
+                            exit 0
+                            ;;
+                        *)
+                            log ERROR "Unknown option: $1"
+                            log ERROR "Use './autoAr.sh backupScan --help' for available options"
+                            exit 1
+                            ;;
+                    esac
+                done
+                
+                if [[ -z "$TARGET" ]]; then
+                    log ERROR "Error: Domain is required for backup scan"
+                    log ERROR "Use: ./autoAr.sh backupScan -d example.com"
+                    exit 1
+                fi
+                
+                backup_scan "$TARGET" "${BACKUP_THREADS:-50}" "${BACKUP_TIMEOUT:-10}"
+                exit 0
+                ;;
             github)
                 while [[ $# -gt 0 ]]; do
                     case $1 in
@@ -3376,6 +3961,30 @@ main() {
                 github_org_scan "$GITHUB_ORG" "${MAX_REPOS:-50}"
                 exit 0
                 ;;
+            github-wordlist)
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        -o|--org)
+                            GITHUB_ORG="$2"; shift 2;;
+                        -m|--max-repos)
+                            MAX_REPOS="$2"; shift 2;;
+                        --files)
+                            WORDLIST_FILES_CSV="$2"; shift 2;;
+                        -v|--verbose)
+                            VERBOSE=true; shift;;
+                        -dw|--discord-webhook)
+                            DISCORD_WEBHOOK="$2"; shift 2;;
+                        *)
+                            echo "Unknown option: $1"; show_help; exit 1;;
+                    esac
+                done
+                if [[ -z "$GITHUB_ORG" ]]; then
+                    echo "Error: Must specify a GitHub organization with -o"; show_help; exit 1;
+                fi
+                setup_results_dir
+                github_org_wordlist "$GITHUB_ORG" "${MAX_REPOS:-200}" "${WORDLIST_FILES_CSV:-}"
+                exit 0
+                ;;
             monitor)
                 # Convert '-c all' to '--all' for compatibility
                 if [[ "$1" == "-c" && "$2" == "all" ]]; then
@@ -3388,6 +3997,10 @@ main() {
                 ;;
             check-tools)
                 check_tools
+                exit 0
+                ;;
+            check-directories)
+                check_directories
                 exit 0
                 ;;
             api)

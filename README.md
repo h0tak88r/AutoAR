@@ -64,6 +64,9 @@ curl "http://localhost:8000/results/{job_id}"
 - **`domain`**: Full domain scan with all features
 - **`subdomain`**: Scan a single subdomain
 - **`jsMonitor`**: Monitor JavaScript files for changes
+- **`github_single_repo`**: Scan a single GitHub repository for secrets
+- **`github_org_scan`**: Scan a GitHub organization for secrets
+- **`github_wordlist`**: Generate a wordlist from an org’s ignore files
 
 ## 🔧 CLI Usage (Original)
 
@@ -75,6 +78,9 @@ The original CLI interface is still available:
 ./autoAr.sh domain   -d example.com
 ./autoAr.sh subdomain -s sub.example.com
 ./autoAr.sh jsMonitor -d example.com
+# GitHub wordlist from org ignore files
+./autoAr.sh github-wordlist -o organization-name
+./autoAr.sh github-wordlist -o org -m 300 --files ".gitignore,.npmignore,.dockerignore"
 ```
 
 ## 🐍 Python Integration
@@ -96,6 +102,35 @@ results = client.wait_for_completion(job_id)
 print(f"Found {results['summary']['total_subdomains']} subdomains")
 print(f"Found {results['summary']['total_urls']} URLs")
 print(f"Found {results['summary']['js_files']} JS files")
+```
+
+## 🧰 GitHub Wordlist Generation
+
+Generates a deduplicated wordlist from an organization’s ignore files (e.g., `.gitignore`, `.npmignore`). It filters comments, empties, HTML/404 bodies, normalizes trailing slashes, enforces a safe charset, and sends the final list to Discord if configured.
+
+- Prerequisite: GitHub CLI (`gh`) recommended. Falls back to REST API when unavailable.
+
+CLI examples:
+
+```bash
+# Default file set, up to 200 repos
+./autoAr.sh github-wordlist -o ORG
+
+# Custom files and repo limit
+./autoAr.sh github-wordlist -o ORG -m 300 --files ".gitignore,.npmignore,.dockerignore"
+```
+
+API example:
+
+```bash
+curl -X POST "http://localhost:8000/scan" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "ORG",
+    "scan_type": "github_wordlist",
+    "max_repos": 300,
+    "wordlist_files_csv": ".gitignore,.npmignore,.dockerignore"
+  }'
 ```
 
 ## 📊 API Endpoints
