@@ -1,0 +1,83 @@
+# AutoAR Configuration Sample
+# Copy this file to autoar.yaml and fill in your actual values
+
+# API Keys for various services
+WORDPRESS: [""]
+bevigil: [""]
+binaryedge: [""]
+urlscan: [""]
+bufferoverflow: [""]
+c99: [""]
+censys: [""]
+certspotter: [""]
+chaos: [""]
+chinaz: [""]
+dnsdb: [""]
+fofa: [""]
+fullhunt: [""]
+github: [""]
+intelx: [""]
+passivetotal: [""]
+quake: [""]
+robtex: [""]
+securitytrails: [""]
+shodan: [""]
+threatbook: [""]
+virustotal: [""]
+whoisxmlapi: [""]
+zoomeye: [""]
+zoomeyeapi: [""]
+dnsrepo: [""]
+hunter: [""]
+
+# Additional API Keys
+H1_API_KEY: ""
+INTEGRITI_API_KEY: ""
+DISCORD_WEBHOOK: ""
+openrouter_api: ""
+
+# Database Configuration
+SAVE_TO_DB: true
+VERBOSE: false
+DB_NAME: "autoar"
+DOMAINS_COLLECTION: "domains"
+SUBDOMAINS_COLLECTION: "subdomains"
+
+# GitLab storage configuration
+gitlab:
+  project_url: ""
+  username: ""
+  access_token: ""
+  branch: "main"
+  use_gitlab_storage: false
+
+# Tool configuration
+tools:
+  nuclei:
+    templates_path: "/srv/nuclei_templates"
+    rate_limit: 150
+    concurrency: 25
+  
+  ffuf:
+    wordlist_path: "/srv/Wordlists/quick_fuzz.txt"
+    threads: 50
+  
+  subfinder:
+    config_path: "/srv/config/autoar.yaml"
+    threads: 10
+  
+  github_scan:
+    max_repos: 50
+    parallel_jobs: 3
+    html_reports: true
+    scan_types: ["github_org_scan"]
+
+# Storage configuration
+storage:
+  type: "local"  # Options: local, gitlab
+  local_path: "/srv/results"
+  gitlab:
+    project_url: ""
+    username: ""
+    access_token: ""
+    branch: "main"
