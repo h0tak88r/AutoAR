@@ -35,7 +35,7 @@ WORKDIR /app
 
 # System deps for runtime and common tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates tini jq \
+    git curl ca-certificates tini jq dnsutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy application code
@@ -56,7 +56,8 @@ RUN set -e; \
     if ! grep -iq '^pyyaml' requirements.txt 2>/dev/null; then \
       printf "pyyaml>=6.0.1\n" >> requirements.txt; \
     fi; \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt \
+    && pip3 install --no-cache-dir interlace
 
 # Permissions and executables
 RUN chmod +x /app/generate_config.sh || true \

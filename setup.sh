@@ -104,7 +104,7 @@ check_and_install_tools() {
     install_go_tool "JsLeaks" "go install github.com/channyein1337/jsleak@latest"
     install_go_tool "dnsx" "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
     install_go_tool "gf" "go install github.com/tomnomnom/gf@latest"
-    install_go_tool "urlfinder" "go install github.com/pentest-company/urlfinder@latest"
+    install_go_tool "urlfinder" "go install github.com/projectdiscovery/urlfinder@latest"
     install_naabu
     install_massdns
     install_nuclei_templates
@@ -113,7 +113,7 @@ check_and_install_tools() {
     install_go_tool "yq" "go install github.com/mikefarah/yq/v4@latest"
     install_go_tool "interlace" "pip install interlace"
     install_go_tool "anew" "go install github.com/tomnomnom/anew@latest"
-    
+
 }
 
 # Main setup function
