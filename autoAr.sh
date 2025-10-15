@@ -39,9 +39,13 @@ CLEANUP_ON_EXIT=true
 
 # Cleanup function for graceful shutdown
 cleanup_on_exit() {
-    if [[ "$CLEANUP_ON_EXIT" == "true" ]]; then
+    if [[ "$CLEANUP_ON_EXIT" == "true" || "$DISCORD_ONLY" == "true" ]]; then
         log INFO "Cleaning up before exit..."
-        if [[ -d "$RESULTS_DIR" ]]; then
+        if [[ -n "$DOMAIN_DIR" && -d "$DOMAIN_DIR" ]]; then
+            log INFO "Removing domain results directory: $DOMAIN_DIR"
+            rm -rf "$DOMAIN_DIR"
+            log SUCCESS "Domain directory cleanup completed"
+        elif [[ -d "$RESULTS_DIR" ]]; then
             log INFO "Removing results directory: $RESULTS_DIR"
             rm -rf "$RESULTS_DIR"
             log SUCCESS "Cleanup completed"
@@ -72,6 +76,8 @@ WORDLIST_DIR="Wordlists"
 FUZZ_WORDLIST="$WORDLIST_DIR/quick_fuzz.txt"
 LOG_FILE="autoAR.log"
 DOMAIN_DIR=""
+# Discord-only streaming mode (no local persistence)
+DISCORD_ONLY=${DISCORD_ONLY:-false}
 
 # Improved log function with color and prefix
 log() {
@@ -103,7 +109,15 @@ log() {
     esac
 
     printf "${color}${prefix} %s${NC}\n" "$message"
-    printf "[%s] %s\n" "$type" "$message" >> "$LOG_FILE"
+    if [[ "$DISCORD_ONLY" == "true" ]]; then
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            local truncated_msg
+            truncated_msg=$(echo "$prefix $message" | head -c 1800)
+            send_to_discord "$truncated_msg"
+        fi
+    else
+        printf "[%s] %s\n" "$type" "$message" >> "$LOG_FILE"
+    fi
 }
 
 # Function to send messages to Discord
@@ -124,6 +138,9 @@ send_file_to_discord() {
             curl -F "file=@$file" \
                  -F "payload_json={\"content\": \"$description\"}" \
                  "$DISCORD_WEBHOOK" > /dev/null 2>&1
+            if [[ "$DISCORD_ONLY" == "true" ]]; then
+                rm -f "$file" 2>/dev/null || true
+            fi
         else
             log WARNING "Discord webhook not provided, skipping file upload."
         fi
