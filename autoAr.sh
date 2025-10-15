@@ -42,8 +42,9 @@ GITHUB_TOKEN=${GITHUB_TOKEN:-$(yaml_get '.github[0]')}
 JS_MONITOR_MODE=0
 CLEANUP_ON_EXIT=true
 
-# Cleanup function for graceful shutdown
+# Cleanup function for graceful shutdown (preserve exit status)
 cleanup_on_exit() {
+    local exit_status=${1:-0}
     if [[ "$CLEANUP_ON_EXIT" == "true" || "$DISCORD_ONLY" == "true" ]]; then
         log INFO "Cleaning up before exit..."
         if [[ -n "$DOMAIN_DIR" && -d "$DOMAIN_DIR" ]]; then
@@ -56,11 +57,13 @@ cleanup_on_exit() {
             log SUCCESS "Cleanup completed"
         fi
     fi
-    exit 0
+    exit "$exit_status"
 }
 
-# Set up signal handlers for cleanup
-trap cleanup_on_exit SIGINT SIGTERM EXIT
+# Set up signal handlers for cleanup, preserving status
+trap 'cleanup_on_exit $?' EXIT
+trap 'cleanup_on_exit 130' SIGINT
+trap 'cleanup_on_exit 143' SIGTERM
 
 # autoAR Logo
 printf "==============================\n"
