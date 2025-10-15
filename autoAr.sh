@@ -19,19 +19,24 @@ else
     CONFIG_FILE="autoar.yaml"
 fi
 
-# Helper to get a value from YAML using yq
+# Helper to get a value from YAML using yq (if available)
 yaml_get() {
-    yq -r "$1" "$CONFIG_FILE"
+    if command -v yq >/dev/null 2>&1; then
+        yq -r "$1" "$CONFIG_FILE" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
 }
 
-DB_NAME=$(yaml_get '.DB_NAME')
-DOMAINS_COLLECTION=$(yaml_get '.mongodb.domains_collection')
-SUBDOMAINS_COLLECTION=$(yaml_get '.mongodb.subdomains_collection')
-SECURITYTRAILS_API_KEY=$(yaml_get '.securitytrails[0]')
-DISCORD_WEBHOOK=$(yaml_get '.DISCORD_WEBHOOK')
-SAVE_TO_DB=$(yaml_get '.SAVE_TO_DB')
-VERBOSE=$(yaml_get '.VERBOSE')
-GITHUB_TOKEN=$(yaml_get '.github[0]')
+# Prefer environment variables; fallback to YAML if env is empty and yq exists
+DB_NAME=${DB_NAME:-$(yaml_get '.DB_NAME')}
+DOMAINS_COLLECTION=${DOMAINS_COLLECTION:-$(yaml_get '.mongodb.domains_collection')}
+SUBDOMAINS_COLLECTION=${SUBDOMAINS_COLLECTION:-$(yaml_get '.mongodb.subdomains_collection')}
+SECURITYTRAILS_API_KEY=${SECURITYTRAILS_API_KEY:-$(yaml_get '.securitytrails[0]')}
+DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-$(yaml_get '.DISCORD_WEBHOOK')}
+SAVE_TO_DB=${SAVE_TO_DB:-$(yaml_get '.SAVE_TO_DB')}
+VERBOSE=${VERBOSE:-$(yaml_get '.VERBOSE')}
+GITHUB_TOKEN=${GITHUB_TOKEN:-$(yaml_get '.github[0]')}
 
 # At the top of the script, after other globals:
 JS_MONITOR_MODE=0
