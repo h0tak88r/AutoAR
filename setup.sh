@@ -111,7 +111,13 @@ check_and_install_tools() {
     install_jsfinder
     apt-get install dnsutils
     install_go_tool "yq" "go install github.com/mikefarah/yq/v4@latest"
-    install_go_tool "interlace" "pip install interlace"
+    # Install interlace from GitHub (not available on PyPI)
+    if ! command -v interlace &> /dev/null; then
+        log INFO "Installing interlace from GitHub"
+        pip3 install git+https://github.com/codingo/Interlace.git || log WARNING "Failed to install interlace"
+    else
+        log SUCCESS "interlace - installed"
+    fi
     install_go_tool "anew" "go install github.com/tomnomnom/anew@latest"
 
 }
