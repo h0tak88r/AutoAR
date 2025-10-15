@@ -6,14 +6,15 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        RUN_SETUP_AT_BUILD: "false"
-        RUN_FASTLOOK_SETUP: "true"
+        RUN_SETUP_AT_BUILD: "true"
+        RUN_FASTLOOK_SETUP: "false"
     image: autoar-bot:latest
     container_name: autoar-bot
     restart: unless-stopped
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - DISCORD_ONLY=${DISCORD_ONLY:-false}
+      - RUN_SETUP=${RUN_SETUP:-false}
       - RUN_SETUP=${RUN_SETUP:-false}
       - REGENERATE_CONFIG=${REGENERATE_CONFIG:-true}
       - AUTOAR_SCRIPT_PATH=/app/autoAr.sh
