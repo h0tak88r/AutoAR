@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile
       args:
         RUN_SETUP_AT_BUILD: "false"
+        RUN_FASTLOOK_SETUP: "true"
     image: autoar-bot:latest
     container_name: autoar-bot
     restart: unless-stopped
