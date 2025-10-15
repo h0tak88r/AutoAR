@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # --- Builder stage: optional tool installation (Go-based and system tools) ---
-FROM golang:1.22-bullseye AS builder
+FROM golang:1.24-bullseye AS builder
 
 WORKDIR /app
 
