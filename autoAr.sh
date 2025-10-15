@@ -19,39 +19,61 @@ else
     CONFIG_FILE="autoar.yaml"
 fi
 
-# Helper to get a value from YAML using yq
+# Helper to get a value from YAML using yq (if available)
 yaml_get() {
-    yq -r "$1" "$CONFIG_FILE"
+    if command -v yq >/dev/null 2>&1; then
+        yq -r "$1" "$CONFIG_FILE" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
 }
 
-DB_NAME=$(yaml_get '.DB_NAME')
-DOMAINS_COLLECTION=$(yaml_get '.mongodb.domains_collection')
-SUBDOMAINS_COLLECTION=$(yaml_get '.mongodb.subdomains_collection')
-SECURITYTRAILS_API_KEY=$(yaml_get '.securitytrails[0]')
-DISCORD_WEBHOOK=$(yaml_get '.DISCORD_WEBHOOK')
-SAVE_TO_DB=$(yaml_get '.SAVE_TO_DB')
-VERBOSE=$(yaml_get '.VERBOSE')
-GITHUB_TOKEN=$(yaml_get '.github[0]')
+# Prefer environment variables; fallback to YAML if env is empty and yq exists
+DB_NAME=${DB_NAME:-$(yaml_get '.DB_NAME')}
+DOMAINS_COLLECTION=${DOMAINS_COLLECTION:-$(yaml_get '.mongodb.domains_collection')}
+SUBDOMAINS_COLLECTION=${SUBDOMAINS_COLLECTION:-$(yaml_get '.mongodb.subdomains_collection')}
+SECURITYTRAILS_API_KEY=${SECURITYTRAILS_API_KEY:-$(yaml_get '.securitytrails[0]')}
+DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-$(yaml_get '.DISCORD_WEBHOOK')}
+SAVE_TO_DB=${SAVE_TO_DB:-$(yaml_get '.SAVE_TO_DB')}
+VERBOSE=${VERBOSE:-$(yaml_get '.VERBOSE')}
+GITHUB_TOKEN=${GITHUB_TOKEN:-$(yaml_get '.github[0]')}
 
 # At the top of the script, after other globals:
 JS_MONITOR_MODE=0
 CLEANUP_ON_EXIT=true
 
-# Cleanup function for graceful shutdown
+# Cleanup function for graceful shutdown (preserve exit status)
 cleanup_on_exit() {
-    if [[ "$CLEANUP_ON_EXIT" == "true" ]]; then
+    local exit_status=${1:-0}
+    if [[ "$CLEANUP_ON_EXIT" == "true" || "$DISCORD_ONLY" == "true" ]]; then
         log INFO "Cleaning up before exit..."
-        if [[ -d "$RESULTS_DIR" ]]; then
+        if [[ -n "$DOMAIN_DIR" && -d "$DOMAIN_DIR" ]]; then
+            log INFO "Removing domain results directory: $DOMAIN_DIR"
+            # If domain dir is a mount point, remove contents only
+            if mountpoint -q "$DOMAIN_DIR" 2>/dev/null; then
+                rm -rf "$DOMAIN_DIR"/* "$DOMAIN_DIR"/.[!.]* "$DOMAIN_DIR"/..?* 2>/dev/null || true
+            else
+                rm -rf "$DOMAIN_DIR" 2>/dev/null || true
+            fi
+            log SUCCESS "Domain directory cleanup completed"
+        elif [[ -d "$RESULTS_DIR" ]]; then
             log INFO "Removing results directory: $RESULTS_DIR"
-            rm -rf "$RESULTS_DIR"
+            # Avoid removing the root of a mounted volume; clear contents instead
+            if mountpoint -q "$RESULTS_DIR" 2>/dev/null; then
+                rm -rf "$RESULTS_DIR"/* "$RESULTS_DIR"/.[!.]* "$RESULTS_DIR"/..?* 2>/dev/null || true
+            else
+                rm -rf "$RESULTS_DIR" 2>/dev/null || true
+            fi
             log SUCCESS "Cleanup completed"
         fi
     fi
-    exit 0
+    exit "$exit_status"
 }
 
-# Set up signal handlers for cleanup
-trap cleanup_on_exit SIGINT SIGTERM EXIT
+# Set up signal handlers for cleanup, preserving status
+trap 'cleanup_on_exit $?' EXIT
+trap 'cleanup_on_exit 130' SIGINT
+trap 'cleanup_on_exit 143' SIGTERM
 
 # autoAR Logo
 printf "==============================\n"
@@ -72,6 +94,8 @@ WORDLIST_DIR="Wordlists"
 FUZZ_WORDLIST="$WORDLIST_DIR/quick_fuzz.txt"
 LOG_FILE="autoAR.log"
 DOMAIN_DIR=""
+# Discord-only streaming mode (no local persistence)
+DISCORD_ONLY=${DISCORD_ONLY:-false}
 
 # Improved log function with color and prefix
 log() {
@@ -103,7 +127,15 @@ log() {
     esac
 
     printf "${color}${prefix} %s${NC}\n" "$message"
-    printf "[%s] %s\n" "$type" "$message" >> "$LOG_FILE"
+    if [[ "$DISCORD_ONLY" == "true" ]]; then
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+            local truncated_msg
+            truncated_msg=$(echo "$prefix $message" | head -c 1800)
+            send_to_discord "$truncated_msg"
+        fi
+    else
+        printf "[%s] %s\n" "$type" "$message" >> "$LOG_FILE"
+    fi
 }
 
 # Function to send messages to Discord
@@ -124,6 +156,9 @@ send_file_to_discord() {
             curl -F "file=@$file" \
                  -F "payload_json={\"content\": \"$description\"}" \
                  "$DISCORD_WEBHOOK" > /dev/null 2>&1
+            if [[ "$DISCORD_ONLY" == "true" ]]; then
+                rm -f "$file" 2>/dev/null || true
+            fi
         else
             log WARNING "Discord webhook not provided, skipping file upload."
         fi
@@ -147,14 +182,14 @@ check_tools() {
         ["qsreplace"]="go install github.com/tomnomnom/qsreplace@latest"
         ["gf"]="go install github.com/tomnomnom/gf@latest"
         ["dalfox"]="go install github.com/hahwul/dalfox/v2@latest"
-        ["urlfinder"]="go install github.com/pentest-company/urlfinder@latest"
+        ["urlfinder"]="go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest"
         ["interlace"]="pip3 install interlace"
         ["jsleak"]="go install github.com/channyein1337/jsleak@latest"
         ["jsfinder"]="go install -v github.com/kacakb/jsfinder@latest"
         ["dnsx"]="go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
         ["dig"]="apt-get install dnsutils (Ubuntu/Debian) or yum install bind-utils (RHEL/CentOS)"
         ["jq"]="apt-get install jq (Ubuntu/Debian) or yum install jq (RHEL/CentOS)"
-        ["yq"]="go install github.com/mikefarah/yq/v4@latest"
+        ["yq"]="curl -sSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.42.1/yq_linux_amd64 && chmod +x /usr/local/bin/yq"
         ["anew"]="go install -v github.com/tomnomnom/anew@latest"
         ["curl"]="apt-get install curl (Ubuntu/Debian) or yum install curl (RHEL/CentOS)"
         ["git"]="apt-get install git (Ubuntu/Debian) or yum install git (RHEL/CentOS)"
@@ -218,18 +253,14 @@ check_tools() {
     # Summary
     log INFO "Tool check complete: $installed_count/$total_tools tools installed"
     
-    # Check for critical missing tools
+    # Do not hard fail on missing tools: continue and skip dependent steps
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
-        log ERROR ""
-        log ERROR "❌ CRITICAL: The following required tools are missing:"
+        log WARNING ""
+        log WARNING "Some tools are missing; related steps will be skipped:"
         for tool in "${missing_tools[@]}"; do
-            log ERROR "   • $tool"
-            log ERROR "     Install: ${tools_info[$tool]}"
+            log WARNING "   • $tool (missing)"
         done
-        log ERROR ""
-        log ERROR "Please install the missing tools before running AutoAR."
-        log ERROR "Visit: https://github.com/h0tak88r/AutoAR#installation for detailed instructions"
-        exit 1
+        log WARNING ""
     fi
     
     # Warn about optional tools
@@ -242,7 +273,7 @@ check_tools() {
         log WARNING ""
     fi
     
-    log SUCCESS "🎉 All required tools are installed! Ready to scan."
+    log SUCCESS "🎉 Tool check completed. Proceeding with available tools."
 }
 
 # Function to ensure proper permissions
@@ -744,7 +775,14 @@ subEnum() {
     # Run subfinder
     log INFO "Running subfinder..."
     if command -v subfinder &> /dev/null; then
+        log INFO "subfinder found, running enumeration..."
         subfinder -d "$domain" -all -silent -o "$DOMAIN_DIR/subs/subfinder-subs.txt" -pc $CONFIG_FILE >> "$LOG_FILE" 2>&1
+        local subfinder_exit_code=$?
+        if [[ $subfinder_exit_code -eq 0 ]]; then
+            log SUCCESS "subfinder completed successfully"
+        else
+            log WARNING "subfinder exited with code $subfinder_exit_code"
+        fi
     else
         log WARNING "[-] subfinder not found, skipping subfinder enumeration"
     fi
@@ -755,6 +793,26 @@ subEnum() {
     # Count results
     local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
     log SUCCESS "Found $total_subs unique subdomains"
+    
+    # Debug: Show first few subdomains if any found
+    if [[ "$total_subs" -gt 0 ]]; then
+        log INFO "Sample subdomains found:"
+        head -5 "$DOMAIN_DIR/subs/all-subs.txt" | while read -r sub; do
+            log INFO "  - $sub"
+        done
+    else
+        log WARNING "No subdomains found. Checking if files exist:"
+        log INFO "  - apis-subs.txt exists: $([ -f "$DOMAIN_DIR/subs/apis-subs.txt" ] && echo "YES" || echo "NO")"
+        log INFO "  - subfinder-subs.txt exists: $([ -f "$DOMAIN_DIR/subs/subfinder-subs.txt" ] && echo "YES" || echo "NO")"
+        if [[ -f "$DOMAIN_DIR/subs/apis-subs.txt" ]]; then
+            local api_count=$(wc -l < "$DOMAIN_DIR/subs/apis-subs.txt")
+            log INFO "  - apis-subs.txt has $api_count lines"
+        fi
+        if [[ -f "$DOMAIN_DIR/subs/subfinder-subs.txt" ]]; then
+            local subfinder_count=$(wc -l < "$DOMAIN_DIR/subs/subfinder-subs.txt")
+            log INFO "  - subfinder-subs.txt has $subfinder_count lines"
+        fi
+    fi
     
     # Save to SQLite only if <= 3000
     if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
@@ -800,8 +858,10 @@ fetch_urls() {
         
         # 2. Run JSFinder on live subdomains to find JS files and endpoints
         if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
-            log INFO "Running JSFinder on live subdomains"
+            log INFO "Running JSFinder on $(wc -l < "$DOMAIN_DIR/subs/live-subs.txt") live subdomains"
             jsfinder -l "$DOMAIN_DIR/subs/live-subs.txt" -c 50 -s -o "$DOMAIN_DIR/urls/js-urls.txt" >> "$LOG_FILE" 2>&1
+        else
+            log WARNING "No live subdomains file found at $DOMAIN_DIR/subs/live-subs.txt"
         fi
     fi
 
@@ -848,10 +908,19 @@ filter_live_hosts() {
     mkdir -p "$DOMAIN_DIR/subs"
     
     if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
+        log INFO "Running httpx on $(wc -l < "$DOMAIN_DIR/subs/all-subs.txt") subdomains..."
         cat "$DOMAIN_DIR/subs/all-subs.txt" | httpx -silent -nc -o "$DOMAIN_DIR/subs/live-subs.txt" >> "$LOG_FILE" 2>&1
         local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
         local live_subs=$(wc -l < "$DOMAIN_DIR/subs/live-subs.txt")
         log SUCCESS "Found $live_subs live subdomains out of $total_subs total"
+        
+        # Debug: Show sample live subdomains
+        if [[ "$live_subs" -gt 0 ]]; then
+            log INFO "Sample live subdomains:"
+            head -3 "$DOMAIN_DIR/subs/live-subs.txt" | while read -r sub; do
+                log INFO "  - $sub"
+            done
+        fi
         if [[ $JS_MONITOR_MODE -ne 1 ]]; then
             send_file_to_discord "$DOMAIN_DIR/subs/live-subs.txt" "Live Subdomains Found ($live_subs out of $total_subs)"
         fi
@@ -1075,7 +1144,7 @@ _scan_s3_put() {
     log INFO "Using root domain: $root_domain for S3 bucket generation"
 
     # Check if mutations wordlist exists and load it
-    local mutations_file="Wordlists/mutations.txt"
+    local mutations_file="Wordlists/s3.txt"
     local mutations=()
     
     if [[ ! -f "$mutations_file" ]]; then
@@ -1598,7 +1667,8 @@ github_org_scan() {
     export GITHUB_TOKEN="$GITHUB_TOKEN"
     export TRUFFLEHOG_GITHUB_API_TOKEN="$GITHUB_TOKEN"
 
-    if /home/sallam/.local/bin/trufflehog github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>/dev/null; then
+    local TRUFFLEHOG_BIN=${TRUFFLEHOG_BIN:-$(command -v trufflehog || echo trufflehog)}
+    if "$TRUFFLEHOG_BIN" github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>/dev/null; then
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$org_dir/org_secrets_array.json"
         if [[ -s "$org_results_file" ]]; then
@@ -1960,7 +2030,8 @@ github_scan() {
         export TRUFFLEHOG_GITHUB_API_TOKEN="$GITHUB_TOKEN"
 
         # Use the modern TruffleHog with proper syntax
-        if /home/sallam/.local/bin/trufflehog github --repo="$repo_url" --issue-comments --pr-comments --json > "$secrets_file" 2>/dev/null; then
+        local TRUFFLEHOG_BIN=${TRUFFLEHOG_BIN:-$(command -v trufflehog || echo trufflehog)}
+        if "$TRUFFLEHOG_BIN" github --repo="$repo_url" --issue-comments --pr-comments --json > "$secrets_file" 2>/dev/null; then
             # Convert newline-delimited JSON to JSON array for counting
             local temp_json_array="$temp_dir/${repo_name}_secrets_array.json"
             if [[ -s "$secrets_file" ]]; then
@@ -2841,6 +2912,12 @@ lite_scan() {
     log SUCCESS "Lite scan completed successfully!"
     if [[ -n "$DISCORD_WEBHOOK" ]]; then
         send_to_discord "🎉 Lite scan completed for $domain! Check $DOMAIN_DIR for detailed findings."
+        
+        # In Discord-only mode, wait a bit for notifications to be sent before cleanup
+        if [[ "$DISCORD_ONLY" == "true" ]]; then
+            log INFO "Waiting 10 seconds for Discord notifications to be sent..."
+            sleep 10
+        fi
     fi
     
     # Schedule cleanup after Discord notifications are sent
@@ -3081,11 +3158,12 @@ show_help() {
             github      Scan GitHub repository for secrets using TruffleHog
             github-org  Scan GitHub organization for secrets using TruffleHog
             monitor     Run the Python monitoring script
-            check-tools Check if all required tools are installed
+            check-tools Check if all required tools are installed (run this before scans)
             api         API management (start, stop, restart, status, logs, install, uninstall)
             help        Show this help message
 
         Examples:
+            ./autoAr.sh check-tools  # Check tools first
             ./autoAr.sh domain -d example.com
             ./autoAr.sh subdomain -s sub.example.com
             ./autoAr.sh liteScan -d example.com
@@ -3155,10 +3233,8 @@ main() {
         subcommand="$1"
         shift
         
-        # Check tools before running any scan (except help, monitor, check-tools, and api)
-        if [[ "$subcommand" != "help" && "$subcommand" != "--help" && "$subcommand" != "-h" && "$subcommand" != "monitor" && "$subcommand" != "check-tools" && "$subcommand" != "api" ]]; then
-            check_tools
-        fi
+        # Tool checking is now only available via the check-tools subcommand
+        # No automatic tool checking for scan commands
         case "$subcommand" in
             domain)
                 # Parse flags for domain scan
@@ -3250,12 +3326,11 @@ main() {
                     echo "Error: Must specify a domain with -d"; show_help; exit 1;
                 fi
                 setup_results_dir
-                subEnum "$TARGET"
-                filter_live_hosts
-                fetch_urls
-                detect_technologies
-                check_cname_records "$DOMAIN_DIR"
-                run_reflection_scan
+            # Minimal fastLook: run only subfinder and send output
+            subEnum "$TARGET"
+            if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
+                send_file_to_discord "$DOMAIN_DIR/subs/all-subs.txt" "Subfinder results for $TARGET"
+            fi
                 exit 0
                 ;;
             jsScan)

@@ -26,23 +26,6 @@ install_go_tool() {
     fi
 }
 
-# Function to install urldedupe
-install_urldedupe() {
-    if ! command -v urldedupe &> /dev/null; then
-        print_msg red "urldedupe - not installed"
-        print_msg yellow "Attempting to install urldedupe"
-        git clone https://github.com/ameenmaali/urldedupe.git
-        cd urldedupe
-        sudo apt install -y cmake
-        cmake CMakeLists.txt
-        make
-        sudo mv urldedupe /bin/
-        cd ..
-    else
-        print_msg green "urldedupe - installed"
-    fi
-}
-
 # Function to install naabu
 install_naabu() {
     if ! command -v naabu &> /dev/null; then
@@ -119,22 +102,24 @@ check_and_install_tools() {
     install_go_tool "dalfox" "go install github.com/hahwul/dalfox/v2@latest"
     install_go_tool "paramx" "go install github.com/cyinnove/paramx/cmd/paramx@latest"
     install_go_tool "JsLeaks" "go install github.com/channyein1337/jsleak@latest"
-    install_urldedupe
+    install_go_tool "dnsx" "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
+    install_go_tool "gf" "go install github.com/tomnomnom/gf@latest"
+    install_go_tool "urlfinder" "go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest"
     install_naabu
     install_massdns
     install_nuclei_templates
     install_jsfinder
-    install_python_tool "waymore" "sudo pip install waymore"
+    apt-get install dnsutils
+    install_go_tool "yq" "go install github.com/mikefarah/yq/v4@latest"
+    # Install interlace from GitHub (not available on PyPI)
     if ! command -v interlace &> /dev/null; then
-        print_msg red "interlace - not installed"
-        print_msg yellow "Attempting to install interlace"
-        git clone https://github.com/codingo/Interlace.git
-        cd Interlace
-        sudo python3 setup.py install
-        cd ..
+        log INFO "Installing interlace from GitHub"
+        pip3 install git+https://github.com/codingo/Interlace.git || log WARNING "Failed to install interlace"
     else
-        print_msg green "interlace - installed"
+        log SUCCESS "interlace - installed"
     fi
+    install_go_tool "anew" "go install github.com/tomnomnom/anew@latest"
+
 }
 
 # Main setup function
