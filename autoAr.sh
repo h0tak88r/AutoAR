@@ -1633,7 +1633,8 @@ github_org_scan() {
     export GITHUB_TOKEN="$GITHUB_TOKEN"
     export TRUFFLEHOG_GITHUB_API_TOKEN="$GITHUB_TOKEN"
 
-    if /home/sallam/.local/bin/trufflehog github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>/dev/null; then
+    local TRUFFLEHOG_BIN=${TRUFFLEHOG_BIN:-$(command -v trufflehog || echo trufflehog)}
+    if "$TRUFFLEHOG_BIN" github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>/dev/null; then
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$org_dir/org_secrets_array.json"
         if [[ -s "$org_results_file" ]]; then
@@ -1995,7 +1996,8 @@ github_scan() {
         export TRUFFLEHOG_GITHUB_API_TOKEN="$GITHUB_TOKEN"
 
         # Use the modern TruffleHog with proper syntax
-        if /home/sallam/.local/bin/trufflehog github --repo="$repo_url" --issue-comments --pr-comments --json > "$secrets_file" 2>/dev/null; then
+        local TRUFFLEHOG_BIN=${TRUFFLEHOG_BIN:-$(command -v trufflehog || echo trufflehog)}
+        if "$TRUFFLEHOG_BIN" github --repo="$repo_url" --issue-comments --pr-comments --json > "$secrets_file" 2>/dev/null; then
             # Convert newline-delimited JSON to JSON array for counting
             local temp_json_array="$temp_dir/${repo_name}_secrets_array.json"
             if [[ -s "$secrets_file" ]]; then

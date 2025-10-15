@@ -73,6 +73,7 @@ services:
       - GITHUB_SCAN_TYPES=${GITHUB_SCAN_TYPES:-github_org_scan}
     volumes:
       - results-data:/app/new-results
+      - ./regexes:/app/regexes:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import importlib; importlib.import_module(\"discord\")' || exit 1"]
       interval: 30s
