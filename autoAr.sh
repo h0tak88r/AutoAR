@@ -787,6 +787,26 @@ subEnum() {
     local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
     log SUCCESS "Found $total_subs unique subdomains"
     
+    # Debug: Show first few subdomains if any found
+    if [[ "$total_subs" -gt 0 ]]; then
+        log INFO "Sample subdomains found:"
+        head -5 "$DOMAIN_DIR/subs/all-subs.txt" | while read -r sub; do
+            log INFO "  - $sub"
+        done
+    else
+        log WARNING "No subdomains found. Checking if files exist:"
+        log INFO "  - apis-subs.txt exists: $([ -f "$DOMAIN_DIR/subs/apis-subs.txt" ] && echo "YES" || echo "NO")"
+        log INFO "  - subfinder-subs.txt exists: $([ -f "$DOMAIN_DIR/subs/subfinder-subs.txt" ] && echo "YES" || echo "NO")"
+        if [[ -f "$DOMAIN_DIR/subs/apis-subs.txt" ]]; then
+            local api_count=$(wc -l < "$DOMAIN_DIR/subs/apis-subs.txt")
+            log INFO "  - apis-subs.txt has $api_count lines"
+        fi
+        if [[ -f "$DOMAIN_DIR/subs/subfinder-subs.txt" ]]; then
+            local subfinder_count=$(wc -l < "$DOMAIN_DIR/subs/subfinder-subs.txt")
+            log INFO "  - subfinder-subs.txt has $subfinder_count lines"
+        fi
+    fi
+    
     # Save to SQLite only if <= 3000
     if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
         if [[ "$total_subs" -le 3000 ]]; then
@@ -831,8 +851,10 @@ fetch_urls() {
         
         # 2. Run JSFinder on live subdomains to find JS files and endpoints
         if [[ -s "$DOMAIN_DIR/subs/live-subs.txt" ]]; then
-            log INFO "Running JSFinder on live subdomains"
+            log INFO "Running JSFinder on $(wc -l < "$DOMAIN_DIR/subs/live-subs.txt") live subdomains"
             jsfinder -l "$DOMAIN_DIR/subs/live-subs.txt" -c 50 -s -o "$DOMAIN_DIR/urls/js-urls.txt" >> "$LOG_FILE" 2>&1
+        else
+            log WARNING "No live subdomains file found at $DOMAIN_DIR/subs/live-subs.txt"
         fi
     fi
 
@@ -879,10 +901,19 @@ filter_live_hosts() {
     mkdir -p "$DOMAIN_DIR/subs"
     
     if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
+        log INFO "Running httpx on $(wc -l < "$DOMAIN_DIR/subs/all-subs.txt") subdomains..."
         cat "$DOMAIN_DIR/subs/all-subs.txt" | httpx -silent -nc -o "$DOMAIN_DIR/subs/live-subs.txt" >> "$LOG_FILE" 2>&1
         local total_subs=$(wc -l < "$DOMAIN_DIR/subs/all-subs.txt")
         local live_subs=$(wc -l < "$DOMAIN_DIR/subs/live-subs.txt")
         log SUCCESS "Found $live_subs live subdomains out of $total_subs total"
+        
+        # Debug: Show sample live subdomains
+        if [[ "$live_subs" -gt 0 ]]; then
+            log INFO "Sample live subdomains:"
+            head -3 "$DOMAIN_DIR/subs/live-subs.txt" | while read -r sub; do
+                log INFO "  - $sub"
+            done
+        fi
         if [[ $JS_MONITOR_MODE -ne 1 ]]; then
             send_file_to_discord "$DOMAIN_DIR/subs/live-subs.txt" "Live Subdomains Found ($live_subs out of $total_subs)"
         fi
