@@ -3114,11 +3114,12 @@ show_help() {
             github      Scan GitHub repository for secrets using TruffleHog
             github-org  Scan GitHub organization for secrets using TruffleHog
             monitor     Run the Python monitoring script
-            check-tools Check if all required tools are installed
+            check-tools Check if all required tools are installed (run this before scans)
             api         API management (start, stop, restart, status, logs, install, uninstall)
             help        Show this help message
 
         Examples:
+            ./autoAr.sh check-tools  # Check tools first
             ./autoAr.sh domain -d example.com
             ./autoAr.sh subdomain -s sub.example.com
             ./autoAr.sh liteScan -d example.com
@@ -3188,14 +3189,8 @@ main() {
         subcommand="$1"
         shift
         
-        # Check tools before running scans
-        # Skip for help/monitor/check-tools/api and for minimal fastLook mode
-        if [[ "${SKIP_TOOL_CHECK:-false}" != "true" \
-              && "$subcommand" != "help" && "$subcommand" != "--help" && "$subcommand" != "-h" \
-              && "$subcommand" != "monitor" && "$subcommand" != "check-tools" && "$subcommand" != "api" \
-              && "$subcommand" != "fastLook" ]]; then
-            check_tools
-        fi
+        # Tool checking is now only available via the check-tools subcommand
+        # No automatic tool checking for scan commands
         case "$subcommand" in
             domain)
                 # Parse flags for domain scan
