@@ -12,6 +12,7 @@ services:
     restart: unless-stopped
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_ONLY=${DISCORD_ONLY:-false}
       - RUN_SETUP=${RUN_SETUP:-false}
       - REGENERATE_CONFIG=${REGENERATE_CONFIG:-true}
       - AUTOAR_SCRIPT_PATH=/app/autoAr.sh
