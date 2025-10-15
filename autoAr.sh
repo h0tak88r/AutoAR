@@ -49,11 +49,21 @@ cleanup_on_exit() {
         log INFO "Cleaning up before exit..."
         if [[ -n "$DOMAIN_DIR" && -d "$DOMAIN_DIR" ]]; then
             log INFO "Removing domain results directory: $DOMAIN_DIR"
-            rm -rf "$DOMAIN_DIR"
+            # If domain dir is a mount point, remove contents only
+            if mountpoint -q "$DOMAIN_DIR" 2>/dev/null; then
+                rm -rf "$DOMAIN_DIR"/* "$DOMAIN_DIR"/.[!.]* "$DOMAIN_DIR"/..?* 2>/dev/null || true
+            else
+                rm -rf "$DOMAIN_DIR" 2>/dev/null || true
+            fi
             log SUCCESS "Domain directory cleanup completed"
         elif [[ -d "$RESULTS_DIR" ]]; then
             log INFO "Removing results directory: $RESULTS_DIR"
-            rm -rf "$RESULTS_DIR"
+            # Avoid removing the root of a mounted volume; clear contents instead
+            if mountpoint -q "$RESULTS_DIR" 2>/dev/null; then
+                rm -rf "$RESULTS_DIR"/* "$RESULTS_DIR"/.[!.]* "$RESULTS_DIR"/..?* 2>/dev/null || true
+            else
+                rm -rf "$RESULTS_DIR" 2>/dev/null || true
+            fi
             log SUCCESS "Cleanup completed"
         fi
     fi
@@ -3180,8 +3190,12 @@ main() {
         subcommand="$1"
         shift
         
-        # Check tools before running any scan (except help, monitor, check-tools, and api)
-        if [[ "$subcommand" != "help" && "$subcommand" != "--help" && "$subcommand" != "-h" && "$subcommand" != "monitor" && "$subcommand" != "check-tools" && "$subcommand" != "api" ]]; then
+        # Check tools before running scans
+        # Skip for help/monitor/check-tools/api and for minimal fastLook mode
+        if [[ "${SKIP_TOOL_CHECK:-false}" != "true" \
+              && "$subcommand" != "help" && "$subcommand" != "--help" && "$subcommand" != "-h" \
+              && "$subcommand" != "monitor" && "$subcommand" != "check-tools" && "$subcommand" != "api" \
+              && "$subcommand" != "fastLook" ]]; then
             check_tools
         fi
         case "$subcommand" in
@@ -3275,12 +3289,11 @@ main() {
                     echo "Error: Must specify a domain with -d"; show_help; exit 1;
                 fi
                 setup_results_dir
-                subEnum "$TARGET"
-                filter_live_hosts
-                fetch_urls
-                detect_technologies
-                check_cname_records "$DOMAIN_DIR"
-                run_reflection_scan
+            # Minimal fastLook: run only subfinder and send output
+            subEnum "$TARGET"
+            if [[ -s "$DOMAIN_DIR/subs/all-subs.txt" ]]; then
+                send_file_to_discord "$DOMAIN_DIR/subs/all-subs.txt" "Subfinder results for $TARGET"
+            fi
                 exit 0
                 ;;
             jsScan)
