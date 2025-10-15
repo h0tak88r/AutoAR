@@ -182,7 +182,7 @@ check_tools() {
         ["qsreplace"]="go install github.com/tomnomnom/qsreplace@latest"
         ["gf"]="go install github.com/tomnomnom/gf@latest"
         ["dalfox"]="go install github.com/hahwul/dalfox/v2@latest"
-        ["urlfinder"]="go install github.com/pentest-company/urlfinder@latest"
+        ["urlfinder"]="go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest"
         ["interlace"]="pip3 install interlace"
         ["jsleak"]="go install github.com/channyein1337/jsleak@latest"
         ["jsfinder"]="go install -v github.com/kacakb/jsfinder@latest"
@@ -1106,7 +1106,7 @@ _scan_s3_put() {
     log INFO "Using root domain: $root_domain for S3 bucket generation"
 
     # Check if mutations wordlist exists and load it
-    local mutations_file="Wordlists/mutations.txt"
+    local mutations_file="Wordlists/s3.txt"
     local mutations=()
     
     if [[ ! -f "$mutations_file" ]]; then

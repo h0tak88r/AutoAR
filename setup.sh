@@ -104,7 +104,7 @@ check_and_install_tools() {
     install_go_tool "JsLeaks" "go install github.com/channyein1337/jsleak@latest"
     install_go_tool "dnsx" "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
     install_go_tool "gf" "go install github.com/tomnomnom/gf@latest"
-    install_go_tool "urlfinder" "go install github.com/projectdiscovery/urlfinder@latest"
+    install_go_tool "urlfinder" "go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest"
     install_naabu
     install_massdns
     install_nuclei_templates
