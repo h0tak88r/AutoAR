@@ -775,7 +775,14 @@ subEnum() {
     # Run subfinder
     log INFO "Running subfinder..."
     if command -v subfinder &> /dev/null; then
+        log INFO "subfinder found, running enumeration..."
         subfinder -d "$domain" -all -silent -o "$DOMAIN_DIR/subs/subfinder-subs.txt" -pc $CONFIG_FILE >> "$LOG_FILE" 2>&1
+        local subfinder_exit_code=$?
+        if [[ $subfinder_exit_code -eq 0 ]]; then
+            log SUCCESS "subfinder completed successfully"
+        else
+            log WARNING "subfinder exited with code $subfinder_exit_code"
+        fi
     else
         log WARNING "[-] subfinder not found, skipping subfinder enumeration"
     fi
@@ -2905,6 +2912,12 @@ lite_scan() {
     log SUCCESS "Lite scan completed successfully!"
     if [[ -n "$DISCORD_WEBHOOK" ]]; then
         send_to_discord "🎉 Lite scan completed for $domain! Check $DOMAIN_DIR for detailed findings."
+        
+        # In Discord-only mode, wait a bit for notifications to be sent before cleanup
+        if [[ "$DISCORD_ONLY" == "true" ]]; then
+            log INFO "Waiting 10 seconds for Discord notifications to be sent..."
+            sleep 10
+        fi
     fi
     
     # Schedule cleanup after Discord notifications are sent
