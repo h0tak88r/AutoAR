@@ -312,229 +312,6 @@ enable_cleanup() {
     log INFO "Cleanup enabled - results will be removed on exit"
 }
 
-# API Management Functions
-API_URL="http://194.163.160.166:8000"
-API_PID_FILE="autoar_api.pid"
-API_LOG_FILE="autoar_api.log"
-API_SCRIPT="api_production.py"
-
-# Function to start API server
-start_api() {
-    log INFO "Starting AutoAR API server..."
-    
-    # Check if API is already running
-    if [[ -f "$API_PID_FILE" ]]; then
-        local api_pid=$(cat "$API_PID_FILE")
-        if ps -p "$api_pid" > /dev/null 2>&1; then
-            log WARNING "API is already running (PID: $api_pid)"
-            return 0
-        else
-            log INFO "Removing stale PID file"
-            rm -f "$API_PID_FILE"
-        fi
-    fi
-    
-    # Check if Python 3 is available
-    if ! command -v python3 &> /dev/null; then
-        log ERROR "Python 3 is required but not installed"
-        return 1
-    fi
-    
-    # Check if API script exists
-    if [[ ! -f "$API_SCRIPT" ]]; then
-        log ERROR "API script not found: $API_SCRIPT"
-        return 1
-    fi
-    
-    # Ensure results directory exists
-    mkdir -p new-results
-    
-    # Start API in background
-    log INFO "Starting API server on $API_URL"
-    nohup python3 "$API_SCRIPT" > "$API_LOG_FILE" 2>&1 &
-    local api_pid=$!
-    echo "$api_pid" > "$API_PID_FILE"
-    
-    # Wait a moment and check if it started successfully
-    sleep 2
-    if ps -p "$api_pid" > /dev/null 2>&1; then
-        log SUCCESS "API started successfully (PID: $api_pid)"
-        log INFO "API Documentation: $API_URL/docs"
-        log INFO "API Health: $API_URL/health"
-        return 0
-    else
-        log ERROR "Failed to start API server"
-        rm -f "$API_PID_FILE"
-        return 1
-    fi
-}
-
-# Function to stop API server
-stop_api() {
-    log INFO "Stopping AutoAR API server..."
-    
-    if [[ -f "$API_PID_FILE" ]]; then
-        local api_pid=$(cat "$API_PID_FILE")
-        if ps -p "$api_pid" > /dev/null 2>&1; then
-            log INFO "Stopping API server (PID: $api_pid)"
-            kill "$api_pid"
-            
-            # Wait for graceful shutdown
-            local count=0
-            while ps -p "$api_pid" > /dev/null 2>&1 && [[ $count -lt 10 ]]; do
-                sleep 1
-                ((count++))
-            done
-            
-            if ps -p "$api_pid" > /dev/null 2>&1; then
-                log WARNING "API didn't stop gracefully, forcing kill"
-                kill -9 "$api_pid" 2>/dev/null || true
-            fi
-            
-            log SUCCESS "API server stopped"
-        else
-            log WARNING "API server was not running (stale PID file)"
-        fi
-        rm -f "$API_PID_FILE"
-    else
-        log WARNING "No PID file found - API may not be running"
-    fi
-}
-
-# Function to restart API server
-restart_api() {
-    log INFO "Restarting AutoAR API server..."
-    stop_api
-    sleep 2
-    start_api
-}
-
-# Function to check API status
-check_api_status() {
-    log INFO "Checking AutoAR API status..."
-    
-    # Check if PID file exists and process is running
-    if [[ -f "$API_PID_FILE" ]]; then
-        local api_pid=$(cat "$API_PID_FILE")
-        if ps -p "$api_pid" > /dev/null 2>&1; then
-            log SUCCESS "API is running (PID: $api_pid)"
-        else
-            log ERROR "API is not running (stale PID file)"
-            rm -f "$API_PID_FILE"
-            return 1
-        fi
-    else
-        log ERROR "API is not running (no PID file)"
-        return 1
-    fi
-    
-    # Check API health endpoint
-    log INFO "Checking API health endpoint..."
-    if curl -s "$API_URL/health" > /dev/null 2>&1; then
-        log SUCCESS "API is responding at $API_URL"
-        local health_response=$(curl -s "$API_URL/health" 2>/dev/null)
-        if [[ -n "$health_response" ]]; then
-            log INFO "Health response:"
-            echo "$health_response" | jq . 2>/dev/null || echo "$health_response"
-        fi
-    else
-        log ERROR "API is not responding at $API_URL"
-        return 1
-    fi
-}
-
-# Function to show API logs
-show_api_logs() {
-    log INFO "Showing AutoAR API logs..."
-    if [[ -f "$API_LOG_FILE" ]]; then
-        if [[ "$1" == "-f" || "$1" == "--follow" ]]; then
-            log INFO "Following logs (Ctrl+C to stop)..."
-            tail -f "$API_LOG_FILE"
-        else
-            log INFO "Last 50 lines of API logs:"
-            tail -n 50 "$API_LOG_FILE"
-        fi
-    else
-        log WARNING "API log file not found: $API_LOG_FILE"
-    fi
-}
-
-# Function to install API as system service
-install_api_service() {
-    log INFO "Installing AutoAR API as system service..."
-    
-    # Check if running as root or with sudo
-    if [[ $EUID -ne 0 ]]; then
-        log ERROR "This command requires sudo privileges"
-        log ERROR "Please run: sudo ./autoAr.sh api install"
-        return 1
-    fi
-    
-    # Create systemd service file
-    local service_file="/etc/systemd/system/autoar-api.service"
-    cat > "$service_file" << EOF
-[Unit]
-Description=AutoAR API Server
-After=network.target
-
-[Service]
-Type=simple
-User=sallam
-WorkingDirectory=/home/sallam/AutoAR
-ExecStart=/usr/bin/python3 /home/sallam/AutoAR/api_production.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    # Reload systemd
-    log INFO "Reloading systemd daemon..."
-    systemctl daemon-reload
-    
-    # Enable the service
-    log INFO "Enabling AutoAR API service..."
-    systemctl enable autoar-api
-    
-    # Start the service
-    log INFO "Starting AutoAR API service..."
-    systemctl start autoar-api
-    
-    # Check status
-    log INFO "Checking service status..."
-    systemctl status autoar-api --no-pager
-    
-    log SUCCESS "AutoAR API service installed and started!"
-    log INFO "Service will start automatically on boot"
-    log INFO "API URL: $API_URL"
-}
-
-# Function to uninstall API system service
-uninstall_api_service() {
-    log INFO "Removing AutoAR API system service..."
-    
-    # Check if running as root or with sudo
-    if [[ $EUID -ne 0 ]]; then
-        log ERROR "This command requires sudo privileges"
-        log ERROR "Please run: sudo ./autoAr.sh api uninstall"
-        return 1
-    fi
-    
-    # Stop and disable service
-    systemctl stop autoar-api 2>/dev/null || true
-    systemctl disable autoar-api 2>/dev/null || true
-    
-    # Remove service file
-    rm -f /etc/systemd/system/autoar-api.service
-    
-    # Reload systemd
-    systemctl daemon-reload
-    
-    log SUCCESS "AutoAR API service removed"
-}
 
 # Function to setup results directory
 setup_results_dir() {
@@ -3159,7 +2936,6 @@ show_help() {
             github-org  Scan GitHub organization for secrets using TruffleHog
             monitor     Run the Python monitoring script
             check-tools Check if all required tools are installed (run this before scans)
-            api         API management (start, stop, restart, status, logs, install, uninstall)
             help        Show this help message
 
         Examples:
@@ -3181,14 +2957,6 @@ show_help() {
             ./autoAr.sh monitor --all
             ./autoAr.sh monitor -c company
             ./autoAr.sh check-tools
-            ./autoAr.sh api start
-            ./autoAr.sh api stop
-            ./autoAr.sh api restart
-            ./autoAr.sh api status
-            ./autoAr.sh api logs
-            ./autoAr.sh api logs -f
-            ./autoAr.sh api install
-            ./autoAr.sh api uninstall
 
         Options:
             --keep-results                         Keep results directory after scan (disable cleanup)
@@ -3229,7 +2997,7 @@ main() {
         exit 1
     fi
     
-    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|jsScan|jsMonitor|s3Scan|github|github-org|monitor|check-tools|api|help|--help|-h)$ ]]; then
+    if [[ "$1" =~ ^(domain|subdomain|liteScan|fastLook|jsScan|jsMonitor|s3Scan|github|github-org|monitor|check-tools|help|--help|-h)$ ]]; then
         subcommand="$1"
         shift
         
@@ -3464,72 +3232,6 @@ main() {
             check-tools)
                 check_tools
                 exit 0
-                ;;
-            api)
-                # Parse API subcommands
-                case "${1:-help}" in
-                    start)
-                        start_api
-                        exit 0
-                        ;;
-                    stop)
-                        stop_api
-                        exit 0
-                        ;;
-                    restart)
-                        restart_api
-                        exit 0
-                        ;;
-                    status)
-                        check_api_status
-                        exit 0
-                        ;;
-                    logs)
-                        show_api_logs "$2"
-                        exit 0
-                        ;;
-                    install)
-                        install_api_service
-                        exit 0
-                        ;;
-                    uninstall)
-                        uninstall_api_service
-                        exit 0
-                        ;;
-                    help|--help|-h)
-                        cat << EOF
-AutoAR API Management
-
-Usage: ./autoAr.sh api <command>
-
-Commands:
-    start       Start the API server in background
-    stop        Stop the API server
-    restart     Restart the API server
-    status      Check API server status and health
-    logs        Show API server logs
-    logs -f     Follow API server logs in real-time
-    install     Install API as system service (requires sudo)
-    uninstall   Remove API system service (requires sudo)
-    help        Show this help
-
-Examples:
-    ./autoAr.sh api start
-    ./autoAr.sh api status
-    ./autoAr.sh api logs
-    ./autoAr.sh api logs -f
-    ./autoAr.sh api restart
-    sudo ./autoAr.sh api install
-    sudo ./autoAr.sh api uninstall
-EOF
-                        exit 0
-                        ;;
-                    *)
-                        log ERROR "Unknown API command: $1"
-                        log ERROR "Use './autoAr.sh api help' for available commands"
-                        exit 1
-                        ;;
-                esac
                 ;;
             help|--help|-h)
                 show_help
