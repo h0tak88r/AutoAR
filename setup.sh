@@ -119,12 +119,19 @@ check_and_install_tools() {
     install_go_tool "dalfox" "go install github.com/hahwul/dalfox/v2@latest"
     install_go_tool "paramx" "go install github.com/cyinnove/paramx/cmd/paramx@latest"
     install_go_tool "JsLeaks" "go install github.com/channyein1337/jsleak@latest"
+    install_go_tool "dnsx" "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
+    install_go_tool "gf" "go install github.com/tomnomnom/gf@latest"
     install_urldedupe
     install_naabu
     install_massdns
     install_nuclei_templates
     install_jsfinder
-    install_python_tool "waymore" "sudo pip install waymore"
+        # Install yq (binary) for robust YAML parsing
+    if ! command -v yq &> /dev/null; then
+        print_msg yellow "Installing yq binary"
+        sudo curl -sSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v4.42.1/yq_linux_amd64"
+        sudo chmod +x /usr/local/bin/yq
+    fi
     if ! command -v interlace &> /dev/null; then
         print_msg red "interlace - not installed"
         print_msg yellow "Attempting to install interlace"
