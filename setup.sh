@@ -26,23 +26,6 @@ install_go_tool() {
     fi
 }
 
-# Function to install urldedupe
-install_urldedupe() {
-    if ! command -v urldedupe &> /dev/null; then
-        print_msg red "urldedupe - not installed"
-        print_msg yellow "Attempting to install urldedupe"
-        git clone https://github.com/ameenmaali/urldedupe.git
-        cd urldedupe
-        sudo apt install -y cmake
-        cmake CMakeLists.txt
-        make
-        sudo mv urldedupe /bin/
-        cd ..
-    else
-        print_msg green "urldedupe - installed"
-    fi
-}
-
 # Function to install naabu
 install_naabu() {
     if ! command -v naabu &> /dev/null; then
@@ -121,27 +104,16 @@ check_and_install_tools() {
     install_go_tool "JsLeaks" "go install github.com/channyein1337/jsleak@latest"
     install_go_tool "dnsx" "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
     install_go_tool "gf" "go install github.com/tomnomnom/gf@latest"
-    install_urldedupe
+    install_go_tool "urlfinder" "go install github.com/pentest-company/urlfinder@latest"
     install_naabu
     install_massdns
     install_nuclei_templates
     install_jsfinder
-        # Install yq (binary) for robust YAML parsing
-    if ! command -v yq &> /dev/null; then
-        print_msg yellow "Installing yq binary"
-        sudo curl -sSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v4.42.1/yq_linux_amd64"
-        sudo chmod +x /usr/local/bin/yq
-    fi
-    if ! command -v interlace &> /dev/null; then
-        print_msg red "interlace - not installed"
-        print_msg yellow "Attempting to install interlace"
-        git clone https://github.com/codingo/Interlace.git
-        cd Interlace
-        sudo python3 setup.py install
-        cd ..
-    else
-        print_msg green "interlace - installed"
-    fi
+    apt-get install dnsutils
+    install_go_tool "yq" "go install github.com/mikefarah/yq/v4@latest"
+    install_go_tool "interlace" "pip install interlace"
+    install_go_tool "anew" "go install github.com/tomnomnom/anew@latest"
+    
 }
 
 # Main setup function
