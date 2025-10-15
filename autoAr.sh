@@ -189,7 +189,7 @@ check_tools() {
         ["dnsx"]="go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
         ["dig"]="apt-get install dnsutils (Ubuntu/Debian) or yum install bind-utils (RHEL/CentOS)"
         ["jq"]="apt-get install jq (Ubuntu/Debian) or yum install jq (RHEL/CentOS)"
-        ["yq"]="go install github.com/mikefarah/yq/v4@latest"
+        ["yq"]="curl -sSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.42.1/yq_linux_amd64 && chmod +x /usr/local/bin/yq"
         ["anew"]="go install -v github.com/tomnomnom/anew@latest"
         ["curl"]="apt-get install curl (Ubuntu/Debian) or yum install curl (RHEL/CentOS)"
         ["git"]="apt-get install git (Ubuntu/Debian) or yum install git (RHEL/CentOS)"
@@ -253,18 +253,14 @@ check_tools() {
     # Summary
     log INFO "Tool check complete: $installed_count/$total_tools tools installed"
     
-    # Check for critical missing tools
+    # Do not hard fail on missing tools: continue and skip dependent steps
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
-        log ERROR ""
-        log ERROR "❌ CRITICAL: The following required tools are missing:"
+        log WARNING ""
+        log WARNING "Some tools are missing; related steps will be skipped:"
         for tool in "${missing_tools[@]}"; do
-            log ERROR "   • $tool"
-            log ERROR "     Install: ${tools_info[$tool]}"
+            log WARNING "   • $tool (missing)"
         done
-        log ERROR ""
-        log ERROR "Please install the missing tools before running AutoAR."
-        log ERROR "Visit: https://github.com/h0tak88r/AutoAR#installation for detailed instructions"
-        exit 1
+        log WARNING ""
     fi
     
     # Warn about optional tools
@@ -277,7 +273,7 @@ check_tools() {
         log WARNING ""
     fi
     
-    log SUCCESS "🎉 All required tools are installed! Ready to scan."
+    log SUCCESS "🎉 Tool check completed. Proceeding with available tools."
 }
 
 # Function to ensure proper permissions
