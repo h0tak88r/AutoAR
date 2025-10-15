@@ -17,6 +17,9 @@ fi
 go install github.com/mikefarah/yq/v4@latest
 go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+go install -v github.com/Emoe/kxss@latest
+go install -v github.com/pentest-company/urlfinder@latest
 go install -v github.com/kacakb/jsfinder@latest || true
 
 echo "[fastlook-setup] Done. Tools installed to GOPATH/bin"
