@@ -30,9 +30,6 @@ ENV PYTHONUNBUFFERED=1 \
     AUTOAR_SCRIPT_PATH=/app/autoAr.sh \
     AUTOAR_CONFIG_FILE=/app/autoar.yaml \
     AUTOAR_RESULTS_DIR=/app/new-results
-    \
-    # default to fastLook minimal; override to true to bake full toolchain
-    RUN_SETUP_AT_BUILD=false
 
 WORKDIR /app
 
