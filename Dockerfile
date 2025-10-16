@@ -27,7 +27,7 @@ FROM python:3.11-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    AUTOAR_SCRIPT_PATH=/app/autoAr.sh \
+    AUTOAR_SCRIPT_PATH=/app/main.sh \
     AUTOAR_CONFIG_FILE=/app/autoar.yaml \
     AUTOAR_RESULTS_DIR=/app/new-results
 
@@ -62,7 +62,10 @@ RUN set -e; \
 # Permissions and executables
 RUN chmod +x /app/generate_config.sh || true \
     && chmod +x /app/setup.sh || true \
-    && chmod +x /app/autoAr.sh || true
+    && chmod +x /app/autoAr.sh || true \
+    && chmod +x /app/main.sh || true \
+    && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
+    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
 
 # Add a non-root user
 RUN useradd -m -u 10001 autoar && chown -R autoar:autoar /app
