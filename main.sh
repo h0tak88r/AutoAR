@@ -41,6 +41,7 @@ cmd_s3()         { "$ROOT_DIR/modules/s3_scan.sh"     "$@"; }
 cmd_domain()     { "$ROOT_DIR/modules/domain.sh"      "$@"; }
 cmd_cleanup()    { "$ROOT_DIR/modules/cleanup.sh"     "$@"; }
 cmd_db()         { "$ROOT_DIR/modules/db.sh"          "$@"; }
+cmd_checktools() { "$ROOT_DIR/modules/check_tools.sh"  "$@"; }
 
 main() {
   if [[ $# -lt 1 ]]; then
@@ -58,6 +59,7 @@ main() {
     domain)     cmd_domain     "$@" ;;
     cleanup)    cmd_cleanup    "$@" ;;
     db)         cmd_db         "$@" ;;
+    check-tools) cmd_checktools "$@" ;;
     lite)       cmd_lite       "$@" ;;
     check-tools) "$ROOT_DIR/autoAr.sh" check-tools ;;
     help|--help|-h) print_usage ;;
