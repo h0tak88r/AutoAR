@@ -9,10 +9,10 @@ if [[ ! -f "/app/autoar.yaml" ]] || [[ "${REGENERATE_CONFIG:-false}" == "true" ]
   /app/generate_config.sh || { echo "[entrypoint] Failed to generate config"; exit 1; }
 fi
 
-# Optionally run setup.sh at container start (tool installation)
+# Optionally run tool check/installation at container start
 if [[ "${RUN_SETUP:-false}" == "true" ]]; then
-  echo "[entrypoint] RUN_SETUP=true -> executing /app/setup.sh"
-  /app/setup.sh || { echo "[entrypoint] setup.sh failed"; exit 1; }
+  echo "[entrypoint] RUN_SETUP=true -> executing modules/check_tools.sh"
+  /app/modules/check_tools.sh run || echo "[entrypoint] check_tools finished with warnings"
 fi
 
 # Create results dir and set permissions
@@ -24,8 +24,8 @@ if [[ -z "${DISCORD_BOT_TOKEN:-}" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${AUTOAR_SCRIPT_PATH:-/app/autoAr.sh}" ]]; then
-  echo "[entrypoint] Error: AutoAR script not found at ${AUTOAR_SCRIPT_PATH:-/app/autoAr.sh}" >&2
+if [[ ! -f "${AUTOAR_SCRIPT_PATH:-/app/main.sh}" ]]; then
+  echo "[entrypoint] Error: AutoAR script not found at ${AUTOAR_SCRIPT_PATH:-/app/main.sh}" >&2
   exit 1
 fi
 

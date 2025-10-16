@@ -11,15 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy only the scripts that may be needed for tool install caching
-COPY setup.sh /app/setup.sh
-COPY fastlook-setup.sh /app/fastlook-setup.sh
 
 # Allow opting-in to run setup at build time to bake tools into image
 ARG RUN_SETUP_AT_BUILD=false
-ARG RUN_FASTLOOK_SETUP=false
-RUN chmod +x /app/setup.sh /app/fastlook-setup.sh \
-    && if [ "$RUN_FASTLOOK_SETUP" = "true" ]; then /app/fastlook-setup.sh; fi \
-    && if [ "$RUN_SETUP_AT_BUILD" = "true" ]; then /app/setup.sh; fi
+RUN if [ "$RUN_SETUP_AT_BUILD" = "true" ]; then \
+      chmod +x /app/modules/check_tools.sh && /app/modules/check_tools.sh run || true; \
+    fi
 
 
 # --- Runtime stage: minimal Python image to run the Discord bot ---
@@ -61,8 +58,6 @@ RUN set -e; \
 
 # Permissions and executables
 RUN chmod +x /app/generate_config.sh || true \
-    && chmod +x /app/setup.sh || true \
-    && chmod +x /app/autoAr.sh || true \
     && chmod +x /app/main.sh || true \
     && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
     && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
