@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/lib/logging.sh"
+source "$ROOT_DIR/lib/utils.sh"
+source "$ROOT_DIR/lib/discord.sh"
+
+usage() { echo "Usage: dalfox run -d <domain>"; }
+
+dalfox_run() {
+  local domain=""; while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d|--domain) domain="$2"; shift 2;;
+      *) usage; exit 1;;
+    esac
+  done
+  [[ -z "$domain" ]] && { usage; exit 1; }
+
+  local dir="$ROOT_DIR/$(results_dir "$domain")"
+  dir="$(results_dir "$domain")"
+  local in_file="$dir/vulnerabilities/xss/gf-results.txt"
+  local out_file="$dir/dalfox-results.txt"
+  ensure_dir "$(dirname "$out_file")"
+  [[ -s "$in_file" ]] || { log_warn "No XSS candidates at $in_file"; exit 0; }
+
+  if command -v dalfox >/dev/null 2>&1; then
+    dalfox file "$in_file" --no-spinner --only-poc r --ignore-return 302,404,403 --skip-bav -b "0x88.xss.cl" -w 50 -o "$out_file" 2>/dev/null || true
+  fi
+  [[ -s "$out_file" ]] && discord_file "$out_file" "Dalfox results for $domain"
+}
+
+case "${1:-}" in
+  run) shift; dalfox_run "$@" ;;
+  *) usage; exit 1;;
+esac
+
+

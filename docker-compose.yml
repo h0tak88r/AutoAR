@@ -17,7 +17,7 @@ services:
       - RUN_SETUP=${RUN_SETUP:-false}
       - RUN_SETUP=${RUN_SETUP:-false}
       - REGENERATE_CONFIG=${REGENERATE_CONFIG:-true}
-      - AUTOAR_SCRIPT_PATH=/app/autoAr.sh
+      - AUTOAR_SCRIPT_PATH=/app/main.sh
       - AUTOAR_CONFIG_FILE=/app/autoar.yaml
       - AUTOAR_RESULTS_DIR=/app/new-results
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
