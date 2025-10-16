@@ -1,199 +1,85 @@
-# AutoAR
+# AutoAR (Modular) – Discord + CLI
 
-An automated reconnaissance and vulnerability scanning tool with a powerful REST API for programmatic access. Combines multiple tools for comprehensive web application security assessment with integrated SQLite storage for findings.
+AutoAR is a modular security automation toolkit with a Discord bot frontend and a bash-based CLI backend. The system streams findings to Discord via a webhook and supports Dokploy deployments via Docker.
 
-## 🚀 What's New (v2.0.0) - API-First Architecture
+## Quick Start (Docker Compose)
 
-- **🌐 REST API**: Complete programmatic access to all AutoAR functionality
-- **⚡ Async Processing**: Non-blocking scan execution with real-time status updates
-- **📊 Structured Results**: JSON-formatted results with comprehensive summaries
-- **🔧 Easy Integration**: Simple HTTP endpoints for any programming language
-- **📁 File Downloads**: Direct access to all generated result files
-- **🔄 Job Management**: Track, monitor, and manage scan jobs
-- **📚 Auto Documentation**: Interactive API docs at `/docs`
+1) Set environment (required):
 
-## 🏃 Quick Start
+- DISCORD_BOT_TOKEN: Bot token
+- DISCORD_WEBHOOK: Channel webhook for logs/files
 
-### 1. Start the API Server
+Optionally set API keys (SecurityTrails, etc.) in `.env`.
+
+2) Build and run:
 
 ```bash
-# Start the API server
-./start_api.sh
-
-# Or manually
-python3 api.py
+# full toolchain baked in by default
+docker compose build
+docker compose up -d
 ```
 
-The API will be available at:
-- **API Server**: http://localhost:8000
-- **Interactive Docs**: http://localhost:8000/docs
-- **Alternative Docs**: http://localhost:8000/redoc
+3) Bot will start and register slash commands. Use commands like:
 
-### 2. Run Scans via API
+- /subdomains domain:example.com
+- /domain_run domain:example.com
+
+## CLI Usage (inside container)
 
 ```bash
-# Quick scan
-python3 client.py example.com
+# Exec into the container
+docker exec -it autoar-bot bash
 
-# Full scan
-python3 client.py example.com liteScan
+# Examples
+/app/main.sh subdomains get -d example.com
+/app/main.sh cnames get -d example.com
+/app/main.sh livehosts get -d example.com
+/app/main.sh urls collect -d example.com
+/app/main.sh reflection scan -d example.com
+/app/main.sh nuclei run -d example.com
+/app/main.sh ports scan -d example.com
+/app/main.sh gf scan -d example.com
+/app/main.sh sqlmap run -d example.com
+/app/main.sh dalfox run -d example.com
+/app/main.sh dns takeover -d example.com
+/app/main.sh lite run -d example.com
+/app/main.sh domain run -d example.com
 
-# Subdomain scan
-python3 client.py sub.example.com subdomain
+# DB helpers (SQLite)
+/app/main.sh db domains list
+/app/main.sh db subdomains list -d example.com
+/app/main.sh db subdomains export -d example.com -o /app/new-results/example.com/subs/db-subdomains.txt
 ```
 
-### 3. Direct API Usage
+## Configuration
+
+- Config file: `/app/autoar.yaml` (generated at startup by `generate_config.sh` using env)
+- Key env vars: `DISCORD_ONLY`, `DISCORD_WEBHOOK`, `AUTOAR_RESULTS_DIR`, `AUTOAR_CONFIG_FILE`
+- Results path: `/app/new-results` (volume `results-data`)
+
+## Build Variants
+
+- RUN_SETUP_AT_BUILD=true: Bake full toolchain (default in compose)
+- RUN_FASTLOOK_SETUP=true: Minimal install for fastLook verification
+
+## Healthcheck
+
+Container reports healthy if `discord` python module loads. The bot logs startup to stdout.
+
+## Develop Branch Workflow
 
 ```bash
-# Start a scan
-curl -X POST "http://localhost:8000/scan" \
-  -H "Content-Type: application/json" \
-  -d '{"target": "example.com", "scan_type": "fastLook"}'
-
-# Check status
-curl "http://localhost:8000/status/{job_id}"
-
-# Get results
-curl "http://localhost:8000/results/{job_id}"
+git checkout -b develop
+# add/commit changes
+git add -A && git commit -m "feat: modular db module and discord slash cmds"
+# set upstream once
+git push -u origin develop
 ```
 
-## 📚 Available Scan Types
+Dokploy should be configured to track the `develop` branch or a specific tag. Ensure `docker-compose.yml` is at repo root (as provided).
 
-- **`fastLook`**: Quick reconnaissance (subdomains, live hosts, URLs, tech detection, CNAME)
-- **`liteScan`**: Comprehensive scan (includes vulnerability scanning)
-- **`domain`**: Full domain scan with all features
-- **`subdomain`**: Scan a single subdomain
-- **`jsMonitor`**: Monitor JavaScript files for changes
+## Notes
 
-## 🔧 CLI Usage (Original)
-
-The original CLI interface is still available:
-
-```bash
-./autoAr.sh liteScan -d example.com
-./autoAr.sh fastLook -d example.com
-./autoAr.sh domain   -d example.com
-./autoAr.sh subdomain -s sub.example.com
-./autoAr.sh jsMonitor -d example.com
-```
-
-## 🐍 Python Integration
-
-```python
-from client import AutoARClient
-
-# Initialize client
-client = AutoARClient("http://localhost:8000")
-
-# Start a scan
-scan_response = client.start_scan("example.com", "fastLook")
-job_id = scan_response['job_id']
-
-# Wait for completion and get results
-results = client.wait_for_completion(job_id)
-
-# Print summary
-print(f"Found {results['summary']['total_subdomains']} subdomains")
-print(f"Found {results['summary']['total_urls']} URLs")
-print(f"Found {results['summary']['js_files']} JS files")
-```
-
-## 📊 API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/scan` | Start a new scan |
-| `GET` | `/status/{job_id}` | Get job status |
-| `GET` | `/results/{job_id}` | Get scan results |
-| `GET` | `/download/{job_id}/{file_path}` | Download result files |
-| `GET` | `/jobs` | List recent jobs |
-| `DELETE` | `/jobs/{job_id}` | Delete job and results |
-| `GET` | `/config` | Get current configuration |
-| `PUT` | `/config` | Update configuration |
-| `GET` | `/health` | Health check |
-
-## 🛠️ Installation
-
-### Prerequisites
-
-- Python 3.7+
-- AutoAR dependencies (subfinder, httpx, nuclei, etc.)
-
-### Setup
-
-```bash
-# Install Python dependencies
-pip3 install -r requirements.txt
-
-# Make scripts executable
-chmod +x autoAr.sh start_api.sh
-
-# Start the API
-./start_api.sh
-```
-
-## 🔧 Configuration
-
-Edit `autoar.yaml` to configure:
-
-```yaml
-# Database configuration
-DB_NAME: "autoar"
-SAVE_TO_DB: true
-VERBOSE: false
-
-# Discord webhook for notifications
-DISCORD_WEBHOOK: ""
-
-# SecurityTrails API key
-securitytrails:
-  - ""
-
-# GitHub token
-github:
-  - ""
-```
-
-## 📁 Project Structure
-
-```
-AutoAR/
-├── api.py              # FastAPI server
-├── client.py           # Python client
-├── autoAr.sh           # Main AutoAR script
-├── sqlite_db_handler.py # Database handler
-├── autoar.yaml         # Configuration
-├── requirements.txt    # Python dependencies
-├── start_api.sh        # API startup script
-├── new-results/        # Scan results directory
-├── Wordlists/          # Wordlists for fuzzing
-├── nuclei_templates/   # Nuclei templates
-├── regexes/            # Regex patterns
-└── API-README.md       # Detailed API documentation
-```
-
-## 🔒 Security & Secrets
-
-- Real secrets live in `autoar.yaml` (ignored by git)
-- A sanitized `autoar.sample.yaml` shows the schema
-- CI uses gitleaks to prevent accidental secret commits
-- API runs on localhost by default (change for production)
-
-## 📈 Performance
-
-- Jobs run asynchronously in the background
-- Multiple scans can run concurrently
-- Results are cached until job deletion
-- Use Redis for job storage in production
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License. 
+- Some modules skip gracefully if a tool is missing; run `setup.sh` or bake tools at build.
+- In DISCORD_ONLY=true, files sent to Discord may be deleted locally after upload.
+- `modules/db.sh` requires `sqlite3` binary available in the runtime (install if needed).
