@@ -20,11 +20,29 @@ Commands:
   cnames get          -d <domain>
   urls collect        -d <domain>
   js scan             -d <domain> [-s <subdomain>]
+  reflection scan     -d <domain>
+  nuclei run          -d <domain>
+  tech detect         -d <domain>
+  ports scan          -d <domain>
+  gf scan             -d <domain>
+  sqlmap run          -d <domain>
+  dalfox run          -d <domain>
+  dns takeover        -d <domain>
+  s3 scan             -b <bucket> [-r <region>]
+  s3 enum             -b <root_domain>
 
 Workflows:
   lite run            -d <domain>
+  domain run          -d <domain>
+
+Database:
+  db domains list
+  db subdomains list  -d <domain>
+  db subdomains export -d <domain> [-o file]
+  db js list          -d <domain>
 
 Utilities:
+  cleanup run         --domain <domain> [--keep]
   check-tools
   help
 EOF
