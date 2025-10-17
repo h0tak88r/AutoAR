@@ -603,20 +603,21 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
-    @app_commands.command(name="db_domains", description="List distinct domains stored in AutoAR DB")
+    @app_commands.command(name="db_domains", description="List distinct domains stored in PostgreSQL database")
     async def db_domains_cmd(self, interaction: discord.Interaction):
         try:
             scan_id = f"dbdomains_{int(time.time())}"
             command = [AUTOAR_SCRIPT_PATH, "db", "domains", "list"]
             active_scans[scan_id] = { 'type': 'db_domains', 'target': 'db', 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
-            embed = self.create_scan_embed("DB Domains", "autoar.db", "running")
+            db_name = os.getenv('DB_NAME', 'autoar')
+            embed = self.create_scan_embed("DB Domains", f"{db_name} (PostgreSQL)", "running")
             await interaction.response.send_message(embed=embed)
             asyncio.create_task(self._run_scan_background(scan_id, command))
         except Exception as e:
             print(f"[ERROR] db_domains command failed: {e}")
             await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
 
-    @app_commands.command(name="db_subdomains", description="List subdomains for a domain from AutoAR DB")
+    @app_commands.command(name="db_subdomains", description="List subdomains for a domain from PostgreSQL database")
     @app_commands.describe(domain="The domain to list subdomains for")
     async def db_subdomains_cmd(self, interaction: discord.Interaction, domain: str):
         scan_id = f"dbsubs_{int(time.time())}"
