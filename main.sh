@@ -42,6 +42,16 @@ cmd_domain()     { "$ROOT_DIR/modules/domain.sh"      "$@"; }
 cmd_cleanup()    { "$ROOT_DIR/modules/cleanup.sh"     "$@"; }
 cmd_db()         { "$ROOT_DIR/modules/db.sh"          "$@"; }
 cmd_checktools() { "$ROOT_DIR/modules/check_tools.sh"  "$@"; }
+cmd_reflection() { "$ROOT_DIR/modules/reflection.sh"  "$@"; }
+cmd_nuclei()     { "$ROOT_DIR/modules/nuclei.sh"      "$@"; }
+cmd_tech()       { "$ROOT_DIR/modules/tech.sh"        "$@"; }
+cmd_ports()      { "$ROOT_DIR/modules/ports.sh"       "$@"; }
+cmd_gf()         { "$ROOT_DIR/modules/gf_scan.sh"     "$@"; }
+cmd_sqlmap()     { "$ROOT_DIR/modules/sqlmap.sh"      "$@"; }
+cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
+cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
+cmd_github()     { echo "GitHub scanning not implemented yet"; exit 1; }
+cmd_wpdepconf()  { echo "WordPress dependency confusion not implemented yet"; exit 1; }
 
 main() {
   if [[ $# -lt 1 ]]; then
@@ -61,7 +71,16 @@ main() {
     db)         cmd_db         "$@" ;;
     check-tools) cmd_checktools "$@" ;;
     lite)       cmd_lite       "$@" ;;
-    check-tools) "$ROOT_DIR/autoAr.sh" check-tools ;;
+    reflection) cmd_reflection "$@" ;;
+    nuclei)     cmd_nuclei     "$@" ;;
+    tech)       cmd_tech       "$@" ;;
+    ports)      cmd_ports      "$@" ;;
+    gf)         cmd_gf         "$@" ;;
+    sqlmap)     cmd_sqlmap     "$@" ;;
+    dalfox)     cmd_dalfox     "$@" ;;
+    dns)        cmd_dns        "$@" ;;
+    github)     cmd_github     "$@" ;;
+    wpDepConf)  cmd_wpdepconf  "$@" ;;
     help|--help|-h) print_usage ;;
     *) log_error "Unknown command: $cmd"; print_usage; exit 1 ;;
   esac
