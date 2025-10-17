@@ -20,7 +20,10 @@ tech_detect() {
   local dir; dir="$(results_dir "$domain")"
   local subs="$dir/subs/live-subs.txt"
   local out="$dir/subs/tech-detect.txt"
-  [[ -s "$subs" ]] || { log_warn "No live subdomains found at $subs"; exit 0; }
+  ensure_dir "$(dirname "$subs")"
+  
+  # Ensure live hosts exist (from DB or live host check)
+  ensure_live_hosts "$domain" "$subs" || { log_warn "Failed to get live hosts for $domain"; exit 1; }
   if command -v httpx >/dev/null 2>&1; then
     httpx -l "$subs" -tech-detect -title -status-code -server -nc -silent -o "$out" >/dev/null 2>&1 || true
     local count=$(wc -l < "$out" 2>/dev/null || echo 0)

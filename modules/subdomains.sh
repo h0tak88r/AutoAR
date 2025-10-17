@@ -6,6 +6,7 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/discord.sh"
+source "$ROOT_DIR/lib/db.sh"
 
 usage() { echo "Usage: subdomains get -d <domain>"; }
 
@@ -42,6 +43,15 @@ subdomains_get() {
 
   local total; total=$(wc -l < "$subs_dir/all-subs.txt" 2>/dev/null || echo 0)
   log_success "Found $total unique subdomains"
+  
+  # Save subdomains to database
+  if [[ $total -gt 0 ]]; then
+    log_info "Saving subdomains to database"
+    while IFS= read -r subdomain; do
+      [[ -n "$subdomain" ]] && db_insert_subdomain "$domain" "$subdomain" false
+    done < "$subs_dir/all-subs.txt"
+  fi
+  
   discord_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
 }
 

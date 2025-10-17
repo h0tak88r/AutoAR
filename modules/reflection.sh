@@ -22,8 +22,9 @@ reflection_scan() {
   urls_file="$dir/urls/all-urls.txt"
   out_file="$dir/vulnerabilities/kxss-results.txt"
   ensure_dir "$(dirname "$out_file")"
-
-  [[ -s "$urls_file" ]] || { log_warn "No URLs file found at $urls_file"; exit 0; }
+  
+  # Ensure URLs exist (from DB or URL collection)
+  ensure_urls "$domain" "$urls_file" || { log_warn "Failed to get URLs for $domain"; exit 1; }
 
   if command -v kxss >/dev/null 2>&1; then
     kxss < "$urls_file" | grep -v "Unfiltered: \[\]" > "$out_file" 2>/dev/null || true

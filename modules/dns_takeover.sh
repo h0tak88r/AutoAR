@@ -23,6 +23,9 @@ dns_takeover() {
   ensure_dir "$dir/vulnerabilities/dns-takeover"
   finding="$dir/vulnerabilities/dns-takeover/dns-takeover-summary.txt"
   : > "$finding"
+  
+  # Ensure subdomains exist (from DB or enumeration)
+  ensure_subdomains "$domain" "$subs" || { log_warn "Failed to get subdomains for $domain"; exit 1; }
 
   if [[ -s "$subs" && -d "$ROOT_DIR/nuclei-templates/http/takeovers" && -x "$(command -v nuclei || echo /bin/false)" ]]; then
     nuclei -l "$subs" -t nuclei-templates/http/takeovers/ -o "$dir/vulnerabilities/dns-takeover/nuclei-takeover-public.txt" >/dev/null 2>&1 || true

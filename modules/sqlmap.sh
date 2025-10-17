@@ -21,7 +21,14 @@ sqlmap_run() {
   local in_file="$dir/vulnerabilities/sqli/gf-results.txt"
   local out_file="$dir/vulnerabilities/sqli/sqlmap-results.txt"
   ensure_dir "$(dirname "$out_file")"
-  [[ -s "$in_file" ]] || { log_warn "No SQLi candidate file at $in_file"; exit 0; }
+  
+  # Ensure GF results exist (run GF scan first)
+  if [[ ! -s "$in_file" ]]; then
+    log_info "No SQLi candidates found, running GF scan first"
+    "$ROOT_DIR/modules/gf_scan.sh" scan -d "$domain" || { log_warn "Failed to run GF scan for $domain"; exit 1; }
+  fi
+  
+  [[ -s "$in_file" ]] || { log_warn "No SQLi candidate file at $in_file after GF scan"; exit 0; }
 
   local temp_urls="$dir/vulnerabilities/sqli/clean_urls.txt"
   : > "$temp_urls"
@@ -47,6 +54,6 @@ sqlmap_run() {
 case "${1:-}" in
   run) shift; sqlmap_run "$@" ;;
   *) usage; exit 1;;
-endcase
+esac
 
 

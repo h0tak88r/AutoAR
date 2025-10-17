@@ -6,6 +6,7 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/discord.sh"
+source "$ROOT_DIR/lib/db.sh"
 
 usage() { echo "Usage: js scan -d <domain> [-s <subdomain>]"; }
 
@@ -22,7 +23,10 @@ js_scan() {
 
   local target_dir; target_dir="$(results_dir "${sub:-$domain}")"
   local urls_file="$target_dir/urls/js-urls.txt"
-  [[ -s "$urls_file" ]] || { log_warn "No JS URLs present at $urls_file"; exit 0; }
+  ensure_dir "$(dirname "$urls_file")"
+  
+  # Ensure URLs exist (from DB or URL collection)
+  ensure_urls "${sub:-$domain}" "$urls_file" || { log_warn "Failed to get URLs for ${sub:-$domain}"; exit 1; }
 
   local out_dir="$target_dir/vulnerabilities/js"; ensure_dir "$out_dir"
 
@@ -35,6 +39,19 @@ js_scan() {
       base="$(basename "$f" .yaml)"
       jsleak -t "$f" -s -c 20 < "$urls_file" > "$out_dir/$base.txt" 2>/dev/null || true
     done
+  fi
+
+  # Save JS files to database
+  if [[ -s "$urls_file" ]]; then
+    log_info "Saving JS files to database"
+    while IFS= read -r js_url; do
+      if [[ -n "$js_url" ]]; then
+        # Extract subdomain from URL for database lookup
+        local subdomain
+        subdomain=$(echo "$js_url" | sed -E 's|^https?://([^/]+).*|\1|')
+        db_insert_js_file "$subdomain" "$js_url"
+      fi
+    done < "$urls_file"
   fi
 
   if [[ -s "$out_dir/trufflehog.txt" ]]; then
