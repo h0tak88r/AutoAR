@@ -37,6 +37,7 @@ Workflows:
 
 Database:
   db domains list
+  db domains delete   -d <domain>
   db subdomains list  -d <domain>
   db subdomains export -d <domain> [-o file]
   db js list          -d <domain>

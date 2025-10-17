@@ -9,8 +9,7 @@ source "$ROOT_DIR/lib/logging.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/config.sh" 2>/dev/null || true
 
 # Database configuration
-DB_TYPE=${DB_TYPE:-sqlite}
-AUTOAR_DB=${AUTOAR_DB:-/app/autoar.db}
+DB_TYPE=${DB_TYPE:-postgresql}
 
 # Parse PostgreSQL connection string if provided
 if [[ -n "${DB_HOST:-}" && "$DB_HOST" =~ ^postgresql:// ]]; then
@@ -35,23 +34,15 @@ else
 fi
 
 # Connection string based on DB type
-if [[ "$DB_TYPE" == "postgresql" ]]; then
-  DB_CONNECTION_STRING="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-  DB_CLIENT="psql"
-else
-  DB_CONNECTION_STRING="$AUTOAR_DB"
-  DB_CLIENT="sqlite3"
-fi
+# Set up PostgreSQL connection
+DB_CONNECTION_STRING="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+DB_CLIENT="psql"
 
 die() { echo "$1" >&2; exit 1; }
 
 # Check if required database client is available
 require_db_client() {
-  if [[ "$DB_TYPE" == "postgresql" ]]; then
-    command -v psql >/dev/null 2>&1 || die "psql is not installed. Install postgresql-client."
-  else
-    command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 is not installed."
-  fi
+  command -v psql >/dev/null 2>&1 || die "psql is not installed. Install postgresql-client."
 }
 
 # Execute SQL query
@@ -59,11 +50,7 @@ db_exec() {
   local query="$1"
   require_db_client
   
-  if [[ "$DB_TYPE" == "postgresql" ]]; then
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "$query" 2>/dev/null || true
-  else
-    sqlite3 "$AUTOAR_DB" "$query" 2>/dev/null || true
-  fi
+  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "$query" 2>/dev/null || true
 }
 
 # Execute SQL query and return results
@@ -71,16 +58,13 @@ db_query() {
   local query="$1"
   require_db_client
   
-  if [[ "$DB_TYPE" == "postgresql" ]]; then
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "$query" 2>/dev/null || true
-  else
-    sqlite3 -noheader -list "$AUTOAR_DB" "$query" 2>/dev/null || true
-  fi
+  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "$query" 2>/dev/null || true
 }
 
 # Initialize database schema
 db_init_schema() {
   log_info "Initializing database schema..."
+  db_ensure_connection
   require_db_client
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
@@ -189,19 +173,79 @@ db_insert_subdomain() {
   local domain_id
   domain_id=$(db_insert_domain "$domain")
   
+  # Use simple INSERT for now (PostgreSQL only)
+  log_info "Inserting subdomain: $subdomain for domain_id: $domain_id"
+  db_exec "INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
+           VALUES ($domain_id, '$subdomain', $is_live, '$http_url', '$https_url', '$http_status', '$https_status');"
+}
+
+# Batch insert subdomains (much faster for large datasets)
+db_batch_insert_subdomains() {
+  local domain="$1"
+  local subdomains_file="$2"
+  local is_live="${3:-false}"
+  
+  if [[ ! -f "$subdomains_file" ]]; then
+    log_error "Subdomains file not found: $subdomains_file"
+    return 1
+  fi
+  
+  local domain_id
+  domain_id=$(db_insert_domain "$domain")
+  
+  log_info "Batch inserting subdomains for $domain (domain_id: $domain_id)"
+  
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    db_exec "INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
-             VALUES ($domain_id, '$subdomain', $is_live, '$http_url', '$https_url', '$http_status', '$https_status')
-             ON CONFLICT (subdomain) DO UPDATE SET 
-             is_live = EXCLUDED.is_live,
-             http_url = EXCLUDED.http_url,
-             https_url = EXCLUDED.https_url,
-             http_status = EXCLUDED.http_status,
-             https_status = EXCLUDED.https_status,
-             updated_at = NOW();"
+    # Use COPY for maximum performance in PostgreSQL
+    local temp_file="/tmp/subdomains_$$.csv"
+    
+    # Create CSV file with proper escaping
+    while IFS= read -r subdomain; do
+      [[ -n "$subdomain" ]] && echo "$domain_id,$subdomain,$is_live,,,," >> "$temp_file"
+    done < "$subdomains_file"
+    
+    # Use COPY command for bulk insert
+    if [[ -s "$temp_file" ]]; then
+      db_exec "COPY subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
+               FROM '$temp_file' 
+               WITH (FORMAT csv, HEADER false)
+               ON CONFLICT (subdomain) DO UPDATE SET 
+               is_live = EXCLUDED.is_live,
+               updated_at = NOW();"
+      
+      local count=$(wc -l < "$temp_file")
+      log_success "Batch inserted $count subdomains"
+    fi
+    
+    rm -f "$temp_file"
   else
-    db_exec "INSERT OR REPLACE INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
-             VALUES ($domain_id, '$subdomain', $is_live, '$http_url', '$https_url', '$http_status', '$https_status');"
+    # SQLite batch insert using VALUES clause
+    local values=""
+    local count=0
+    
+    while IFS= read -r subdomain; do
+      if [[ -n "$subdomain" ]]; then
+        if [[ -n "$values" ]]; then
+          values="$values,"
+        fi
+        values="$values($domain_id, '$subdomain', $is_live, '', '', '', '')"
+        ((count++))
+        
+        # Insert in batches of 1000 to avoid SQL limits
+        if [[ $count -eq 1000 ]]; then
+          db_exec "INSERT OR REPLACE INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) VALUES $values;"
+          values=""
+          count=0
+        fi
+      fi
+    done < "$subdomains_file"
+    
+    # Insert remaining values
+    if [[ -n "$values" ]]; then
+      db_exec "INSERT OR REPLACE INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) VALUES $values;"
+    fi
+    
+    log_success "Batch inserted subdomains"
   fi
 }
 
@@ -299,11 +343,23 @@ db_list_domains() {
 db_test_connection() {
   require_db_client
   
+  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" >/dev/null 2>&1
+}
+
+# Ensure PostgreSQL connection
+db_ensure_connection() {
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" >/dev/null 2>&1
+    if ! db_test_connection; then
+      log_error "PostgreSQL connection failed. Please check your database configuration."
+      log_error "DB_HOST: $DB_HOST"
+      log_error "DB_PORT: $DB_PORT"
+      log_error "DB_USER: $DB_USER"
+      log_error "DB_NAME: $DB_NAME"
+      exit 1
+    fi
   else
-    [[ -f "$AUTOAR_DB" ]] || return 1
-    sqlite3 "$AUTOAR_DB" "SELECT 1;" >/dev/null 2>&1
+    log_error "Only PostgreSQL is supported. Please set DB_TYPE=postgresql"
+    exit 1
   fi
 }
 

@@ -1,5 +1,6 @@
 # Configuration files with secrets
 autoar.yaml
+.env
 *.log
 *.pid
 
@@ -30,6 +31,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+*.bak
+*.backup
 
 # Database files
 *.db
@@ -43,14 +46,21 @@ autoAR.log
 
 # Service files
 *.service
-*.pid
+
+# Test files and directories
+test-*
+*test*
+tmp_*
 
 # Secrets and API keys
 *secret*
 *key*
 *token*
 *webhook*
-*.log
-*.pid
-*.db
-new-results/
+
+# Generated files
+generate_from_env.sh
+
+# External dependencies
+nuclei_templates/
+Wordlists/
