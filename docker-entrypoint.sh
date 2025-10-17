@@ -7,6 +7,8 @@ echo "[entrypoint] AutoAR Discord bot starting..."
 if [[ ! -f "/app/autoar.yaml" ]] || [[ "${REGENERATE_CONFIG:-false}" == "true" ]]; then
   echo "[entrypoint] Generating /app/autoar.yaml from environment variables"
   /app/generate_config.sh || { echo "[entrypoint] Failed to generate config"; exit 1; }
+else
+  echo "[entrypoint] Using existing configuration file: /app/autoar.yaml"
 fi
 
 # Initialize database schema
