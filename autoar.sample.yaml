@@ -39,17 +39,12 @@ openrouter_api: ""
 # Database Configuration
 SAVE_TO_DB: true
 VERBOSE: false
+DB_TYPE: "postgresql"
+DB_HOST: "postgresql://user:password@host:port/database"
 DB_NAME: "autoar"
 DOMAINS_COLLECTION: "domains"
 SUBDOMAINS_COLLECTION: "subdomains"
 
-# GitLab storage configuration
-gitlab:
-  project_url: ""
-  username: ""
-  access_token: ""
-  branch: "main"
-  use_gitlab_storage: false
 
 # Tool configuration
 tools:
@@ -74,10 +69,5 @@ tools:
 
 # Storage configuration
 storage:
-  type: "local"  # Options: local, gitlab
+  type: "local"
   local_path: "/srv/results"
-  gitlab:
-    project_url: ""
-    username: ""
-    access_token: ""
-    branch: "main"
