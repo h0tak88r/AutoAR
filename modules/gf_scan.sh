@@ -17,12 +17,13 @@ gf_scan() {
   done
   [[ -z "$domain" ]] && { usage; exit 1; }
 
-  local dir="$ROOT_DIR/$(results_dir "$domain")"
-  dir="$(results_dir "$domain")"
+  local dir="$(results_dir "$domain")"
   local urls="$dir/urls/all-urls.txt"
   local base="$dir/vulnerabilities"
   ensure_dir "$base"
-  [[ -s "$urls" ]] || { log_warn "No URLs to scan at $urls"; exit 0; }
+  
+  # Ensure URLs exist (from DB or URL collection)
+  ensure_urls "$domain" "$urls" || { log_warn "Failed to get URLs for $domain"; exit 1; }
 
   if command -v gf >/dev/null 2>&1; then
     for pattern in debug_logic idor iext img-traversal iparams isubs jsvar lfi rce redirect sqli ssrf ssti xss; do

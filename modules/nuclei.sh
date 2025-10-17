@@ -24,6 +24,9 @@ nuclei_run() {
   out1="$dir/vulnerabilities/nuclei_templates-results.txt"
   out2="$dir/vulnerabilities/nuclei-templates-results.txt"
   ensure_dir "$(dirname "$out1")"
+  
+  # Ensure live hosts exist (from DB or live host check)
+  ensure_live_hosts "$domain" "$subs_dir/live-subs.txt" || { log_warn "Failed to get live hosts for $domain"; exit 1; }
 
   if command -v nuclei >/dev/null 2>&1; then
     [[ -s "$subs_dir/live-subs.txt" ]] && nuclei -l "$subs_dir/live-subs.txt" -t nuclei_templates/Others -o "$out1" >/dev/null 2>&1 || true

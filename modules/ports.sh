@@ -17,12 +17,13 @@ ports_scan() {
   done
   [[ -z "$domain" ]] && { usage; exit 1; }
 
-  local dir="$ROOT_DIR/$(results_dir "$domain")"
-  dir="$(results_dir "$domain")"
+  local dir="$(results_dir "$domain")"
   local subs="$dir/subs/live-subs.txt"
   local out="$dir/ports/ports.txt"
   ensure_dir "$(dirname "$out")"
-  [[ -s "$subs" ]] || { log_warn "No live subdomains to scan at $subs"; exit 0; }
+  
+  # Ensure live hosts exist (from DB or live host check)
+  ensure_live_hosts "$domain" "$subs" || { log_warn "Failed to get live hosts for $domain"; exit 1; }
 
   if command -v naabu >/dev/null 2>&1; then
     naabu -l "$subs" -tp 10000 -ec -c 500 -Pn --silent -rate 1000 -o "$out" >/dev/null 2>&1 || true

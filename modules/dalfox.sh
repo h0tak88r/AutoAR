@@ -17,12 +17,18 @@ dalfox_run() {
   done
   [[ -z "$domain" ]] && { usage; exit 1; }
 
-  local dir="$ROOT_DIR/$(results_dir "$domain")"
-  dir="$(results_dir "$domain")"
+  local dir="$(results_dir "$domain")"
   local in_file="$dir/vulnerabilities/xss/gf-results.txt"
   local out_file="$dir/dalfox-results.txt"
   ensure_dir "$(dirname "$out_file")"
-  [[ -s "$in_file" ]] || { log_warn "No XSS candidates at $in_file"; exit 0; }
+  
+  # Ensure GF results exist (run GF scan first)
+  if [[ ! -s "$in_file" ]]; then
+    log_info "No XSS candidates found, running GF scan first"
+    "$ROOT_DIR/modules/gf_scan.sh" scan -d "$domain" || { log_warn "Failed to run GF scan for $domain"; exit 1; }
+  fi
+  
+  [[ -s "$in_file" ]] || { log_warn "No XSS candidate file at $in_file after GF scan"; exit 0; }
 
   if command -v dalfox >/dev/null 2>&1; then
     dalfox file "$in_file" --no-spinner --only-poc r --ignore-return 302,404,403 --skip-bav -b "0x88.xss.cl" -w 50 -o "$out_file" 2>/dev/null || true

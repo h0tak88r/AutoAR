@@ -22,6 +22,9 @@ urls_collect() {
   dir="$(results_dir "$domain")"
   subs_dir="$dir/subs"; urls_dir="$dir/urls"
   ensure_dir "$urls_dir"
+  
+  # Ensure live hosts exist (from DB or live host check)
+  ensure_live_hosts "$domain" "$subs_dir/live-subs.txt" || { log_warn "Failed to get live hosts for $domain"; exit 1; }
 
   : > "$urls_dir/all-urls.txt"
   : > "$urls_dir/js-urls.txt"

@@ -9,6 +9,10 @@ if [[ ! -f "/app/autoar.yaml" ]] || [[ "${REGENERATE_CONFIG:-false}" == "true" ]
   /app/generate_config.sh || { echo "[entrypoint] Failed to generate config"; exit 1; }
 fi
 
+# Initialize database schema
+echo "[entrypoint] Initializing database schema"
+source /app/lib/db.sh && db_init_schema || echo "[entrypoint] Database schema initialization completed with warnings"
+
 # Optionally run tool check/installation at container start
 if [[ "${RUN_SETUP:-false}" == "true" ]]; then
   echo "[entrypoint] RUN_SETUP=true -> executing modules/check_tools.sh"
