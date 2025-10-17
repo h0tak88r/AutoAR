@@ -83,6 +83,8 @@ class AutoARBot(commands.Cog):
     async def run_autoar_command(self, command: list, scan_id: str) -> Dict[str, Any]:
         """Run AutoAR command and return results."""
         try:
+            print(f"[DEBUG] Running command: {' '.join(command)}")
+            
             # Set environment variables
             env = os.environ.copy()
             env['AUTOAR_CONFIG'] = CONFIG_FILE
@@ -98,6 +100,12 @@ class AutoARBot(commands.Cog):
             
             stdout, stderr = await process.communicate()
             
+            print(f"[DEBUG] Command exit code: {process.returncode}")
+            if stdout:
+                print(f"[DEBUG] Command stdout: {stdout.decode('utf-8')[:200]}")
+            if stderr:
+                print(f"[DEBUG] Command stderr: {stderr.decode('utf-8')[:200]}")
+            
             return {
                 'returncode': process.returncode,
                 'stdout': stdout.decode('utf-8'),
@@ -107,6 +115,7 @@ class AutoARBot(commands.Cog):
             }
             
         except Exception as e:
+            print(f"[DEBUG] Command error: {e}")
             return {
                 'returncode': -1,
                 'stdout': '',
@@ -405,29 +414,35 @@ class AutoARBot(commands.Cog):
     @app_commands.command(name="check_tools", description="Check if all required tools are installed")
     async def check_tools(self, interaction: discord.Interaction):
         """Check if all required tools are installed."""
-        command = [AUTOAR_SCRIPT_PATH, "check-tools"]
-        
-        embed = discord.Embed(
-            title="🔧 Tool Check",
-            description="Checking required tools...",
-            color=discord.Color.blue()
-        )
-        await interaction.response.send_message(embed=embed)
-        
-        results = await self.run_autoar_command(command, "tool_check")
-        
-        if results['returncode'] == 0:
-            embed.color = discord.Color.green()
-            embed.title = "✅ Tool Check Complete"
-            embed.description = "All required tools are installed and working properly."
-        else:
-            embed.color = discord.Color.red()
-            embed.title = "❌ Tool Check Failed"
-            embed.description = "Some tools are missing or not working properly."
-            if results['stderr']:
-                embed.add_field(name="Details", value=f"```{results['stderr'][:1000]}```", inline=False)
-        
-        await interaction.edit_original_response(embed=embed)
+        try:
+            command = [AUTOAR_SCRIPT_PATH, "check-tools", "run"]
+            
+            embed = discord.Embed(
+                title="🔧 Tool Check",
+                description="Checking required tools...",
+                color=discord.Color.blue()
+            )
+            await interaction.response.send_message(embed=embed)
+            
+            results = await self.run_autoar_command(command, "tool_check")
+            
+            if results['returncode'] == 0:
+                embed.color = discord.Color.green()
+                embed.title = "✅ Tool Check Complete"
+                embed.description = "All required tools are installed and working properly."
+            else:
+                embed.color = discord.Color.red()
+                embed.title = "❌ Tool Check Failed"
+                embed.description = "Some tools are missing or not working properly."
+                if results['stderr']:
+                    embed.add_field(name="Details", value=f"```{results['stderr'][:1000]}```", inline=False)
+                if results['stdout']:
+                    embed.add_field(name="Output", value=f"```{results['stdout'][:1000]}```", inline=False)
+            
+            await interaction.edit_original_response(embed=embed)
+        except Exception as e:
+            print(f"[ERROR] check_tools command failed: {e}")
+            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
     
     @app_commands.command(name="scan_status", description="Check status of active scans")
     async def scan_status(self, interaction: discord.Interaction):
@@ -590,12 +605,16 @@ class AutoARBot(commands.Cog):
 
     @app_commands.command(name="db_domains", description="List distinct domains stored in AutoAR DB")
     async def db_domains_cmd(self, interaction: discord.Interaction):
-        scan_id = f"dbdomains_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "db", "domains", "list"]
-        active_scans[scan_id] = { 'type': 'db_domains', 'target': 'db', 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
-        embed = self.create_scan_embed("DB Domains", "autoar.db", "running")
-        await interaction.response.send_message(embed=embed)
-        asyncio.create_task(self._run_scan_background(scan_id, command))
+        try:
+            scan_id = f"dbdomains_{int(time.time())}"
+            command = [AUTOAR_SCRIPT_PATH, "db", "domains", "list"]
+            active_scans[scan_id] = { 'type': 'db_domains', 'target': 'db', 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
+            embed = self.create_scan_embed("DB Domains", "autoar.db", "running")
+            await interaction.response.send_message(embed=embed)
+            asyncio.create_task(self._run_scan_background(scan_id, command))
+        except Exception as e:
+            print(f"[ERROR] db_domains command failed: {e}")
+            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
 
     @app_commands.command(name="db_subdomains", description="List subdomains for a domain from AutoAR DB")
     @app_commands.describe(domain="The domain to list subdomains for")
