@@ -7,12 +7,38 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/logging.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/utils.sh" 2>/dev/null || true
-source "$ROOT_DIR/lib/db.sh" 2>/dev/null || true
+source "$ROOT_DIR/lib/db.sh" 2>/dev/null || { echo "ERROR: Failed to load lib/db.sh" >&2; exit 1; }
+source "$ROOT_DIR/lib/discord.sh" 2>/dev/null || true
 
 die() { echo "$1" >&2; exit 1; }
 
+# Send database results to Discord
+send_db_result_to_discord() {
+  local command="$1"
+  local result="$2"
+  local domain="${3:-}"
+  
+  if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+    local message="**Database Command:** \`$command\`"
+    if [[ -n "$domain" ]]; then
+      message="$message
+**Domain:** \`$domain\`"
+    fi
+    message="$message
+**Result:**
+\`\`\`
+$result
+\`\`\`"
+    
+    discord_send "$message" >/dev/null 2>&1 || true
+  fi
+}
+
 db_domains_list() {
-  db_list_domains
+  db_ensure_connection
+  local result=$(db_list_domains)
+  echo "$result"
+  send_db_result_to_discord "db domains list" "$result"
 }
 
 db_subdomains_list() {
@@ -24,7 +50,10 @@ db_subdomains_list() {
     esac
   done
   [[ -z "$domain" ]] && die "--domain is required"
-  db_get_subdomains "$domain"
+  db_ensure_connection
+  local result=$(db_get_subdomains "$domain")
+  echo "$result"
+  send_db_result_to_discord "db subdomains list" "$result" "$domain"
 }
 
 db_subdomains_export() {
@@ -50,7 +79,54 @@ db_js_list() {
     esac
   done
   [[ -z "$domain" ]] && die "--domain is required"
-  db_get_js_files "$domain"
+  db_ensure_connection
+  local result=$(db_get_js_files "$domain")
+  echo "$result"
+  send_db_result_to_discord "db js list" "$result" "$domain"
+}
+
+db_domain_delete() {
+  local domain=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d|--domain) domain="$2"; shift 2;;
+      *) shift;;
+    esac
+  done
+  [[ -z "$domain" ]] && die "--domain is required"
+  
+  db_ensure_connection
+  
+  log_info "Deleting domain: $domain"
+  
+  # Delete subdomains first (foreign key constraint)
+  local subdomain_count=$(db_query "SELECT COUNT(*) FROM subdomains WHERE domain = '$domain';")
+  if [[ "$subdomain_count" -gt 0 ]]; then
+    log_info "Deleting $subdomain_count subdomains for $domain"
+    db_exec "DELETE FROM subdomains WHERE domain = '$domain';"
+  fi
+  
+  # Delete JS files
+  local js_count=$(db_query "SELECT COUNT(*) FROM js_files WHERE domain = '$domain';")
+  if [[ "$js_count" -gt 0 ]]; then
+    log_info "Deleting $js_count JS files for $domain"
+    db_exec "DELETE FROM js_files WHERE domain = '$domain';"
+  fi
+  
+  # Delete domain
+  local domain_count=$(db_query "SELECT COUNT(*) FROM domains WHERE domain = '$domain';")
+  if [[ "$domain_count" -gt 0 ]]; then
+    log_info "Deleting domain: $domain"
+    db_exec "DELETE FROM domains WHERE domain = '$domain';"
+    log_success "Successfully deleted domain '$domain' and all related data"
+    
+    # Send result to Discord
+    local result="Successfully deleted domain '$domain' and all related data:\n- Subdomains: $subdomain_count\n- JS files: $js_count"
+    send_db_result_to_discord "db domains delete" "$result" "$domain"
+  else
+    log_warn "Domain '$domain' not found in database"
+    send_db_result_to_discord "db domains delete" "Domain '$domain' not found in database" "$domain"
+  fi
 }
 
 usage() {
@@ -59,6 +135,7 @@ Usage: db <resource> <action> [options]
 
 Resources & actions:
   domains list                             List distinct domains in DB
+  domains delete   -d <domain>             Delete domain and all related data
   subdomains list   -d <domain>            List subdomains for a domain
   subdomains export -d <domain> [-o file]  Export subdomains to file (and Discord if configured)
   js list          -d <domain>             List JS files for a domain
@@ -84,6 +161,7 @@ main() {
 
   case "$resource:$action" in
     domains:list)      db_domains_list "$@" ;;
+    domains:delete)    db_domain_delete "$@" ;;
     subdomains:list)   db_subdomains_list "$@" ;;
     subdomains:export) db_subdomains_export "$@" ;;
     js:list)           db_js_list "$@" ;;

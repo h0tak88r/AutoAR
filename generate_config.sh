@@ -20,7 +20,7 @@ else
 fi
 
 # Configuration file paths
-CONFIG_FILE="${AUTOAR_CONFIG_FILE:-/app/autoar.yaml}"
+CONFIG_FILE="${AUTOAR_CONFIG_FILE:-./autoar.yaml}"
 SAMPLE_CONFIG="$ROOT_DIR/autoar.sample.yaml"
 
 # Function to get environment variable with fallback
@@ -129,7 +129,6 @@ EOF
 
     local additional_keys=(
         "DISCORD_WEBHOOK"
-        "OPENROUTER_API_KEY"
     )
 
     for key in "${additional_keys[@]}"; do
@@ -148,54 +147,27 @@ EOF
     local db_save=$(get_env_var "SAVE_TO_DB" "true")
     local db_verbose=$(get_env_var "VERBOSE" "false")
     local db_name=$(get_env_var "DB_NAME" "autoar")
+    local db_type=$(get_env_var "DB_TYPE" "postgresql")
+    local db_host=$(get_env_var "DB_HOST" "")
     local domains_collection=$(get_env_var "DOMAINS_COLLECTION" "domains")
     local subdomains_collection=$(get_env_var "SUBDOMAINS_COLLECTION" "subdomains")
 
     cat >> "$config_file" << EOF
 SAVE_TO_DB: $db_save
 VERBOSE: $db_verbose
+DB_TYPE: "$db_type"
+DB_HOST: "$db_host"
 DB_NAME: "$db_name"
 DOMAINS_COLLECTION: "$domains_collection"
 SUBDOMAINS_COLLECTION: "$subdomains_collection"
 EOF
 
-    # GitLab storage configuration
-    cat >> "$config_file" << 'EOF'
-
-# GitLab storage configuration
-gitlab:
-  project_url: ""
-  username: ""
-  access_token: ""
-  branch: "main"
-  use_gitlab_storage: false
-EOF
-
-    # Override GitLab config if environment variables are set
-    local gitlab_project=$(get_env_var "GITLAB_PROJECT_URL")
-    local gitlab_username=$(get_env_var "GITLAB_USERNAME")
-    local gitlab_token=$(get_env_var "GITLAB_ACCESS_TOKEN")
-    local gitlab_branch=$(get_env_var "GITLAB_BRANCH" "main")
-    local use_gitlab=$(get_env_var "USE_GITLAB_STORAGE" "false")
-
-    if [[ -n "$gitlab_project" || -n "$gitlab_username" || -n "$gitlab_token" ]]; then
-        cat >> "$config_file" << EOF
-
-# GitLab storage configuration (from environment)
-gitlab:
-  project_url: "$gitlab_project"
-  username: "$gitlab_username"
-  access_token: "$gitlab_token"
-  branch: "$gitlab_branch"
-  use_gitlab_storage: $use_gitlab
-EOF
-    fi
 
     # Tool configuration with environment variable overrides
-    local nuclei_templates=$(get_env_var "NUCLEI_TEMPLATES_PATH" "/app/nuclei_templates")
+    local nuclei_templates=$(get_env_var "NUCLEI_TEMPLATES_PATH" "./nuclei_templates")
     local nuclei_rate_limit=$(get_env_var "NUCLEI_RATE_LIMIT" "150")
     local nuclei_concurrency=$(get_env_var "NUCLEI_CONCURRENCY" "25")
-    local ffuf_wordlist=$(get_env_var "FFUF_WORDLIST_PATH" "/app/Wordlists/quick_fuzz.txt")
+    local ffuf_wordlist=$(get_env_var "FFUF_WORDLIST_PATH" "./Wordlists/quick_fuzz.txt")
     local ffuf_threads=$(get_env_var "FFUF_THREADS" "50")
     local subfinder_threads=$(get_env_var "SUBFINDER_THREADS" "10")
     local github_max_repos=$(get_env_var "GITHUB_MAX_REPOS" "50")
@@ -217,7 +189,7 @@ tools:
     threads: $ffuf_threads
   
   subfinder:
-    config_path: "/app/autoar.yaml"
+    config_path: "./autoar.yaml"
     threads: $subfinder_threads
   
   github_scan:
@@ -228,33 +200,13 @@ tools:
 EOF
 
     # Storage configuration
-    if [[ -n "$gitlab_project" || -n "$gitlab_username" || -n "$gitlab_token" ]]; then
-        cat >> "$config_file" << EOF
+    cat >> "$config_file" << 'EOF'
 
 # Storage configuration
 storage:
-  type: "gitlab"  # Options: local, gitlab
-  local_path: "/app/new-results"
-  gitlab:
-    project_url: "$gitlab_project"
-    username: "$gitlab_username"
-    access_token: "$gitlab_token"
-    branch: "$gitlab_branch"
+  type: "local"
+  local_path: "./new-results"
 EOF
-    else
-        cat >> "$config_file" << 'EOF'
-
-# Storage configuration
-storage:
-  type: "local"  # Options: local, gitlab
-  local_path: "/app/new-results"
-  gitlab:
-    project_url: ""
-    username: ""
-    access_token: ""
-    branch: "main"
-EOF
-    fi
 
     log_success "Configuration file generated successfully: $config_file"
 }
