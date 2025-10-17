@@ -185,7 +185,7 @@ class AutoARBot(commands.Cog):
         """Scan a single subdomain."""
         scan_id = f"subdomain_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "subdomain", "-s", subdomain]
+        command = [AUTOAR_SCRIPT_PATH, "subdomains", "get", "-d", subdomain]
         if verbose:
             command.append("-v")
         
@@ -212,7 +212,7 @@ class AutoARBot(commands.Cog):
         """Perform a lite domain scan."""
         scan_id = f"lite_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "liteScan", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "lite", "run", "-d", domain]
         if verbose:
             command.append("-v")
         
@@ -267,7 +267,7 @@ class AutoARBot(commands.Cog):
         """Scan for JavaScript files and endpoints."""
         scan_id = f"js_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "jsScan", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "js", "scan", "-d", domain]
         if subdomain:
             command.extend(["-s", subdomain])
         if verbose:
@@ -298,7 +298,7 @@ class AutoARBot(commands.Cog):
         """Scan for S3 buckets."""
         scan_id = f"s3_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "s3Scan", "-b", bucket]
+        command = [AUTOAR_SCRIPT_PATH, "s3", "scan", "-b", bucket]
         if region:
             command.extend(["-r", region])
         if verbose:
@@ -327,7 +327,7 @@ class AutoARBot(commands.Cog):
         """Scan GitHub repository for secrets."""
         scan_id = f"github_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "github", "-r", repo]
+        command = [AUTOAR_SCRIPT_PATH, "github", "scan", "-r", repo]
         if verbose:
             command.append("-v")
         
@@ -355,7 +355,7 @@ class AutoARBot(commands.Cog):
         """Scan GitHub organization for secrets."""
         scan_id = f"github_org_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "github-org", "-o", org, "-m", str(max_repos)]
+        command = [AUTOAR_SCRIPT_PATH, "github", "org", "-o", org, "-m", str(max_repos)]
         if verbose:
             command.append("-v")
         
@@ -383,7 +383,7 @@ class AutoARBot(commands.Cog):
         """WordPress dependency confusion scan."""
         scan_id = f"wp_depconf_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "wpDepConf", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "wpDepConf", "scan", "-d", domain]
         if list_file:
             command.extend(["-l", list_file])
         if verbose:
