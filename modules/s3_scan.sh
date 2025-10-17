@@ -87,7 +87,7 @@ s3_enum() {
       if [[ "$put_resp" == "200" || "$put_resp" == "201" ]]; then
         echo "[VULNERABLE] $test_url ($put_resp)" >> "$out"
         ((vulnerable_count++))
-      fi>
+      fi
     fi
   done
 
