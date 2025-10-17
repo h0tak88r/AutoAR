@@ -50,13 +50,12 @@ services:
       - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
       - SAVE_TO_DB=${SAVE_TO_DB:-true}
       - VERBOSE=${VERBOSE:-true}
-      - DB_NAME=${DB_NAME:-autoar}
       - DB_TYPE=${DB_TYPE:-postgresql}
-      - DB_HOST=${DB_HOST:-postgresql://sallam:cyhXor-myfsuk-jobbo9@174.138.80.170:5432/bughunt}
+      - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT:-5432}
-      - DB_USER=${DB_USER:-sallam}
-      - DB_PASSWORD=${DB_PASSWORD:-cyhXor-myfsuk-jobbo9}
-      - DB_NAME=${DB_NAME:-bughunt}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-autoar}
       - AUTOAR_DB=${AUTOAR_DB:-/app/autoar.db}
       - DOMAINS_COLLECTION=${DOMAINS_COLLECTION:-domains}
       - SUBDOMAINS_COLLECTION=${SUBDOMAINS_COLLECTION:-subdomains}
