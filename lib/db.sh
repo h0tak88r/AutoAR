@@ -10,12 +10,29 @@ source "$ROOT_DIR/lib/config.sh" 2>/dev/null || true
 
 # Database configuration
 DB_TYPE=${DB_TYPE:-sqlite}
-DB_HOST=${DB_HOST:-localhost}
-DB_PORT=${DB_PORT:-5432}
-DB_USER=${DB_USER:-autoar}
-DB_PASSWORD=${DB_PASSWORD:-}
-DB_NAME=${DB_NAME:-autoar}
 AUTOAR_DB=${AUTOAR_DB:-/app/autoar.db}
+
+# Parse PostgreSQL connection string if provided
+if [[ -n "${DB_HOST:-}" && "$DB_HOST" =~ ^postgresql:// ]]; then
+  # Extract connection details from PostgreSQL URL
+  DB_TYPE="postgresql"
+  DB_URL="$DB_HOST"
+  # Parse the URL to extract components
+  if [[ "$DB_HOST" =~ postgresql://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+) ]]; then
+    DB_USER="${BASH_REMATCH[1]}"
+    DB_PASSWORD="${BASH_REMATCH[2]}"
+    DB_HOST="${BASH_REMATCH[3]}"
+    DB_PORT="${BASH_REMATCH[4]}"
+    DB_NAME="${BASH_REMATCH[5]}"
+  fi
+else
+  # Use individual environment variables
+  DB_HOST=${DB_HOST:-localhost}
+  DB_PORT=${DB_PORT:-5432}
+  DB_USER=${DB_USER:-autoar}
+  DB_PASSWORD=${DB_PASSWORD:-}
+  DB_NAME=${DB_NAME:-autoar}
+fi
 
 # Connection string based on DB type
 if [[ "$DB_TYPE" == "postgresql" ]]; then
