@@ -1,6 +1,22 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: autoar-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: autoar
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-autoar123}
+      POSTGRES_DB: autoar
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   autoar-bot:
     build:
       context: .
@@ -10,6 +26,9 @@ services:
     image: autoar-bot:latest
     container_name: autoar-bot
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - DISCORD_ONLY=${DISCORD_ONLY:-false}
@@ -51,6 +70,12 @@ services:
       - SAVE_TO_DB=${SAVE_TO_DB:-true}
       - VERBOSE=${VERBOSE:-true}
       - DB_NAME=${DB_NAME:-autoar}
+      - DB_TYPE=${DB_TYPE:-postgresql}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=autoar
+      - DB_PASSWORD=${DB_PASSWORD:-autoar123}
+      - AUTOAR_DB=${AUTOAR_DB:-/app/autoar.db}
       - DOMAINS_COLLECTION=${DOMAINS_COLLECTION:-domains}
       - SUBDOMAINS_COLLECTION=${SUBDOMAINS_COLLECTION:-subdomains}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -81,5 +106,6 @@ services:
 
 volumes:
   results-data:
+  postgres-data:
 
 

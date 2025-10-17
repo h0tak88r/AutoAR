@@ -20,7 +20,10 @@ cnames_get() {
 
   local dir; dir="$(results_dir "$domain")"
   local subs_dir="$dir/subs"
-  [[ -s "$subs_dir/all-subs.txt" ]] || { log_warn "No subdomains file at $subs_dir/all-subs.txt"; exit 0; }
+  ensure_dir "$subs_dir"
+  
+  # Ensure subdomains exist (from DB or enumeration)
+  ensure_subdomains "$domain" "$subs_dir/all-subs.txt" || { log_warn "Failed to get subdomains for $domain"; exit 1; }
 
   local out="$subs_dir/cname-records.txt"
   if command -v dnsx >/dev/null 2>&1; then
