@@ -51,10 +51,10 @@ services:
       - SAVE_TO_DB=${SAVE_TO_DB:-true}
       - VERBOSE=${VERBOSE:-true}
       - DB_TYPE=${DB_TYPE:-postgresql}
-      - DB_HOST=${DB_HOST}
+      - DB_HOST=${DB_HOST:-}
       - DB_PORT=${DB_PORT:-5432}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_USER=${DB_USER:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
       - DB_NAME=${DB_NAME:-bughunt}
       - AUTOAR_DB=${AUTOAR_DB:-/app/autoar.db}
       - DOMAINS_COLLECTION=${DOMAINS_COLLECTION:-domains}
@@ -73,12 +73,15 @@ services:
     volumes:
       - results-data:/app/new-results
       - ./regexes:/app/regexes:ro
+      - ./debug_docker.py:/app/debug_docker.py:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import importlib; importlib.import_module(\"discord\")' || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+    # Uncomment the line below to run debug script instead of bot
+    # command: ["python", "/app/debug_docker.py"]
 
 volumes:
   results-data:
