@@ -357,7 +357,8 @@ github_scan() {
         
         # Disable TruffleHog auto-update to prevent updater errors
         export TRUFFLEHOG_NO_UPDATE=true
-        if trufflehog filesystem "$temp_dir/$repo_name" --json > "$secrets_file" 2>&1; then
+        export TRUFFLEHOG_AUTOUPDATE=false
+        if trufflehog filesystem "$temp_dir/$repo_name" --json --no-update > "$secrets_file" 2>&1; then
             # Convert newline-delimited JSON to JSON array for counting
             local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
             if [[ -s "$secrets_file" ]]; then
@@ -517,7 +518,8 @@ github_org_scan() {
     log_info "Running TruffleHog with GitHub token..."
     # Disable TruffleHog auto-update to prevent updater errors
     export TRUFFLEHOG_NO_UPDATE=true
-    if trufflehog github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>&1; then
+    export TRUFFLEHOG_AUTOUPDATE=false
+    if trufflehog github --org="$org_name" --issue-comments --pr-comments --json --no-update > "$org_results_file" 2>&1; then
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$org_dir/org_secrets_array.json"
         if [[ -s "$org_results_file" ]]; then
