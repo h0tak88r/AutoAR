@@ -3,18 +3,10 @@ set -euo pipefail
 
 echo "[entrypoint] AutoAR Discord bot starting..."
 
-# Generate config if missing or forced
-if [[ ! -f "/app/autoar.yaml" ]] || [[ "${REGENERATE_CONFIG:-false}" == "true" ]]; then
-  echo "[entrypoint] Generating /app/autoar.yaml from environment variables"
-  if /app/generate_config.sh; then
-    echo "[entrypoint] Config generation successful"
-  else
-    echo "[entrypoint] Failed to generate config (exit code: $?)"
-    exit 1
-  fi
-else
-  echo "[entrypoint] Using existing configuration file: /app/autoar.yaml"
-fi
+# Load configuration (will generate autoar.yaml if needed)
+echo "[entrypoint] Loading configuration..."
+source /app/lib/config.sh
+echo "[entrypoint] Configuration loaded successfully"
 
 # Initialize database schema
 echo "[entrypoint] Initializing database schema"
