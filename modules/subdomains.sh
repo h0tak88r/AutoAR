@@ -33,7 +33,7 @@ subdomains_get() {
 
   if command -v subfinder >/dev/null 2>&1; then
     log_info "Running subfinder"
-    subfinder -d "$domain" -silent -o "$subs_dir/subfinder-subs.txt" -pc "${AUTOAR_CONFIG_FILE:-/app/autoar.yaml}" >/dev/null 2>&1 || true
+    subfinder -d "$domain" -silent -o "$subs_dir/subfinder-subs.txt" -pc "${AUTOAR_CONFIG_FILE}" >/dev/null 2>&1 || true
   else
     : > "$subs_dir/subfinder-subs.txt"
   fi

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Source config first to get cross-platform paths
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/lib/config.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/logging.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/db.sh" 2>/dev/null || true
 
@@ -9,7 +11,7 @@ ensure_dir() { mkdir -p "$1"; }
 
 results_dir() {
   local d="$1"
-  echo "new-results/$d"
+  echo "${AUTOAR_RESULTS_DIR}/$d"
 }
 
 domain_dir_init() {
