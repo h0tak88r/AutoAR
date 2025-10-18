@@ -25,7 +25,7 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/channyein1337/jsleak@latest && \
     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
     go install -v github.com/tomnomnom/anew@latest && \
-    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
     go install -v github.com/mikefarah/yq/v4@latest && \
     go install -v github.com/kacakb/jsfinder@latest
 
