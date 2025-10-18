@@ -130,6 +130,10 @@ check_and_install() {
       install_apt curl || return 1;;
     git)
       install_apt git || return 1;;
+    aws)
+      install_apt awscli || return 1;;
+    trufflehog)
+      install_go_tool trufflehog github.com/trufflesecurity/trufflehog/v3/cmd/trufflehog@latest || return 1;;
     *)
       return 1;;
   esac
@@ -144,7 +148,7 @@ check_and_install() {
 run() {
   ensure_directories
   local -a tools=(
-    subfinder httpx naabu nuclei ffuf kxss qsreplace gf dalfox urlfinder interlace jsleak jsfinder dnsx dig jq yq anew curl git
+    subfinder httpx naabu nuclei ffuf kxss qsreplace gf dalfox urlfinder interlace jsleak jsfinder dnsx dig jq yq anew curl git aws trufflehog
   )
   local missing=0 installed=0 total=${#tools[@]}
 
