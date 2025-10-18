@@ -283,7 +283,41 @@ EOF
 
 # Function to scan GitHub repository for secrets
 github_scan() {
-    local repo_url="$1"
+    local repo_url=""
+    local verbose=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -r|--repo)
+                repo_url="$2"
+                shift 2
+                ;;
+            -v|--verbose)
+                verbose=true
+                shift
+                ;;
+            *)
+                # If no flag, treat as repo URL for backward compatibility
+                if [[ -z "$repo_url" ]]; then
+                    repo_url="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Validate required arguments
+    if [[ -z "$repo_url" ]]; then
+        log_error "Repository URL is required. Use: github scan -r <owner/repo>"
+        exit 1
+    fi
+    
+    # Convert owner/repo to full GitHub URL if needed
+    if [[ "$repo_url" != http* ]]; then
+        repo_url="https://github.com/$repo_url"
+    fi
+    
     local repo_name=$(basename "$repo_url" .git)
     local org_name=$(echo "$repo_url" | sed 's|.*github.com/||' | cut -d'/' -f1)
     
@@ -380,8 +414,40 @@ github_scan() {
 
 # Function to scan GitHub organization for secrets
 github_org_scan() {
-    local org_name="$1"
-    local max_repos="${2:-50}"
+    local org_name=""
+    local max_repos="50"
+    local verbose=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -o|--org)
+                org_name="$2"
+                shift 2
+                ;;
+            -m|--max-repos)
+                max_repos="$2"
+                shift 2
+                ;;
+            -v|--verbose)
+                verbose=true
+                shift
+                ;;
+            *)
+                # If no flag, treat as org name for backward compatibility
+                if [[ -z "$org_name" ]]; then
+                    org_name="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Validate required arguments
+    if [[ -z "$org_name" ]]; then
+        log_error "Organization name is required. Use: github org -o <org> [-m <max-repos>]"
+        exit 1
+    fi
     
     log_info "Starting GitHub organization scan for: $org_name"
     log_info "Maximum repositories to scan: $max_repos"
