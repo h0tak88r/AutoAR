@@ -33,11 +33,11 @@ get_all_s3_urls() {
     local region="$3"
     local urls=()
     
-    # Standard S3 URLs
+    # Standard S3 URLs (try these first - most common)
     urls+=("https://$bucket.s3.amazonaws.com/$object")
     urls+=("https://s3.amazonaws.com/$bucket/$object")
     
-    # Regional URLs
+    # Regional URLs (if specific region provided)
     if [[ -n "$region" ]]; then
         urls+=("https://$bucket.s3.$region.amazonaws.com/$object")
         urls+=("https://s3.$region.amazonaws.com/$bucket/$object")
@@ -52,6 +52,35 @@ get_all_s3_urls() {
     printf '%s\n' "${urls[@]}"
 }
 
+# Function to get all S3 URLs including all regions (for comprehensive scanning)
+get_all_s3_urls_with_all_regions() {
+    local object="$1"
+    local bucket="$2"
+    local urls=()
+    
+    # Common AWS regions
+    local regions=(
+        "us-east-1" "us-east-2" "us-west-1" "us-west-2"
+        "eu-west-1" "eu-west-2" "eu-west-3" "eu-central-1" "eu-north-1"
+        "ap-southeast-1" "ap-southeast-2" "ap-northeast-1" "ap-northeast-2"
+        "ap-south-1" "ca-central-1" "sa-east-1"
+    )
+    
+    # Standard S3 URLs (try these first)
+    urls+=("https://$bucket.s3.amazonaws.com/$object")
+    urls+=("https://s3.amazonaws.com/$bucket/$object")
+    urls+=("https://$bucket.s3-website.amazonaws.com/$object")
+    
+    # All regional URLs
+    for region in "${regions[@]}"; do
+        urls+=("https://$bucket.s3.$region.amazonaws.com/$object")
+        urls+=("https://s3.$region.amazonaws.com/$bucket/$object")
+        urls+=("https://$bucket.s3-website-$region.amazonaws.com/$object")
+    done
+    
+    printf '%s\n' "${urls[@]}"
+}
+
 # Function to check permissions with curl for all S3 URL styles
 check_s3_curl_permission_all_styles() {
     local perm_name="$1"
@@ -61,10 +90,19 @@ check_s3_curl_permission_all_styles() {
     local output_file="$5"
     local bucket="$6"
     local region="$7"
+    local test_all_regions="${8:-false}"
     local urls
-    urls=$(get_all_s3_urls "$object" "$bucket" "$region")
     local url
     local found_vulnerable=false
+    
+    # Phase 1: Try standard URLs first (no region specified)
+    if [[ -z "$region" ]]; then
+        log_info "Phase 1: Testing standard S3 URLs (no region)"
+        urls=$(get_all_s3_urls "$object" "$bucket" "")
+    else
+        log_info "Phase 1: Testing with specified region: $region"
+        urls=$(get_all_s3_urls "$object" "$bucket" "$region")
+    fi
     
     for url in $urls; do
         log_info "Testing ${perm_name} at $url"
@@ -84,10 +122,41 @@ check_s3_curl_permission_all_styles() {
         if [[ "$result" =~ ^(200|201|204)$ ]]; then
             echo "[ALLOWED] ${perm_name} at $url ($result)" >> "$output_file"
             found_vulnerable=true
+            log_success "Found vulnerable endpoint: $url"
         else
             echo "[DENIED] ${perm_name} at $url ($result)" >> "$output_file"
         fi
     done
+    
+    # Phase 2: If no region specified and no vulnerabilities found, try all regions
+    if [[ -z "$region" && "$found_vulnerable" == false && "$test_all_regions" == true ]]; then
+        log_info "Phase 2: No vulnerabilities found in standard URLs, testing all regions..."
+        urls=$(get_all_s3_urls_with_all_regions "$object" "$bucket")
+        
+        for url in $urls; do
+            log_info "Testing ${perm_name} at $url"
+            local result
+            if [[ "$method" == "GET" ]]; then
+                result=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+            elif [[ "$method" == "PUT" ]]; then
+                if [[ -f "$file" ]]; then
+                    result=$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data-binary "@$file" "$url")
+                else
+                    result=$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data "test" "$url")
+                fi
+            elif [[ "$method" == "DELETE" ]]; then
+                result=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$url")
+            fi
+            
+            if [[ "$result" =~ ^(200|201|204)$ ]]; then
+                echo "[ALLOWED] ${perm_name} at $url ($result)" >> "$output_file"
+                found_vulnerable=true
+                log_success "Found vulnerable endpoint: $url"
+            else
+                echo "[DENIED] ${perm_name} at $url ($result)" >> "$output_file"
+            fi
+        done
+    fi
     
     if [[ "$found_vulnerable" == true ]]; then
         return 0
@@ -140,44 +209,71 @@ s3_scan() {
       log_info "Region: $region"
   fi
   
-  # Run permission checks (AWS CLI)
-  log_info "Running AWS CLI permission checks..."
-  {
-      echo "AWS CLI PERMISSIONS:"
-      echo "Bucket: $bucket"
-      echo "Region: ${region:-'default'}"
-      echo ""
-  } >> "$aws_results"
-  
-  # Check each permission and log results
-  if check_s3_permission "Read" "aws s3 ls s3://$bucket $aws_flags"; then
-      echo "[ALLOWED] Read permission" >> "$aws_results"
+  # Check if AWS CLI is available and configured
+  if command -v aws >/dev/null 2>&1; then
+      # Check if AWS credentials are configured
+      if aws sts get-caller-identity >/dev/null 2>&1 || [[ "$no_sign" == true ]]; then
+          # Run permission checks (AWS CLI)
+          log_info "Running AWS CLI permission checks..."
+          {
+              echo "AWS CLI PERMISSIONS:"
+              echo "Bucket: $bucket"
+              echo "Region: ${region:-'default'}"
+              echo "Authentication: $([ "$no_sign" == true ] && echo "Public access only" || echo "Authenticated")"
+              echo ""
+          } >> "$aws_results"
+          
+          # Check each permission and log results
+          if check_s3_permission "Read" "aws s3 ls s3://$bucket $aws_flags"; then
+              echo "[ALLOWED] Read permission" >> "$aws_results"
+          else
+              echo "[DENIED] Read permission" >> "$aws_results"
+          fi
+          
+          if check_s3_permission "Write" "aws s3 cp $S3_LOCAL_FILE s3://$bucket/$S3_TEST_FILE $aws_flags && aws s3 rm s3://$bucket/$S3_TEST_FILE $aws_flags"; then
+              echo "[ALLOWED] Write permission" >> "$aws_results"
+          else
+              echo "[DENIED] Write permission" >> "$aws_results"
+          fi
+          
+          if check_s3_permission "READ_ACP" "aws s3api get-bucket-acl --bucket $bucket $aws_flags"; then
+              echo "[ALLOWED] READ_ACP permission" >> "$aws_results"
+          else
+              echo "[DENIED] READ_ACP permission" >> "$aws_results"
+          fi
+          
+          if check_s3_permission "WRITE_ACP" "aws s3api put-bucket-acl --bucket $bucket --acl private $aws_flags"; then
+              echo "[ALLOWED] WRITE_ACP permission" >> "$aws_results"
+          else
+              echo "[DENIED] WRITE_ACP permission" >> "$aws_results"
+          fi
+          
+          if check_s3_permission "FULL_CONTROL" "aws s3api put-bucket-acl --bucket $bucket --acl private $aws_flags && aws s3 cp $S3_LOCAL_FILE s3://$bucket/$S3_TEST_FILE $aws_flags && aws s3 rm s3://$bucket/$S3_TEST_FILE $aws_flags && aws s3 ls s3://$bucket $aws_flags"; then
+              echo "[ALLOWED] FULL_CONTROL permission" >> "$aws_results"
+          else
+              echo "[DENIED] FULL_CONTROL permission" >> "$aws_results"
+          fi
+      else
+          log_warning "AWS CLI available but no credentials configured. Skipping AWS CLI tests."
+          {
+              echo "AWS CLI PERMISSIONS:"
+              echo "Bucket: $bucket"
+              echo "Region: ${region:-'default'}"
+              echo "Status: SKIPPED - No AWS credentials configured"
+              echo "Note: Use --no-sign flag for public access testing only"
+              echo ""
+          } >> "$aws_results"
+      fi
   else
-      echo "[DENIED] Read permission" >> "$aws_results"
-  fi
-  
-  if check_s3_permission "Write" "aws s3 cp $S3_LOCAL_FILE s3://$bucket/$S3_TEST_FILE $aws_flags && aws s3 rm s3://$bucket/$S3_TEST_FILE $aws_flags"; then
-      echo "[ALLOWED] Write permission" >> "$aws_results"
-  else
-      echo "[DENIED] Write permission" >> "$aws_results"
-  fi
-  
-  if check_s3_permission "READ_ACP" "aws s3api get-bucket-acl --bucket $bucket $aws_flags"; then
-      echo "[ALLOWED] READ_ACP permission" >> "$aws_results"
-  else
-      echo "[DENIED] READ_ACP permission" >> "$aws_results"
-  fi
-  
-  if check_s3_permission "WRITE_ACP" "aws s3api put-bucket-acl --bucket $bucket --acl private $aws_flags"; then
-      echo "[ALLOWED] WRITE_ACP permission" >> "$aws_results"
-  else
-      echo "[DENIED] WRITE_ACP permission" >> "$aws_results"
-  fi
-  
-  if check_s3_permission "FULL_CONTROL" "aws s3api put-bucket-acl --bucket $bucket --acl private $aws_flags && aws s3 cp $S3_LOCAL_FILE s3://$bucket/$S3_TEST_FILE $aws_flags && aws s3 rm s3://$bucket/$S3_TEST_FILE $aws_flags && aws s3 ls s3://$bucket $aws_flags"; then
-      echo "[ALLOWED] FULL_CONTROL permission" >> "$aws_results"
-  else
-      echo "[DENIED] FULL_CONTROL permission" >> "$aws_results"
+      log_warning "AWS CLI not available. Skipping AWS CLI tests."
+      {
+          echo "AWS CLI PERMISSIONS:"
+          echo "Bucket: $bucket"
+          echo "Region: ${region:-'default'}"
+          echo "Status: SKIPPED - AWS CLI not installed"
+          echo "Note: Install AWS CLI for comprehensive permission testing"
+          echo ""
+      } >> "$aws_results"
   fi
   
   # Run curl-based permission checks for all S3 URL styles
@@ -189,11 +285,11 @@ s3_scan() {
       echo ""
   } >> "$curl_results"
   
-  # Test different operations
-  check_s3_curl_permission_all_styles "List (GET /)" "GET" "" "" "$curl_results" "$bucket" "$region"
-  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE)" "GET" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region"
-  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$curl_results" "$bucket" "$region"
-  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE)" "DELETE" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region"
+  # Test different operations (Phase 1: Standard URLs, Phase 2: All regions if no region specified)
+  check_s3_curl_permission_all_styles "List (GET /)" "GET" "" "" "$curl_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE)" "GET" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$curl_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE)" "DELETE" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region" "true"
   
   # Test public/anonymous access
   log_info "Testing public/anonymous access..."
@@ -210,24 +306,28 @@ s3_scan() {
       public_aws_flags="$public_aws_flags --region $region"
   fi
   
-  # Repeat permission checks with no-sign-request (AWS CLI)
-  if check_s3_permission "Read (public)" "aws s3 ls s3://$bucket $public_aws_flags"; then
-      echo "[ALLOWED] Read permission (public)" >> "$public_results"
+  # Repeat permission checks with no-sign-request (AWS CLI) - only if AWS CLI is available
+  if command -v aws >/dev/null 2>&1; then
+      if check_s3_permission "Read (public)" "aws s3 ls s3://$bucket $public_aws_flags"; then
+          echo "[ALLOWED] Read permission (public)" >> "$public_results"
+      else
+          echo "[DENIED] Read permission (public)" >> "$public_results"
+      fi
+      
+      if check_s3_permission "Write (public)" "aws s3 cp $S3_LOCAL_FILE s3://$bucket/$S3_TEST_FILE $public_aws_flags && aws s3 rm s3://$bucket/$S3_TEST_FILE $public_aws_flags"; then
+          echo "[ALLOWED] Write permission (public)" >> "$public_results"
+      else
+          echo "[DENIED] Write permission (public)" >> "$public_results"
+      fi
   else
-      echo "[DENIED] Read permission (public)" >> "$public_results"
+      echo "[SKIPPED] AWS CLI not available for public access testing" >> "$public_results"
   fi
   
-  if check_s3_permission "Write (public)" "aws s3 cp $S3_LOCAL_FILE s3://$bucket/$S3_TEST_FILE $public_aws_flags && aws s3 rm s3://$bucket/$S3_TEST_FILE $public_aws_flags"; then
-      echo "[ALLOWED] Write permission (public)" >> "$public_results"
-  else
-      echo "[DENIED] Write permission (public)" >> "$public_results"
-  fi
-  
-  # Repeat curl-based permission checks for all S3 URL styles (public)
-  check_s3_curl_permission_all_styles "List (GET /, public)" "GET" "" "" "$public_results" "$bucket" "$region"
-  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE, public)" "GET" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region"
-  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE, public)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$public_results" "$bucket" "$region"
-  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE, public)" "DELETE" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region"
+  # Repeat curl-based permission checks for all S3 URL styles (public) - Phase 1: Standard, Phase 2: All regions
+  check_s3_curl_permission_all_styles "List (GET /, public)" "GET" "" "" "$public_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE, public)" "GET" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE, public)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$public_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE, public)" "DELETE" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region" "true"
   
   # Generate simple summary
   {

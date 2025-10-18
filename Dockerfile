@@ -25,9 +25,10 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/channyein1337/jsleak@latest && \
     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
     go install -v github.com/tomnomnom/anew@latest && \
-    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
-    go install -v github.com/mikefarah/yq/v4@latest && \
-    go install -v github.com/kacakb/jsfinder@latest
+      go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
+      go install -v github.com/mikefarah/yq/v4@latest && \
+      go install -v github.com/kacakb/jsfinder@latest && \
+      go install -v github.com/trufflesecurity/trufflehog/v3/cmd/trufflehog@latest
 
 # --- Runtime stage: minimal Python image to run the Discord bot ---
 FROM python:3.11-slim AS runtime
@@ -43,7 +44,7 @@ WORKDIR /app
 # System deps for runtime and common tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils python3-dev gcc \
-    postgresql-client libpq-dev \
+    postgresql-client libpq-dev awscli \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy application code
