@@ -64,7 +64,7 @@ db_domains_list() {
     
     # Move temp file to results directory for bot to pick up
     if [[ -f "$temp_file" && -s "$temp_file" ]]; then
-      local results_dir="/app/new-results/db_export_$(date +%Y%m%d_%H%M%S)"
+      local results_dir="${AUTOAR_RESULTS_DIR}/db_export_$(date +%Y%m%d_%H%M%S)"
       mkdir -p "$results_dir"
       mv "$temp_file" "$results_dir/domains_subdomains.txt"
       echo "Subdomains exported to: $results_dir/domains_subdomains.txt"

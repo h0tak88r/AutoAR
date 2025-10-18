@@ -31,7 +31,7 @@ urls_collect() {
 
   if command -v urlfinder >/dev/null 2>&1; then
     log_info "Collecting URLs with urlfinder"
-    urlfinder -d "$domain" -all -silent -o "$urls_dir/all-urls.txt" -pc "${AUTOAR_CONFIG_FILE:-/app/autoar.yaml}" >/dev/null 2>&1 || true
+    urlfinder -d "$domain" -all -silent -o "$urls_dir/all-urls.txt" -pc "${AUTOAR_CONFIG_FILE}" >/dev/null 2>&1 || true
   fi
 
   if [[ -s "$subs_dir/live-subs.txt" && -x "$(command -v jsfinder || echo /bin/false)" ]]; then
