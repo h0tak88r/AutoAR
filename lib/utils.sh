@@ -14,6 +14,31 @@ results_dir() {
   echo "${AUTOAR_RESULTS_DIR}/$d"
 }
 
+# Check if Discord bot is available (running in Docker with bot)
+is_discord_bot_available() {
+  # Check if we're in Docker and Discord bot token is set
+  if [[ "${AUTOAR_ENV:-}" == "docker" && -n "${DISCORD_BOT_TOKEN:-}" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# Send file via Discord (bot or webhook)
+discord_send_file() {
+  local file_path="$1"
+  local description="$2"
+  
+  if is_discord_bot_available; then
+    # Discord bot will handle file sending automatically
+    log_info "File will be sent via Discord bot: $description"
+  elif [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+    # Fallback to webhook
+    discord_file "$file_path" "$description"
+  else
+    log_info "No Discord integration available for: $description"
+  fi
+}
+
 domain_dir_init() {
   local domain="$1"
   local dir

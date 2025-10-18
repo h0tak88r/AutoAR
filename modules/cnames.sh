@@ -35,7 +35,7 @@ cnames_get() {
 
   local count=$(wc -l < "$out" 2>/dev/null || echo 0)
   log_success "Found $count CNAME records"
-  discord_file "$out" "CNAME records for $domain ($count)"
+  discord_send_file "$out" "CNAME records for $domain ($count)"
 }
 
 case "${1:-}" in

@@ -55,7 +55,7 @@ js_scan() {
   fi
 
   if [[ -s "$out_dir/trufflehog.txt" ]]; then
-    discord_file "$out_dir/trufflehog.txt" "JS scan matches (trufflehog)"
+    discord_send_file "$out_dir/trufflehog.txt" "JS scan matches (trufflehog)"
   fi
 }
 

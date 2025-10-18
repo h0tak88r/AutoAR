@@ -439,7 +439,7 @@ s3_enum() {
     echo "Writable: $vulnerable_count"
   } >> "$out"
 
-  discord_file "$out" "S3 enum results for $root_domain (exist: $exists_count, writable: $vulnerable_count)"
+  discord_send_file "$out" "S3 enum results for $root_domain (exist: $exists_count, writable: $vulnerable_count)"
 }
 
 case "${1:-}" in

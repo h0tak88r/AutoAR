@@ -49,7 +49,7 @@ livehosts_get() {
     done < "$subs_dir/live-subs.txt"
   fi
   
-  discord_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
+  discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
 }
 
 case "${1:-}" in

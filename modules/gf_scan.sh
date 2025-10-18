@@ -30,7 +30,7 @@ gf_scan() {
       local out="$base/$pattern/gf-results.txt"
       ensure_dir "$(dirname "$out")"
       cat "$urls" | gf "$pattern" > "$out" 2>/dev/null || true
-      [[ -s "$out" ]] && discord_file "$out" "GF $pattern matches"
+      [[ -s "$out" ]] && discord_send_file "$out" "GF $pattern matches"
     done
   fi
 }
