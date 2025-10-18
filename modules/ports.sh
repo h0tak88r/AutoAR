@@ -28,7 +28,7 @@ ports_scan() {
   if command -v naabu >/dev/null 2>&1; then
     naabu -l "$subs" -tp 10000 -ec -c 500 -Pn --silent -rate 1000 -o "$out" >/dev/null 2>&1 || true
   fi
-  [[ -s "$out" ]] && discord_file "$out" "Port scan results for $domain"
+  [[ -s "$out" ]] && discord_send_file "$out" "Port scan results for $domain"
 }
 
 case "${1:-}" in

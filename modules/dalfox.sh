@@ -33,7 +33,7 @@ dalfox_run() {
   if command -v dalfox >/dev/null 2>&1; then
     dalfox file "$in_file" --no-spinner --only-poc r --ignore-return 302,404,403 --skip-bav -b "0x88.xss.cl" -w 50 -o "$out_file" 2>/dev/null || true
   fi
-  [[ -s "$out_file" ]] && discord_file "$out_file" "Dalfox results for $domain"
+  [[ -s "$out_file" ]] && discord_send_file "$out_file" "Dalfox results for $domain"
 }
 
 case "${1:-}" in

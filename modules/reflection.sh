@@ -35,7 +35,7 @@ reflection_scan() {
   if [[ -s "$out_file" ]]; then
     local count=$(wc -l < "$out_file")
     log_success "Found reflection points: $count"
-    discord_file "$out_file" "Reflection points for $domain ($count)"
+    discord_send_file "$out_file" "Reflection points for $domain ($count)"
   else
     log_info "No reflection points found"
   fi

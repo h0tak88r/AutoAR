@@ -50,7 +50,7 @@ subdomains_get() {
     db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false
   fi
   
-  discord_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
+  discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
 }
 
 case "${1:-}" in
