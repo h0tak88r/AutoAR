@@ -690,6 +690,17 @@ class AutoARBot(commands.Cog):
                     results
                 )
                 
+                # Add logs to embed if available
+                if results['stdout'] or results['stderr']:
+                    log_text = ""
+                    if results['stdout']:
+                        log_text += f"**Output:**\n```\n{results['stdout'][:1000]}{'...' if len(results['stdout']) > 1000 else ''}\n```\n"
+                    if results['stderr']:
+                        log_text += f"**Errors:**\n```\n{results['stderr'][:1000]}{'...' if len(results['stderr']) > 1000 else ''}\n```"
+                    
+                    if log_text:
+                        embed.add_field(name="Execution Logs", value=log_text, inline=False)
+                
                 try:
                     await interaction.edit_original_response(embed=embed)
                 except:
@@ -709,7 +720,7 @@ class AutoARBot(commands.Cog):
                 active_scans[scan_id]['error'] = str(e)
     
     async def _send_scan_files(self, scan_id: str, interaction: discord.Interaction):
-        """Send scan result files to Discord."""
+        """Send scan result files to Discord using the bot."""
         try:
             scan_info = active_scans.get(scan_id, {})
             target = scan_info.get('target', 'unknown')
@@ -718,14 +729,17 @@ class AutoARBot(commands.Cog):
             # Look for result files in the results directory
             results_path = Path(RESULTS_DIR)
             if not results_path.exists():
+                print(f"Results directory not found: {results_path}")
                 return
             
             # Find the most recent scan directory for this target
             target_dirs = [d for d in results_path.iterdir() if d.is_dir() and target in d.name]
             if not target_dirs:
+                print(f"No target directories found for {target}")
                 return
             
             latest_dir = max(target_dirs, key=os.path.getctime)
+            print(f"Looking for files in: {latest_dir}")
             
             # Send relevant files based on scan type
             files_to_send = []
@@ -752,16 +766,62 @@ class AutoARBot(commands.Cog):
                 if github_files:
                     files_to_send.append((github_files[0], "GitHub scan results"))
             
-            # Send files (Discord has a 25MB limit per file)
-            for file_path, description in files_to_send[:5]:  # Limit to 5 files
-                if file_path.stat().st_size < 25 * 1024 * 1024:  # 25MB limit
-                    try:
-                        await interaction.followup.send(
-                            content=f"📄 {description}",
-                            file=discord.File(str(file_path))
+            elif scan_type in ['db_domains', 'db_subdomains']:
+                # For database commands, look for any .txt files
+                txt_files = list(latest_dir.glob('**/*.txt'))
+                if txt_files:
+                    for txt_file in txt_files[:3]:  # Limit to 3 files
+                        files_to_send.append((txt_file, f"Database export: {txt_file.name}"))
+            
+            # Send files using Discord bot (25MB limit per file)
+            if files_to_send:
+                print(f"Found {len(files_to_send)} files to send")
+                
+                # Send files in batches (Discord allows up to 10 files per message)
+                for i in range(0, len(files_to_send), 10):
+                    batch = files_to_send[i:i+10]
+                    
+                    # Create embed for file batch
+                    embed = discord.Embed(
+                        title="📄 Scan Results",
+                        description=f"Found {len(batch)} result file(s) for {scan_type} scan of `{target}`",
+                        color=discord.Color.green()
+                    )
+                    
+                    # Prepare files for sending
+                    discord_files = []
+                    file_descriptions = []
+                    
+                    for file_path, description in batch:
+                        if file_path.stat().st_size < 25 * 1024 * 1024:  # 25MB limit
+                            try:
+                                discord_files.append(discord.File(str(file_path), filename=file_path.name))
+                                file_descriptions.append(f"• {file_path.name} ({file_path.stat().st_size} bytes)")
+                            except Exception as e:
+                                print(f"Error preparing file {file_path}: {e}")
+                        else:
+                            print(f"File too large to send: {file_path} ({file_path.stat().st_size} bytes)")
+                    
+                    if discord_files:
+                        # Add file list to embed
+                        embed.add_field(
+                            name="Files", 
+                            value="\n".join(file_descriptions[:10]), 
+                            inline=False
                         )
-                    except Exception as e:
-                        print(f"Error sending file {file_path}: {e}")
+                        
+                        try:
+                            await interaction.followup.send(
+                                embed=embed,
+                                files=discord_files
+                            )
+                            print(f"Successfully sent {len(discord_files)} files")
+                        except Exception as e:
+                            print(f"Error sending files: {e}")
+                    else:
+                        print("No valid files to send")
+            else:
+                print(f"No result files found for {scan_type} scan of {target}")
                         
         except Exception as e:
             print(f"Error sending scan files: {e}")
