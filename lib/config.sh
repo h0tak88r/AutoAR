@@ -1,7 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AUTOAR_CONFIG_FILE=${AUTOAR_CONFIG_FILE:-/app/autoar.yaml}
+# Cross-platform path detection
+detect_environment() {
+  if [[ -d "/app" && -f "/app/main.sh" ]]; then
+    # Docker environment
+    echo "docker"
+  else
+    # Local/bash environment
+    echo "local"
+  fi
+}
+
+# Set paths based on environment
+AUTOAR_ENV=$(detect_environment)
+if [[ "$AUTOAR_ENV" == "docker" ]]; then
+  AUTOAR_ROOT="/app"
+  AUTOAR_RESULTS_DIR="/app/new-results"
+  AUTOAR_CONFIG_FILE="/app/autoar.yaml"
+else
+  AUTOAR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  AUTOAR_RESULTS_DIR="${AUTOAR_ROOT}/new-results"
+  AUTOAR_CONFIG_FILE="${AUTOAR_ROOT}/autoar.yaml"
+fi
+
+# Export for other scripts
+export AUTOAR_ROOT AUTOAR_RESULTS_DIR AUTOAR_CONFIG_FILE AUTOAR_ENV
 
 # Function to get value from YAML or environment variable
 get_config_value() {

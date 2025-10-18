@@ -286,12 +286,20 @@ github_scan() {
     local repo_url=""
     local verbose=false
     
+    # Debug logging
+    log_info "Debug: Received $# arguments: $@"
+    
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
             -r|--repo)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing repository URL after -r flag"
+                    exit 1
+                fi
                 repo_url="$2"
-                shift 2
+                shift
+                shift
                 ;;
             -v|--verbose)
                 verbose=true
@@ -418,16 +426,29 @@ github_org_scan() {
     local max_repos="50"
     local verbose=false
     
+    # Debug logging
+    log_info "Debug: Received $# arguments: $@"
+    
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
             -o|--org)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing organization name after -o flag"
+                    exit 1
+                fi
                 org_name="$2"
-                shift 2
+                shift
+                shift
                 ;;
             -m|--max-repos)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing max repositories value after -m flag"
+                    exit 1
+                fi
                 max_repos="$2"
-                shift 2
+                shift
+                shift
                 ;;
             -v|--verbose)
                 verbose=true
