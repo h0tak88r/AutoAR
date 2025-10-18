@@ -133,7 +133,17 @@ check_and_install() {
     aws)
       install_apt awscli || return 1;;
     trufflehog)
-      install_go_tool trufflehog github.com/trufflesecurity/trufflehog/v3/cmd/trufflehog@latest || return 1;;
+      if ! has_cmd trufflehog; then
+        log_info "Installing trufflehog..."
+        if curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin; then
+          log_success "✓ trufflehog installed successfully"
+        else
+          log_error "✗ Failed to install trufflehog"
+          return 1
+        fi
+      else
+        log_success "✓ trufflehog (installed)"
+      fi;;
     *)
       return 1;;
   esac
