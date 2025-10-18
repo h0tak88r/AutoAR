@@ -2,7 +2,7 @@
 # AutoAR Configuration Generator
 # Generates autoar.yaml from environment variables if it doesn't exist
 
-set -euo pipefail
+# set -euo pipefail
 
 # Source required libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -285,8 +285,11 @@ main() {
         
     else
         log_error "Configuration validation failed"
-        return 1
+        exit 1
     fi
+    
+    # Explicitly exit with success
+    exit 0
 }
 
 # Run main function if script is executed directly
