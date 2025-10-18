@@ -355,6 +355,8 @@ github_scan() {
             return 1
         fi
         
+        # Disable TruffleHog auto-update to prevent updater errors
+        export TRUFFLEHOG_NO_UPDATE=true
         if trufflehog filesystem "$temp_dir/$repo_name" --json > "$secrets_file" 2>&1; then
             # Convert newline-delimited JSON to JSON array for counting
             local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
@@ -416,7 +418,11 @@ github_scan() {
         else
             log_error "TruffleHog scan failed for $repo_name"
             if [[ -s "$secrets_file" ]]; then
-                log_error "TruffleHog output: $(cat "$secrets_file")"
+                log_error "TruffleHog output:"
+                cat "$secrets_file" | head -20
+                if [[ $(wc -l < "$secrets_file") -gt 20 ]]; then
+                    log_error "... (truncated, see full output in $secrets_file)"
+                fi
             fi
             return 1
         fi
@@ -509,6 +515,8 @@ github_org_scan() {
     fi
     
     log_info "Running TruffleHog with GitHub token..."
+    # Disable TruffleHog auto-update to prevent updater errors
+    export TRUFFLEHOG_NO_UPDATE=true
     if trufflehog github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>&1; then
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$org_dir/org_secrets_array.json"
@@ -566,7 +574,11 @@ github_org_scan() {
         else
             log_error "TruffleHog organization scan failed for $org_name"
             if [[ -s "$org_results_file" ]]; then
-                log_error "TruffleHog output: $(cat "$org_results_file")"
+                log_error "TruffleHog output:"
+                cat "$org_results_file" | head -20
+                if [[ $(wc -l < "$org_results_file") -gt 20 ]]; then
+                    log_error "... (truncated, see full output in $org_results_file)"
+                fi
             fi
             return 1
         fi
