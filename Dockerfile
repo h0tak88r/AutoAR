@@ -28,7 +28,7 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
       go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
       go install -v github.com/mikefarah/yq/v4@latest && \
       go install -v github.com/kacakb/jsfinder@latest && \
-      go install -v github.com/trufflesecurity/trufflehog/v3/cmd/trufflehog@latest
+      curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin
 
 # --- Runtime stage: minimal Python image to run the Discord bot ---
 FROM python:3.11-slim AS runtime
