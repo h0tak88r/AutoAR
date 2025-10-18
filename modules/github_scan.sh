@@ -377,18 +377,7 @@ github_scan() {
                 local html_report="$github_dir/${repo_name}_secrets.html"
                 generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
                 
-                # Send Discord notification
-                if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-                    local message="🔍 **GitHub Repository Scan Results**\n\n"
-                    message+="**Repository:** \`$repo_name\`\n"
-                    message+="**Organization:** \`$org_name\`\n"
-                    message+="**Secrets found:** \`$secret_count\`\n"
-                    message+="**Time:** \`$(date)\`\n"
-                    message+="**Reports:** \`JSON + HTML attached\`\n"
-                    
-                    discord_file "$temp_json_array" "GitHub Repository Scan Results (JSON) for $repo_name"
-                    discord_file "$html_report" "GitHub Repository Scan Results (HTML) for $repo_name"
-                fi
+                # Discord notification will be handled by the bot automatically
                 
                 log_success "GitHub scan completed for $repo_name - Found $secret_count secrets"
             else
@@ -400,19 +389,7 @@ github_scan() {
                 echo "[]" > "$json_report"
                 generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
                 
-                # Send Discord notification
-                if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-                    local message="🔍 **GitHub Repository Scan Results**\n\n"
-                    message+="**Repository:** \`$repo_name\`\n"
-                    message+="**Organization:** \`$org_name\`\n"
-                    message+="**Secrets found:** \`0\`\n"
-                    message+="**Time:** \`$(date)\`\n"
-                    message+="**Status:** \`Clean - No secrets found\`\n"
-                    message+="**Reports:** \`JSON + HTML attached\`"
-                    
-                    discord_file "$json_report" "GitHub Repository Scan Results (JSON) for $repo_name"
-                    discord_file "$html_report" "GitHub Repository Scan Results (HTML) for $repo_name"
-                fi
+                # Discord notification will be handled by the bot automatically
                 
                 log_success "GitHub scan completed for $repo_name - No secrets found"
             fi
@@ -538,17 +515,7 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "$total_secrets"
             
-            # Send Discord notification
-            if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-                local message="🔍 **GitHub Organization Scan Results**\n\n"
-                message+="**Organization:** \`$org_name\`\n"
-                message+="**Secrets found:** \`$total_secrets\`\n"
-                message+="**Time:** \`$(date)\`\n"
-                message+="**Reports:** \`JSON + HTML attached\`\n"
-                
-                discord_file "$temp_json_array" "GitHub Organization Scan Results (JSON) for $org_name"
-                discord_file "$html_report" "GitHub Organization Scan Results (HTML) for $org_name"
-            fi
+            # Discord notification will be handled by the bot automatically
             
             log_success "Organization scan completed for $org_name - Found $total_secrets secrets"
         else
@@ -558,18 +525,7 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "0"
             
-            # Send Discord notification
-            if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-                local message="🔍 **GitHub Organization Scan Results**\n\n"
-                message+="**Organization:** \`$org_name\`\n"
-                message+="**Secrets found:** \`0\`\n"
-                message+="**Time:** \`$(date)\`\n"
-                message+="**Status:** \`Clean - No secrets found\`\n"
-                message+="**Reports:** \`JSON + HTML attached\`"
-                
-                discord_file "$temp_json_array" "GitHub Organization Scan Results (JSON) for $org_name"
-                discord_file "$html_report" "GitHub Organization Scan Results (HTML) for $org_name"
-            fi
+            # Discord notification will be handled by the bot automatically
             
             log_success "Organization scan completed for $org_name - No secrets found"
         fi
