@@ -26,7 +26,8 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
     go install -v github.com/tomnomnom/anew@latest && \
     go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
-
+    go install -v github.com/mikefarah/yq/v4@latest && \
+    go install -v github.com/kacakb/jsfinder@latest
 
 # --- Runtime stage: minimal Python image to run the Discord bot ---
 FROM python:3.11-slim AS runtime
