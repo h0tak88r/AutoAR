@@ -62,23 +62,12 @@ db_domains_list() {
       fi
     done <<< "$result"
     
-    # Send subdomains file to Discord
+    # Move temp file to results directory for bot to pick up
     if [[ -f "$temp_file" && -s "$temp_file" ]]; then
-      if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-        local message="**Database Subdomains Export**
-**Command:** \`db domains list\`
-**File:** \`domains_subdomains.txt\`
-
-All subdomains from the database have been exported to the attached file."
-        
-        # Send file to Discord using curl
-        curl -s -X POST "$DISCORD_WEBHOOK" \
-          -F "content=$message" \
-          -F "file=@$temp_file;filename=domains_subdomains.txt" >/dev/null 2>&1 || true
-      fi
-      
-      # Clean up temp file
-      rm -f "$temp_file"
+      local results_dir="/app/new-results/db_export_$(date +%Y%m%d_%H%M%S)"
+      mkdir -p "$results_dir"
+      mv "$temp_file" "$results_dir/domains_subdomains.txt"
+      echo "Subdomains exported to: $results_dir/domains_subdomains.txt"
     fi
   fi
 }
