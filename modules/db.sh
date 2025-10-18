@@ -38,7 +38,49 @@ db_domains_list() {
   db_ensure_connection
   local result=$(db_list_domains)
   echo "$result"
+  
+  # Send domains list to Discord
   send_db_result_to_discord "db domains list" "$result"
+  
+  # Also send all subdomains for each domain to Discord
+  if [[ -n "$result" ]]; then
+    local temp_file="/tmp/domains_subdomains.txt"
+    echo "# AutoAR Database - All Subdomains by Domain" > "$temp_file"
+    echo "# Generated: $(date)" >> "$temp_file"
+    echo "" >> "$temp_file"
+    
+    while IFS= read -r domain; do
+      if [[ -n "$domain" ]]; then
+        echo "## Domain: $domain" >> "$temp_file"
+        local subdomains=$(db_get_subdomains "$domain")
+        if [[ -n "$subdomains" ]]; then
+          echo "$subdomains" >> "$temp_file"
+        else
+          echo "No subdomains found" >> "$temp_file"
+        fi
+        echo "" >> "$temp_file"
+      fi
+    done <<< "$result"
+    
+    # Send subdomains file to Discord
+    if [[ -f "$temp_file" && -s "$temp_file" ]]; then
+      if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+        local message="**Database Subdomains Export**
+**Command:** \`db domains list\`
+**File:** \`domains_subdomains.txt\`
+
+All subdomains from the database have been exported to the attached file."
+        
+        # Send file to Discord using curl
+        curl -s -X POST "$DISCORD_WEBHOOK" \
+          -F "content=$message" \
+          -F "file=@$temp_file;filename=domains_subdomains.txt" >/dev/null 2>&1 || true
+      fi
+      
+      # Clean up temp file
+      rm -f "$temp_file"
+    fi
+  fi
 }
 
 db_subdomains_list() {

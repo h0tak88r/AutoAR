@@ -1,22 +1,31 @@
 # syntax=docker/dockerfile:1.7
 
-# --- Builder stage: optional tool installation (Go-based and system tools) ---
+# --- Builder stage: install Go-based security tools ---
 FROM golang:1.24-bullseye AS builder
 
 WORKDIR /app
 
-# Install system packages required by setup.sh and tools
+# Install system packages required for building tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl build-essential cmake libpcap-dev python3 python3-pip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only the scripts that may be needed for tool install caching
-
-# Allow opting-in to run setup at build time to bake tools into image
-ARG RUN_SETUP_AT_BUILD=false
-RUN if [ "$RUN_SETUP_AT_BUILD" = "true" ]; then \
-      chmod +x /app/modules/check_tools.sh && /app/modules/check_tools.sh run || true; \
-    fi
+# Install Go-based security tools directly
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+    go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
+    go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    go install -v github.com/ffuf/ffuf@latest && \
+    go install -v github.com/Emoe/kxss@latest && \
+    go install -v github.com/tomnomnom/qsreplace@latest && \
+    go install -v github.com/tomnomnom/gf@latest && \
+    go install -v github.com/hakluke/hakrawler@latest && \
+    go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest && \
+    go install -v github.com/hahwul/dalfox/v2@latest && \
+    go install -v github.com/channyein1337/jsleak@latest && \
+    go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
+    go install -v github.com/tomnomnom/anew@latest && \
+    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
 
 
 # --- Runtime stage: minimal Python image to run the Discord bot ---
@@ -39,7 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy application code
 COPY . /app
 
-# If we built tools in builder (fastlook or full), copy Go bin into PATH
+# Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
 
 # Ensure directories exist
