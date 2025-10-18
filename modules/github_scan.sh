@@ -349,7 +349,13 @@ github_scan() {
         local secrets_file="$temp_dir/${repo_name}_secrets.json"
         log_info "Scanning for secrets using TruffleHog..."
         
-        if trufflehog filesystem "$temp_dir/$repo_name" --json > "$secrets_file" 2>/dev/null; then
+        # Check if TruffleHog is available
+        if ! command -v trufflehog >/dev/null 2>&1; then
+            log_error "TruffleHog is not installed or not in PATH"
+            return 1
+        fi
+        
+        if trufflehog filesystem "$temp_dir/$repo_name" --json > "$secrets_file" 2>&1; then
             # Convert newline-delimited JSON to JSON array for counting
             local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
             if [[ -s "$secrets_file" ]]; then
@@ -409,6 +415,9 @@ github_scan() {
             fi
         else
             log_error "TruffleHog scan failed for $repo_name"
+            if [[ -s "$secrets_file" ]]; then
+                log_error "TruffleHog output: $(cat "$secrets_file")"
+            fi
             return 1
         fi
     else
@@ -487,7 +496,20 @@ github_org_scan() {
         export GITHUB_TOKEN
     fi
     
-    if trufflehog github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>/dev/null; then
+    # Check if TruffleHog is available
+    if ! command -v trufflehog >/dev/null 2>&1; then
+        log_error "TruffleHog is not installed or not in PATH"
+        return 1
+    fi
+    
+    # Check if GitHub token is available
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        log_error "GITHUB_TOKEN environment variable is required for organization scanning"
+        return 1
+    fi
+    
+    log_info "Running TruffleHog with GitHub token..."
+    if trufflehog github --org="$org_name" --issue-comments --pr-comments --json > "$org_results_file" 2>&1; then
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$org_dir/org_secrets_array.json"
         if [[ -s "$org_results_file" ]]; then
@@ -541,10 +563,13 @@ github_org_scan() {
             
             log_success "Organization scan completed for $org_name - No secrets found"
         fi
-    else
-        log_error "TruffleHog organization scan failed for $org_name"
-        return 1
-    fi
+        else
+            log_error "TruffleHog organization scan failed for $org_name"
+            if [[ -s "$org_results_file" ]]; then
+                log_error "TruffleHog output: $(cat "$org_results_file")"
+            fi
+            return 1
+        fi
 }
 
 case "${1:-}" in
