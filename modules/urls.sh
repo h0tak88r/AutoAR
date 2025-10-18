@@ -49,8 +49,8 @@ urls_collect() {
   local total=$(wc -l < "$urls_dir/all-urls.txt" 2>/dev/null || echo 0)
   local js=$(wc -l < "$urls_dir/js-urls.txt" 2>/dev/null || echo 0)
   log_success "Found $total total URLs; $js JavaScript URLs"
-  discord_file "$urls_dir/all-urls.txt" "All URLs for $domain ($total)"
-  [[ $js -gt 0 ]] && discord_file "$urls_dir/js-urls.txt" "JS URLs for $domain ($js)"
+  discord_send_file "$urls_dir/all-urls.txt" "All URLs for $domain ($total)"
+  [[ $js -gt 0 ]] && discord_send_file "$urls_dir/js-urls.txt" "JS URLs for $domain ($js)"
 }
 
 case "${1:-}" in

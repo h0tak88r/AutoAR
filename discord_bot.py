@@ -763,20 +763,24 @@ class AutoARBot(commands.Cog):
             
             elif scan_type in ['github', 'github_org']:
                 # Look for GitHub scan result files (JSON and HTML)
-                json_files = list(latest_dir.glob('**/*_secrets.json'))
-                html_files = list(latest_dir.glob('**/*_secrets.html'))
-                org_json_files = list(latest_dir.glob('**/org_secrets.json'))
-                org_html_files = list(latest_dir.glob('**/org_secrets.html'))
+                # Use set to avoid duplicates
+                found_files = set()
                 
-                # Add JSON files
-                for json_file in json_files + org_json_files:
-                    if json_file.exists() and json_file.stat().st_size > 0:
+                # Find all relevant files
+                all_json_files = list(latest_dir.glob('**/*_secrets.json')) + list(latest_dir.glob('**/org_secrets.json'))
+                all_html_files = list(latest_dir.glob('**/*_secrets.html')) + list(latest_dir.glob('**/org_secrets.html'))
+                
+                # Add JSON files (avoid duplicates)
+                for json_file in all_json_files:
+                    if json_file.exists() and json_file.stat().st_size > 0 and str(json_file) not in found_files:
                         files_to_send.append((json_file, f"GitHub secrets (JSON): {json_file.name}"))
+                        found_files.add(str(json_file))
                 
-                # Add HTML files
-                for html_file in html_files + org_html_files:
-                    if html_file.exists() and html_file.stat().st_size > 0:
+                # Add HTML files (avoid duplicates)
+                for html_file in all_html_files:
+                    if html_file.exists() and html_file.stat().st_size > 0 and str(html_file) not in found_files:
                         files_to_send.append((html_file, f"GitHub secrets (HTML): {html_file.name}"))
+                        found_files.add(str(html_file))
             
             elif scan_type in ['db_domains', 'db_subdomains']:
                 # For database commands, look for any .txt files

@@ -31,10 +31,10 @@ dns_takeover() {
     nuclei -l "$subs" -t nuclei-templates/http/takeovers/ -o "$dir/vulnerabilities/dns-takeover/nuclei-takeover-public.txt" >/dev/null 2>&1 || true
   fi
 
-  [[ -s "$dir/vulnerabilities/dns-takeover/nuclei-takeover-public.txt" ]] && discord_file "$dir/vulnerabilities/dns-takeover/nuclei-takeover-public.txt" "Nuclei takeover findings"
+  [[ -s "$dir/vulnerabilities/dns-takeover/nuclei-takeover-public.txt" ]] && discord_send_file "$dir/vulnerabilities/dns-takeover/nuclei-takeover-public.txt" "Nuclei takeover findings"
 
   echo "DNS takeover scan completed for $domain" >> "$finding"
-  discord_file "$finding" "DNS takeover summary for $domain"
+  discord_send_file "$finding" "DNS takeover summary for $domain"
 }
 
 case "${1:-}" in

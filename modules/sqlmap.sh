@@ -47,7 +47,7 @@ sqlmap_run() {
     done < "$temp_urls"
   fi
 
-  [[ -s "$out_file" ]] && discord_file "$out_file" "SQLMap results for $domain"
+  [[ -s "$out_file" ]] && discord_send_file "$out_file" "SQLMap results for $domain"
   rm -f "$temp_urls"
 }
 

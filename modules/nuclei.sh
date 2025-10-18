@@ -33,8 +33,8 @@ nuclei_run() {
     [[ -s "$subs_dir/live-subs.txt" ]] && nuclei -l "$subs_dir/live-subs.txt" -t nuclei-templates/http -o "$out2" >/dev/null 2>&1 || true
   fi
 
-  [[ -s "$out1" ]] && discord_file "$out1" "Nuclei custom template results"
-  [[ -s "$out2" ]] && discord_file "$out2" "Nuclei public template results"
+  [[ -s "$out1" ]] && discord_send_file "$out1" "Nuclei custom template results"
+  [[ -s "$out2" ]] && discord_send_file "$out2" "Nuclei public template results"
 }
 
 case "${1:-}" in
