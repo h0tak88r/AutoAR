@@ -762,9 +762,21 @@ class AutoARBot(commands.Cog):
                     files_to_send.append((s3_files[0], "S3 scan results"))
             
             elif scan_type in ['github', 'github_org']:
-                github_files = list(latest_dir.glob('**/github-*.txt'))
-                if github_files:
-                    files_to_send.append((github_files[0], "GitHub scan results"))
+                # Look for GitHub scan result files (JSON and HTML)
+                json_files = list(latest_dir.glob('**/*_secrets.json'))
+                html_files = list(latest_dir.glob('**/*_secrets.html'))
+                org_json_files = list(latest_dir.glob('**/org_secrets.json'))
+                org_html_files = list(latest_dir.glob('**/org_secrets.html'))
+                
+                # Add JSON files
+                for json_file in json_files + org_json_files:
+                    if json_file.exists() and json_file.stat().st_size > 0:
+                        files_to_send.append((json_file, f"GitHub secrets (JSON): {json_file.name}"))
+                
+                # Add HTML files
+                for html_file in html_files + org_html_files:
+                    if html_file.exists() and html_file.stat().st_size > 0:
+                        files_to_send.append((html_file, f"GitHub secrets (HTML): {html_file.name}"))
             
             elif scan_type in ['db_domains', 'db_subdomains']:
                 # For database commands, look for any .txt files

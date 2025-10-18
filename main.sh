@@ -30,6 +30,8 @@ Commands:
   dns takeover        -d <domain>
   s3 scan             -b <bucket> [-r <region>]
   s3 enum             -b <root_domain>
+  github scan         -r <owner/repo>
+  github org          -o <org> [-m <max-repos>]
 
 Workflows:
   lite run            -d <domain>
@@ -69,7 +71,7 @@ cmd_gf()         { "$ROOT_DIR/modules/gf_scan.sh"     "$@"; }
 cmd_sqlmap()     { "$ROOT_DIR/modules/sqlmap.sh"      "$@"; }
 cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
 cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
-cmd_github()     { echo "GitHub scanning not implemented yet"; exit 1; }
+cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
 cmd_wpdepconf()  { echo "WordPress dependency confusion not implemented yet"; exit 1; }
 
 main() {

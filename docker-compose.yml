@@ -65,6 +65,11 @@ services:
       - GITHUB_PARALLEL_JOBS=${GITHUB_PARALLEL_JOBS:-3}
       - GITHUB_HTML_REPORTS=${GITHUB_HTML_REPORTS:-true}
       - GITHUB_SCAN_TYPES=${GITHUB_SCAN_TYPES:-github_org_scan}
+      # AWS Configuration (for S3 scanning)
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
     volumes:
       - results-data:/app/new-results
       - ./regexes:/app/regexes:ro
