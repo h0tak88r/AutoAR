@@ -44,7 +44,7 @@ WORKDIR /app
 # System deps for runtime and common tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils python3-dev gcc \
-    postgresql-client libpq-dev awscli docker.io \
+    postgresql-client libpq-dev awscli docker.io libpcap0.8 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy application code
@@ -61,9 +61,6 @@ COPY --from=builder /go/bin/ /usr/local/bin/
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
-
-# Also clone templates directly as backup
-RUN git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git /app/nuclei-templates-backup || true
 
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
