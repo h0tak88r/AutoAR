@@ -22,6 +22,20 @@ gf_scan() {
   local base="$dir/vulnerabilities"
   ensure_dir "$base"
   
+  # Check if URLs file is corrupted (contains binary content)
+  if [[ -f "$urls" ]] && file "$urls" | grep -q "data"; then
+    log_warn "URLs file appears corrupted (binary content detected), regenerating..."
+    mv "$urls" "${urls}.corrupted"
+    
+    if command -v urlfinder >/dev/null 2>&1; then
+      log_info "Regenerating clean URLs with urlfinder"
+      urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" > "$urls" 2>/dev/null || true
+      log_success "Regenerated URLs: $(wc -l < "$urls" 2>/dev/null || echo 0) lines"
+    else
+      log_warn "urlfinder not available, cannot regenerate URLs"
+    fi
+  fi
+  
   # Check if URLs exist, if not run fastlook first
   if [[ ! -s "$urls" ]]; then
     log_info "No URLs found for $domain, running fastlook first"
