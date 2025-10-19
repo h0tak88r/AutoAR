@@ -53,7 +53,9 @@ subdomains_get() {
   # Save subdomains to database (batch insert for performance)
   if [[ $total -gt 0 ]]; then
     log_info "Saving subdomains to database"
-    db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false
+    if ! db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false; then
+      log_warn "Failed to save subdomains to database, continuing..."
+    fi
   fi
   
   discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
