@@ -583,13 +583,53 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
-    @app_commands.command(name="dns_takeover", description="Run DNS takeover checks")
+    @app_commands.command(name="dns_takeover", description="Run comprehensive DNS takeover scan")
     @app_commands.describe(domain="The domain")
     async def dns_takeover_cmd(self, interaction: discord.Interaction, domain: str):
         scan_id = f"dnstko_{int(time.time())}"
         command = [AUTOAR_SCRIPT_PATH, "dns", "takeover", "-d", domain]
         active_scans[scan_id] = { 'type': 'dns_takeover', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("DNS Takeover", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="dns_cname", description="Run CNAME takeover scan")
+    @app_commands.describe(domain="The domain")
+    async def dns_cname_cmd(self, interaction: discord.Interaction, domain: str):
+        scan_id = f"dnscname_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "dns", "cname", "-d", domain]
+        active_scans[scan_id] = { 'type': 'dns_cname', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
+        embed = self.create_scan_embed("DNS CNAME", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="dns_ns", description="Run NS takeover scan")
+    @app_commands.describe(domain="The domain")
+    async def dns_ns_cmd(self, interaction: discord.Interaction, domain: str):
+        scan_id = f"dnsns_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "dns", "ns", "-d", domain]
+        active_scans[scan_id] = { 'type': 'dns_ns', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
+        embed = self.create_scan_embed("DNS NS", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="dns_azure_aws", description="Run Azure & AWS takeover scan")
+    @app_commands.describe(domain="The domain")
+    async def dns_azure_aws_cmd(self, interaction: discord.Interaction, domain: str):
+        scan_id = f"dnscloud_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "dns", "azure-aws", "-d", domain]
+        active_scans[scan_id] = { 'type': 'dns_azure_aws', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
+        embed = self.create_scan_embed("DNS Azure/AWS", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="dns_dnsreaper", description="Run DNSReaper takeover scan")
+    @app_commands.describe(domain="The domain")
+    async def dns_dnsreaper_cmd(self, interaction: discord.Interaction, domain: str):
+        scan_id = f"dnsreaper_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "dns", "dnsreaper", "-d", domain]
+        active_scans[scan_id] = { 'type': 'dns_dnsreaper', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
+        embed = self.create_scan_embed("DNSReaper", domain, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
@@ -794,6 +834,31 @@ class AutoARBot(commands.Cog):
                     if html_file.exists() and html_file.stat().st_size > 0 and str(html_file) not in found_files:
                         files_to_send.append((html_file, f"GitHub secrets (HTML): {html_file.name}"))
                         found_files.add(str(html_file))
+            
+            elif scan_type in ['dns_takeover', 'dns_cname', 'dns_ns', 'dns_azure_aws', 'dns_dnsreaper']:
+                # Look for DNS takeover result files
+                dns_dir = latest_dir / 'vulnerabilities' / 'dns-takeover'
+                if dns_dir.exists():
+                    # Look for all takeover-related files
+                    takeover_files = [
+                        'nuclei-takeover-public.txt',
+                        'nuclei-takeover-custom.txt',
+                        'azure-takeover.txt',
+                        'aws-takeover.txt',
+                        'azure-aws-takeover.txt',
+                        'ns-takeover-raw.txt',
+                        'ns-takeover-vuln.txt',
+                        'ns-servers.txt',
+                        'ns-servers-vuln.txt',
+                        'dns-takeover-summary.txt',
+                        'dnsreaper-results.txt',
+                        'filtered-ns-takeover-vuln.txt'
+                    ]
+                    
+                    for filename in takeover_files:
+                        file_path = dns_dir / filename
+                        if file_path.exists() and file_path.stat().st_size > 0:
+                            files_to_send.append((file_path, f"DNS Takeover: {filename}"))
             
             elif scan_type in ['db_domains', 'db_subdomains']:
                 # For database commands, look for any .txt files
