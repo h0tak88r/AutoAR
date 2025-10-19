@@ -27,7 +27,12 @@ Commands:
   gf scan             -d <domain>
   sqlmap run          -d <domain>
   dalfox run          -d <domain>
-  dns takeover        -d <domain>
+  dns takeover        -d <domain>     (comprehensive scan)
+  dns cname           -d <domain>     (CNAME takeover only)
+  dns ns              -d <domain>     (NS takeover only)
+  dns azure-aws       -d <domain>     (Azure/AWS takeover only)
+  dns dnsreaper       -d <domain>     (DNSReaper scan only)
+  dns all             -d <domain>     (comprehensive scan)
   s3 scan             -b <bucket> [-r <region>]
   s3 enum             -b <root_domain>
   github scan         -r <owner/repo>
