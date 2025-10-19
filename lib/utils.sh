@@ -74,14 +74,18 @@ ensure_subdomains() {
     return 0
   fi
   
-  # Try to pull from database
-  log_info "Attempting to pull subdomains from database"
-  local count
-  count=$(db_get_subdomains "$domain" > "$subs_file" 2>/dev/null && wc -l < "$subs_file" || echo 0)
-  
-  if [[ $count -gt 0 ]]; then
-    log_success "Loaded $count subdomains from database"
-    return 0
+  # Try to pull from database (if database is available)
+  if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
+    log_info "Attempting to pull subdomains from database"
+    local count
+    count=$(db_get_subdomains "$domain" > "$subs_file" 2>/dev/null && wc -l < "$subs_file" || echo 0)
+    
+    if [[ $count -gt 0 ]]; then
+      log_success "Loaded $count subdomains from database"
+      return 0
+    fi
+  else
+    log_info "Database not configured, skipping database lookup"
   fi
   
   # Run subdomain enumeration
@@ -97,13 +101,17 @@ ensure_live_hosts() {
     return 0
   fi
   
-  # Try DB first
-  local count
-  count=$(db_get_live_subdomains "$domain" > "$live_file" 2>/dev/null && wc -l < "$live_file" || echo 0)
-  
-  if [[ $count -gt 0 ]]; then
-    log_success "Loaded $count live hosts from database"
-    return 0
+  # Try DB first (if database is available)
+  if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
+    local count
+    count=$(db_get_live_subdomains "$domain" > "$live_file" 2>/dev/null && wc -l < "$live_file" || echo 0)
+    
+    if [[ $count -gt 0 ]]; then
+      log_success "Loaded $count live hosts from database"
+      return 0
+    fi
+  else
+    log_info "Database not configured, skipping database lookup"
   fi
   
   # Ensure subdomains exist
