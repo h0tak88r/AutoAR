@@ -26,7 +26,7 @@ ports_scan() {
   ensure_live_hosts "$domain" "$subs" || { log_warn "Failed to get live hosts for $domain"; exit 1; }
 
   if command -v naabu >/dev/null 2>&1; then
-    naabu -l "$subs" -tp 10000 -ec -c 500 -Pn --silent -rate 1000 -o "$out" >/dev/null 2>&1 || true
+    naabu -l "$subs" -tp 1000 -ec -c 500 -Pn --silent -rate 1000 -o "$out" >/dev/null 2>&1 || true
   fi
   [[ -s "$out" ]] && discord_send_file "$out" "Port scan results for $domain"
 }
