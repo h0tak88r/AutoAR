@@ -80,6 +80,8 @@ RUN set -e; \
 # Permissions and executables
 RUN chmod +x /app/generate_config.sh || true \
     && chmod +x /app/main.sh || true \
+    && chmod +x /app/db_handler.py || true \
+    && chmod +x /app/db_wrapper.sh || true \
     && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
     && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
 
