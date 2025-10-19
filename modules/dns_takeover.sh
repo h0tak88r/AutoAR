@@ -245,7 +245,7 @@ run_nuclei_takeover() {
     # Run custom takeover templates - check multiple possible locations
     local nuclei_custom_dir=""
     for dir in "/app/nuclei_templates" "/app/nuclei-templates-backup" "nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates" "/root/nuclei_templates" "/home/autoar/nuclei_templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
-        if [[ -d "$dir" && -f "$dir/takeover/detect-all-takeover.yaml" ]]; then
+        if [[ -d "$dir" && -d "$dir/http/takeovers" ]]; then
             nuclei_custom_dir="$dir"
             log_info "Found custom Nuclei templates in: $dir"
             break
@@ -254,7 +254,7 @@ run_nuclei_takeover() {
     
     if [[ -n "$nuclei_custom_dir" ]]; then
         log_info "Running Nuclei custom takeover templates from $nuclei_custom_dir..."
-        if nuclei -l "$domain_dir/subs/all-subs.txt" -t "$nuclei_custom_dir/takeover/detect-all-takeover.yaml" -o "$findings_dir/nuclei-takeover-custom.txt" >/dev/null 2>&1; then
+        if nuclei -l "$domain_dir/subs/all-subs.txt" -t "$nuclei_custom_dir/http/takeovers/" -o "$findings_dir/nuclei-takeover-custom.txt" >/dev/null 2>&1; then
             if [[ -s "$findings_dir/nuclei-takeover-custom.txt" ]]; then
                 log_success "Nuclei custom takeover scan completed with findings"
                 discord_send_file "$findings_dir/nuclei-takeover-custom.txt" "Nuclei Custom Takeover Findings"
@@ -332,8 +332,10 @@ dns_takeover_comprehensive() {
 
     local dir subs findings_dir
     dir="$(results_dir "$domain")"
+    log_info "Debug: Initial dir variable is: $dir"
     subs="$dir/subs/all-subs.txt"
     findings_dir="$dir/vulnerabilities/dns-takeover"
+    log_info "Debug: After setting subs and findings_dir, dir is still: $dir"
     ensure_dir "$findings_dir"
     
     # Initialize all output files
