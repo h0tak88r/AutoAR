@@ -736,20 +736,31 @@ class AutoARBot(commands.Cog):
             target_dirs = [d for d in results_path.iterdir() if d.is_dir() and target in d.name]
             if not target_dirs:
                 print(f"No target directories found for {target}")
+                print(f"Available directories: {[d.name for d in results_path.iterdir() if d.is_dir()]}")
                 return
             
             latest_dir = max(target_dirs, key=os.path.getctime)
             print(f"Looking for files in: {latest_dir}")
+            print(f"Directory contents: {[f.name for f in latest_dir.iterdir()]}")
             
             # Send relevant files based on scan type
             files_to_send = []
             
             if scan_type in ['domain', 'subdomain', 'lite', 'fast']:
-                # Look for common result files
+                # Look for common result files in subdirectories
                 for pattern in ['all-subs.txt', 'live-subs.txt', 'all-urls.txt', 'js-urls.txt']:
-                    file_path = latest_dir / pattern
-                    if file_path.exists() and file_path.stat().st_size > 0:
-                        files_to_send.append((file_path, f"{scan_type.title()} scan results: {pattern}"))
+                    # Check in subs/ and urls/ subdirectories
+                    for subdir in ['subs', 'urls']:
+                        file_path = latest_dir / subdir / pattern
+                        print(f"Checking file: {file_path} (exists: {file_path.exists()}, size: {file_path.stat().st_size if file_path.exists() else 0})")
+                        if file_path.exists() and file_path.stat().st_size > 0:
+                            files_to_send.append((file_path, f"{scan_type.title()} scan results: {pattern}"))
+                
+                # Also look for CNAME records
+                cname_file = latest_dir / 'subs' / 'cname-records.txt'
+                print(f"Checking CNAME file: {cname_file} (exists: {cname_file.exists()}, size: {cname_file.stat().st_size if cname_file.exists() else 0})")
+                if cname_file.exists() and cname_file.stat().st_size > 0:
+                    files_to_send.append((cname_file, f"{scan_type.title()} scan results: cname-records.txt"))
             
             elif scan_type == 'js':
                 js_files = list(latest_dir.glob('**/js-urls.txt'))
