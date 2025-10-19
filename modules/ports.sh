@@ -17,43 +17,44 @@ ports_scan() {
   done
   [[ -z "$domain" ]] && { usage; exit 1; }
 
-  log_info "Starting ports scan for domain: $domain"
+  echo "[INFO] Starting ports scan for domain: $domain"
   
   local dir="$(results_dir "$domain")"
   local subs="$dir/subs/live-subs.txt"
   local out="$dir/ports/ports.txt"
   
-  log_info "Results directory: $dir"
-  log_info "Subdomains file: $subs"
-  log_info "Output file: $out"
+  echo "[INFO] Results directory: $dir"
+  echo "[INFO] Subdomains file: $subs"
+  echo "[INFO] Output file: $out"
   
   ensure_dir "$(dirname "$out")"
-  log_info "Created output directory: $(dirname "$out")"
+  echo "[INFO] Created output directory: $(dirname "$out")"
   
   # Ensure live hosts exist (from DB or live host check)
-  log_info "Ensuring live hosts exist..."
+  echo "[INFO] Ensuring live hosts exist..."
   if ! ensure_live_hosts "$domain" "$subs"; then
-    log_error "Failed to get live hosts for $domain"
+    echo "[ERROR] Failed to get live hosts for $domain"
     exit 1
   fi
-  log_info "Live hosts check completed"
+  echo "[INFO] Live hosts check completed"
 
   if command -v naabu >/dev/null 2>&1; then
-    log_info "Running naabu port scan..."
+    echo "[INFO] Running naabu port scan..."
     if naabu -l "$subs" -tp 1000 -ec -c 500 -Pn --silent -rate 1000 -o "$out"; then
-      log_success "Naabu scan completed successfully"
+      echo "[SUCCESS] Naabu scan completed successfully"
     else
-      log_warn "Naabu scan completed with warnings"
+      echo "[WARN] Naabu scan completed with warnings"
     fi
   else
-    log_error "naabu not found, skipping port scan"
+    echo "[ERROR] naabu not found, skipping port scan"
   fi
   
   if [[ -s "$out" ]]; then
-    log_success "Port scan results saved to: $out"
+    echo "[SUCCESS] Port scan results saved to: $out"
+    echo "[INFO] File size: $(wc -l < "$out") lines"
     discord_send_file "$out" "Port scan results for $domain"
   else
-    log_warn "No port scan results generated"
+    echo "[WARN] No port scan results generated"
   fi
 }
 
