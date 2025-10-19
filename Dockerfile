@@ -44,7 +44,7 @@ WORKDIR /app
 # System deps for runtime and common tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils python3-dev gcc \
-    postgresql-client libpq-dev awscli \
+    postgresql-client libpq-dev awscli docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy application code
