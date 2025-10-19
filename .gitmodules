@@ -1,0 +1,6 @@
+[submodule "nuclei_templates"]
+	path = nuclei_templates
+	url = https://github.com/h0tak88r/nuclei_templates.git
+[submodule "Wordlists"]
+	path = Wordlists
+	url = https://github.com/h0tak88r/Wordlists.git
