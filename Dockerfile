@@ -53,8 +53,11 @@ COPY . /app
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
 
-# Install Nuclei templates
-RUN nuclei -update-templates || true
+# Install Nuclei templates to a known location
+RUN nuclei -update-templates -ud /app/nuclei-templates || true
+
+# Also clone templates directly as backup
+RUN git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git /app/nuclei-templates-backup || true
 
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
