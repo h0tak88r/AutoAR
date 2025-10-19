@@ -40,14 +40,37 @@ js_scan() {
 
   # Only run JS analysis if URLs file exists and has content
   if [[ -s "$urls_file" ]]; then
+    log_info "Running JS regex analysis with jsleak"
+    
     if command -v jsleak >/dev/null 2>&1; then
+      log_info "Scanning with trufflehog-v3 patterns"
       jsleak -t "$ROOT_DIR/regexes/trufflehog-v3.yaml" -s -c 20 < "$urls_file" > "$out_dir/trufflehog.txt" 2>/dev/null || true
+      
+      # Show results if any found
+      if [[ -s "$out_dir/trufflehog.txt" ]]; then
+        log_success "Found $(wc -l < "$out_dir/trufflehog.txt") trufflehog matches"
+        cat "$out_dir/trufflehog.txt"
+      else
+        log_info "No trufflehog matches found"
+      fi
     fi
+    
     if [[ -d "$ROOT_DIR/regexes" ]]; then
       for f in "$ROOT_DIR"/regexes/*.yaml; do
         [[ -f "$f" ]] || continue
         base="$(basename "$f" .yaml)"
-        jsleak -t "$f" -s -c 20 < "$urls_file" > "$out_dir/$base.txt" 2>/dev/null || true
+        if [[ "$base" != "trufflehog-v3" ]]; then
+          log_info "Scanning with $base patterns"
+          jsleak -t "$f" -s -c 20 < "$urls_file" > "$out_dir/$base.txt" 2>/dev/null || true
+          
+          # Show results if any found
+          if [[ -s "$out_dir/$base.txt" ]]; then
+            log_success "Found $(wc -l < "$out_dir/$base.txt") $base matches"
+            cat "$out_dir/$base.txt"
+          else
+            log_info "No $base matches found"
+          fi
+        fi
       done
     fi
 
