@@ -31,7 +31,7 @@ urls_collect() {
 
   if command -v urlfinder >/dev/null 2>&1; then
     log_info "Collecting URLs with urlfinder"
-    urlfinder -d "$domain" -all -silent -o "$urls_dir/all-urls.txt" -pc "${AUTOAR_CONFIG_FILE}" >/dev/null 2>&1 || true
+    urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" > "$urls_dir/all-urls.txt" 2>/dev/null || true
   fi
 
   if [[ -s "$subs_dir/live-subs.txt" && -x "$(command -v jsfinder || echo /bin/false)" ]]; then
@@ -40,7 +40,7 @@ urls_collect() {
   fi
 
   if [[ -s "$urls_dir/all-urls.txt" ]]; then
-    grep -i ".js" "$urls_dir/all-urls.txt" >> "$urls_dir/js-urls.txt" || true
+    grep -i ".js" "$urls_dir/all-urls.txt" 2>/dev/null >> "$urls_dir/js-urls.txt" || true
     sort -u -o "$urls_dir/js-urls.txt" "$urls_dir/js-urls.txt"
     cat "$urls_dir/js-urls.txt" >> "$urls_dir/all-urls.txt" || true
     sort -u -o "$urls_dir/all-urls.txt" "$urls_dir/all-urls.txt"
@@ -49,8 +49,8 @@ urls_collect() {
   local total=$(wc -l < "$urls_dir/all-urls.txt" 2>/dev/null || echo 0)
   local js=$(wc -l < "$urls_dir/js-urls.txt" 2>/dev/null || echo 0)
   log_success "Found $total total URLs; $js JavaScript URLs"
-  discord_send_file "$urls_dir/all-urls.txt" "All URLs for $domain ($total)"
-  [[ $js -gt 0 ]] && discord_send_file "$urls_dir/js-urls.txt" "JS URLs for $domain ($js)"
+  discord_file "$urls_dir/all-urls.txt" "All URLs for $domain ($total)"
+  [[ $js -gt 0 ]] && discord_file "$urls_dir/js-urls.txt" "JS URLs for $domain ($js)"
 }
 
 case "${1:-}" in
