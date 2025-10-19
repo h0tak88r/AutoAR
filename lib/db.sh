@@ -304,6 +304,9 @@ db_insert_js_file() {
   local subdomain
   subdomain=$(echo "$js_url" | sed -E 's|^https?://([^/]+).*|\1|')
   
+  # Debug output
+  echo "DEBUG: domain=$domain, subdomain=$subdomain, js_url=$js_url" >&2
+  
   local subdomain_id
   if [[ "$DB_TYPE" == "postgresql" ]]; then
     subdomain_id=$(db_query "SELECT s.id FROM subdomains s JOIN domains d ON s.domain_id = d.id WHERE d.domain = '$domain' AND s.subdomain = '$subdomain';")
@@ -311,8 +314,7 @@ db_insert_js_file() {
     subdomain_id=$(db_query "SELECT s.id FROM subdomains s JOIN domains d ON s.domain_id = d.id WHERE d.domain = '$domain' AND s.subdomain = '$subdomain';")
   fi
   
-  # Debug output
-  echo "DEBUG: domain=$domain, subdomain=$subdomain, subdomain_id=$subdomain_id" >&2
+  echo "DEBUG: subdomain_id=$subdomain_id" >&2
   
   if [[ -n "$subdomain_id" ]]; then
     if [[ "$DB_TYPE" == "postgresql" ]]; then
@@ -326,7 +328,41 @@ db_insert_js_file() {
       db_exec "INSERT OR REPLACE INTO js_files (subdomain_id, js_url, content_hash, last_scanned) 
                VALUES ($subdomain_id, '$js_url', '$content_hash', datetime('now'));"
     fi
+  else
+    # Subdomain not found, try to create it
+    echo "DEBUG: Subdomain '$subdomain' not found for domain '$domain', creating it..." >&2
+    local domain_id
+    domain_id=$(db_insert_domain "$domain")
+    
+    # Insert the subdomain
+    if [[ "$DB_TYPE" == "postgresql" ]]; then
+      subdomain_id=$(db_query "INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
+                               VALUES ($domain_id, '$subdomain', false, '', '', 0, 0)
+                               ON CONFLICT (subdomain) DO UPDATE SET 
+                               domain_id = EXCLUDED.domain_id,
+                               updated_at = NOW()
+                               RETURNING id;")
+    fi
+    
+    if [[ -n "$subdomain_id" ]]; then
+      echo "DEBUG: Created subdomain '$subdomain' with ID $subdomain_id" >&2
+      # Now insert the JS file
+      if [[ "$DB_TYPE" == "postgresql" ]]; then
+        db_exec "INSERT INTO js_files (subdomain_id, js_url, content_hash, last_scanned) 
+                 VALUES ($subdomain_id, '$js_url', '$content_hash', NOW())
+                 ON CONFLICT (js_url) DO UPDATE SET 
+                 content_hash = EXCLUDED.content_hash,
+                 last_scanned = NOW(),
+                 updated_at = NOW();"
+      fi
+      return 0
+    else
+      echo "DEBUG: Failed to create subdomain '$subdomain'" >&2
+      return 1
+    fi
   fi
+  
+  return 0
 }
 
 # Get JS files for a domain
