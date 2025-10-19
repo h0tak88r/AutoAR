@@ -32,7 +32,20 @@ check_azure_aws_takeover() {
     
     local vulnerable_count=0 azure_count=0 aws_count=0
     
-    [[ ! -f "$domain_dir/subs/all-subs.txt" || ! -s "$domain_dir/subs/all-subs.txt" ]] && { log_warn "No subdomains file found"; return; }
+    local subs_file="$domain_dir/subs/all-subs.txt"
+    log_info "Looking for subdomains file at: $subs_file"
+    
+    if [[ ! -f "$subs_file" ]]; then
+        log_warn "Subdomains file not found at: $subs_file"
+        return
+    fi
+    
+    if [[ ! -s "$subs_file" ]]; then
+        log_warn "Subdomains file is empty: $subs_file"
+        return
+    fi
+    
+    log_info "Found subdomains file with $(wc -l < "$subs_file") subdomains"
     
     while IFS= read -r subdomain; do
         [[ -z "$subdomain" ]] && continue
@@ -89,13 +102,13 @@ check_azure_aws_takeover() {
             log_success "AWS takeover found: $subdomain -> $cname ($service_type)"
         fi
         
-    done < "$domain_dir/subs/all-subs.txt"
+    done < "$subs_file"
     
     # Generate summary
     {
         echo "=== AZURE & AWS SUBDOMAIN TAKEOVER DETECTION SUMMARY ==="
         echo "Scan Date: $(date)"
-        echo "Total Subdomains Checked: $(wc -l < "$domain_dir/subs/all-subs.txt")"
+        echo "Total Subdomains Checked: $(wc -l < "$subs_file")"
         echo "Azure Vulnerabilities Found: $azure_count"
         echo "AWS Vulnerabilities Found: $aws_count"
         echo "Total Vulnerabilities: $vulnerable_count"
@@ -204,7 +217,7 @@ run_nuclei_takeover() {
     
     # Run public takeover templates - check multiple possible locations
     local nuclei_templates_dir=""
-    for dir in "nuclei-templates" "/app/nuclei-templates" "/usr/local/share/nuclei-templates" "/opt/nuclei-templates"; do
+    for dir in "nuclei-templates" "/app/nuclei-templates" "/usr/local/share/nuclei-templates" "/opt/nuclei-templates" "/root/nuclei-templates" "/home/autoar/nuclei-templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
         if [[ -d "$dir" ]]; then
             nuclei_templates_dir="$dir"
             break
@@ -230,7 +243,7 @@ run_nuclei_takeover() {
     
     # Run custom takeover templates - check multiple possible locations
     local nuclei_custom_dir=""
-    for dir in "nuclei_templates" "/app/nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates"; do
+    for dir in "nuclei_templates" "/app/nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates" "/root/nuclei_templates" "/home/autoar/nuclei_templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
         if [[ -d "$dir" && -f "$dir/takeover/detect-all-takeover.yaml" ]]; then
             nuclei_custom_dir="$dir"
             break
