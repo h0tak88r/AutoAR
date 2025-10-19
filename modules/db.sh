@@ -5,6 +5,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Load environment variables first
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  source "$ROOT_DIR/.env"
+fi
+
 source "$ROOT_DIR/lib/logging.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/utils.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/db.sh" 2>/dev/null || { echo "ERROR: Failed to load lib/db.sh" >&2; exit 1; }

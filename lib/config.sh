@@ -161,14 +161,14 @@ load_config() {
   # Load configuration values
   DISCORD_WEBHOOK=$(get_config_value "DISCORD_WEBHOOK" "")
   
-  # Database configuration
-  DB_TYPE=$(get_config_value "DB_TYPE" "postgresql")
-  DB_HOST=$(get_config_value "DB_HOST" "")
-  DB_PORT=$(get_config_value "DB_PORT" "5432")
-  DB_USER=$(get_config_value "DB_USER" "autoar")
-  DB_PASSWORD=$(get_config_value "DB_PASSWORD" "")
-  DB_NAME=$(get_config_value "DB_NAME" "autoar")
-  AUTOAR_DB=$(get_config_value "AUTOAR_DB" "/app/autoar.db")
+  # Database configuration - preserve environment variables if set
+  DB_TYPE=${DB_TYPE:-$(get_config_value "DB_TYPE" "postgresql")}
+  DB_HOST=${DB_HOST:-$(get_config_value "DB_HOST" "")}
+  DB_PORT=${DB_PORT:-$(get_config_value "DB_PORT" "5432")}
+  DB_USER=${DB_USER:-$(get_config_value "DB_USER" "autoar")}
+  DB_PASSWORD=${DB_PASSWORD:-$(get_config_value "DB_PASSWORD" "")}
+  DB_NAME=${DB_NAME:-$(get_config_value "DB_NAME" "autoar")}
+  AUTOAR_DB=${AUTOAR_DB:-$(get_config_value "AUTOAR_DB" "/app/autoar.db")}
   
   # Additional config
   SAVE_TO_DB=$(get_config_value "SAVE_TO_DB" "true")

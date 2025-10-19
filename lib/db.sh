@@ -20,9 +20,11 @@ if [[ -n "${DB_HOST:-}" && "$DB_HOST" =~ ^postgresql:// ]]; then
   if [[ "$DB_HOST" =~ postgresql://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+) ]]; then
     DB_USER="${BASH_REMATCH[1]}"
     DB_PASSWORD="${BASH_REMATCH[2]}"
-    DB_HOST="${BASH_REMATCH[3]}"
+    DB_HOST_IP="${BASH_REMATCH[3]}"
     DB_PORT="${BASH_REMATCH[4]}"
     DB_NAME="${BASH_REMATCH[5]}"
+    # Keep original DB_HOST for connection string
+    DB_HOST="$DB_HOST_IP"
   fi
 else
   # Use individual environment variables
@@ -37,6 +39,9 @@ fi
 # Set up PostgreSQL connection
 DB_CONNECTION_STRING="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
 DB_CLIENT="psql"
+
+# Export environment variables for psql
+export PGPASSWORD="$DB_PASSWORD"
 
 die() { echo "$1" >&2; exit 1; }
 
@@ -155,9 +160,9 @@ db_insert_domain() {
   local domain_id
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    domain_id=$(db_query "INSERT INTO domains (domain) VALUES ('$domain') ON CONFLICT (domain) DO UPDATE SET updated_at = NOW() RETURNING id;")
+    domain_id=$(db_query "INSERT INTO domains (domain) VALUES ('$domain') ON CONFLICT (domain) DO UPDATE SET updated_at = NOW() RETURNING id;" | head -1)
   else
-    domain_id=$(db_query "INSERT OR IGNORE INTO domains (domain) VALUES ('$domain'); SELECT id FROM domains WHERE domain = '$domain';")
+    domain_id=$(db_query "INSERT OR IGNORE INTO domains (domain) VALUES ('$domain'); SELECT id FROM domains WHERE domain = '$domain';" | head -1)
   fi
   
   echo "$domain_id"
@@ -199,28 +204,21 @@ db_batch_insert_subdomains() {
   log_info "Batch inserting subdomains for $domain (domain_id: $domain_id)"
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    # Use COPY for maximum performance in PostgreSQL
-    local temp_file="/tmp/subdomains_$$.csv"
-    
-    # Create CSV file with proper escaping
+    # Use individual INSERTs for better compatibility
+    local count=0
     while IFS= read -r subdomain; do
-      [[ -n "$subdomain" ]] && echo "$domain_id,$subdomain,$is_live,,,," >> "$temp_file"
+      if [[ -n "$subdomain" ]]; then
+        db_exec "INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
+                 VALUES ($domain_id, '$subdomain', $is_live, '', '', 0, 0)
+                 ON CONFLICT (subdomain) DO UPDATE SET 
+                 domain_id = EXCLUDED.domain_id,
+                 is_live = EXCLUDED.is_live,
+                 updated_at = NOW();"
+        ((count++))
+      fi
     done < "$subdomains_file"
     
-    # Use COPY command for bulk insert
-    if [[ -s "$temp_file" ]]; then
-      db_exec "COPY subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
-               FROM '$temp_file' 
-               WITH (FORMAT csv, HEADER false)
-               ON CONFLICT (subdomain) DO UPDATE SET 
-               is_live = EXCLUDED.is_live,
-               updated_at = NOW();"
-      
-      local count=$(wc -l < "$temp_file")
-      log_success "Batch inserted $count subdomains"
-    fi
-    
-    rm -f "$temp_file"
+    log_success "Batch inserted $count subdomains"
   else
     # SQLite batch insert using VALUES clause
     local values=""
@@ -288,16 +286,23 @@ db_get_live_subdomains() {
 
 # Insert JS file
 db_insert_js_file() {
-  local subdomain="$1"
+  local domain="$1"
   local js_url="$2"
   local content_hash="${3:-}"
   
+  # Extract subdomain from URL
+  local subdomain
+  subdomain=$(echo "$js_url" | sed -E 's|^https?://([^/]+).*|\1|')
+  
   local subdomain_id
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    subdomain_id=$(db_query "SELECT id FROM subdomains WHERE subdomain = '$subdomain';")
+    subdomain_id=$(db_query "SELECT s.id FROM subdomains s JOIN domains d ON s.domain_id = d.id WHERE d.domain = '$domain' AND s.subdomain = '$subdomain';")
   else
-    subdomain_id=$(db_query "SELECT id FROM subdomains WHERE subdomain = '$subdomain';")
+    subdomain_id=$(db_query "SELECT s.id FROM subdomains s JOIN domains d ON s.domain_id = d.id WHERE d.domain = '$domain' AND s.subdomain = '$subdomain';")
   fi
+  
+  # Debug output
+  echo "DEBUG: domain=$domain, subdomain=$subdomain, subdomain_id=$subdomain_id" >&2
   
   if [[ -n "$subdomain_id" ]]; then
     if [[ "$DB_TYPE" == "postgresql" ]]; then
