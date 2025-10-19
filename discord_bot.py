@@ -89,7 +89,7 @@ class AutoARBot(commands.Cog):
             env = os.environ.copy()
             env['AUTOAR_CONFIG'] = CONFIG_FILE
             
-            # Run the command
+            # Run the command with timeout
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
@@ -98,7 +98,19 @@ class AutoARBot(commands.Cog):
                 cwd=os.path.dirname(AUTOAR_SCRIPT_PATH)
             )
             
-            stdout, stderr = await process.communicate()
+            # Add timeout to prevent hanging
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                return {
+                    'returncode': -1,
+                    'stdout': '',
+                    'stderr': 'Command timed out after 30 seconds',
+                    'scan_id': scan_id,
+                    'timestamp': datetime.now().isoformat()
+                }
             
             print(f"[DEBUG] Command exit code: {process.returncode}")
             if stdout:
@@ -645,17 +657,13 @@ class AutoARBot(commands.Cog):
 
     @app_commands.command(name="db_domains", description="List distinct domains stored in PostgreSQL database")
     async def db_domains_cmd(self, interaction: discord.Interaction):
-        try:
-            scan_id = f"dbdomains_{int(time.time())}"
-            command = [AUTOAR_SCRIPT_PATH, "db", "domains", "list"]
-            active_scans[scan_id] = { 'type': 'db_domains', 'target': 'db', 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
-            db_name = os.getenv('DB_NAME', 'autoar')
-            embed = self.create_scan_embed("DB Domains", f"{db_name} (PostgreSQL)", "running")
-            await interaction.response.send_message(embed=embed)
-            asyncio.create_task(self._run_scan_background(scan_id, command))
-        except Exception as e:
-            print(f"[ERROR] db_domains command failed: {e}")
-            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+        scan_id = f"dbdomains_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "db", "domains", "list"]
+        active_scans[scan_id] = { 'type': 'db_domains', 'target': 'db', 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
+        db_name = os.getenv('DB_NAME', 'autoar')
+        embed = self.create_scan_embed("DB Domains", f"{db_name} (PostgreSQL)", "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="db_subdomains", description="List subdomains for a domain from PostgreSQL database")
     @app_commands.describe(domain="The domain to list subdomains for")
