@@ -32,31 +32,31 @@ js_scan() {
   ensure_dir "$(dirname "$urls_file")"
   
   # Ensure URLs exist (from DB or URL collection)
-  ensure_urls "${sub:-$domain}" "$urls_file" || { log_warn "Failed to get URLs for ${sub:-$domain}"; exit 1; }
+  if ! ensure_urls "${sub:-$domain}" "$urls_file"; then
+    log_warn "Failed to get URLs for ${sub:-$domain}, continuing anyway..."
+  fi
 
   local out_dir="$target_dir/vulnerabilities/js"; ensure_dir "$out_dir"
 
-  if command -v jsleak >/dev/null 2>&1; then
-    jsleak -t "$ROOT_DIR/regexes/trufflehog-v3.yaml" -s -c 20 < "$urls_file" > "$out_dir/trufflehog.txt" 2>/dev/null || true
-  fi
-  if [[ -d "$ROOT_DIR/regexes" ]]; then
-    for f in "$ROOT_DIR"/regexes/*.yaml; do
-      [[ -f "$f" ]] || continue
-      base="$(basename "$f" .yaml)"
-      jsleak -t "$f" -s -c 20 < "$urls_file" > "$out_dir/$base.txt" 2>/dev/null || true
-    done
-  fi
-
-  # Save JS files to database
+  # Only run JS analysis if URLs file exists and has content
   if [[ -s "$urls_file" ]]; then
+    if command -v jsleak >/dev/null 2>&1; then
+      jsleak -t "$ROOT_DIR/regexes/trufflehog-v3.yaml" -s -c 20 < "$urls_file" > "$out_dir/trufflehog.txt" 2>/dev/null || true
+    fi
+    if [[ -d "$ROOT_DIR/regexes" ]]; then
+      for f in "$ROOT_DIR"/regexes/*.yaml; do
+        [[ -f "$f" ]] || continue
+        base="$(basename "$f" .yaml)"
+        jsleak -t "$f" -s -c 20 < "$urls_file" > "$out_dir/$base.txt" 2>/dev/null || true
+      done
+    fi
+
+    # Save JS files to database
     log_info "Saving JS files to database"
     local count=0
     while IFS= read -r js_url; do
       if [[ -n "$js_url" ]]; then
-        # Extract subdomain from URL for database lookup
-        local subdomain
-        subdomain=$(echo "$js_url" | sed -E 's|^https?://([^/]+).*|\1|')
-        if db_insert_js_file "$domain" "$js_url"; then
+        if "$ROOT_DIR/db_handler.py" insert-js-file "$domain" "$js_url"; then
           ((count++))
         fi
       fi
