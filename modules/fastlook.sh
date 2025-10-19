@@ -23,22 +23,22 @@ fastlook_run() {
   # Step 1: Subdomain enumeration
   log_info "Step 1/4: Subdomain enumeration"
   discord_send_progress "📡 **Step 1/4:** Enumerating subdomains for $domain"
-  "$ROOT_DIR/modules/subdomains.sh" get -d "$domain"
+  "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || log_warn "Subdomain enumeration failed, continuing..."
   
   # Step 2: Live host filtering
   log_info "Step 2/4: Live host filtering"
   discord_send_progress "🌐 **Step 2/4:** Filtering live hosts for $domain"
-  "$ROOT_DIR/modules/livehosts.sh" get -d "$domain"
+  "$ROOT_DIR/modules/livehosts.sh" get -d "$domain" || log_warn "Live host filtering failed, continuing..."
   
   # Step 3: URL collection (including JS URLs)
   log_info "Step 3/4: URL collection"
   discord_send_progress "🔍 **Step 3/4:** Collecting URLs and JS files for $domain"
-  "$ROOT_DIR/modules/urls.sh" collect -d "$domain"
+  "$ROOT_DIR/modules/urls.sh" collect -d "$domain" || log_warn "URL collection failed, continuing..."
   
   # Step 4: CNAME record collection
   log_info "Step 4/4: CNAME record collection"
   discord_send_progress "🔗 **Step 4/4:** Collecting CNAME records for $domain"
-  "$ROOT_DIR/modules/cnames.sh" get -d "$domain"
+  "$ROOT_DIR/modules/cnames.sh" get -d "$domain" || log_warn "CNAME collection failed, continuing..."
   
   # Send completion notification
   discord_send_progress "✅ **Fast Look completed for $domain** - All results sent above"
