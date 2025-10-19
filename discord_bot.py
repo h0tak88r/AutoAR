@@ -792,23 +792,32 @@ class AutoARBot(commands.Cog):
     @app_commands.command(name="help_autoar", description="Show AutoAR help information")
     async def help_autoar(self, interaction: discord.Interaction):
         """Show AutoAR help information."""
+        # Send immediate response
+        embed = discord.Embed(
+            title="📖 AutoAR Help",
+            description="Loading AutoAR help information...",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed)
+        
+        # Run command in background
         command = [AUTOAR_SCRIPT_PATH, "help"]
         results = await self.run_autoar_command(command, "help")
         
-        embed = discord.Embed(
-            title="📖 AutoAR Help",
-            description="AutoAR Security Scanning Tool Help\n\n**Available Commands:**\n• `/lite_scan` - Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)\n• `/fast_look` - Fast look (subdomains, live hosts, URLs, JS files, CNAME)\n• `/scan_domain` - Full domain scan\n• `/js_scan` - JavaScript files and endpoints scan\n• `/gf_scan` - GF pattern scans\n• `/sqlmap` - SQLMap on GF SQLi results\n• `/dalfox` - Dalfox XSS scan\n\n**Database Commands:**\n• `/db_domains` - List domains from database\n• `/db_subdomains` - List subdomains for domain from database\n• `/db_domains_delete` - Delete domain and all related data\n• `/db_stats` - Show database statistics\n• `/db_cleanup` - Clean up old data from database\n• `/db_subdomains_all` - List all subdomains from all domains\n• `/db_js_list` - List JS files for domain from database\n\n• And many more...",
-            color=discord.Color.blue()
-        )
-        
-        if results['stdout']:
-            # Truncate help text if too long
-            help_text = results['stdout'][:2000]
-            if len(results['stdout']) > 2000:
+        # Update with actual help content
+        embed.description = "AutoAR Security Scanning Tool - Available Commands"
+        if results['returncode'] == 0 and results['stdout']:
+            help_text = results['stdout'][:1900]
+            if len(results['stdout']) > 1900:
                 help_text += "\n... (truncated)"
-            embed.add_field(name="Help", value=f"```{help_text}```", inline=False)
+            embed.add_field(name="Commands", value=f"```{help_text}```", inline=False)
+        else:
+            # Fallback to manual command list
+            embed.add_field(name="Core Commands", value="• `/lite_scan` - Quick scan\n• `/fast_look` - Fast lookup\n• `/scan_domain` - Full scan\n• `/js_scan` - JavaScript scan\n• `/gf_scan` - GF pattern scans\n• `/sqlmap` - SQLMap scan\n• `/dalfox` - Dalfox XSS scan", inline=False)
+            embed.add_field(name="Database Commands", value="• `/db_domains` - List domains\n• `/db_subdomains` - List subdomains\n• `/db_domains_delete` - Delete domain\n• `/db_stats` - Statistics\n• `/db_cleanup` - Cleanup old data\n• `/db_subdomains_all` - All subdomains\n• `/db_js_list` - JS files", inline=False)
+            embed.add_field(name="Other Commands", value="• `/nuclei` - Nuclei scan\n• `/ports` - Port scan\n• `/tech` - Tech detection\n• `/s3_scan` - S3 bucket scan\n• `/github_scan` - GitHub secrets scan", inline=False)
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.edit_original_response(embed=embed)
     
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
