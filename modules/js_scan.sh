@@ -31,10 +31,10 @@ js_scan() {
   local urls_file="$target_dir/urls/js-urls.txt"
   ensure_dir "$(dirname "$urls_file")"
   
-  # Ensure URLs exist (from DB or URL collection)
-  if ! ensure_urls "${sub:-$domain}" "$urls_file"; then
-    log_warn "Failed to get URLs for ${sub:-$domain}, continuing anyway..."
-  fi
+  # Try to ensure URLs exist, but don't fail if it doesn't work
+  set +e
+  ensure_urls "${sub:-$domain}" "$urls_file" || log_warn "Failed to get URLs for ${sub:-$domain}, continuing anyway..."
+  set -e
 
   local out_dir="$target_dir/vulnerabilities/js"; ensure_dir "$out_dir"
 
@@ -69,6 +69,8 @@ js_scan() {
   if [[ -s "$out_dir/trufflehog.txt" ]]; then
     discord_send_file "$out_dir/trufflehog.txt" "JS scan matches (trufflehog)"
   fi
+  
+  log_success "JavaScript scanning completed for ${sub:-$domain}"
 }
 
 case "${1:-}" in
