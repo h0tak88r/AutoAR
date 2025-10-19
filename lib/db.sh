@@ -64,7 +64,10 @@ db_query() {
 # Initialize database schema
 db_init_schema() {
   log_info "Initializing database schema..."
-  db_ensure_connection
+  if ! db_ensure_connection; then
+    log_warn "Database not available, skipping schema initialization"
+    return 1
+  fi
   require_db_client
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
@@ -350,16 +353,16 @@ db_test_connection() {
 db_ensure_connection() {
   if [[ "$DB_TYPE" == "postgresql" ]]; then
     if ! db_test_connection; then
-      log_error "PostgreSQL connection failed. Please check your database configuration."
-      log_error "DB_HOST: $DB_HOST"
-      log_error "DB_PORT: $DB_PORT"
-      log_error "DB_USER: $DB_USER"
-      log_error "DB_NAME: $DB_NAME"
-      exit 1
+      log_warn "PostgreSQL connection failed. Database operations will be skipped."
+      log_info "DB_HOST: $DB_HOST"
+      log_info "DB_PORT: $DB_PORT"
+      log_info "DB_USER: $DB_USER"
+      log_info "DB_NAME: $DB_NAME"
+      return 1
     fi
   else
     log_error "Only PostgreSQL is supported. Please set DB_TYPE=postgresql"
-    exit 1
+    return 1
   fi
 }
 
