@@ -62,5 +62,5 @@ tmp_*
 generate_from_env.sh
 
 # External dependencies
-nuclei_templates/
-Wordlists/
+# nuclei_templates/  # Now using as submodule
+# Wordlists/  # Now using as submodule

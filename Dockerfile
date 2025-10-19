@@ -50,6 +50,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy application code
 COPY . /app
 
+# Initialize and update submodules
+RUN cd /app && git submodule update --init --recursive
+
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
 
