@@ -2,6 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Load environment variables first
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  source "$ROOT_DIR/.env"
+fi
+
 source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/config.sh"
