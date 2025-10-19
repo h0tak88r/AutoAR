@@ -667,6 +667,106 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
+    @app_commands.command(name="db_domains_delete", description="Delete domain and all related data from database")
+    @app_commands.describe(
+        domain="The domain to delete",
+        force="Skip confirmation prompt"
+    )
+    async def db_domains_delete_cmd(self, interaction: discord.Interaction, domain: str, force: bool = False):
+        """Delete domain and all related data from database."""
+        scan_id = f"dbdel_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "db", "domains", "delete", "-d", domain]
+        if force:
+            command.append("-f")
+        
+        active_scans[scan_id] = { 
+            'type': 'db_domains_delete', 
+            'target': domain, 
+            'status': 'running', 
+            'start_time': datetime.now(), 
+            'interaction': interaction 
+        }
+        
+        embed = self.create_scan_embed("DB Domain Delete", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="db_stats", description="Show database statistics")
+    async def db_stats_cmd(self, interaction: discord.Interaction):
+        """Show database statistics."""
+        scan_id = f"dbstats_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "db", "stats"]
+        active_scans[scan_id] = { 
+            'type': 'db_stats', 
+            'target': 'database', 
+            'status': 'running', 
+            'start_time': datetime.now(), 
+            'interaction': interaction 
+        }
+        
+        embed = self.create_scan_embed("DB Statistics", "database", "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="db_cleanup", description="Clean up old data from database")
+    @app_commands.describe(
+        days="Number of days to keep data (default: 30)",
+        dry_run="Preview what would be deleted without actually deleting"
+    )
+    async def db_cleanup_cmd(self, interaction: discord.Interaction, days: int = 30, dry_run: bool = False):
+        """Clean up old data from database."""
+        scan_id = f"dbcleanup_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "db", "cleanup", "-d", str(days)]
+        if dry_run:
+            command.append("--dry-run")
+        
+        active_scans[scan_id] = { 
+            'type': 'db_cleanup', 
+            'target': f"{days} days", 
+            'status': 'running', 
+            'start_time': datetime.now(), 
+            'interaction': interaction 
+        }
+        
+        embed = self.create_scan_embed("DB Cleanup", f"{days} days", "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="db_subdomains_all", description="List all subdomains from all domains in database")
+    async def db_subdomains_all_cmd(self, interaction: discord.Interaction):
+        """List all subdomains from all domains in database."""
+        scan_id = f"dbsubsall_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "db", "subdomains", "all"]
+        active_scans[scan_id] = { 
+            'type': 'db_subdomains_all', 
+            'target': 'all domains', 
+            'status': 'running', 
+            'start_time': datetime.now(), 
+            'interaction': interaction 
+        }
+        
+        embed = self.create_scan_embed("DB All Subdomains", "all domains", "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(name="db_js_list", description="List JS files for a domain from database")
+    @app_commands.describe(domain="The domain to list JS files for")
+    async def db_js_list_cmd(self, interaction: discord.Interaction, domain: str):
+        """List JS files for a domain from database."""
+        scan_id = f"dbjs_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "db", "js", "list", "-d", domain]
+        active_scans[scan_id] = { 
+            'type': 'db_js_list', 
+            'target': domain, 
+            'status': 'running', 
+            'start_time': datetime.now(), 
+            'interaction': interaction 
+        }
+        
+        embed = self.create_scan_embed("DB JS Files", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
     @app_commands.command(name="s3_enum", description="Enumerate potential S3 buckets")
     @app_commands.describe(root="Root domain name, e.g., vulnweb")
     async def s3_enum_cmd(self, interaction: discord.Interaction, root: str):
@@ -697,7 +797,7 @@ class AutoARBot(commands.Cog):
         
         embed = discord.Embed(
             title="📖 AutoAR Help",
-            description="AutoAR Security Scanning Tool Help\n\n**Available Commands:**\n• `/lite_scan` - Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)\n• `/fast_look` - Fast look (subdomains, live hosts, URLs, JS files, CNAME)\n• `/scan_domain` - Full domain scan\n• `/js_scan` - JavaScript files and endpoints scan\n• `/gf_scan` - GF pattern scans\n• `/sqlmap` - SQLMap on GF SQLi results\n• `/dalfox` - Dalfox XSS scan\n• `/db_domains` - List domains from database\n• `/db_subdomains` - List subdomains for domain from database\n• And many more...",
+            description="AutoAR Security Scanning Tool Help\n\n**Available Commands:**\n• `/lite_scan` - Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)\n• `/fast_look` - Fast look (subdomains, live hosts, URLs, JS files, CNAME)\n• `/scan_domain` - Full domain scan\n• `/js_scan` - JavaScript files and endpoints scan\n• `/gf_scan` - GF pattern scans\n• `/sqlmap` - SQLMap on GF SQLi results\n• `/dalfox` - Dalfox XSS scan\n\n**Database Commands:**\n• `/db_domains` - List domains from database\n• `/db_subdomains` - List subdomains for domain from database\n• `/db_domains_delete` - Delete domain and all related data\n• `/db_stats` - Show database statistics\n• `/db_cleanup` - Clean up old data from database\n• `/db_subdomains_all` - List all subdomains from all domains\n• `/db_js_list` - List JS files for domain from database\n\n• And many more...",
             color=discord.Color.blue()
         )
         
@@ -860,7 +960,7 @@ class AutoARBot(commands.Cog):
                         if file_path.exists() and file_path.stat().st_size > 0:
                             files_to_send.append((file_path, f"DNS Takeover: {filename}"))
             
-            elif scan_type in ['db_domains', 'db_subdomains']:
+            elif scan_type in ['db_domains', 'db_subdomains', 'db_domains_delete', 'db_stats', 'db_cleanup', 'db_subdomains_all', 'db_js_list']:
                 # For database commands, look for any .txt files
                 txt_files = list(latest_dir.glob('**/*.txt'))
                 if txt_files:
