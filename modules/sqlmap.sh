@@ -25,6 +25,7 @@ sqlmap_run() {
   # Ensure GF results exist (run GF scan first)
   if [[ ! -s "$in_file" ]]; then
     log_info "No SQLi candidates found, running GF scan first"
+    discord_send_progress "🔄 **No SQLi candidates found, running GF scan first for $domain**"
     "$ROOT_DIR/modules/gf_scan.sh" scan -d "$domain" || { log_warn "Failed to run GF scan for $domain"; exit 1; }
   fi
   

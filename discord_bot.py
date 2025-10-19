@@ -248,7 +248,7 @@ class AutoARBot(commands.Cog):
         """Perform a fast domain lookup."""
         scan_id = f"fast_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "lite", "run", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "fastlook", "run", "-d", domain]
         if verbose:
             command.append("-v")
         
@@ -697,7 +697,7 @@ class AutoARBot(commands.Cog):
         
         embed = discord.Embed(
             title="📖 AutoAR Help",
-            description="AutoAR Security Scanning Tool Help",
+            description="AutoAR Security Scanning Tool Help\n\n**Available Commands:**\n• `/lite_scan` - Quick scan (subdomains, CNAME, live hosts, URLs, JS, nuclei)\n• `/fast_look` - Fast look (subdomains, live hosts, URLs, JS files, CNAME)\n• `/scan_domain` - Full domain scan\n• `/js_scan` - JavaScript files and endpoints scan\n• `/gf_scan` - GF pattern scans\n• `/sqlmap` - SQLMap on GF SQLi results\n• `/dalfox` - Dalfox XSS scan\n• `/db_domains` - List domains from database\n• `/db_subdomains` - List subdomains for domain from database\n• And many more...",
             color=discord.Color.blue()
         )
         
