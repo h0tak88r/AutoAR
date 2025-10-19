@@ -50,8 +50,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy application code
 COPY . /app
 
-# Initialize and update submodules
-RUN cd /app && git submodule update --init --recursive
+# Clone submodules directly (since .git is not available in Docker context)
+RUN cd /app && \
+    rm -rf nuclei_templates Wordlists && \
+    git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
+    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
