@@ -206,19 +206,29 @@ db_batch_insert_subdomains() {
   if [[ "$DB_TYPE" == "postgresql" ]]; then
     # Use individual INSERTs for better compatibility
     local count=0
+    local failed=0
     while IFS= read -r subdomain; do
       if [[ -n "$subdomain" ]]; then
-        db_exec "INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
-                 VALUES ($domain_id, '$subdomain', $is_live, '', '', 0, 0)
-                 ON CONFLICT (subdomain) DO UPDATE SET 
-                 domain_id = EXCLUDED.domain_id,
-                 is_live = EXCLUDED.is_live,
-                 updated_at = NOW();"
-        ((count++))
+        if db_exec "INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status) 
+                    VALUES ($domain_id, '$subdomain', $is_live, '', '', 0, 0)
+                    ON CONFLICT (subdomain) DO UPDATE SET 
+                    domain_id = EXCLUDED.domain_id,
+                    is_live = EXCLUDED.is_live,
+                    updated_at = NOW();"; then
+          ((count++))
+        else
+          ((failed++))
+          log_warn "Failed to insert subdomain: $subdomain"
+        fi
       fi
     done < "$subdomains_file"
     
-    log_success "Batch inserted $count subdomains"
+    if [[ $count -gt 0 ]]; then
+      log_success "Batch inserted $count subdomains"
+    fi
+    if [[ $failed -gt 0 ]]; then
+      log_warn "Failed to insert $failed subdomains"
+    fi
   else
     # SQLite batch insert using VALUES clause
     local values=""

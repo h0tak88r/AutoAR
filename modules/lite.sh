@@ -22,23 +22,23 @@ lite_run() {
   # Compose of modular steps with progress updates
   log_info "Step 1/5: Subdomain enumeration"
   discord_send_progress "📡 **Step 1/5:** Enumerating subdomains for $domain"
-  "$ROOT_DIR/modules/subdomains.sh" get -d "$domain"
+  "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || log_warn "Subdomain enumeration failed, continuing..."
   
   log_info "Step 2/5: CNAME record collection"
   discord_send_progress "🔗 **Step 2/5:** Collecting CNAME records for $domain"
-  "$ROOT_DIR/modules/cnames.sh" get -d "$domain"
+  "$ROOT_DIR/modules/cnames.sh" get -d "$domain" || log_warn "CNAME collection failed, continuing..."
   
   log_info "Step 3/5: Live host filtering"
   discord_send_progress "🌐 **Step 3/5:** Filtering live hosts for $domain"
-  "$ROOT_DIR/modules/livehosts.sh" get -d "$domain"
+  "$ROOT_DIR/modules/livehosts.sh" get -d "$domain" || log_warn "Live host filtering failed, continuing..."
   
   log_info "Step 4/5: URL collection"
   discord_send_progress "🔍 **Step 4/5:** Collecting URLs for $domain"
-  "$ROOT_DIR/modules/urls.sh" collect -d "$domain"
+  "$ROOT_DIR/modules/urls.sh" collect -d "$domain" || log_warn "URL collection failed, continuing..."
   
   log_info "Step 5/5: JavaScript scanning"
   discord_send_progress "📜 **Step 5/5:** Scanning JavaScript files for $domain"
-  "$ROOT_DIR/modules/js_scan.sh" scan -d "$domain"
+  "$ROOT_DIR/modules/js_scan.sh" scan -d "$domain" || log_warn "JavaScript scanning failed, continuing..."
   
   # Send completion notification
   discord_send_progress "✅ **Lite Scan completed for $domain** - All results sent above"
