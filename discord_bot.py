@@ -196,7 +196,32 @@ class AutoARBot(commands.Cog):
         # Run scan in background
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
-    # Removed scan_subdomain - use subdomains command instead
+    @app_commands.command(name="scan_subdomain", description="Scan a single subdomain")
+    @app_commands.describe(
+        subdomain="The subdomain to scan",
+        verbose="Enable verbose output"
+    )
+    async def scan_subdomain(self, interaction: discord.Interaction, subdomain: str, 
+                            verbose: bool = False):
+        """Scan a single subdomain."""
+        scan_id = f"subdomain_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "subdomains", "get", "-d", subdomain]
+        if verbose:
+            command.append("-v")
+        
+        active_scans[scan_id] = {
+            'type': 'subdomain',
+            'target': subdomain,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = self.create_scan_embed("Subdomain", subdomain, "running")
+        await interaction.response.send_message(embed=embed)
+        
+        asyncio.create_task(self._run_scan_background(scan_id, command))
     
     @app_commands.command(name="lite_scan", description="Perform a lite domain scan")
     @app_commands.describe(
@@ -431,7 +456,32 @@ class AutoARBot(commands.Cog):
             print(f"[ERROR] check_tools command failed: {e}")
             await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
     
-    # Removed scan_status - not essential for core functionality
+    @app_commands.command(name="scan_status", description="Check status of active scans")
+    async def scan_status(self, interaction: discord.Interaction):
+        """Check status of active scans."""
+        if not active_scans:
+            embed = discord.Embed(
+                title="📊 Scan Status",
+                description="No active scans",
+                color=discord.Color.blue()
+            )
+        else:
+            embed = discord.Embed(
+                title="📊 Active Scans",
+                color=discord.Color.blue()
+            )
+            
+            for scan_id, scan_info in active_scans.items():
+                duration = datetime.now() - scan_info['start_time']
+                status_emoji = "🟢" if scan_info['status'] == 'running' else "🔴"
+                
+                embed.add_field(
+                    name=f"{status_emoji} {scan_info['type'].title()} - {scan_info['target']}",
+                    value=f"Status: {scan_info['status']}\nDuration: {duration}",
+                    inline=False
+                )
+        
+        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="subdomains", description="Enumerate subdomains")
     @app_commands.describe(domain="The domain to enumerate")
@@ -625,12 +675,12 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
-    @app_commands.command(name="db_domains_delete", description="Delete domain and all related data from database")
+    @app_commands.command(name="db_delete_domain", description="Delete domain and all related data from database")
     @app_commands.describe(
         domain="The domain to delete",
         force="Skip confirmation prompt"
     )
-    async def db_domains_delete_cmd(self, interaction: discord.Interaction, domain: str, force: bool = False):
+    async def db_delete_domain_cmd(self, interaction: discord.Interaction, domain: str, force: bool = False):
         """Delete domain and all related data from database."""
         scan_id = f"dbdel_{int(time.time())}"
         command = [AUTOAR_SCRIPT_PATH, "db", "domains", "delete", "-d", domain]
@@ -638,94 +688,26 @@ class AutoARBot(commands.Cog):
             command.append("-f")
         
         active_scans[scan_id] = { 
-            'type': 'db_domains_delete', 
+            'type': 'db_delete_domain', 
             'target': domain, 
             'status': 'running', 
             'start_time': datetime.now(), 
             'interaction': interaction 
         }
         
-        embed = self.create_scan_embed("DB Domain Delete", domain, "running")
+        embed = self.create_scan_embed("DB Delete Domain", domain, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
-    @app_commands.command(name="db_stats", description="Show database statistics")
-    async def db_stats_cmd(self, interaction: discord.Interaction):
-        """Show database statistics."""
-        scan_id = f"dbstats_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "db", "stats"]
-        active_scans[scan_id] = { 
-            'type': 'db_stats', 
-            'target': 'database', 
-            'status': 'running', 
-            'start_time': datetime.now(), 
-            'interaction': interaction 
-        }
-        
-        embed = self.create_scan_embed("DB Statistics", "database", "running")
+    @app_commands.command(name="s3_enum", description="Enumerate potential S3 buckets")
+    @app_commands.describe(root="Root domain name, e.g., vulnweb")
+    async def s3_enum_cmd(self, interaction: discord.Interaction, root: str):
+        scan_id = f"s3enum_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "s3", "enum", "-b", root]
+        active_scans[scan_id] = { 'type': 's3_enum', 'target': root, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
+        embed = self.create_scan_embed("S3 Enum", root, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
-
-    @app_commands.command(name="db_cleanup", description="Clean up old data from database")
-    @app_commands.describe(
-        days="Number of days to keep data (default: 30)",
-        dry_run="Preview what would be deleted without actually deleting"
-    )
-    async def db_cleanup_cmd(self, interaction: discord.Interaction, days: int = 30, dry_run: bool = False):
-        """Clean up old data from database."""
-        scan_id = f"dbcleanup_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "db", "cleanup", "-d", str(days)]
-        if dry_run:
-            command.append("--dry-run")
-        
-        active_scans[scan_id] = { 
-            'type': 'db_cleanup', 
-            'target': f"{days} days", 
-            'status': 'running', 
-            'start_time': datetime.now(), 
-            'interaction': interaction 
-        }
-        
-        embed = self.create_scan_embed("DB Cleanup", f"{days} days", "running")
-        await interaction.response.send_message(embed=embed)
-        asyncio.create_task(self._run_scan_background(scan_id, command))
-
-    @app_commands.command(name="db_subdomains_all", description="List all subdomains from all domains in database")
-    async def db_subdomains_all_cmd(self, interaction: discord.Interaction):
-        """List all subdomains from all domains in database."""
-        scan_id = f"dbsubsall_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "db", "subdomains", "all"]
-        active_scans[scan_id] = { 
-            'type': 'db_subdomains_all', 
-            'target': 'all domains', 
-            'status': 'running', 
-            'start_time': datetime.now(), 
-            'interaction': interaction 
-        }
-        
-        embed = self.create_scan_embed("DB All Subdomains", "all domains", "running")
-        await interaction.response.send_message(embed=embed)
-        asyncio.create_task(self._run_scan_background(scan_id, command))
-
-    @app_commands.command(name="db_js_list", description="List JS files for a domain from database")
-    @app_commands.describe(domain="The domain to list JS files for")
-    async def db_js_list_cmd(self, interaction: discord.Interaction, domain: str):
-        """List JS files for a domain from database."""
-        scan_id = f"dbjs_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "db", "js", "list", "-d", domain]
-        active_scans[scan_id] = { 
-            'type': 'db_js_list', 
-            'target': domain, 
-            'status': 'running', 
-            'start_time': datetime.now(), 
-            'interaction': interaction 
-        }
-        
-        embed = self.create_scan_embed("DB JS Files", domain, "running")
-        await interaction.response.send_message(embed=embed)
-        asyncio.create_task(self._run_scan_background(scan_id, command))
-
-    # Removed s3_enum - use s3_scan instead
 
     @app_commands.command(name="cleanup", description="Cleanup results for a domain")
     @app_commands.describe(domain="The domain to cleanup", keep="Keep results (do nothing)")
