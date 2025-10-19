@@ -196,32 +196,7 @@ class AutoARBot(commands.Cog):
         # Run scan in background
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
-    @app_commands.command(name="scan_subdomain", description="Scan a single subdomain")
-    @app_commands.describe(
-        subdomain="The subdomain to scan",
-        verbose="Enable verbose output"
-    )
-    async def scan_subdomain(self, interaction: discord.Interaction, subdomain: str, 
-                            verbose: bool = False):
-        """Scan a single subdomain."""
-        scan_id = f"subdomain_{int(time.time())}"
-        
-        command = [AUTOAR_SCRIPT_PATH, "subdomains", "get", "-d", subdomain]
-        if verbose:
-            command.append("-v")
-        
-        active_scans[scan_id] = {
-            'type': 'subdomain',
-            'target': subdomain,
-            'status': 'running',
-            'start_time': datetime.now(),
-            'interaction': interaction
-        }
-        
-        embed = self.create_scan_embed("Subdomain", subdomain, "running")
-        await interaction.response.send_message(embed=embed)
-        
-        asyncio.create_task(self._run_scan_background(scan_id, command))
+    # Removed scan_subdomain - use subdomains command instead
     
     @app_commands.command(name="lite_scan", description="Perform a lite domain scan")
     @app_commands.describe(
@@ -456,32 +431,7 @@ class AutoARBot(commands.Cog):
             print(f"[ERROR] check_tools command failed: {e}")
             await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
     
-    @app_commands.command(name="scan_status", description="Check status of active scans")
-    async def scan_status(self, interaction: discord.Interaction):
-        """Check status of active scans."""
-        if not active_scans:
-            embed = discord.Embed(
-                title="📊 Scan Status",
-                description="No active scans",
-                color=discord.Color.blue()
-            )
-        else:
-            embed = discord.Embed(
-                title="📊 Active Scans",
-                color=discord.Color.blue()
-            )
-            
-            for scan_id, scan_info in active_scans.items():
-                duration = datetime.now() - scan_info['start_time']
-                status_emoji = "🟢" if scan_info['status'] == 'running' else "🔴"
-                
-                embed.add_field(
-                    name=f"{status_emoji} {scan_info['type'].title()} - {scan_info['target']}",
-                    value=f"Status: {scan_info['status']}\nDuration: {duration}",
-                    inline=False
-                )
-        
-        await interaction.response.send_message(embed=embed)
+    # Removed scan_status - not essential for core functionality
 
     @app_commands.command(name="subdomains", description="Enumerate subdomains")
     @app_commands.describe(domain="The domain to enumerate")
@@ -775,15 +725,7 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
-    @app_commands.command(name="s3_enum", description="Enumerate potential S3 buckets")
-    @app_commands.describe(root="Root domain name, e.g., vulnweb")
-    async def s3_enum_cmd(self, interaction: discord.Interaction, root: str):
-        scan_id = f"s3enum_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "s3", "enum", "-b", root]
-        active_scans[scan_id] = { 'type': 's3_enum', 'target': root, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
-        embed = self.create_scan_embed("S3 Enum", root, "running")
-        await interaction.response.send_message(embed=embed)
-        asyncio.create_task(self._run_scan_background(scan_id, command))
+    # Removed s3_enum - use s3_scan instead
 
     @app_commands.command(name="cleanup", description="Cleanup results for a domain")
     @app_commands.describe(domain="The domain to cleanup", keep="Keep results (do nothing)")
