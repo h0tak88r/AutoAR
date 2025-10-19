@@ -8,9 +8,13 @@ echo "[entrypoint] Loading configuration..."
 source /app/lib/config.sh
 echo "[entrypoint] Configuration loaded successfully"
 
-# Initialize database schema
-echo "[entrypoint] Initializing database schema"
-source /app/lib/db.sh && db_init_schema || echo "[entrypoint] Database schema initialization completed with warnings"
+# Initialize database schema (only if database is configured)
+if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
+  echo "[entrypoint] Initializing database schema"
+  source /app/lib/db.sh && db_init_schema || echo "[entrypoint] Database schema initialization completed with warnings"
+else
+  echo "[entrypoint] Database not configured, skipping schema initialization"
+fi
 
 # Optionally run tool check/installation at container start
 if [[ "${RUN_SETUP:-false}" == "true" ]]; then
