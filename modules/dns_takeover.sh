@@ -217,9 +217,10 @@ run_nuclei_takeover() {
     
     # Run public takeover templates - check multiple possible locations
     local nuclei_templates_dir=""
-    for dir in "nuclei-templates" "/app/nuclei-templates" "/usr/local/share/nuclei-templates" "/opt/nuclei-templates" "/root/nuclei-templates" "/home/autoar/nuclei-templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
-        if [[ -d "$dir" ]]; then
+    for dir in "/app/nuclei-templates" "/app/nuclei-templates-backup" "nuclei-templates" "/usr/local/share/nuclei-templates" "/opt/nuclei-templates" "/root/nuclei-templates" "/home/autoar/nuclei-templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
+        if [[ -d "$dir" && -d "$dir/http/takeovers" ]]; then
             nuclei_templates_dir="$dir"
+            log_info "Found Nuclei templates in: $dir"
             break
         fi
     done
@@ -243,9 +244,10 @@ run_nuclei_takeover() {
     
     # Run custom takeover templates - check multiple possible locations
     local nuclei_custom_dir=""
-    for dir in "nuclei_templates" "/app/nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates" "/root/nuclei_templates" "/home/autoar/nuclei_templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
+    for dir in "/app/nuclei_templates" "/app/nuclei-templates-backup" "nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates" "/root/nuclei_templates" "/home/autoar/nuclei_templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
         if [[ -d "$dir" && -f "$dir/takeover/detect-all-takeover.yaml" ]]; then
             nuclei_custom_dir="$dir"
+            log_info "Found custom Nuclei templates in: $dir"
             break
         fi
     done
@@ -366,6 +368,8 @@ dns_takeover_comprehensive() {
     
     # 3. Run Azure and AWS subdomain takeover detection
     log_info "Step 3/5: Running Azure and AWS subdomain takeover detection"
+    log_info "Debug: dir variable is: $dir"
+    log_info "Debug: findings_dir variable is: $findings_dir"
     discord_send_progress "☁️ **Step 3/5:** Checking Azure & AWS subdomain takeovers for $domain"
     check_azure_aws_takeover "$dir" "$findings_dir"
     
