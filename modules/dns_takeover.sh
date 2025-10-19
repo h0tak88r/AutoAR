@@ -160,9 +160,16 @@ run_dnsreaper_scan() {
     
     log_info "Running DNSReaper scan..."
     
-    # Check if Docker is available
+    # Check if Docker is available and we can run containers
     if ! command -v docker >/dev/null 2>&1; then
         log_warn "Docker not available, skipping DNSReaper scan"
+        return
+    fi
+    
+    # Test if we can actually run Docker containers
+    if ! docker ps >/dev/null 2>&1; then
+        log_warn "Cannot run Docker containers (permission issues or Docker-in-Docker not configured), skipping DNSReaper scan"
+        log_info "To enable DNSReaper, ensure Docker socket is mounted or use Docker-in-Docker"
         return
     fi
     
@@ -195,10 +202,18 @@ run_nuclei_takeover() {
         return
     fi
     
-    # Run public takeover templates
-    if [[ -d "nuclei-templates" ]]; then
-        log_info "Running Nuclei public takeover templates..."
-        if nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei-templates/http/takeovers/ -o "$findings_dir/nuclei-takeover-public.txt" >/dev/null 2>&1; then
+    # Run public takeover templates - check multiple possible locations
+    local nuclei_templates_dir=""
+    for dir in "nuclei-templates" "/app/nuclei-templates" "/usr/local/share/nuclei-templates" "/opt/nuclei-templates"; do
+        if [[ -d "$dir" ]]; then
+            nuclei_templates_dir="$dir"
+            break
+        fi
+    done
+    
+    if [[ -n "$nuclei_templates_dir" && -d "$nuclei_templates_dir/http/takeovers" ]]; then
+        log_info "Running Nuclei public takeover templates from $nuclei_templates_dir..."
+        if nuclei -l "$domain_dir/subs/all-subs.txt" -t "$nuclei_templates_dir/http/takeovers/" -o "$findings_dir/nuclei-takeover-public.txt" >/dev/null 2>&1; then
             if [[ -s "$findings_dir/nuclei-takeover-public.txt" ]]; then
                 log_success "Nuclei public takeover scan completed with findings"
                 discord_send_file "$findings_dir/nuclei-takeover-public.txt" "Nuclei Public Takeover Findings"
@@ -209,13 +224,22 @@ run_nuclei_takeover() {
             log_warn "Nuclei public takeover scan failed"
         fi
     else
-        log_warn "nuclei-templates directory not found, skipping public templates"
+        log_warn "nuclei-templates directory not found in any standard location, skipping public templates"
+        log_info "Searched in: nuclei-templates, /app/nuclei-templates, /usr/local/share/nuclei-templates, /opt/nuclei-templates"
     fi
     
-    # Run custom takeover templates
-    if [[ -d "nuclei_templates" ]]; then
-        log_info "Running Nuclei custom takeover templates..."
-        if nuclei -l "$domain_dir/subs/all-subs.txt" -t nuclei_templates/takeover/detect-all-takeover.yaml -o "$findings_dir/nuclei-takeover-custom.txt" >/dev/null 2>&1; then
+    # Run custom takeover templates - check multiple possible locations
+    local nuclei_custom_dir=""
+    for dir in "nuclei_templates" "/app/nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates"; do
+        if [[ -d "$dir" && -f "$dir/takeover/detect-all-takeover.yaml" ]]; then
+            nuclei_custom_dir="$dir"
+            break
+        fi
+    done
+    
+    if [[ -n "$nuclei_custom_dir" ]]; then
+        log_info "Running Nuclei custom takeover templates from $nuclei_custom_dir..."
+        if nuclei -l "$domain_dir/subs/all-subs.txt" -t "$nuclei_custom_dir/takeover/detect-all-takeover.yaml" -o "$findings_dir/nuclei-takeover-custom.txt" >/dev/null 2>&1; then
             if [[ -s "$findings_dir/nuclei-takeover-custom.txt" ]]; then
                 log_success "Nuclei custom takeover scan completed with findings"
                 discord_send_file "$findings_dir/nuclei-takeover-custom.txt" "Nuclei Custom Takeover Findings"
@@ -226,7 +250,8 @@ run_nuclei_takeover() {
             log_warn "Nuclei custom takeover scan failed"
         fi
     else
-        log_warn "nuclei_templates directory not found, skipping custom templates"
+        log_warn "nuclei_templates directory with detect-all-takeover.yaml not found, skipping custom templates"
+        log_info "Searched in: nuclei_templates, /app/nuclei_templates, /usr/local/share/nuclei_templates, /opt/nuclei_templates"
     fi
 }
 
