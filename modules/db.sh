@@ -42,32 +42,49 @@ db_domains_list() {
   # Send domains list to Discord
   send_db_result_to_discord "db domains list" "$result"
   
-  # Also send all subdomains for each domain to Discord
+  # Create a file with domains and send via Discord webhook
   if [[ -n "$result" ]]; then
-    local temp_file="/tmp/domains_subdomains.txt"
-    echo "# AutoAR Database - All Subdomains by Domain" > "$temp_file"
-    echo "# Generated: $(date)" >> "$temp_file"
-    echo "" >> "$temp_file"
+    local results_dir="${AUTOAR_RESULTS_DIR}/db_domains_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$results_dir"
+    local domains_file="$results_dir/all_domains.txt"
+    
+    echo "# AutoAR Database - All Domains" > "$domains_file"
+    echo "# Generated: $(date)" >> "$domains_file"
+    echo "" >> "$domains_file"
+    echo "$result" >> "$domains_file"
+    
+    # Send file via Discord webhook
+    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+      discord_send_file "$domains_file" "All domains from database"
+    fi
+    
+    echo "Domains exported to: $domains_file"
+    
+    # Also create a comprehensive file with all subdomains for each domain
+    local comprehensive_file="$results_dir/domains_subdomains.txt"
+    echo "# AutoAR Database - All Subdomains by Domain" > "$comprehensive_file"
+    echo "# Generated: $(date)" >> "$comprehensive_file"
+    echo "" >> "$comprehensive_file"
     
     while IFS= read -r domain; do
       if [[ -n "$domain" ]]; then
-        echo "## Domain: $domain" >> "$temp_file"
+        echo "## Domain: $domain" >> "$comprehensive_file"
         local subdomains=$(db_get_subdomains "$domain")
         if [[ -n "$subdomains" ]]; then
-          echo "$subdomains" >> "$temp_file"
+          echo "$subdomains" >> "$comprehensive_file"
         else
-          echo "No subdomains found" >> "$temp_file"
+          echo "No subdomains found" >> "$comprehensive_file"
         fi
-        echo "" >> "$temp_file"
+        echo "" >> "$comprehensive_file"
       fi
     done <<< "$result"
     
-    # Move temp file to results directory for bot to pick up
-    if [[ -f "$temp_file" && -s "$temp_file" ]]; then
-      local results_dir="${AUTOAR_RESULTS_DIR}/db_export_$(date +%Y%m%d_%H%M%S)"
-      mkdir -p "$results_dir"
-      mv "$temp_file" "$results_dir/domains_subdomains.txt"
-      echo "Subdomains exported to: $results_dir/domains_subdomains.txt"
+    # Send comprehensive file via Discord webhook
+    if [[ -f "$comprehensive_file" && -s "$comprehensive_file" ]]; then
+      if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+        discord_send_file "$comprehensive_file" "All domains and subdomains from database"
+      fi
+      echo "Comprehensive export saved to: $comprehensive_file"
     fi
   fi
 }
@@ -84,7 +101,28 @@ db_subdomains_list() {
   db_ensure_connection
   local result=$(db_get_subdomains "$domain")
   echo "$result"
-  send_db_result_to_discord "db subdomains list" "$result" "$domain"
+  
+  # Create a file with subdomains and send via Discord webhook
+  if [[ -n "$result" ]]; then
+    local results_dir="${AUTOAR_RESULTS_DIR}/db_subdomains_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$results_dir"
+    local subdomains_file="$results_dir/${domain}_subdomains.txt"
+    
+    echo "# AutoAR Database - Subdomains for $domain" > "$subdomains_file"
+    echo "# Generated: $(date)" >> "$subdomains_file"
+    echo "" >> "$subdomains_file"
+    echo "$result" >> "$subdomains_file"
+    
+    # Send file via Discord webhook
+    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+      discord_send_file "$subdomains_file" "Subdomains for $domain from database"
+    fi
+    
+    echo "Subdomains exported to: $subdomains_file"
+  else
+    echo "No subdomains found for $domain"
+    send_db_result_to_discord "db subdomains list" "No subdomains found for $domain" "$domain"
+  fi
 }
 
 db_subdomains_export() {

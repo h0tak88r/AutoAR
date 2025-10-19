@@ -23,7 +23,16 @@ gf_scan() {
   ensure_dir "$base"
   
   # Ensure URLs exist (from DB or URL collection)
-  ensure_urls "$domain" "$urls" || { log_warn "Failed to get URLs for $domain"; exit 1; }
+  if ! ensure_urls "$domain" "$urls"; then
+    log_info "No URLs found for $domain, running fastlook first"
+    discord_send_progress "🔄 **No URLs found for $domain, running fastlook first**"
+    "$ROOT_DIR/modules/fastlook.sh" run -d "$domain" || { log_warn "Failed to run fastlook for $domain"; exit 1; }
+    
+    # Try to get URLs again after fastlook
+    if ! ensure_urls "$domain" "$urls"; then
+      log_warn "Still no URLs found for $domain after fastlook"; exit 1;
+    fi
+  fi
 
   if command -v gf >/dev/null 2>&1; then
     for pattern in debug_logic idor iext img-traversal iparams isubs jsvar lfi rce redirect sqli ssrf ssti xss; do
