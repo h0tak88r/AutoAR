@@ -173,7 +173,15 @@ run_dnsreaper_scan() {
     
     log_info "Running DNSReaper scan..."
     
-    # Check if Docker is available and we can run containers
+    # Check if we're in Docker environment
+    if [[ "${AUTOAR_ENV:-}" == "docker" ]]; then
+        log_warn "DNSReaper requires Docker-in-Docker configuration in Docker environment"
+        log_info "To enable DNSReaper in Docker, mount Docker socket: -v /var/run/docker.sock:/var/run/docker.sock"
+        log_info "Or run DNSReaper separately: docker run --rm -v \$(pwd):/etc/dnsreaper punksecurity/dnsreaper file --filename /etc/dnsreaper/path/to/subdomains.txt"
+        return
+    fi
+    
+    # Check if Docker is available and we can run containers (local environment)
     if ! command -v docker >/dev/null 2>&1; then
         log_warn "Docker not available, skipping DNSReaper scan"
         return
@@ -181,8 +189,7 @@ run_dnsreaper_scan() {
     
     # Test if we can actually run Docker containers
     if ! docker ps >/dev/null 2>&1; then
-        log_warn "Cannot run Docker containers (permission issues or Docker-in-Docker not configured), skipping DNSReaper scan"
-        log_info "To enable DNSReaper, ensure Docker socket is mounted or use Docker-in-Docker"
+        log_warn "Cannot run Docker containers (permission issues), skipping DNSReaper scan"
         return
     fi
     
@@ -217,10 +224,10 @@ run_nuclei_takeover() {
     
     # Run public takeover templates - check multiple possible locations
     local nuclei_templates_dir=""
-    for dir in "/app/nuclei-templates" "/app/nuclei-templates-backup" "nuclei-templates" "/usr/local/share/nuclei-templates" "/opt/nuclei-templates" "/root/nuclei-templates" "/home/autoar/nuclei-templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
-        if [[ -d "$dir" && -d "$dir/http/takeovers" ]]; then
-            nuclei_templates_dir="$dir"
-            log_info "Found Nuclei templates in: $dir"
+    for template_dir in "/app/nuclei-templates" "/app/nuclei-templates-backup" "nuclei-templates" "/usr/local/share/nuclei-templates" "/opt/nuclei-templates" "/root/nuclei-templates" "/home/autoar/nuclei-templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
+        if [[ -d "$template_dir" && -d "$template_dir/http/takeovers" ]]; then
+            nuclei_templates_dir="$template_dir"
+            log_info "Found Nuclei templates in: $template_dir"
             break
         fi
     done
@@ -244,10 +251,10 @@ run_nuclei_takeover() {
     
     # Run custom takeover templates - check multiple possible locations
     local nuclei_custom_dir=""
-    for dir in "/app/nuclei_templates" "/app/nuclei-templates-backup" "nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates" "/root/nuclei_templates" "/home/autoar/nuclei_templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
-        if [[ -d "$dir" && -d "$dir/http/takeovers" ]]; then
-            nuclei_custom_dir="$dir"
-            log_info "Found custom Nuclei templates in: $dir"
+    for custom_dir in "/app/nuclei_templates" "/app/nuclei-templates-backup" "nuclei_templates" "/usr/local/share/nuclei_templates" "/opt/nuclei_templates" "/root/nuclei_templates" "/home/autoar/nuclei_templates" "/home/autoar/.cache/nuclei/nuclei-templates"; do
+        if [[ -d "$custom_dir" && -d "$custom_dir/http/takeovers" ]]; then
+            nuclei_custom_dir="$custom_dir"
+            log_info "Found custom Nuclei templates in: $custom_dir"
             break
         fi
     done
