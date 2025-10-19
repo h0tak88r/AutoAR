@@ -23,10 +23,16 @@ class AutoARDB:
     def connect(self):
         """Connect to PostgreSQL database."""
         try:
+            # Debug: Print environment info in Docker
+            if os.path.exists('/.dockerenv'):
+                print(f"[DEBUG] Running in Docker container", file=sys.stderr)
+            
             # Check for connection string in DB_CONNECTION_STRING or DB_HOST
             conn_str = os.getenv('DB_CONNECTION_STRING', '')
             if not conn_str:
                 conn_str = os.getenv('DB_HOST', '')
+            
+            print(f"[DEBUG] Connection string: {conn_str[:50]}..." if len(conn_str) > 50 else f"[DEBUG] Connection string: {conn_str}", file=sys.stderr)
             
             if conn_str and conn_str.startswith('postgresql://'):
                 # Use the connection string directly
@@ -296,14 +302,17 @@ def main():
         parser.print_help()
         sys.exit(1)
     
-    # Load environment variables
+    # Load environment variables from .env file
     env_file = os.path.join(os.path.dirname(__file__), '.env')
     if os.path.exists(env_file):
         with open(env_file, 'r') as f:
             for line in f:
+                line = line.strip()
                 if '=' in line and not line.startswith('#'):
-                    key, value = line.strip().split('=', 1)
-                    os.environ[key] = value
+                    key, value = line.split('=', 1)
+                    # Only set if not already set (preserve existing env vars)
+                    if key not in os.environ:
+                        os.environ[key] = value
     
     db = AutoARDB()
     

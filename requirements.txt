@@ -4,3 +4,4 @@ pydantic==2.5.0
 pyyaml==6.0.1
 python-multipart==0.0.6
 discord.py>=2.4.0
+psycopg2-binary>=2.9.0
