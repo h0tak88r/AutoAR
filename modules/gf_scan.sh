@@ -22,15 +22,16 @@ gf_scan() {
   local base="$dir/vulnerabilities"
   ensure_dir "$base"
   
-  # Ensure URLs exist (from DB or URL collection)
-  if ! ensure_urls "$domain" "$urls"; then
+  # Check if URLs exist, if not run fastlook first
+  if [[ ! -s "$urls" ]]; then
     log_info "No URLs found for $domain, running fastlook first"
     discord_send_progress "🔄 **No URLs found for $domain, running fastlook first**"
-    "$ROOT_DIR/modules/fastlook.sh" run -d "$domain" || { log_warn "Failed to run fastlook for $domain"; exit 1; }
+    "$ROOT_DIR/modules/fastlook.sh" run -d "$domain" || log_warn "Failed to run fastlook for $domain, continuing anyway..."
     
-    # Try to get URLs again after fastlook
-    if ! ensure_urls "$domain" "$urls"; then
-      log_warn "Still no URLs found for $domain after fastlook"; exit 1;
+    # Check if URLs exist after fastlook
+    if [[ ! -s "$urls" ]]; then
+      log_warn "Still no URLs found for $domain after fastlook"
+      exit 1
     fi
   fi
 
@@ -39,7 +40,7 @@ gf_scan() {
       local out="$base/$pattern/gf-results.txt"
       ensure_dir "$(dirname "$out")"
       cat "$urls" | gf "$pattern" > "$out" 2>/dev/null || true
-      [[ -s "$out" ]] && discord_send_file "$out" "GF $pattern matches"
+      [[ -s "$out" ]] && discord_file "$out" "GF $pattern matches for $domain"
     done
   fi
 }
