@@ -355,6 +355,9 @@ github_scan() {
             return 1
         fi
         
+        # Send progress notification
+        discord_send_progress "🔍 **Scanning GitHub repository: $repo_name**"
+        
         # Disable TruffleHog auto-update to prevent updater errors
         export TRUFFLEHOG_NO_UPDATE=true
         export TRUFFLEHOG_AUTOUPDATE=false
@@ -491,6 +494,9 @@ github_org_scan() {
         log_error "GITHUB_TOKEN environment variable is required for organization scanning"
         return 1
     fi
+    
+    # Send progress notification
+    discord_send_progress "🔍 **Scanning GitHub organization: $org_name** (max $max_repos repos)"
     
     log_info "Running TruffleHog with GitHub token..."
     # Disable TruffleHog auto-update to prevent updater errors

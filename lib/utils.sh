@@ -29,13 +29,29 @@ discord_send_file() {
   local description="$2"
   
   if is_discord_bot_available; then
-    # Discord bot will handle file sending automatically
-    log_info "File will be sent via Discord bot: $description"
+    # For Discord bot, we'll use webhook for immediate sending
+    # This provides better user experience with progressive updates
+    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+      discord_file "$file_path" "$description"
+    else
+      log_info "File will be sent via Discord bot: $description"
+    fi
   elif [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
     # Fallback to webhook
     discord_file "$file_path" "$description"
   else
     log_info "No Discord integration available for: $description"
+  fi
+}
+
+# Send immediate Discord notification for scan progress
+discord_send_progress() {
+  local message="$1"
+  
+  if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+    curl -H "Content-Type: application/json" \
+         -d "{\"content\": \"$message\"}" \
+         "${DISCORD_WEBHOOK}" >/dev/null 2>&1 || true
   fi
 }
 

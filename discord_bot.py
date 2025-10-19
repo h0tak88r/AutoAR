@@ -710,7 +710,9 @@ class AutoARBot(commands.Cog):
                 scan_results[scan_id] = results
                 
                 # Send files if scan was successful and results exist
-                if results['returncode'] == 0:
+                # Note: Files are now sent progressively via webhooks during scan execution
+                # Only send files if no webhook is available (fallback)
+                if results['returncode'] == 0 and not os.getenv('DISCORD_WEBHOOK'):
                     await self._send_scan_files(scan_id, interaction)
             
         except Exception as e:
