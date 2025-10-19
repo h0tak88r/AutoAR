@@ -40,6 +40,7 @@ Commands:
 
 Workflows:
   lite run            -d <domain>
+  fastlook run        -d <domain>
   domain run          -d <domain>
 
 Database:
@@ -77,6 +78,8 @@ cmd_sqlmap()     { "$ROOT_DIR/modules/sqlmap.sh"      "$@"; }
 cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
 cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
 cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
+cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
+cmd_help()       { print_usage; }
 cmd_wpdepconf()  { echo "WordPress dependency confusion not implemented yet"; exit 1; }
 
 main() {
@@ -104,11 +107,13 @@ main() {
     gf)         cmd_gf         "$@" ;;
     sqlmap)     cmd_sqlmap     "$@" ;;
     dalfox)     cmd_dalfox     "$@" ;;
-    dns)        cmd_dns        "$@" ;;
-    github)     cmd_github     "$@" ;;
-    wpDepConf)  cmd_wpdepconf  "$@" ;;
-    help|--help|-h) print_usage ;;
-    *) log_error "Unknown command: $cmd"; print_usage; exit 1 ;;
+  dns)        cmd_dns        "$@" ;;
+  github)     cmd_github     "$@" ;;
+  fastlook)   cmd_fastlook   "$@" ;;
+  help)       cmd_help       "$@" ;;
+  wpDepConf)  cmd_wpdepconf  "$@" ;;
+  --help|-h)  print_usage ;;
+  *) log_error "Unknown command: $cmd"; print_usage; exit 1 ;;
   esac
 }
 
