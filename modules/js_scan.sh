@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -35,6 +35,17 @@ js_scan() {
   set +e
   ensure_urls "${sub:-$domain}" "$urls_file" || log_warn "Failed to get URLs for ${sub:-$domain}, continuing anyway..."
   set -e
+  
+  # If URLs file doesn't exist, try to create it from existing results
+  if [[ ! -s "$urls_file" ]]; then
+    log_warn "No JS URLs file found, checking for existing results..."
+    local results_dir="$(dirname "$(dirname "$urls_file")")"
+    local js_urls_file="$results_dir/urls/js-urls.txt"
+    if [[ -s "$js_urls_file" ]]; then
+      log_info "Using existing JS URLs from previous scan"
+      cp "$js_urls_file" "$urls_file"
+    fi
+  fi
 
   local out_dir="$target_dir/vulnerabilities/js"; ensure_dir "$out_dir"
 
@@ -90,10 +101,11 @@ js_scan() {
   fi
 
   if [[ -s "$out_dir/trufflehog.txt" ]]; then
-    discord_send_file "$out_dir/trufflehog.txt" "JS scan matches (trufflehog)"
+    discord_file "$out_dir/trufflehog.txt" "JS scan matches (trufflehog)"
   fi
   
   log_success "JavaScript scanning completed for ${sub:-$domain}"
+  return 0
 }
 
 case "${1:-}" in
