@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
+source "$ROOT_DIR/lib/discord.sh"
 
 usage() { echo "Usage: lite run -d <domain>"; }
 
@@ -39,6 +40,12 @@ lite_run() {
   log_info "Step 5/5: JavaScript scanning"
   discord_send_progress "📜 **Step 5/5:** Scanning JavaScript files for $domain"
   "$ROOT_DIR/modules/js_scan.sh" scan -d "$domain" || log_warn "JavaScript scanning failed, continuing..."
+  
+  # Send JS scan results to Discord if they exist
+  local js_results_dir="$(results_dir "$domain")/vulnerabilities/js"
+  if [[ -s "$js_results_dir/trufflehog.txt" ]]; then
+    discord_file "$js_results_dir/trufflehog.txt" "JS scan matches (trufflehog) for $domain"
+  fi
   
   # Send completion notification
   discord_send_progress "✅ **Lite Scan completed for $domain** - All results sent above"
