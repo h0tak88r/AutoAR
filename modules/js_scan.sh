@@ -2,6 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Load environment variables first
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  source "$ROOT_DIR/.env"
+fi
+
 source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/config.sh"
@@ -44,14 +50,20 @@ js_scan() {
   # Save JS files to database
   if [[ -s "$urls_file" ]]; then
     log_info "Saving JS files to database"
+    local count=0
     while IFS= read -r js_url; do
       if [[ -n "$js_url" ]]; then
         # Extract subdomain from URL for database lookup
         local subdomain
         subdomain=$(echo "$js_url" | sed -E 's|^https?://([^/]+).*|\1|')
-        db_insert_js_file "$subdomain" "$js_url"
+        if db_insert_js_file "$domain" "$js_url"; then
+          ((count++))
+        fi
       fi
     done < "$urls_file"
+    log_info "Saved $count JS files to database"
+  else
+    log_warn "No JS URLs file found at $urls_file"
   fi
 
   if [[ -s "$out_dir/trufflehog.txt" ]]; then
