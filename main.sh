@@ -50,13 +50,10 @@ Workflows:
 
 Database:
   db domains list
-  db domains delete   -d <domain> [-f]
+  db domains delete   -d <domain>
   db subdomains list  -d <domain>
   db subdomains export -d <domain> [-o file]
-  db subdomains all
   db js list          -d <domain>
-  db stats
-  db cleanup          [-d days] [--dry-run]
 
 Utilities:
   cleanup run         --domain <domain> [--keep]
