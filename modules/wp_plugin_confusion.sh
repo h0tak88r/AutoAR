@@ -56,7 +56,7 @@ check_wordpress_org_plugin() {
   local svn_url="https://plugins.svn.wordpress.org/$plugin/"
   
   if curl -s -I -A "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:90.0) Gecko/20100101 Firefox/90.0" \
-          --connect-timeout 5 --max-time 10 "$svn_url" | grep -q "404 Not Found"; then
+          --connect-timeout 5 --max-time 10 "$svn_url" 2>/dev/null | grep -q "404 Not Found"; then
     return 0  # Plugin not found (vulnerable)
   else
     return 1  # Plugin exists (not vulnerable)
@@ -185,7 +185,7 @@ process_plugins() {
     fi
     
     # Check if plugin exists on WordPress.org
-    if check_wordpress_org_plugin "$plugin"; then
+    if check_wordpress_org_plugin "$plugin" 2>/dev/null; then
       echo "$plugin_entry" >> "$output_file"
       echo "$plugin_entry" >> "$filtered_file"
       ((vulnerable_count++))
@@ -223,7 +223,7 @@ scan_multiple_hosts() {
     log_info "Scanning host: $host"
     
     # Detect plugins from this host
-    local plugins_file=$(detect_plugins "https://$host")
+    local plugins_file=$(detect_plugins "https://$host" 2>/dev/null || echo "")
     
     if [[ -n "$plugins_file" && -f "$plugins_file" && -s "$plugins_file" ]]; then
       local plugin_count=$(wc -l < "$plugins_file")
@@ -358,7 +358,7 @@ wp_plugin_confusion_scan() {
   
   # Detect plugins from the WordPress site
   log_info "Fetching WordPress site content from https://$domain"
-  local plugins_file=$(detect_plugins "https://$domain")
+  local plugins_file=$(detect_plugins "https://$domain" 2>/dev/null || echo "")
   
   if [[ -n "$plugins_file" && -f "$plugins_file" ]]; then
     local plugin_count=$(wc -l < "$plugins_file")
