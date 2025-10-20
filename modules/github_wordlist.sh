@@ -2,6 +2,7 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/.env" 2>/dev/null || true
 source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
@@ -39,8 +40,16 @@ get_org_repos() {
       return 1
     fi
     
+    # Check for API errors
+    if echo "$response" | grep -q '"message"'; then
+      local error_msg=$(echo "$response" | grep '"message"' | sed 's/.*"message": *"\([^"]*\)".*/\1/')
+      log_error "GitHub API error: $error_msg"
+      rm -f "$repos_file"
+      return 1
+    fi
+    
     # Check if we got any repositories
-    local repo_count=$(echo "$response" | grep -c '"name"' 2>/dev/null || echo "0")
+    local repo_count=$(echo "$response" | grep -c '"name"' 2>/dev/null | head -1)
     if [[ "$repo_count" -eq 0 ]]; then
       break
     fi
