@@ -22,9 +22,9 @@ gf_scan() {
   local base="$dir/vulnerabilities"
   ensure_dir "$base"
   
-  # Check if URLs file is corrupted (contains binary content)
-  if [[ -f "$urls" ]] && file "$urls" | grep -q "data"; then
-    log_warn "URLs file appears corrupted (binary content detected), regenerating..."
+  # Check if URLs file is corrupted (starts with "Binary file" message)
+  if [[ -f "$urls" ]] && head -1 "$urls" | grep -q "Binary file"; then
+    log_warn "URLs file appears corrupted (contains grep output), regenerating..."
     mv "$urls" "${urls}.corrupted"
     
     if command -v urlfinder >/dev/null 2>&1; then
