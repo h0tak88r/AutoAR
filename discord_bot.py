@@ -80,7 +80,7 @@ class AutoARBot(commands.Cog):
         """Get Discord webhook URL from config or environment."""
         return self.config.get('DISCORD_WEBHOOK') or os.getenv('DISCORD_WEBHOOK')
     
-    async def run_autoar_command(self, command: list, scan_id: str) -> Dict[str, Any]:
+    async def run_autoar_command(self, command: list, scan_id: str, timeout: int = 30) -> Dict[str, Any]:
         """Run AutoAR command and return results."""
         try:
             print(f"[DEBUG] Running command: {' '.join(command)}")
@@ -100,14 +100,15 @@ class AutoARBot(commands.Cog):
             
             # Add timeout to prevent hanging
             try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
             except asyncio.TimeoutError:
+                print(f"[WARN] Command timed out after {timeout} seconds")
                 process.kill()
                 await process.wait()
                 return {
                     'returncode': -1,
                     'stdout': '',
-                    'stderr': 'Command timed out after 30 seconds',
+                    'stderr': f'Command timed out after {timeout} seconds',
                     'scan_id': scan_id,
                     'timestamp': datetime.now().isoformat()
                 }
@@ -436,7 +437,7 @@ class AutoARBot(commands.Cog):
             )
             await interaction.response.send_message(embed=embed)
             
-            results = await self.run_autoar_command(command, "tool_check")
+            results = await self.run_autoar_command(command, "tool_check", timeout=60)
             
             if results['returncode'] == 0:
                 embed.color = discord.Color.green()
@@ -734,7 +735,7 @@ class AutoARBot(commands.Cog):
         
         # Run command in background
         command = [AUTOAR_SCRIPT_PATH, "help"]
-        results = await self.run_autoar_command(command, "help")
+        results = await self.run_autoar_command(command, "help", timeout=10)
         
         # Update with actual help content
         embed.description = "AutoAR Security Scanning Tool - Available Commands"
@@ -754,8 +755,13 @@ class AutoARBot(commands.Cog):
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
         try:
+            # Determine timeout based on scan type
+            timeout = 300  # 5 minutes default for long-running scans
+            if any(cmd in command for cmd in ['wpDepConf', 'wp_depconf']):
+                timeout = 600  # 10 minutes for WordPress Plugin Confusion scans
+            
             # Run the scan
-            results = await self.run_autoar_command(command, scan_id)
+            results = await self.run_autoar_command(command, scan_id, timeout)
             
             # Update scan status
             if scan_id in active_scans:
