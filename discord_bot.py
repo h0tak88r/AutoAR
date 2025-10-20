@@ -507,6 +507,33 @@ class AutoARBot(commands.Cog):
         # Run scan in background
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
+    @app_commands.command(name="live_depconfusion_scan", description="Scan live hosts for dependency confusion vulnerabilities")
+    @app_commands.describe(
+        domain="Target domain to scan",
+        threads="Number of threads (default: 10)",
+        delay="Delay between requests in ms (default: 100)"
+    )
+    async def live_depconfusion_scan(self, interaction: discord.Interaction, domain: str,
+                                    threads: int = 10, delay: int = 100):
+        """Scan live hosts for dependency confusion vulnerabilities."""
+        scan_id = f"live_depconfusion_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "live-depconfusion", "scan", "-d", domain, "-t", str(threads), "--delay", str(delay)]
+        
+        active_scans[scan_id] = {
+            'type': 'live_depconfusion',
+            'target': domain,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = self.create_scan_embed('Live Dependency Confusion', domain, 'running')
+        await interaction.response.send_message(embed=embed)
+        
+        # Run scan in background
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
     @app_commands.command(name="check_tools", description="Check if all required tools are installed")
     async def check_tools(self, interaction: discord.Interaction):
         """Check if all required tools are installed."""
@@ -848,6 +875,8 @@ class AutoARBot(commands.Cog):
                 timeout = 600  # 10 minutes for backup scans
             elif any(cmd in command for cmd in ['depconfusion']):
                 timeout = 1200  # 20 minutes for dependency confusion scans
+            elif any(cmd in command for cmd in ['live-depconfusion']):
+                timeout = 1800  # 30 minutes for live dependency confusion scans
             
             # Run the scan
             results = await self.run_autoar_command(command, scan_id, timeout)
