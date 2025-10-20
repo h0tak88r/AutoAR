@@ -22,7 +22,7 @@ fi
 # Fix fasttest.com URLs if needed
 if [[ -f "/app/new-results/fasttest.com/urls/all-urls.txt" ]]; then
     echo "Checking fasttest.com URLs..."
-    if file "/app/new-results/fasttest.com/urls/all-urls.txt" | grep -q "data"; then
+    if head -1 "/app/new-results/fasttest.com/urls/all-urls.txt" | grep -q "Binary file"; then
         echo "Fixing fasttest.com URLs..."
         mv "/app/new-results/fasttest.com/urls/all-urls.txt" "/app/new-results/fasttest.com/urls/all-urls-corrupted.txt"
         
