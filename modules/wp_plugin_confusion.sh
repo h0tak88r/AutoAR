@@ -263,9 +263,6 @@ scan_multiple_hosts() {
   local vulnerable_count=$(echo "$results" | cut -d: -f1)
   local filtered_count=$(echo "$results" | cut -d: -f2)
   
-  # Clean up temporary files
-  rm -f "$all_plugins_file"
-  
   log_success "WordPress Plugin Confusion scan completed"
   log_info "Total hosts processed: $processed_hosts"
   log_info "Total plugins checked: $total_plugins"
@@ -283,6 +280,16 @@ scan_multiple_hosts() {
     log_info "No WordPress Plugin Confusion vulnerabilities found"
     discord_send_progress "✅ **No WordPress Plugin Confusion vulnerabilities found across $processed_hosts hosts**"
   fi
+  
+  # Always send the original plugins file (all found plugins before filtering)
+  if [[ -f "$all_plugins_file" && -s "$all_plugins_file" ]]; then
+    local all_plugins_copy="$base/wp-plugin-confusion-all-plugins.txt"
+    cp "$all_plugins_file" "$all_plugins_copy"
+    discord_file "$all_plugins_copy" "All WordPress plugins found across $processed_hosts hosts ($total_plugins total plugins)"
+  fi
+  
+  # Clean up temporary files
+  rm -f "$all_plugins_file"
   
   log_success "WordPress Plugin Confusion scanning completed for $processed_hosts hosts"
 }
@@ -396,6 +403,13 @@ wp_plugin_confusion_scan() {
   else
     log_info "No WordPress Plugin Confusion vulnerabilities found"
     discord_send_progress "✅ **No WordPress Plugin Confusion vulnerabilities found for $domain**"
+  fi
+  
+  # Always send the original plugins file (all found plugins before filtering)
+  if [[ -f "$plugins_file" && -s "$plugins_file" ]]; then
+    local all_plugins_file="$base/wp-plugin-confusion-all-plugins.txt"
+    cp "$plugins_file" "$all_plugins_file"
+    discord_file "$all_plugins_file" "All WordPress plugins found on $domain ($plugin_count total plugins)"
   fi
   
   log_success "WordPress Plugin Confusion scanning completed for $domain"
