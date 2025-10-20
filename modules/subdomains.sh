@@ -53,7 +53,7 @@ subdomains_get() {
   # Save subdomains to database (batch insert for performance)
   if [[ $total -gt 0 ]]; then
     log_info "Saving subdomains to database"
-    if ! "$ROOT_DIR/db_handler.py" batch-insert-subdomains "$domain" "$subs_dir/all-subs.txt"; then
+    if ! "$ROOT_DIR/python/db_handler.py" batch-insert-subdomains "$domain" "$subs_dir/all-subs.txt"; then
       log_warn "Failed to save subdomains to database, continuing..."
     fi
   fi

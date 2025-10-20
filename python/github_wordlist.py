@@ -19,7 +19,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 def load_env():
     """Load environment variables from .env file"""
-    env_file = os.path.join(os.path.dirname(__file__), '.env')
+    # Look for .env file in the project root (parent directory)
+    env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
     if os.path.exists(env_file):
         with open(env_file, 'r') as f:
             for line in f:
@@ -271,11 +272,11 @@ def main():
         import subprocess
         
         # Send patterns file
-        cmd1 = f'bash -c "cd {os.path.dirname(__file__)} && source lib/discord.sh && discord_file \\"{patterns_file}\\" \\"GitHub patterns for {org} ({len(all_patterns)} patterns from {total_files} files)\\""'
+        cmd1 = f'bash -c "cd {os.path.dirname(os.path.dirname(__file__))} && source lib/discord.sh && discord_file \\"{patterns_file}\\" \\"GitHub patterns for {org} ({len(all_patterns)} patterns from {total_files} files)\\""'
         subprocess.run(cmd1, shell=True, check=True)
         
         # Send wordlist file
-        cmd2 = f'bash -c "cd {os.path.dirname(__file__)} && source lib/discord.sh && discord_file \\"{wordlist_file}\\" \\"GitHub wordlist for {org} ({len(wordlist)} words)\\""'
+        cmd2 = f'bash -c "cd {os.path.dirname(os.path.dirname(__file__))} && source lib/discord.sh && discord_file \\"{wordlist_file}\\" \\"GitHub wordlist for {org} ({len(wordlist)} words)\\""'
         subprocess.run(cmd2, shell=True, check=True)
         
         print("✅ Results sent to Discord")

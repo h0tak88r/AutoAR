@@ -41,7 +41,7 @@ $result
 }
 
 db_domains_list() {
-  local result=$("$ROOT_DIR/db_handler.py" get-domains)
+  local result=$("$ROOT_DIR/python/db_handler.py" get-domains)
   echo "$result"
   
   # Send domains list to Discord

@@ -85,7 +85,7 @@ cmd_sqlmap()     { "$ROOT_DIR/modules/sqlmap.sh"      "$@"; }
 cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
 cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
 cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
-cmd_github_wordlist() { python3 "$ROOT_DIR/github_wordlist.py" "$1"; }
+cmd_github_wordlist() { python3 "$ROOT_DIR/python/github_wordlist.py" "$1"; }
 cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
