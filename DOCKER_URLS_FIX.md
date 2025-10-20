@@ -29,8 +29,9 @@ urlfinder -d fasttest.com -all -silent -pc "${AUTOAR_CONFIG_FILE}" > /app/new-re
 
 ## What Was Fixed
 1. **URL Collection**: Fixed `urlfinder` output redirection to prevent binary content
-2. **GF Scan**: Added automatic corruption detection and regeneration
-3. **Error Handling**: Better handling of corrupted files
+2. **GF Scan**: Added automatic corruption detection using `head` and `grep` (Docker-compatible)
+3. **Error Handling**: Better handling of corrupted files without external dependencies
+4. **Docker Compatibility**: Removed dependency on `file` command that's not available in Docker
 
 ## Expected Results
 - **vulnweb.com**: Should find ~13 matches across all GF patterns
