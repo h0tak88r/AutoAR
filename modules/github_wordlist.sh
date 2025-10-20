@@ -26,7 +26,7 @@ get_org_repos() {
   local page=1
   local repos_file=$(mktemp)
   
-  log_info "Fetching repositories for GitHub organization: $org"
+  log_info "Fetching repositories for GitHub organization: $org" >&2
   
   while true; do
     local url="https://api.github.com/orgs/$org/repos?per_page=100&page=$page&type=all"
@@ -54,10 +54,10 @@ get_org_repos() {
       break
     fi
     
-    # Extract repository names
-    echo "$response" | grep '"name"' | sed 's/.*"name": *"\([^"]*\)".*/\1/' >> "$repos_file"
+    # Extract repository names (only the main "name" field, not nested ones)
+    echo "$response" | grep -o '"name": *"[^"]*"' | sed 's/"name": *"\([^"]*\)"/\1/' | head -n "$repo_count" >> "$repos_file"
     
-    log_info "Fetched $repo_count repositories from page $page"
+    log_info "Fetched $repo_count repositories from page $page" >&2
     ((page++))
     
     # Rate limiting - small delay between requests
@@ -65,7 +65,7 @@ get_org_repos() {
   done
   
   local total_repos=$(wc -l < "$repos_file" 2>/dev/null || echo "0")
-  log_success "Found $total_repos total repositories for $org"
+  log_success "Found $total_repos total repositories for $org" >&2
   
   echo "$repos_file"
 }
