@@ -32,6 +32,7 @@ Commands:
   gf scan             -d <domain>
   sqlmap run          -d <domain>
   dalfox run          -d <domain>
+  wpDepConf scan      -d <domain>     (WordPress Plugin Confusion)
   dns takeover        -d <domain>     (comprehensive scan)
   dns cname           -d <domain>     (CNAME takeover only)
   dns ns              -d <domain>     (NS takeover only)
@@ -85,7 +86,7 @@ cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
 cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
 cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
 cmd_help()       { print_usage; }
-cmd_wpdepconf()  { echo "WordPress dependency confusion not implemented yet"; exit 1; }
+cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
 
 main() {
   if [[ $# -lt 1 ]]; then
