@@ -12,18 +12,21 @@ source "$ROOT_DIR/lib/discord.sh"
 
 usage() { 
   echo "Usage: backup scan -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]"
+  echo "       backup scan -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [-d <delay>]"
   echo "  -d, --domain     Target domain to scan"
-  echo "  -o, --output     Output directory (default: results/<domain>/backup)"
+  echo "  -l, --live-hosts File containing list of live hosts"
+  echo "  -o, --output     Output directory (default: results/<domain>/backup or results/backup)"
   echo "  -t, --threads    Number of threads (default: 10)"
   echo "  -d, --delay      Delay between requests in ms (default: 100)"
 }
 
 backup_scan() {
-  local domain="" output_dir="" threads="10" delay="100"
+  local domain="" live_hosts_file="" output_dir="" threads="10" delay="100"
   
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -l|--live-hosts) live_hosts_file="$2"; shift 2;;
       -o|--output) output_dir="$2"; shift 2;;
       -t|--threads) threads="$2"; shift 2;;
       --delay) delay="$2"; shift 2;;
@@ -31,20 +34,48 @@ backup_scan() {
     esac
   done
   
-  [[ -z "$domain" ]] && { usage; exit 1; }
+  # Validate that either domain or live_hosts_file is provided
+  if [[ -z "$domain" && -z "$live_hosts_file" ]]; then
+    log_error "Either domain (-d) or live hosts file (-l) must be provided"
+    usage
+    exit 1
+  fi
   
-  # Set default output directory if not provided
+  if [[ -n "$domain" && -n "$live_hosts_file" ]]; then
+    log_error "Cannot specify both domain and live hosts file"
+    usage
+    exit 1
+  fi
+  
+  # Set default output directory
   if [[ -z "$output_dir" ]]; then
-    output_dir="$(results_dir "$domain")/backup"
+    if [[ -n "$domain" ]]; then
+      output_dir="$(results_dir "$domain")/backup"
+    else
+      output_dir="$(results_dir "backup")"
+    fi
   fi
   
   ensure_dir "$output_dir"
   
-  log_info "Starting backup file discovery scan for $domain"
-  discord_send_progress "🔍 **Starting backup file discovery for $domain**"
-  
-  # Use Fuzzuli command line tool
-  log_info "Using Fuzzuli command line tool"
+  # Determine scan type and target
+  if [[ -n "$domain" ]]; then
+    log_info "Starting backup file discovery scan for domain: $domain"
+    discord_send_progress "🔍 **Starting backup file discovery for $domain**"
+    scan_backup_files "$domain" "$output_dir" "$threads" "$delay"
+  else
+    [[ ! -f "$live_hosts_file" ]] && { log_error "Live hosts file not found: $live_hosts_file"; exit 1; }
+    log_info "Starting backup file discovery scan for live hosts: $live_hosts_file"
+    discord_send_progress "🔍 **Starting backup file discovery for live hosts**"
+    scan_backup_files_from_list "$live_hosts_file" "$output_dir" "$threads" "$delay"
+  fi
+}
+
+scan_backup_files() {
+  local domain="$1"
+  local output_dir="$2"
+  local threads="$3"
+  local delay="$4"
   
   # Check if fuzzuli is installed
   if ! command -v fuzzuli >/dev/null 2>&1; then
@@ -62,7 +93,7 @@ backup_scan() {
   
   local start_time=$(date +%s)
   
-  if echo "https://$domain" | fuzzuli -mt all -jw > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
+  if echo "https://$domain" | fuzzuli -mt all -w 100 > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
     
@@ -115,6 +146,84 @@ backup_scan() {
   fi
   
   log_success "Backup file discovery scan completed for $domain"
+}
+
+scan_backup_files_from_list() {
+  local live_hosts_file="$1"
+  local output_dir="$2"
+  local threads="$3"
+  local delay="$4"
+  
+  # Check if fuzzuli is installed
+  if ! command -v fuzzuli >/dev/null 2>&1; then
+    log_error "Fuzzuli not found. Please install it with: go install github.com/musana/fuzzuli@latest"
+    discord_send_progress "❌ **Fuzzuli tool not found. Please install it first.**"
+    exit 1
+  fi
+  
+  local total_hosts=$(wc -l < "$live_hosts_file")
+  log_info "Running Fuzzuli on $total_hosts live hosts"
+  log_info "Command: fuzzuli -mt all -f '$live_hosts_file'"
+  
+  # Run fuzzuli scan on all hosts at once
+  log_info "Executing backup file discovery scan..."
+  discord_send_progress "⚙️ **Executing backup file discovery scan for $total_hosts hosts**"
+  
+  local start_time=$(date +%s)
+  
+  if fuzzuli -mt all -f "$live_hosts_file" -w 100 > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    
+    log_success "Fuzzuli scan completed in ${duration}s"
+    
+    # Check if results file exists and has content
+    if [[ -f "$output_dir/fuzzuli-results.txt" && -s "$output_dir/fuzzuli-results.txt" ]]; then
+      # Process the results
+      process_fuzzuli_results "live_hosts" "$output_dir"
+      
+      # Count results
+      local found_count=$(grep -c "http" "$output_dir/fuzzuli-results.txt" 2>/dev/null || echo "0")
+      
+      if [[ "$found_count" -gt 0 ]]; then
+        log_success "Found $found_count potential backup files"
+        
+        # Send results to Discord
+        discord_file "$output_dir/fuzzuli-results.txt" "Backup files discovered for live hosts ($found_count files found)"
+        
+        # Also send the output log for debugging
+        if [[ -f "$output_dir/fuzzuli-output.log" ]]; then
+          discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan output for live hosts"
+        fi
+        
+        discord_send_progress "✅ **Backup scan completed for live hosts - Found $found_count potential backup files**"
+      else
+        log_warn "No backup files found for live hosts"
+        discord_send_progress "⚠️ **No backup files found for live hosts**"
+      fi
+    else
+      log_warn "No results file generated for live hosts"
+      discord_send_progress "⚠️ **No results file generated for live hosts**"
+    fi
+    
+  else
+    local exit_code=$?
+    log_error "Fuzzuli scan failed with exit code: $exit_code"
+    
+    # Check if there's any output
+    if [[ -f "$output_dir/fuzzuli-output.log" ]]; then
+      log_error "Fuzzuli output:"
+      cat "$output_dir/fuzzuli-output.log" | tail -20
+      
+      # Send error log to Discord
+      discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan error for live hosts (exit code: $exit_code)"
+    fi
+    
+    discord_send_progress "❌ **Backup scan failed for live hosts (exit code: $exit_code)**"
+    exit 1
+  fi
+  
+  log_success "Backup file discovery scan completed for live hosts"
 }
 
 process_fuzzuli_results() {
