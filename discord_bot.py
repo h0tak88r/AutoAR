@@ -434,7 +434,7 @@ class AutoARBot(commands.Cog):
         """Generate GitHub target-based wordlist from organization."""
         scan_id = f"github_wordlist_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "github-wordlist", "scan", "-o", org]
+        command = [AUTOAR_SCRIPT_PATH, "github-wordlist", org]
         if token:
             command.extend(["-t", token])
         
