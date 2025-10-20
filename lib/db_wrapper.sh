@@ -2,8 +2,8 @@
 # Database wrapper script for AutoAR
 # This script provides shell-compatible functions that call the Python DB handler
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_DB="$ROOT_DIR/db_handler.py"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_DB="$ROOT_DIR/python/db_handler.py"
 
 # Load environment variables
 if [[ -f "$ROOT_DIR/.env" ]]; then

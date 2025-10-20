@@ -90,7 +90,7 @@ js_scan() {
     local count=0
     while IFS= read -r js_url; do
       if [[ -n "$js_url" ]]; then
-        if "$ROOT_DIR/db_handler.py" insert-js-file "$domain" "$js_url"; then
+        if "$ROOT_DIR/python/db_handler.py" insert-js-file "$domain" "$js_url"; then
           ((count++))
         fi
       fi
@@ -100,9 +100,13 @@ js_scan() {
     log_warn "No JS URLs file found at $urls_file"
   fi
 
-  if [[ -s "$out_dir/trufflehog.txt" ]]; then
-    discord_file "$out_dir/trufflehog.txt" "JS scan matches (trufflehog)"
-  fi
+  # Send all findings files to Discord
+  for findings_file in "$out_dir"/*.txt; do
+    if [[ -s "$findings_file" ]]; then
+      base="$(basename "$findings_file" .txt)"
+      discord_file "$findings_file" "JS scan matches ($base)"
+    fi
+  done
   
   log_success "JavaScript scanning completed for ${sub:-$domain}"
   return 0

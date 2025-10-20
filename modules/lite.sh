@@ -41,11 +41,14 @@ lite_run() {
   discord_send_progress "📜 **Step 5/5:** Scanning JavaScript files for $domain"
   "$ROOT_DIR/modules/js_scan.sh" scan -d "$domain" || log_warn "JavaScript scanning failed, continuing..."
   
-  # Send JS scan results to Discord if they exist
+  # Send all JS scan results to Discord if they exist
   local js_results_dir="$(results_dir "$domain")/vulnerabilities/js"
-  if [[ -s "$js_results_dir/trufflehog.txt" ]]; then
-    discord_file "$js_results_dir/trufflehog.txt" "JS scan matches (trufflehog) for $domain"
-  fi
+  for findings_file in "$js_results_dir"/*.txt; do
+    if [[ -s "$findings_file" ]]; then
+      base="$(basename "$findings_file" .txt)"
+      discord_file "$findings_file" "JS scan matches ($base) for $domain"
+    fi
+  done
   
   # Send completion notification
   discord_send_progress "✅ **Lite Scan completed for $domain** - All results sent above"
