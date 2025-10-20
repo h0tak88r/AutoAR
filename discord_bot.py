@@ -424,6 +424,33 @@ class AutoARBot(commands.Cog):
         
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
+    @app_commands.command(name="github_wordlist", description="Generate GitHub target-based wordlist from organization")
+    @app_commands.describe(
+        org="GitHub organization name",
+        token="GitHub token (optional, can use GITHUB_TOKEN env var)"
+    )
+    async def github_wordlist(self, interaction: discord.Interaction, org: str, 
+                             token: Optional[str] = None):
+        """Generate GitHub target-based wordlist from organization."""
+        scan_id = f"github_wordlist_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "github-wordlist", "scan", "-o", org]
+        if token:
+            command.extend(["-t", token])
+        
+        active_scans[scan_id] = {
+            'type': 'github_wordlist',
+            'target': org,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = self.create_scan_embed("GitHub Wordlist", org, "running")
+        await interaction.response.send_message(embed=embed)
+        
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
     @app_commands.command(name="check_tools", description="Check if all required tools are installed")
     async def check_tools(self, interaction: discord.Interaction):
         """Check if all required tools are installed."""
@@ -759,6 +786,8 @@ class AutoARBot(commands.Cog):
             timeout = 300  # 5 minutes default for long-running scans
             if any(cmd in command for cmd in ['wpDepConf', 'wp_depconf']):
                 timeout = 600  # 10 minutes for WordPress Plugin Confusion scans
+            elif any(cmd in command for cmd in ['github-wordlist']):
+                timeout = 900  # 15 minutes for GitHub wordlist generation
             
             # Run the scan
             results = await self.run_autoar_command(command, scan_id, timeout)

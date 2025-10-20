@@ -43,6 +43,7 @@ Commands:
   s3 enum             -b <root_domain>
   github scan         -r <owner/repo>
   github org          -o <org> [-m <max-repos>]
+  github-wordlist scan -o <github_org> [-t <github_token>]
 
 Workflows:
   lite run            -d <domain>
@@ -84,6 +85,7 @@ cmd_sqlmap()     { "$ROOT_DIR/modules/sqlmap.sh"      "$@"; }
 cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
 cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
 cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
+cmd_github_wordlist() { "$ROOT_DIR/modules/github_wordlist.sh" "$@"; }
 cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
@@ -115,6 +117,7 @@ main() {
     dalfox)     cmd_dalfox     "$@" ;;
   dns)        cmd_dns        "$@" ;;
   github)     cmd_github     "$@" ;;
+  github-wordlist) cmd_github_wordlist "$@" ;;
   fastlook)   cmd_fastlook   "$@" ;;
   help)       cmd_help       "$@" ;;
   wpDepConf)  cmd_wpdepconf  "$@" ;;
