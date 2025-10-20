@@ -22,17 +22,22 @@ gf_scan() {
   local base="$dir/vulnerabilities"
   ensure_dir "$base"
   
-  # Check if URLs file is corrupted (starts with "Binary file" message)
-  if [[ -f "$urls" ]] && head -1 "$urls" | grep -q "Binary file"; then
-    log_warn "URLs file appears corrupted (contains grep output), regenerating..."
-    mv "$urls" "${urls}.corrupted"
+  # Check if URLs file is corrupted or contains invalid URLs
+  if [[ -f "$urls" ]]; then
+    local first_line=$(head -1 "$urls" 2>/dev/null || echo "")
+    local valid_urls=$(head -10 "$urls" 2>/dev/null | grep -c "^http" || echo 0)
     
-    if command -v urlfinder >/dev/null 2>&1; then
-      log_info "Regenerating clean URLs with urlfinder"
-      urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" > "$urls" 2>/dev/null || true
-      log_success "Regenerated URLs: $(wc -l < "$urls" 2>/dev/null || echo 0) lines"
-    else
-      log_warn "urlfinder not available, cannot regenerate URLs"
+    if [[ "$first_line" =~ ^Binary\ file ]] || [[ "$valid_urls" -lt 5 ]]; then
+      log_warn "URLs file appears corrupted (first line: '$first_line', valid URLs in first 10: $valid_urls), regenerating..."
+      mv "$urls" "${urls}.corrupted"
+      
+      if command -v urlfinder >/dev/null 2>&1; then
+        log_info "Regenerating clean URLs with urlfinder"
+        urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" > "$urls" 2>/dev/null || true
+        log_success "Regenerated URLs: $(wc -l < "$urls" 2>/dev/null || echo 0) lines"
+      else
+        log_warn "urlfinder not available, cannot regenerate URLs"
+      fi
     fi
   fi
   
