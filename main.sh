@@ -46,6 +46,7 @@ Commands:
   github-wordlist scan -o <github_org> [-t <github_token>]
   backup scan            -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
   depconfusion scan      -o <github_org> [-t <github_token>] [-m <max_repos>]
+  live-depconfusion scan -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
 
 Workflows:
   lite run            -d <domain>
@@ -90,6 +91,7 @@ cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
 cmd_github_wordlist() { python3 "$ROOT_DIR/python/github_wordlist.py" "$1"; }
 cmd_backup()     { "$ROOT_DIR/modules/backup_scan.sh"    "$@"; }
 cmd_depconfusion() { "$ROOT_DIR/modules/depconfusion_scan.sh" "$@"; }
+cmd_live_depconfusion() { "$ROOT_DIR/modules/live_depconfusion_scan.sh" "$@"; }
 cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
@@ -124,6 +126,7 @@ main() {
   github-wordlist) cmd_github_wordlist "$@" ;;
   backup)     cmd_backup     "$@" ;;
   depconfusion) cmd_depconfusion "$@" ;;
+  live-depconfusion) cmd_live_depconfusion "$@" ;;
   fastlook)   cmd_fastlook   "$@" ;;
   help)       cmd_help       "$@" ;;
   wpDepConf)  cmd_wpdepconf  "$@" ;;

@@ -144,6 +144,10 @@ check_and_install() {
       else
         log_success "✓ trufflehog (installed)"
       fi;;
+    fuzzuli)
+      install_go_tool fuzzuli github.com/musana/fuzzuli@latest || return 1;;
+    confused)
+      install_go_tool confused github.com/visma-prodsec/confused@latest || return 1;;
     *)
       return 1;;
   esac
@@ -158,7 +162,7 @@ check_and_install() {
 run() {
   ensure_directories
   local -a tools=(
-    subfinder httpx naabu nuclei ffuf kxss qsreplace gf dalfox urlfinder interlace jsleak jsfinder dnsx dig jq yq anew curl git aws trufflehog
+    subfinder httpx naabu nuclei ffuf kxss qsreplace gf dalfox urlfinder interlace jsleak jsfinder dnsx dig jq yq anew curl git aws trufflehog fuzzuli confused
   )
   local missing=0 installed=0 total=${#tools[@]}
 
