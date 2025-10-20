@@ -6,292 +6,80 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: wp_plugin_confusion scan -d <domain> | -l <live_hosts_file>"; }
+usage() { 
+  echo "Usage: wp_plugin_confusion scan -d <domain> | -l <live_hosts_file>"
+  echo "  -d, --domain     Target domain to scan"
+  echo "  -l, --list       File containing list of live hosts"
+}
 
-# Detect WordPress plugins from HTML content
-detect_plugins() {
-  local url="$1"
-  local temp_file=$(mktemp)
-  local plugins_file=$(mktemp)
+# Run WordPress Plugin Confusion scan using the original Python tool
+run_wp_confusion_scan() {
+  local target="$1"
+  local scan_type="${2:-plugins}"
+  local output_dir="$3"
   
-  # Fetch the page content
-  if curl -s -L -A "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:90.0) Gecko/20100101 Firefox/90.0" \
-          --connect-timeout 10 --max-time 30 "$url" > "$temp_file" 2>/dev/null; then
-    
-    # Extract plugin names from wp-content/plugins/ paths
-    grep -o 'wp-content/plugins/[a-zA-Z0-9_-]*/' "$temp_file" 2>/dev/null | \
-    sed 's|wp-content/plugins/||g' | sed 's|/||g' | \
-    grep -E '^[a-zA-Z0-9_-]+$' | sort -u > "$plugins_file"
-    
-    # Also check for plugins in script src attributes
-    grep -o 'src="[^"]*wp-content/plugins/[a-zA-Z0-9_-]*/' "$temp_file" 2>/dev/null | \
-    sed 's|.*wp-content/plugins/||g' | sed 's|/.*||g' | \
-    grep -E '^[a-zA-Z0-9_-]+$' | sort -u >> "$plugins_file"
-    
-    # Also check for plugins in href attributes
-    grep -o 'href="[^"]*wp-content/plugins/[a-zA-Z0-9_-]*/' "$temp_file" 2>/dev/null | \
-    sed 's|.*wp-content/plugins/||g' | sed 's|/.*||g' | \
-    grep -E '^[a-zA-Z0-9_-]+$' | sort -u >> "$plugins_file"
-    
-    # Remove duplicates and empty lines
-    sort -u "$plugins_file" | grep -v '^$' > "${plugins_file}.tmp"
-    mv "${plugins_file}.tmp" "$plugins_file"
-    
-    # Clean up temp file
-    rm -f "$temp_file"
-    
-    # Return the plugins file path
-    echo "$plugins_file"
+  local wp_tool="$ROOT_DIR/python/wp_update_confusion.py"
+  
+  if [[ ! -f "$wp_tool" ]]; then
+    log_error "WordPress confusion tool not found: $wp_tool"
+    return 1
+  fi
+  
+  # Generate output filename
+  local timestamp=$(date +"%Y%m%d_%H%M%S")
+  local target_name=$(echo "$target" | sed 's|https\?://||' | sed 's|/|_|g')
+  local output_file="$output_dir/wp-confusion-${target_name}-${timestamp}.txt"
+  
+  log_info "Running WordPress Plugin Confusion scan for: $target"
+  
+  # Build command
+  local cmd=("python3" "$wp_tool")
+  
+  if [[ "$target" =~ ^https?:// ]]; then
+    cmd+=("-u" "$target")
   else
-    rm -f "$temp_file" "$plugins_file"
-    echo ""
+    cmd+=("-l" "$target")
   fi
-}
-
-# Check if plugin exists on WordPress.org
-check_wordpress_org_plugin() {
-  local plugin="$1"
   
-  # Check if plugin exists in WordPress.org SVN
-  local svn_url="https://plugins.svn.wordpress.org/$plugin/"
-  
-  if curl -s -I -A "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:90.0) Gecko/20100101 Firefox/90.0" \
-          --connect-timeout 5 --max-time 10 "$svn_url" 2>/dev/null | grep -q "404 Not Found"; then
-    return 0  # Plugin not found (vulnerable)
+  if [[ "$scan_type" == "plugins" ]]; then
+    cmd+=("-p")
+  elif [[ "$scan_type" == "themes" ]]; then
+    cmd+=("-t")
   else
-    return 1  # Plugin exists (not vulnerable)
+    cmd+=("-p" "-t")  # Both plugins and themes
   fi
-}
-
-# Check if plugin is in paid plugins list
-is_paid_plugin() {
-  local plugin="$1"
-  local paid_plugins_file="$ROOT_DIR/Wordlists/paid-wp-plugins.txt"
   
-  if [[ -f "$paid_plugins_file" ]]; then
-    grep -q "^$plugin$" "$paid_plugins_file" 2>/dev/null
-    return $?
-  fi
-  return 1
-}
-
-# Check if plugin name contains premium/pro keywords
-is_premium_plugin() {
-  local plugin="$1"
+  cmd+=("-o" "$output_file" "--discord")
   
-  # Check for premium/pro keywords
-  if echo "$plugin" | grep -qE "(pro-|-pro-|-pro$|premium-|-premium-|-premium$)"; then
-    return 0  # Contains premium keywords
-  fi
-  return 1  # No premium keywords
-}
-
-# Check if plugin name contains trademarked slugs
-is_trademarked_plugin() {
-  local plugin="$1"
+  log_info "Command: ${cmd[*]}"
   
-  # Trademarked slugs that should be filtered
-  local trademarked_slugs=(
-    "adobe-" "adsense-" "advanced-custom-fields-" "adwords-" "akismet-"
-    "all-in-one-wp-migration" "amazon-" "android-" "apple-" "applenews-"
-    "aws-" "bbpress-" "bing-" "bootstrap-" "buddypress-" "contact-form-7-"
-    "cpanel-" "disqus-" "divi-" "dropbox-" "easy-digital-downloads-"
-    "elementor-" "envato-" "fbook" "facebook" "fb-" "fb-messenger"
-    "fedex-" "feedburner" "ganalytics-" "gberg" "github-" "givewp-"
-    "google-" "googlebot-" "googles-" "gravity-form-" "gravity-forms-"
-    "gutenberg" "guten-" "hubspot-" "ig-" "insta-" "instagram"
-    "internet-explorer-" "jetpack-" "macintosh-" "mailchimp-" "microsoft-"
-    "ninja-forms-" "oculus" "onlyfans-" "only-fans-" "paddle-" "paypal-"
-    "pinterest-" "stripe-" "tiktok-" "trustpilot" "twitter-" "tweet"
-    "ups-" "usps-" "vvhatsapp" "vvcommerce" "vva-" "vvoo" "wa-"
-    "wh4tsapps" "whatsapp" "whats-app" "watson" "windows-" "wocommerce"
-    "woocom-" "woocommerce" "woocomerce" "woo-commerce" "woo-" "wo-"
-    "wordpress" "wordpess" "wpress" "wp-" "wp-mail-smtp-" "yahoo-"
-    "yoast" "youtube-"
-  )
+  # Run the scan with timeout
+  local start_time=$(date +%s)
   
-  for slug in "${trademarked_slugs[@]}"; do
-    if echo "$plugin" | grep -q "^$slug"; then
-      return 0  # Contains trademarked slug
-    fi
-  done
-  return 1  # No trademarked slugs
-}
-
-# Check if plugin name contains reserved slugs
-is_reserved_plugin() {
-  local plugin="$1"
-  
-  # Reserved slugs that should be filtered
-  local reserved_slugs=(
-    "about" "admin" "browse" "category" "developers" "developer"
-    "featured" "filter" "new" "page" "plugins" "popular" "post"
-    "search" "tag" "updated" "upload" "wp-admin" "jquery"
-    "wordpress" "akismet-anti-spam" "site-kit-by-google" "yoast-seo"
-    "woo" "wp-media-folder" "wp-file-download" "wp-table-manager"
-  )
-  
-  for slug in "${reserved_slugs[@]}"; do
-    if [[ "$plugin" == "$slug" ]]; then
-      return 0  # Exact match with reserved slug
-    fi
-  done
-  return 1  # No reserved slugs
-}
-
-# Filter plugins and check for vulnerabilities
-process_plugins() {
-  local plugins_file="$1"
-  local output_file="$2"
-  local filtered_file="$3"
-  
-  local vulnerable_count=0
-  local filtered_count=0
-  
-  > "$output_file"
-  > "$filtered_file"
-  
-  while IFS= read -r plugin_entry; do
-    [[ -z "$plugin_entry" ]] && continue
+  if timeout 60 "${cmd[@]}" 2>"$output_file.log"; then
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
     
-    # Extract plugin name (handle host:plugin format)
-    local plugin="$plugin_entry"
-    if echo "$plugin_entry" | grep -q ":"; then
-      plugin=$(echo "$plugin_entry" | cut -d: -f2)
-    fi
+    log_success "WordPress Plugin Confusion scan completed in ${duration}s"
     
-    # Skip if it's a premium/pro plugin
-    if is_premium_plugin "$plugin"; then
-      ((filtered_count++))
-      continue
-    fi
-    
-    # Skip if it's in paid plugins list
-    if is_paid_plugin "$plugin"; then
-      ((filtered_count++))
-      continue
-    fi
-    
-    # Skip if it contains trademarked slugs
-    if is_trademarked_plugin "$plugin"; then
-      ((filtered_count++))
-      continue
-    fi
-    
-    # Skip if it's a reserved slug
-    if is_reserved_plugin "$plugin"; then
-      ((filtered_count++))
-      continue
-    fi
-    
-    # Check if plugin exists on WordPress.org
-    if check_wordpress_org_plugin "$plugin" 2>/dev/null; then
-      echo "$plugin_entry" >> "$output_file"
-      echo "$plugin_entry" >> "$filtered_file"
-      ((vulnerable_count++))
-    fi
-    
-    # Small delay to avoid rate limiting
-    sleep 0.5
-    
-  done < "$plugins_file"
-  
-  echo "$vulnerable_count:$filtered_count"
-}
-
-# Scan multiple hosts from a live hosts file
-scan_multiple_hosts() {
-  local live_hosts_file="$1"
-  local domain="$2"
-  
-  local dir="$(results_dir "$domain")"
-  local base="$dir/vulnerabilities/wp-plugin-confusion"
-  ensure_dir "$base"
-  
-  log_info "Scanning multiple hosts for WordPress Plugin Confusion vulnerabilities"
-  discord_send_progress "🔍 **Scanning multiple hosts for WordPress Plugin Confusion**"
-  
-  local all_plugins_file=$(mktemp)
-  local processed_hosts=0
-  
-  while IFS= read -r host; do
-    [[ -z "$host" ]] && continue
-    
-    # Clean up host (remove protocol, trailing slashes, etc.)
-    host=$(echo "$host" | sed 's|^https\?://||' | sed 's|/$||')
-    
-    log_info "Scanning host: $host"
-    
-    # Detect plugins from this host
-    local plugins_file=$(detect_plugins "https://$host" 2>/dev/null || echo "")
-    
-    if [[ -n "$plugins_file" && -f "$plugins_file" && -s "$plugins_file" ]]; then
-      local plugin_count=$(wc -l < "$plugins_file")
-      log_info "Found $plugin_count plugins on $host"
-      
-      # Add host prefix to plugins for identification
-      while IFS= read -r plugin; do
-        [[ -n "$plugin" ]] && echo "$host:$plugin" >> "$all_plugins_file"
-      done < "$plugins_file"
-      
-      rm -f "$plugins_file"
-      ((processed_hosts++))
+    # Check if results file was created and has content
+    if [[ -f "$output_file" && -s "$output_file" ]]; then
+      local found_count=$(wc -l < "$output_file")
+      log_success "Found $found_count vulnerable plugins/themes"
+      return 0
     else
-      log_info "No plugins found on $host"
+      log_info "No vulnerable plugins/themes found"
+      return 0
     fi
-    
-    # Small delay between hosts
-    sleep 1
-    
-  done < "$live_hosts_file"
-  
-  local total_plugins=$(wc -l < "$all_plugins_file" 2>/dev/null || echo 0)
-  log_info "Processed $processed_hosts hosts, found $total_plugins total plugins"
-  
-  if [[ $total_plugins -eq 0 ]]; then
-    log_warn "No plugins found across all hosts"
-    discord_send_progress "⚠️ **No WordPress plugins found across all hosts**"
-    rm -f "$all_plugins_file"
-    return 0
-  fi
-  
-  # Process all collected plugins
-  local output_file="$base/wp-plugin-confusion-results.txt"
-  local filtered_file="$base/wp-plugin-confusion-filtered.txt"
-  
-  local results=$(process_plugins "$all_plugins_file" "$output_file" "$filtered_file")
-  local vulnerable_count=$(echo "$results" | cut -d: -f1)
-  local filtered_count=$(echo "$results" | cut -d: -f2)
-  
-  log_success "WordPress Plugin Confusion scan completed"
-  log_info "Total hosts processed: $processed_hosts"
-  log_info "Total plugins checked: $total_plugins"
-  log_info "Premium/paid/trademarked/reserved plugins filtered: $filtered_count"
-  log_info "Vulnerable plugins found: $vulnerable_count"
-  
-  # Send results to Discord
-  if [[ $vulnerable_count -gt 0 ]]; then
-    log_success "Found $vulnerable_count potential WordPress Plugin Confusion vulnerabilities"
-    discord_file "$filtered_file" "WordPress Plugin Confusion vulnerabilities across $processed_hosts hosts ($vulnerable_count potential targets)"
-    
-    # Also send raw results for reference
-    discord_file "$output_file" "WordPress Plugin Confusion raw results across $processed_hosts hosts"
   else
-    log_info "No WordPress Plugin Confusion vulnerabilities found"
-    discord_send_progress "✅ **No WordPress Plugin Confusion vulnerabilities found across $processed_hosts hosts**"
+    local exit_code=$?
+    if [[ $exit_code -eq 124 ]]; then
+      log_error "WordPress Plugin Confusion scan timed out after 60 seconds"
+    else
+      log_error "WordPress Plugin Confusion scan failed with exit code: $exit_code"
+    fi
+    return 1
   fi
-  
-  # Always send the original plugins file (all found plugins before filtering)
-  if [[ -f "$all_plugins_file" && -s "$all_plugins_file" ]]; then
-    local all_plugins_copy="$base/wp-plugin-confusion-all-plugins.txt"
-    cp "$all_plugins_file" "$all_plugins_copy"
-    discord_file "$all_plugins_copy" "All WordPress plugins found across $processed_hosts hosts ($total_plugins total plugins)"
-  fi
-  
-  # Clean up temporary files
-  rm -f "$all_plugins_file"
-  
-  log_success "WordPress Plugin Confusion scanning completed for $processed_hosts hosts"
 }
 
 wp_plugin_confusion_scan() {
@@ -303,7 +91,7 @@ wp_plugin_confusion_scan() {
     esac
   done
   
-  # If live hosts file is provided, scan multiple hosts
+  # If live hosts file is provided, use Python script's native list handling
   if [[ -n "$live_hosts_file" ]]; then
     if [[ ! -f "$live_hosts_file" ]]; then
       log_error "Live hosts file not found: $live_hosts_file"
@@ -312,8 +100,58 @@ wp_plugin_confusion_scan() {
     
     # Extract domain from live hosts file path for results directory
     local base_domain=$(basename "$(dirname "$live_hosts_file")")
-    scan_multiple_hosts "$live_hosts_file" "$base_domain"
-    return 0
+    local dir="$(results_dir "$base_domain")"
+    local base="$dir/vulnerabilities/wp-plugin-confusion"
+    ensure_dir "$base"
+    
+    local total_hosts=$(wc -l < "$live_hosts_file")
+    log_info "Scanning $total_hosts hosts for WordPress Plugin Confusion vulnerabilities"
+    discord_send_progress "🔍 **Scanning $total_hosts hosts for WordPress Plugin Confusion**"
+    
+    # Generate output filename
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local output_file="$base/wp-confusion-all-hosts-${timestamp}.txt"
+    
+    # Run the Python script with the live hosts file
+    local wp_tool="$ROOT_DIR/python/wp_update_confusion.py"
+    
+    if [[ ! -f "$wp_tool" ]]; then
+      log_error "WordPress confusion tool not found: $wp_tool"
+      return 1
+    fi
+    
+    log_info "Running WordPress Plugin Confusion scan for all hosts"
+    log_info "Command: python3 $wp_tool -l $live_hosts_file -p -o $output_file --discord"
+    
+    # Run the scan with timeout
+    local start_time=$(date +%s)
+    
+    if timeout 300 python3 "$wp_tool" -l "$live_hosts_file" -p -o "$output_file" --discord 2>"$output_file.log"; then
+      local end_time=$(date +%s)
+      local duration=$((end_time - start_time))
+      
+      log_success "WordPress Plugin Confusion scan completed in ${duration}s"
+      
+      # Check if results file was created and has content
+      if [[ -f "$output_file" && -s "$output_file" ]]; then
+        local found_count=$(wc -l < "$output_file")
+        log_success "Found $found_count vulnerable plugins across all hosts"
+        discord_send_progress "✅ **WordPress Plugin Confusion scan completed - Found $found_count vulnerabilities across $total_hosts hosts**"
+      else
+        log_info "No vulnerable plugins found across all hosts"
+        discord_send_progress "✅ **WordPress Plugin Confusion scan completed - No vulnerabilities found across $total_hosts hosts**"
+      fi
+      
+      return 0
+    else
+      local exit_code=$?
+      if [[ $exit_code -eq 124 ]]; then
+        log_error "WordPress Plugin Confusion scan timed out after 5 minutes"
+      else
+        log_error "WordPress Plugin Confusion scan failed with exit code: $exit_code"
+      fi
+      return 1
+    fi
   fi
   
   # If domain is provided, check for existing live hosts or run fastlook
@@ -324,7 +162,7 @@ wp_plugin_confusion_scan() {
     # Check if live hosts file exists
     if [[ -f "$live_hosts" && -s "$live_hosts" ]]; then
       log_info "Found existing live hosts file, scanning multiple hosts"
-      scan_multiple_hosts "$live_hosts" "$domain"
+      wp_plugin_confusion_scan -l "$live_hosts"
       return 0
     else
       log_info "No existing live hosts found, running fastlook first"
@@ -335,7 +173,7 @@ wp_plugin_confusion_scan() {
         # Check if live hosts file was created
         if [[ -f "$live_hosts" && -s "$live_hosts" ]]; then
           log_info "Fastlook completed, scanning live hosts"
-          scan_multiple_hosts "$live_hosts" "$domain"
+          wp_plugin_confusion_scan -l "$live_hosts"
           return 0
         else
           log_warn "Fastlook completed but no live hosts found, scanning domain directly"
@@ -356,63 +194,13 @@ wp_plugin_confusion_scan() {
   log_info "Scanning for WordPress Plugin Confusion vulnerabilities on $domain"
   discord_send_progress "🔍 **Scanning for WordPress Plugin Confusion on $domain**"
   
-  # Detect plugins from the WordPress site
-  log_info "Fetching WordPress site content from https://$domain"
-  local plugins_file=$(detect_plugins "https://$domain" 2>/dev/null || echo "")
-  
-  if [[ -n "$plugins_file" && -f "$plugins_file" ]]; then
-    local plugin_count=$(wc -l < "$plugins_file")
-    log_info "Found $plugin_count unique plugins"
+  # Run the scan
+  if run_wp_confusion_scan "https://$domain" "plugins" "$base"; then
+    log_success "WordPress Plugin Confusion scanning completed for $domain"
   else
-    log_warn "No plugins detected or failed to fetch site content"
-    log_info "This might mean:"
-    log_info "1. The site is not a WordPress site"
-    log_info "2. The site has no plugins installed"
-    log_info "3. The site blocks automated requests"
-    log_info "4. The site is not accessible"
-    discord_send_progress "⚠️ **No WordPress plugins detected for $domain**"
-    return 0
+    log_error "WordPress Plugin Confusion scanning failed for $domain"
+    return 1
   fi
-  
-  local plugin_count=$(wc -l < "$plugins_file")
-  log_info "Processing $plugin_count detected plugins"
-  
-  # Process plugins and check for vulnerabilities
-  local output_file="$base/wp-plugin-confusion-results.txt"
-  local filtered_file="$base/wp-plugin-confusion-filtered.txt"
-  
-  local results=$(process_plugins "$plugins_file" "$output_file" "$filtered_file")
-  local vulnerable_count=$(echo "$results" | cut -d: -f1)
-  local filtered_count=$(echo "$results" | cut -d: -f2)
-  
-  # Clean up temporary files
-  rm -f "$plugins_file"
-  
-  log_success "WordPress Plugin Confusion scan completed"
-  log_info "Total plugins checked: $plugin_count"
-  log_info "Premium/paid plugins filtered: $filtered_count"
-  log_info "Vulnerable plugins found: $vulnerable_count"
-  
-  # Send results to Discord
-  if [[ $vulnerable_count -gt 0 ]]; then
-    log_success "Found $vulnerable_count potential WordPress Plugin Confusion vulnerabilities"
-    discord_file "$filtered_file" "WordPress Plugin Confusion vulnerabilities for $domain ($vulnerable_count potential targets)"
-    
-    # Also send raw results for reference
-    discord_file "$output_file" "WordPress Plugin Confusion raw results for $domain"
-  else
-    log_info "No WordPress Plugin Confusion vulnerabilities found"
-    discord_send_progress "✅ **No WordPress Plugin Confusion vulnerabilities found for $domain**"
-  fi
-  
-  # Always send the original plugins file (all found plugins before filtering)
-  if [[ -f "$plugins_file" && -s "$plugins_file" ]]; then
-    local all_plugins_file="$base/wp-plugin-confusion-all-plugins.txt"
-    cp "$plugins_file" "$all_plugins_file"
-    discord_file "$all_plugins_file" "All WordPress plugins found on $domain ($plugin_count total plugins)"
-  fi
-  
-  log_success "WordPress Plugin Confusion scanning completed for $domain"
 }
 
 case "${1:-}" in

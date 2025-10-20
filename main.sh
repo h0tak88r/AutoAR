@@ -32,7 +32,7 @@ Commands:
   gf scan             -d <domain>
   sqlmap run          -d <domain>
   dalfox run          -d <domain>
-  wpDepConf scan      -d <domain>     (WordPress Plugin Confusion)
+  wpDepConf scan      -d <domain> | -l <live_hosts_file>
   dns takeover        -d <domain>     (comprehensive scan)
   dns cname           -d <domain>     (CNAME takeover only)
   dns ns              -d <domain>     (NS takeover only)
@@ -45,6 +45,7 @@ Commands:
   github org          -o <org> [-m <max-repos>]
   github-wordlist scan -o <github_org> [-t <github_token>]
   backup scan            -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
+  backup scan            -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [-d <delay>]
   depconfusion scan      -o <github_org> [-t <github_token>] [-m <max_repos>]
   live-depconfusion scan -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
 
