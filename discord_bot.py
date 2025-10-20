@@ -451,6 +451,62 @@ class AutoARBot(commands.Cog):
         
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
+    @app_commands.command(name="backup_scan", description="Discover backup files using Fuzzuli")
+    @app_commands.describe(
+        domain="Target domain to scan for backup files",
+        threads="Number of threads (default: 10)",
+        delay="Delay between requests in ms (default: 100)"
+    )
+    async def backup_scan(self, interaction: discord.Interaction, domain: str, 
+                         threads: int = 10, delay: int = 100):
+        """Discover backup files using Fuzzuli."""
+        scan_id = f"backup_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "backup", "scan", "-d", domain, "-t", str(threads), "--delay", str(delay)]
+        
+        active_scans[scan_id] = {
+            'type': 'backup',
+            'target': domain,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = self.create_scan_embed('backup', domain, 'running')
+        await interaction.response.send_message(embed=embed)
+        
+        # Run scan in background
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
+    @app_commands.command(name="depconfusion_scan", description="Scan GitHub organization for dependency confusion vulnerabilities")
+    @app_commands.describe(
+        org="GitHub organization name",
+        token="GitHub token (optional, can use GITHUB_TOKEN env var)",
+        max_repos="Maximum number of repositories to scan (default: 50)"
+    )
+    async def depconfusion_scan(self, interaction: discord.Interaction, org: str, 
+                               token: Optional[str] = None, max_repos: int = 50):
+        """Scan GitHub organization for dependency confusion vulnerabilities."""
+        scan_id = f"depconfusion_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "scan", "-o", org, "-m", str(max_repos)]
+        if token:
+            command.extend(["-t", token])
+        
+        active_scans[scan_id] = {
+            'type': 'depconfusion',
+            'target': org,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = self.create_scan_embed('Dependency Confusion', org, 'running')
+        await interaction.response.send_message(embed=embed)
+        
+        # Run scan in background
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
     @app_commands.command(name="check_tools", description="Check if all required tools are installed")
     async def check_tools(self, interaction: discord.Interaction):
         """Check if all required tools are installed."""
@@ -788,6 +844,10 @@ class AutoARBot(commands.Cog):
                 timeout = 600  # 10 minutes for WordPress Plugin Confusion scans
             elif any(cmd in command for cmd in ['github-wordlist']):
                 timeout = 900  # 15 minutes for GitHub wordlist generation
+            elif any(cmd in command for cmd in ['backup']):
+                timeout = 600  # 10 minutes for backup scans
+            elif any(cmd in command for cmd in ['depconfusion']):
+                timeout = 1200  # 20 minutes for dependency confusion scans
             
             # Run the scan
             results = await self.run_autoar_command(command, scan_id, timeout)
