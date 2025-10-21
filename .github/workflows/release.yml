@@ -1,4 +1,8 @@
-name: release
+name: Release
+
+permissions:
+  contents: write
+  packages: write
 
 on:
   push:
@@ -12,31 +16,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          go-version: '1.21'
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
 
       - name: Gitleaks scan
         uses: gitleaks/gitleaks-action@v2
         with:
           config-path: .gitleaks.toml
 
-      - name: Build autoar-web
-        working-directory: autoar-web
+      - name: Create release archive
         run: |
-          go mod tidy
-          GOOS=linux GOARCH=amd64 go build -o build/autoar-web-linux-amd64 ./cmd/server
-          GOOS=linux GOARCH=arm64 go build -o build/autoar-web-linux-arm64 ./cmd/server
-          GOOS=darwin GOARCH=amd64 go build -o build/autoar-web-darwin-amd64 ./cmd/server
-          GOOS=darwin GOARCH=arm64 go build -o build/autoar-web-darwin-arm64 ./cmd/server
-          GOOS=windows GOARCH=amd64 go build -o build/autoar-web-windows-amd64.exe ./cmd/server
+          # Create a release directory
+          mkdir -p release
+          
+          # Copy all necessary files
+          cp -r modules/ release/
+          cp -r lib/ release/
+          cp -r python/ release/
+          cp -r nuclei_templates/ release/
+          cp -r Wordlists/ release/
+          cp -r regexes/ release/
+          cp -r newcves/ release/
+          cp *.sh release/
+          cp *.py release/
+          cp *.yaml release/
+          cp *.yml release/
+          cp *.txt release/
+          cp *.md release/
+          cp Dockerfile release/
+          cp docker-compose.yml release/
+          cp docker-entrypoint.sh release/
+          cp env.example release/
+          
+          # Create the archive
+          tar -czf autoar-${GITHUB_REF_NAME}.tar.gz -C release .
+          
+          # Create a zip archive as well
+          zip -r autoar-${GITHUB_REF_NAME}.zip release/
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            autoar-web/build/*
+            autoar-*.tar.gz
+            autoar-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -60,12 +89,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/autoar
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: autoar-web/Dockerfile
+          file: Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/autoar-web:${{ github.ref_name }}
-
-
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
