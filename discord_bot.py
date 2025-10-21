@@ -83,7 +83,6 @@ class AutoARBot(commands.Cog):
     async def run_autoar_command(self, command: list, scan_id: str, timeout: int = 30) -> Dict[str, Any]:
         """Run AutoAR command and return results."""
         try:
-            print(f"[DEBUG] Running command: {' '.join(command)}")
             
             # Set environment variables
             env = os.environ.copy()
@@ -113,11 +112,6 @@ class AutoARBot(commands.Cog):
                     'timestamp': datetime.now().isoformat()
                 }
             
-            print(f"[DEBUG] Command exit code: {process.returncode}")
-            if stdout:
-                print(f"[DEBUG] Command stdout: {stdout.decode('utf-8')[:200]}")
-            if stderr:
-                print(f"[DEBUG] Command stderr: {stderr.decode('utf-8')[:200]}")
             
             return {
                 'returncode': process.returncode,
@@ -128,7 +122,6 @@ class AutoARBot(commands.Cog):
             }
             
         except Exception as e:
-            print(f"[DEBUG] Command error: {e}")
             return {
                 'returncode': -1,
                 'stdout': '',
@@ -947,8 +940,6 @@ class AutoARBot(commands.Cog):
                 return
             
             latest_dir = max(target_dirs, key=os.path.getctime)
-            print(f"Looking for files in: {latest_dir}")
-            print(f"Directory contents: {[f.name for f in latest_dir.iterdir()]}")
             
             # Send relevant files based on scan type
             files_to_send = []
