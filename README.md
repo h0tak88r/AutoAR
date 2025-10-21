@@ -23,7 +23,8 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 🎯 **Specialized Scanners**
 - **JavaScript Analysis**: JS file collection and secret extraction
-- **GitHub Reconnaissance**: Organization and repository scanning
+- **GitHub Reconnaissance**: Organization and repository scanning with secrets detection
+- **GitHub Wordlist Generation**: Automated wordlist creation from organization files
 - **Port Scanning**: Nmap integration for port discovery
 - **Reflection Testing**: HTTP parameter reflection analysis
 - **Gf Pattern Matching**: Custom pattern matching for various vulnerabilities
@@ -133,10 +134,17 @@ Once the bot is running, use these slash commands in Discord:
 
 #### Specialized Scans
 - `/js domain:example.com` - JavaScript analysis
-- `/github org:company` - GitHub reconnaissance
+- `/github scan repo:owner/repo` - GitHub repository secrets scanning
+- `/github org:company` - GitHub organization reconnaissance
+- `/github-wordlist org:company` - Generate wordlists from GitHub org
 - `/s3 bucket:example-bucket` - S3 bucket scanning
 - `/dns domain:example.com` - DNS takeover detection
 - `/ports domain:example.com` - Port scanning
+
+#### GitHub Reconnaissance
+- `/github scan repo:microsoft/PowerShell` - Scan specific repository for secrets
+- `/github org:microsoft` - Scan entire organization (50 repos max)
+- `/github-wordlist org:microsoft` - Generate wordlists from organization files
 
 #### Workflows
 - `/lite domain:example.com` - Light reconnaissance
@@ -166,6 +174,8 @@ docker exec -it autoar-bot bash
 # Specialized scans
 /app/main.sh js scan -d example.com
 /app/main.sh github scan -r owner/repo
+/app/main.sh github org -o company -m 50
+/app/main.sh github-wordlist scan -o company
 /app/main.sh s3 scan -b bucket-name
 /app/main.sh dns takeover -d example.com
 
@@ -179,6 +189,90 @@ docker exec -it autoar-bot bash
 /app/main.sh db subdomains list -d example.com
 /app/main.sh db subdomains export -d example.com -o results.txt
 ```
+
+## 🔍 GitHub Scanning Features
+
+AutoAR includes powerful GitHub reconnaissance capabilities for discovering secrets and generating targeted wordlists.
+
+### GitHub Repository Scanning
+Scan individual repositories for exposed secrets and sensitive information:
+
+```bash
+# Scan a specific repository
+/app/main.sh github scan -r owner/repository
+
+# Example: Scan Microsoft's PowerShell repository
+/app/main.sh github scan -r microsoft/PowerShell
+```
+
+**Features:**
+- 🔍 **Secrets Detection**: Finds API keys, passwords, tokens, and other sensitive data
+- 📊 **HTML Reports**: Generates detailed HTML reports with findings
+- 🎯 **Pattern Matching**: Uses advanced regex patterns to identify secrets
+- 📁 **File Analysis**: Scans all files in the repository
+
+### GitHub Organization Scanning
+Scan entire organizations to discover repositories and their secrets:
+
+```bash
+# Scan an organization (default: 50 repos max)
+/app/main.sh github org -o microsoft
+
+# Scan with custom repository limit
+/app/main.sh github org -o microsoft -m 100
+```
+
+**Features:**
+- 🏢 **Organization-wide Scan**: Discovers all public repositories
+- 🔍 **Bulk Secret Detection**: Scans multiple repositories in parallel
+- 📈 **Progress Tracking**: Real-time progress updates via Discord
+- 📊 **Summary Reports**: Consolidated findings across all repositories
+
+### GitHub Wordlist Generation
+Generate targeted wordlists from organization's ignore files and patterns:
+
+```bash
+# Generate wordlist from organization
+/app/main.sh github-wordlist scan -o microsoft
+
+# With custom GitHub token
+/app/main.sh github-wordlist scan -o microsoft -t your_github_token
+```
+
+**Features:**
+- 📝 **Ignore File Analysis**: Extracts patterns from .gitignore files
+- 🎯 **Targeted Wordlists**: Creates organization-specific wordlists
+- 🔄 **Pattern Extraction**: Finds common file patterns and extensions
+- 📁 **Multiple Sources**: Analyzes various ignore file formats
+
+### GitHub Scan Results
+All GitHub scans generate comprehensive results:
+
+```
+new-results/
+├── github-microsoft/
+│   ├── dependency-confusion/
+│   │   ├── microsoft-powershell/
+│   │   ├── microsoft-vscode/
+│   │   └── dependency-confusion-summary.txt
+│   └── wordlists/
+│       ├── github-patterns.txt
+│       ├── github-wordlist.txt
+│       └── corser_gitignore.txt
+```
+
+### Required Configuration
+Set up your GitHub token for enhanced functionality:
+
+```bash
+# In your .env file or environment
+GITHUB_TOKEN=your_github_personal_access_token
+```
+
+**Token Permissions Required:**
+- `repo` - Access to repository contents
+- `read:org` - Read organization membership
+- `read:user` - Read user profile information
 
 ## 🔧 Configuration
 
