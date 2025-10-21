@@ -23,16 +23,12 @@ class AutoARDB:
     def connect(self):
         """Connect to PostgreSQL database."""
         try:
-            # Debug: Print environment info in Docker
-            if os.path.exists('/.dockerenv'):
-                print(f"[DEBUG] Running in Docker container", file=sys.stderr)
             
             # Check for connection string in DB_CONNECTION_STRING or DB_HOST
             conn_str = os.getenv('DB_CONNECTION_STRING', '')
             if not conn_str:
                 conn_str = os.getenv('DB_HOST', '')
             
-            print(f"[DEBUG] Connection string: {conn_str[:50]}..." if len(conn_str) > 50 else f"[DEBUG] Connection string: {conn_str}", file=sys.stderr)
             
             if conn_str and conn_str.startswith('postgresql://'):
                 # Use the connection string directly
@@ -49,7 +45,6 @@ class AutoARDB:
                 self.conn = psycopg2.connect(conn_str)
             
             self.conn.autocommit = True
-            print(f"[DEBUG] Connected to database successfully", file=sys.stderr)
             
         except Exception as e:
             print(f"[ERROR] Failed to connect to database: {e}", file=sys.stderr)
@@ -90,7 +85,6 @@ class AutoARDB:
         result = self.execute_query(query, (domain,))
         if result:
             domain_id = result[0]['id']
-            print(f"[DEBUG] Domain '{domain}' has ID: {domain_id}", file=sys.stderr)
             return domain_id
         return None
     
@@ -154,7 +148,6 @@ class AutoARDB:
         parsed = urlparse(js_url)
         subdomain = parsed.hostname
         
-        print(f"[DEBUG] domain={domain}, subdomain={subdomain}, js_url={js_url}", file=sys.stderr)
         
         # Get domain ID
         domain_id = self.insert_domain(domain)
@@ -168,7 +161,6 @@ class AutoARDB:
             print(f"[ERROR] Failed to get subdomain ID for {subdomain}", file=sys.stderr)
             return False
         
-        print(f"[DEBUG] subdomain_id={subdomain_id}", file=sys.stderr)
         
         # Insert JS file
         query = """
@@ -182,7 +174,6 @@ class AutoARDB:
         
         success = self.execute_command(query, (subdomain_id, js_url, content_hash))
         if success:
-            print(f"[DEBUG] Successfully inserted JS file: {js_url}", file=sys.stderr)
         else:
             print(f"[ERROR] Failed to insert JS file: {js_url}", file=sys.stderr)
         
