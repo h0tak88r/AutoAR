@@ -448,24 +448,28 @@ class AutoARBot(commands.Cog):
     @app_commands.describe(
         domain="Target domain to scan for backup files",
         threads="Number of threads (default: 10)",
-        delay="Delay between requests in ms (default: 100)"
+        delay="Delay between requests in ms (default: 100)",
+        full="Run full backup scan on all subdomains (default: False)"
     )
     async def backup_scan(self, interaction: discord.Interaction, domain: str, 
-                         threads: int = 10, delay: int = 100):
+                         threads: int = 10, delay: int = 100, full: bool = False):
         """Discover backup files using Fuzzuli."""
         scan_id = f"backup_{int(time.time())}"
         
         command = [AUTOAR_SCRIPT_PATH, "backup", "scan", "-d", domain, "-t", str(threads), "--delay", str(delay)]
+        if full:
+            command.append("--full")
         
+        scan_type = 'backup_full' if full else 'backup'
         active_scans[scan_id] = {
-            'type': 'backup',
+            'type': scan_type,
             'target': domain,
             'status': 'running',
             'start_time': datetime.now(),
             'interaction': interaction
         }
         
-        embed = self.create_scan_embed('backup', domain, 'running')
+        embed = self.create_scan_embed(scan_type, domain, 'running')
         await interaction.response.send_message(embed=embed)
         
         # Run scan in background
@@ -865,7 +869,10 @@ class AutoARBot(commands.Cog):
             elif any(cmd in command for cmd in ['github-wordlist']):
                 timeout = 900  # 15 minutes for GitHub wordlist generation
             elif any(cmd in command for cmd in ['backup']):
-                timeout = 600  # 10 minutes for backup scans
+                if '--full' in command:
+                    timeout = 1200  # 20 minutes for full backup scans (includes subdomain collection)
+                else:
+                    timeout = 600  # 10 minutes for regular backup scans
             elif any(cmd in command for cmd in ['depconfusion']):
                 timeout = 1200  # 20 minutes for dependency confusion scans
             elif any(cmd in command for cmd in ['live-depconfusion']):
