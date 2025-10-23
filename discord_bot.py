@@ -447,12 +447,12 @@ class AutoARBot(commands.Cog):
     @app_commands.command(name="backup_scan", description="Discover backup files using Fuzzuli")
     @app_commands.describe(
         domain="Target domain to scan for backup files",
-        threads="Number of threads (default: 10)",
+        threads="Number of threads (default: 100)",
         delay="Delay between requests in ms (default: 100)",
         full="Run full backup scan on all subdomains (default: False)"
     )
     async def backup_scan(self, interaction: discord.Interaction, domain: str, 
-                         threads: int = 10, delay: int = 100, full: bool = False):
+                         threads: int = 100, delay: int = 100, full: bool = False):
         """Discover backup files using Fuzzuli."""
         scan_id = f"backup_{int(time.time())}"
         
@@ -592,10 +592,13 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="subdomains", description="Enumerate subdomains")
-    @app_commands.describe(domain="The domain to enumerate")
-    async def subdomains_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain to enumerate",
+        threads="Number of threads for subfinder (default: 100)"
+    )
+    async def subdomains_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"subdomains_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "subdomains", "get", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "subdomains", "get", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'subdomains', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("Subdomains", domain, "running")
         await interaction.response.send_message(embed=embed)
@@ -612,20 +615,26 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="livehosts", description="Filter live hosts from subdomains")
-    @app_commands.describe(domain="The domain")
-    async def livehosts_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain",
+        threads="Number of threads for httpx (default: 100)"
+    )
+    async def livehosts_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"live_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "livehosts", "get", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "livehosts", "get", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'live', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("Live Hosts", domain, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="urls", description="Collect URLs and JS URLs")
-    @app_commands.describe(domain="The domain")
-    async def urls_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain",
+        threads="Number of threads for urlfinder and jsfinder (default: 100)"
+    )
+    async def urls_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"urls_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "urls", "collect", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "urls", "collect", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'urls', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("URLs", domain, "running")
         await interaction.response.send_message(embed=embed)
@@ -644,30 +653,39 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="nuclei", description="Run nuclei templates on live subdomains")
-    @app_commands.describe(domain="The domain")
-    async def nuclei_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain",
+        threads="Number of threads for nuclei (default: 100)"
+    )
+    async def nuclei_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"nuclei_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "nuclei", "run", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "nuclei", "run", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'nuclei', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("Nuclei", domain, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="tech", description="Detect technologies on live hosts")
-    @app_commands.describe(domain="The domain")
-    async def tech_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain",
+        threads="Number of threads for httpx (default: 100)"
+    )
+    async def tech_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"tech_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "tech", "detect", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "tech", "detect", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'tech', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("Tech Detect", domain, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="ports", description="Run port scan (naabu) on live hosts")
-    @app_commands.describe(domain="The domain")
-    async def ports_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain",
+        threads="Number of threads for naabu (default: 100)"
+    )
+    async def ports_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"ports_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "ports", "scan", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "ports", "scan", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'ports', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("Ports", domain, "running")
         await interaction.response.send_message(embed=embed)
@@ -684,20 +702,26 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="sqlmap", description="Run SQLMap on GF SQLi results")
-    @app_commands.describe(domain="The domain")
-    async def sqlmap_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain",
+        threads="Number of threads for sqlmap (default: 100)"
+    )
+    async def sqlmap_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"sqlmap_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "sqlmap", "run", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "sqlmap", "run", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'sqlmap', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("SQLMap", domain, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="dalfox", description="Run Dalfox XSS scan")
-    @app_commands.describe(domain="The domain")
-    async def dalfox_cmd(self, interaction: discord.Interaction, domain: str):
+    @app_commands.describe(
+        domain="The domain",
+        threads="Number of threads for dalfox (default: 100)"
+    )
+    async def dalfox_cmd(self, interaction: discord.Interaction, domain: str, threads: int = 100):
         scan_id = f"dalfox_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "dalfox", "run", "-d", domain]
+        command = [AUTOAR_SCRIPT_PATH, "dalfox", "run", "-d", domain, "-t", str(threads)]
         active_scans[scan_id] = { 'type': 'dalfox', 'target': domain, 'status': 'running', 'start_time': datetime.now(), 'interaction': interaction }
         embed = self.create_scan_embed("Dalfox", domain, "running")
         await interaction.response.send_message(embed=embed)

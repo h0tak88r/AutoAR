@@ -34,12 +34,30 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **File Sharing**: Automatic result file uploads
 - **Slash Commands**: Easy-to-use Discord commands
 - **Progress Tracking**: Real-time scan status updates
+- **Configurable Threading**: All tools support custom thread counts for optimal performance
 
 ### 🗄️ **Database Support**
 - **PostgreSQL Integration**: Full database support for results storage
 - **SQLite Fallback**: Lightweight database option
 - **Data Export**: Easy data export and analysis
 - **Result Management**: Organized result storage and retrieval
+
+### ⚡ **Performance & Threading**
+- **Configurable Threading**: All scanning tools support custom thread counts (default: 100)
+- **Parallel Processing**: Optimized for multi-core systems with concurrent operations
+- **Resource Management**: Intelligent thread allocation based on tool capabilities
+- **Performance Tuning**: Easy adjustment of thread counts via Discord commands or CLI flags
+
+**Supported Tools with Threading:**
+- **Subdomain Enumeration**: Subfinder with configurable thread pools
+- **Live Host Detection**: Httpx with parallel HTTP probing
+- **Vulnerability Scanning**: Nuclei with concurrent template execution
+- **Port Scanning**: Naabu with high-speed parallel port discovery
+- **XSS Detection**: Dalfox with concurrent payload testing
+- **SQL Injection Testing**: SQLMap with Interlace for parallel testing
+- **Technology Detection**: Httpx with parallel technology fingerprinting
+- **URL Collection**: Urlfinder and JSFinder with concurrent crawling
+- **Backup File Discovery**: Fuzzuli with parallel backup file enumeration
 
 ## 🚀 Quick Start
 
@@ -119,18 +137,18 @@ python discord_bot.py
 Once the bot is running, use these slash commands in Discord:
 
 #### Basic Reconnaissance
-- `/subdomains domain:example.com` - Enumerate subdomains
-- `/livehosts domain:example.com` - Find live hosts
+- `/subdomains domain:example.com [threads:100]` - Enumerate subdomains
+- `/livehosts domain:example.com [threads:100]` - Find live hosts
 - `/cnames domain:example.com` - Extract CNAME records
-- `/urls domain:example.com` - Collect URLs
-- `/tech domain:example.com` - Detect technologies
+- `/urls domain:example.com [threads:100]` - Collect URLs
+- `/tech domain:example.com [threads:100]` - Detect technologies
 
 #### Vulnerability Scanning
-- `/nuclei domain:example.com` - Run Nuclei scans
+- `/nuclei domain:example.com [threads:100]` - Run Nuclei scans
 - `/wpdepconf domain:example.com` - WordPress plugin confusion
-- `/dalfox domain:example.com` - XSS detection
-- `/sqlmap domain:example.com` - SQL injection testing
-- `/backup domain:example.com` - Backup file discovery
+- `/dalfox domain:example.com [threads:100]` - XSS detection
+- `/sqlmap domain:example.com [threads:100]` - SQL injection testing
+- `/backup_scan domain:example.com [threads:100] [full:false]` - Backup file discovery
 
 #### Specialized Scans
 - `/js domain:example.com` - JavaScript analysis
@@ -139,7 +157,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/github-wordlist org:company` - Generate wordlists from GitHub org
 - `/s3 bucket:example-bucket` - S3 bucket scanning
 - `/dns domain:example.com` - DNS takeover detection
-- `/ports domain:example.com` - Port scanning
+- `/ports domain:example.com [threads:100]` - Port scanning
 
 #### GitHub Reconnaissance
 - `/github scan repo:microsoft/PowerShell` - Scan specific repository for secrets
@@ -159,17 +177,20 @@ Access the container and use the CLI directly:
 # Enter the container
 docker exec -it autoar-bot bash
 
-# Basic reconnaissance
-/app/main.sh subdomains get -d example.com
-/app/main.sh livehosts get -d example.com
+# Basic reconnaissance (with threading)
+/app/main.sh subdomains get -d example.com -t 100
+/app/main.sh livehosts get -d example.com -t 100
 /app/main.sh cnames get -d example.com
-/app/main.sh urls collect -d example.com
+/app/main.sh urls collect -d example.com -t 100
+/app/main.sh tech detect -d example.com -t 100
 
-# Vulnerability scanning
-/app/main.sh nuclei run -d example.com
+# Vulnerability scanning (with threading)
+/app/main.sh nuclei run -d example.com -t 100
+/app/main.sh dalfox run -d example.com -t 100
+/app/main.sh sqlmap run -d example.com -t 100
+/app/main.sh ports scan -d example.com -t 100
+/app/main.sh backup scan -d example.com -t 100 --full
 /app/main.sh wpDepConf scan -d example.com
-/app/main.sh dalfox run -d example.com
-/app/main.sh sqlmap run -d example.com
 
 # Specialized scans
 /app/main.sh js scan -d example.com
@@ -273,6 +294,37 @@ GITHUB_TOKEN=your_github_personal_access_token
 - `repo` - Access to repository contents
 - `read:org` - Read organization membership
 - `read:user` - Read user profile information
+
+## ⚡ Threading Configuration
+
+AutoAR supports configurable threading across all scanning tools for optimal performance:
+
+### Discord Commands
+All Discord commands support optional `threads` parameter (default: 100):
+```
+/subdomains domain:example.com threads:200
+/nuclei domain:example.com threads:50
+/ports domain:example.com threads:500
+```
+
+### CLI Commands
+All CLI commands support `-t` or `--threads` flag:
+```bash
+# High-performance scanning
+./modules/subdomains.sh get -d example.com -t 200
+./modules/nuclei.sh run -d example.com -t 50
+./modules/ports.sh scan -d example.com -t 500
+
+# Conservative scanning (lower resource usage)
+./modules/subdomains.sh get -d example.com -t 25
+./modules/nuclei.sh run -d example.com -t 10
+```
+
+### Performance Guidelines
+- **High-end systems**: 200-500 threads for maximum speed
+- **Standard systems**: 100 threads (default) for balanced performance
+- **Resource-constrained**: 25-50 threads to avoid overwhelming the system
+- **Network-limited**: Lower thread counts to avoid rate limiting
 
 ## 🔧 Configuration
 

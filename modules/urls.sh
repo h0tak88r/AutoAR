@@ -7,12 +7,17 @@ source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: urls collect -d <domain>"; }
+usage() { 
+  echo "Usage: urls collect -d <domain> [-t <threads>]"
+  echo "  -d, --domain     Target domain to scan"
+  echo "  -t, --threads    Number of threads for urlfinder and jsfinder (default: 100)"
+}
 
 urls_collect() {
-  local domain=""; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -t|--threads) threads="$2"; shift 2;;
       *) usage; exit 1;;
     esac
   done
@@ -30,13 +35,13 @@ urls_collect() {
   : > "$urls_dir/js-urls.txt"
 
   if command -v urlfinder >/dev/null 2>&1; then
-    log_info "Collecting URLs with urlfinder"
-    urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" > "$urls_dir/all-urls.txt" 2>/dev/null || true
+    log_info "Collecting URLs with urlfinder using $threads threads"
+    urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" -t "$threads" > "$urls_dir/all-urls.txt" 2>/dev/null || true
   fi
 
   if [[ -s "$subs_dir/live-subs.txt" && -x "$(command -v jsfinder || echo /bin/false)" ]]; then
-    log_info "Running JSFinder on live subdomains"
-    jsfinder -l "$subs_dir/live-subs.txt" -c 50 -s -o "$urls_dir/js-urls.txt" >/dev/null 2>&1 || true
+    log_info "Running JSFinder on live subdomains with $threads threads"
+    jsfinder -l "$subs_dir/live-subs.txt" -c "$threads" -s -o "$urls_dir/js-urls.txt" >/dev/null 2>&1 || true
   fi
 
   if [[ -s "$urls_dir/all-urls.txt" ]]; then

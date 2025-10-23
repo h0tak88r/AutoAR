@@ -8,12 +8,17 @@ source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/discord.sh"
 source "$ROOT_DIR/lib/db.sh"
 
-usage() { echo "Usage: livehosts get -d <domain>"; }
+usage() { 
+  echo "Usage: livehosts get -d <domain> [-t <threads>]"
+  echo "  -d, --domain     Target domain to scan"
+  echo "  -t, --threads    Number of threads for httpx (default: 100)"
+}
 
 livehosts_get() {
-  local domain=""; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -t|--threads) threads="$2"; shift 2;;
       *) usage; exit 1;;
     esac
   done
@@ -26,9 +31,9 @@ livehosts_get() {
   # Ensure subdomains exist (from DB or enumeration)
   ensure_subdomains "$domain" "$subs_dir/all-subs.txt" || { log_warn "Failed to get subdomains for $domain"; exit 1; }
 
-  log_info "Filtering live hosts via httpx"
+  log_info "Filtering live hosts via httpx with $threads threads"
   if command -v httpx >/dev/null 2>&1; then
-    cat "$subs_dir/all-subs.txt" | httpx -silent -nc -o "$subs_dir/live-subs.txt" >/dev/null 2>&1 || true
+    cat "$subs_dir/all-subs.txt" | httpx -silent -nc -threads "$threads" -o "$subs_dir/live-subs.txt" >/dev/null 2>&1 || true
   else
     : > "$subs_dir/live-subs.txt"
   fi
