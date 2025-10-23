@@ -6,12 +6,17 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: ports scan -d <domain>"; }
+usage() { 
+  echo "Usage: ports scan -d <domain> [-t <threads>]"
+  echo "  -d, --domain     Target domain to scan"
+  echo "  -t, --threads    Number of threads for naabu (default: 100)"
+}
 
 ports_scan() {
-  local domain=""; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -t|--threads) threads="$2"; shift 2;;
       *) usage; exit 1;;
     esac
   done
@@ -39,8 +44,8 @@ ports_scan() {
   echo "[INFO] Live hosts check completed"
 
   if command -v naabu >/dev/null 2>&1; then
-    echo "[INFO] Running naabu port scan..."
-    if naabu -l "$subs" -tp 1000 -ec -c 500 -Pn --silent -rate 1000 -o "$out"; then
+    echo "[INFO] Running naabu port scan with $threads threads..."
+    if naabu -l "$subs" -tp "$threads" -ec -c 500 -Pn --silent -rate "$threads" -o "$out"; then
       echo "[SUCCESS] Naabu scan completed successfully"
     else
       echo "[WARN] Naabu scan completed with warnings"
