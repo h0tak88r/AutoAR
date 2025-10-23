@@ -11,17 +11,18 @@ source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
 usage() { 
-  echo "Usage: backup scan -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]"
+  echo "Usage: backup scan -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>] [--full]"
   echo "       backup scan -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [-d <delay>]"
   echo "  -d, --domain     Target domain to scan"
   echo "  -l, --live-hosts File containing list of live hosts"
   echo "  -o, --output     Output directory (default: results/<domain>/backup or results/backup)"
-  echo "  -t, --threads    Number of threads (default: 10)"
+  echo "  -t, --threads    Number of threads/workers (default: 10)"
   echo "  -d, --delay      Delay between requests in ms (default: 100)"
+  echo "  --full           Run full backup scan on all subdomains (collects subdomains first)"
 }
 
 backup_scan() {
-  local domain="" live_hosts_file="" output_dir="" threads="10" delay="100"
+  local domain="" live_hosts_file="" output_dir="" threads="10" delay="100" full_mode=false
   
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -30,6 +31,7 @@ backup_scan() {
       -o|--output) output_dir="$2"; shift 2;;
       -t|--threads) threads="$2"; shift 2;;
       --delay) delay="$2"; shift 2;;
+      --full) full_mode=true; shift;;
       *) usage; exit 1;;
     esac
   done
@@ -60,9 +62,15 @@ backup_scan() {
   
   # Determine scan type and target
   if [[ -n "$domain" ]]; then
-    log_info "Starting backup file discovery scan for domain: $domain"
-    discord_send_progress "🔍 **Starting backup file discovery for $domain**"
-    scan_backup_files "$domain" "$output_dir" "$threads" "$delay"
+    if [[ "$full_mode" == true ]]; then
+      log_info "Starting full backup file discovery scan for domain: $domain (with subdomain collection)"
+      discord_send_progress "🔍 **Starting full backup file discovery for $domain (collecting subdomains first)**"
+      scan_backup_files_full "$domain" "$output_dir" "$threads" "$delay"
+    else
+      log_info "Starting backup file discovery scan for domain: $domain"
+      discord_send_progress "🔍 **Starting backup file discovery for $domain**"
+      scan_backup_files "$domain" "$output_dir" "$threads" "$delay"
+    fi
   else
     [[ ! -f "$live_hosts_file" ]] && { log_error "Live hosts file not found: $live_hosts_file"; exit 1; }
     log_info "Starting backup file discovery scan for live hosts: $live_hosts_file"
@@ -84,8 +92,8 @@ scan_backup_files() {
     exit 1
   fi
   
-  log_info "Running Fuzzuli command line tool"
-  log_info "Command: echo 'https://$domain' | fuzzuli -mt all"
+  log_info "Running Fuzzuli command line tool with $threads workers"
+  log_info "Command: echo 'https://$domain' | fuzzuli -mt all -w $threads"
   
   # Run fuzzuli scan
   log_info "Executing backup file discovery scan..."
@@ -93,7 +101,7 @@ scan_backup_files() {
   
   local start_time=$(date +%s)
   
-  if echo "https://$domain" | fuzzuli -mt all -w 100 > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
+  if echo "https://$domain" | fuzzuli -mt all -w "$threads" > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
     
@@ -101,9 +109,6 @@ scan_backup_files() {
     
     # Check if results file exists and has content
     if [[ -f "$output_dir/fuzzuli-results.txt" && -s "$output_dir/fuzzuli-results.txt" ]]; then
-      # Process the web service results
-      process_fuzzuli_results "$domain" "$output_dir"
-      
       # Count results
       local found_count=$(grep -c "http" "$output_dir/fuzzuli-results.txt" 2>/dev/null || echo "0")
       
@@ -162,8 +167,8 @@ scan_backup_files_from_list() {
   fi
   
   local total_hosts=$(wc -l < "$live_hosts_file")
-  log_info "Running Fuzzuli on $total_hosts live hosts"
-  log_info "Command: fuzzuli -mt all -f '$live_hosts_file'"
+  log_info "Running Fuzzuli on $total_hosts live hosts with $threads workers"
+  log_info "Command: fuzzuli -mt all -f '$live_hosts_file' -w $threads"
   
   # Run fuzzuli scan on all hosts at once
   log_info "Executing backup file discovery scan..."
@@ -171,7 +176,7 @@ scan_backup_files_from_list() {
   
   local start_time=$(date +%s)
   
-  if fuzzuli -mt all -f "$live_hosts_file" -w 100 > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
+  if fuzzuli -mt all -f "$live_hosts_file" -w "$threads" > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
     
@@ -179,9 +184,6 @@ scan_backup_files_from_list() {
     
     # Check if results file exists and has content
     if [[ -f "$output_dir/fuzzuli-results.txt" && -s "$output_dir/fuzzuli-results.txt" ]]; then
-      # Process the results
-      process_fuzzuli_results "live_hosts" "$output_dir"
-      
       # Count results
       local found_count=$(grep -c "http" "$output_dir/fuzzuli-results.txt" 2>/dev/null || echo "0")
       
@@ -226,57 +228,115 @@ scan_backup_files_from_list() {
   log_success "Backup file discovery scan completed for live hosts"
 }
 
-process_fuzzuli_results() {
+scan_backup_files_full() {
   local domain="$1"
   local output_dir="$2"
+  local threads="$3"
+  local delay="$4"
   
-  log_info "Processing Fuzzuli web service results for $domain"
+  # Check if fuzzuli is installed
+  if ! command -v fuzzuli >/dev/null 2>&1; then
+    log_error "Fuzzuli not found. Please install it with: go install github.com/musana/fuzzuli@latest"
+    discord_send_progress "❌ **Fuzzuli tool not found. Please install it first.**"
+    exit 1
+  fi
   
-  # Create a summary file
-  local summary_file="$output_dir/backup-summary.txt"
+  # Step 1: Collect subdomains
+  log_info "Step 1: Collecting subdomains for $domain"
+  discord_send_progress "📡 **Step 1/2: Collecting subdomains for $domain**"
+  
+  local subs_dir="$(domain_dir_init "$domain")/subs"
+  ensure_dir "$subs_dir"
+  
+  # Run subdomain collection using the subdomains module
+  if ! "$ROOT_DIR/modules/subdomains.sh" get -d "$domain"; then
+    log_error "Failed to collect subdomains for $domain"
+    discord_send_progress "❌ **Failed to collect subdomains for $domain**"
+    exit 1
+  fi
+  
+  # Check if we have subdomains
+  local subs_file="$subs_dir/all-subs.txt"
+  if [[ ! -f "$subs_file" || ! -s "$subs_file" ]]; then
+    log_warn "No subdomains found for $domain, falling back to domain-only scan"
+    discord_send_progress "⚠️ **No subdomains found, running domain-only backup scan**"
+    scan_backup_files "$domain" "$output_dir" "$threads" "$delay"
+    return
+  fi
+  
+  local total_subs=$(wc -l < "$subs_file")
+  log_success "Found $total_subs subdomains for $domain"
+  discord_send_progress "✅ **Found $total_subs subdomains for $domain**"
+  
+  # Step 2: Run backup scan on all subdomains
+  log_info "Step 2: Running backup file discovery on $total_subs subdomains with $threads workers"
+  discord_send_progress "🔍 **Step 2/2: Running backup file discovery on $total_subs subdomains**"
+  
+  local start_time=$(date +%s)
+  
+  # Convert subdomains to URLs for fuzzuli
+  local urls_file="$output_dir/subdomain-urls.txt"
   {
-    echo "Backup File Discovery Summary for $domain"
-    echo "=========================================="
-    echo "Scan Date: $(date)"
-    echo "Source: Fuzzuli Command Line Tool"
-    echo ""
+    echo "https://$domain"
+    sed 's/^/https:\/\//' "$subs_file"
+  } > "$urls_file"
+  
+  log_info "Running Fuzzuli on $((total_subs + 1)) URLs (domain + subdomains)"
+  log_info "Command: fuzzuli -mt all -f '$urls_file' -w $threads"
+  
+  if fuzzuli -mt all -f "$urls_file" -w "$threads" > "$output_dir/fuzzuli-results.txt" 2>"$output_dir/fuzzuli-output.log"; then
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
     
-    if [[ -f "$output_dir/fuzzuli-results.txt" ]]; then
-      local total_count=$(wc -l < "$output_dir/fuzzuli-results.txt")
-      echo "Total URLs Generated: $total_count"
-      echo ""
+    log_success "Full backup scan completed in ${duration}s"
+    
+    # Check if results file exists and has content
+    if [[ -f "$output_dir/fuzzuli-results.txt" && -s "$output_dir/fuzzuli-results.txt" ]]; then
+      # Count results
+      local found_count=$(grep -c "http" "$output_dir/fuzzuli-results.txt" 2>/dev/null || echo "0")
       
-      # Categorize results by file type
-      local sql_files=$(grep -i "\.sql" "$output_dir/fuzzuli-results.txt" | wc -l)
-      local zip_files=$(grep -i "\.zip\|\.tar\.gz\|\.rar\|\.7z" "$output_dir/fuzzuli-results.txt" | wc -l)
-      local bak_files=$(grep -i "\.bak\|\.backup" "$output_dir/fuzzuli-results.txt" | wc -l)
-      local config_files=$(grep -i "\.conf\|\.config\|\.ini" "$output_dir/fuzzuli-results.txt" | wc -l)
-      
-      echo "File Type Breakdown:"
-      echo "==================="
-      echo "SQL Files: $sql_files"
-      echo "Archive Files: $zip_files"
-      echo "Backup Files: $bak_files"
-      echo "Config Files: $config_files"
-      echo ""
-      
-      # Show sample results
-      echo "Sample Generated URLs:"
-      echo "====================="
-      head -20 "$output_dir/fuzzuli-results.txt"
-      
-      if [[ $total_count -gt 20 ]]; then
-        echo "... and $((total_count - 20)) more URLs"
+      if [[ "$found_count" -gt 0 ]]; then
+        log_success "Found $found_count potential backup files across $total_subs subdomains"
+        
+        # Send results to Discord
+        discord_file "$output_dir/fuzzuli-results.txt" "Full backup scan results for $domain ($found_count files found across $total_subs subdomains)"
+        
+        # Also send the output log for debugging
+        if [[ -f "$output_dir/fuzzuli-output.log" ]]; then
+          discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli full scan output for $domain"
+        fi
+        
+        # Send subdomain list as well
+        discord_file "$subs_file" "Subdomains used in full backup scan for $domain"
+        
+        discord_send_progress "✅ **Full backup scan completed for $domain - Found $found_count potential backup files across $total_subs subdomains**"
+      else
+        log_warn "No backup files found across $total_subs subdomains for $domain"
+        discord_send_progress "⚠️ **No backup files found across $total_subs subdomains for $domain**"
       fi
     else
-      echo "No results file found"
+      log_warn "No results file generated for full backup scan of $domain"
+      discord_send_progress "⚠️ **No results file generated for full backup scan of $domain**"
     fi
-  } > "$summary_file"
+    
+  else
+    local exit_code=$?
+    log_error "Full backup scan failed with exit code: $exit_code"
+    
+    # Check if there's any output
+    if [[ -f "$output_dir/fuzzuli-output.log" ]]; then
+      log_error "Fuzzuli output:"
+      cat "$output_dir/fuzzuli-output.log" | tail -20
+      
+      # Send error log to Discord
+      discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli full scan error for $domain (exit code: $exit_code)"
+    fi
+    
+    discord_send_progress "❌ **Full backup scan failed for $domain (exit code: $exit_code)**"
+    exit 1
+  fi
   
-  log_info "Created backup summary: $summary_file"
-  
-  # Send summary to Discord
-  discord_file "$summary_file" "Backup scan summary for $domain"
+  log_success "Full backup file discovery scan completed for $domain"
 }
 
 case "${1:-}" in
