@@ -16,13 +16,13 @@ usage() {
   echo "  -d, --domain     Target domain to scan"
   echo "  -l, --live-hosts File containing list of live hosts"
   echo "  -o, --output     Output directory (default: results/<domain>/backup or results/backup)"
-  echo "  -t, --threads    Number of threads/workers (default: 10)"
+  echo "  -t, --threads    Number of threads/workers (default: 100)"
   echo "  -d, --delay      Delay between requests in ms (default: 100)"
   echo "  --full           Run full backup scan on all subdomains (collects subdomains first)"
 }
 
 backup_scan() {
-  local domain="" live_hosts_file="" output_dir="" threads="10" delay="100" full_mode=false
+  local domain="" live_hosts_file="" output_dir="" threads="100" delay="100" full_mode=false
   
   while [[ $# -gt 0 ]]; do
     case "$1" in
