@@ -1,0 +1,457 @@
+#!/usr/bin/env bash
+# Unified Dependency Confusion Scanner using Confused tool
+# Supports local files, GitHub repos/orgs, and web targets
+
+set -uo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/.env" 2>/dev/null || true
+source "$ROOT_DIR/lib/logging.sh"
+source "$ROOT_DIR/lib/utils.sh"
+source "$ROOT_DIR/lib/discord.sh"
+
+# Find confused tool binary
+CONFUSED_BIN=""
+if command -v confused >/dev/null 2>&1; then
+    CONFUSED_BIN="confused"
+elif [[ -f "/home/sallam/go/bin/confused" ]]; then
+    CONFUSED_BIN="/home/sallam/go/bin/confused"
+elif [[ -f "/usr/local/bin/confused" ]]; then
+    CONFUSED_BIN="/usr/local/bin/confused"
+else
+    log_error "Confused tool not found. Please install it with: go install github.com/h0tak88r/confused/cmd/confused@latest"
+    exit 1
+fi
+
+usage() {
+    echo "Usage: depconfusion <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  scan <file>                    Scan a local dependency file"
+    echo "  github repo <owner/repo>       Scan a GitHub repository"
+    echo "  github org <org>               Scan a GitHub organization"
+    echo "  web <url> [url2] [url3]...     Scan web targets"
+    echo "  web-file <file>                Scan targets from file"
+    echo ""
+    echo "Options:"
+    echo "  -w, --workers <num>            Number of workers/threads (default: 10)"
+    echo "  -o, --output <file>            Output file"
+    echo "  -f, --format <format>          Output format: text, json, html (default: text)"
+    echo "  --safe-spaces <spaces>         Known-safe namespaces (comma-separated)"
+    echo "  --deep                         Deep scan (for web targets)"
+    echo "  --max-repos <num>              Max repositories for org scan (default: 50)"
+    echo "  --languages <langs>            Languages to scan (comma-separated)"
+    echo "  -v, --verbose                  Verbose output"
+    echo ""
+    echo "Examples:"
+    echo "  depconfusion scan package.json"
+    echo "  depconfusion scan -l pip requirements.txt -w 20 -v"
+    echo "  depconfusion github repo microsoft/PowerShell -w 15 -v"
+    echo "  depconfusion github org microsoft --max-repos 100 -w 10"
+    echo "  depconfusion web https://example.com --deep -w 20 -v"
+    echo "  depconfusion web-file targets.txt --workers 15 -v"
+}
+
+# Check if confused tool is available
+check_confused() {
+    if [[ -z "$CONFUSED_BIN" ]]; then
+        log_error "Confused tool not found. Please install it with: go install github.com/h0tak88r/confused/cmd/confused@latest"
+        discord_send_progress "❌ **Confused tool not found. Please install it first.**"
+        exit 1
+    fi
+}
+
+# Scan a local dependency file
+scan_local() {
+    local file="$1"
+    shift
+    local args=("$@")
+    
+    log_info "Scanning local file: $file"
+    discord_send_progress "🔍 **Scanning local file: $file**"
+    
+    # Set default output directory
+    local output_dir="$(results_dir "local-$(basename "$file" .json)")/depconfusion"
+    ensure_dir "$output_dir"
+    
+    # Build confused command
+    local cmd=("$CONFUSED_BIN" "scan" "$file")
+    
+    # Add common arguments
+    for arg in "${args[@]}"; do
+        cmd+=("$arg")
+    done
+    
+    # Add output directory if not specified
+    if ! printf '%s\n' "${args[@]}" | grep -q -- "--output-dir"; then
+        cmd+=("--output-dir" "$output_dir")
+    fi
+    
+    # Add output file if not specified
+    if ! printf '%s\n' "${args[@]}" | grep -q -- "--output"; then
+        cmd+=("--output" "$output_dir/scan-results.txt")
+    fi
+    
+    # Run confused tool
+    "${cmd[@]}" > "$output_dir/scan-output.txt" 2>&1
+    local exit_code=$?
+    
+    log_success "Local file scan completed"
+    
+    # Check for vulnerabilities (regardless of exit code, as the tool may fail on file saving but still find issues)
+    if grep -q "Issues found" "$output_dir/scan-output.txt"; then
+        log_warn "Dependency confusion vulnerabilities found in $file"
+        discord_send_progress "⚠️ **Found dependency confusion vulnerabilities in $file**"
+    else
+        log_success "No dependency confusion vulnerabilities found in $file"
+        discord_send_progress "✅ **No dependency confusion vulnerabilities found in $file**"
+    fi
+    
+    # Send results to Discord
+    discord_file "$output_dir/scan-output.txt" "Dependency confusion scan results for $file"
+    
+    # Only exit with error if there was a real failure (not just file saving issues)
+    if [[ $exit_code -ne 0 ]] && ! grep -q "Issues found" "$output_dir/scan-output.txt"; then
+        log_error "Local file scan failed"
+        discord_send_progress "❌ **Local file scan failed**"
+        exit 1
+    fi
+}
+
+# Scan GitHub repository
+scan_github_repo() {
+    local repo="$1"
+    shift
+    local args=("$@")
+    
+    log_info "Scanning GitHub repository: $repo"
+    discord_send_progress "🔍 **Scanning GitHub repository: $repo**"
+    
+    # Set default output directory
+    local output_dir="$(results_dir "github-$repo")/depconfusion"
+    ensure_dir "$output_dir"
+    
+    # Build confused command
+    local cmd=("$CONFUSED_BIN" "github" "repo" "$repo")
+    
+    # Add common arguments
+    for arg in "${args[@]}"; do
+        cmd+=("$arg")
+    done
+    
+    # Add output directory if not specified
+    if ! printf '%s\n' "${args[@]}" | grep -q -- "--output-dir"; then
+        cmd+=("--output-dir" "$output_dir")
+    fi
+    
+    # Add GitHub token if available
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        cmd+=("--github-token" "$GITHUB_TOKEN")
+    fi
+    
+    # Run confused tool
+    if "${cmd[@]}" > "$output_dir/github-scan-output.txt" 2>&1; then
+        log_success "GitHub repository scan completed"
+        
+        # Check for vulnerabilities
+        if grep -q "Issues found" "$output_dir/github-scan-output.txt"; then
+            log_warn "Dependency confusion vulnerabilities found in $repo"
+            discord_send_progress "⚠️ **Found dependency confusion vulnerabilities in $repo**"
+        else
+            log_success "No dependency confusion vulnerabilities found in $repo"
+            discord_send_progress "✅ **No dependency confusion vulnerabilities found in $repo**"
+        fi
+        
+        # Send results to Discord
+        discord_file "$output_dir/github-scan-output.txt" "Dependency confusion scan results for $repo"
+    else
+        log_error "GitHub repository scan failed"
+        discord_send_progress "❌ **GitHub repository scan failed**"
+        exit 1
+    fi
+}
+
+# Scan GitHub organization
+scan_github_org() {
+    local org="$1"
+    shift
+    local args=("$@")
+    
+    log_info "Scanning GitHub organization: $org"
+    discord_send_progress "🔍 **Scanning GitHub organization: $org**"
+    
+    # Set default output directory
+    local output_dir="$(results_dir "github-org-$org")/depconfusion"
+    ensure_dir "$output_dir"
+    
+    # Build confused command
+    local cmd=("$CONFUSED_BIN" "github" "org" "$org")
+    
+    # Add common arguments
+    for arg in "${args[@]}"; do
+        cmd+=("$arg")
+    done
+    
+    # Add output directory if not specified
+    if ! printf '%s\n' "${args[@]}" | grep -q -- "--output-dir"; then
+        cmd+=("--output-dir" "$output_dir")
+    fi
+    
+    # Add GitHub token if available
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        cmd+=("--github-token" "$GITHUB_TOKEN")
+    fi
+    
+    # Run confused tool
+    if "${cmd[@]}" > "$output_dir/github-org-scan-output.txt" 2>&1; then
+        log_success "GitHub organization scan completed"
+        
+        # Check for vulnerabilities
+        if grep -q "Issues found" "$output_dir/github-org-scan-output.txt"; then
+            log_warn "Dependency confusion vulnerabilities found in $org"
+            discord_send_progress "⚠️ **Found dependency confusion vulnerabilities in $org**"
+        else
+            log_success "No dependency confusion vulnerabilities found in $org"
+            discord_send_progress "✅ **No dependency confusion vulnerabilities found in $org**"
+        fi
+        
+        # Send results to Discord
+        discord_file "$output_dir/github-org-scan-output.txt" "Dependency confusion scan results for $org"
+    else
+        log_error "GitHub organization scan failed"
+        discord_send_progress "❌ **GitHub organization scan failed**"
+        exit 1
+    fi
+}
+
+# Scan web targets
+scan_web() {
+    local targets=("$@")
+    
+    log_info "Scanning web targets: ${targets[*]}"
+    discord_send_progress "🔍 **Scanning web targets: ${targets[*]}**"
+    
+    # Set default output directory
+    local output_dir="$(results_dir "web-$(date +%Y%m%d-%H%M%S)")/depconfusion"
+    ensure_dir "$output_dir"
+    
+    # Build confused command
+    local cmd=("$CONFUSED_BIN" "web")
+    
+    # Add targets
+    for target in "${targets[@]}"; do
+        cmd+=("$target")
+    done
+    
+    # Add output directory
+    cmd+=("--output-dir" "$output_dir")
+    
+    # Run confused tool
+    if "${cmd[@]}" > "$output_dir/web-scan-output.txt" 2>&1; then
+        log_success "Web targets scan completed"
+        
+        # Check for vulnerabilities
+        if grep -q "Issues found" "$output_dir/web-scan-output.txt"; then
+            log_warn "Dependency confusion vulnerabilities found in web targets"
+            discord_send_progress "⚠️ **Found dependency confusion vulnerabilities in web targets**"
+        else
+            log_success "No dependency confusion vulnerabilities found in web targets"
+            discord_send_progress "✅ **No dependency confusion vulnerabilities found in web targets**"
+        fi
+        
+        # Send results to Discord
+        discord_file "$output_dir/web-scan-output.txt" "Dependency confusion scan results for web targets"
+    else
+        log_error "Web targets scan failed"
+        discord_send_progress "❌ **Web targets scan failed**"
+        exit 1
+    fi
+}
+
+# Scan web targets from file
+scan_web_file() {
+    local file="$1"
+    shift
+    local args=("$@")
+    
+    if [[ ! -f "$file" ]]; then
+        log_error "Target file not found: $file"
+        exit 1
+    fi
+    
+    log_info "Scanning web targets from file: $file"
+    discord_send_progress "🔍 **Scanning web targets from file: $file**"
+    
+    # Set default output directory
+    local output_dir="$(results_dir "web-file-$(basename "$file" .txt)")/depconfusion"
+    ensure_dir "$output_dir"
+    
+    # Build confused command
+    local cmd=("$CONFUSED_BIN" "web" "--target-file" "$file")
+    
+    # Add common arguments
+    for arg in "${args[@]}"; do
+        cmd+=("$arg")
+    done
+    
+    # Add output directory if not specified
+    if ! printf '%s\n' "${args[@]}" | grep -q -- "--output-dir"; then
+        cmd+=("--output-dir" "$output_dir")
+    fi
+    
+    # Run confused tool
+    if "${cmd[@]}" > "$output_dir/web-file-scan-output.txt" 2>&1; then
+        log_success "Web targets file scan completed"
+        
+        # Check for vulnerabilities
+        if grep -q "Issues found" "$output_dir/web-file-scan-output.txt"; then
+            log_warn "Dependency confusion vulnerabilities found in web targets"
+            discord_send_progress "⚠️ **Found dependency confusion vulnerabilities in web targets**"
+        else
+            log_success "No dependency confusion vulnerabilities found in web targets"
+            discord_send_progress "✅ **No dependency confusion vulnerabilities found in web targets**"
+        fi
+        
+        # Send results to Discord
+        discord_file "$output_dir/web-file-scan-output.txt" "Dependency confusion scan results for web targets"
+    else
+        log_error "Web targets file scan failed"
+        discord_send_progress "❌ **Web targets file scan failed**"
+        exit 1
+    fi
+}
+
+# Main function
+main() {
+    check_confused
+    
+    # Handle help flags
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+        usage
+        exit 0
+    fi
+    
+    case "${1:-}" in
+        scan)
+            shift
+            # Handle help for scan command
+            if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+                echo "Scan a local dependency file for dependency confusion vulnerabilities."
+                echo ""
+                echo "Usage: depconfusion scan <file> [options]"
+                echo ""
+                echo "Options:"
+                echo "  -l, --language <lang>     Package manager (npm, pip, composer, mvn, rubygems)"
+                echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
+                echo "  -v, --verbose             Verbose output"
+                echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
+                echo "  -o, --output <file>       Output file"
+                echo "  -f, --format <format>     Output format: text, json, html (default: text)"
+                echo ""
+                echo "Examples:"
+                echo "  depconfusion scan package.json"
+                echo "  depconfusion scan requirements.txt -l pip -w 20 -v"
+                echo "  depconfusion scan composer.json --safe-spaces '@mycompany/*'"
+                exit 0
+            fi
+            scan_local "$@"
+            ;;
+        github)
+            case "${2:-}" in
+                repo)
+                    shift 2
+                    # Handle help for github repo command
+                    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+                        echo "Scan a GitHub repository for dependency confusion vulnerabilities."
+                        echo ""
+                        echo "Usage: depconfusion github repo <owner/repo> [options]"
+                        echo ""
+                        echo "Options:"
+                        echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
+                        echo "  -v, --verbose             Verbose output"
+                        echo "  --deep                    Deep scan including all branches"
+                        echo "  --languages <langs>       Package managers to scan for (comma-separated)"
+                        echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
+                        echo "  --github-token <token>    GitHub API token"
+                        echo ""
+                        echo "Examples:"
+                        echo "  depconfusion github repo microsoft/vscode"
+                        echo "  depconfusion github repo facebook/react --deep -w 15 -v"
+                        exit 0
+                    fi
+                    scan_github_repo "$@"
+                    ;;
+                org)
+                    shift 2
+                    # Handle help for github org command
+                    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+                        echo "Scan a GitHub organization for dependency confusion vulnerabilities."
+                        echo ""
+                        echo "Usage: depconfusion github org <org> [options]"
+                        echo ""
+                        echo "Options:"
+                        echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
+                        echo "  -v, --verbose             Verbose output"
+                        echo "  --max-repos <num>         Maximum number of repositories to scan (default: 50)"
+                        echo "  --deep                    Deep scan including all branches"
+                        echo "  --languages <langs>       Package managers to scan for (comma-separated)"
+                        echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
+                        echo "  --github-token <token>    GitHub API token"
+                        echo ""
+                        echo "Examples:"
+                        echo "  depconfusion github org microsoft"
+                        echo "  depconfusion github org google --max-repos 100 -w 10 -v"
+                        exit 0
+                    fi
+                    scan_github_org "$@"
+                    ;;
+                *)
+                    log_error "Invalid GitHub command. Use 'repo' or 'org'"
+                    usage
+                    exit 1
+                    ;;
+            esac
+            ;;
+        web)
+            shift
+            # Handle help for web command
+            if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+                echo "Scan web targets for dependency confusion vulnerabilities."
+                echo ""
+                echo "Usage: depconfusion web <url> [url2] [url3]... [options]"
+                echo ""
+                echo "Options:"
+                echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
+                echo "  -v, --verbose             Verbose output"
+                echo "  --deep                    Deep scan with extensive file discovery"
+                echo "  --languages <langs>       Package managers to scan for (comma-separated)"
+                echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
+                echo "  --max-depth <num>         Maximum directory depth for discovery (default: 3)"
+                echo "  --wordlist <file>         Custom wordlist for file discovery"
+                echo ""
+                echo "Examples:"
+                echo "  depconfusion web https://example.com"
+                echo "  depconfusion web https://example.com --deep -w 20 -v"
+                echo "  depconfusion web --target-file targets.txt --workers 15"
+                exit 0
+            fi
+            if [[ "${1:-}" == "--target-file" || "${1:-}" == "-f" ]]; then
+                shift
+                scan_web_file "$@"
+            else
+                scan_web "$@"
+            fi
+            ;;
+        web-file)
+            shift
+            scan_web_file "$@"
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"

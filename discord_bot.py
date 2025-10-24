@@ -486,7 +486,7 @@ class AutoARBot(commands.Cog):
         """Scan GitHub organization for dependency confusion vulnerabilities."""
         scan_id = f"depconfusion_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "scan", "-o", org, "-m", str(max_repos)]
+        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "github", "org", org, "--max-repos", str(max_repos)]
         if token:
             command.extend(["-t", token])
         
@@ -515,7 +515,7 @@ class AutoARBot(commands.Cog):
         """Scan live hosts for dependency confusion vulnerabilities."""
         scan_id = f"live_depconfusion_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "live-depconfusion", "scan", "-d", domain, "-t", str(threads), "--delay", str(delay)]
+        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "web", f"https://{domain}", "-w", str(threads)]
         
         active_scans[scan_id] = {
             'type': 'live_depconfusion',
@@ -526,6 +526,74 @@ class AutoARBot(commands.Cog):
         }
         
         embed = self.create_scan_embed('Live Dependency Confusion', domain, 'running')
+        await interaction.response.send_message(embed=embed)
+        
+        # Run scan in background
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
+    @app_commands.command(name="depconfusion_repo", description="Scan GitHub repository for dependency confusion vulnerabilities")
+    @app_commands.describe(
+        repo="GitHub repository (owner/repo)",
+        workers="Number of workers/threads (default: 10)",
+        verbose="Enable verbose output",
+        deep="Perform deep scan including all branches"
+    )
+    async def depconfusion_repo(self, interaction: discord.Interaction, repo: str,
+                               workers: int = 10, verbose: bool = False, deep: bool = False):
+        """Scan GitHub repository for dependency confusion vulnerabilities."""
+        scan_id = f"depconfusion_repo_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "github", "repo", repo, "-w", str(workers)]
+        if verbose:
+            command.append("-v")
+        if deep:
+            command.append("--deep")
+        
+        active_scans[scan_id] = {
+            'type': 'depconfusion_repo',
+            'target': repo,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = self.create_scan_embed('Dependency Confusion Repository', repo, 'running')
+        embed.add_field(name="Workers", value=str(workers), inline=True)
+        embed.add_field(name="Deep Scan", value="Yes" if deep else "No", inline=True)
+        await interaction.response.send_message(embed=embed)
+        
+        # Run scan in background
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
+    @app_commands.command(name="depconfusion_web", description="Scan web targets for dependency confusion vulnerabilities")
+    @app_commands.describe(
+        url="Target URL to scan",
+        workers="Number of workers/threads (default: 10)",
+        verbose="Enable verbose output",
+        deep="Perform deep scan with extensive file discovery"
+    )
+    async def depconfusion_web(self, interaction: discord.Interaction, url: str,
+                              workers: int = 10, verbose: bool = False, deep: bool = False):
+        """Scan web targets for dependency confusion vulnerabilities."""
+        scan_id = f"depconfusion_web_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "web", url, "-w", str(workers)]
+        if verbose:
+            command.append("-v")
+        if deep:
+            command.append("--deep")
+        
+        active_scans[scan_id] = {
+            'type': 'depconfusion_web',
+            'target': url,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = self.create_scan_embed('Dependency Confusion Web', url, 'running')
+        embed.add_field(name="Workers", value=str(workers), inline=True)
+        embed.add_field(name="Deep Scan", value="Yes" if deep else "No", inline=True)
         await interaction.response.send_message(embed=embed)
         
         # Run scan in background
@@ -898,9 +966,14 @@ class AutoARBot(commands.Cog):
                 else:
                     timeout = 600  # 10 minutes for regular backup scans
             elif any(cmd in command for cmd in ['depconfusion']):
-                timeout = 1200  # 20 minutes for dependency confusion scans
-            elif any(cmd in command for cmd in ['live-depconfusion']):
-                timeout = 1800  # 30 minutes for live dependency confusion scans
+                if 'github org' in ' '.join(command):
+                    timeout = 1800  # 30 minutes for GitHub organization scans
+                elif 'github repo' in ' '.join(command):
+                    timeout = 1200  # 20 minutes for GitHub repository scans
+                elif 'web' in ' '.join(command):
+                    timeout = 900   # 15 minutes for web scans
+                else:
+                    timeout = 600   # 10 minutes for local file scans
             
             # Run the scan
             results = await self.run_autoar_command(command, scan_id, timeout)
