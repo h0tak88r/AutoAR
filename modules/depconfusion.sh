@@ -32,6 +32,7 @@ usage() {
     echo "  github org <org>               Scan a GitHub organization"
     echo "  web <url> [url2] [url3]...     Scan web targets"
     echo "  web-file <file>                Scan targets from file"
+    echo "  web-full <domain>              Full web scan with subdomain enumeration"
     echo ""
     echo "Options:"
     echo "  -w, --workers <num>            Number of workers/threads (default: 10)"
@@ -50,6 +51,7 @@ usage() {
     echo "  depconfusion github org microsoft --max-repos 100 -w 10"
     echo "  depconfusion web https://example.com --deep -w 20 -v"
     echo "  depconfusion web-file targets.txt --workers 15 -v"
+    echo "  depconfusion web-full example.com --deep -w 20 -v"
 }
 
 # Check if confused2 tool is available
@@ -144,7 +146,7 @@ scan_github_repo() {
         cmd+=("--output-dir" "$output_dir")
     fi
     
-    # Add GitHub token if available
+    # Add GitHub token if available (always check environment first)
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         cmd+=("--github-token" "$GITHUB_TOKEN")
     fi
@@ -197,7 +199,7 @@ scan_github_org() {
         cmd+=("--output-dir" "$output_dir")
     fi
     
-    # Add GitHub token if available
+    # Add GitHub token if available (always check environment first)
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         cmd+=("--github-token" "$GITHUB_TOKEN")
     fi
@@ -317,6 +319,127 @@ scan_web_file() {
     else
         log_error "Web targets file scan failed"
         discord_send_progress "❌ **Web targets file scan failed**"
+        exit 1
+    fi
+}
+
+# Scan web targets with subdomain enumeration (full scan)
+scan_web_full() {
+    local domain="$1"
+    shift
+    local args=("$@")
+    
+    log_info "Starting full web dependency confusion scan for domain: $domain"
+    discord_send_progress "🔍 **Starting full web dependency confusion scan for $domain**"
+    
+    # Set default output directory
+    local output_dir="$(results_dir "web-full-$domain")/depconfusion"
+    ensure_dir "$output_dir"
+    
+    # Step 1: Subdomain enumeration
+    log_info "Step 1: Enumerating subdomains for $domain"
+    discord_send_progress "🔍 **Step 1: Enumerating subdomains for $domain**"
+    
+    local subs_dir="$output_dir/subs"
+    ensure_dir "$subs_dir"
+    
+    # Run subfinder
+    local subfinder_bin=""
+    if command -v subfinder >/dev/null 2>&1; then
+        subfinder_bin="subfinder"
+    elif [[ -f "/home/sallam/go/bin/subfinder" ]]; then
+        subfinder_bin="/home/sallam/go/bin/subfinder"
+    elif [[ -f "/usr/local/bin/subfinder" ]]; then
+        subfinder_bin="/usr/local/bin/subfinder"
+    else
+        log_error "Subfinder not found. Please install it with: go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
+        discord_send_progress "❌ **Subfinder not found. Please install it first.**"
+        exit 1
+    fi
+    
+    if "$subfinder_bin" -d "$domain" -silent > "$subs_dir/all-subs.txt" 2>/dev/null; then
+        local sub_count=$(wc -l < "$subs_dir/all-subs.txt")
+        log_success "Found $sub_count subdomains"
+        
+        if [[ $sub_count -eq 0 ]]; then
+            log_warn "No subdomains found for $domain"
+            discord_send_progress "⚠️ **No subdomains found for $domain**"
+            exit 0
+        fi
+    else
+        log_error "Subdomain enumeration failed for $domain"
+        discord_send_progress "❌ **Subdomain enumeration failed for $domain**"
+        exit 1
+    fi
+    
+    # Step 2: Live host detection
+    log_info "Step 2: Detecting live hosts"
+    discord_send_progress "🔍 **Step 2: Detecting live hosts**"
+    
+    # Run httpx for live host detection
+    local httpx_bin=""
+    if command -v httpx >/dev/null 2>&1; then
+        httpx_bin="httpx"
+    elif [[ -f "/home/sallam/go/bin/httpx" ]]; then
+        httpx_bin="/home/sallam/go/bin/httpx"
+    elif [[ -f "/usr/local/bin/httpx" ]]; then
+        httpx_bin="/usr/local/bin/httpx"
+    else
+        log_error "Httpx not found. Please install it with: go install github.com/projectdiscovery/httpx/cmd/httpx@latest"
+        discord_send_progress "❌ **Httpx not found. Please install it first.**"
+        exit 1
+    fi
+    
+    if "$httpx_bin" -l "$subs_dir/all-subs.txt" -silent -o "$subs_dir/live-subs.txt" 2>/dev/null; then
+        local live_count=$(wc -l < "$subs_dir/live-subs.txt")
+        log_success "Found $live_count live hosts"
+        
+        if [[ $live_count -eq 0 ]]; then
+            log_warn "No live hosts found for $domain"
+            discord_send_progress "⚠️ **No live hosts found for $domain**"
+            exit 0
+        fi
+    else
+        log_error "Live host detection failed for $domain"
+        discord_send_progress "❌ **Live host detection failed for $domain**"
+        exit 1
+    fi
+    
+    # Step 3: Dependency confusion scanning
+    log_info "Step 3: Scanning live hosts for dependency confusion vulnerabilities"
+    discord_send_progress "🔍 **Step 3: Scanning $live_count live hosts for dependency confusion**"
+    
+    # Build confused2 command for web scanning with target file
+    local cmd=("$CONFUSED_BIN" "web" "--target-file" "$subs_dir/live-subs.txt")
+    
+    # Add common arguments
+    for arg in "${args[@]}"; do
+        cmd+=("$arg")
+    done
+    
+    # Add output directory if not specified
+    if ! printf '%s\n' "${args[@]}" | grep -q -- "--output-dir"; then
+        cmd+=("--output-dir" "$output_dir")
+    fi
+    
+    # Run confused2 tool
+    if "${cmd[@]}" > "$output_dir/web-full-scan-output.txt" 2>&1; then
+        log_success "Full web dependency confusion scan completed"
+        
+        # Check for vulnerabilities
+        if grep -q "Issues found" "$output_dir/web-full-scan-output.txt"; then
+            log_warn "Dependency confusion vulnerabilities found in live hosts"
+            discord_send_progress "⚠️ **Found dependency confusion vulnerabilities in live hosts**"
+        else
+            log_success "No dependency confusion vulnerabilities found in live hosts"
+            discord_send_progress "✅ **No dependency confusion vulnerabilities found in live hosts**"
+        fi
+        
+        # Send results to Discord
+        discord_file "$output_dir/web-full-scan-output.txt" "Full web dependency confusion scan results for $domain"
+    else
+        log_error "Full web dependency confusion scan failed"
+        discord_send_progress "❌ **Full web dependency confusion scan failed**"
         exit 1
     fi
 }
@@ -445,6 +568,10 @@ main() {
         web-file)
             shift
             scan_web_file "$@"
+            ;;
+        web-full)
+            shift
+            scan_web_full "$@"
             ;;
         *)
             usage
