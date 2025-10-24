@@ -475,30 +475,41 @@ class AutoARBot(commands.Cog):
         # Run scan in background
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
-    @app_commands.command(name="depconfusion_scan", description="Scan GitHub organization for dependency confusion vulnerabilities")
+    @app_commands.command(name="githubdepconf", description="🔍 GitHub organization dependency confusion scan")
     @app_commands.describe(
-        org="GitHub organization name",
-        token="GitHub token (optional, can use GITHUB_TOKEN env var)",
-        max_repos="Maximum number of repositories to scan (default: 50)"
+        org="GitHub organization name to scan",
+        workers="Number of workers (default: 10, max: 50)",
+        verbose="Enable verbose output"
     )
-    async def depconfusion_scan(self, interaction: discord.Interaction, org: str, 
-                               token: Optional[str] = None, max_repos: int = 50):
-        """Scan GitHub organization for dependency confusion vulnerabilities."""
-        scan_id = f"depconfusion_{int(time.time())}"
+    async def githubdepconf(self, interaction: discord.Interaction, org: str, 
+                           workers: int = 10, verbose: bool = False):
+        """GitHub organization dependency confusion scan."""
+        # Validate workers parameter
+        if workers < 1 or workers > 50:
+            await interaction.response.send_message("❌ **Workers must be between 1 and 50**", ephemeral=True)
+            return
         
-        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "scan", "-o", org, "-m", str(max_repos)]
-        if token:
-            command.extend(["-t", token])
+        scan_id = f"githubdepconf_{int(time.time())}"
+        
+        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "github", "org", org, "-w", str(workers)]
+        if verbose:
+            command.append("-v")
         
         active_scans[scan_id] = {
-            'type': 'depconfusion',
+            'type': 'githubdepconf',
             'target': org,
             'status': 'running',
             'start_time': datetime.now(),
             'interaction': interaction
         }
         
-        embed = self.create_scan_embed('Dependency Confusion', org, 'running')
+        embed = discord.Embed(
+            title="🔍 GitHub Organization Scan",
+            description=f"**Organization:** {org}\n**Workers:** {workers}",
+            color=0x00ff00
+        )
+        embed.add_field(name="Scan ID", value=scan_id, inline=True)
+        
         await interaction.response.send_message(embed=embed)
         
         # Run scan in background
@@ -515,7 +526,7 @@ class AutoARBot(commands.Cog):
         """Scan live hosts for dependency confusion vulnerabilities."""
         scan_id = f"live_depconfusion_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "live-depconfusion", "scan", "-d", domain, "-t", str(threads), "--delay", str(delay)]
+        command = [AUTOAR_SCRIPT_PATH, "depconfusion", "web", f"https://{domain}", "-w", str(threads)]
         
         active_scans[scan_id] = {
             'type': 'live_depconfusion',
@@ -526,6 +537,53 @@ class AutoARBot(commands.Cog):
         }
         
         embed = self.create_scan_embed('Live Dependency Confusion', domain, 'running')
+        await interaction.response.send_message(embed=embed)
+        
+        # Run scan in background
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
+    @app_commands.command(name="webdepconf", description="🔍 Web dependency confusion scan")
+    @app_commands.describe(
+        target="Target URL or domain to scan",
+        workers="Number of workers (default: 10, max: 50)",
+        verbose="Enable verbose output",
+        full="Collect subdomains and live hosts first"
+    )
+    async def webdepconf(self, interaction: discord.Interaction, target: str,
+                        workers: int = 10, verbose: bool = False, full: bool = False):
+        """Web dependency confusion scan."""
+        # Validate workers parameter
+        if workers < 1 or workers > 50:
+            await interaction.response.send_message("❌ **Workers must be between 1 and 50**", ephemeral=True)
+            return
+        
+        scan_id = f"webdepconf_{int(time.time())}"
+        
+        if full:
+            # Use web-full command for subdomain collection
+            command = [AUTOAR_SCRIPT_PATH, "depconfusion", "web-full", target, "-w", str(workers)]
+        else:
+            # Use regular web command for single target
+            command = [AUTOAR_SCRIPT_PATH, "depconfusion", "web", target, "--deep", "-w", str(workers)]
+        
+        if verbose:
+            command.append("-v")
+        
+        active_scans[scan_id] = {
+            'type': 'webdepconf',
+            'target': target,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = discord.Embed(
+            title="🔍 Web Dependency Confusion Scan",
+            description=f"**Target:** {target}\n**Workers:** {workers}\n**Mode:** {'Full (subdomains + live hosts)' if full else 'Single target (deep scan)'}",
+            color=0x00ff00
+        )
+        embed.add_field(name="Scan ID", value=scan_id, inline=True)
+        
         await interaction.response.send_message(embed=embed)
         
         # Run scan in background
@@ -898,9 +956,16 @@ class AutoARBot(commands.Cog):
                 else:
                     timeout = 600  # 10 minutes for regular backup scans
             elif any(cmd in command for cmd in ['depconfusion']):
-                timeout = 1200  # 20 minutes for dependency confusion scans
-            elif any(cmd in command for cmd in ['live-depconfusion']):
-                timeout = 1800  # 30 minutes for live dependency confusion scans
+                if 'github org' in ' '.join(command):
+                    timeout = 1800  # 30 minutes for GitHub organization scans
+                elif 'github repo' in ' '.join(command):
+                    timeout = 1200  # 20 minutes for GitHub repository scans
+                elif 'web-full' in ' '.join(command):
+                    timeout = 2400  # 40 minutes for full web scans (includes subdomain enumeration)
+                elif 'web' in ' '.join(command):
+                    timeout = 900   # 15 minutes for web scans
+                else:
+                    timeout = 600   # 10 minutes for local file scans
             
             # Run the scan
             results = await self.run_autoar_command(command, scan_id, timeout)
