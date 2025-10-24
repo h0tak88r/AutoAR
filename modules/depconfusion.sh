@@ -40,6 +40,7 @@ usage() {
     echo "  -f, --format <format>          Output format: text, json, html (default: text)"
     echo "  --safe-spaces <spaces>         Known-safe namespaces (comma-separated)"
     echo "  --deep                         Deep scan (for web targets)"
+    echo "  --max-depth <num>              Maximum depth for deep web scans (default: 3)"
     echo "  --max-repos <num>              Max repositories for org scan (default: 50)"
     echo "  --languages <langs>            Languages to scan (comma-separated)"
     echo "  -v, --verbose                  Verbose output"
@@ -50,6 +51,7 @@ usage() {
     echo "  depconfusion github repo microsoft/PowerShell -w 15 -v"
     echo "  depconfusion github org microsoft --max-repos 100 -w 10"
     echo "  depconfusion web https://example.com --deep -w 20 -v"
+    echo "  depconfusion web https://app.mycompany.com --deep --max-depth 5 -w 15 --verbose"
     echo "  depconfusion web-file targets.txt --workers 15 -v"
     echo "  depconfusion web-full example.com --deep -w 20 -v"
 }
