@@ -6,7 +6,7 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: github scan -r <owner/repo> | github org -o <org> [-m <max-repos>]"; }
+usage() { echo "Usage: github scan -r <owner/repo> | github org -o <org> [-m <max-repos>] | github depconfusion -r <owner/repo>"; }
 
 # Function to generate HTML report for GitHub secrets
 generate_github_html_report() {
@@ -416,6 +416,232 @@ github_scan() {
     rm -rf "$temp_dir"
 }
 
+# Function to scan GitHub repository for dependency confusion vulnerabilities
+github_depconfusion_scan() {
+    local repo_url=""
+    local verbose=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -r|--repo)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing repository URL after -r flag"
+                    exit 1
+                fi
+                repo_url="$2"
+                shift
+                shift
+                ;;
+            -v|--verbose)
+                verbose=true
+                shift
+                ;;
+            *)
+                if [[ -z "$repo_url" ]]; then
+                    repo_url="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Validate required arguments
+    if [[ -z "$repo_url" ]]; then
+        log_error "Repository URL is required. Use: github depconfusion -r <owner/repo>"
+        exit 1
+    fi
+    
+    # Convert owner/repo to full GitHub URL if needed
+    if [[ "$repo_url" != http* ]]; then
+        repo_url="https://github.com/$repo_url"
+    fi
+    
+    local repo_name=$(basename "$repo_url" .git)
+    local org_name=$(echo "$repo_url" | sed 's|.*github.com/||' | cut -d'/' -f1)
+    
+    log_info "Starting GitHub dependency confusion scan for: $repo_name"
+    
+    # Check if confused tool is installed
+    if ! command -v confused >/dev/null 2>&1; then
+        log_error "Confused tool not found. Please install it with: go install github.com/h0tak88r/confused@latest"
+        return 1
+    fi
+    
+    # Create results directory
+    local dir; dir="$(results_dir "github_$repo_name")"
+    local depconfusion_dir="$dir/vulnerabilities/depconfusion"
+    ensure_dir "$depconfusion_dir"
+    
+    # Send progress notification
+    discord_send_progress "🔍 **Scanning GitHub repository for dependency confusion: $repo_name**"
+    
+    # Use confused tool's GitHub scanning capabilities
+    local confused_output="$depconfusion_dir/confused-results.txt"
+    if confused github repo "$org_name/$repo_name" > "$confused_output" 2>&1; then
+        # Check if vulnerabilities were found
+        if grep -q "Issues found" "$confused_output"; then
+            log_warn "Dependency confusion vulnerabilities found in $repo_name"
+            
+            # Generate HTML report for dependency confusion
+            local html_report="$depconfusion_dir/depconfusion-report.html"
+            generate_depconfusion_html_report "$repo_name" "$org_name" "$confused_output" "$html_report"
+            
+            discord_send_progress "⚠️ **Found dependency confusion vulnerabilities in $repo_name**"
+            log_success "GitHub dependency confusion scan completed for $repo_name - Vulnerabilities found"
+        else
+            log_info "No dependency confusion vulnerabilities found in $repo_name"
+            
+            # Generate empty report
+            local html_report="$depconfusion_dir/depconfusion-report.html"
+            generate_depconfusion_html_report "$repo_name" "$org_name" "$confused_output" "$html_report"
+            
+            discord_send_progress "✅ **No dependency confusion vulnerabilities found in $repo_name**"
+            log_success "GitHub dependency confusion scan completed for $repo_name - No vulnerabilities found"
+        fi
+    else
+        log_error "Confused dependency confusion scan failed for $repo_name"
+        if [[ -s "$confused_output" ]]; then
+            log_error "Confused output:"
+            cat "$confused_output" | head -20
+        fi
+        return 1
+    fi
+}
+
+# Function to generate HTML report for dependency confusion
+generate_depconfusion_html_report() {
+    local repo_name="$1"
+    local org_name="$2"
+    local confused_output="$3"
+    local html_file="$4"
+    
+    log_info "Generating HTML report for dependency confusion scan of $repo_name..."
+    
+    cat > "$html_file" <<EOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dependency Confusion Scan Report - $repo_name</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 2.5em;
+        }
+        .header p {
+            margin: 5px 0;
+            font-size: 1.1em;
+        }
+        .timestamp {
+            font-style: italic;
+            opacity: 0.9;
+        }
+        .summary {
+            padding: 30px;
+            border-bottom: 1px solid #eee;
+        }
+        .summary h2 {
+            color: #ff6b6b;
+            margin-top: 0;
+        }
+        .results-section {
+            padding: 30px;
+        }
+        .results-content {
+            background: #f8f9fa;
+            border: 1px solid #e1e5e9;
+            border-radius: 8px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        .no-vulnerabilities {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .no-vulnerabilities h3 {
+            color: #2e7d32;
+            margin-bottom: 10px;
+        }
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            border-top: 1px solid #e1e5e9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Dependency Confusion Scan Report</h1>
+            <p>Repository: <strong>$repo_name</strong></p>
+            <p>Organization: <strong>$org_name</strong></p>
+            <p class="timestamp">Generated: $(date)</p>
+        </div>
+        
+        <div class="summary">
+            <h2>📊 Scan Summary</h2>
+            <p>This report contains the results of a dependency confusion vulnerability scan performed using the Confused tool.</p>
+        </div>
+        
+        <div class="results-section">
+            <h2>🔍 Scan Results</h2>
+EOF
+
+    if grep -q "Issues found" "$confused_output"; then
+        echo "            <div class=\"results-content\">" >> "$html_file"
+        cat "$confused_output" >> "$html_file"
+        echo "            </div>" >> "$html_file"
+    else
+        echo "            <div class=\"no-vulnerabilities\">" >> "$html_file"
+        echo "                <h3>✅ No Dependency Confusion Vulnerabilities Found</h3>" >> "$html_file"
+        echo "                <p>Great! No dependency confusion vulnerabilities were detected in this repository.</p>" >> "$html_file"
+        echo "            </div>" >> "$html_file"
+    fi
+    
+    cat >> "$html_file" <<EOF
+        </div>
+        
+        <div class="footer">
+            <p>Generated by AutoAR Dependency Confusion Scanner | Powered by Confused Tool</p>
+            <p>Scan completed at $(date)</p>
+        </div>
+    </div>
+</body>
+</html>
+EOF
+    
+    log_success "HTML report generated: $html_file"
+}
+
 # Function to scan GitHub organization for secrets
 github_org_scan() {
     local org_name=""
@@ -551,5 +777,6 @@ github_org_scan() {
 case "${1:-}" in
   scan) shift; github_scan "$@" ;;
   org) shift; github_org_scan "$@" ;;
+  depconfusion) shift; github_depconfusion_scan "$@" ;;
   *) usage; exit 1;;
 esac
