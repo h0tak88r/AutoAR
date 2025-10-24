@@ -478,14 +478,24 @@ class AutoARBot(commands.Cog):
     @app_commands.command(name="githubDepConf", description="🔍 Comprehensive GitHub organization dependency confusion scan with automatic token handling")
     @app_commands.describe(
         org="GitHub organization name to scan",
-        max_repos="Maximum number of repositories to scan (default: 50)",
-        workers="Number of concurrent workers/threads (default: 10)",
+        max_repos="Maximum number of repositories to scan (default: 50, max: 200)",
+        workers="Number of concurrent workers/threads (default: 10, max: 50)",
         verbose="Enable detailed verbose output",
         deep="Perform deep scan including all branches"
     )
     async def githubDepConf(self, interaction: discord.Interaction, org: str, 
                            max_repos: int = 50, workers: int = 10, verbose: bool = False, deep: bool = False):
         """Comprehensive GitHub organization dependency confusion scan with automatic token handling."""
+        # Validate workers parameter
+        if workers < 1 or workers > 50:
+            await interaction.response.send_message("❌ **Workers must be between 1 and 50**", ephemeral=True)
+            return
+        
+        # Validate max_repos parameter
+        if max_repos < 1 or max_repos > 200:
+            await interaction.response.send_message("❌ **Max repositories must be between 1 and 200**", ephemeral=True)
+            return
+        
         scan_id = f"githubDepConf_{int(time.time())}"
         
         command = [AUTOAR_SCRIPT_PATH, "depconfusion", "github", "org", org, "--max-repos", str(max_repos), "-w", str(workers)]
@@ -546,13 +556,18 @@ class AutoARBot(commands.Cog):
     @app_commands.command(name="repoDepConf", description="🔍 Advanced GitHub repository dependency confusion scan with comprehensive analysis")
     @app_commands.describe(
         repo="GitHub repository (owner/repo)",
-        workers="Number of concurrent workers/threads (default: 10)",
+        workers="Number of concurrent workers/threads (default: 10, max: 50)",
         verbose="Enable detailed verbose output",
         deep="Perform deep scan including all branches"
     )
     async def repoDepConf(self, interaction: discord.Interaction, repo: str,
                           workers: int = 10, verbose: bool = False, deep: bool = False):
         """Advanced GitHub repository dependency confusion scan with comprehensive analysis."""
+        # Validate workers parameter
+        if workers < 1 or workers > 50:
+            await interaction.response.send_message("❌ **Workers must be between 1 and 50**", ephemeral=True)
+            return
+        
         scan_id = f"repoDepConf_{int(time.time())}"
         
         command = [AUTOAR_SCRIPT_PATH, "depconfusion", "github", "repo", repo, "-w", str(workers)]
@@ -586,14 +601,26 @@ class AutoARBot(commands.Cog):
     @app_commands.command(name="webDepConf", description="🔍 Comprehensive web dependency confusion scan with optional subdomain enumeration")
     @app_commands.describe(
         target="Target URL or domain to scan",
-        workers="Number of concurrent workers/threads (default: 10)",
+        workers="Number of concurrent workers/threads (default: 10, max: 50)",
         verbose="Enable detailed verbose output",
         deep="Perform deep scan with extensive file discovery",
+        max_depth="Maximum depth for deep scans (default: 3, max: 10)",
         full="Enable full scan with subdomain enumeration and live host detection"
     )
     async def webDepConf(self, interaction: discord.Interaction, target: str,
-                        workers: int = 10, verbose: bool = False, deep: bool = False, full: bool = False):
+                        workers: int = 10, verbose: bool = False, deep: bool = False, 
+                        max_depth: int = 3, full: bool = False):
         """Comprehensive web dependency confusion scan with optional subdomain enumeration."""
+        # Validate workers parameter
+        if workers < 1 or workers > 50:
+            await interaction.response.send_message("❌ **Workers must be between 1 and 50**", ephemeral=True)
+            return
+        
+        # Validate max_depth parameter
+        if max_depth < 1 or max_depth > 10:
+            await interaction.response.send_message("❌ **Max depth must be between 1 and 10**", ephemeral=True)
+            return
+        
         scan_id = f"webDepConf_{int(time.time())}"
         
         if full:
@@ -607,6 +634,8 @@ class AutoARBot(commands.Cog):
             command.append("-v")
         if deep:
             command.append("--deep")
+            if max_depth > 3:  # Only add max-depth if it's different from default
+                command.extend(["--max-depth", str(max_depth)])
         
         active_scans[scan_id] = {
             'type': 'webDepConf',
@@ -618,7 +647,7 @@ class AutoARBot(commands.Cog):
         
         embed = discord.Embed(
             title="🔍 Web Dependency Confusion Scan",
-            description=f"**Target:** {target}\n**Workers:** {workers}\n**Deep Scan:** {'Yes' if deep else 'No'}\n**Full Scan:** {'Yes' if full else 'No'}",
+            description=f"**Target:** {target}\n**Workers:** {workers}\n**Deep Scan:** {'Yes' if deep else 'No'}\n**Max Depth:** {max_depth if deep else 'N/A'}\n**Full Scan:** {'Yes' if full else 'No'}",
             color=0x00ff00
         )
         
@@ -626,6 +655,9 @@ class AutoARBot(commands.Cog):
             embed.add_field(name="Full Scan Features", value="• Subdomain enumeration\n• Live host detection\n• Multi-target scanning\n• Comprehensive analysis", inline=False)
         else:
             embed.add_field(name="Single Target Features", value="• Direct URL scanning\n• Dependency file discovery\n• Vulnerability detection", inline=False)
+        
+        if deep:
+            embed.add_field(name="Deep Scan Features", value=f"• Maximum depth: {max_depth}\n• Extensive file discovery\n• Advanced vulnerability detection", inline=False)
         
         embed.add_field(name="Scan ID", value=scan_id, inline=True)
         embed.set_footer(text="This scan may take several minutes...")
