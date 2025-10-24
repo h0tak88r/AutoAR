@@ -6,12 +6,17 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: sqlmap run -d <domain>"; }
+usage() { 
+  echo "Usage: sqlmap run -d <domain> [-t <threads>]"
+  echo "  -d, --domain     Target domain to scan"
+  echo "  -t, --threads    Number of threads for sqlmap (default: 100)"
+}
 
 sqlmap_run() {
-  local domain=""; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -t|--threads) threads="$2"; shift 2;;
       *) usage; exit 1;;
     esac
   done
@@ -40,9 +45,11 @@ sqlmap_run() {
   [[ -s "$temp_urls" ]] || { log_warn "No valid URLs for sqlmap"; exit 0; }
 
   if command -v interlace >/dev/null 2>&1; then
-    interlace -tL "$temp_urls" -threads 5 -c "sqlmap -u _target_ --batch --dbs --random-agent" -o "$out_file" 2>/dev/null || true
+    log_info "Running sqlmap with $threads threads using interlace"
+    interlace -tL "$temp_urls" -threads "$threads" -c "sqlmap -u _target_ --batch --dbs --random-agent" -o "$out_file" 2>/dev/null || true
   else
     # fallback single-thread
+    log_info "Running sqlmap in single-thread mode (interlace not found)"
     while IFS= read -r u; do
       sqlmap -u "$u" --batch --random-agent --dbs >> "$out_file" 2>/dev/null || true
     done < "$temp_urls"

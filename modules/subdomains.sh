@@ -14,12 +14,17 @@ source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/discord.sh"
 source "$ROOT_DIR/lib/db.sh"
 
-usage() { echo "Usage: subdomains get -d <domain>"; }
+usage() { 
+  echo "Usage: subdomains get -d <domain> [-t <threads>]"
+  echo "  -d, --domain     Target domain to enumerate"
+  echo "  -t, --threads    Number of threads for subfinder (default: 100)"
+}
 
 subdomains_get() {
-  local domain=""; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -t|--threads) threads="$2"; shift 2;;
       *) usage; exit 1;;
     esac
   done
@@ -38,8 +43,8 @@ subdomains_get() {
   curl -s "https://crt.sh/?q=%.$domain&output=json" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" || true
 
   if command -v subfinder >/dev/null 2>&1; then
-    log_info "Running subfinder"
-    subfinder -d "$domain" -silent -o "$subs_dir/subfinder-subs.txt" -pc "${AUTOAR_CONFIG_FILE}" >/dev/null 2>&1 || true
+    log_info "Running subfinder with $threads threads"
+    subfinder -d "$domain" -silent -o "$subs_dir/subfinder-subs.txt" -pc "${AUTOAR_CONFIG_FILE}" -t "$threads" >/dev/null 2>&1 || true
   else
     : > "$subs_dir/subfinder-subs.txt"
   fi
