@@ -6,12 +6,17 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: dalfox run -d <domain>"; }
+usage() { 
+  echo "Usage: dalfox run -d <domain> [-t <threads>]"
+  echo "  -d, --domain     Target domain to scan"
+  echo "  -t, --threads    Number of threads for dalfox (default: 100)"
+}
 
 dalfox_run() {
-  local domain=""; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -t|--threads) threads="$2"; shift 2;;
       *) usage; exit 1;;
     esac
   done
@@ -32,7 +37,8 @@ dalfox_run() {
   [[ -s "$in_file" ]] || { log_warn "No XSS candidate file at $in_file after GF scan"; exit 0; }
 
   if command -v dalfox >/dev/null 2>&1; then
-    dalfox file "$in_file" --no-spinner --only-poc r --ignore-return 302,404,403 --skip-bav -b "0x88.xss.cl" -w 50 -o "$out_file" 2>/dev/null || true
+    log_info "Running dalfox with $threads threads"
+    dalfox file "$in_file" --no-spinner --only-poc r --ignore-return 302,404,403 --skip-bav -b "0x88.xss.cl" -w "$threads" -o "$out_file" 2>/dev/null || true
   fi
   [[ -s "$out_file" ]] && discord_send_file "$out_file" "Dalfox results for $domain"
 }
