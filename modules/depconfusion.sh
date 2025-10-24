@@ -27,33 +27,18 @@ usage() {
     echo "Usage: depconfusion <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  scan <file>                    Scan a local dependency file"
-    echo "  github repo <owner/repo>       Scan a GitHub repository"
-    echo "  github org <org>               Scan a GitHub organization"
-    echo "  web <url> [url2] [url3]...     Scan web targets"
-    echo "  web-file <file>                Scan targets from file"
-    echo "  web-full <domain>              Full web scan with subdomain enumeration"
+    echo "  web <url>                      Single target web scan with --deep"
+    echo "  web-full <domain>              Domain scan with subdomain collection"
+    echo "  github org <org>               GitHub organization scan"
     echo ""
     echo "Options:"
     echo "  -w, --workers <num>            Number of workers/threads (default: 10)"
-    echo "  -o, --output <file>            Output file"
-    echo "  -f, --format <format>          Output format: text, json, html (default: text)"
-    echo "  --safe-spaces <spaces>         Known-safe namespaces (comma-separated)"
-    echo "  --deep                         Deep scan (for web targets)"
-    echo "  --max-depth <num>              Maximum depth for deep web scans (default: 3)"
-    echo "  --max-repos <num>              Max repositories for org scan (default: 50)"
-    echo "  --languages <langs>            Languages to scan (comma-separated)"
     echo "  -v, --verbose                  Verbose output"
     echo ""
     echo "Examples:"
-    echo "  depconfusion scan package.json"
-    echo "  depconfusion scan -l pip requirements.txt -w 20 -v"
-    echo "  depconfusion github repo microsoft/PowerShell -w 15 -v"
-    echo "  depconfusion github org microsoft --max-repos 100 -w 10"
-    echo "  depconfusion web https://example.com --deep -w 20 -v"
-    echo "  depconfusion web https://app.mycompany.com --deep --max-depth 5 -w 15 --verbose"
-    echo "  depconfusion web-file targets.txt --workers 15 -v"
-    echo "  depconfusion web-full example.com --deep -w 20 -v"
+    echo "  depconfusion web https://your-target.com --deep -v -w 50"
+    echo "  depconfusion web-full your-domain.com -v -w 50"
+    echo "  depconfusion github org your-org --deep -v -w 50"
 }
 
 # Check if confused2 tool is available
@@ -240,7 +225,7 @@ scan_web() {
     ensure_dir "$output_dir"
     
     # Build confused command
-    local cmd=("$CONFUSED_BIN" "web")
+    local cmd=("$CONFUSED_BIN" "web" "--deep")
     
     # Add targets
     for target in "${targets[@]}"; do
@@ -457,123 +442,28 @@ main() {
     fi
     
     case "${1:-}" in
-        scan)
-            shift
-            # Handle help for scan command
-            if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-                echo "Scan a local dependency file for dependency confusion vulnerabilities."
-                echo ""
-                echo "Usage: depconfusion scan <file> [options]"
-                echo ""
-                echo "Options:"
-                echo "  -l, --language <lang>     Package manager (npm, pip, composer, mvn, rubygems)"
-                echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
-                echo "  -v, --verbose             Verbose output"
-                echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
-                echo "  -o, --output <file>       Output file"
-                echo "  -f, --format <format>     Output format: text, json, html (default: text)"
-                echo ""
-                echo "Examples:"
-                echo "  depconfusion scan package.json"
-                echo "  depconfusion scan requirements.txt -l pip -w 20 -v"
-                echo "  depconfusion scan composer.json --safe-spaces '@mycompany/*'"
-                exit 0
-            fi
-            scan_local "$@"
-            ;;
-        github)
-            case "${2:-}" in
-                repo)
-                    shift 2
-                    # Handle help for github repo command
-                    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-                        echo "Scan a GitHub repository for dependency confusion vulnerabilities."
-                        echo ""
-                        echo "Usage: depconfusion github repo <owner/repo> [options]"
-                        echo ""
-                        echo "Options:"
-                        echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
-                        echo "  -v, --verbose             Verbose output"
-                        echo "  --deep                    Deep scan including all branches"
-                        echo "  --languages <langs>       Package managers to scan for (comma-separated)"
-                        echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
-                        echo "  --github-token <token>    GitHub API token"
-                        echo ""
-                        echo "Examples:"
-                        echo "  depconfusion github repo microsoft/vscode"
-                        echo "  depconfusion github repo facebook/react --deep -w 15 -v"
-                        exit 0
-                    fi
-                    scan_github_repo "$@"
-                    ;;
-                org)
-                    shift 2
-                    # Handle help for github org command
-                    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-                        echo "Scan a GitHub organization for dependency confusion vulnerabilities."
-                        echo ""
-                        echo "Usage: depconfusion github org <org> [options]"
-                        echo ""
-                        echo "Options:"
-                        echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
-                        echo "  -v, --verbose             Verbose output"
-                        echo "  --max-repos <num>         Maximum number of repositories to scan (default: 50)"
-                        echo "  --deep                    Deep scan including all branches"
-                        echo "  --languages <langs>       Package managers to scan for (comma-separated)"
-                        echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
-                        echo "  --github-token <token>    GitHub API token"
-                        echo ""
-                        echo "Examples:"
-                        echo "  depconfusion github org microsoft"
-                        echo "  depconfusion github org google --max-repos 100 -w 10 -v"
-                        exit 0
-                    fi
-                    scan_github_org "$@"
-                    ;;
-                *)
-                    log_error "Invalid GitHub command. Use 'repo' or 'org'"
-                    usage
-                    exit 1
-                    ;;
-            esac
-            ;;
         web)
             shift
-            # Handle help for web command
-            if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-                echo "Scan web targets for dependency confusion vulnerabilities."
-                echo ""
-                echo "Usage: depconfusion web <url> [url2] [url3]... [options]"
-                echo ""
-                echo "Options:"
-                echo "  -w, --workers <num>       Number of workers/threads (default: 10)"
-                echo "  -v, --verbose             Verbose output"
-                echo "  --deep                    Deep scan with extensive file discovery"
-                echo "  --languages <langs>       Package managers to scan for (comma-separated)"
-                echo "  --safe-spaces <spaces>    Known-safe namespaces (comma-separated)"
-                echo "  --max-depth <num>         Maximum directory depth for discovery (default: 3)"
-                echo "  --wordlist <file>         Custom wordlist for file discovery"
-                echo ""
-                echo "Examples:"
-                echo "  depconfusion web https://example.com"
-                echo "  depconfusion web https://example.com --deep -w 20 -v"
-                echo "  depconfusion web --target-file targets.txt --workers 15"
-                exit 0
-            fi
-            if [[ "${1:-}" == "--target-file" || "${1:-}" == "-f" ]]; then
-                shift
-                scan_web_file "$@"
-            else
-                scan_web "$@"
-            fi
-            ;;
-        web-file)
-            shift
-            scan_web_file "$@"
+            # Single target web scan with --deep
+            scan_web "$@"
             ;;
         web-full)
             shift
+            # Domain scan with subdomain collection
             scan_web_full "$@"
+            ;;
+        github)
+            case "${2:-}" in
+                org)
+                    shift 2
+                    # GitHub organization scan
+                    scan_github_org "$@"
+                    ;;
+                *)
+                    log_error "Invalid GitHub command. Use: depconfusion github org <org>"
+                    exit 1
+                    ;;
+            esac
             ;;
         *)
             usage
