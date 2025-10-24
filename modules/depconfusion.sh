@@ -10,16 +10,16 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-# Find confused tool binary
+# Find confused2 tool binary
 CONFUSED_BIN=""
-if command -v confused >/dev/null 2>&1; then
-    CONFUSED_BIN="confused"
-elif [[ -f "/home/sallam/go/bin/confused" ]]; then
-    CONFUSED_BIN="/home/sallam/go/bin/confused"
-elif [[ -f "/usr/local/bin/confused" ]]; then
-    CONFUSED_BIN="/usr/local/bin/confused"
+if command -v confused2 >/dev/null 2>&1; then
+    CONFUSED_BIN="confused2"
+elif [[ -f "/home/sallam/go/bin/confused2" ]]; then
+    CONFUSED_BIN="/home/sallam/go/bin/confused2"
+elif [[ -f "/usr/local/bin/confused2" ]]; then
+    CONFUSED_BIN="/usr/local/bin/confused2"
 else
-    log_error "Confused tool not found. Please install it with: go install github.com/h0tak88r/confused/cmd/confused@latest"
+    log_error "Confused2 tool not found. Please install it with: go install github.com/h0tak88r/confused2/cmd/confused2@latest"
     exit 1
 fi
 
@@ -52,11 +52,11 @@ usage() {
     echo "  depconfusion web-file targets.txt --workers 15 -v"
 }
 
-# Check if confused tool is available
-check_confused() {
+# Check if confused2 tool is available
+check_confused2() {
     if [[ -z "$CONFUSED_BIN" ]]; then
-        log_error "Confused tool not found. Please install it with: go install github.com/h0tak88r/confused/cmd/confused@latest"
-        discord_send_progress "❌ **Confused tool not found. Please install it first.**"
+        log_error "Confused2 tool not found. Please install it with: go install github.com/h0tak88r/confused2/cmd/confused2@latest"
+        discord_send_progress "❌ **Confused2 tool not found. Please install it first.**"
         exit 1
     fi
 }
@@ -323,7 +323,7 @@ scan_web_file() {
 
 # Main function
 main() {
-    check_confused
+    check_confused2
     
     # Handle help flags
     if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
