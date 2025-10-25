@@ -41,7 +41,28 @@ $result
 }
 
 db_domains_list() {
-  local result=$("$ROOT_DIR/python/db_handler.py" get-domains)
+  # Check if psql is available
+  if ! command -v psql >/dev/null 2>&1; then
+    echo "❌ PostgreSQL client (psql) is not installed."
+    echo "💡 To fix this, run AutoAR in Docker where all dependencies are pre-installed:"
+    echo "   docker-compose up -d"
+    echo ""
+    echo "📋 Or install psql locally:"
+    echo "   sudo apt install postgresql-client"
+    echo ""
+    echo "🔧 Database operations require PostgreSQL client to connect to the database."
+    return 1
+  fi
+  
+  # Use the existing db_list_domains function from lib/db.sh
+  if ! db_ensure_connection; then
+    echo "❌ Cannot connect to database."
+    echo "💡 Make sure your database is running and configured properly."
+    echo "🔧 Check your database configuration in .env file or environment variables."
+    return 1
+  fi
+  
+  local result=$(db_list_domains)
   echo "$result"
   
   # Send domains list to Discord
@@ -64,6 +85,9 @@ db_domains_list() {
     fi
     
     echo "Domains exported to: $domains_file"
+  else
+    echo "No domains found in database"
+    send_db_result_to_discord "db domains list" "No domains found in database"
   fi
 }
 
