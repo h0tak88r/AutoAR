@@ -589,18 +589,17 @@ class AutoARBot(commands.Cog):
         # Run scan in background
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
-    @app_commands.command(name="misconfig_scan", description="🔍 Scan for security misconfigurations in third-party services")
+    @app_commands.command(name="misconfig", description="🔍 Scan for security misconfigurations in third-party services")
     @app_commands.describe(
         target="Company/organization name or domain to scan",
         service="Service ID to scan (default: all services)",
         delay="Delay between requests in milliseconds (default: 1000)",
         skip_checks="Skip misconfiguration checks (enumeration only)",
-        verbose="Verbose output level (0-2, default: 1)",
-        json_output="Output results in JSON format"
+        verbose="Verbose output level (0-2, default: 1)"
     )
-    async def misconfig_scan(self, interaction: discord.Interaction, target: str,
-                            service: str = "*", delay: int = 1000, skip_checks: bool = False,
-                            verbose: int = 1, json_output: bool = False):
+    async def misconfig(self, interaction: discord.Interaction, target: str,
+                       service: str = "*", delay: int = 1000, skip_checks: bool = False,
+                       verbose: int = 1):
         """Scan for security misconfigurations in third-party services."""
         # Validate parameters
         if delay < 100 or delay > 10000:
@@ -613,14 +612,10 @@ class AutoARBot(commands.Cog):
         
         scan_id = f"misconfig_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "misconfig", "scan", target, service, str(delay), str(skip_checks).lower(), str(verbose)]
-        if json_output:
-            command.append("true")
-        else:
-            command.append("false")
+        command = [AUTOAR_SCRIPT_PATH, "misconfig", "scan", target, service, str(delay), str(skip_checks).lower(), str(verbose), "false"]
         
         active_scans[scan_id] = {
-            'type': 'misconfig_scan',
+            'type': 'misconfig',
             'target': target,
             'status': 'running',
             'start_time': datetime.now(),
@@ -630,103 +625,6 @@ class AutoARBot(commands.Cog):
         embed = discord.Embed(
             title="🔍 Misconfiguration Scan",
             description=f"**Target:** {target}\n**Service:** {service}\n**Delay:** {delay}ms\n**Skip Checks:** {skip_checks}",
-            color=0x00ff00
-        )
-        embed.add_field(name="Scan ID", value=scan_id, inline=True)
-        
-        await interaction.response.send_message(embed=embed)
-        
-        # Run scan in background
-        asyncio.create_task(self._run_scan_background(scan_id, command))
-    
-    @app_commands.command(name="misconfig_service", description="🔍 Scan specific service for misconfigurations")
-    @app_commands.describe(
-        target="Company/organization name or domain to scan",
-        service_id="Specific service ID to scan",
-        delay="Delay between requests in milliseconds (default: 1000)",
-        verbose="Verbose output level (0-2, default: 1)"
-    )
-    async def misconfig_service(self, interaction: discord.Interaction, target: str, service_id: str,
-                               delay: int = 1000, verbose: int = 1):
-        """Scan specific service for misconfigurations."""
-        # Validate parameters
-        if delay < 100 or delay > 10000:
-            await interaction.response.send_message("❌ **Delay must be between 100 and 10000 milliseconds**", ephemeral=True)
-            return
-        
-        if verbose < 0 or verbose > 2:
-            await interaction.response.send_message("❌ **Verbose level must be between 0 and 2**", ephemeral=True)
-            return
-        
-        scan_id = f"misconfig_service_{int(time.time())}"
-        
-        command = [AUTOAR_SCRIPT_PATH, "misconfig", "service", target, service_id, str(delay), str(verbose)]
-        
-        active_scans[scan_id] = {
-            'type': 'misconfig_service',
-            'target': target,
-            'status': 'running',
-            'start_time': datetime.now(),
-            'interaction': interaction
-        }
-        
-        embed = discord.Embed(
-            title="🔍 Service Misconfiguration Scan",
-            description=f"**Target:** {target}\n**Service ID:** {service_id}\n**Delay:** {delay}ms",
-            color=0x00ff00
-        )
-        embed.add_field(name="Scan ID", value=scan_id, inline=True)
-        
-        await interaction.response.send_message(embed=embed)
-        
-        # Run scan in background
-        asyncio.create_task(self._run_scan_background(scan_id, command))
-    
-    @app_commands.command(name="misconfig_list", description="📋 List available services for misconfiguration scanning")
-    async def misconfig_list(self, interaction: discord.Interaction):
-        """List available services for misconfiguration scanning."""
-        scan_id = f"misconfig_list_{int(time.time())}"
-        
-        command = [AUTOAR_SCRIPT_PATH, "misconfig", "list"]
-        
-        active_scans[scan_id] = {
-            'type': 'misconfig_list',
-            'target': 'services',
-            'status': 'running',
-            'start_time': datetime.now(),
-            'interaction': interaction
-        }
-        
-        embed = discord.Embed(
-            title="📋 Available Services",
-            description="Fetching list of available services for misconfiguration scanning...",
-            color=0x00ff00
-        )
-        embed.add_field(name="Scan ID", value=scan_id, inline=True)
-        
-        await interaction.response.send_message(embed=embed)
-        
-        # Run scan in background
-        asyncio.create_task(self._run_scan_background(scan_id, command))
-    
-    @app_commands.command(name="misconfig_update", description="🔄 Update misconfig-mapper templates")
-    async def misconfig_update(self, interaction: discord.Interaction):
-        """Update misconfig-mapper templates."""
-        scan_id = f"misconfig_update_{int(time.time())}"
-        
-        command = [AUTOAR_SCRIPT_PATH, "misconfig", "update"]
-        
-        active_scans[scan_id] = {
-            'type': 'misconfig_update',
-            'target': 'templates',
-            'status': 'running',
-            'start_time': datetime.now(),
-            'interaction': interaction
-        }
-        
-        embed = discord.Embed(
-            title="🔄 Updating Templates",
-            description="Updating misconfig-mapper templates to latest version...",
             color=0x00ff00
         )
         embed.add_field(name="Scan ID", value=scan_id, inline=True)
