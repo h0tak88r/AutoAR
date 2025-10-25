@@ -41,7 +41,9 @@ $result
 }
 
 db_domains_list() {
-  local result=$("$ROOT_DIR/python/db_handler.py" get-domains)
+  # Use the existing db_list_domains function from lib/db.sh
+  db_ensure_connection
+  local result=$(db_list_domains)
   echo "$result"
   
   # Send domains list to Discord
@@ -64,6 +66,9 @@ db_domains_list() {
     fi
     
     echo "Domains exported to: $domains_file"
+  else
+    echo "No domains found in database"
+    send_db_result_to_discord "db domains list" "No domains found in database"
   fi
 }
 

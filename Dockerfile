@@ -30,6 +30,7 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/kacakb/jsfinder@latest && \
     go install -v github.com/musana/fuzzuli@latest && \
     go install -v github.com/h0tak88r/confused2/cmd/confused2@latest && \
+    go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest && \
     curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin
 
 # --- Runtime stage: minimal Python image to run the Discord bot ---
@@ -63,6 +64,9 @@ COPY --from=builder /go/bin/ /usr/local/bin/
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
+
+# Update misconfig-mapper templates
+RUN misconfig-mapper -update-templates || true
 
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true

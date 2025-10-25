@@ -589,6 +589,59 @@ class AutoARBot(commands.Cog):
         # Run scan in background
         asyncio.create_task(self._run_scan_background(scan_id, command))
     
+    @app_commands.command(name="misconfig", description="🔍 Scan for security misconfigurations in third-party services")
+    @app_commands.describe(
+        target="Company/organization name or domain to scan",
+        service="Service ID to scan (default: all services)",
+        delay="Delay between requests in milliseconds (default: 1000)",
+        skip_checks="Skip misconfiguration checks (enumeration only)",
+        verbose="Enable verbose output (sets verbose=2)",
+        as_domain="Treat target as domain instead of company name"
+    )
+    async def misconfig(self, interaction: discord.Interaction, target: str,
+                       service: str = "*", delay: int = 1000, skip_checks: bool = False,
+                       verbose: bool = False, as_domain: bool = False):
+        """Scan for security misconfigurations in third-party services."""
+        # Validate parameters
+        if delay < 100 or delay > 10000:
+            await interaction.response.send_message("❌ **Delay must be between 100 and 10000 milliseconds**", ephemeral=True)
+            return
+        
+        scan_id = f"misconfig_{int(time.time())}"
+        
+        # Build command with flags
+        command = [AUTOAR_SCRIPT_PATH, "misconfig", "scan", target, service]
+        
+        # Add flags
+        if verbose:
+            command.append("-v")
+        if delay != 1000:
+            command.extend(["-d", str(delay)])
+        if skip_checks:
+            command.append("--skip-checks")
+        if as_domain:
+            command.append("--as-domain")
+        
+        active_scans[scan_id] = {
+            'type': 'misconfig',
+            'target': target,
+            'status': 'running',
+            'start_time': datetime.now(),
+            'interaction': interaction
+        }
+        
+        embed = discord.Embed(
+            title="🔍 Misconfiguration Scan",
+            description=f"**Target:** {target}\n**Service:** {service}\n**Delay:** {delay}ms\n**Skip Checks:** {skip_checks}\n**Verbose:** {verbose}\n**As Domain:** {as_domain}",
+            color=0x00ff00
+        )
+        embed.add_field(name="Scan ID", value=scan_id, inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+        
+        # Run scan in background
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+    
     @app_commands.command(name="check_tools", description="Check if all required tools are installed")
     async def check_tools(self, interaction: discord.Interaction):
         """Check if all required tools are installed."""
