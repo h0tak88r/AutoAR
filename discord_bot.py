@@ -595,24 +595,32 @@ class AutoARBot(commands.Cog):
         service="Service ID to scan (default: all services)",
         delay="Delay between requests in milliseconds (default: 1000)",
         skip_checks="Skip misconfiguration checks (enumeration only)",
-        verbose="Verbose output level (0-2, default: 1)"
+        verbose="Enable verbose output (sets verbose=2)",
+        as_domain="Treat target as domain instead of company name"
     )
     async def misconfig(self, interaction: discord.Interaction, target: str,
                        service: str = "*", delay: int = 1000, skip_checks: bool = False,
-                       verbose: int = 1):
+                       verbose: bool = False, as_domain: bool = False):
         """Scan for security misconfigurations in third-party services."""
         # Validate parameters
         if delay < 100 or delay > 10000:
             await interaction.response.send_message("❌ **Delay must be between 100 and 10000 milliseconds**", ephemeral=True)
             return
         
-        if verbose < 0 or verbose > 2:
-            await interaction.response.send_message("❌ **Verbose level must be between 0 and 2**", ephemeral=True)
-            return
-        
         scan_id = f"misconfig_{int(time.time())}"
         
-        command = [AUTOAR_SCRIPT_PATH, "misconfig", "scan", target, service, str(delay), str(skip_checks).lower(), str(verbose), "false"]
+        # Build command with flags
+        command = [AUTOAR_SCRIPT_PATH, "misconfig", "scan", target, service]
+        
+        # Add flags
+        if verbose:
+            command.append("-v")
+        if delay != 1000:
+            command.extend(["-d", str(delay)])
+        if skip_checks:
+            command.append("--skip-checks")
+        if as_domain:
+            command.append("--as-domain")
         
         active_scans[scan_id] = {
             'type': 'misconfig',
@@ -624,7 +632,7 @@ class AutoARBot(commands.Cog):
         
         embed = discord.Embed(
             title="🔍 Misconfiguration Scan",
-            description=f"**Target:** {target}\n**Service:** {service}\n**Delay:** {delay}ms\n**Skip Checks:** {skip_checks}",
+            description=f"**Target:** {target}\n**Service:** {service}\n**Delay:** {delay}ms\n**Skip Checks:** {skip_checks}\n**Verbose:** {verbose}\n**As Domain:** {as_domain}",
             color=0x00ff00
         )
         embed.add_field(name="Scan ID", value=scan_id, inline=True)
