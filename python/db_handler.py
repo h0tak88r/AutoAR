@@ -174,6 +174,7 @@ class AutoARDB:
         
         success = self.execute_command(query, (subdomain_id, js_url, content_hash))
         if success:
+            print(f"[INFO] Successfully inserted JS file: {js_url}")
         else:
             print(f"[ERROR] Failed to insert JS file: {js_url}", file=sys.stderr)
         

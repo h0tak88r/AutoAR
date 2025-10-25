@@ -147,7 +147,7 @@ check_and_install() {
     fuzzuli)
       install_go_tool fuzzuli github.com/musana/fuzzuli@latest || return 1;;
     confused)
-      install_go_tool confused github.com/visma-prodsec/confused@latest || return 1;;
+      install_go_tool confused2 github.com/h0tak88r/confused2/cmd/confused2@latest || return 1;;
     *)
       return 1;;
   esac
@@ -162,7 +162,7 @@ check_and_install() {
 run() {
   ensure_directories
   local -a tools=(
-    subfinder httpx naabu nuclei ffuf kxss qsreplace gf dalfox urlfinder interlace jsleak jsfinder dnsx dig jq yq anew curl git aws trufflehog fuzzuli confused
+    subfinder httpx naabu nuclei ffuf kxss qsreplace gf dalfox urlfinder interlace jsleak jsfinder dnsx dig jq yq anew curl git aws trufflehog fuzzuli confused2
   )
   local missing=0 installed=0 total=${#tools[@]}
 
