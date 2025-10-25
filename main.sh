@@ -52,6 +52,10 @@ Commands:
   depconfusion github org <org>               Scan GitHub organization
   depconfusion web <url> [url2] [url3]...     Scan web targets
   depconfusion web-file <file>                Scan targets from file
+  misconfig scan <target> [service] [delay]   Scan for misconfigurations
+  misconfig service <target> <service-id>     Scan specific service
+  misconfig list                              List available services
+  misconfig update                            Update templates
 
 Workflows:
   lite run            -d <domain>
@@ -96,6 +100,7 @@ cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
 cmd_github_wordlist() { python3 "$ROOT_DIR/python/github_wordlist.py" "$1"; }
 cmd_backup()     { "$ROOT_DIR/modules/backup_scan.sh"    "$@"; }
 cmd_depconfusion() { "$ROOT_DIR/modules/depconfusion.sh" "$@"; }
+cmd_misconfig()  { "$ROOT_DIR/modules/misconfig.sh"     "$@"; }
 cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
@@ -130,9 +135,10 @@ main() {
   github-wordlist) cmd_github_wordlist "$@" ;;
   backup)     cmd_backup     "$@" ;;
   depconfusion) cmd_depconfusion "$@" ;;
-  fastlook)   cmd_fastlook   "$@" ;;
-  help)       cmd_help       "$@" ;;
-  wpDepConf)  cmd_wpdepconf  "$@" ;;
+  misconfig)   cmd_misconfig   "$@" ;;
+  fastlook)    cmd_fastlook    "$@" ;;
+  help)        cmd_help        "$@" ;;
+  wpDepConf)   cmd_wpdepconf   "$@" ;;
   --help|-h)  print_usage ;;
   *) log_error "Unknown command: $cmd"; print_usage; exit 1 ;;
   esac
