@@ -65,6 +65,9 @@ COPY --from=builder /go/bin/ /usr/local/bin/
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
 
+# Update misconfig-mapper templates
+RUN misconfig-mapper -update-templates || true
+
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
 
