@@ -34,6 +34,51 @@ list_services() {
     "$MISCONFIG_BIN" -list-services
 }
 
+# Parse command line arguments
+parse_args() {
+    local verbose=1
+    local delay=1000
+    local skip_checks=false
+    local output_json=false
+    local as_domain=false
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -v|--verbose)
+                verbose=2
+                shift
+                ;;
+            -d|--delay)
+                delay="$2"
+                shift 2
+                ;;
+            --skip-checks)
+                skip_checks=true
+                shift
+                ;;
+            --json)
+                output_json=true
+                shift
+                ;;
+            --as-domain)
+                as_domain=true
+                shift
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+    
+    # Return remaining arguments
+    echo "$verbose $delay $skip_checks $output_json $as_domain"
+}
+
 # Scan for misconfigurations
 scan_misconfig() {
     local target="$1"
@@ -42,6 +87,7 @@ scan_misconfig() {
     local skip_checks="${4:-false}"
     local verbose="${5:-1}"
     local output_json="${6:-false}"
+    local as_domain="${7:-false}"
     
     log_info "Scanning for misconfigurations on target: $target"
     discord_send_progress "🔍 **Scanning for misconfigurations: $target**"
@@ -59,6 +105,10 @@ scan_misconfig() {
     
     if [[ "$output_json" == "true" ]]; then
         cmd+=("-output-json")
+    fi
+    
+    if [[ "$as_domain" == "true" ]]; then
+        cmd+=("-as-domain" "true")
     fi
     
     # Run scan
@@ -150,17 +200,17 @@ usage() {
     echo "  update            Update templates"
     echo ""
     echo "Options:"
-    echo "  target            Company/organization name or domain"
-    echo "  service           Service ID or '*' for all (default: '*')"
-    echo "  delay             Delay between requests in ms (default: 1000)"
-    echo "  skip-checks       Skip misconfiguration checks (default: false)"
-    echo "  verbose           Verbosity level 0-2 (default: 1)"
-    echo "  json              Output in JSON format (default: false)"
+    echo "  -v, --verbose     Enable verbose output (sets verbose=2)"
+    echo "  -d, --delay       Delay between requests in ms (default: 1000)"
+    echo "  --skip-checks     Skip misconfiguration checks (default: false)"
+    echo "  --json            Output in JSON format (default: false)"
+    echo "  --as-domain       Treat target as domain (default: false)"
     echo ""
     echo "Examples:"
     echo "  misconfig scan yourcompany"
-    echo "  misconfig scan yourcompany.com -as-domain"
-    echo "  misconfig service yourcompany 1"
+    echo "  misconfig scan yourcompany.com --as-domain"
+    echo "  misconfig scan yourcompany -v --delay 2000"
+    echo "  misconfig service yourcompany 1 -v"
     echo "  misconfig list"
     echo "  misconfig update"
 }
@@ -183,7 +233,19 @@ main() {
                 usage
                 exit 1
             fi
-            scan_misconfig "$@"
+            
+            # Parse arguments and get remaining positional args
+            local parsed_args
+            parsed_args=$(parse_args "$@")
+            local verbose delay skip_checks output_json as_domain
+            read -r verbose delay skip_checks output_json as_domain <<< "$parsed_args"
+            
+            # Get remaining positional arguments (target and service)
+            local target service
+            target="$1"
+            service="${2:-*}"
+            
+            scan_misconfig "$target" "$service" "$delay" "$skip_checks" "$verbose" "$output_json" "$as_domain"
             ;;
         service)
             shift
@@ -192,7 +254,19 @@ main() {
                 usage
                 exit 1
             fi
-            scan_service "$@"
+            
+            # Parse arguments and get remaining positional args
+            local parsed_args
+            parsed_args=$(parse_args "$@")
+            local verbose delay skip_checks output_json as_domain
+            read -r verbose delay skip_checks output_json as_domain <<< "$parsed_args"
+            
+            # Get remaining positional arguments (target and service_id)
+            local target service_id
+            target="$1"
+            service_id="$2"
+            
+            scan_service "$target" "$service_id" "$delay" "$verbose"
             ;;
         list)
             list_services
