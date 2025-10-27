@@ -1003,6 +1003,13 @@ class AutoARBot(commands.Cog):
                 timeout = 600  # 10 minutes for WordPress Plugin Confusion scans
             elif any(cmd in command for cmd in ['github-wordlist']):
                 timeout = 900  # 15 minutes for GitHub wordlist generation
+            elif any(cmd in command for cmd in ['github']):
+                if 'org' in ' '.join(command) or 'organization' in ' '.join(command):
+                    timeout = 5400  # 90 minutes for GitHub organization scans
+                elif 'repo' in ' '.join(command):
+                    timeout = 1800  # 30 minutes for GitHub repository scans
+                else:
+                    timeout = 900  # 15 minutes for other GitHub scans
             elif any(cmd in command for cmd in ['backup']):
                 if '--full' in command:
                     timeout = 1200  # 20 minutes for full backup scans (includes subdomain collection)
@@ -1010,9 +1017,9 @@ class AutoARBot(commands.Cog):
                     timeout = 600  # 10 minutes for regular backup scans
             elif any(cmd in command for cmd in ['depconfusion']):
                 if 'github org' in ' '.join(command):
-                    timeout = 1800  # 30 minutes for GitHub organization scans
+                    timeout = 5400  # 90 minutes for GitHub organization scans
                 elif 'github repo' in ' '.join(command):
-                    timeout = 1200  # 20 minutes for GitHub repository scans
+                    timeout = 1800  # 30 minutes for GitHub repository scans
                 elif 'web-full' in ' '.join(command):
                     timeout = 2400  # 40 minutes for full web scans (includes subdomain enumeration)
                 elif 'web' in ' '.join(command):
