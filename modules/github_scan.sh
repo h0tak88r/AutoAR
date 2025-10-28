@@ -747,7 +747,8 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "$total_secrets"
             
-            # Discord notification will be handled by the bot automatically
+            # Send HTML report to Discord
+            discord_file "$html_report" "GitHub Organization Secrets Report for $org_name"
             
             log_success "Organization scan completed for $org_name - Found $total_secrets secrets"
         else
@@ -757,7 +758,8 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "0"
             
-            # Discord notification will be handled by the bot automatically
+            # Send HTML report to Discord
+            discord_file "$html_report" "GitHub Organization Secrets Report for $org_name (No secrets found)"
             
             log_success "Organization scan completed for $org_name - No secrets found"
         fi
