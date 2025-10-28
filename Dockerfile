@@ -32,11 +32,9 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/h0tak88r/confused2/cmd/confused2@latest && \
     go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
-# Install TruffleHog - use direct binary download to avoid install script issues
-RUN TRUFFLEHOG_VERSION=$(curl -s https://api.github.com/repos/trufflesecurity/trufflehog/releases/latest | grep -Po '"tag_name": "\K[^"]*') && \
-    curl -L "https://github.com/trufflesecurity/trufflehog/releases/download/${TRUFFLEHOG_VERSION}/trufflehog_$(echo $TRUFFLEHOG_VERSION | sed 's/v//')_linux_amd64.tar.gz" -o /tmp/trufflehog.tar.gz && \
-    tar -xz -C /tmp /tmp/trufflehog.tar.gz && \
-    mv /tmp/trufflehog /go/bin/ && \
+# Install TruffleHog - download latest binary directly
+RUN curl -L https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog_3.90.12_linux_amd64.tar.gz -o /tmp/trufflehog.tar.gz && \
+    tar -xz -C /go/bin -f /tmp/trufflehog.tar.gz trufflehog && \
     chmod +x /go/bin/trufflehog || \
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
 
