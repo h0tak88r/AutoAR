@@ -32,8 +32,12 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/h0tak88r/confused2/cmd/confused2@latest && \
     go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
-# Install TruffleHog separately to handle installation failures gracefully
-RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin || \
+# Install TruffleHog - use direct binary download to avoid install script issues
+RUN TRUFFLEHOG_VERSION=$(curl -s https://api.github.com/repos/trufflesecurity/trufflehog/releases/latest | grep -Po '"tag_name": "\K[^"]*') && \
+    curl -L "https://github.com/trufflesecurity/trufflehog/releases/download/${TRUFFLEHOG_VERSION}/trufflehog_$(echo $TRUFFLEHOG_VERSION | sed 's/v//')_linux_amd64.tar.gz" -o /tmp/trufflehog.tar.gz && \
+    tar -xz -C /tmp /tmp/trufflehog.tar.gz && \
+    mv /tmp/trufflehog /go/bin/ && \
+    chmod +x /go/bin/trufflehog || \
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
 
 # --- Runtime stage: minimal Python image to run the Discord bot ---
