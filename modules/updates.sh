@@ -137,6 +137,76 @@ Notes:
 EOF
 }
 
+# --- Database helpers (PostgreSQL) ---
+db_enabled() {
+  if [[ -n "${DB_HOST:-}" ]]; then
+    db_ensure_connection >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
+ensure_updates_schema() {
+  if ! db_enabled; then return 0; fi
+  local sql
+  sql=$(cat <<'EOFSQL'
+CREATE TABLE IF NOT EXISTS updates_targets (
+  id SERIAL PRIMARY KEY,
+  url TEXT UNIQUE NOT NULL,
+  strategy TEXT NOT NULL,
+  pattern TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS updates_events (
+  id SERIAL PRIMARY KEY,
+  target_id INTEGER REFERENCES updates_targets(id) ON DELETE CASCADE,
+  change_type TEXT NOT NULL,
+  value TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_updates_events_target ON updates_events(target_id);
+EOFSQL
+)
+  db_exec "$sql"
+}
+
+db_upsert_target() {
+  local url="$1" strategy="$2" pattern="$3"
+  ensure_updates_schema || true
+  if ! db_enabled; then return 0; fi
+  local esc_url esc_strategy esc_pattern
+  esc_url=${url//\'/''}
+  esc_strategy=${strategy//\'/''}
+  esc_pattern=${pattern//\'/''}
+  local sql="INSERT INTO updates_targets (url, strategy, pattern) VALUES ('${esc_url}', '${esc_strategy}', '${esc_pattern}') ON CONFLICT (url) DO UPDATE SET strategy = EXCLUDED.strategy, pattern = EXCLUDED.pattern, updated_at = NOW();"
+  db_exec "$sql"
+}
+
+db_delete_target() {
+  local url="$1"
+  if ! db_enabled; then return 0; fi
+  local esc_url=${url//\'/''}
+  db_exec "DELETE FROM updates_targets WHERE url='${esc_url}';"
+}
+
+db_get_all_targets() {
+  if ! db_enabled; then return 1; fi
+  db_query "SELECT url, strategy, COALESCE(pattern,'') FROM updates_targets ORDER BY url;"
+}
+
+db_insert_event() {
+  local url="$1" change_type="$2" value="$3"
+  if ! db_enabled; then return 0; fi
+  local esc_url=${url//\'/''}
+  local esc_change=${change_type//\'/''}
+  local esc_value=${value//\'/''}
+  local tid
+  tid=$(db_query "SELECT id FROM updates_targets WHERE url='${esc_url}' LIMIT 1;" | head -1)
+  [[ -z "$tid" ]] && return 0
+  db_exec "INSERT INTO updates_events (target_id, change_type, value) VALUES (${tid}, '${esc_change}', '${esc_value}');"
+}
+
 notify_discord_change() {
   local url="$1" change_type="$2" summary="$3"
   if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
@@ -159,7 +229,7 @@ updates_add() {
   [[ -n "$url" ]] || { log_error "URL is required"; exit 1; }
   save_meta "$url" "$strategy" "$pattern"
   log_success "Added target: $url - strategy=$strategy"
-  
+  db_upsert_target "$url" "$strategy" "$pattern"
 }
 
 updates_list() {
@@ -195,7 +265,7 @@ updates_remove() {
   else
     log_warn "Target not found: $url"
   fi
-  
+  db_delete_target "$url" || true
 }
 
 check_one() {
@@ -218,6 +288,7 @@ check_one() {
         log_success "Change detected - hash at $url"
         echo "$url | change=hash | at=$(date -u +%FT%TZ)"
         
+        db_insert_event "$url" "hash" "$h" || true
         notify_discord_change "$url" "hash" "content hash changed"
       else
         log_info "No change - hash at $url"
@@ -232,6 +303,7 @@ check_one() {
         log_success "Change detected - size=$size at $url"
         echo "$url | change=size | size=$size"
         
+        db_insert_event "$url" "size" "$size" || true
         notify_discord_change "$url" "size" "content size=$size"
       else
         log_info "No change - size at $url"
@@ -249,6 +321,7 @@ check_one() {
         log_success "Change detected - headers at $url"
         echo "$url | change=headers | etag=$etag | lm=$lm"
         
+        db_insert_event "$url" "headers" "$now_val" || true
         notify_discord_change "$url" "headers" "etag=$etag lm=$lm"
       else
         log_info "No change - headers at $url"
@@ -263,6 +336,7 @@ check_one() {
         log_success "Change detected - regex=$match at $url"
         echo "$url | change=regex | match=$match"
         
+        db_insert_event "$url" "regex" "$match" || true
         notify_discord_change "$url" "regex" "match=$match"
       else
         log_info "No change - regex at $url"
@@ -316,17 +390,23 @@ monitor_start() {
     esac
   done
   
-  # If --all, start monitors for all filesystem-defined targets
+  # If --all, start monitors for all targets from DB
   if [[ "$monitor_all" == true ]]; then
     local count=0
-    shopt -s nullglob
-    for dir in "$UPDATES_DIR"/*; do
-      [[ -d "$dir" && -f "$dir/meta.txt" ]] || continue
-      load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
-      [[ -n "${url:-}" ]] || continue
-      monitor_start -u "$url" --interval "$interval" --daemon || true
-      ((count++))
-    done
+    if db_enabled; then
+      local rows
+      rows=$(db_get_all_targets || true)
+      if [[ -z "$rows" ]]; then
+        log_warn "No targets found in database"
+        return 0
+      fi
+      while IFS='|' read -r t_url t_strategy t_pattern; do
+        [[ -z "$t_url" ]] && continue
+        save_meta "$t_url" "$t_strategy" "$t_pattern"
+        monitor_start -u "$t_url" --interval "$interval" --daemon || true
+        ((count++))
+      done <<< "$rows"
+    fi
     log_success "Started monitors for $count targets - interval=${interval}s"
     return 0
   fi
@@ -382,27 +462,28 @@ monitor_stop() {
     esac
   done
   
-  # If --all, stop all monitors
+  # If --all, stop all monitors for DB targets
   if [[ "$stop_all" == true ]]; then
     local count=0 stopped=0
-    shopt -s nullglob
-    for dir in "$UPDATES_DIR"/*; do
-      [[ -d "$dir" && -f "$dir/meta.txt" ]] || continue
-      load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
-      [[ -n "${url:-}" ]] || continue
-      local t_dir t_pid_file t_pid
-      t_dir="$(target_dir "$url")"
-      t_pid_file="$t_dir/monitor.pid"
-      if [[ -f "$t_pid_file" ]]; then
-        t_pid="$(cat "$t_pid_file" 2>/dev/null || true)"
-        rm -f "$t_pid_file"
-        if is_running "$t_pid"; then
-          kill "$t_pid" >/dev/null 2>&1 || true
-          ((stopped++))
+    if db_enabled; then
+      local rows
+      rows=$(db_get_all_targets || true)
+      while IFS='|' read -r t_url t_strategy t_pattern; do
+        [[ -z "$t_url" ]] && continue
+        local t_dir t_pid_file t_pid
+        t_dir="$(target_dir "$t_url")"
+        t_pid_file="$t_dir/monitor.pid"
+        if [[ -f "$t_pid_file" ]]; then
+          t_pid="$(cat "$t_pid_file" 2>/dev/null || true)"
+          rm -f "$t_pid_file"
+          if is_running "$t_pid"; then
+            kill "$t_pid" >/dev/null 2>&1 || true
+            ((stopped++))
+          fi
         fi
-      fi
-      ((count++))
-    done
+        ((count++))
+      done <<< "$rows"
+    fi
     log_success "Stopped $stopped monitors out of $count targets"
     return 0
   fi
