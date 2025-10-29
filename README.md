@@ -169,6 +169,14 @@ Once the bot is running, use these slash commands in Discord:
 - `/fastlook domain:example.com` - Quick scan
 - `/domain domain:example.com` - Full domain analysis
 
+#### Updates Monitoring
+- New simplified commands (database-backed):
+  - `/monitor_updates_add url:<URL> [strategy:hash|size|headers|regex] [pattern:<regex>]`
+  - `/monitor_updates_remove url:<URL>`
+  - `/monitor_updates_start [interval:900]` (starts monitors for all targets from DB)
+  - `/monitor_updates_stop`
+  - `/monitor_updates_list`
+
 ### CLI Usage
 
 Access the container and use the CLI directly:
@@ -204,6 +212,22 @@ docker exec -it autoar-bot bash
 /app/main.sh lite run -d example.com
 /app/main.sh fastlook run -d example.com
 /app/main.sh domain run -d example.com
+
+# Updates Monitoring (CLI)
+## Database-backed workflow
+# Add/remove target
+/app/main.sh monitor updates add -u https://example.com --strategy hash
+/app/main.sh monitor updates add -u https://site/blog --strategy regex --pattern '([A-Z][a-z]{2,8} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})'
+/app/main.sh monitor updates remove -u https://example.com
+
+# Start/stop monitors for all DB targets
+/app/main.sh monitor updates start --all --interval 900 --daemon
+/app/main.sh monitor updates list
+/app/main.sh monitor updates stop --all
+
+Notes:
+- Targets are stored in PostgreSQL (`updates_targets`), and detected changes are recorded in (`updates_events`).
+- The monitor maintains per-target state under `$AUTOAR_RESULTS_DIR/updates/` for PID and last-seen values.
 
 # Database operations
 /app/main.sh db domains list
