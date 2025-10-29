@@ -169,6 +169,14 @@ Once the bot is running, use these slash commands in Discord:
 - `/fastlook domain:example.com` - Quick scan
 - `/domain domain:example.com` - Full domain analysis
 
+#### Updates Monitoring
+- `/updates_add url:<URL> [strategy:hash|size|headers|regex] [pattern:<regex>]`
+- `/updates_list` - List configured targets
+- `/updates_check [url:<URL>]` - One-off check for all or a specific URL
+- `/updates_monitor_start [interval:900]` - Start monitors for all targets
+- `/updates_monitor_stop` - Stop all monitors
+- `/updates_monitor_list` - List running monitors
+
 ### CLI Usage
 
 Access the container and use the CLI directly:
@@ -204,6 +212,16 @@ docker exec -it autoar-bot bash
 /app/main.sh lite run -d example.com
 /app/main.sh fastlook run -d example.com
 /app/main.sh domain run -d example.com
+
+# Updates Monitoring (CLI)
+/app/main.sh updates add -u https://example.com --strategy hash
+/app/main.sh updates add -u https://site/blog --strategy regex --pattern '([A-Z][a-z]{2,8} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})'
+/app/main.sh updates list
+/app/main.sh updates check
+/app/main.sh updates check -u https://site/blog
+/app/main.sh updates monitor start --all --interval 900 --daemon
+/app/main.sh updates monitor list
+/app/main.sh updates monitor stop --all
 
 # Database operations
 /app/main.sh db domains list
