@@ -105,12 +105,39 @@ detect_rss_feed() {
 extract_latest_date_regex() {
   local html="$1"
   local pattern="$2"
+
+  normalize_date() {
+    local s="$1"
+    # Try parse with GNU date; returns YYYY-MM-DD or empty
+    date -d "$s" +%Y-%m-%d 2>/dev/null || true
+  }
+
+  pick_latest() {
+    local latest="" latest_norm=""
+    while IFS= read -r d; do
+      [[ -z "$d" ]] && continue
+      local norm
+      norm=$(normalize_date "$d")
+      [[ -z "$norm" ]] && continue
+      if [[ -z "$latest_norm" || "$norm" > "$latest_norm" ]]; then
+        latest="$d"
+        latest_norm="$norm"
+      fi
+    done
+    [[ -n "$latest" ]] && echo "$latest" || true
+  }
+
+  local matches
   if [[ -n "$pattern" ]]; then
-    echo "$html" | grep -Eo "$pattern" | head -1 || true
-    return
+    matches=$(echo "$html" | grep -Eo "$pattern" | head -n 500 || true)
+  else
+    # Generic: month-name dates and ISO dates
+    matches=$(echo "$html" | grep -Eo '([A-Z][a-z]{3,9} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})' | head -n 1000 || true)
   fi
-  # Generic date patterns (e.g., Oct 2, 2025 or 2025-10-02)
-  echo "$html" | grep -Eo '([A-Z][a-z]{2,8} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})' | head -1 || true
+  if [[ -z "$matches" ]]; then
+    return 0
+  fi
+  echo "$matches" | pick_latest
 }
 
 compute_hash() {
