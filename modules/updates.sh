@@ -1,0 +1,476 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Root dir and libs
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/lib/config.sh" 2>/dev/null || true
+source "$ROOT_DIR/lib/logging.sh" 2>/dev/null || true
+source "$ROOT_DIR/lib/utils.sh" 2>/dev/null || true
+source "$ROOT_DIR/lib/db.sh" 2>/dev/null || true
+
+UPDATES_DIR="${AUTOAR_RESULTS_DIR}/updates"
+mkdir -p "$UPDATES_DIR"
+
+url_slug() {
+  local url="$1"
+  # Use sha1 to create stable slug
+  echo -n "$url" | sha1sum | awk '{print $1}'
+}
+
+target_dir() {
+  local url="$1"
+  local slug
+  slug="$(url_slug "$url")"
+  echo "$UPDATES_DIR/$slug"
+}
+
+save_meta() {
+  local url="$1"; shift
+  local strategy="$1"; shift
+  local pattern="${1:-}"
+  local dir
+  dir="$(target_dir "$url")"
+  mkdir -p "$dir"
+  {
+    echo "url=$url"
+    echo "strategy=$strategy"
+    # Escape special characters in pattern for safe storage
+    echo "pattern=$(printf '%s' "$pattern" | sed 's/|/\\|/g')"
+    echo "created_at=$(date -u +%FT%TZ)"
+  } > "$dir/meta.txt"
+}
+
+load_meta() {
+  local url="$1"
+  local dir
+  dir="$(target_dir "$url")"
+  [[ -f "$dir/meta.txt" ]] || return 1
+  # shellcheck disable=SC1090
+  # Load metadata, handling escaped patterns
+  while IFS='=' read -r key value; do
+    [[ -z "$key" || "$key" =~ ^# ]] && continue
+    # Unescape pattern field
+    if [[ "$key" == "pattern" ]]; then
+      export pattern="${value//\\|/|}"
+    else
+      export "$key"="$value"
+    fi
+  done < "$dir/meta.txt"
+}
+
+save_state() {
+  local url="$1"; shift
+  local key="$1"; shift
+  local value="$1"
+  local dir
+  dir="$(target_dir "$url")"
+  mkdir -p "$dir"
+  {
+    echo "last_${key}=$value"
+    echo "last_checked=$(date -u +%FT%TZ)"
+  } > "$dir/state.txt"
+}
+
+load_state_value() {
+  local url="$1"; shift
+  local key="$1"
+  local dir
+  dir="$(target_dir "$url")"
+  [[ -f "$dir/state.txt" ]] || return 1
+  # shellcheck disable=SC1090
+  source <(sed 's/^/export /' "$dir/state.txt")
+  eval "echo \"\${last_${key}:-}\""
+}
+
+fetch_content() {
+  local url="$1"
+  curl -fsSL --max-time 30 "$url"
+}
+
+fetch_headers() {
+  local url="$1"
+  curl -fsSI --max-time 20 "$url"
+}
+
+detect_rss_feed() {
+  local html="$1"
+  # Grep likely RSS/Atom links (simplified)
+  local link
+  link=$(echo "$html" | grep -oE 'href="[^"]*"' | grep -iE 'rss|atom' | head -1 || true)
+  if [[ -n "$link" ]]; then
+    echo "$link" | sed 's/.*href="//; s/".*//'
+  fi
+}
+
+extract_latest_date_regex() {
+  local html="$1"
+  local pattern="$2"
+  if [[ -n "$pattern" ]]; then
+    echo "$html" | grep -Eo "$pattern" | head -1 || true
+    return
+  fi
+  # Generic date patterns (e.g., Oct 2, 2025 or 2025-10-02)
+  echo "$html" | grep -Eo '([A-Z][a-z]{2,8} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})' | head -1 || true
+}
+
+compute_hash() {
+  sha256sum | awk '{print $1}'
+}
+
+print_updates_usage() {
+  cat <<EOF
+Usage: updates <action> [options]
+
+Actions:
+  add     -u <url> [--strategy hash|size|headers|regex] [--pattern <regex>]
+  check   [-u <url>]
+  list
+  remove  -u <url>
+  monitor start  [-u <url>] [--interval <seconds>] [--daemon] [--all]
+  monitor stop   [-u <url>] [--all]
+  monitor list
+
+Notes:
+  - Default strategy is 'hash' (SHA-256 of page content)
+  - 'headers' uses ETag/Last-Modified from HEAD response
+  - 'regex' extracts first match and tracks it (e.g., date or post id)
+EOF
+}
+
+notify_discord_change() {
+  local url="$1" change_type="$2" summary="$3"
+  if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+    local msg
+    printf -v msg '[Updates] Change detected (%s) for: %s | %s' "$change_type" "$url" "$summary"
+    discord_send_progress "$msg"
+  fi
+}
+
+updates_add() {
+  local url="" strategy="hash" pattern=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -u|--url) url="$2"; shift 2 ;;
+      --strategy) strategy="$2"; shift 2 ;;
+      --pattern) pattern="$2"; shift 2 ;;
+      *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
+    esac
+  done
+  [[ -n "$url" ]] || { log_error "URL is required"; exit 1; }
+  save_meta "$url" "$strategy" "$pattern"
+  log_success "Added target: $url - strategy=$strategy"
+  
+}
+
+updates_list() {
+  shopt -s nullglob
+  local count=0
+  for dir in "$UPDATES_DIR"/*; do
+    [[ -d "$dir" ]] || continue
+    if [[ -f "$dir/meta.txt" ]]; then
+      load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
+      echo "$url | strategy=${strategy:-hash} | pattern=${pattern:-}"
+      ((count++))
+    fi
+  done
+  if [[ $count -eq 0 ]]; then
+    echo "No targets configured"
+  fi
+}
+
+updates_remove() {
+  local url=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -u|--url) url="$2"; shift 2 ;;
+      *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
+    esac
+  done
+  [[ -n "$url" ]] || { log_error "URL is required"; exit 1; }
+  local dir
+  dir="$(target_dir "$url")"
+  if [[ -d "$dir" ]]; then
+    rm -rf "$dir"
+    log_success "Removed target: $url"
+  else
+    log_warn "Target not found: $url"
+  fi
+  
+}
+
+check_one() {
+  local url="$1"
+  load_meta "$url" || { log_warn "No metadata for $url"; return 0; }
+  local html
+  html="$(fetch_content "$url" || true)"
+  if [[ -z "$html" ]]; then
+    log_error "Failed to fetch $url"; return 1
+  fi
+
+  case "${strategy:-hash}" in
+    hash)
+      local h
+      h="$(echo -n "$html" | compute_hash)"
+      local prev
+      prev="$(load_state_value "$url" hash || true)"
+      if [[ "$h" != "$prev" ]]; then
+        save_state "$url" hash "$h"
+        log_success "Change detected - hash at $url"
+        echo "$url | change=hash | at=$(date -u +%FT%TZ)"
+        
+        notify_discord_change "$url" "hash" "content hash changed"
+      else
+        log_info "No change - hash at $url"
+      fi
+      ;;
+    size)
+      local size prev
+      size="$(echo -n "$html" | wc -c | awk '{print $1}')"
+      prev="$(load_state_value "$url" size || true)"
+      if [[ "$size" != "$prev" ]]; then
+        save_state "$url" size "$size"
+        log_success "Change detected - size=$size at $url"
+        echo "$url | change=size | size=$size"
+        
+        notify_discord_change "$url" "size" "content size=$size"
+      else
+        log_info "No change - size at $url"
+      fi
+      ;;
+    headers)
+      local headers etag lm prev
+      headers="$(fetch_headers "$url" || true)"
+      etag="$(echo "$headers" | grep -i '^ETag:' | sed -E 's/ETag:\s*"?([^\r"]+)"?.*/\1/i' | tr -d '\r' | head -1)"
+      lm="$(echo "$headers" | grep -i '^Last-Modified:' | sed -E 's/Last-Modified:\s*(.*)/\1/i' | tr -d '\r' | head -1)"
+      prev="$(load_state_value "$url" header || true)"
+      local now_val="$etag|$lm"
+      if [[ "$now_val" != "$prev" ]]; then
+        save_state "$url" header "$now_val"
+        log_success "Change detected - headers at $url"
+        echo "$url | change=headers | etag=$etag | lm=$lm"
+        
+        notify_discord_change "$url" "headers" "etag=$etag lm=$lm"
+      else
+        log_info "No change - headers at $url"
+      fi
+      ;;
+    regex)
+      local match prev
+      match="$(extract_latest_date_regex "$html" "${pattern:-}")"
+      prev="$(load_state_value "$url" match || true)"
+      if [[ -n "$match" && "$match" != "$prev" ]]; then
+        save_state "$url" match "$match"
+        log_success "Change detected - regex=$match at $url"
+        echo "$url | change=regex | match=$match"
+        
+        notify_discord_change "$url" "regex" "match=$match"
+      else
+        log_info "No change - regex at $url"
+      fi
+      ;;
+    *)
+      log_error "Unknown strategy: ${strategy}"
+      return 1
+      ;;
+  esac
+}
+
+updates_check() {
+  local url=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -u|--url) url="$2"; shift 2 ;;
+      *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
+    esac
+  done
+
+  if [[ -n "$url" ]]; then
+    check_one "$url"
+    return $?
+  fi
+
+  shopt -s nullglob
+  for dir in "$UPDATES_DIR"/*; do
+    [[ -d "$dir" && -f "$dir/meta.txt" ]] || continue
+    load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
+    [[ -n "${url:-}" ]] || continue
+    check_one "$url" || true
+  done
+}
+
+is_running() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
+monitor_start() {
+  local url="" interval=900 daemon=false monitor_all=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -u|--url) url="$2"; shift 2 ;;
+      --interval) interval="$2"; shift 2 ;;
+      --daemon) daemon=true; shift ;;
+      --all) monitor_all=true; shift ;;
+      *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
+    esac
+  done
+  
+  # If --all, start monitors for all filesystem-defined targets
+  if [[ "$monitor_all" == true ]]; then
+    local count=0
+    shopt -s nullglob
+    for dir in "$UPDATES_DIR"/*; do
+      [[ -d "$dir" && -f "$dir/meta.txt" ]] || continue
+      load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
+      [[ -n "${url:-}" ]] || continue
+      monitor_start -u "$url" --interval "$interval" --daemon || true
+      ((count++))
+    done
+    log_success "Started monitors for $count targets - interval=${interval}s"
+    return 0
+  fi
+  
+  # Single target mode
+  [[ -n "$url" ]] || { log_error "URL is required - or use --all"; exit 1; }
+  local dir pid_file log_file
+  dir="$(target_dir "$url")"
+  mkdir -p "$dir"
+  pid_file="$dir/monitor.pid"
+  log_file="$dir/monitor.log"
+
+  if [[ -f "$pid_file" ]]; then
+    local oldpid
+    oldpid="$(cat "$pid_file" 2>/dev/null || true)"
+    if is_running "$oldpid"; then
+      log_warn "Monitor already running for $url with PID $oldpid"
+      echo "$oldpid"
+      return 0
+    fi
+  fi
+
+  monitor_loop() {
+    local m_url="$1" m_interval="$2"
+    while true; do
+      "$ROOT_DIR/modules/updates.sh" check -u "$m_url" || true
+      sleep "$m_interval"
+      # If pid file removed, stop
+      local dir
+      dir="$(target_dir "$m_url")"
+      [[ -f "$dir/monitor.pid" ]] || break
+    done
+  }
+
+  if [[ "$daemon" == true ]]; then
+    nohup bash -c "echo \$BASHPID > '$pid_file'; monitor_loop '$url' '$interval'" \
+      >> "$log_file" 2>&1 & disown
+    log_success "Started monitor - daemon for $url - interval=${interval}s"
+  else
+    echo $$ > "$pid_file"
+    log_success "Started monitor for $url - interval=${interval}s"
+    monitor_loop "$url" "$interval"
+  fi
+}
+
+monitor_stop() {
+  local url="" stop_all=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -u|--url) url="$2"; shift 2 ;;
+      --all) stop_all=true; shift ;;
+      *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
+    esac
+  done
+  
+  # If --all, stop all monitors
+  if [[ "$stop_all" == true ]]; then
+    local count=0 stopped=0
+    shopt -s nullglob
+    for dir in "$UPDATES_DIR"/*; do
+      [[ -d "$dir" && -f "$dir/meta.txt" ]] || continue
+      load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
+      [[ -n "${url:-}" ]] || continue
+      local t_dir t_pid_file t_pid
+      t_dir="$(target_dir "$url")"
+      t_pid_file="$t_dir/monitor.pid"
+      if [[ -f "$t_pid_file" ]]; then
+        t_pid="$(cat "$t_pid_file" 2>/dev/null || true)"
+        rm -f "$t_pid_file"
+        if is_running "$t_pid"; then
+          kill "$t_pid" >/dev/null 2>&1 || true
+          ((stopped++))
+        fi
+      fi
+      ((count++))
+    done
+    log_success "Stopped $stopped monitors out of $count targets"
+    return 0
+  fi
+  
+  # Single target mode
+  [[ -n "$url" ]] || { log_error "URL is required - or use --all"; exit 1; }
+  local dir pid_file
+  dir="$(target_dir "$url")"
+  pid_file="$dir/monitor.pid"
+  if [[ -f "$pid_file" ]]; then
+    local pid
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    rm -f "$pid_file"
+    if is_running "$pid"; then
+      kill "$pid" >/dev/null 2>&1 || true
+      log_success "Stopped monitor for $url - PID $pid"
+      return 0
+    else
+      log_warn "No running process for $url - stale PID file removed"
+      return 1
+    fi
+  else
+    log_warn "Monitor not running for $url"
+    return 1
+  fi
+}
+
+monitor_list() {
+  shopt -s nullglob
+  local count=0
+  for dir in "$UPDATES_DIR"/*; do
+    [[ -d "$dir" ]] || continue
+    if [[ -f "$dir/meta.txt" ]]; then
+      load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
+      local pid_file="$dir/monitor.pid" pid status="stopped"
+      if [[ -f "$pid_file" ]]; then
+        pid="$(cat "$pid_file" 2>/dev/null || true)"
+        if is_running "$pid"; then status="running PID=$pid"; else status="stale"; fi
+      fi
+      echo "$url | strategy=${strategy:-hash} | monitor=$status"
+      ((count++))
+    fi
+  done
+  if [[ $count -eq 0 ]]; then
+    echo "No monitors configured"
+  fi
+}
+
+updates_monitor() {
+  local sub="${1:-}"; shift || true
+  case "$sub" in
+    start) monitor_start "$@" ;;
+    stop)  monitor_stop  "$@" ;;
+    list)  monitor_list       ;;
+    *)     print_updates_usage; exit 1 ;;
+  esac
+}
+
+updates_main() {
+  local action="${1:-}"; shift || true
+  case "$action" in
+    add)    updates_add "$@" ;;
+    list)   updates_list ;;
+    remove) updates_remove "$@" ;;
+    check)  updates_check "$@" ;;
+    monitor) updates_monitor "$@" ;;
+    *)      print_updates_usage; exit 1 ;;
+  esac
+}
+
+updates_main "$@"
