@@ -1329,6 +1329,84 @@ class AutoARBot(commands.Cog):
         except Exception as e:
             print(f"Error sending scan files: {e}")
 
+    # --- Simplified Monitor Updates workflow ---
+    @app_commands.command(name="monitor_updates_add", description="Monitor Updates: add a URL target")
+    @app_commands.describe(
+        url="URL to monitor",
+        strategy="hash|size|headers|regex (default: hash)",
+        pattern="Regex pattern if strategy=regex"
+    )
+    async def monitor_updates_add(self, interaction: discord.Interaction, url: str, strategy: str = "hash", pattern: str = ""):
+        scan_id = f"mon_updates_add_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "add", "-u", url, "--strategy", strategy]
+        if pattern:
+            cmd.extend(["--pattern", pattern])
+        await interaction.response.send_message(embed=self.create_scan_embed("Monitor Updates: Add", url, "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        pattern_section = f"\n**Pattern:** {pattern}" if pattern else ""
+        embed = discord.Embed(title="✅ Target Added", description=f"**URL:** `{url}`\n**Strategy:** {strategy}{pattern_section}", color=color)
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:500]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:500]}```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="monitor_updates_remove", description="Monitor Updates: remove a URL target")
+    @app_commands.describe(url="URL to remove")
+    async def monitor_updates_remove(self, interaction: discord.Interaction, url: str):
+        scan_id = f"mon_updates_remove_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "remove", "-u", url]
+        await interaction.response.send_message(embed=self.create_scan_embed("Monitor Updates: Remove", url, "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(title="🗑️ Target Removed", description=f"`{url}`", color=color)
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:500]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:500]}```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="monitor_updates_start", description="Monitor Updates: start monitoring all targets")
+    @app_commands.describe(interval="Interval in seconds between checks (default: 900)")
+    async def monitor_updates_start(self, interaction: discord.Interaction, interval: int = 900):
+        scan_id = f"mon_updates_start_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "start", "--all", "--interval", str(interval), "--daemon"]
+        await interaction.response.send_message(embed=self.create_scan_embed("Monitor Updates: Start", "all targets", "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(title="📡 Updates Monitor Started", description=f"**Mode:** All targets\n**Interval:** {interval}s", color=color)
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:1000]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:1000]}```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="monitor_updates_stop", description="Monitor Updates: stop monitoring all targets")
+    async def monitor_updates_stop(self, interaction: discord.Interaction):
+        scan_id = f"mon_updates_stop_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "stop", "--all"]
+        await interaction.response.send_message(embed=self.create_scan_embed("Monitor Updates: Stop", "all targets", "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(title="🛑 Updates Monitor Stopped", description="**Mode:** All targets", color=color)
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:1000]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:1000]}```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="monitor_updates_list", description="Monitor Updates: list running monitors")
+    async def monitor_updates_list(self, interaction: discord.Interaction):
+        scan_id = f"mon_updates_list_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "list"]
+        await interaction.response.send_message(embed=self.create_scan_embed("Monitor Updates: List", "monitors", "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        desc = res.get('stdout', '').strip() or 'No monitors configured'
+        await interaction.followup.send(embed=discord.Embed(title="📡 Updates Monitors", description=f"```\n{desc[:1900]}\n```", color=color))
+    # --- End simplified Monitor Updates workflow ---
+
 @bot.event
 async def on_ready():
     """Bot ready event."""

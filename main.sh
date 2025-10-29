@@ -34,6 +34,11 @@ Commands:
   dalfox run          -d <domain>
   updates add|check|list|remove   see updates help
   updates monitor start|stop|list see updates help
+  monitor updates add    -u <url> [--strategy ...] [--pattern <regex>]
+  monitor updates remove -u <url>
+  monitor updates start  [--interval <sec>] [--daemon] [--all]
+  monitor updates stop   [--all]
+  monitor updates list
   wpDepConf scan      -d <domain> | -l <live_hosts_file>
   dns takeover        -d <domain>     (comprehensive scan)
   dns cname           -d <domain>     (CNAME takeover only)
@@ -134,6 +139,23 @@ main() {
     sqlmap)     cmd_sqlmap     "$@" ;;
     dalfox)     cmd_dalfox     "$@" ;;
     updates)    cmd_updates    "$@" ;;
+    monitor)
+      local sub="$1"; shift || true
+      case "$sub" in
+        updates)
+          local action="$1"; shift || true
+          case "$action" in
+            add)    cmd_updates add "$@" ;;
+            remove) cmd_updates remove "$@" ;;
+            start)  cmd_updates monitor start "$@" ;;
+            stop)   cmd_updates monitor stop  "$@" ;;
+            list)   cmd_updates monitor list  "$@" ;;
+            *) print_usage; exit 1;;
+          esac
+        ;;
+        *) print_usage; exit 1;;
+      esac
+    ;;
   dns)        cmd_dns        "$@" ;;
   github)     cmd_github     "$@" ;;
   github-wordlist) cmd_github_wordlist "$@" ;;
