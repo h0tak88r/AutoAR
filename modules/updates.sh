@@ -216,6 +216,53 @@ notify_discord_change() {
   fi
 }
 
+# Take initial snapshot and notify (used on first add/start)
+initial_snapshot() {
+  local url="$1"
+  load_meta "$url" || return 1
+  local result summary value
+  case "${strategy:-hash}" in
+    hash)
+      result="$(fetch_content "$url" || true)"
+      if [[ -z "$result" ]]; then summary="fetch failed"; else value="$(echo -n "$result" | compute_hash)"; fi
+      ;;
+    size)
+      result="$(fetch_content "$url" || true)"
+      if [[ -z "$result" ]]; then summary="fetch failed"; else value="$(echo -n "$result" | wc -c | awk '{print $1}')"; fi
+      ;;
+    headers)
+      result="$(fetch_headers "$url" || true)"
+      local etag lm
+      etag="$(echo "$result" | grep -i '^ETag:' | sed -E 's/ETag:\s*"?([^\r"]+)"?.*/\1/i' | tr -d '\r' | head -1)"
+      lm="$(echo "$result" | grep -i '^Last-Modified:' | sed -E 's/Last-Modified:\s*(.*)/\1/i' | tr -d '\r' | head -1)"
+      value="$etag|$lm"
+      ;;
+    regex)
+      result="$(fetch_content "$url" || true)"
+      if [[ -n "$result" ]]; then
+        value="$(extract_latest_date_regex "$result" "${pattern:-}")"
+      fi
+      ;;
+    *) ;;
+  esac
+  # Persist state if we have a value
+  if [[ -n "${value:-}" ]]; then
+    case "${strategy:-hash}" in
+      hash) save_state "$url" hash "$value" ;;
+      size) save_state "$url" size "$value" ;;
+      headers) save_state "$url" header "$value" ;;
+      regex) save_state "$url" match "$value" ;;
+    esac
+    db_insert_event "$url" "init:${strategy:-}" "$value" || true
+    notify_discord_change "$url" "init:${strategy:-}" "initial=$value"
+    echo "[OK] Initial snapshot (${strategy}) = $value"
+  else
+    db_insert_event "$url" "init:${strategy:-}" "" || true
+    notify_discord_change "$url" "init:${strategy:-}" "no-initial-value (check pattern/URL)"
+    echo "[WARN] No initial value captured (${strategy})"
+  fi
+}
+
 updates_add() {
   local url="" strategy="hash" pattern=""
   while [[ $# -gt 0 ]]; do
@@ -230,6 +277,8 @@ updates_add() {
   save_meta "$url" "$strategy" "$pattern"
   log_success "Added target: $url - strategy=$strategy"
   db_upsert_target "$url" "$strategy" "$pattern"
+  # Capture and send initial snapshot right away
+  initial_snapshot "$url" || true
 }
 
 updates_list() {
@@ -403,6 +452,8 @@ monitor_start() {
       while IFS='|' read -r t_url t_strategy t_pattern; do
         [[ -z "$t_url" ]] && continue
         save_meta "$t_url" "$t_strategy" "$t_pattern"
+        # If no state file yet, take initial snapshot to verify pattern
+        if [[ ! -f "$(target_dir "$t_url")/state.txt" ]]; then initial_snapshot "$t_url" || true; fi
         monitor_start -u "$t_url" --interval "$interval" --daemon || true
         ((count++))
       done <<< "$rows"
