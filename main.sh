@@ -32,6 +32,8 @@ Commands:
   gf scan             -d <domain>
   sqlmap run          -d <domain>
   dalfox run          -d <domain>
+  updates add|check|list|remove   see updates help
+      updates monitor start|stop|list see updates help
   wpDepConf scan      -d <domain> | -l <live_hosts_file>
   dns takeover        -d <domain>     (comprehensive scan)
   dns cname           -d <domain>     (CNAME takeover only)
@@ -95,6 +97,7 @@ cmd_ports()      { "$ROOT_DIR/modules/ports.sh"       "$@"; }
 cmd_gf()         { "$ROOT_DIR/modules/gf_scan.sh"     "$@"; }
 cmd_sqlmap()     { "$ROOT_DIR/modules/sqlmap.sh"      "$@"; }
 cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
+cmd_updates()    { "$ROOT_DIR/modules/updates.sh"     "$@"; }
 cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
 cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
 cmd_github_wordlist() { python3 "$ROOT_DIR/python/github_wordlist.py" "$1"; }
@@ -130,6 +133,7 @@ main() {
     gf)         cmd_gf         "$@" ;;
     sqlmap)     cmd_sqlmap     "$@" ;;
     dalfox)     cmd_dalfox     "$@" ;;
+    updates)    cmd_updates    "$@" ;;
   dns)        cmd_dns        "$@" ;;
   github)     cmd_github     "$@" ;;
   github-wordlist) cmd_github_wordlist "$@" ;;
