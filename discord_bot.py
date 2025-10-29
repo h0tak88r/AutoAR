@@ -993,6 +993,129 @@ class AutoARBot(commands.Cog):
             embed.add_field(name="Other Commands", value="• `/nuclei` - Nuclei scan\n• `/ports` - Port scan\n• `/tech` - Tech detection\n• `/s3_scan` - S3 bucket scan\n• `/github_scan` - GitHub secrets scan", inline=False)
         
         await interaction.edit_original_response(embed=embed)
+
+    @app_commands.command(name="updates_add", description="Add a URL target to monitor for updates")
+    @app_commands.describe(
+        url="URL to monitor",
+        strategy="hash|size|headers|regex (default: hash)",
+        pattern="Regex pattern if strategy=regex"
+    )
+    async def updates_add(self, interaction: discord.Interaction, url: str, strategy: str = "hash", pattern: str = ""):
+        """Add a URL target to the database for monitoring."""
+        scan_id = f"updates_add_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "updates", "add", "-u", url, "--strategy", strategy]
+        if pattern:
+            cmd.extend(["--pattern", pattern])
+        
+        await interaction.response.send_message(embed=self.create_scan_embed("Updates Add", url, "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(
+            title="✅ Target Added",
+            description=f"**URL:** `{url}`\n**Strategy:** {strategy}{'\n**Pattern:** ' + pattern if pattern else ''}",
+            color=color
+        )
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:500]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:500]}```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    # --- New Updates commands ---
+    @app_commands.command(name="updates_list", description="List all updates monitoring targets")
+    async def updates_list(self, interaction: discord.Interaction):
+        scan_id = f"updates_list_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "updates", "list"]
+        await interaction.response.send_message(embed=self.create_scan_embed("Updates List", "all targets", "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        desc = res.get('stdout', '').strip() or 'No targets configured'
+        await interaction.followup.send(embed=discord.Embed(title="📄 Updates Targets", description=f"```\n{desc[:1900]}\n```", color=color))
+
+    @app_commands.command(name="updates_check", description="Run a one-off check for updates (optionally a specific URL)")
+    @app_commands.describe(url="Specific URL to check (optional)")
+    async def updates_check(self, interaction: discord.Interaction, url: Optional[str] = None):
+        scan_id = f"updates_check_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "updates", "check"]
+        if url:
+            cmd.extend(["-u", url])
+        target_label = url or "all targets"
+        await interaction.response.send_message(embed=self.create_scan_embed("Updates Check", target_label, "running"))
+        # Increase timeout because it fetches URLs
+        res = await self.run_autoar_command(cmd, scan_id, timeout=120)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(title="🔎 Updates Check Result", description=f"**Target:** {target_label}", color=color)
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```\n{res['stdout'][:1500]}\n```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```\n{res['stderr'][:800]}\n```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="updates_remove", description="Remove a monitored URL target")
+    @app_commands.describe(url="URL to remove")
+    async def updates_remove(self, interaction: discord.Interaction, url: str):
+        scan_id = f"updates_remove_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "updates", "remove", "-u", url]
+        await interaction.response.send_message(embed=self.create_scan_embed("Updates Remove", url, "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(title="🗑️ Target Removed", description=f"`{url}`", color=color)
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:500]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:500]}```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="updates_monitor_list", description="List running updates monitors")
+    async def updates_monitor_list(self, interaction: discord.Interaction):
+        scan_id = f"updates_mon_list_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "updates", "monitor", "list"]
+        await interaction.response.send_message(embed=self.create_scan_embed("Updates Monitor", "list", "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        desc = res.get('stdout', '').strip() or 'No monitors configured'
+        await interaction.followup.send(embed=discord.Embed(title="📡 Updates Monitors", description=f"```\n{desc[:1900]}\n```", color=color))
+    # --- End new Updates commands ---
+
+    @app_commands.command(name="updates_monitor_start", description="Start live monitoring of all targets in database")
+    @app_commands.describe(interval="Interval in seconds between checks (default: 900)")
+    async def updates_monitor_start(self, interaction: discord.Interaction, interval: int = 900):
+        """Start monitoring all targets from database."""
+        scan_id = f"updates_mon_start_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "updates", "monitor", "start", "--all", "--interval", str(interval), "--daemon"]
+        
+        await interaction.response.send_message(embed=self.create_scan_embed("Updates Monitor", "all targets", "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(
+            title="📡 Updates Monitor Started",
+            description=f"**Mode:** All targets from database\n**Interval:** {interval}s",
+            color=color
+        )
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:1000]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:1000]}```", inline=False)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="updates_monitor_stop", description="Stop live monitoring of all targets")
+    async def updates_monitor_stop(self, interaction: discord.Interaction):
+        """Stop monitoring all targets."""
+        scan_id = f"updates_mon_stop_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "updates", "monitor", "stop", "--all"]
+        await interaction.response.send_message(embed=self.create_scan_embed("Updates Monitor", "all targets", "running"))
+        res = await self.run_autoar_command(cmd, scan_id, timeout=30)
+        color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        embed = discord.Embed(
+            title="🛑 Updates Monitor Stopped",
+            description="**Mode:** All targets",
+            color=color
+        )
+        if res.get('stdout'):
+            embed.add_field(name="Output", value=f"```{res['stdout'][:1000]}```", inline=False)
+        if res.get('stderr') and res.get('returncode', 0) != 0:
+            embed.add_field(name="Error", value=f"```{res['stderr'][:1000]}```", inline=False)
+        await interaction.followup.send(embed=embed)
     
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
