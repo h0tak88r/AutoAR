@@ -33,7 +33,7 @@ Commands:
   sqlmap run          -d <domain>
   dalfox run          -d <domain>
   updates add|check|list|remove   see updates help
-      updates monitor start|stop|list see updates help
+  updates monitor start|stop|list see updates help
   wpDepConf scan      -d <domain> | -l <live_hosts_file>
   dns takeover        -d <domain>     (comprehensive scan)
   dns cname           -d <domain>     (CNAME takeover only)
