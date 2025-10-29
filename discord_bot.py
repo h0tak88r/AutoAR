@@ -1010,9 +1010,10 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=self.create_scan_embed("Updates Add", url, "running"))
         res = await self.run_autoar_command(cmd, scan_id, timeout=30)
         color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
+        pattern_section = f"\n**Pattern:** {pattern}" if pattern else ""
         embed = discord.Embed(
             title="✅ Target Added",
-            description=f"**URL:** `{url}`\n**Strategy:** {strategy}{'\n**Pattern:** ' + pattern if pattern else ''}",
+            description=f"**URL:** `{url}`\n**Strategy:** {strategy}{pattern_section}",
             color=color
         )
         if res.get('stdout'):
@@ -1077,7 +1078,7 @@ class AutoARBot(commands.Cog):
         await interaction.followup.send(embed=discord.Embed(title="📡 Updates Monitors", description=f"```\n{desc[:1900]}\n```", color=color))
     # --- End new Updates commands ---
 
-    @app_commands.command(name="updates_monitor_start", description="Start live monitoring of all targets in database")
+    @app_commands.command(name="updates_monitor_start", description="Start live monitoring of all targets")
     @app_commands.describe(interval="Interval in seconds between checks (default: 900)")
     async def updates_monitor_start(self, interaction: discord.Interaction, interval: int = 900):
         """Start monitoring all targets from database."""
@@ -1089,7 +1090,7 @@ class AutoARBot(commands.Cog):
         color = discord.Color.green() if res.get('returncode', 1) == 0 else discord.Color.red()
         embed = discord.Embed(
             title="📡 Updates Monitor Started",
-            description=f"**Mode:** All targets from database\n**Interval:** {interval}s",
+            description=f"**Mode:** All targets\n**Interval:** {interval}s",
             color=color
         )
         if res.get('stdout'):
