@@ -512,24 +512,43 @@ monitor_stop() {
 }
 
 monitor_list() {
-  shopt -s nullglob
-  local count=0
-  for dir in "$UPDATES_DIR"/*; do
-    [[ -d "$dir" ]] || continue
-    if [[ -f "$dir/meta.txt" ]]; then
-      load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
-      local pid_file="$dir/monitor.pid" pid status="stopped"
-      if [[ -f "$pid_file" ]]; then
-        pid="$(cat "$pid_file" 2>/dev/null || true)"
-        if is_running "$pid"; then status="running PID=$pid"; else status="stale"; fi
-      fi
-      echo "$url | strategy=${strategy:-hash} | monitor=$status"
-      ((count++))
+  local printed=0
+  # Prefer DB-backed list including status
+  if db_enabled; then
+    local rows
+    rows=$(db_get_all_targets || true)
+    if [[ -n "$rows" ]]; then
+      while IFS='|' read -r t_url t_strategy t_pattern; do
+        [[ -z "$t_url" ]] && continue
+        local t_dir t_pid_file t_pid status="stopped"
+        t_dir="$(target_dir "$t_url")"
+        t_pid_file="$t_dir/monitor.pid"
+        if [[ -f "$t_pid_file" ]]; then
+          t_pid="$(cat "$t_pid_file" 2>/dev/null || true)"
+          if is_running "$t_pid"; then status="running PID=$t_pid"; else status="stale"; fi
+        fi
+        echo "$t_url | strategy=${t_strategy:-hash} | monitor=$status"
+        printed=1
+      done <<< "$rows"
     fi
-  done
-  if [[ $count -eq 0 ]]; then
-    echo "No monitors configured"
   fi
+
+  # Also show any running monitors not in DB (filesystem only)
+  shopt -s nullglob
+  for dir in "$UPDATES_DIR"/*; do
+    [[ -d "$dir" && -f "$dir/meta.txt" ]] || continue
+    load_meta "$(grep '^url=' "$dir/meta.txt" | cut -d'=' -f2-)" || continue
+    local pid_file="$dir/monitor.pid" pid status="stopped"
+    if [[ -f "$pid_file" ]]; then
+      pid="$(cat "$pid_file" 2>/dev/null || true)"
+      if is_running "$pid"; then status="running PID=$pid"; else status="stale"; fi
+    fi
+    # Skip if already printed in DB pass
+    [[ "$printed" -eq 1 ]] && continue
+    echo "$url | strategy=${strategy:-hash} | monitor=$status"
+    printed=1
+  done
+  [[ "$printed" -eq 0 ]] && echo "No monitors configured"
 }
 
 updates_monitor() {
