@@ -32,8 +32,7 @@ Commands:
   gf scan             -d <domain>
   sqlmap run          -d <domain>
   dalfox run          -d <domain>
-  updates add|check|list|remove   see updates help
-  updates monitor start|stop|list see updates help
+  
   monitor updates add    -u <url> [--strategy ...] [--pattern <regex>]
   monitor updates remove -u <url>
   monitor updates start  [--interval <sec>] [--daemon] [--all]
@@ -138,7 +137,7 @@ main() {
     gf)         cmd_gf         "$@" ;;
     sqlmap)     cmd_sqlmap     "$@" ;;
     dalfox)     cmd_dalfox     "$@" ;;
-    updates)    cmd_updates    "$@" ;;
+    
     monitor)
       local sub="$1"; shift || true
       case "$sub" in
