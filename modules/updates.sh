@@ -503,21 +503,17 @@ monitor_start() {
           fi
         fi
 
-        # Start daemon for this URL in background subshell
-        (
-          # Write the subshell's own PID
-          echo $BASHPID > "$t_pid_file"
+        # Start daemon for this URL using nohup (same as single-target mode)
+        nohup bash -c "
+          echo \$BASHPID > '$t_pid_file'
           while true; do
-            "$ROOT_DIR/modules/updates.sh" check -u "$t_url" || true
-            sleep "$interval"
-            [[ -f "$t_pid_file" ]] || break
+            '$ROOT_DIR/modules/updates.sh' check -u '$t_url' || true
+            sleep $interval
+            [[ -f '$t_pid_file' ]] || break
           done
-        ) >> "$t_log_file" 2>&1 &
+        " >> "$t_log_file" 2>&1 & disown
 
-        # Capture the PID of the background subshell
-        local monitor_pid=$!
-
-        log_success "[${count}] Started monitor - daemon for $t_url - interval=${interval}s (PID: $monitor_pid)"
+        log_success "[${count}] Started monitor - daemon for $t_url - interval=${interval}s"
         ((count++))
       done <<< "$rows"
     fi
