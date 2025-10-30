@@ -1764,7 +1764,9 @@ class AutoARBot(commands.Cog):
         name="monitor_updates_start",
         description="Monitor Updates: start monitoring all targets",
     )
-    @app_commands.describe(interval="Interval in seconds between checks (default: 900)")
+    @app_commands.describe(
+        interval="Interval in seconds between checks (default: 86400)"
+    )
     async def monitor_updates_start(
         self, interaction: discord.Interaction, interval: int = 86400
     ):
