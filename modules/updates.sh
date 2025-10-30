@@ -477,20 +477,28 @@ monitor_start() {
         return 0
       fi
       echo "Starting monitors for all database targets..."
+      echo "DEBUG: Total rows from DB: $(echo "$rows" | wc -l)"
       while IFS='|' read -r t_url t_strategy t_pattern; do
-        [[ -z "$t_url" ]] && continue
+        echo "DEBUG: Loop iteration $count - URL: '$t_url'"
+        [[ -z "$t_url" ]] && { echo "DEBUG: Empty URL, skipping"; continue; }
+        echo "DEBUG: Saving meta for $t_url"
         save_meta "$t_url" "$t_strategy" "$t_pattern"
         # If no state file yet, take initial snapshot to verify pattern
         if [[ ! -f "$(target_dir "$t_url")/state.txt" ]]; then
+          echo "DEBUG: Taking initial snapshot for $t_url"
           initial_snapshot "$t_url" || true
+        else
+          echo "DEBUG: State file exists for $t_url"
         fi
 
         # Start monitor for this target
         local t_dir t_pid_file
         t_dir="$(target_dir "$t_url")"
+        echo "DEBUG: Target dir: $t_dir"
         mkdir -p "$t_dir"
         t_pid_file="$t_dir/monitor.pid"
         t_log_file="$t_dir/monitor.log"
+        echo "DEBUG: PID file: $t_pid_file"
 
         # Check if already running
         if [[ -f "$t_pid_file" ]]; then
@@ -505,6 +513,7 @@ monitor_start() {
 
         # Start daemon for this URL using nohup (same as single-target mode)
         # Use escaped variables for proper expansion in subshell
+        echo "DEBUG: About to start nohup for $t_url with interval=$interval"
         nohup bash -c "
           echo \$BASHPID > \"$t_pid_file\"
           while true; do
@@ -513,6 +522,20 @@ monitor_start() {
             [[ -f \"$t_pid_file\" ]] || break
           done
         " >> "$t_log_file" 2>&1 & disown
+
+        sleep 0.2
+        echo "DEBUG: Checking if PID file was created: $t_pid_file"
+        if [[ -f "$t_pid_file" ]]; then
+          local check_pid=$(cat "$t_pid_file" 2>/dev/null)
+          if is_running "$check_pid"; then
+            echo "DEBUG: Process $check_pid is running for $t_url"
+          else
+            echo "DEBUG: WARNING - Process $check_pid is NOT running for $t_url (immediately crashed?)"
+            [[ -f "$t_log_file" ]] && echo "DEBUG: Log file contents:" && head -20 "$t_log_file"
+          fi
+        else
+          echo "DEBUG: ERROR - PID file not created for $t_url"
+        fi
 
         log_success "[${count}] Started monitor - daemon for $t_url - interval=${interval}s"
         ((count++))
