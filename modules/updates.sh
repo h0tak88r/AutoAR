@@ -541,26 +541,27 @@ monitor_start() {
     fi
   fi
 
-  monitor_loop() {
-    local m_url="$1" m_interval="$2"
-    while true; do
-      "$ROOT_DIR/modules/updates.sh" check -u "$m_url" || true
-      sleep "$m_interval"
-      # If pid file removed, stop
-      local dir
-      dir="$(target_dir "$m_url")"
-      [[ -f "$dir/monitor.pid" ]] || break
-    done
-  }
-
   if [[ "$daemon" == true ]]; then
-    nohup bash -c "echo \$BASHPID > '$pid_file'; monitor_loop '$url' '$interval'" \
-      >> "$log_file" 2>&1 & disown
+    # Inline the monitor loop code directly in nohup (same as --all mode)
+    nohup bash -c "
+      echo \$BASHPID > \"$pid_file\"
+      while true; do
+        \"$ROOT_DIR/modules/updates.sh\" check -u \"$url\" || true
+        sleep $interval
+        [[ -f \"$pid_file\" ]] || break
+      done
+    " >> "$log_file" 2>&1 & disown
     log_success "Started monitor - daemon for $url - interval=${interval}s"
   else
+    # Non-daemon mode - run monitor loop in foreground
     echo $$ > "$pid_file"
     log_success "Started monitor for $url - interval=${interval}s"
-    monitor_loop "$url" "$interval"
+    while true; do
+      "$ROOT_DIR/modules/updates.sh" check -u "$url" || true
+      sleep "$interval"
+      # If pid file removed, stop
+      [[ -f "$pid_file" ]] || break
+    done
   fi
 }
 
