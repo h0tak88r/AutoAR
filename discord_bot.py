@@ -1762,28 +1762,48 @@ class AutoARBot(commands.Cog):
 
     @app_commands.command(
         name="monitor_updates_start",
-        description="Monitor Updates: start monitoring all targets",
+        description="Monitor Updates: start monitoring target(s)",
     )
     @app_commands.describe(
-        interval="Interval in seconds between checks (default: 86400)"
+        url="Specific URL to monitor (leave empty for all targets)",
+        interval="Interval in seconds between checks (default: 86400 = 1 day)",
     )
     async def monitor_updates_start(
-        self, interaction: discord.Interaction, interval: int = 86400
+        self, interaction: discord.Interaction, url: str = None, interval: int = 86400
     ):
         scan_id = f"mon_updates_start_{int(time.time())}"
-        cmd = [
-            AUTOAR_SCRIPT_PATH,
-            "monitor",
-            "updates",
-            "start",
-            "--all",
-            "--interval",
-            str(interval),
-            "--daemon",
-        ]
+
+        if url:
+            # Start single target
+            cmd = [
+                AUTOAR_SCRIPT_PATH,
+                "monitor",
+                "updates",
+                "start",
+                "-u",
+                url,
+                "--interval",
+                str(interval),
+                "--daemon",
+            ]
+            target_desc = url
+        else:
+            # Start all targets
+            cmd = [
+                AUTOAR_SCRIPT_PATH,
+                "monitor",
+                "updates",
+                "start",
+                "--all",
+                "--interval",
+                str(interval),
+                "--daemon",
+            ]
+            target_desc = "all targets"
+
         await interaction.response.send_message(
             embed=self.create_scan_embed(
-                "Monitor Updates: Start", "all targets", "running"
+                "Monitor Updates: Start", target_desc, "running"
             )
         )
         res = await self.run_autoar_command(cmd, scan_id, timeout=30)
@@ -1792,9 +1812,11 @@ class AutoARBot(commands.Cog):
             if res.get("returncode", 1) == 0
             else discord.Color.red()
         )
+
+        mode_text = f"Single target: `{url}`" if url else "All targets"
         embed = discord.Embed(
             title="📡 Updates Monitor Started",
-            description=f"**Mode:** All targets\n**Interval:** {interval}s",
+            description=f"**Mode:** {mode_text}\n**Interval:** {interval}s ({interval // 3600}h)",
             color=color,
         )
         if res.get("stdout"):
@@ -1809,14 +1831,28 @@ class AutoARBot(commands.Cog):
 
     @app_commands.command(
         name="monitor_updates_stop",
-        description="Monitor Updates: stop monitoring all targets",
+        description="Monitor Updates: stop monitoring target(s)",
     )
-    async def monitor_updates_stop(self, interaction: discord.Interaction):
+    @app_commands.describe(
+        url="Specific URL to stop monitoring (leave empty for all targets)"
+    )
+    async def monitor_updates_stop(
+        self, interaction: discord.Interaction, url: str = None
+    ):
         scan_id = f"mon_updates_stop_{int(time.time())}"
-        cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "stop", "--all"]
+
+        if url:
+            # Stop single target
+            cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "stop", "-u", url]
+            target_desc = url
+        else:
+            # Stop all targets
+            cmd = [AUTOAR_SCRIPT_PATH, "monitor", "updates", "stop", "--all"]
+            target_desc = "all targets"
+
         await interaction.response.send_message(
             embed=self.create_scan_embed(
-                "Monitor Updates: Stop", "all targets", "running"
+                "Monitor Updates: Stop", target_desc, "running"
             )
         )
         res = await self.run_autoar_command(cmd, scan_id, timeout=30)
@@ -1825,9 +1861,11 @@ class AutoARBot(commands.Cog):
             if res.get("returncode", 1) == 0
             else discord.Color.red()
         )
+
+        mode_text = f"Single target: `{url}`" if url else "All targets"
         embed = discord.Embed(
             title="🛑 Updates Monitor Stopped",
-            description="**Mode:** All targets",
+            description=f"**Mode:** {mode_text}",
             color=color,
         )
         if res.get("stdout"):
