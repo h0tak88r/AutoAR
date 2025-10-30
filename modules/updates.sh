@@ -504,12 +504,13 @@ monitor_start() {
         fi
 
         # Start daemon for this URL using nohup (same as single-target mode)
+        # Use escaped variables for proper expansion in subshell
         nohup bash -c "
-          echo \$BASHPID > '$t_pid_file'
+          echo \$BASHPID > \"$t_pid_file\"
           while true; do
-            '$ROOT_DIR/modules/updates.sh' check -u '$t_url' || true
+            \"$ROOT_DIR/modules/updates.sh\" check -u \"$t_url\" || true
             sleep $interval
-            [[ -f '$t_pid_file' ]] || break
+            [[ -f \"$t_pid_file\" ]] || break
           done
         " >> "$t_log_file" 2>&1 & disown
 
