@@ -1,6 +1,6 @@
 # AutoAR (Automated Attack Reconnaissance) 🚀
 
-AutoAR is a comprehensive, modular security automation toolkit designed for bug bounty hunters, penetration testers, and security researchers. It combines a Discord bot frontend with a powerful bash-based CLI backend, providing automated reconnaissance, vulnerability scanning, and attack surface analysis.
+AutoAR is a comprehensive, modular security automation toolkit designed for bug bounty hunters, penetration testers, and security researchers. It provides **three operational modes**: Discord bot, REST API, or both simultaneously, all powered by a robust bash-based CLI backend for automated reconnaissance, vulnerability scanning, and attack surface analysis.
 
 ## ✨ Features
 
@@ -29,12 +29,15 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **Reflection Testing**: HTTP parameter reflection analysis
 - **Gf Pattern Matching**: Custom pattern matching for various vulnerabilities
 
-### 🤖 **Discord Integration**
-- **Real-time Notifications**: Live scan progress and results
+### 🤖 **Multi-Interface Support**
+- **Discord Bot Mode**: Interactive bot with slash commands and real-time notifications
+- **REST API Mode**: Full-featured API with Swagger/OpenAPI documentation
+- **Hybrid Mode**: Run both Discord bot and API server simultaneously
+- **Real-time Notifications**: Live scan progress and results (Discord)
 - **File Sharing**: Automatic result file uploads
-- **Slash Commands**: Easy-to-use Discord commands
-- **Progress Tracking**: Real-time scan status updates
-- **Configurable Threading**: All tools support custom thread counts for optimal performance
+- **API Documentation**: Interactive API docs at `/docs` endpoint
+- **Async Scanning**: Background scan execution with status tracking
+- **Progress Tracking**: Real-time scan status updates across both interfaces
 
 ### 🗄️ **Database Support**
 - **PostgreSQL Integration**: Full database support for results storage
@@ -131,6 +134,51 @@ python discord_bot.py
 ```
 
 ## 📖 Usage
+
+AutoAR supports three operational modes to fit your workflow:
+
+### 🎯 Operational Modes
+
+#### 1. Discord Bot Mode (Default)
+```bash
+# Using Docker Compose
+docker-compose up autoar-discord
+
+# Without Docker
+export AUTOAR_MODE=discord
+export DISCORD_BOT_TOKEN=your_token_here
+python discord_bot.py
+```
+
+#### 2. REST API Mode
+```bash
+# Using Docker Compose
+docker-compose --profile api up autoar-api
+
+# Without Docker
+export AUTOAR_MODE=api
+export API_HOST=0.0.0.0
+export API_PORT=8000
+python api_server.py
+```
+Access API documentation at: `http://localhost:8000/docs`
+
+#### 3. Both Discord Bot AND API (Hybrid Mode)
+```bash
+# Using Docker Compose
+docker-compose --profile full up autoar-full
+
+# Without Docker
+export AUTOAR_MODE=both
+export DISCORD_BOT_TOKEN=your_token_here
+export API_HOST=0.0.0.0
+export API_PORT=8000
+python launcher.py
+```
+
+📚 **For detailed API documentation, see [API_README.md](API_README.md) and [API_QUICKSTART.md](API_QUICKSTART.md)**
+
+---
 
 ### Discord Commands
 
@@ -449,8 +497,297 @@ done < domains.txt
 
 - **API Keys**: Store sensitive API keys in environment variables
 - **Rate Limiting**: Respect API rate limits to avoid service disruption
+- **Rate Limiting**: Configure rate limits for external APIs to avoid blocking
 - **Legal Compliance**: Ensure you have permission to scan target domains
 - **Data Privacy**: Be mindful of sensitive data in scan results
+
+## 🌐 REST API Usage
+
+AutoAR now includes a full-featured REST API! Access all scanning capabilities programmatically for integration with CI/CD, custom dashboards, and automation workflows.
+
+### API Quick Start
+
+#### Start API Server
+```bash
+# Using Docker Compose
+docker-compose --profile api up autoar-api
+
+# Without Docker
+export AUTOAR_MODE=api
+export API_HOST=0.0.0.0
+export API_PORT=8000
+python api_server.py
+```
+
+#### Access Interactive Documentation
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+### API Endpoints Overview
+
+#### Reconnaissance Scans
+```bash
+# Subdomain Enumeration
+curl -X POST "http://localhost:8000/scan/subdomains" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+
+# Live Hosts Discovery
+curl -X POST "http://localhost:8000/scan/livehosts" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+
+# URL Collection
+curl -X POST "http://localhost:8000/scan/urls" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+
+# Technology Detection
+curl -X POST "http://localhost:8000/scan/tech" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+
+# Port Scanning
+curl -X POST "http://localhost:8000/scan/ports" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+```
+
+#### Vulnerability Scans
+```bash
+# Nuclei Vulnerability Scanner
+curl -X POST "http://localhost:8000/scan/nuclei" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+
+# DNS Takeover Check
+curl -X POST "http://localhost:8000/scan/dns-takeover" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+
+# Reflection Vulnerabilities
+curl -X POST "http://localhost:8000/scan/reflection" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+```
+
+#### Specialized Scans
+```bash
+# JavaScript Analysis
+curl -X POST "http://localhost:8000/scan/js" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com", "subdomain": "api.example.com"}'
+
+# S3 Bucket Security
+curl -X POST "http://localhost:8000/scan/s3" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket": "my-bucket", "region": "us-east-1"}'
+
+# GitHub Repository Secrets
+curl -X POST "http://localhost:8000/scan/github" \
+  -H "Content-Type: application/json" \
+  -d '{"repo": "owner/repository"}'
+```
+
+#### Scan Management
+```bash
+# Check scan status
+curl "http://localhost:8000/scan/{scan_id}/status"
+
+# Get scan results
+curl "http://localhost:8000/scan/{scan_id}/results"
+
+# Download results as file
+curl -O "http://localhost:8000/scan/{scan_id}/download"
+
+# List all scans
+curl "http://localhost:8000/scans"
+```
+
+### Python API Client Example
+
+```python
+import requests
+import time
+
+API_BASE = "http://localhost:8000"
+
+# Start a scan
+response = requests.post(
+    f"{API_BASE}/scan/subdomains",
+    json={"domain": "example.com"}
+)
+scan_data = response.json()
+scan_id = scan_data["scan_id"]
+print(f"Scan started: {scan_id}")
+
+# Wait for completion
+while True:
+    status = requests.get(f"{API_BASE}/scan/{scan_id}/status").json()
+    if status["status"] in ["completed", "failed"]:
+        break
+    time.sleep(5)
+
+# Get results
+results = requests.get(f"{API_BASE}/scan/{scan_id}/results").json()
+print(f"Output: {results['output']}")
+```
+
+### JavaScript/Node.js Example
+
+```javascript
+const axios = require('axios');
+
+async function runScan() {
+  // Start scan
+  const { data } = await axios.post('http://localhost:8000/scan/subdomains', {
+    domain: 'example.com'
+  });
+  
+  const scanId = data.scan_id;
+  console.log(`Scan started: ${scanId}`);
+  
+  // Wait for completion
+  let status;
+  do {
+    const statusResponse = await axios.get(
+      `http://localhost:8000/scan/${scanId}/status`
+    );
+    status = statusResponse.data.status;
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } while (status === 'running');
+  
+  // Get results
+  const results = await axios.get(
+    `http://localhost:8000/scan/${scanId}/results`
+  );
+  console.log('Results:', results.data);
+}
+```
+
+### CI/CD Integration (GitHub Actions)
+
+```yaml
+name: Security Scan
+on: [push]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run AutoAR Scan
+        run: |
+          RESPONSE=$(curl -X POST "${{ secrets.AUTOAR_API }}/scan/nuclei" \
+            -H "Content-Type: application/json" \
+            -d '{"domain": "example.com"}')
+          SCAN_ID=$(echo $RESPONSE | jq -r '.scan_id')
+          
+          # Wait for completion
+          while true; do
+            STATUS=$(curl -s "${{ secrets.AUTOAR_API }}/scan/$SCAN_ID/status" | jq -r '.status')
+            if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
+              break
+            fi
+            sleep 10
+          done
+          
+          # Download results
+          curl -o results.txt "${{ secrets.AUTOAR_API }}/scan/$SCAN_ID/download"
+```
+
+### Available Modes
+
+AutoAR supports three operational modes:
+
+#### 1. Discord Bot Only (Default)
+```bash
+docker-compose up autoar-discord
+# or
+export AUTOAR_MODE=discord
+python discord_bot.py
+```
+
+#### 2. REST API Only
+```bash
+docker-compose --profile api up autoar-api
+# or
+export AUTOAR_MODE=api
+python api_server.py
+```
+
+#### 3. Hybrid Mode (Both Discord + API)
+```bash
+docker-compose --profile full up autoar-full
+# or
+export AUTOAR_MODE=both
+python launcher.py
+```
+
+### API Response Format
+
+All scan endpoints return a scan ID for tracking:
+```json
+{
+  "scan_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "started",
+  "message": "Scan started successfully",
+  "command": "/app/main.sh subdomains get -d example.com"
+}
+```
+
+Check status:
+```json
+{
+  "scan_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "running|completed|failed",
+  "started_at": "2024-01-15T10:00:00.000000",
+  "completed_at": "2024-01-15T10:05:00.000000",
+  "output": "scan output...",
+  "error": null
+}
+```
+
+### Testing the API
+
+A test suite is included:
+```bash
+# Run automated tests
+python test_api.py
+
+# Run curl examples
+./examples/curl_examples.sh
+
+# Run Python examples
+python examples/api_example.py
+```
+
+### API Security Considerations
+
+**Current Implementation**: No authentication (designed for localhost/internal use)
+
+**For Production**:
+1. **Add Authentication**: Implement API keys or JWT tokens
+2. **Use HTTPS**: Deploy behind reverse proxy (nginx, traefik) with SSL/TLS
+3. **Rate Limiting**: Prevent abuse and resource exhaustion
+4. **Firewall Rules**: Restrict access by IP address
+5. **Network Isolation**: Use Docker networks or VPNs
+
+Example nginx reverse proxy with SSL:
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name api.autoar.example.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
 
 ## 🤝 Contributing
 
