@@ -478,8 +478,11 @@ monitor_start() {
       fi
       echo "Starting monitors for all database targets..."
       echo "DEBUG: Total rows from DB: $(echo "$rows" | wc -l)"
+      echo "DEBUG: Raw rows data:"
+      echo "$rows"
+      echo "DEBUG: Starting while loop..."
       while IFS='|' read -r t_url t_strategy t_pattern; do
-        echo "DEBUG: Loop iteration $count - URL: '$t_url'"
+        echo "DEBUG: Loop iteration $count - URL: '$t_url' - Strategy: '$t_strategy' - Pattern: '$t_pattern'"
         [[ -z "$t_url" ]] && { echo "DEBUG: Empty URL, skipping"; continue; }
         echo "DEBUG: Saving meta for $t_url"
         save_meta "$t_url" "$t_strategy" "$t_pattern"
@@ -539,7 +542,9 @@ monitor_start() {
 
         log_success "[${count}] Started monitor - daemon for $t_url - interval=${interval}s"
         ((count++))
+        echo "DEBUG: Completed iteration $count, continuing to next..."
       done <<< "$rows"
+      echo "DEBUG: Loop finished, processed $count targets"
     fi
     echo ""
     log_success "✓ Started monitors for $count target(s) - interval=${interval}s ($(($interval / 3600)) hours)"
