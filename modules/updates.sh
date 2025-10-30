@@ -363,7 +363,7 @@ check_one() {
         save_state "$url" hash "$h"
         log_success "Change detected - hash at $url"
         echo "$url | change=hash | at=$(date -u +%FT%TZ)"
-        
+
         db_insert_event "$url" "hash" "$h" || true
         notify_discord_change "$url" "hash" "content hash changed"
       else
@@ -378,7 +378,7 @@ check_one() {
         save_state "$url" size "$size"
         log_success "Change detected - size=$size at $url"
         echo "$url | change=size | size=$size"
-        
+
         db_insert_event "$url" "size" "$size" || true
         notify_discord_change "$url" "size" "content size=$size"
       else
@@ -396,7 +396,7 @@ check_one() {
         save_state "$url" header "$now_val"
         log_success "Change detected - headers at $url"
         echo "$url | change=headers | etag=$etag | lm=$lm"
-        
+
         db_insert_event "$url" "headers" "$now_val" || true
         notify_discord_change "$url" "headers" "etag=$etag lm=$lm"
       else
@@ -411,7 +411,7 @@ check_one() {
         save_state "$url" match "$match"
         log_success "Change detected - regex=$match at $url"
         echo "$url | change=regex | match=$match"
-        
+
         db_insert_event "$url" "regex" "$match" || true
         notify_discord_change "$url" "regex" "match=$match"
       else
@@ -455,7 +455,7 @@ is_running() {
 }
 
 monitor_start() {
-  local url="" interval=900 daemon=false monitor_all=false
+  local url="" interval=86400 daemon=false monitor_all=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -u|--url) url="$2"; shift 2 ;;
@@ -465,7 +465,7 @@ monitor_start() {
       *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
     esac
   done
-  
+
   # If --all, start monitors for all targets from DB
   if [[ "$monitor_all" == true ]]; then
     local count=0
@@ -488,7 +488,7 @@ monitor_start() {
     log_success "Started monitors for $count targets - interval=${interval}s"
     return 0
   fi
-  
+
   # Single target mode
   [[ -n "$url" ]] || { log_error "URL is required - or use --all"; exit 1; }
   local dir pid_file log_file
@@ -539,7 +539,7 @@ monitor_stop() {
       *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
     esac
   done
-  
+
   # If --all, stop all monitors for DB targets
   if [[ "$stop_all" == true ]]; then
     local count=0 stopped=0
@@ -565,7 +565,7 @@ monitor_stop() {
     log_success "Stopped $stopped monitors out of $count targets"
     return 0
   fi
-  
+
   # Single target mode
   [[ -n "$url" ]] || { log_error "URL is required - or use --all"; exit 1; }
   local dir pid_file
