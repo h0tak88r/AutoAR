@@ -476,16 +476,49 @@ monitor_start() {
         log_warn "No targets found in database"
         return 0
       fi
+      echo "Starting monitors for all database targets..."
       while IFS='|' read -r t_url t_strategy t_pattern; do
         [[ -z "$t_url" ]] && continue
         save_meta "$t_url" "$t_strategy" "$t_pattern"
         # If no state file yet, take initial snapshot to verify pattern
-        if [[ ! -f "$(target_dir "$t_url")/state.txt" ]]; then initial_snapshot "$t_url" || true; fi
-        monitor_start -u "$t_url" --interval "$interval" --daemon || true
+        if [[ ! -f "$(target_dir "$t_url")/state.txt" ]]; then
+          initial_snapshot "$t_url" || true
+        fi
+
+        # Start monitor for this target
+        local t_dir t_pid_file
+        t_dir="$(target_dir "$t_url")"
+        mkdir -p "$t_dir"
+        t_pid_file="$t_dir/monitor.pid"
+        t_log_file="$t_dir/monitor.log"
+
+        # Check if already running
+        if [[ -f "$t_pid_file" ]]; then
+          local oldpid
+          oldpid="$(cat "$t_pid_file" 2>/dev/null || true)"
+          if is_running "$oldpid"; then
+            log_warn "[${count}] Monitor already running for $t_url (PID: $oldpid)"
+            ((count++))
+            continue
+          fi
+        fi
+
+        # Start daemon for this URL
+        nohup bash -c "
+          echo \$BASHPID > '$t_pid_file'
+          while true; do
+            '$ROOT_DIR/modules/updates.sh' check -u '$t_url' || true
+            sleep $interval
+            [[ -f '$t_pid_file' ]] || break
+          done
+        " >> "$t_log_file" 2>&1 & disown
+
+        log_success "[${count}] Started monitor - daemon for $t_url - interval=${interval}s"
         ((count++))
       done <<< "$rows"
     fi
-    log_success "Started monitors for $count targets - interval=${interval}s"
+    echo ""
+    log_success "✓ Started monitors for $count target(s) - interval=${interval}s ($(($interval / 3600)) hours)"
     return 0
   fi
 
