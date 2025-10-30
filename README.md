@@ -23,11 +23,21 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 🎯 **Specialized Scanners**
 - **JavaScript Analysis**: JS file collection and secret extraction
+- **JavaScript Monitoring**: Continuous monitoring of JavaScript files for changes
 - **GitHub Reconnaissance**: Organization and repository scanning with secrets detection
 - **GitHub Wordlist Generation**: Automated wordlist creation from organization files
 - **Port Scanning**: Nmap integration for port discovery
 - **Reflection Testing**: HTTP parameter reflection analysis
 - **Gf Pattern Matching**: Custom pattern matching for various vulnerabilities
+
+### 📊 **Monitoring & Tracking**
+- **Target Monitoring**: Database-backed continuous monitoring of web targets
+- **JavaScript Monitoring**: Track changes in JavaScript files and detect new secrets
+- **Multi-Strategy Detection**: Support for hash, size, headers, and regex-based change detection
+- **Update Notifications**: Real-time Discord webhooks for detected changes
+- **Persistent State Management**: Database storage for monitored targets and events
+- **Flexible Intervals**: Configurable monitoring intervals per target
+- **Daemon Mode**: Background monitoring with automated restarts
 
 ### 🤖 **Multi-Interface Support**
 - **Discord Bot Mode**: Interactive bot with slash commands and real-time notifications
