@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[entrypoint] AutoAR Discord bot starting..."
+echo "[entrypoint] AutoAR starting..."
+
+# Get the mode from environment variable (default: discord)
+AUTOAR_MODE="${AUTOAR_MODE:-discord}"
+
+echo "[entrypoint] Mode: ${AUTOAR_MODE}"
 
 # Load configuration (will generate autoar.yaml if needed)
 echo "[entrypoint] Loading configuration..."
@@ -25,10 +30,12 @@ fi
 # Create results dir and set permissions
 mkdir -p "${AUTOAR_RESULTS_DIR:-/app/new-results}"
 
-# Validate mandatory envs and files
-if [[ -z "${DISCORD_BOT_TOKEN:-}" ]]; then
-  echo "[entrypoint] Error: DISCORD_BOT_TOKEN is not set" >&2
-  exit 1
+# Validate mandatory envs and files based on mode
+if [[ "${AUTOAR_MODE}" == "discord" || "${AUTOAR_MODE}" == "both" ]]; then
+  if [[ -z "${DISCORD_BOT_TOKEN:-}" ]]; then
+    echo "[entrypoint] Error: DISCORD_BOT_TOKEN is not set (required for discord/both mode)" >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "${AUTOAR_SCRIPT_PATH:-/app/main.sh}" ]]; then
@@ -36,7 +43,23 @@ if [[ ! -f "${AUTOAR_SCRIPT_PATH:-/app/main.sh}" ]]; then
   exit 1
 fi
 
-echo "[entrypoint] Launching discord_bot.py"
-exec python /app/discord_bot.py
-
-
+# Launch based on mode
+case "${AUTOAR_MODE}" in
+  discord)
+    echo "[entrypoint] Launching Discord Bot only..."
+    exec python /app/discord_bot.py
+    ;;
+  api)
+    echo "[entrypoint] Launching API Server only..."
+    exec python /app/api_server.py
+    ;;
+  both)
+    echo "[entrypoint] Launching both Discord Bot and API Server..."
+    exec python /app/launcher.py
+    ;;
+  *)
+    echo "[entrypoint] Error: Invalid AUTOAR_MODE '${AUTOAR_MODE}'" >&2
+    echo "[entrypoint] Valid modes: discord, api, both" >&2
+    exit 1
+    ;;
+esac
