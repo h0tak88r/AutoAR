@@ -988,32 +988,85 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(
-        name="nuclei", description="Run nuclei templates on live subdomains"
+        name="nuclei", description="Run nuclei templates on domain/URL"
     )
     @app_commands.describe(
-        domain="The domain", threads="Number of threads for nuclei (default: 100)"
+        domain="The domain to scan (use either domain or url)",
+        url="Single URL to scan (use either domain or url)",
+        mode="Scan mode: full, cves, or panels (default: full)",
+        enum="Perform subdomain enumeration first (only with domain)",
+        threads="Number of threads for nuclei (default: 100)",
+    )
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="Full (All Templates)", value="full"),
+            app_commands.Choice(name="CVEs Only", value="cves"),
+            app_commands.Choice(name="Panels Discovery", value="panels"),
+        ]
     )
     async def nuclei_cmd(
-        self, interaction: discord.Interaction, domain: str, threads: int = 100
+        self,
+        interaction: discord.Interaction,
+        domain: Optional[str] = None,
+        url: Optional[str] = None,
+        mode: str = "full",
+        enum: bool = False,
+        threads: int = 100,
     ):
+        # Validation
+        if not domain and not url:
+            await interaction.response.send_message(
+                "❌ Either domain or url must be provided", ephemeral=True
+            )
+            return
+
+        if domain and url:
+            await interaction.response.send_message(
+                "❌ Cannot use both domain and url together", ephemeral=True
+            )
+            return
+
         scan_id = f"nuclei_{int(time.time())}"
-        command = [
-            AUTOAR_SCRIPT_PATH,
-            "nuclei",
-            "run",
-            "-d",
-            domain,
-            "-t",
-            str(threads),
-        ]
+        command = [AUTOAR_SCRIPT_PATH, "nuclei", "run"]
+
+        # Add target (domain or url)
+        if domain:
+            command.extend(["-d", domain])
+            target = domain
+        else:
+            command.extend(["-u", url])
+            target = url
+
+        # Add mode
+        command.extend(["-m", mode])
+
+        # Add enum flag if requested (only valid with domain)
+        if enum and domain:
+            command.append("-e")
+
+        # Add threads
+        command.extend(["-t", str(threads)])
+
+        # Determine scan description
+        mode_desc = {
+            "full": "Full (All Templates)",
+            "cves": "CVEs Only",
+            "panels": "Panels Discovery",
+        }.get(mode, mode)
+
+        enum_text = " with enum" if enum and domain else ""
+
         active_scans[scan_id] = {
-            "type": "nuclei",
-            "target": domain,
+            "type": f"nuclei-{mode}",
+            "target": target,
             "status": "running",
             "start_time": datetime.now(),
             "interaction": interaction,
         }
-        embed = self.create_scan_embed("Nuclei", domain, "running")
+
+        embed = self.create_scan_embed(
+            f"Nuclei {mode_desc}{enum_text}", target, "running"
+        )
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
