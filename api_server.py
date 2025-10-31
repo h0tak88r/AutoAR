@@ -60,10 +60,7 @@ class ScanRequest(BaseModel):
     all: Optional[bool] = Field(False, description="Apply to all monitored targets")
     daemon: Optional[bool] = Field(False, description="Run as daemon")
     mode: Optional[str] = Field(
-        "full", description="Nuclei scan mode: full, cves, or panels"
-    )
-    enum: Optional[bool] = Field(
-        False, description="Perform subdomain enumeration (nuclei only)"
+        "full", description="Nuclei scan mode: full, cves, panels, or default-logins"
     )
 
 
@@ -330,17 +327,14 @@ async def scan_nuclei(background_tasks: BackgroundTasks, request: ScanRequest):
         command.extend(["-u", request.url])
         target = request.url
 
-    # Add mode (full, cves, or panels)
+    # Add mode (full, cves, panels, or default-logins)
     mode = request.mode or "full"
-    if mode not in ["full", "cves", "panels"]:
+    if mode not in ["full", "cves", "panels", "default-logins"]:
         raise HTTPException(
-            status_code=400, detail="Mode must be full, cves, or panels"
+            status_code=400, detail="Mode must be full, cves, panels, or default-logins"
         )
     command.extend(["-m", mode])
-
-    # Add enum flag if requested (only valid with domain)
-    if request.enum and request.domain:
-        command.append("-e")
+    # Subdomain/livehost enumeration is automatic for domain scans
 
     background_tasks.add_task(execute_scan, scan_id, command, f"nuclei-{mode}")
 

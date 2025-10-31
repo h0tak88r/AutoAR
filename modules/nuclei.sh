@@ -15,24 +15,31 @@ Options:
   -d, --domain <domain>        Target domain
   -u, --url <url>              Single URL to scan (skips subdomain enumeration)
   -m, --mode <mode>            Scan mode: full, cves, panels (default: full)
-  -e, --enum                   Perform subdomain enumeration first
+
   -t, --threads <num>          Number of threads (default: 100)
   -h, --help                   Show this help message
 
 Scan Modes:
-  full      - Scan with all custom (nuclei_templates/Others) and public (nuclei-templates/http) templates
-  cves      - Scan only with CVE templates (nuclei_templates/cves + nuclei-templates/http/cves)
-  panels    - Scan only with panel discovery templates (nuclei-templates/http/exposed-panels)
+  full          - Scan with all custom (nuclei_templates/), public (nuclei-templates/http), and default logins templates
+  cves          - Scan only with CVE templates (nuclei_templates/cves + nuclei-templates/http/cves)
+  panels        - Scan only with panel discovery templates (nuclei_templates/panels + nuclei-templates/http/exposed-panels)
+  default-logins - Scan only with default logins templates (custom & public)
 
 Examples:
-  # Full scan with subdomain enumeration
-  nuclei run -d example.com -e -m full
+  # Full scan on a domain (subdomain/livehost enumeration is automatic)
+  nuclei run -d example.com -m full
 
   # CVEs scan on a single URL (no subdomain enum)
   nuclei run -u https://example.com -m cves
 
-  # Panel discovery with subdomain enumeration
-  nuclei run -d example.com -e -m panels
+  # Panel discovery on a domain
+  nuclei run -d example.com -m panels
+
+  # Default logins scan on a domain
+  nuclei run -d example.com -m default-logins
+
+  # Default logins scan on a single URL
+  nuclei run -u https://example.com -m default-logins
 
   # Full scan on existing subdomains (no new enum)
   nuclei run -d example.com -m full
@@ -40,14 +47,14 @@ EOF
 }
 
 nuclei_run() {
-  local domain="" url="" mode="full" do_enum=false threads="100"
+  local domain="" url="" mode="full" threads="100"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
       -u|--url) url="$2"; shift 2;;
       -m|--mode) mode="$2"; shift 2;;
-      -e|--enum) do_enum=true; shift;;
+
       -t|--threads) threads="$2"; shift 2;;
       -h|--help) usage; exit 0;;
       *) log_error "Unknown option: $1"; usage; exit 1;;
@@ -57,7 +64,7 @@ nuclei_run() {
   # Validation
   [[ -z "$domain" && -z "$url" ]] && { log_error "Either -d (domain) or -u (url) must be provided"; usage; exit 1; }
   [[ -n "$domain" && -n "$url" ]] && { log_error "Cannot use both -d and -u together"; usage; exit 1; }
-  [[ ! "$mode" =~ ^(full|cves|panels)$ ]] && { log_error "Invalid mode: $mode. Must be full, cves, or panels"; exit 1; }
+  [[ ! "$mode" =~ ^(full|cves|panels|default-logins)$ ]] && { log_error "Invalid mode: $mode. Must be full, cves, panels, or default-logins"; exit 1; }
 
   # Check if nuclei is installed
   if ! command -v nuclei >/dev/null 2>&1; then
@@ -99,33 +106,31 @@ nuclei_run() {
     output_dir="$dir/vulnerabilities"
     ensure_dir "$output_dir"
 
-    # Perform subdomain enumeration if requested
-    if [[ "$do_enum" == true ]]; then
-      log_info "Performing subdomain enumeration and live-host detection for $domain using livehosts module"
-      ensure_dir "$dir/subs"
+    # Always perform subdomain enumeration and live-host detection for domain scans
+    log_info "Performing subdomain enumeration and live-host detection for $domain using livehosts module"
+    ensure_dir "$dir/subs"
 
-      local livehosts_script="$ROOT_DIR/modules/livehosts.sh"
+    local livehosts_script="$ROOT_DIR/modules/livehosts.sh"
 
-      if [[ -f "$livehosts_script" ]]; then
-        # Use the livehosts module to enumerate subdomains and detect live hosts.
-        # This will produce $dir/subs/all-subs.txt and $dir/subs/live-subs.txt
-        log_info "Invoking livehosts module: $livehosts_script get -d $domain -t $threads"
-        # Run in subshell to avoid set -e causing exit on non-zero; livehosts.sh already handles failures gracefully.
-        "$livehosts_script" get -d "$domain" -t "$threads" || log_warn "livehosts module exited with non-zero status"
-      else
-        log_warn "livehosts module not found at $livehosts_script. This project centralizes subdomain enumeration & live-host detection in that module; please ensure it exists."
-      fi
+    if [[ -f "$livehosts_script" ]]; then
+      # Use the livehosts module to enumerate subdomains and detect live hosts.
+      # This will produce $dir/subs/all-subs.txt and $dir/subs/live-subs.txt
+      log_info "Invoking livehosts module: $livehosts_script get -d $domain -t $threads"
+      # Run in subshell to avoid set -e causing exit on non-zero; livehosts.sh already handles failures gracefully.
+      "$livehosts_script" get -d "$domain" -t "$threads" || log_warn "livehosts module exited with non-zero status"
+    else
+      log_warn "livehosts module not found at $livehosts_script. This project centralizes subdomain enumeration & live-host detection in that module; please ensure it exists."
+    fi
 
-      # Report counts if files exist
-      if [[ -s "$dir/subs/all-subs.txt" ]]; then
-        local sub_count=$(wc -l < "$dir/subs/all-subs.txt")
-        log_success "Found $sub_count unique subdomains (post-enum)"
-      fi
+    # Report counts if files exist
+    if [[ -s "$dir/subs/all-subs.txt" ]]; then
+      local sub_count=$(wc -l < "$dir/subs/all-subs.txt")
+      log_success "Found $sub_count unique subdomains (post-enum)"
+    fi
 
-      if [[ -s "$dir/subs/live-subs.txt" ]]; then
-        local live_count=$(wc -l < "$dir/subs/live-subs.txt")
-        log_success "Found $live_count live hosts (post-enum)"
-      fi
+    if [[ -s "$dir/subs/live-subs.txt" ]]; then
+      local live_count=$(wc -l < "$dir/subs/live-subs.txt")
+      log_success "Found $live_count live hosts (post-enum)"
     fi
 
     # Ensure live hosts exist
@@ -138,7 +143,7 @@ nuclei_run() {
       # Try to get live hosts from database
       if ! ensure_live_hosts "$domain" "$target_file"; then
         log_error "Failed to get live hosts for $domain"
-        log_info "Try running with -e flag to perform subdomain enumeration"
+        log_info "Subdomain/livehost enumeration is automatic for domain scans"
         exit 1
       fi
     fi
@@ -180,6 +185,9 @@ run_nuclei_scan() {
     panels)
       run_panels_scan "$target_file" "$output_dir" "$threads" "$target_name"
       ;;
+    default-logins)
+      run_default_logins_scan "$target_file" "$output_dir" "$threads" "$target_name"
+      ;;
   esac
 }
 
@@ -190,7 +198,7 @@ run_full_scan() {
   local target_name="$4"
 
   log_info "=== Running FULL scan mode ==="
-  log_info "This includes all custom and public templates"
+  log_info "This includes all custom and public templates (and will also run CVEs and Panels scans)"
 
   local results=()
 
@@ -200,7 +208,7 @@ run_full_scan() {
     local custom_out="$output_dir/nuclei-custom-others.txt"
 
     nuclei -l "$target_file" \
-      -t "$ROOT_DIR/nuclei_templates/Others/" \
+      -t "$ROOT_DIR/nuclei_templates/" \
       -c "$threads" \
       -silent \
       -duc \
@@ -381,6 +389,74 @@ run_panels_scan() {
     log_success "Panels scan completed with ${#results[@]} result file(s)"
   else
     log_info "Panels scan completed with no findings"
+  fi
+}
+
+run_default_logins_scan() {
+  local target_file="$1"
+  local output_dir="$2"
+  local threads="$3"
+  local target_name="$4"
+
+  log_info "=== Running Default Logins scan ==="
+
+  local results=()
+
+  # 1. Scan with custom default logins templates
+  if [[ -d "$ROOT_DIR/nuclei_templates/default-logins" ]]; then
+    log_info "Scanning with custom default logins templates (nuclei_templates/default-logins)..."
+    local custom_logins_out="$output_dir/nuclei-custom-default-logins.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei_templates/default-logins/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$custom_logins_out" \
+      2>/dev/null || true
+
+    if [[ -s "$custom_logins_out" ]]; then
+      local count=$(wc -l < "$custom_logins_out")
+      log_success "Found $count default login findings with custom templates"
+      results+=("$custom_logins_out")
+      discord_file "$custom_logins_out" "🔑 Nuclei Default Logins - Custom Templates ($target_name)"
+    else
+      log_info "No default login findings with custom templates"
+    fi
+  else
+    log_warn "Custom default logins templates directory not found: nuclei_templates/default-logins"
+  fi
+
+  # 2. Scan with public default logins templates
+  if [[ -d "$ROOT_DIR/nuclei-templates/http/default-logins" ]]; then
+    log_info "Scanning with public default logins templates (nuclei-templates/http/default-logins)..."
+    local public_logins_out="$output_dir/nuclei-public-default-logins.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei-templates/http/default-logins/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$public_logins_out" \
+      2>/dev/null || true
+
+    if [[ -s "$public_logins_out" ]]; then
+      local count=$(wc -l < "$public_logins_out")
+      log_success "Found $count default login findings with public templates"
+      results+=("$public_logins_out")
+      discord_file "$public_logins_out" "🌐 Nuclei Default Logins - Public Templates ($target_name)"
+    else
+      log_info "No default login findings with public templates"
+    fi
+  else
+    log_warn "Public default logins templates directory not found: nuclei-templates/http/default-logins"
+  fi
+
+  # Summary
+  if [[ ${#results[@]} -gt 0 ]]; then
+    log_success "Default logins scan completed with ${#results[@]} result file(s)"
+  else
+    log_info "Default logins scan completed with no findings"
   fi
 }
 
