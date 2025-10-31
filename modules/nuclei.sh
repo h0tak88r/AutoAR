@@ -7,45 +7,358 @@ source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { 
-  echo "Usage: nuclei run -d <domain> [-t <threads>]"
-  echo "  -d, --domain     Target domain to scan"
-  echo "  -t, --threads    Number of threads for nuclei (default: 100)"
+usage() {
+  cat << EOF
+Usage: nuclei run [OPTIONS]
+
+Options:
+  -d, --domain <domain>        Target domain
+  -u, --url <url>              Single URL to scan (skips subdomain enumeration)
+  -m, --mode <mode>            Scan mode: full, cves, panels (default: full)
+  -e, --enum                   Perform subdomain enumeration first
+  -t, --threads <num>          Number of threads (default: 100)
+  -h, --help                   Show this help message
+
+Scan Modes:
+  full      - Scan with all custom (nuclei_templates/Others) and public (nuclei-templates/http) templates
+  cves      - Scan only with CVE templates (nuclei_templates/cves + nuclei-templates/http/cves)
+  panels    - Scan only with panel discovery templates (nuclei-templates/http/exposed-panels)
+
+Examples:
+  # Full scan with subdomain enumeration
+  nuclei run -d example.com -e -m full
+
+  # CVEs scan on a single URL (no subdomain enum)
+  nuclei run -u https://example.com -m cves
+
+  # Panel discovery with subdomain enumeration
+  nuclei run -d example.com -e -m panels
+
+  # Full scan on existing subdomains (no new enum)
+  nuclei run -d example.com -m full
+EOF
 }
 
 nuclei_run() {
-  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
+  local domain="" url="" mode="full" do_enum=false threads="100"
+
+  while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -u|--url) url="$2"; shift 2;;
+      -m|--mode) mode="$2"; shift 2;;
+      -e|--enum) do_enum=true; shift;;
       -t|--threads) threads="$2"; shift 2;;
-      *) usage; exit 1;;
+      -h|--help) usage; exit 0;;
+      *) log_error "Unknown option: $1"; usage; exit 1;;
     esac
   done
-  [[ -z "$domain" ]] && { usage; exit 1; }
 
-  local dir subs_dir out1 out2
-  dir="$(results_dir "$domain")"
-  subs_dir="$dir/subs"
-  out1="$dir/vulnerabilities/nuclei_templates-results.txt"
-  out2="$dir/vulnerabilities/nuclei-templates-results.txt"
-  ensure_dir "$(dirname "$out1")"
-  
-  # Ensure live hosts exist (from DB or live host check)
-  ensure_live_hosts "$domain" "$subs_dir/live-subs.txt" || { log_warn "Failed to get live hosts for $domain"; exit 1; }
+  # Validation
+  [[ -z "$domain" && -z "$url" ]] && { log_error "Either -d (domain) or -u (url) must be provided"; usage; exit 1; }
+  [[ -n "$domain" && -n "$url" ]] && { log_error "Cannot use both -d and -u together"; usage; exit 1; }
+  [[ ! "$mode" =~ ^(full|cves|panels)$ ]] && { log_error "Invalid mode: $mode. Must be full, cves, or panels"; exit 1; }
 
-  if command -v nuclei >/dev/null 2>&1; then
-    log_info "Running nuclei with $threads threads"
-    [[ -s "$subs_dir/live-subs.txt" ]] && nuclei -l "$subs_dir/live-subs.txt" -t nuclei_templates/Others -c "$threads" -o "$out1" >/dev/null 2>&1 || true
-    [[ -s "$subs_dir/live-subs.txt" ]] && nuclei -l "$subs_dir/live-subs.txt" -t nuclei-templates/http -c "$threads" -o "$out2" >/dev/null 2>&1 || true
+  # Check if nuclei is installed
+  if ! command -v nuclei >/dev/null 2>&1; then
+    log_error "Nuclei is not installed or not in PATH"
+    exit 1
   fi
 
-  [[ -s "$out1" ]] && discord_send_file "$out1" "Nuclei custom template results"
-  [[ -s "$out2" ]] && discord_send_file "$out2" "Nuclei public template results"
+  local target_file="" dir="" output_dir=""
+
+  # Handle URL mode (single URL, no subdomain enum)
+  if [[ -n "$url" ]]; then
+    log_info "Single URL mode: $url"
+
+    # Extract domain from URL for directory structure
+    local extracted_domain=$(echo "$url" | awk -F[/:] '{print $4}')
+    dir="$(results_dir "$extracted_domain")"
+    output_dir="$dir/vulnerabilities"
+    ensure_dir "$output_dir"
+
+    # Create temporary URL file
+    target_file="$dir/temp-url.txt"
+    echo "$url" > "$target_file"
+
+    log_info "Running Nuclei in $mode mode on single URL"
+    run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads"
+
+    # Cleanup
+    rm -f "$target_file"
+
+  # Handle domain mode
+  else
+    log_info "Domain mode: $domain"
+    dir="$(results_dir "$domain")"
+    output_dir="$dir/vulnerabilities"
+    ensure_dir "$output_dir"
+
+    # Perform subdomain enumeration if requested
+    if [[ "$do_enum" == true ]]; then
+      log_info "Performing subdomain enumeration for $domain"
+
+      # Run subdomain enumeration
+      if command -v subfinder >/dev/null 2>&1; then
+        log_info "Running subfinder..."
+        ensure_dir "$dir/subs"
+        subfinder -d "$domain" -o "$dir/subs/all-subs.txt" -silent 2>/dev/null || true
+      else
+        log_warn "Subfinder not found, checking database for subdomains"
+      fi
+
+      # Get subdomains from database
+      if [[ -f "$ROOT_DIR/python/db_handler.py" ]]; then
+        log_info "Fetching subdomains from database..."
+        "$ROOT_DIR/python/db_handler.py" get-subdomains "$domain" >> "$dir/subs/all-subs.txt" 2>/dev/null || true
+      fi
+
+      # Remove duplicates
+      if [[ -s "$dir/subs/all-subs.txt" ]]; then
+        sort -u "$dir/subs/all-subs.txt" -o "$dir/subs/all-subs.txt"
+        local sub_count=$(wc -l < "$dir/subs/all-subs.txt")
+        log_success "Found $sub_count unique subdomains"
+      fi
+
+      # Check which subdomains are alive
+      log_info "Checking live hosts..."
+      if command -v httpx >/dev/null 2>&1 && [[ -s "$dir/subs/all-subs.txt" ]]; then
+        httpx -l "$dir/subs/all-subs.txt" -o "$dir/subs/live-subs.txt" -silent 2>/dev/null || true
+
+        if [[ -s "$dir/subs/live-subs.txt" ]]; then
+          local live_count=$(wc -l < "$dir/subs/live-subs.txt")
+          log_success "Found $live_count live hosts"
+        fi
+      fi
+    fi
+
+    # Ensure live hosts exist
+    target_file="$dir/subs/live-subs.txt"
+
+    if [[ ! -s "$target_file" ]]; then
+      log_warn "No live hosts file found, trying to get from database..."
+      ensure_dir "$dir/subs"
+
+      # Try to get live hosts from database
+      if ! ensure_live_hosts "$domain" "$target_file"; then
+        log_error "Failed to get live hosts for $domain"
+        log_info "Try running with -e flag to perform subdomain enumeration"
+        exit 1
+      fi
+    fi
+
+    if [[ ! -s "$target_file" ]]; then
+      log_error "No targets found to scan"
+      exit 1
+    fi
+
+    local target_count=$(wc -l < "$target_file")
+    log_info "Running Nuclei in $mode mode on $target_count targets"
+
+    run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads"
+  fi
+
+  log_success "Nuclei scan completed successfully!"
+}
+
+run_nuclei_scan() {
+  local target_file="$1"
+  local output_dir="$2"
+  local mode="$3"
+  local threads="$4"
+
+  ensure_dir "$output_dir"
+
+  case "$mode" in
+    full)
+      run_full_scan "$target_file" "$output_dir" "$threads"
+      ;;
+    cves)
+      run_cves_scan "$target_file" "$output_dir" "$threads"
+      ;;
+    panels)
+      run_panels_scan "$target_file" "$output_dir" "$threads"
+      ;;
+  esac
+}
+
+run_full_scan() {
+  local target_file="$1"
+  local output_dir="$2"
+  local threads="$3"
+
+  log_info "=== Running FULL scan mode ==="
+  log_info "This includes all custom and public templates"
+
+  local results=()
+
+  # 1. Scan with custom templates (nuclei_templates/Others)
+  if [[ -d "$ROOT_DIR/nuclei_templates/Others" ]]; then
+    log_info "Scanning with custom templates (nuclei_templates/Others)..."
+    local custom_out="$output_dir/nuclei-custom-others.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei_templates/Others/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$custom_out" \
+      2>/dev/null || true
+
+    if [[ -s "$custom_out" ]]; then
+      local count=$(wc -l < "$custom_out")
+      log_success "Found $count findings with custom templates"
+      results+=("$custom_out")
+      discord_file "$custom_out" "🎯 Nuclei Full Scan - Custom Templates (nuclei_templates/Others)"
+    else
+      log_info "No findings with custom templates"
+    fi
+  fi
+
+  # 2. Scan with public HTTP templates (nuclei-templates/http)
+  if [[ -d "$ROOT_DIR/nuclei-templates/http" ]]; then
+    log_info "Scanning with public HTTP templates (nuclei-templates/http)..."
+    local public_out="$output_dir/nuclei-public-http.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei-templates/http/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$public_out" \
+      2>/dev/null || true
+
+    if [[ -s "$public_out" ]]; then
+      local count=$(wc -l < "$public_out")
+      log_success "Found $count findings with public HTTP templates"
+      results+=("$public_out")
+      discord_file "$public_out" "🌐 Nuclei Full Scan - Public HTTP Templates"
+    else
+      log_info "No findings with public HTTP templates"
+    fi
+  fi
+
+  # Summary
+  if [[ ${#results[@]} -gt 0 ]]; then
+    log_success "Full scan completed with ${#results[@]} result file(s)"
+  else
+    log_info "Full scan completed with no findings"
+  fi
+}
+
+run_cves_scan() {
+  local target_file="$1"
+  local output_dir="$2"
+  local threads="$3"
+
+  log_info "=== Running CVEs scan mode ==="
+  log_info "This includes custom and public CVE templates"
+
+  local results=()
+
+  # 1. Scan with custom CVE templates
+  if [[ -d "$ROOT_DIR/nuclei_templates/cves" ]]; then
+    log_info "Scanning with custom CVE templates (nuclei_templates/cves)..."
+    local custom_cves_out="$output_dir/nuclei-custom-cves.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei_templates/cves/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$custom_cves_out" \
+      2>/dev/null || true
+
+    if [[ -s "$custom_cves_out" ]]; then
+      local count=$(wc -l < "$custom_cves_out")
+      log_success "Found $count CVE findings with custom templates"
+      results+=("$custom_cves_out")
+      discord_file "$custom_cves_out" "🔴 Nuclei CVEs - Custom Templates"
+    else
+      log_info "No CVE findings with custom templates"
+    fi
+  else
+    log_warn "Custom CVE templates directory not found: nuclei_templates/cves"
+  fi
+
+  # 2. Scan with public CVE templates
+  if [[ -d "$ROOT_DIR/nuclei-templates/http/cves" ]]; then
+    log_info "Scanning with public CVE templates (nuclei-templates/http/cves)..."
+    local public_cves_out="$output_dir/nuclei-public-cves.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei-templates/http/cves/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$public_cves_out" \
+      2>/dev/null || true
+
+    if [[ -s "$public_cves_out" ]]; then
+      local count=$(wc -l < "$public_cves_out")
+      log_success "Found $count CVE findings with public templates"
+      results+=("$public_cves_out")
+      discord_file "$public_cves_out" "🌐 Nuclei CVEs - Public Templates"
+    else
+      log_info "No CVE findings with public templates"
+    fi
+  else
+    log_warn "Public CVE templates directory not found: nuclei-templates/http/cves"
+  fi
+
+  # Summary
+  if [[ ${#results[@]} -gt 0 ]]; then
+    log_success "CVEs scan completed with ${#results[@]} result file(s)"
+  else
+    log_info "CVEs scan completed with no findings"
+  fi
+}
+
+run_panels_scan() {
+  local target_file="$1"
+  local output_dir="$2"
+  local threads="$3"
+
+  log_info "=== Running Panels Discovery scan mode ==="
+
+  local results=()
+
+  # Scan with exposed-panels templates
+  if [[ -d "$ROOT_DIR/nuclei-templates/http/exposed-panels" ]]; then
+    log_info "Scanning with exposed panels templates (nuclei-templates/http/exposed-panels)..."
+    local panels_out="$output_dir/nuclei-exposed-panels.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei-templates/http/exposed-panels/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$panels_out" \
+      2>/dev/null || true
+
+    if [[ -s "$panels_out" ]]; then
+      local count=$(wc -l < "$panels_out")
+      log_success "Found $count exposed panels"
+      results+=("$panels_out")
+      discord_file "$panels_out" "🎛️ Nuclei Panels Discovery - Exposed Panels"
+    else
+      log_info "No exposed panels found"
+    fi
+  else
+    log_error "Exposed panels templates directory not found: nuclei-templates/http/exposed-panels"
+    exit 1
+  fi
+
+  # Summary
+  if [[ ${#results[@]} -gt 0 ]]; then
+    log_success "Panels scan completed with ${#results[@]} result file(s)"
+  else
+    log_info "Panels scan completed with no findings"
+  fi
 }
 
 case "${1:-}" in
   run) shift; nuclei_run "$@" ;;
+  -h|--help|help) usage; exit 0;;
   *) usage; exit 1;;
 esac
-
-
