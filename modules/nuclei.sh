@@ -101,39 +101,30 @@ nuclei_run() {
 
     # Perform subdomain enumeration if requested
     if [[ "$do_enum" == true ]]; then
-      log_info "Performing subdomain enumeration for $domain"
+      log_info "Performing subdomain enumeration and live-host detection for $domain using livehosts module"
+      ensure_dir "$dir/subs"
 
-      # Run subdomain enumeration
-      if command -v subfinder >/dev/null 2>&1; then
-        log_info "Running subfinder..."
-        ensure_dir "$dir/subs"
-        subfinder -d "$domain" -o "$dir/subs/all-subs.txt" -silent 2>/dev/null || true
+      local livehosts_script="$ROOT_DIR/modules/livehosts.sh"
+
+      if [[ -f "$livehosts_script" ]]; then
+        # Use the livehosts module to enumerate subdomains and detect live hosts.
+        # This will produce $dir/subs/all-subs.txt and $dir/subs/live-subs.txt
+        log_info "Invoking livehosts module: $livehosts_script get -d $domain -t $threads"
+        # Run in subshell to avoid set -e causing exit on non-zero; livehosts.sh already handles failures gracefully.
+        "$livehosts_script" get -d "$domain" -t "$threads" || log_warn "livehosts module exited with non-zero status"
       else
-        log_warn "Subfinder not found, checking database for subdomains"
+        log_warn "livehosts module not found at $livehosts_script. This project centralizes subdomain enumeration & live-host detection in that module; please ensure it exists."
       fi
 
-      # Get subdomains from database
-      if [[ -f "$ROOT_DIR/python/db_handler.py" ]]; then
-        log_info "Fetching subdomains from database..."
-        "$ROOT_DIR/python/db_handler.py" get-subdomains "$domain" >> "$dir/subs/all-subs.txt" 2>/dev/null || true
-      fi
-
-      # Remove duplicates
+      # Report counts if files exist
       if [[ -s "$dir/subs/all-subs.txt" ]]; then
-        sort -u "$dir/subs/all-subs.txt" -o "$dir/subs/all-subs.txt"
         local sub_count=$(wc -l < "$dir/subs/all-subs.txt")
-        log_success "Found $sub_count unique subdomains"
+        log_success "Found $sub_count unique subdomains (post-enum)"
       fi
 
-      # Check which subdomains are alive
-      log_info "Checking live hosts..."
-      if command -v httpx >/dev/null 2>&1 && [[ -s "$dir/subs/all-subs.txt" ]]; then
-        httpx -l "$dir/subs/all-subs.txt" -o "$dir/subs/live-subs.txt" -silent 2>/dev/null || true
-
-        if [[ -s "$dir/subs/live-subs.txt" ]]; then
-          local live_count=$(wc -l < "$dir/subs/live-subs.txt")
-          log_success "Found $live_count live hosts"
-        fi
+      if [[ -s "$dir/subs/live-subs.txt" ]]; then
+        local live_count=$(wc -l < "$dir/subs/live-subs.txt")
+        log_success "Found $live_count live hosts (post-enum)"
       fi
     fi
 
