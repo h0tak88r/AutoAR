@@ -65,11 +65,12 @@ nuclei_run() {
     exit 1
   fi
 
-  local target_file="" dir="" output_dir=""
+  local target_file="" dir="" output_dir="" target_name=""
 
   # Handle URL mode (single URL, no subdomain enum)
   if [[ -n "$url" ]]; then
     log_info "Single URL mode: $url"
+    target_name="$url"
 
     # Extract domain from URL for directory structure
     local extracted_domain=$(echo "$url" | awk -F[/:] '{print $4}')
@@ -81,8 +82,11 @@ nuclei_run() {
     target_file="$dir/temp-url.txt"
     echo "$url" > "$target_file"
 
+    # Send scan start notification
+    discord_send "🚀 Nuclei scan started for: $url (mode: $mode)"
+
     log_info "Running Nuclei in $mode mode on single URL"
-    run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads"
+    run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads" "$target_name"
 
     # Cleanup
     rm -f "$target_file"
@@ -90,6 +94,7 @@ nuclei_run() {
   # Handle domain mode
   else
     log_info "Domain mode: $domain"
+    target_name="$domain"
     dir="$(results_dir "$domain")"
     output_dir="$dir/vulnerabilities"
     ensure_dir "$output_dir"
@@ -155,10 +160,14 @@ nuclei_run() {
     local target_count=$(wc -l < "$target_file")
     log_info "Running Nuclei in $mode mode on $target_count targets"
 
-    run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads"
+    # Send scan start notification
+    discord_send "🚀 Nuclei scan started for: $domain (mode: $mode, targets: $target_count)"
+
+    run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads" "$target_name"
   fi
 
   log_success "Nuclei scan completed successfully!"
+  discord_send "✅ Nuclei scan completed successfully for: $target_name (mode: $mode)"
 }
 
 run_nuclei_scan() {
@@ -166,18 +175,19 @@ run_nuclei_scan() {
   local output_dir="$2"
   local mode="$3"
   local threads="$4"
+  local target_name="$5"
 
   ensure_dir "$output_dir"
 
   case "$mode" in
     full)
-      run_full_scan "$target_file" "$output_dir" "$threads"
+      run_full_scan "$target_file" "$output_dir" "$threads" "$target_name"
       ;;
     cves)
-      run_cves_scan "$target_file" "$output_dir" "$threads"
+      run_cves_scan "$target_file" "$output_dir" "$threads" "$target_name"
       ;;
     panels)
-      run_panels_scan "$target_file" "$output_dir" "$threads"
+      run_panels_scan "$target_file" "$output_dir" "$threads" "$target_name"
       ;;
   esac
 }
@@ -186,6 +196,7 @@ run_full_scan() {
   local target_file="$1"
   local output_dir="$2"
   local threads="$3"
+  local target_name="$4"
 
   log_info "=== Running FULL scan mode ==="
   log_info "This includes all custom and public templates"
@@ -209,7 +220,7 @@ run_full_scan() {
       local count=$(wc -l < "$custom_out")
       log_success "Found $count findings with custom templates"
       results+=("$custom_out")
-      discord_file "$custom_out" "🎯 Nuclei Full Scan - Custom Templates (nuclei_templates/Others)"
+      discord_file "$custom_out" "🎯 Nuclei Full Scan - Custom Templates ($target_name)"
     else
       log_info "No findings with custom templates"
     fi
@@ -232,7 +243,7 @@ run_full_scan() {
       local count=$(wc -l < "$public_out")
       log_success "Found $count findings with public HTTP templates"
       results+=("$public_out")
-      discord_file "$public_out" "🌐 Nuclei Full Scan - Public HTTP Templates"
+      discord_file "$public_out" "🌐 Nuclei Full Scan - Public HTTP Templates ($target_name)"
     else
       log_info "No findings with public HTTP templates"
     fi
@@ -250,6 +261,7 @@ run_cves_scan() {
   local target_file="$1"
   local output_dir="$2"
   local threads="$3"
+  local target_name="$4"
 
   log_info "=== Running CVEs scan mode ==="
   log_info "This includes custom and public CVE templates"
@@ -273,7 +285,7 @@ run_cves_scan() {
       local count=$(wc -l < "$custom_cves_out")
       log_success "Found $count CVE findings with custom templates"
       results+=("$custom_cves_out")
-      discord_file "$custom_cves_out" "🔴 Nuclei CVEs - Custom Templates"
+      discord_file "$custom_cves_out" "🔴 Nuclei CVEs - Custom Templates ($target_name)"
     else
       log_info "No CVE findings with custom templates"
     fi
@@ -298,7 +310,7 @@ run_cves_scan() {
       local count=$(wc -l < "$public_cves_out")
       log_success "Found $count CVE findings with public templates"
       results+=("$public_cves_out")
-      discord_file "$public_cves_out" "🌐 Nuclei CVEs - Public Templates"
+      discord_file "$public_cves_out" "🌐 Nuclei CVEs - Public Templates ($target_name)"
     else
       log_info "No CVE findings with public templates"
     fi
@@ -323,30 +335,54 @@ run_panels_scan() {
 
   local results=()
 
-  # Scan with exposed-panels templates
+  # 1. Scan with custom panels templates (nuclei_templates/panels)
+  if [[ -d "$ROOT_DIR/nuclei_templates/panels" ]]; then
+    log_info "Scanning with custom panel templates (nuclei_templates/panels - 1019+ templates)..."
+    local custom_panels_out="$output_dir/nuclei-custom-panels.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei_templates/panels/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$custom_panels_out" \
+      2>/dev/null || true
+
+    if [[ -s "$custom_panels_out" ]]; then
+      local count=$(wc -l < "$custom_panels_out")
+      log_success "Found $count panels with custom templates"
+      results+=("$custom_panels_out")
+      discord_file "$custom_panels_out" "🎯 Nuclei Panels Discovery - Custom Templates (1019+ Panels)"
+    else
+      log_info "No panels found with custom templates"
+    fi
+  else
+    log_warn "Custom panels templates directory not found: nuclei_templates/panels"
+  fi
+
+  # 2. Scan with public exposed-panels templates
   if [[ -d "$ROOT_DIR/nuclei-templates/http/exposed-panels" ]]; then
-    log_info "Scanning with exposed panels templates (nuclei-templates/http/exposed-panels)..."
-    local panels_out="$output_dir/nuclei-exposed-panels.txt"
+    log_info "Scanning with public exposed panels templates (nuclei-templates/http/exposed-panels)..."
+    local public_panels_out="$output_dir/nuclei-public-panels.txt"
 
     nuclei -l "$target_file" \
       -t "$ROOT_DIR/nuclei-templates/http/exposed-panels/" \
       -c "$threads" \
       -silent \
       -duc \
-      -o "$panels_out" \
+      -o "$public_panels_out" \
       2>/dev/null || true
 
-    if [[ -s "$panels_out" ]]; then
-      local count=$(wc -l < "$panels_out")
-      log_success "Found $count exposed panels"
-      results+=("$panels_out")
-      discord_file "$panels_out" "🎛️ Nuclei Panels Discovery - Exposed Panels"
+    if [[ -s "$public_panels_out" ]]; then
+      local count=$(wc -l < "$public_panels_out")
+      log_success "Found $count exposed panels with public templates"
+      results+=("$public_panels_out")
+      discord_file "$public_panels_out" "🌐 Nuclei Panels Discovery - Public Templates"
     else
-      log_info "No exposed panels found"
+      log_info "No exposed panels found with public templates"
     fi
   else
-    log_error "Exposed panels templates directory not found: nuclei-templates/http/exposed-panels"
-    exit 1
+    log_warn "Public exposed panels templates directory not found: nuclei-templates/http/exposed-panels"
   fi
 
   # Summary
