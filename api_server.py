@@ -47,7 +47,9 @@ class ScanRequest(BaseModel):
     subdomain: Optional[str] = Field(
         None, description="Specific subdomain (for JS scan)"
     )
-    url: Optional[str] = Field(None, description="Target URL (for monitoring)")
+    url: Optional[str] = Field(
+        None, description="Target URL (for nuclei scan or monitoring)"
+    )
     bucket: Optional[str] = Field(None, description="S3 bucket name")
     region: Optional[str] = Field(None, description="AWS region")
     repo: Optional[str] = Field(None, description="GitHub repo (owner/repo)")
@@ -57,6 +59,9 @@ class ScanRequest(BaseModel):
     interval: Optional[int] = Field(None, description="Monitoring interval in seconds")
     all: Optional[bool] = Field(False, description="Apply to all monitored targets")
     daemon: Optional[bool] = Field(False, description="Run as daemon")
+    mode: Optional[str] = Field(
+        "full", description="Nuclei scan mode: full, cves, panels, or default-logins"
+    )
 
 
 class ScanResponse(BaseModel):
@@ -302,19 +307,41 @@ async def scan_reflection(background_tasks: BackgroundTasks, request: ScanReques
 # Nuclei Scan
 @app.post("/scan/nuclei", response_model=ScanResponse)
 async def scan_nuclei(background_tasks: BackgroundTasks, request: ScanRequest):
-    """Run Nuclei vulnerability scanner."""
-    if not request.domain:
-        raise HTTPException(status_code=400, detail="Domain is required")
+    """Run Nuclei vulnerability scanner with customizable modes."""
+    if not request.domain and not request.url:
+        raise HTTPException(status_code=400, detail="Either domain or url is required")
+
+    if request.domain and request.url:
+        raise HTTPException(
+            status_code=400, detail="Cannot use both domain and url together"
+        )
 
     scan_id = str(uuid.uuid4())
-    command = [AUTOAR_SCRIPT_PATH, "nuclei", "run", "-d", request.domain]
+    command = [AUTOAR_SCRIPT_PATH, "nuclei", "run"]
 
-    background_tasks.add_task(execute_scan, scan_id, command, "nuclei")
+    # Add target (domain or url)
+    if request.domain:
+        command.extend(["-d", request.domain])
+        target = request.domain
+    else:
+        command.extend(["-u", request.url])
+        target = request.url
+
+    # Add mode (full, cves, panels, or default-logins)
+    mode = request.mode or "full"
+    if mode not in ["full", "cves", "panels", "default-logins"]:
+        raise HTTPException(
+            status_code=400, detail="Mode must be full, cves, panels, or default-logins"
+        )
+    command.extend(["-m", mode])
+    # Subdomain/livehost enumeration is automatic for domain scans
+
+    background_tasks.add_task(execute_scan, scan_id, command, f"nuclei-{mode}")
 
     return ScanResponse(
         scan_id=scan_id,
         status="started",
-        message=f"Nuclei scan started for {request.domain}",
+        message=f"Nuclei {mode} scan started for {target}",
         command=" ".join(command),
     )
 
