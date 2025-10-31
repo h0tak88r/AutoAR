@@ -363,7 +363,7 @@ check_one() {
         save_state "$url" hash "$h"
         log_success "Change detected - hash at $url"
         echo "$url | change=hash | at=$(date -u +%FT%TZ)"
-        
+
         db_insert_event "$url" "hash" "$h" || true
         notify_discord_change "$url" "hash" "content hash changed"
       else
@@ -378,7 +378,7 @@ check_one() {
         save_state "$url" size "$size"
         log_success "Change detected - size=$size at $url"
         echo "$url | change=size | size=$size"
-        
+
         db_insert_event "$url" "size" "$size" || true
         notify_discord_change "$url" "size" "content size=$size"
       else
@@ -396,7 +396,7 @@ check_one() {
         save_state "$url" header "$now_val"
         log_success "Change detected - headers at $url"
         echo "$url | change=headers | etag=$etag | lm=$lm"
-        
+
         db_insert_event "$url" "headers" "$now_val" || true
         notify_discord_change "$url" "headers" "etag=$etag lm=$lm"
       else
@@ -411,7 +411,7 @@ check_one() {
         save_state "$url" match "$match"
         log_success "Change detected - regex=$match at $url"
         echo "$url | change=regex | match=$match"
-        
+
         db_insert_event "$url" "regex" "$match" || true
         notify_discord_change "$url" "regex" "match=$match"
       else
@@ -455,7 +455,7 @@ is_running() {
 }
 
 monitor_start() {
-  local url="" interval=900 daemon=false monitor_all=false
+  local url="" interval=86400 daemon=false monitor_all=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -u|--url) url="$2"; shift 2 ;;
@@ -465,7 +465,7 @@ monitor_start() {
       *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
     esac
   done
-  
+
   # If --all, start monitors for all targets from DB
   if [[ "$monitor_all" == true ]]; then
     local count=0
@@ -476,19 +476,81 @@ monitor_start() {
         log_warn "No targets found in database"
         return 0
       fi
+      echo "Starting monitors for all database targets..."
+      echo "DEBUG: Total rows from DB: $(echo "$rows" | wc -l)"
+      echo "DEBUG: Raw rows data:"
+      echo "$rows"
+      echo "DEBUG: Starting while loop..."
       while IFS='|' read -r t_url t_strategy t_pattern; do
-        [[ -z "$t_url" ]] && continue
+        echo "DEBUG: Loop iteration $count - URL: '$t_url' - Strategy: '$t_strategy' - Pattern: '$t_pattern'"
+        [[ -z "$t_url" ]] && { echo "DEBUG: Empty URL, skipping"; continue; }
+        echo "DEBUG: Saving meta for $t_url"
         save_meta "$t_url" "$t_strategy" "$t_pattern"
         # If no state file yet, take initial snapshot to verify pattern
-        if [[ ! -f "$(target_dir "$t_url")/state.txt" ]]; then initial_snapshot "$t_url" || true; fi
-        monitor_start -u "$t_url" --interval "$interval" --daemon || true
+        if [[ ! -f "$(target_dir "$t_url")/state.txt" ]]; then
+          echo "DEBUG: Taking initial snapshot for $t_url"
+          initial_snapshot "$t_url" || true
+        else
+          echo "DEBUG: State file exists for $t_url"
+        fi
+
+        # Start monitor for this target
+        local t_dir t_pid_file
+        t_dir="$(target_dir "$t_url")"
+        echo "DEBUG: Target dir: $t_dir"
+        mkdir -p "$t_dir"
+        t_pid_file="$t_dir/monitor.pid"
+        t_log_file="$t_dir/monitor.log"
+        echo "DEBUG: PID file: $t_pid_file"
+
+        # Check if already running
+        if [[ -f "$t_pid_file" ]]; then
+          local oldpid
+          oldpid="$(cat "$t_pid_file" 2>/dev/null || true)"
+          if is_running "$oldpid"; then
+            log_warn "[${count}] Monitor already running for $t_url (PID: $oldpid)"
+            ((count++))
+            continue
+          fi
+        fi
+
+        # Start daemon for this URL using nohup (same as single-target mode)
+        # Use escaped variables for proper expansion in subshell
+        echo "DEBUG: About to start nohup for $t_url with interval=$interval"
+        nohup bash -c "
+          echo \$BASHPID > \"$t_pid_file\"
+          while true; do
+            \"$ROOT_DIR/modules/updates.sh\" check -u \"$t_url\" || true
+            sleep $interval
+            [[ -f \"$t_pid_file\" ]] || break
+          done
+        " >> "$t_log_file" 2>&1 & disown
+
+        sleep 0.2
+        echo "DEBUG: Checking if PID file was created: $t_pid_file"
+        if [[ -f "$t_pid_file" ]]; then
+          local check_pid=$(cat "$t_pid_file" 2>/dev/null)
+          if is_running "$check_pid"; then
+            echo "DEBUG: Process $check_pid is running for $t_url"
+          else
+            echo "DEBUG: WARNING - Process $check_pid is NOT running for $t_url (immediately crashed?)"
+            [[ -f "$t_log_file" ]] && echo "DEBUG: Log file contents:" && head -20 "$t_log_file"
+          fi
+        else
+          echo "DEBUG: ERROR - PID file not created for $t_url"
+        fi
+
+        log_success "[${count}] Started monitor - daemon for $t_url - interval=${interval}s"
         ((count++))
+        echo "DEBUG: Completed iteration $count, continuing to next..."
       done <<< "$rows"
+      echo "DEBUG: Loop finished, processed $count targets"
     fi
-    log_success "Started monitors for $count targets - interval=${interval}s"
+    echo ""
+    log_success "✓ Started monitors for $count target(s) - interval=${interval}s ($(($interval / 3600)) hours)"
     return 0
   fi
-  
+
   # Single target mode
   [[ -n "$url" ]] || { log_error "URL is required - or use --all"; exit 1; }
   local dir pid_file log_file
@@ -507,26 +569,27 @@ monitor_start() {
     fi
   fi
 
-  monitor_loop() {
-    local m_url="$1" m_interval="$2"
-    while true; do
-      "$ROOT_DIR/modules/updates.sh" check -u "$m_url" || true
-      sleep "$m_interval"
-      # If pid file removed, stop
-      local dir
-      dir="$(target_dir "$m_url")"
-      [[ -f "$dir/monitor.pid" ]] || break
-    done
-  }
-
   if [[ "$daemon" == true ]]; then
-    nohup bash -c "echo \$BASHPID > '$pid_file'; monitor_loop '$url' '$interval'" \
-      >> "$log_file" 2>&1 & disown
+    # Inline the monitor loop code directly in nohup (same as --all mode)
+    nohup bash -c "
+      echo \$BASHPID > \"$pid_file\"
+      while true; do
+        \"$ROOT_DIR/modules/updates.sh\" check -u \"$url\" || true
+        sleep $interval
+        [[ -f \"$pid_file\" ]] || break
+      done
+    " >> "$log_file" 2>&1 & disown
     log_success "Started monitor - daemon for $url - interval=${interval}s"
   else
+    # Non-daemon mode - run monitor loop in foreground
     echo $$ > "$pid_file"
     log_success "Started monitor for $url - interval=${interval}s"
-    monitor_loop "$url" "$interval"
+    while true; do
+      "$ROOT_DIR/modules/updates.sh" check -u "$url" || true
+      sleep "$interval"
+      # If pid file removed, stop
+      [[ -f "$pid_file" ]] || break
+    done
   fi
 }
 
@@ -539,7 +602,7 @@ monitor_stop() {
       *) log_error "Unknown option: $1"; print_updates_usage; exit 1 ;;
     esac
   done
-  
+
   # If --all, stop all monitors for DB targets
   if [[ "$stop_all" == true ]]; then
     local count=0 stopped=0
@@ -565,7 +628,7 @@ monitor_stop() {
     log_success "Stopped $stopped monitors out of $count targets"
     return 0
   fi
-  
+
   # Single target mode
   [[ -n "$url" ]] || { log_error "URL is required - or use --all"; exit 1; }
   local dir pid_file
