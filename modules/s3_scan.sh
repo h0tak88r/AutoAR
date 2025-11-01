@@ -6,7 +6,7 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: s3 scan -b <bucket> [-r <region>] [--no-sign] | s3 enum -b <root-domain>"; }
+usage() { echo "Usage: s3 scan -b <bucket> [-r <region>] [--no-sign] | s3 enum -b <root-domain>"; exit 0; }
 
 # S3 test file variables
 S3_TEST_FILE="s3_test_file.txt"
@@ -98,25 +98,27 @@ check_s3_curl_permission_all_styles() {
     # Phase 1: Try standard URLs first (no region specified)
     if [[ -z "$region" ]]; then
         log_info "Phase 1: Testing standard S3 URLs (no region)"
-        urls=$(get_all_s3_urls "$object" "$bucket" "")
+        urls=$(get_all_s3_urls "$object" "$bucket" "") || true
     else
         log_info "Phase 1: Testing with specified region: $region"
-        urls=$(get_all_s3_urls "$object" "$bucket" "$region")
+        urls=$(get_all_s3_urls "$object" "$bucket" "$region") || true
     fi
+
+    [[ -z "$urls" ]] && { log_warn "No URLs generated for testing"; return 0; }
 
     for url in $urls; do
         log_info "Testing ${perm_name} at $url"
-        local result
+        local result="000"
         if [[ "$method" == "GET" ]]; then
-            result=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+            result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null || echo "000")
         elif [[ "$method" == "PUT" ]]; then
             if [[ -f "$file" ]]; then
-                result=$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data-binary "@$file" "$url")
+                result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 -X PUT --data-binary "@$file" "$url" 2>/dev/null || echo "000")
             else
-                result=$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data "test" "$url")
+                result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 -X PUT --data "test" "$url" 2>/dev/null || echo "000")
             fi
         elif [[ "$method" == "DELETE" ]]; then
-            result=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$url")
+            result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 -X DELETE "$url" 2>/dev/null || echo "000")
         fi
 
         if [[ "$result" =~ ^(200|201|204)$ ]]; then
@@ -131,21 +133,23 @@ check_s3_curl_permission_all_styles() {
     # Phase 2: If no region specified and no vulnerabilities found, try all regions
     if [[ -z "$region" && "$found_vulnerable" == false && "$test_all_regions" == true ]]; then
         log_info "Phase 2: No vulnerabilities found in standard URLs, testing all regions..."
-        urls=$(get_all_s3_urls_with_all_regions "$object" "$bucket")
+        urls=$(get_all_s3_urls_with_all_regions "$object" "$bucket") || true
+        
+        [[ -z "$urls" ]] && { log_warn "No URLs generated for Phase 2 testing"; return 0; }
 
         for url in $urls; do
             log_info "Testing ${perm_name} at $url"
-            local result
+            local result="000"
             if [[ "$method" == "GET" ]]; then
-                result=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+                result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null || echo "000")
             elif [[ "$method" == "PUT" ]]; then
                 if [[ -f "$file" ]]; then
-                    result=$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data-binary "@$file" "$url")
+                    result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 -X PUT --data-binary "@$file" "$url" 2>/dev/null || echo "000")
                 else
-                    result=$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data "test" "$url")
+                    result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 -X PUT --data "test" "$url" 2>/dev/null || echo "000")
                 fi
             elif [[ "$method" == "DELETE" ]]; then
-                result=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$url")
+                result=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 -X DELETE "$url" 2>/dev/null || echo "000")
             fi
 
             if [[ "$result" =~ ^(200|201|204)$ ]]; then
@@ -161,21 +165,23 @@ check_s3_curl_permission_all_styles() {
     if [[ "$found_vulnerable" == true ]]; then
         return 0
     else
-        return 1
+        return 0  # Always return 0 to prevent script exit due to set -e
     fi
 }
 
 s3_scan() {
-  local bucket="" region="" no_sign=false
+  local bucket="" region="" no_sign=false verbose=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -b|--bucket) bucket="$2"; shift 2;;
       -r|--region) region="$2"; shift 2;;
       -n|--no-sign|--no-sign-request) no_sign=true; shift;;
-      *) usage; exit 1;;
+      -v|--verbose) verbose=true; shift;;
+      -h|--help) usage; exit 0;;
+      *) log_error "Unknown option: $1"; usage; exit 1;;
     esac
   done
-  [[ -z "$bucket" ]] && { usage; exit 1; }
+  [[ -z "$bucket" ]] && { log_error "Bucket name is required"; usage; exit 1; }
 
   log_info "Starting comprehensive S3 bucket scan for: $bucket"
 
@@ -286,10 +292,10 @@ s3_scan() {
   } >> "$curl_results"
 
   # Test different operations (Phase 1: Standard URLs, Phase 2: All regions if no region specified)
-  check_s3_curl_permission_all_styles "List (GET /)" "GET" "" "" "$curl_results" "$bucket" "$region" "true"
-  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE)" "GET" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region" "true"
-  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$curl_results" "$bucket" "$region" "true"
-  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE)" "DELETE" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "List (GET /)" "GET" "" "" "$curl_results" "$bucket" "$region" "true" || true
+  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE)" "GET" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region" "true" || true
+  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$curl_results" "$bucket" "$region" "true" || true
+  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE)" "DELETE" "$S3_TEST_FILE" "" "$curl_results" "$bucket" "$region" "true" || true
 
   # Test public/anonymous access
   log_info "Testing public/anonymous access..."
@@ -324,10 +330,10 @@ s3_scan() {
   fi
 
   # Repeat curl-based permission checks for all S3 URL styles (public) - Phase 1: Standard, Phase 2: All regions
-  check_s3_curl_permission_all_styles "List (GET /, public)" "GET" "" "" "$public_results" "$bucket" "$region" "true"
-  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE, public)" "GET" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region" "true"
-  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE, public)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$public_results" "$bucket" "$region" "true"
-  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE, public)" "DELETE" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region" "true"
+  check_s3_curl_permission_all_styles "List (GET /, public)" "GET" "" "" "$public_results" "$bucket" "$region" "true" || true
+  check_s3_curl_permission_all_styles "Download (GET /$S3_TEST_FILE, public)" "GET" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region" "true" || true
+  check_s3_curl_permission_all_styles "Upload (PUT /$S3_TEST_FILE, public)" "PUT" "$S3_TEST_FILE" "$S3_LOCAL_FILE" "$public_results" "$bucket" "$region" "true" || true
+  check_s3_curl_permission_all_styles "Delete (DELETE /$S3_TEST_FILE, public)" "DELETE" "$S3_TEST_FILE" "" "$public_results" "$bucket" "$region" "true" || true
 
   # Generate simple summary
   {
