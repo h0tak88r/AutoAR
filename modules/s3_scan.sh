@@ -347,11 +347,11 @@ s3_scan() {
   # Clean up local test file
   rm -f "$S3_LOCAL_FILE"
 
-  # Combine all results into a single comprehensive file
-  local combined_results="$s3_dir/s3-scan-results.txt"
+  # Create detailed results file (all results for debugging)
+  local detailed_results="$s3_dir/s3-scan-detailed.txt"
   {
-      echo "S3 BUCKET SCAN RESULTS"
-      echo "======================"
+      echo "S3 BUCKET SCAN - DETAILED RESULTS"
+      echo "=================================="
       echo "Bucket: $bucket"
       echo "Region: ${region:-'default'}"
       echo "Date: $(date)"
@@ -378,17 +378,89 @@ s3_scan() {
           echo ""
       fi
 
-  } > "$combined_results"
+  } > "$detailed_results"
+
+  # Create success-only results file (only vulnerabilities found)
+  local success_results="$s3_dir/s3-scan-vulnerabilities.txt"
+  local has_vulnerabilities=false
+  
+  {
+      echo "S3 BUCKET SCAN - VULNERABILITIES FOUND"
+      echo "======================================"
+      echo "Bucket: $bucket"
+      echo "Region: ${region:-'default'}"
+      echo "Date: $(date)"
+      echo ""
+      echo "This file contains ONLY successful permission checks (vulnerabilities found)."
+      echo "For detailed results including all denied attempts, see: s3-scan-detailed.txt"
+      echo ""
+      echo "─────────────────────────────────────────────────────────────────────────────"
+      echo ""
+
+      # Check AWS CLI results for ALLOWED
+      if [[ -s "$aws_results" ]]; then
+          allowed_aws=$(grep -E "\[ALLOWED\]" "$aws_results" || true)
+          if [[ -n "$allowed_aws" ]]; then
+              has_vulnerabilities=true
+              echo "AWS CLI PERMISSIONS - VULNERABILITIES:"
+              echo "-------------------------------------"
+              echo "$allowed_aws"
+              echo ""
+          fi
+      fi
+
+      # Check curl results for ALLOWED
+      if [[ -s "$curl_results" ]]; then
+          allowed_curl=$(grep -E "\[ALLOWED\]" "$curl_results" || true)
+          if [[ -n "$allowed_curl" ]]; then
+              has_vulnerabilities=true
+              echo "CURL PERMISSIONS - VULNERABILITIES:"
+              echo "----------------------------------"
+              echo "$allowed_curl"
+              echo ""
+          fi
+      fi
+
+      # Check public access results for ALLOWED
+      if [[ -s "$public_results" ]]; then
+          allowed_public=$(grep -E "\[ALLOWED\]" "$public_results" || true)
+          if [[ -n "$allowed_public" ]]; then
+              has_vulnerabilities=true
+              echo "PUBLIC ACCESS - VULNERABILITIES:"
+              echo "-------------------------------"
+              echo "$allowed_public"
+              echo ""
+          fi
+      fi
+
+      if [[ "$has_vulnerabilities" == false ]]; then
+          echo "✅ No vulnerabilities found."
+          echo "All permission checks were denied (secure configuration)."
+      fi
+
+  } > "$success_results"
+
+  # Count vulnerabilities
+  local vuln_count=0
+  local count_result
+  count_result=$(grep -h "\[ALLOWED\]" "$aws_results" "$curl_results" "$public_results" 2>/dev/null | wc -l || echo "0")
+  vuln_count=$((count_result))
 
   log_success "S3 bucket scan completed for $bucket"
-  log_info "Results saved in: $s3_dir"
+  if [[ "$has_vulnerabilities" == true ]]; then
+      log_info "Vulnerabilities found! See: $success_results"
+      log_info "Detailed results (all checks): $detailed_results"
+  else
+      log_info "No vulnerabilities found. All permission checks denied."
+      log_info "Detailed results saved in: $detailed_results"
+  fi
 
   # Send results to Discord
-  if [[ -s "$combined_results" ]]; then
-      discord_send "✅ S3 scan completed for bucket: $bucket. Results attached."
-      discord_file "$combined_results" "S3 Scan Results for $bucket"
+  if [[ "$has_vulnerabilities" == true && -s "$success_results" ]]; then
+      discord_send "⚠️ **S3 scan completed for bucket: $bucket** - Found $vuln_count vulnerable permission(s)!"
+      discord_file "$success_results" "S3 Vulnerabilities for $bucket"
   else
-      discord_send "ℹ️ S3 scan completed for bucket: $bucket. No findings."
+      discord_send "✅ **S3 scan completed for bucket: $bucket** - No vulnerabilities found. All permissions are properly secured."
   fi
 }
 
