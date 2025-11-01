@@ -376,6 +376,14 @@ s3_scan() {
 
   log_success "S3 bucket scan completed for $bucket"
   log_info "Results saved in: $s3_dir"
+
+  # Send results to Discord
+  if [[ -s "$combined_results" ]]; then
+      discord_send "✅ S3 scan completed for bucket: $bucket. Results attached."
+      discord_file "$combined_results" "S3 Scan Results for $bucket"
+  else
+      discord_send "ℹ️ S3 scan completed for bucket: $bucket. No findings."
+  fi
 }
 
 S3_MUTATIONS_DEFAULT=( "" "-files" "-data" "-backup" "-static" "-uploads" "-assets" "-media" "-images" "-docs" "-api" "-storage" "-logs" "-tmp" "-web" "-admin" )
