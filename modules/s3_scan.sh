@@ -171,34 +171,6 @@ check_s3_curl_permission_all_styles() {
 
 s3_scan() {
   local bucket="" region="" no_sign=false verbose=false
-  local discord_sent=false
-  
-  # Initialize result file paths (will be set later)
-  local success_results_path=""
-  
-  # Trap to ensure Discord notification is sent on exit (if webhook is available)
-  cleanup_and_notify() {
-    if [[ "$discord_sent" == false && -n "${DISCORD_WEBHOOK:-}" ]]; then
-      if [[ -n "$success_results_path" && -f "$success_results_path" ]]; then
-        log_info "Sending Discord notification (exit handler)..."
-        local has_vulns=false
-        grep -q "\[ALLOWED\]" "$success_results_path" 2>/dev/null && has_vulns=true || has_vulns=false
-        local vuln_count=0
-        vuln_count=$(grep -h "\[ALLOWED\]" "$success_results_path" 2>/dev/null | wc -l || echo "0")
-        if [[ "$has_vulns" == true ]]; then
-          discord_send "⚠️ **S3 scan completed for bucket: $bucket** - Found $vuln_count vulnerable permission(s)!" || true
-          discord_file "$success_results_path" "S3 Vulnerabilities for $bucket" || true
-        else
-          discord_send "✅ **S3 scan completed for bucket: $bucket** - No vulnerabilities found. All permissions are properly secured." || true
-        fi
-      else
-        # Fallback notification if results file doesn't exist
-        discord_send "⚠️ **S3 scan for bucket: $bucket** completed with unknown status. Check logs for details." || true
-      fi
-    fi
-  }
-  trap cleanup_and_notify EXIT
-  
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -b|--bucket) bucket="$2"; shift 2;;
@@ -212,13 +184,6 @@ s3_scan() {
   [[ -z "$bucket" ]] && { log_error "Bucket name is required"; usage; exit 1; }
 
   log_info "Starting comprehensive S3 bucket scan for: $bucket"
-  
-  # Check Discord webhook availability
-  if [[ -z "${DISCORD_WEBHOOK:-}" ]]; then
-    log_warn "DISCORD_WEBHOOK not set - Discord notifications will be skipped"
-  else
-    log_info "Discord webhook configured - notifications will be sent"
-  fi
 
   local dir; dir="$(results_dir "s3_$bucket")"
   local s3_dir="$dir/vulnerabilities/s3"
@@ -382,11 +347,11 @@ s3_scan() {
   # Clean up local test file
   rm -f "$S3_LOCAL_FILE"
 
-  # Create detailed results file (all results for debugging)
-  local detailed_results="$s3_dir/s3-scan-detailed.txt"
+  # Combine all results into a single comprehensive file
+  local combined_results="$s3_dir/s3-scan-results.txt"
   {
-      echo "S3 BUCKET SCAN - DETAILED RESULTS"
-      echo "=================================="
+      echo "S3 BUCKET SCAN RESULTS"
+      echo "======================"
       echo "Bucket: $bucket"
       echo "Region: ${region:-'default'}"
       echo "Date: $(date)"
@@ -413,99 +378,17 @@ s3_scan() {
           echo ""
       fi
 
-  } > "$detailed_results"
-
-  # Create success-only results file (only vulnerabilities found)
-  success_results_path="$s3_dir/s3-scan-vulnerabilities.txt"
-  local success_results="$s3_dir/s3-scan-vulnerabilities.txt"
-  local detailed_results="$s3_dir/s3-scan-detailed.txt"
-  local has_vulnerabilities=false
-  
-  {
-      echo "S3 BUCKET SCAN - VULNERABILITIES FOUND"
-      echo "======================================"
-      echo "Bucket: $bucket"
-      echo "Region: ${region:-'default'}"
-      echo "Date: $(date)"
-      echo ""
-      echo "This file contains ONLY successful permission checks (vulnerabilities found)."
-      echo "For detailed results including all denied attempts, see: s3-scan-detailed.txt"
-      echo ""
-      echo "─────────────────────────────────────────────────────────────────────────────"
-      echo ""
-
-      # Check AWS CLI results for ALLOWED
-      if [[ -s "$aws_results" ]]; then
-          allowed_aws=$(grep -E "\[ALLOWED\]" "$aws_results" || true)
-          if [[ -n "$allowed_aws" ]]; then
-              has_vulnerabilities=true
-              echo "AWS CLI PERMISSIONS - VULNERABILITIES:"
-              echo "-------------------------------------"
-              echo "$allowed_aws"
-              echo ""
-          fi
-      fi
-
-      # Check curl results for ALLOWED
-      if [[ -s "$curl_results" ]]; then
-          allowed_curl=$(grep -E "\[ALLOWED\]" "$curl_results" || true)
-          if [[ -n "$allowed_curl" ]]; then
-              has_vulnerabilities=true
-              echo "CURL PERMISSIONS - VULNERABILITIES:"
-              echo "----------------------------------"
-              echo "$allowed_curl"
-              echo ""
-          fi
-      fi
-
-      # Check public access results for ALLOWED
-      if [[ -s "$public_results" ]]; then
-          allowed_public=$(grep -E "\[ALLOWED\]" "$public_results" || true)
-          if [[ -n "$allowed_public" ]]; then
-              has_vulnerabilities=true
-              echo "PUBLIC ACCESS - VULNERABILITIES:"
-              echo "-------------------------------"
-              echo "$allowed_public"
-              echo ""
-          fi
-      fi
-
-      if [[ "$has_vulnerabilities" == false ]]; then
-          echo "✅ No vulnerabilities found."
-          echo "All permission checks were denied (secure configuration)."
-      fi
-
-  } > "$success_results"
-
-  # Count vulnerabilities
-  local vuln_count=0
-  local count_result
-  count_result=$(grep -h "\[ALLOWED\]" "$aws_results" "$curl_results" "$public_results" 2>/dev/null | wc -l || echo "0")
-  vuln_count=$((count_result))
+  } > "$combined_results"
 
   log_success "S3 bucket scan completed for $bucket"
-  if [[ "$has_vulnerabilities" == true ]]; then
-      log_info "Vulnerabilities found! See: $success_results"
-      log_info "Detailed results (all checks): $detailed_results"
-  else
-      log_info "No vulnerabilities found. All permission checks denied."
-      log_info "Detailed results saved in: $detailed_results"
-  fi
+  log_info "Results saved in: $s3_dir"
 
   # Send results to Discord
-  discord_sent=true
-  log_info "Preparing Discord notification..."
-  
-  if [[ -z "${DISCORD_WEBHOOK:-}" ]]; then
-    log_warn "DISCORD_WEBHOOK not set - skipping Discord notification"
-    log_warn "Set DISCORD_WEBHOOK environment variable to receive notifications"
-  elif [[ "$has_vulnerabilities" == true && -s "$success_results" ]]; then
-    log_info "Sending Discord notification: Vulnerabilities found ($vuln_count)"
-    discord_send "⚠️ **S3 scan completed for bucket: $bucket** - Found $vuln_count vulnerable permission(s)!" && log_success "Discord message sent" || log_warn "Discord message failed"
-    discord_file "$success_results" "S3 Vulnerabilities for $bucket" && log_success "Discord file sent" || log_warn "Discord file failed"
+  if [[ -s "$combined_results" ]]; then
+      discord_send "✅ S3 scan completed for bucket: $bucket. Results attached."
+      discord_file "$combined_results" "S3 Scan Results for $bucket"
   else
-    log_info "Sending Discord notification: No vulnerabilities found"
-    discord_send "✅ **S3 scan completed for bucket: $bucket** - No vulnerabilities found. All permissions are properly secured." && log_success "Discord message sent" || log_warn "Discord message failed"
+      discord_send "ℹ️ S3 scan completed for bucket: $bucket. No findings."
   fi
 }
 
