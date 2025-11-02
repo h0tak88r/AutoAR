@@ -62,6 +62,7 @@ class ScanRequest(BaseModel):
     mode: Optional[str] = Field(
         "full", description="Nuclei scan mode: full, cves, panels, or default-logins"
     )
+    skip_js: Optional[bool] = Field(False, description="Skip JavaScript scanning step (for lite scan)")
 
 
 class ScanResponse(BaseModel):
@@ -467,6 +468,33 @@ async def scan_github(background_tasks: BackgroundTasks, request: ScanRequest):
         scan_id=scan_id,
         status="started",
         message=f"GitHub scan started for {request.repo}",
+        command=" ".join(command),
+    )
+
+
+# Lite Scan
+@app.post("/scan/lite", response_model=ScanResponse)
+async def scan_lite(background_tasks: BackgroundTasks, request: ScanRequest):
+    """Perform a lite domain scan."""
+    if not request.domain:
+        raise HTTPException(status_code=400, detail="Domain is required")
+
+    scan_id = str(uuid.uuid4())
+    command = [AUTOAR_SCRIPT_PATH, "lite", "run", "-d", request.domain]
+
+    if request.skip_js:
+        command.append("--skip-js")
+
+    background_tasks.add_task(execute_scan, scan_id, command, "lite")
+
+    message = f"Lite scan started for {request.domain}"
+    if request.skip_js:
+        message += " (JavaScript scanning skipped)"
+
+    return ScanResponse(
+        scan_id=scan_id,
+        status="started",
+        message=message,
         command=" ".join(command),
     )
 

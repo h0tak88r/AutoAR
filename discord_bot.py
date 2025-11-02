@@ -243,9 +243,17 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(name="lite_scan", description="Perform a lite domain scan")
-    @app_commands.describe(domain="The domain to scan", verbose="Enable verbose output")
+    @app_commands.describe(
+        domain="The domain to scan",
+        verbose="Enable verbose output",
+        skip_js="Skip JavaScript scanning step",
+    )
     async def lite_scan(
-        self, interaction: discord.Interaction, domain: str, verbose: bool = False
+        self,
+        interaction: discord.Interaction,
+        domain: str,
+        verbose: bool = False,
+        skip_js: bool = False,
     ):
         """Perform a lite domain scan."""
         scan_id = f"lite_{int(time.time())}"
@@ -253,6 +261,8 @@ class AutoARBot(commands.Cog):
         command = [AUTOAR_SCRIPT_PATH, "lite", "run", "-d", domain]
         if verbose:
             command.append("-v")
+        if skip_js:
+            command.append("--skip-js")
 
         active_scans[scan_id] = {
             "type": "lite",
