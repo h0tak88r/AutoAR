@@ -356,22 +356,38 @@ github_scan() {
         fi
         
         # Send progress notification
-        discord_send_progress "🔍 **Scanning GitHub repository: $repo_name**"
+        discord_send_progress "**Scanning GitHub repository: $repo_name**"
         
         # Disable TruffleHog auto-update to prevent updater errors
         export TRUFFLEHOG_NO_UPDATE=true
         export TRUFFLEHOG_AUTOUPDATE=false
-        if trufflehog filesystem "$temp_dir/$repo_name" --json --no-update > "$secrets_file" 2>&1; then
+        local trufflehog_log="$temp_dir/trufflehog.log"
+        if trufflehog filesystem "$temp_dir/$repo_name" --json --no-update > "$secrets_file" 2>"$trufflehog_log"; then
             # Convert newline-delimited JSON to JSON array for counting
             local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
             if [[ -s "$secrets_file" ]]; then
-                # Filter out any non-finding log lines; keep only real findings
-                jq -s '[.[] | select(.DetectorName != null)]' "$secrets_file" > "$temp_json_array" 2>/dev/null || echo "[]" > "$temp_json_array"
+                # TruffleHog outputs NDJSON (newline-delimited JSON)
+                # Extract only lines that start with { (valid JSON objects)
+                # and convert them to a JSON array
+                grep -E '^\s*\{' "$secrets_file" | jq -s '.' > "$temp_json_array" 2>/dev/null || {
+                    # If grep fails or finds nothing, try parsing the whole file
+                    # This handles cases where there might be non-JSON lines mixed in
+                    jq -R 'select(length > 0) | fromjson' "$secrets_file" | jq -s '.' > "$temp_json_array" 2>/dev/null || echo "[]" > "$temp_json_array"
+                }
+                
+                # Now filter out any empty or invalid entries
+                jq '[.[] | select(. != null and . != {})]' "$temp_json_array" > "${temp_json_array}.tmp" 2>/dev/null && mv "${temp_json_array}.tmp" "$temp_json_array" || true
             else
                 echo "[]" > "$temp_json_array"
             fi
             
             local secret_count=$(jq '. | length' "$temp_json_array" 2>/dev/null || echo "0")
+            
+            # Debug: Log file sizes and counts
+            if [[ "$verbose" == "true" ]]; then
+                log_info "TruffleHog output file size: $(wc -l < "$secrets_file" 2>/dev/null || echo 0) lines"
+                log_info "Parsed JSON array contains: $secret_count secrets"
+            fi
             
             if [[ "$secret_count" -gt 0 ]]; then
                 log_success "Found $secret_count secrets in $repo_name"
