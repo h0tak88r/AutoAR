@@ -440,6 +440,36 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(
+        name="github_experimental_scan",
+        description="Scan GitHub repository using TruffleHog experimental mode with object discovery",
+    )
+    @app_commands.describe(
+        repo="GitHub repository (owner/repo)", verbose="Enable verbose output"
+    )
+    async def github_experimental_scan(
+        self, interaction: discord.Interaction, repo: str, verbose: bool = False
+    ):
+        """Scan GitHub repository using TruffleHog experimental mode."""
+        scan_id = f"github_experimental_{int(time.time())}"
+
+        command = [AUTOAR_SCRIPT_PATH, "github", "experimental", "-r", repo]
+        if verbose:
+            command.append("-v")
+
+        active_scans[scan_id] = {
+            "type": "github_experimental",
+            "target": repo,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+        }
+
+        embed = self.create_scan_embed("GitHub Experimental Scan", repo, "running")
+        await interaction.response.send_message(embed=embed)
+
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(
         name="wp_depconf", description="WordPress dependency confusion scan"
     )
     @app_commands.describe(

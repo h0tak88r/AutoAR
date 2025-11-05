@@ -50,6 +50,7 @@ Commands:
   github scan         -r <owner/repo>
   github org          -o <org> [-m <max-repos>]
   github depconfusion -r <owner/repo>
+  github experimental -r <owner/repo>
   github-wordlist scan -o <github_org> [-t <github_token>]
   backup scan            -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
   backup scan            -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [-d <delay>]
