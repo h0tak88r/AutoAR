@@ -722,7 +722,7 @@ github_org_scan() {
     fi
     
     # Send progress notification
-    discord_send_progress "🔍 **Scanning GitHub organization: $org_name** (max $max_repos repos)"
+    discord_send_progress "**Scanning GitHub organization: $org_name** (max $max_repos repos)"
     
     log_info "Running TruffleHog with GitHub token..."
     # Disable TruffleHog auto-update to prevent updater errors
@@ -747,8 +747,12 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "$total_secrets"
             
-            # Send HTML report to Discord
-            discord_file "$html_report" "GitHub Organization Secrets Report for $org_name"
+            # Send summary message to Discord
+            discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`$total_secrets\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
+            discord_file "$html_report" "**GitHub Organization Secrets Report (HTML) for \`$org_name\`**"
             
             log_success "Organization scan completed for $org_name - Found $total_secrets secrets"
         else
@@ -758,8 +762,12 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "0"
             
-            # Send HTML report to Discord
-            discord_file "$html_report" "GitHub Organization Secrets Report for $org_name (No secrets found)"
+            # Send summary message to Discord
+            discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
+            discord_file "$html_report" "**GitHub Organization Secrets Report (HTML) for \`$org_name\`**"
             
             log_success "Organization scan completed for $org_name - No secrets found"
         fi
