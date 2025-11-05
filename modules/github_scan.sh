@@ -356,20 +356,48 @@ github_scan() {
     export TRUFFLEHOG_NO_UPDATE=true
     export TRUFFLEHOG_AUTOUPDATE=false
     
-    # Build trufflehog command with token if available
-    local trufflehog_cmd=("trufflehog" "git" "$repo_url" "--json" "--no-update")
+    # Set GitHub token as environment variable (trufflehog git may not support --token flag)
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        trufflehog_cmd+=("--token" "$GITHUB_TOKEN")
-        log_info "Using GitHub token for improved rate limits"
+        export GITHUB_TOKEN
+        export GH_TOKEN="$GITHUB_TOKEN"
+        log_info "Using GitHub token for improved rate limits (via environment variable)"
     fi
     
     # Use trufflehog git to scan the repository directly (scans commit history)
-    if "${trufflehog_cmd[@]}" > "$secrets_file" 2>&1; then
+    # Note: trufflehog git doesn't support --token flag, use environment variables instead
+    if trufflehog git "$repo_url" --json --no-update > "$secrets_file" 2>&1; then
+        # Debug: Check what TruffleHog actually returned
+        if [[ "$verbose" == "true" ]]; then
+            log_info "TruffleHog output file size: $(wc -l < "$secrets_file" 2>/dev/null || echo 0) lines"
+            if [[ -s "$secrets_file" ]]; then
+                log_info "First 3 lines of TruffleHog output:"
+                head -3 "$secrets_file" | while IFS= read -r line; do
+                    log_info "  $line"
+                done
+            fi
+        fi
+        
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
         if [[ -s "$secrets_file" ]]; then
             # Filter out any non-finding log lines; keep only real findings
-            jq -s '[.[] | select(.DetectorName != null)]' "$secrets_file" > "$temp_json_array" 2>/dev/null || echo "[]" > "$temp_json_array"
+            # First try to parse as NDJSON (newline-delimited JSON)
+            jq -s '[.[] | select(.DetectorName != null)]' "$secrets_file" > "$temp_json_array" 2>/dev/null || {
+                # If that fails, try parsing line by line
+                if [[ "$verbose" == "true" ]]; then
+                    log_warn "Failed to parse as NDJSON, trying line-by-line parsing"
+                fi
+                echo "[]" > "$temp_json_array"
+                while IFS= read -r line; do
+                    if [[ -n "$line" ]]; then
+                        # Try to parse each line as JSON
+                        if echo "$line" | jq -e '.DetectorName != null' >/dev/null 2>&1; then
+                            # This line is a valid finding, add it to the array
+                            jq --argjson new "$line" '. += [$new]' "$temp_json_array" > "${temp_json_array}.tmp" && mv "${temp_json_array}.tmp" "$temp_json_array"
+                        fi
+                    fi
+                done < "$secrets_file"
+            }
         else
             echo "[]" > "$temp_json_array"
         fi
