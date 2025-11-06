@@ -347,6 +347,12 @@ github_scan() {
         return 1
     fi
     
+    # Test TruffleHog installation
+    local trufflehog_version=$(trufflehog --version 2>&1 || echo "unknown")
+    if [[ "$verbose" == "true" ]]; then
+        log_info "TruffleHog version: $trufflehog_version"
+    fi
+    
     # Send progress notification
     discord_send_progress "🔍 **Scanning GitHub repository: $repo_name**"
     
@@ -365,17 +371,67 @@ github_scan() {
     
     # Use trufflehog git to scan the repository directly (scans commit history)
     # Note: trufflehog git doesn't support --token flag, use environment variables instead
-    if trufflehog git "$repo_url" --json --no-update > "$secrets_file" 2>&1; then
-        # Debug: Check what TruffleHog actually returned
-        if [[ "$verbose" == "true" ]]; then
-            log_info "TruffleHog output file size: $(wc -l < "$secrets_file" 2>/dev/null || echo 0) lines"
-            if [[ -s "$secrets_file" ]]; then
-                log_info "First 3 lines of TruffleHog output:"
-                head -3 "$secrets_file" | while IFS= read -r line; do
-                    log_info "  $line"
-                done
+    local trufflehog_stderr="$temp_dir/trufflehog_stderr.log"
+    
+    # Log the exact command being run
+    if [[ "$verbose" == "true" ]]; then
+        log_info "Running command: trufflehog git \"$repo_url\" --json --no-update"
+    fi
+    
+    # Run trufflehog and capture both stdout and stderr separately
+    local trufflehog_exit=0
+    trufflehog git "$repo_url" --json --no-update > "$secrets_file" 2> "$trufflehog_stderr" || trufflehog_exit=$?
+    
+    # If remote git scan returns empty output, try cloning and scanning locally
+    if [[ ! -s "$secrets_file" && $trufflehog_exit -ne 0 ]]; then
+        log_info "Remote git scan returned empty, trying to clone and scan locally..."
+        
+        # Clone the repository
+        local cloned_repo="$temp_dir/$repo_name"
+        if git clone --depth 1 "$repo_url" "$cloned_repo" 2>/dev/null; then
+            log_info "Cloned repository successfully, scanning local clone..."
+            
+            # Try scanning the cloned repository
+            trufflehog git "$cloned_repo" --json --no-update > "$secrets_file" 2> "$trufflehog_stderr" || trufflehog_exit=$?
+            
+            if [[ "$verbose" == "true" ]]; then
+                log_info "Local scan exit code: $trufflehog_exit"
+                log_info "Local scan output size: $(wc -l < "$secrets_file" 2>/dev/null || echo 0) lines"
             fi
+        else
+            log_warn "Failed to clone repository, continuing with empty results"
         fi
+    fi
+    
+    # Check stderr for errors
+    if [[ -s "$trufflehog_stderr" ]]; then
+        log_warn "TruffleHog stderr output:"
+        cat "$trufflehog_stderr" | while IFS= read -r line; do
+            log_warn "  $line"
+        done
+    fi
+    
+    # Debug: Check what TruffleHog actually returned
+    if [[ "$verbose" == "true" ]]; then
+        log_info "TruffleHog exit code: $trufflehog_exit"
+        log_info "TruffleHog stdout file size: $(wc -l < "$secrets_file" 2>/dev/null || echo 0) lines"
+        log_info "TruffleHog stderr file size: $(wc -l < "$trufflehog_stderr" 2>/dev/null || echo 0) lines"
+        if [[ -s "$secrets_file" ]]; then
+            log_info "First 5 lines of TruffleHog stdout:"
+            head -5 "$secrets_file" | while IFS= read -r line; do
+                log_info "  $line"
+            done
+        fi
+        if [[ -s "$trufflehog_stderr" ]]; then
+            log_info "First 5 lines of TruffleHog stderr:"
+            head -5 "$trufflehog_stderr" | while IFS= read -r line; do
+                log_info "  $line"
+            done
+        fi
+    fi
+    
+    # Process output even if exit code is non-zero (some TruffleHog versions return non-zero on findings)
+    if [[ $trufflehog_exit -eq 0 || -s "$secrets_file" ]]; then
         
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
@@ -428,14 +484,22 @@ github_scan() {
             log_success "GitHub scan completed for $repo_name - No secrets found"
         fi
     else
-        log_error "TruffleHog scan failed for $repo_name"
+        log_error "TruffleHog scan failed for $repo_name (exit code: $trufflehog_exit)"
+        if [[ -s "$trufflehog_stderr" ]]; then
+            log_error "TruffleHog stderr:"
+            cat "$trufflehog_stderr" | head -20
+            if [[ $(wc -l < "$trufflehog_stderr") -gt 20 ]]; then
+                log_error "... (truncated, see full output in $trufflehog_stderr)"
+            fi
+        fi
         if [[ -s "$secrets_file" ]]; then
-            log_error "TruffleHog output:"
+            log_error "TruffleHog stdout:"
             cat "$secrets_file" | head -20
             if [[ $(wc -l < "$secrets_file") -gt 20 ]]; then
                 log_error "... (truncated, see full output in $secrets_file)"
             fi
         fi
+        log_error "TruffleHog command that failed: trufflehog git \"$repo_url\" --json --no-update"
         return 1
     fi
     
