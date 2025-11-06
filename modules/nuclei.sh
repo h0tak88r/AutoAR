@@ -531,6 +531,31 @@ run_vulnerabilities_scan() {
     log_warn "Public vulnerability templates directory not found: nuclei-templates/http/vulnerabilities"
   fi
 
+  # 3. Scan with DAST vulnerability templates (nuclei-templates/dast/vulnerabilities)
+  if [[ -d "$ROOT_DIR/nuclei-templates/dast/vulnerabilities" ]]; then
+    log_info "Scanning with DAST vulnerability templates (nuclei-templates/dast/vulnerabilities)..."
+    local dast_vulns_out="$output_dir/nuclei-dast-vulnerabilities.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei-templates/dast/vulnerabilities/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$dast_vulns_out" \
+      2>/dev/null || true
+
+    if [[ -s "$dast_vulns_out" ]]; then
+      local count=$(wc -l < "$dast_vulns_out")
+      log_success "Found $count vulnerability findings with DAST templates"
+      results+=("$dast_vulns_out")
+      discord_file "$dast_vulns_out" "**Nuclei Vulnerabilities - DAST Templates (\`$target_name\`)**"
+    else
+      log_info "No vulnerability findings with DAST templates"
+    fi
+  else
+    log_warn "DAST vulnerability templates directory not found: nuclei-templates/dast/vulnerabilities"
+  fi
+
   # Summary
   if [[ ${#results[@]} -gt 0 ]]; then
     log_success "Vulnerabilities scan completed with ${#results[@]} result file(s)"
