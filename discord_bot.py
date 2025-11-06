@@ -1033,7 +1033,7 @@ class AutoARBot(commands.Cog):
     @app_commands.describe(
         domain="The domain to scan (use either domain or url)",
         url="Single URL to scan (use either domain or url)",
-        mode="Scan mode: full, cves, panels, or default-logins (default: full)",
+        mode="Scan mode: full, cves, panels, default-logins, or vulnerabilities (default: full)",
         threads="Number of threads for nuclei (default: 100)",
     )
     @app_commands.choices(
@@ -1042,6 +1042,7 @@ class AutoARBot(commands.Cog):
             app_commands.Choice(name="CVEs Only", value="cves"),
             app_commands.Choice(name="Panels Discovery", value="panels"),
             app_commands.Choice(name="Default Logins Only", value="default-logins"),
+            app_commands.Choice(name="Generic Vulnerabilities", value="vulnerabilities"),
         ]
     )
     async def nuclei_cmd(
@@ -1486,7 +1487,7 @@ class AutoARBot(commands.Cog):
             )
             embed.add_field(
                 name="Other Commands",
-                value="• `/nuclei` - Nuclei scan (modes: full, cves, panels, default-logins)\n  (subdomain/livehost enumeration is automatic for domain scans)\n• `/ports` - Port scan\n• `/tech` - Tech detection\n• `/s3_scan` - S3 bucket scan\n• `/github_scan` - GitHub secrets scan",
+                value="• `/nuclei` - Nuclei scan (modes: full, cves, panels, default-logins, vulnerabilities)\n  (subdomain/livehost enumeration is automatic for domain scans)\n• `/ports` - Port scan\n• `/tech` - Tech detection\n• `/s3_scan` - S3 bucket scan\n• `/github_scan` - GitHub secrets scan",
                 inline=False,
             )
 
