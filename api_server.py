@@ -60,7 +60,7 @@ class ScanRequest(BaseModel):
     all: Optional[bool] = Field(False, description="Apply to all monitored targets")
     daemon: Optional[bool] = Field(False, description="Run as daemon")
     mode: Optional[str] = Field(
-        "full", description="Nuclei scan mode: full, cves, panels, or default-logins"
+        "full", description="Nuclei scan mode: full, cves, panels, default-logins, or vulnerabilities"
     )
     skip_js: Optional[bool] = Field(False, description="Skip JavaScript scanning step (for lite scan)")
 
@@ -328,11 +328,11 @@ async def scan_nuclei(background_tasks: BackgroundTasks, request: ScanRequest):
         command.extend(["-u", request.url])
         target = request.url
 
-    # Add mode (full, cves, panels, or default-logins)
+    # Add mode (full, cves, panels, default-logins, or vulnerabilities)
     mode = request.mode or "full"
-    if mode not in ["full", "cves", "panels", "default-logins"]:
+    if mode not in ["full", "cves", "panels", "default-logins", "vulnerabilities"]:
         raise HTTPException(
-            status_code=400, detail="Mode must be full, cves, panels, or default-logins"
+            status_code=400, detail="Mode must be full, cves, panels, default-logins, or vulnerabilities"
         )
     command.extend(["-m", mode])
     # Subdomain/livehost enumeration is automatic for domain scans
