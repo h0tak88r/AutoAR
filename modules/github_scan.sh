@@ -467,7 +467,12 @@ github_scan() {
             local html_report="$github_dir/${repo_name}_secrets.html"
             generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
             
-            # Discord notification will be handled by the bot automatically
+            # Send summary message to Discord
+            discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`$secret_count\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            discord_file "$html_report" "**GitHub Repository Secrets Report (HTML) for \`$repo_name\`**"
             
             log_success "GitHub scan completed for $repo_name - Found $secret_count secrets"
         else
@@ -479,7 +484,12 @@ github_scan() {
             echo "[]" > "$json_report"
             generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
             
-            # Discord notification will be handled by the bot automatically
+            # Send summary message to Discord
+            discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            discord_file "$html_report" "**GitHub Repository Secrets Report (HTML) for \`$repo_name\`**"
             
             log_success "GitHub scan completed for $repo_name - No secrets found"
         fi
