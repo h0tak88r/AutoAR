@@ -44,14 +44,20 @@ livehosts_get() {
   # Update database with live host information
   if [[ $live -gt 0 ]]; then
     log_info "Updating database with live host information"
-    while IFS= read -r subdomain; do
-      if [[ -n "$subdomain" ]]; then
-        # Extract protocol and status from httpx output if available
-        local http_url="http://$subdomain"
-        local https_url="https://$subdomain"
-        db_insert_subdomain "$domain" "$subdomain" true "$http_url" "$https_url"
-      fi
-    done < "$subs_dir/live-subs.txt"
+    if db_ensure_connection; then
+      # Initialize schema if needed
+      db_init_schema 2>/dev/null || true
+      while IFS= read -r subdomain; do
+        if [[ -n "$subdomain" ]]; then
+          # Extract protocol and status from httpx output if available
+          local http_url="http://$subdomain"
+          local https_url="https://$subdomain"
+          db_insert_subdomain "$domain" "$subdomain" true "$http_url" "$https_url" 200 200
+        fi
+      done < "$subs_dir/live-subs.txt"
+    else
+      log_warn "Database connection failed, skipping database update"
+    fi
   fi
   
   discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
