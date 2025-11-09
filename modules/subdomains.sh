@@ -58,8 +58,13 @@ subdomains_get() {
   # Save subdomains to database (batch insert for performance)
   if [[ $total -gt 0 ]]; then
     log_info "Saving subdomains to database"
-    if ! "$ROOT_DIR/python/db_handler.py" batch-insert-subdomains "$domain" "$subs_dir/all-subs.txt"; then
-      log_warn "Failed to save subdomains to database, continuing..."
+    if db_ensure_connection; then
+      # Initialize schema if needed
+      db_init_schema 2>/dev/null || true
+      # Batch insert subdomains
+      db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false
+    else
+      log_warn "Database connection failed, skipping database save"
     fi
   fi
   

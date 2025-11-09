@@ -24,6 +24,7 @@ Scan Modes:
   cves          - Scan only with CVE templates (nuclei_templates/cves + nuclei-templates/http/cves)
   panels        - Scan only with panel discovery templates (nuclei_templates/panels + nuclei-templates/http/exposed-panels)
   default-logins - Scan only with default logins templates (custom & public)
+  vulnerabilities - Scan only with generic vulnerability templates (nuclei_templates/vulns + nuclei-templates/http/vulnerabilities)
 
 Examples:
   # Full scan on a domain (subdomain/livehost enumeration is automatic)
@@ -40,6 +41,12 @@ Examples:
 
   # Default logins scan on a single URL
   nuclei run -u https://example.com -m default-logins
+
+  # Generic vulnerabilities scan on a domain
+  nuclei run -d example.com -m vulnerabilities
+
+  # Generic vulnerabilities scan on a single URL
+  nuclei run -u https://example.com -m vulnerabilities
 
   # Full scan on existing subdomains (no new enum)
   nuclei run -d example.com -m full
@@ -64,7 +71,7 @@ nuclei_run() {
   # Validation
   [[ -z "$domain" && -z "$url" ]] && { log_error "Either -d (domain) or -u (url) must be provided"; usage; exit 1; }
   [[ -n "$domain" && -n "$url" ]] && { log_error "Cannot use both -d and -u together"; usage; exit 1; }
-  [[ ! "$mode" =~ ^(full|cves|panels|default-logins)$ ]] && { log_error "Invalid mode: $mode. Must be full, cves, panels, or default-logins"; exit 1; }
+  [[ ! "$mode" =~ ^(full|cves|panels|default-logins|vulnerabilities)$ ]] && { log_error "Invalid mode: $mode. Must be full, cves, panels, default-logins, or vulnerabilities"; exit 1; }
 
   # Check if nuclei is installed
   if ! command -v nuclei >/dev/null 2>&1; then
@@ -90,7 +97,7 @@ nuclei_run() {
     echo "$url" > "$target_file"
 
     # Send scan start notification
-    discord_send "🚀 Nuclei scan started for: $url (mode: $mode)"
+    discord_send "**Nuclei scan started for:** \`$url\` (mode: \`$mode\`)"
 
     log_info "Running Nuclei in $mode mode on single URL"
     run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads" "$target_name"
@@ -157,13 +164,13 @@ nuclei_run() {
     log_info "Running Nuclei in $mode mode on $target_count targets"
 
     # Send scan start notification
-    discord_send "🚀 Nuclei scan started for: $domain (mode: $mode, targets: $target_count)"
+    discord_send "**Nuclei scan started for:** \`$domain\` (mode: \`$mode\`, targets: \`$target_count\`)"
 
     run_nuclei_scan "$target_file" "$output_dir" "$mode" "$threads" "$target_name"
   fi
 
   log_success "Nuclei scan completed successfully!"
-  discord_send "✅ Nuclei scan completed successfully for: $target_name (mode: $mode)"
+  discord_send "**Nuclei scan completed successfully for:** \`$target_name\` (mode: \`$mode\`)"
 }
 
 run_nuclei_scan() {
@@ -188,6 +195,9 @@ run_nuclei_scan() {
     default-logins)
       run_default_logins_scan "$target_file" "$output_dir" "$threads" "$target_name"
       ;;
+    vulnerabilities)
+      run_vulnerabilities_scan "$target_file" "$output_dir" "$threads" "$target_name"
+      ;;
   esac
 }
 
@@ -202,9 +212,9 @@ run_full_scan() {
 
   local results=()
 
-  # 1. Scan with custom templates (nuclei_templates/Others)
-  if [[ -d "$ROOT_DIR/nuclei_templates/Others" ]]; then
-    log_info "Scanning with custom templates (nuclei_templates/Others)..."
+  # 1. Scan with custom templates (nuclei_templates/vulns)
+  if [[ -d "$ROOT_DIR/nuclei_templates/vulns" ]]; then
+    log_info "Scanning with custom templates (nuclei_templates/vulns)..."
     local custom_out="$output_dir/nuclei-custom-others.txt"
 
     nuclei -l "$target_file" \
@@ -219,7 +229,7 @@ run_full_scan() {
       local count=$(wc -l < "$custom_out")
       log_success "Found $count findings with custom templates"
       results+=("$custom_out")
-      discord_file "$custom_out" "🎯 Nuclei Full Scan - Custom Templates ($target_name)"
+      discord_file "$custom_out" "**Nuclei Full Scan - Custom Templates (\`$target_name\`)**"
     else
       log_info "No findings with custom templates"
     fi
@@ -242,7 +252,7 @@ run_full_scan() {
       local count=$(wc -l < "$public_out")
       log_success "Found $count findings with public HTTP templates"
       results+=("$public_out")
-      discord_file "$public_out" "🌐 Nuclei Full Scan - Public HTTP Templates ($target_name)"
+      discord_file "$public_out" "**Nuclei Full Scan - Public HTTP Templates (\`$target_name\`)**"
     else
       log_info "No findings with public HTTP templates"
     fi
@@ -284,7 +294,7 @@ run_cves_scan() {
       local count=$(wc -l < "$custom_cves_out")
       log_success "Found $count CVE findings with custom templates"
       results+=("$custom_cves_out")
-      discord_file "$custom_cves_out" "🔴 Nuclei CVEs - Custom Templates ($target_name)"
+      discord_file "$custom_cves_out" "**Nuclei CVEs - Custom Templates (\`$target_name\`)**"
     else
       log_info "No CVE findings with custom templates"
     fi
@@ -309,7 +319,7 @@ run_cves_scan() {
       local count=$(wc -l < "$public_cves_out")
       log_success "Found $count CVE findings with public templates"
       results+=("$public_cves_out")
-      discord_file "$public_cves_out" "🌐 Nuclei CVEs - Public Templates ($target_name)"
+      discord_file "$public_cves_out" "**Nuclei CVEs - Public Templates (\`$target_name\`)**"
     else
       log_info "No CVE findings with public templates"
     fi
@@ -351,7 +361,7 @@ run_panels_scan() {
       local count=$(wc -l < "$custom_panels_out")
       log_success "Found $count panels with custom templates"
       results+=("$custom_panels_out")
-      discord_file "$custom_panels_out" "🎯 Nuclei Panels Discovery - Custom Templates (1019+ Panels)"
+      discord_file "$custom_panels_out" "**Nuclei Panels Discovery - Custom Templates (1019+ Panels)**"
     else
       log_info "No panels found with custom templates"
     fi
@@ -376,7 +386,7 @@ run_panels_scan() {
       local count=$(wc -l < "$public_panels_out")
       log_success "Found $count exposed panels with public templates"
       results+=("$public_panels_out")
-      discord_file "$public_panels_out" "🌐 Nuclei Panels Discovery - Public Templates"
+      discord_file "$public_panels_out" "**Nuclei Panels Discovery - Public Templates**"
     else
       log_info "No exposed panels found with public templates"
     fi
@@ -419,7 +429,7 @@ run_default_logins_scan() {
       local count=$(wc -l < "$custom_logins_out")
       log_success "Found $count default login findings with custom templates"
       results+=("$custom_logins_out")
-      discord_file "$custom_logins_out" "🔑 Nuclei Default Logins - Custom Templates ($target_name)"
+      discord_file "$custom_logins_out" "**Nuclei Default Logins - Custom Templates (\`$target_name\`)**"
     else
       log_info "No default login findings with custom templates"
     fi
@@ -444,7 +454,7 @@ run_default_logins_scan() {
       local count=$(wc -l < "$public_logins_out")
       log_success "Found $count default login findings with public templates"
       results+=("$public_logins_out")
-      discord_file "$public_logins_out" "🌐 Nuclei Default Logins - Public Templates ($target_name)"
+      discord_file "$public_logins_out" "**Nuclei Default Logins - Public Templates (\`$target_name\`)**"
     else
       log_info "No default login findings with public templates"
     fi
@@ -457,6 +467,100 @@ run_default_logins_scan() {
     log_success "Default logins scan completed with ${#results[@]} result file(s)"
   else
     log_info "Default logins scan completed with no findings"
+  fi
+}
+
+run_vulnerabilities_scan() {
+  local target_file="$1"
+  local output_dir="$2"
+  local threads="$3"
+  local target_name="$4"
+
+  log_info "=== Running Generic Vulnerabilities scan mode ==="
+  log_info "This includes custom and public vulnerability templates"
+
+  local results=()
+
+  # 1. Scan with custom vulnerability templates (nuclei_templates/vulns)
+  if [[ -d "$ROOT_DIR/nuclei_templates/vulns" ]]; then
+    log_info "Scanning with custom vulnerability templates (nuclei_templates/vulns)..."
+    local custom_vulns_out="$output_dir/nuclei-custom-vulnerabilities.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei_templates/vulns/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$custom_vulns_out" \
+      2>/dev/null || true
+
+    if [[ -s "$custom_vulns_out" ]]; then
+      local count=$(wc -l < "$custom_vulns_out")
+      log_success "Found $count vulnerability findings with custom templates"
+      results+=("$custom_vulns_out")
+      discord_file "$custom_vulns_out" "**Nuclei Vulnerabilities - Custom Templates (\`$target_name\`)**"
+    else
+      log_info "No vulnerability findings with custom templates"
+    fi
+  else
+    log_warn "Custom vulnerability templates directory not found: nuclei_templates/vulns"
+  fi
+
+  # 2. Scan with public vulnerability templates (nuclei-templates/http/vulnerabilities)
+  if [[ -d "$ROOT_DIR/nuclei-templates/http/vulnerabilities" ]]; then
+    log_info "Scanning with public vulnerability templates (nuclei-templates/http/vulnerabilities)..."
+    local public_vulns_out="$output_dir/nuclei-public-vulnerabilities.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei-templates/http/vulnerabilities/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$public_vulns_out" \
+      2>/dev/null || true
+
+    if [[ -s "$public_vulns_out" ]]; then
+      local count=$(wc -l < "$public_vulns_out")
+      log_success "Found $count vulnerability findings with public templates"
+      results+=("$public_vulns_out")
+      discord_file "$public_vulns_out" "**Nuclei Vulnerabilities - Public Templates (\`$target_name\`)**"
+    else
+      log_info "No vulnerability findings with public templates"
+    fi
+  else
+    log_warn "Public vulnerability templates directory not found: nuclei-templates/http/vulnerabilities"
+  fi
+
+  # 3. Scan with DAST vulnerability templates (nuclei-templates/dast/vulnerabilities)
+  if [[ -d "$ROOT_DIR/nuclei-templates/dast/vulnerabilities" ]]; then
+    log_info "Scanning with DAST vulnerability templates (nuclei-templates/dast/vulnerabilities)..."
+    local dast_vulns_out="$output_dir/nuclei-dast-vulnerabilities.txt"
+
+    nuclei -l "$target_file" \
+      -t "$ROOT_DIR/nuclei-templates/dast/vulnerabilities/" \
+      -c "$threads" \
+      -silent \
+      -duc \
+      -o "$dast_vulns_out" \
+      2>/dev/null || true
+
+    if [[ -s "$dast_vulns_out" ]]; then
+      local count=$(wc -l < "$dast_vulns_out")
+      log_success "Found $count vulnerability findings with DAST templates"
+      results+=("$dast_vulns_out")
+      discord_file "$dast_vulns_out" "**Nuclei Vulnerabilities - DAST Templates (\`$target_name\`)**"
+    else
+      log_info "No vulnerability findings with DAST templates"
+    fi
+  else
+    log_warn "DAST vulnerability templates directory not found: nuclei-templates/dast/vulnerabilities"
+  fi
+
+  # Summary
+  if [[ ${#results[@]} -gt 0 ]]; then
+    log_success "Vulnerabilities scan completed with ${#results[@]} result file(s)"
+  else
+    log_info "Vulnerabilities scan completed with no findings"
   fi
 }
 

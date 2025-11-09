@@ -35,8 +35,9 @@ urls_collect() {
   : > "$urls_dir/js-urls.txt"
 
   if command -v urlfinder >/dev/null 2>&1; then
-    log_info "Collecting URLs with urlfinder using $threads threads"
-    urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" -t "$threads" > "$urls_dir/all-urls.txt" 2>/dev/null || true
+    log_info "Collecting URLs with urlfinder"
+    # urlfinder doesn't support -t flag, so we don't pass it
+    urlfinder -d "$domain" -all -silent -pc "${AUTOAR_CONFIG_FILE}" > "$urls_dir/all-urls.txt" 2>/dev/null || true
   fi
 
   if [[ -s "$subs_dir/live-subs.txt" && -x "$(command -v jsfinder || echo /bin/false)" ]]; then

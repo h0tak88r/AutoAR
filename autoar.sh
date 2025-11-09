@@ -2560,11 +2560,11 @@ run_nuclei_scans() {
     local domain_dir="$1"
     log INFO "Nuclei Scanning"
     if [[ -n "$SINGLE_SUBDOMAIN" ]]; then
-        nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei_templates/vulns -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
         nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei_templates/cves/ -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
         nuclei -u "https://$SINGLE_SUBDOMAIN"  -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
     else
-        nuclei -l "$domain_dir/subs/live-subs.txt"  -t nuclei_templates/Others -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
+        nuclei -l "$domain_dir/subs/live-subs.txt"  -t nuclei_templates/vulns -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
         nuclei -l "$domain_dir/subs/live-subs.txt"  -t nuclei_templates/cves/ -o "$domain_dir/vulnerabilities/nuclei_templates-results.txt" >> "$LOG_FILE" 2>&1
         nuclei -l "$domain_dir/subs/live-subs.txt"  -t nuclei-templates/http -o "$domain_dir/vulnerabilities/nuclei-templates-results.txt" >> "$LOG_FILE" 2>&1
     fi
