@@ -440,6 +440,36 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(
+        name="github_experimental_scan",
+        description="Scan GitHub repository using TruffleHog experimental mode with object discovery",
+    )
+    @app_commands.describe(
+        repo="GitHub repository (owner/repo)", verbose="Enable verbose output"
+    )
+    async def github_experimental_scan(
+        self, interaction: discord.Interaction, repo: str, verbose: bool = False
+    ):
+        """Scan GitHub repository using TruffleHog experimental mode."""
+        scan_id = f"github_experimental_{int(time.time())}"
+
+        command = [AUTOAR_SCRIPT_PATH, "github", "experimental", "-r", repo]
+        if verbose:
+            command.append("-v")
+
+        active_scans[scan_id] = {
+            "type": "github_experimental",
+            "target": repo,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+        }
+
+        embed = self.create_scan_embed("GitHub Experimental Scan", repo, "running")
+        await interaction.response.send_message(embed=embed)
+
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(
         name="wp_depconf", description="WordPress dependency confusion scan"
     )
     @app_commands.describe(
@@ -1003,7 +1033,7 @@ class AutoARBot(commands.Cog):
     @app_commands.describe(
         domain="The domain to scan (use either domain or url)",
         url="Single URL to scan (use either domain or url)",
-        mode="Scan mode: full, cves, panels, or default-logins (default: full)",
+        mode="Scan mode: full, cves, panels, default-logins, or vulnerabilities (default: full)",
         threads="Number of threads for nuclei (default: 100)",
     )
     @app_commands.choices(
@@ -1012,6 +1042,7 @@ class AutoARBot(commands.Cog):
             app_commands.Choice(name="CVEs Only", value="cves"),
             app_commands.Choice(name="Panels Discovery", value="panels"),
             app_commands.Choice(name="Default Logins Only", value="default-logins"),
+            app_commands.Choice(name="Generic Vulnerabilities", value="vulnerabilities"),
         ]
     )
     async def nuclei_cmd(
@@ -1456,7 +1487,7 @@ class AutoARBot(commands.Cog):
             )
             embed.add_field(
                 name="Other Commands",
-                value="• `/nuclei` - Nuclei scan (modes: full, cves, panels, default-logins)\n  (subdomain/livehost enumeration is automatic for domain scans)\n• `/ports` - Port scan\n• `/tech` - Tech detection\n• `/s3_scan` - S3 bucket scan\n• `/github_scan` - GitHub secrets scan",
+                value="• `/nuclei` - Nuclei scan (modes: full, cves, panels, default-logins, vulnerabilities)\n  (subdomain/livehost enumeration is automatic for domain scans)\n• `/ports` - Port scan\n• `/tech` - Tech detection\n• `/s3_scan` - S3 bucket scan\n• `/github_scan` - GitHub secrets scan",
                 inline=False,
             )
 
