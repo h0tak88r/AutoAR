@@ -6,7 +6,7 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/discord.sh"
 
-usage() { echo "Usage: github scan -r <owner/repo> | github org -o <org> [-m <max-repos>] | github depconfusion -r <owner/repo>"; }
+usage() { echo "Usage: github scan -r <owner/repo> | github org -o <org> [-m <max-repos>] | github depconfusion -r <owner/repo> | github experimental -r <owner/repo>"; }
 
 # Function to generate HTML report for GitHub secrets
 generate_github_html_report() {
@@ -336,79 +336,180 @@ github_scan() {
     local github_dir="$dir/vulnerabilities/github"
     ensure_dir "$github_dir"
     
-    # Create temporary directory for this scan
+    # Create temporary directory for scan output
     local temp_dir="/tmp/github_scan_$$_$repo_name"
     mkdir -p "$temp_dir"
+    local secrets_file="$temp_dir/${repo_name}_secrets.json"
     
-    # Clone the repository
-    log_info "Cloning $repo_url..."
-    if git clone --depth 1 "$repo_url" "$temp_dir/$repo_name" 2>/dev/null; then
-        log_success "Cloned $repo_name successfully"
+    # Check if TruffleHog is available
+    if ! command -v trufflehog >/dev/null 2>&1; then
+        log_error "TruffleHog is not installed or not in PATH"
+        return 1
+    fi
+    
+    # Test TruffleHog installation
+    local trufflehog_version=$(trufflehog --version 2>&1 || echo "unknown")
+    if [[ "$verbose" == "true" ]]; then
+        log_info "TruffleHog version: $trufflehog_version"
+    fi
+    
+    # Send progress notification
+    discord_send_progress "🔍 **Scanning GitHub repository: $repo_name**"
+    
+    log_info "Scanning for secrets using TruffleHog git scanner..."
+    
+    # Disable TruffleHog auto-update to prevent updater errors
+    export TRUFFLEHOG_NO_UPDATE=true
+    export TRUFFLEHOG_AUTOUPDATE=false
+    
+    # Set GitHub token as environment variable (trufflehog git may not support --token flag)
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        export GITHUB_TOKEN
+        export GH_TOKEN="$GITHUB_TOKEN"
+        log_info "Using GitHub token for improved rate limits (via environment variable)"
+    fi
+    
+    # Use trufflehog git to scan the repository directly (scans commit history)
+    # Note: trufflehog git doesn't support --token flag, use environment variables instead
+    local trufflehog_stderr="$temp_dir/trufflehog_stderr.log"
+    
+    # Log the exact command being run
+    if [[ "$verbose" == "true" ]]; then
+        log_info "Running command: trufflehog git \"$repo_url\" --json --no-update"
+    fi
+    
+    # Run trufflehog and capture both stdout and stderr separately
+    local trufflehog_exit=0
+    trufflehog git "$repo_url" --json --no-update > "$secrets_file" 2> "$trufflehog_stderr" || trufflehog_exit=$?
+    
+    # If remote git scan returns empty output, try cloning and scanning locally
+    if [[ ! -s "$secrets_file" && $trufflehog_exit -ne 0 ]]; then
+        log_info "Remote git scan returned empty, trying to clone and scan locally..."
         
-        # Scan for secrets using TruffleHog
-        local secrets_file="$temp_dir/${repo_name}_secrets.json"
-        log_info "Scanning for secrets using TruffleHog..."
-        
-        # Check if TruffleHog is available
-        if ! command -v trufflehog >/dev/null 2>&1; then
-            log_error "TruffleHog is not installed or not in PATH"
-            return 1
-        fi
-        
-        # Send progress notification
-        discord_send_progress "🔍 **Scanning GitHub repository: $repo_name**"
-        
-        # Disable TruffleHog auto-update to prevent updater errors
-        export TRUFFLEHOG_NO_UPDATE=true
-        export TRUFFLEHOG_AUTOUPDATE=false
-        if trufflehog filesystem "$temp_dir/$repo_name" --json --no-update > "$secrets_file" 2>&1; then
-            # Convert newline-delimited JSON to JSON array for counting
-            local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
-            if [[ -s "$secrets_file" ]]; then
-                # Filter out any non-finding log lines; keep only real findings
-                jq -s '[.[] | select(.DetectorName != null)]' "$secrets_file" > "$temp_json_array" 2>/dev/null || echo "[]" > "$temp_json_array"
-            else
-                echo "[]" > "$temp_json_array"
-            fi
+        # Clone the repository
+        local cloned_repo="$temp_dir/$repo_name"
+        if git clone --depth 1 "$repo_url" "$cloned_repo" 2>/dev/null; then
+            log_info "Cloned repository successfully, scanning local clone..."
             
-            local secret_count=$(jq '. | length' "$temp_json_array" 2>/dev/null || echo "0")
+            # Try scanning the cloned repository
+            trufflehog git "$cloned_repo" --json --no-update > "$secrets_file" 2> "$trufflehog_stderr" || trufflehog_exit=$?
             
-            if [[ "$secret_count" -gt 0 ]]; then
-                log_success "Found $secret_count secrets in $repo_name"
-                
-                # Generate HTML report
-                local html_report="$github_dir/${repo_name}_secrets.html"
-                generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
-                
-                # Discord notification will be handled by the bot automatically
-                
-                log_success "GitHub scan completed for $repo_name - Found $secret_count secrets"
-            else
-                log_info "No secrets found in $repo_name"
-                
-                # Generate empty reports for no findings
-                local json_report="$github_dir/${repo_name}_secrets.json"
-                local html_report="$github_dir/${repo_name}_secrets.html"
-                echo "[]" > "$json_report"
-                generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
-                
-                # Discord notification will be handled by the bot automatically
-                
-                log_success "GitHub scan completed for $repo_name - No secrets found"
+            if [[ "$verbose" == "true" ]]; then
+                log_info "Local scan exit code: $trufflehog_exit"
+                log_info "Local scan output size: $(wc -l < "$secrets_file" 2>/dev/null || echo 0) lines"
             fi
         else
-            log_error "TruffleHog scan failed for $repo_name"
-            if [[ -s "$secrets_file" ]]; then
-                log_error "TruffleHog output:"
-                cat "$secrets_file" | head -20
-                if [[ $(wc -l < "$secrets_file") -gt 20 ]]; then
-                    log_error "... (truncated, see full output in $secrets_file)"
+            log_warn "Failed to clone repository, continuing with empty results"
+        fi
+    fi
+    
+    # Check stderr for errors
+    if [[ -s "$trufflehog_stderr" ]]; then
+        log_warn "TruffleHog stderr output:"
+        cat "$trufflehog_stderr" | while IFS= read -r line; do
+            log_warn "  $line"
+        done
+    fi
+    
+    # Debug: Check what TruffleHog actually returned
+    if [[ "$verbose" == "true" ]]; then
+        log_info "TruffleHog exit code: $trufflehog_exit"
+        log_info "TruffleHog stdout file size: $(wc -l < "$secrets_file" 2>/dev/null || echo 0) lines"
+        log_info "TruffleHog stderr file size: $(wc -l < "$trufflehog_stderr" 2>/dev/null || echo 0) lines"
+        if [[ -s "$secrets_file" ]]; then
+            log_info "First 5 lines of TruffleHog stdout:"
+            head -5 "$secrets_file" | while IFS= read -r line; do
+                log_info "  $line"
+            done
+        fi
+        if [[ -s "$trufflehog_stderr" ]]; then
+            log_info "First 5 lines of TruffleHog stderr:"
+            head -5 "$trufflehog_stderr" | while IFS= read -r line; do
+                log_info "  $line"
+            done
+        fi
+    fi
+    
+    # Process output even if exit code is non-zero (some TruffleHog versions return non-zero on findings)
+    if [[ $trufflehog_exit -eq 0 || -s "$secrets_file" ]]; then
+        
+        # Convert newline-delimited JSON to JSON array for counting
+        local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
+        if [[ -s "$secrets_file" ]]; then
+            # Filter out any non-finding log lines; keep only real findings
+            # First try to parse as NDJSON (newline-delimited JSON)
+            jq -s '[.[] | select(.DetectorName != null)]' "$secrets_file" > "$temp_json_array" 2>/dev/null || {
+                # If that fails, try parsing line by line
+                if [[ "$verbose" == "true" ]]; then
+                    log_warn "Failed to parse as NDJSON, trying line-by-line parsing"
                 fi
-            fi
-            return 1
+                echo "[]" > "$temp_json_array"
+                while IFS= read -r line; do
+                    if [[ -n "$line" ]]; then
+                        # Try to parse each line as JSON
+                        if echo "$line" | jq -e '.DetectorName != null' >/dev/null 2>&1; then
+                            # This line is a valid finding, add it to the array
+                            jq --argjson new "$line" '. += [$new]' "$temp_json_array" > "${temp_json_array}.tmp" && mv "${temp_json_array}.tmp" "$temp_json_array"
+                        fi
+                    fi
+                done < "$secrets_file"
+            }
+        else
+            echo "[]" > "$temp_json_array"
+        fi
+        
+        local secret_count=$(jq '. | length' "$temp_json_array" 2>/dev/null || echo "0")
+        
+        if [[ "$secret_count" -gt 0 ]]; then
+            log_success "Found $secret_count secrets in $repo_name"
+            
+            # Generate HTML report
+            local html_report="$github_dir/${repo_name}_secrets.html"
+            generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
+            
+            # Send summary message to Discord
+            discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`$secret_count\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            discord_file "$html_report" "**GitHub Repository Secrets Report (HTML) for \`$repo_name\`**"
+            
+            log_success "GitHub scan completed for $repo_name - Found $secret_count secrets"
+        else
+            log_info "No secrets found in $repo_name"
+            
+            # Generate empty reports for no findings
+            local json_report="$github_dir/${repo_name}_secrets.json"
+            local html_report="$github_dir/${repo_name}_secrets.html"
+            echo "[]" > "$json_report"
+            generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
+            
+            # Send summary message to Discord
+            discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            discord_file "$html_report" "**GitHub Repository Secrets Report (HTML) for \`$repo_name\`**"
+            
+            log_success "GitHub scan completed for $repo_name - No secrets found"
         fi
     else
-        log_error "Failed to clone $repo_url"
+        log_error "TruffleHog scan failed for $repo_name (exit code: $trufflehog_exit)"
+        if [[ -s "$trufflehog_stderr" ]]; then
+            log_error "TruffleHog stderr:"
+            cat "$trufflehog_stderr" | head -20
+            if [[ $(wc -l < "$trufflehog_stderr") -gt 20 ]]; then
+                log_error "... (truncated, see full output in $trufflehog_stderr)"
+            fi
+        fi
+        if [[ -s "$secrets_file" ]]; then
+            log_error "TruffleHog stdout:"
+            cat "$secrets_file" | head -20
+            if [[ $(wc -l < "$secrets_file") -gt 20 ]]; then
+                log_error "... (truncated, see full output in $secrets_file)"
+            fi
+        fi
+        log_error "TruffleHog command that failed: trufflehog git \"$repo_url\" --json --no-update"
         return 1
     fi
     
@@ -722,13 +823,21 @@ github_org_scan() {
     fi
     
     # Send progress notification
-    discord_send_progress "🔍 **Scanning GitHub organization: $org_name** (max $max_repos repos)"
+    discord_send_progress "**Scanning GitHub organization: $org_name** (max $max_repos repos)"
     
     log_info "Running TruffleHog with GitHub token..."
     # Disable TruffleHog auto-update to prevent updater errors
     export TRUFFLEHOG_NO_UPDATE=true
     export TRUFFLEHOG_AUTOUPDATE=false
-    if trufflehog github --org="$org_name" --issue-comments --pr-comments --json --no-update > "$org_results_file" 2>&1; then
+    
+    # Build trufflehog command with token
+    local trufflehog_cmd=("trufflehog" "github" "--org=$org_name" "--issue-comments" "--pr-comments" "--json" "--no-update")
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        trufflehog_cmd+=("--token" "$GITHUB_TOKEN")
+        log_info "Using GitHub token for improved rate limits"
+    fi
+    
+    if "${trufflehog_cmd[@]}" > "$org_results_file" 2>&1; then
         # Convert newline-delimited JSON to JSON array for counting
         local temp_json_array="$org_dir/org_secrets_array.json"
         if [[ -s "$org_results_file" ]]; then
@@ -747,8 +856,12 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "$total_secrets"
             
-            # Send HTML report to Discord
-            discord_file "$html_report" "GitHub Organization Secrets Report for $org_name"
+            # Send summary message to Discord
+            discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`$total_secrets\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
+            discord_file "$html_report" "**GitHub Organization Secrets Report (HTML) for \`$org_name\`**"
             
             log_success "Organization scan completed for $org_name - Found $total_secrets secrets"
         else
@@ -758,8 +871,12 @@ github_org_scan() {
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "0"
             
-            # Send HTML report to Discord
-            discord_file "$html_report" "GitHub Organization Secrets Report for $org_name (No secrets found)"
+            # Send summary message to Discord
+            discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send both JSON and HTML reports to Discord
+            discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
+            discord_file "$html_report" "**GitHub Organization Secrets Report (HTML) for \`$org_name\`**"
             
             log_success "Organization scan completed for $org_name - No secrets found"
         fi
@@ -776,9 +893,149 @@ github_org_scan() {
         fi
 }
 
+# Function to scan GitHub repository using experimental TruffleHog mode
+github_experimental_scan() {
+    local repo_url=""
+    local verbose=false
+    
+    # Debug logging
+    log_info "Debug: Received $# arguments: $@"
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -r|--repo)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing repository URL after -r flag"
+                    exit 1
+                fi
+                repo_url="$2"
+                shift
+                shift
+                ;;
+            -v|--verbose)
+                verbose=true
+                shift
+                ;;
+            *)
+                # If no flag, treat as repo URL for backward compatibility
+                if [[ -z "$repo_url" ]]; then
+                    repo_url="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Validate required arguments
+    if [[ -z "$repo_url" ]]; then
+        log_error "Repository URL is required. Use: github experimental -r <owner/repo>"
+        exit 1
+    fi
+    
+    # Convert owner/repo to full GitHub URL if needed
+    if [[ "$repo_url" != http* ]]; then
+        repo_url="https://github.com/$repo_url"
+    fi
+    
+    # Ensure .git extension for TruffleHog experimental
+    if [[ "$repo_url" != *.git ]]; then
+        repo_url="${repo_url}.git"
+    fi
+    
+    local repo_name=$(basename "$repo_url" .git)
+    local org_name=$(echo "$repo_url" | sed 's|.*github.com/||' | cut -d'/' -f1)
+    
+    log_info "Starting GitHub experimental scan for: $repo_name"
+    
+    # Create results directory
+    local dir; dir="$(results_dir "github_experimental_$repo_name")"
+    local github_dir="$dir/vulnerabilities/github"
+    ensure_dir "$github_dir"
+    
+    # Create temporary directory for scan output
+    local temp_dir="/tmp/github_experimental_scan_$$_$repo_name"
+    mkdir -p "$temp_dir"
+    local secrets_file="$temp_dir/${repo_name}_secrets.json"
+    
+    # Check if TruffleHog is available
+    if ! command -v trufflehog >/dev/null 2>&1; then
+        log_error "TruffleHog is not installed or not in PATH"
+        return 1
+    fi
+    
+    # Send progress notification
+    discord_send_progress "**Scanning GitHub repository (experimental mode): $repo_name**"
+    
+    log_info "Scanning for secrets using TruffleHog experimental scanner with object discovery..."
+    
+    # Disable TruffleHog auto-update to prevent updater errors
+    export TRUFFLEHOG_NO_UPDATE=true
+    export TRUFFLEHOG_AUTOUPDATE=false
+    
+    # Build trufflehog experimental command with token if available
+    local trufflehog_cmd=("trufflehog" "github-experimental" "--repo" "$repo_url" "--object-discovery" "--json" "--no-update")
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        trufflehog_cmd+=("--token" "$GITHUB_TOKEN")
+        log_info "Using GitHub token for improved rate limits"
+    fi
+    
+    # Use trufflehog github-experimental with object discovery
+    if "${trufflehog_cmd[@]}" > "$secrets_file" 2>&1; then
+        # Convert newline-delimited JSON to JSON array for counting
+        local temp_json_array="$github_dir/${repo_name}_secrets_array.json"
+        if [[ -s "$secrets_file" ]]; then
+            # Filter out any non-finding log lines; keep only real findings
+            jq -s '[.[] | select(.DetectorName != null)]' "$secrets_file" > "$temp_json_array" 2>/dev/null || echo "[]" > "$temp_json_array"
+        else
+            echo "[]" > "$temp_json_array"
+        fi
+        
+        local secret_count=$(jq '. | length' "$temp_json_array" 2>/dev/null || echo "0")
+        
+        if [[ "$secret_count" -gt 0 ]]; then
+            log_success "Found $secret_count secrets in $repo_name (experimental scan)"
+            
+            # Generate HTML report
+            local html_report="$github_dir/${repo_name}_secrets.html"
+            generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
+            
+            # Discord notification will be handled by the bot automatically
+            
+            log_success "GitHub experimental scan completed for $repo_name - Found $secret_count secrets"
+        else
+            log_info "No secrets found in $repo_name (experimental scan)"
+            
+            # Generate empty reports for no findings
+            local json_report="$github_dir/${repo_name}_secrets.json"
+            local html_report="$github_dir/${repo_name}_secrets.html"
+            echo "[]" > "$json_report"
+            generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
+            
+            # Discord notification will be handled by the bot automatically
+            
+            log_success "GitHub experimental scan completed for $repo_name - No secrets found"
+        fi
+    else
+        log_error "TruffleHog experimental scan failed for $repo_name"
+        if [[ -s "$secrets_file" ]]; then
+            log_error "TruffleHog output:"
+            cat "$secrets_file" | head -20
+            if [[ $(wc -l < "$secrets_file") -gt 20 ]]; then
+                log_error "... (truncated, see full output in $secrets_file)"
+            fi
+        fi
+        return 1
+    fi
+    
+    # Clean up temporary directory
+    rm -rf "$temp_dir"
+}
+
 case "${1:-}" in
   scan) shift; github_scan "$@" ;;
   org) shift; github_org_scan "$@" ;;
   depconfusion) shift; github_depconfusion_scan "$@" ;;
+  experimental) shift; github_experimental_scan "$@" ;;
   *) usage; exit 1;;
 esac

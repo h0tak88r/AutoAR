@@ -144,15 +144,21 @@ js_scan() {
 
     # Save JS files to database
     log_info "Saving JS files to database"
-    local count=0
-    while IFS= read -r js_url; do
-      if [[ -n "$js_url" ]]; then
-        if "$ROOT_DIR/python/db_handler.py" insert-js-file "$domain" "$js_url"; then
-          ((count++))
+    if db_ensure_connection; then
+      # Initialize schema if needed
+      db_init_schema 2>/dev/null || true
+      local count=0
+      while IFS= read -r js_url; do
+        if [[ -n "$js_url" ]]; then
+          if db_insert_js_file "$domain" "$js_url"; then
+            ((count++))
+          fi
         fi
-      fi
-    done < "$urls_file"
-    log_info "Saved $count JS files to database"
+      done < "$urls_file"
+      log_success "Saved $count JS files to database"
+    else
+      log_warn "Database connection failed, skipping database save"
+    fi
   else
     log_warn "No JS URLs file found at $urls_file"
   fi
