@@ -1497,7 +1497,7 @@ class AutoARBot(commands.Cog):
         """Run scan in background and update Discord."""
         try:
             # Determine timeout based on scan type
-            timeout = 3600  # 1 hour default for all scans
+            timeout = 5 * 60 * 60  # 5 hours default for all scans
 
             # Run the scan
             results = await self.run_autoar_command(command, scan_id, timeout)
