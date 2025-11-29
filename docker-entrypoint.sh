@@ -22,7 +22,6 @@ if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
   if [[ -d "/app/keyskit_templates" && -f "/app/scripts/import_keyskit_templates.sh" ]]; then
     echo "[entrypoint] Checking KeysKit templates in database..."
     # Check if templates are already imported (quick check - count should be > 0)
-    local template_count
     template_count=$(source /app/lib/db.sh 2>/dev/null && db_query "SELECT COUNT(*) FROM keyskit_templates;" 2>/dev/null | tr -d ' ' | grep -v "^\[" | head -1)
     if [[ -z "$template_count" ]] || [[ "$template_count" == "0" ]]; then
       echo "[entrypoint] Importing KeysKit templates into database..."
