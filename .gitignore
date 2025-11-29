@@ -52,10 +52,10 @@ test-*
 *test*
 tmp_*
 
-# Secrets and API keys (but allow keyskit module and scripts)
+# Secrets and API keys (but allow keyhack module and scripts)
 *secret*
 *key*
-!modules/keyskit.sh
+!modules/keyhack.sh
 !scripts/*.sh
 *token*
 *webhook*
@@ -66,4 +66,4 @@ generate_from_env.sh
 # External dependencies
 # nuclei_templates/  # Now using as submodule
 # Wordlists/  # Now using as submodule
-keyskit_templates/  # Cloned in Docker from KeysKit repo
+keyhack_templates/  # Cloned in Docker from KeysKit repo

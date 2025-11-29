@@ -63,8 +63,8 @@ class ScanRequest(BaseModel):
         "full", description="Nuclei scan mode: full, cves, panels, default-logins, or vulnerabilities"
     )
     skip_js: Optional[bool] = Field(False, description="Skip JavaScript scanning step (for lite scan)")
-    query: Optional[str] = Field(None, description="Search query for keyskit")
-    provider: Optional[str] = Field(None, description="Provider name for keyskit validation")
+    query: Optional[str] = Field(None, description="Search query for keyhack")
+    provider: Optional[str] = Field(None, description="Provider name for keyhack validation")
     api_key: Optional[str] = Field(None, description="API key to validate")
 
 
@@ -525,17 +525,17 @@ async def scan_lite(background_tasks: BackgroundTasks, request: ScanRequest):
     )
 
 
-# KeysKit Search
-@app.post("/keyskit/search", response_model=ScanResponse)
-async def keyskit_search(background_tasks: BackgroundTasks, request: ScanRequest):
+# KeyHack Search
+@app.post("/keyhack/search", response_model=ScanResponse)
+async def keyhack_search(background_tasks: BackgroundTasks, request: ScanRequest):
     """Search for API key validation templates."""
     if not request.query:
         raise HTTPException(status_code=400, detail="Search query is required")
 
     scan_id = str(uuid.uuid4())
-    command = [AUTOAR_SCRIPT_PATH, "keyskit", "search", request.query]
+    command = [AUTOAR_SCRIPT_PATH, "keyhack", "search", request.query]
 
-    background_tasks.add_task(execute_scan, scan_id, command, "keyskit_search")
+    background_tasks.add_task(execute_scan, scan_id, command, "keyhack_search")
 
     return ScanResponse(
         scan_id=scan_id,
@@ -545,9 +545,9 @@ async def keyskit_search(background_tasks: BackgroundTasks, request: ScanRequest
     )
 
 
-# KeysKit Validate
-@app.post("/keyskit/validate", response_model=ScanResponse)
-async def keyskit_validate(background_tasks: BackgroundTasks, request: ScanRequest):
+# KeyHack Validate
+@app.post("/keyhack/validate", response_model=ScanResponse)
+async def keyhack_validate(background_tasks: BackgroundTasks, request: ScanRequest):
     """Generate validation command for an API key."""
     if not request.provider:
         raise HTTPException(status_code=400, detail="Provider name is required")
@@ -555,9 +555,9 @@ async def keyskit_validate(background_tasks: BackgroundTasks, request: ScanReque
         raise HTTPException(status_code=400, detail="API key is required")
 
     scan_id = str(uuid.uuid4())
-    command = [AUTOAR_SCRIPT_PATH, "keyskit", "validate", request.provider, request.api_key]
+    command = [AUTOAR_SCRIPT_PATH, "keyhack", "validate", request.provider, request.api_key]
 
-    background_tasks.add_task(execute_scan, scan_id, command, "keyskit_validate")
+    background_tasks.add_task(execute_scan, scan_id, command, "keyhack_validate")
 
     return ScanResponse(
         scan_id=scan_id,

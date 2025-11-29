@@ -120,7 +120,7 @@ db_init_schema() {
       updated_at TIMESTAMP DEFAULT NOW()
     );
     
-    CREATE TABLE IF NOT EXISTS keyskit_templates (
+    CREATE TABLE IF NOT EXISTS keyhack_templates (
       id SERIAL PRIMARY KEY,
       keyname VARCHAR(255) UNIQUE NOT NULL,
       command_template TEXT NOT NULL,
@@ -137,7 +137,7 @@ db_init_schema() {
     CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
     CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
     CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
-    CREATE INDEX IF NOT EXISTS idx_keyskit_templates_keyname ON keyskit_templates(keyname);
+    CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
     "
   else
     # SQLite schema
@@ -172,7 +172,7 @@ db_init_schema() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     
-    CREATE TABLE IF NOT EXISTS keyskit_templates (
+    CREATE TABLE IF NOT EXISTS keyhack_templates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       keyname TEXT UNIQUE NOT NULL,
       command_template TEXT NOT NULL,
@@ -189,7 +189,7 @@ db_init_schema() {
     CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
     CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
     CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
-    CREATE INDEX IF NOT EXISTS idx_keyskit_templates_keyname ON keyskit_templates(keyname);
+    CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
     "
   fi
   
@@ -559,8 +559,8 @@ db_export_subdomains() {
   fi
 }
 
-# Insert or update KeysKit template
-db_insert_keyskit_template() {
+# Insert or update KeyHack template
+db_insert_keyhack_template() {
   local keyname="$1"
   local command_template="$2"
   local method="${3:-GET}"
@@ -588,7 +588,7 @@ db_insert_keyskit_template() {
   escaped_description=$(db_escape_string "$description")
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    db_exec "INSERT INTO keyskit_templates (keyname, command_template, method, url, header, body, note, description) 
+    db_exec "INSERT INTO keyhack_templates (keyname, command_template, method, url, header, body, note, description) 
              VALUES ('$escaped_keyname', '$escaped_command_template', '$escaped_method', '$escaped_url', '$escaped_header', '$escaped_body', '$escaped_note', '$escaped_description')
              ON CONFLICT (keyname) DO UPDATE SET 
              command_template = EXCLUDED.command_template,
@@ -600,56 +600,56 @@ db_insert_keyskit_template() {
              description = EXCLUDED.description,
              updated_at = NOW();"
   else
-    db_exec "INSERT OR REPLACE INTO keyskit_templates (keyname, command_template, method, url, header, body, note, description) 
+    db_exec "INSERT OR REPLACE INTO keyhack_templates (keyname, command_template, method, url, header, body, note, description) 
              VALUES ('$escaped_keyname', '$escaped_command_template', '$escaped_method', '$escaped_url', '$escaped_header', '$escaped_body', '$escaped_note', '$escaped_description');"
   fi
 }
 
-# Search KeysKit templates
-db_search_keyskit_templates() {
+# Search KeyHack templates
+db_search_keyhack_templates() {
   local query="$1"
   local escaped_query
   escaped_query=$(db_escape_string "$query")
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
     db_query "SELECT keyname, command_template, method, url, header, body, note, description 
-              FROM keyskit_templates 
+              FROM keyhack_templates 
               WHERE keyname ILIKE '%$escaped_query%' OR description ILIKE '%$escaped_query%'
               ORDER BY keyname 
               LIMIT 50;"
   else
     db_query "SELECT keyname, command_template, method, url, header, body, note, description 
-              FROM keyskit_templates 
+              FROM keyhack_templates 
               WHERE keyname LIKE '%$escaped_query%' OR description LIKE '%$escaped_query%'
               ORDER BY keyname 
               LIMIT 50;"
   fi
 }
 
-# Get KeysKit template by keyname
-db_get_keyskit_template() {
+# Get KeyHack template by keyname
+db_get_keyhack_template() {
   local keyname="$1"
   local escaped_keyname
   escaped_keyname=$(db_escape_string "$keyname")
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
     db_query "SELECT keyname, command_template, method, url, header, body, note, description 
-              FROM keyskit_templates 
+              FROM keyhack_templates 
               WHERE keyname ILIKE '$escaped_keyname'
               LIMIT 1;"
   else
     db_query "SELECT keyname, command_template, method, url, header, body, note, description 
-              FROM keyskit_templates 
+              FROM keyhack_templates 
               WHERE keyname LIKE '$escaped_keyname'
               LIMIT 1;"
   fi
 }
 
-# List all KeysKit templates
-db_list_keyskit_templates() {
+# List all KeyHack templates
+db_list_keyhack_templates() {
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    db_query "SELECT keyname FROM keyskit_templates ORDER BY keyname;"
+    db_query "SELECT keyname FROM keyhack_templates ORDER BY keyname;"
   else
-    db_query "SELECT keyname FROM keyskit_templates ORDER BY keyname;"
+    db_query "SELECT keyname FROM keyhack_templates ORDER BY keyname;"
   fi
 }
