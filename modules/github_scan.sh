@@ -74,18 +74,19 @@ generate_secrets_table() {
     
     if [[ -n "$jtbl_cmd" ]]; then
         # Use jtbl to create a nice table from JSON
-        # Extract detector name and raw secret, deduplicate by secret value only
+        # Extract detector name, raw secret, and link, deduplicate by secret value only
         # jtbl expects JSON array input, so we collect all objects into an array
         local temp_json=$(mktemp)
         local jq_error=$(mktemp)
         
-        # Extract and deduplicate secrets
+        # Extract and deduplicate secrets (include link from SourceMetadata.Data.Github.link)
         jq -r '.[] | 
             select((.Raw != null and .Raw != "" and .Raw != "null") or 
                    (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
             {
                 "Detector": (.SourceMetadata.DetectorName // .DetectorName // "Unknown"),
-                "Secret": (.Raw // .SourceMetadata.Raw // "")
+                "Secret": (.Raw // .SourceMetadata.Raw // ""),
+                "Link": (.SourceMetadata.Data.Github.link // .SourceMetadata.Data.Git.link // "N/A")
             } | 
             select(.Secret != "")' \
             "$json_file" 2>"$jq_error" | \
@@ -103,21 +104,62 @@ generate_secrets_table() {
                     log_warn "jtbl error: $(cat "$jtbl_error" | head -1)"
                 fi
                 rm -f "$temp_json" "$jq_error" "$jtbl_error"
-                log_warn "jtbl processing failed, falling back to plain text"
-                extract_unique_secrets "$json_file" "$output_file"
+                log_warn "jtbl processing failed, generating simple table format"
+                # Generate simple table format manually
+                {
+                    echo "Detector|Secret|Link"
+                    echo "--------|------|----"
+                    jq -r '.[] | 
+                        select((.Raw != null and .Raw != "" and .Raw != "null") or 
+                               (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
+                        "\(.SourceMetadata.DetectorName // .DetectorName // "Unknown")|\(.Raw // .SourceMetadata.Raw // "")|\(.SourceMetadata.Data.Github.link // .SourceMetadata.Data.Git.link // "N/A")"' \
+                        "$json_file" 2>/dev/null | \
+                    sort -u -t'|' -k2 | \
+                    awk -F'|' '{if ($2 != "") print $1 "|" $2 "|" $3}'
+                } > "$output_file" 2>/dev/null || {
+                    log_warn "Failed to generate table, using minimal format"
+                    extract_unique_secrets "$json_file" "$output_file"
+                }
             fi
         else
             if [[ -s "$jq_error" ]]; then
                 log_warn "jq extraction error: $(cat "$jq_error" | head -1)"
             fi
             rm -f "$temp_json" "$jq_error"
-            log_warn "Failed to extract secrets for table, falling back to plain text"
-            extract_unique_secrets "$json_file" "$output_file"
+            log_warn "Failed to extract secrets for table, generating simple format"
+            # Generate simple table format manually
+            {
+                echo "Detector|Secret|Link"
+                echo "--------|------|----"
+                jq -r '.[] | 
+                    select((.Raw != null and .Raw != "" and .Raw != "null") or 
+                           (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
+                    "\(.SourceMetadata.DetectorName // .DetectorName // "Unknown")|\(.Raw // .SourceMetadata.Raw // "")|\(.SourceMetadata.Data.Github.link // .SourceMetadata.Data.Git.link // "N/A")"' \
+                    "$json_file" 2>/dev/null | \
+                sort -u -t'|' -k2 | \
+                awk -F'|' '{if ($2 != "") print $1 "|" $2 "|" $3}'
+            } > "$output_file" 2>/dev/null || {
+                log_warn "Failed to generate table, using minimal format"
+                extract_unique_secrets "$json_file" "$output_file"
+            }
         fi
     else
-        # Fallback to plain text extraction if jtbl is not available
-        log_warn "jtbl not found, using plain text format"
-        extract_unique_secrets "$json_file" "$output_file"
+        # Fallback to simple table format if jtbl is not available
+        log_warn "jtbl not found, generating simple table format"
+        {
+            echo "Detector|Secret|Link"
+            echo "--------|------|----"
+            jq -r '.[] | 
+                select((.Raw != null and .Raw != "" and .Raw != "null") or 
+                       (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
+                "\(.SourceMetadata.DetectorName // .DetectorName // "Unknown")|\(.Raw // .SourceMetadata.Raw // "")|\(.SourceMetadata.Data.Github.link // .SourceMetadata.Data.Git.link // "N/A")"' \
+                "$json_file" 2>/dev/null | \
+            sort -u -t'|' -k2 | \
+            awk -F'|' '{if ($2 != "") print $1 "|" $2 "|" $3}'
+        } > "$output_file" 2>/dev/null || {
+            log_warn "Failed to generate table, using minimal format"
+            extract_unique_secrets "$json_file" "$output_file"
+        }
     fi
     
     if [[ -f "$output_file" && -s "$output_file" ]]; then
@@ -319,26 +361,26 @@ github_scan() {
         if [[ "$secret_count" -gt 0 ]]; then
             log_success "Found $secret_count secrets in $repo_name"
             
-            # Extract unique secrets (detector name + raw secret value)
-            local secrets_txt="$github_dir/${repo_name}_secrets.txt"
-            extract_unique_secrets "$temp_json_array" "$secrets_txt"
-            
-            # Generate table format if jtbl is available
+            # Generate table format with unique secrets (includes Detector, Secret, and Link)
             local secrets_table="$github_dir/${repo_name}_secrets_table.txt"
             generate_secrets_table "$temp_json_array" "$secrets_table"
             
-            # Count unique secrets
-            local unique_count=$(wc -l < "$secrets_txt" 2>/dev/null || echo "0")
+            # Count unique secrets from the table (if generated) or from JSON
+            local unique_count=0
+            if [[ -f "$secrets_table" && -s "$secrets_table" ]]; then
+                # Count non-header lines in table (subtract 2 for header and separator)
+                unique_count=$(grep -v "^Detector" "$secrets_table" | grep -v "^---" | grep -v "^$" | wc -l 2>/dev/null || echo "0")
+            else
+                # Fallback: count unique secrets from JSON
+                unique_count=$(jq -r '.[] | select((.Raw != null and .Raw != "" and .Raw != "null") or (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) | .Raw // .SourceMetadata.Raw // ""' "$temp_json_array" 2>/dev/null | sort -u | wc -l 2>/dev/null || echo "0")
+            fi
             
             # Send summary message to Discord
             discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Total findings:** \`$secret_count\`\n**Unique secrets:** \`$unique_count\`\n**Timestamp:** \`$(date)\`"
             
-            # Send JSON file and unique secrets text file to Discord
+            # Send JSON file and secrets table to Discord
             discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
-            discord_file "$secrets_txt" "**GitHub Repository Unique Secrets (Text) for \`$repo_name\`**"
-            
-            # Send table if it was generated and is different from text file
-            if [[ -f "$secrets_table" && -s "$secrets_table" && "$secrets_table" != "$secrets_txt" ]]; then
+            if [[ -f "$secrets_table" && -s "$secrets_table" ]]; then
                 discord_file "$secrets_table" "**GitHub Repository Secrets Table for \`$repo_name\`**"
             fi
             
@@ -713,26 +755,26 @@ github_org_scan() {
         if [[ "$total_secrets" -gt 0 ]]; then
             log_success "Found $total_secrets secrets in organization $org_name"
             
-            # Extract unique secrets (detector name + raw secret value)
-            local secrets_txt="$org_dir/org_secrets.txt"
-            extract_unique_secrets "$temp_json_array" "$secrets_txt"
-            
-            # Generate table format if jtbl is available
+            # Generate table format with unique secrets (includes Detector, Secret, and Link)
             local secrets_table="$org_dir/org_secrets_table.txt"
             generate_secrets_table "$temp_json_array" "$secrets_table"
             
-            # Count unique secrets
-            local unique_count=$(wc -l < "$secrets_txt" 2>/dev/null || echo "0")
+            # Count unique secrets from the table (if generated) or from JSON
+            local unique_count=0
+            if [[ -f "$secrets_table" && -s "$secrets_table" ]]; then
+                # Count non-header lines in table (subtract 2 for header and separator)
+                unique_count=$(grep -v "^Detector" "$secrets_table" | grep -v "^---" | grep -v "^$" | wc -l 2>/dev/null || echo "0")
+            else
+                # Fallback: count unique secrets from JSON
+                unique_count=$(jq -r '.[] | select((.Raw != null and .Raw != "" and .Raw != "null") or (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) | .Raw // .SourceMetadata.Raw // ""' "$temp_json_array" 2>/dev/null | sort -u | wc -l 2>/dev/null || echo "0")
+            fi
             
             # Send summary message to Discord
             discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Total findings:** \`$total_secrets\`\n**Unique secrets:** \`$unique_count\`\n**Timestamp:** \`$(date)\`"
             
-            # Send JSON file and unique secrets text file to Discord
+            # Send JSON file and secrets table to Discord
             discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
-            discord_file "$secrets_txt" "**GitHub Organization Unique Secrets (Text) for \`$org_name\`**"
-            
-            # Send table if it was generated and is different from text file
-            if [[ -f "$secrets_table" && -s "$secrets_table" && "$secrets_table" != "$secrets_txt" ]]; then
+            if [[ -f "$secrets_table" && -s "$secrets_table" ]]; then
                 discord_file "$secrets_table" "**GitHub Organization Secrets Table for \`$org_name\`**"
             fi
             
@@ -864,26 +906,26 @@ github_experimental_scan() {
         if [[ "$secret_count" -gt 0 ]]; then
             log_success "Found $secret_count secrets in $repo_name (experimental scan)"
             
-            # Extract unique secrets (detector name + raw secret value)
-            local secrets_txt="$github_dir/${repo_name}_secrets.txt"
-            extract_unique_secrets "$temp_json_array" "$secrets_txt"
-            
-            # Generate table format if jtbl is available
+            # Generate table format with unique secrets (includes Detector, Secret, and Link)
             local secrets_table="$github_dir/${repo_name}_secrets_table.txt"
             generate_secrets_table "$temp_json_array" "$secrets_table"
             
-            # Count unique secrets
-            local unique_count=$(wc -l < "$secrets_txt" 2>/dev/null || echo "0")
+            # Count unique secrets from the table (if generated) or from JSON
+            local unique_count=0
+            if [[ -f "$secrets_table" && -s "$secrets_table" ]]; then
+                # Count non-header lines in table (subtract 2 for header and separator)
+                unique_count=$(grep -v "^Detector" "$secrets_table" | grep -v "^---" | grep -v "^$" | wc -l 2>/dev/null || echo "0")
+            else
+                # Fallback: count unique secrets from JSON
+                unique_count=$(jq -r '.[] | select((.Raw != null and .Raw != "" and .Raw != "null") or (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) | .Raw // .SourceMetadata.Raw // ""' "$temp_json_array" 2>/dev/null | sort -u | wc -l 2>/dev/null || echo "0")
+            fi
             
             # Send summary message to Discord
             discord_send "**GitHub Repository Scan Results (Experimental)**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Total findings:** \`$secret_count\`\n**Unique secrets:** \`$unique_count\`\n**Timestamp:** \`$(date)\`"
             
-            # Send JSON file and unique secrets text file to Discord
+            # Send JSON file and secrets table to Discord
             discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
-            discord_file "$secrets_txt" "**GitHub Repository Unique Secrets (Text) for \`$repo_name\`**"
-            
-            # Send table if it was generated and is different from text file
-            if [[ -f "$secrets_table" && -s "$secrets_table" && "$secrets_table" != "$secrets_txt" ]]; then
+            if [[ -f "$secrets_table" && -s "$secrets_table" ]]; then
                 discord_file "$secrets_table" "**GitHub Repository Secrets Table for \`$repo_name\`**"
             fi
             
