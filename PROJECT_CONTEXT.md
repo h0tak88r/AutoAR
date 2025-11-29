@@ -282,7 +282,68 @@ new-results/
 - Discord notifications for errors
 - Graceful fallbacks (e.g., jtbl → plain text)
 
+## KeysKit Integration
+
+**Location:** `modules/keyskit.sh`, `keyskit_templates/`
+
+**Features:**
+- Search through 750+ API key validation templates
+- Generate ready-to-use curl commands for API key validation
+- Support for multiple authentication methods (Bearer, Basic Auth, API Key headers, etc.)
+- Automatic variable replacement in URLs, headers, and request bodies
+- Special handling for Basic Auth (automatic base64 encoding)
+
+**Usage:**
+
+**CLI:**
+```bash
+# Search for templates
+./main.sh keyskit search stripe
+
+# Generate validation command
+./main.sh keyskit validate Stripe sk_live_abc123
+```
+
+**API:**
+```bash
+# Search
+POST /keyskit/search
+{"query": "stripe"}
+
+# Validate
+POST /keyskit/validate
+{"provider": "Stripe", "api_key": "sk_live_abc123"}
+```
+
+**Discord:**
+- `/keyskit_search <query>` - Search for templates
+- `/keyskit_validate <provider> <api_key>` - Generate validation command
+
+**Templates:**
+- Located in `keyskit_templates/` directory
+- 750+ templates from [KeysKit project](https://github.com/MrMax4o4/KeysKit)
+- Each template contains: name, method, header, url, body, note, description
+
+**Template Structure:**
+```json
+{
+  "name": "Provider Name",
+  "method": "GET or POST",
+  "header": "'Header-Key':'Value'",
+  "url": "https://api.provider.com/endpoint",
+  "body": "param1=$API_KEY&param2=value",
+  "note": "Optional notes",
+  "description": "Provider description"
+}
+```
+
 ## Recent Changes
+
+### KeysKit Integration (2025-11-29)
+- Added KeysKit integration for API key validation
+- Integrated 750+ validation templates
+- Added CLI, API, and Discord bot support
+- Automatic variable replacement and Basic Auth encoding
 
 ### GitHub Secrets Scanning Improvements
 

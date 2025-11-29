@@ -1310,6 +1310,126 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(
+        name="keyskit_search", description="🔍 Search for API key validation templates"
+    )
+    @app_commands.describe(
+        query="Search query (provider name or partial match)"
+    )
+    async def keyskit_search_cmd(
+        self, interaction: discord.Interaction, query: str
+    ):
+        """Search for API key validation templates."""
+        await interaction.response.defer()
+        
+        scan_id = f"keyskit_search_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "keyskit", "search", query]
+        
+        active_scans[scan_id] = {
+            "type": "keyskit_search",
+            "target": query,
+            "started_at": datetime.now().isoformat(),
+            "status": "running",
+        }
+        
+        result = await self.run_autoar_command(command, scan_id, timeout=10)
+        
+        if result["returncode"] == 0:
+            output = result["stdout"]
+            active_scans[scan_id]["status"] = "completed"
+            active_scans[scan_id]["output"] = output
+            
+            embed = discord.Embed(
+                title="🔍 KeysKit Search Results",
+                description=f"**Query:** `{query}`",
+                color=discord.Color.blue(),
+            )
+            
+            # Format output for Discord (limit to 2000 chars)
+            if len(output) > 1900:
+                output = output[:1900] + "\n... (truncated)"
+            
+            embed.add_field(name="Results", value=f"```\n{output}\n```", inline=False)
+            await interaction.followup.send(embed=embed)
+        else:
+            error_msg = result["stderr"] or "Search failed"
+            active_scans[scan_id]["status"] = "failed"
+            active_scans[scan_id]["error"] = error_msg
+            
+            embed = discord.Embed(
+                title="❌ KeysKit Search Failed",
+                description=f"**Query:** `{query}`",
+                color=discord.Color.red(),
+            )
+            embed.add_field(name="Error", value=f"```\n{error_msg}\n```", inline=False)
+            await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
+        name="keyskit_validate", description="🔐 Generate API key validation command"
+    )
+    @app_commands.describe(
+        provider="Provider name (e.g., Stripe, AWS, GitHub)",
+        api_key="API key to validate"
+    )
+    async def keyskit_validate_cmd(
+        self, interaction: discord.Interaction, provider: str, api_key: str
+    ):
+        """Generate validation command for an API key."""
+        await interaction.response.defer()
+        
+        scan_id = f"keyskit_validate_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "keyskit", "validate", provider, api_key]
+        
+        active_scans[scan_id] = {
+            "type": "keyskit_validate",
+            "target": provider,
+            "started_at": datetime.now().isoformat(),
+            "status": "running",
+        }
+        
+        result = await self.run_autoar_command(command, scan_id, timeout=10)
+        
+        if result["returncode"] == 0:
+            output = result["stdout"]
+            active_scans[scan_id]["status"] = "completed"
+            active_scans[scan_id]["output"] = output
+            
+            embed = discord.Embed(
+                title="🔐 API Key Validation Command",
+                description=f"**Provider:** `{provider}`",
+                color=discord.Color.green(),
+            )
+            
+            # Extract command from output (look for the curl command)
+            import re
+            command_match = re.search(r'curl[^\n]+', output)
+            if command_match:
+                command_line = command_match.group(0)
+                embed.add_field(
+                    name="Validation Command",
+                    value=f"```bash\n{command_line}\n```",
+                    inline=False,
+                )
+            else:
+                # Format full output for Discord (limit to 2000 chars)
+                if len(output) > 1900:
+                    output = output[:1900] + "\n... (truncated)"
+                embed.add_field(name="Output", value=f"```\n{output}\n```", inline=False)
+            
+            await interaction.followup.send(embed=embed)
+        else:
+            error_msg = result["stderr"] or "Validation failed"
+            active_scans[scan_id]["status"] = "failed"
+            active_scans[scan_id]["error"] = error_msg
+            
+            embed = discord.Embed(
+                title="❌ API Key Validation Failed",
+                description=f"**Provider:** `{provider}`",
+                color=discord.Color.red(),
+            )
+            embed.add_field(name="Error", value=f"```\n{error_msg}\n```", inline=False)
+            await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
         name="dns_dnsreaper", description="Run DNSReaper takeover scan"
     )
     @app_commands.describe(domain="The domain")
