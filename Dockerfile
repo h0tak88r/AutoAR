@@ -51,16 +51,26 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils python3-dev gcc \
     postgresql-client libpq-dev awscli docker.io libpcap0.8 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install jtbl (JSON to table converter) via pip
+# Note: jtbl is a Python package, so we install it and it will be available via 'python3 -m jtbl' or 'jtbl' if entry point is created
+RUN pip3 install --no-cache-dir jtbl && \
+    python3 -m jtbl --version >/dev/null 2>&1 || echo "Warning: jtbl installation may have issues, will use fallback"
 
 # Copy application code
 COPY . /app
 
 # Clone submodules directly (since .git is not available in Docker context)
 RUN cd /app && \
-    rm -rf nuclei_templates Wordlists && \
+    rm -rf nuclei_templates Wordlists keyhack_templates && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
-    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
+    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists && \
+    git clone --depth 1 https://github.com/MrMax4o4/KeysKit.git /tmp/KeysKit && \
+    mkdir -p /app/keyhack_templates && \
+    cp -r /tmp/KeysKit/templates/* /app/keyhack_templates/ && \
+    rm -rf /tmp/KeysKit
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
@@ -92,7 +102,8 @@ RUN chmod +x /app/generate_config.sh || true \
     && chmod +x /app/python/db_handler.py || true \
     && chmod +x /app/lib/db_wrapper.sh || true \
     && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
-    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
+    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true \
+    && find /app/scripts -type f -name '*.sh' -exec chmod +x {} + || true
 
 # Add a non-root user
 RUN useradd -m -u 10001 autoar && chown -R autoar:autoar /app

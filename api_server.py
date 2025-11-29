@@ -63,6 +63,9 @@ class ScanRequest(BaseModel):
         "full", description="Nuclei scan mode: full, cves, panels, default-logins, or vulnerabilities"
     )
     skip_js: Optional[bool] = Field(False, description="Skip JavaScript scanning step (for lite scan)")
+    query: Optional[str] = Field(None, description="Search query for keyhack")
+    provider: Optional[str] = Field(None, description="Provider name for keyhack validation")
+    api_key: Optional[str] = Field(None, description="API key to validate")
 
 
 class ScanResponse(BaseModel):
@@ -472,6 +475,29 @@ async def scan_github(background_tasks: BackgroundTasks, request: ScanRequest):
     )
 
 
+# GitHub Organization Scan
+@app.post("/scan/github_org", response_model=ScanResponse)
+async def scan_github_org(background_tasks: BackgroundTasks, request: ScanRequest):
+    """Scan GitHub organization for secrets."""
+    org = request.repo or getattr(request, 'org', None)
+    if not org:
+        raise HTTPException(
+            status_code=400, detail="Organization name is required (use 'repo' field)"
+        )
+
+    scan_id = str(uuid.uuid4())
+    command = [AUTOAR_SCRIPT_PATH, "github", "org", "-o", org]
+
+    background_tasks.add_task(execute_scan, scan_id, command, "github_org")
+
+    return ScanResponse(
+        scan_id=scan_id,
+        status="started",
+        message=f"GitHub organization scan started for {org}",
+        command=" ".join(command),
+    )
+
+
 # Lite Scan
 @app.post("/scan/lite", response_model=ScanResponse)
 async def scan_lite(background_tasks: BackgroundTasks, request: ScanRequest):
@@ -495,6 +521,48 @@ async def scan_lite(background_tasks: BackgroundTasks, request: ScanRequest):
         scan_id=scan_id,
         status="started",
         message=message,
+        command=" ".join(command),
+    )
+
+
+# KeyHack Search
+@app.post("/keyhack/search", response_model=ScanResponse)
+async def keyhack_search(background_tasks: BackgroundTasks, request: ScanRequest):
+    """Search for API key validation templates."""
+    if not request.query:
+        raise HTTPException(status_code=400, detail="Search query is required")
+
+    scan_id = str(uuid.uuid4())
+    command = [AUTOAR_SCRIPT_PATH, "keyhack", "search", request.query]
+
+    background_tasks.add_task(execute_scan, scan_id, command, "keyhack_search")
+
+    return ScanResponse(
+        scan_id=scan_id,
+        status="started",
+        message=f"Searching for templates matching: {request.query}",
+        command=" ".join(command),
+    )
+
+
+# KeyHack Validate
+@app.post("/keyhack/validate", response_model=ScanResponse)
+async def keyhack_validate(background_tasks: BackgroundTasks, request: ScanRequest):
+    """Generate validation command for an API key."""
+    if not request.provider:
+        raise HTTPException(status_code=400, detail="Provider name is required")
+    if not request.api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+
+    scan_id = str(uuid.uuid4())
+    command = [AUTOAR_SCRIPT_PATH, "keyhack", "validate", request.provider, request.api_key]
+
+    background_tasks.add_task(execute_scan, scan_id, command, "keyhack_validate")
+
+    return ScanResponse(
+        scan_id=scan_id,
+        status="started",
+        message=f"Generating validation command for {request.provider}",
         command=" ".join(command),
     )
 
