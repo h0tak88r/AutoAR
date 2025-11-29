@@ -29,6 +29,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **Port Scanning**: Nmap integration for port discovery
 - **Reflection Testing**: HTTP parameter reflection analysis
 - **Gf Pattern Matching**: Custom pattern matching for various vulnerabilities
+- **KeyHack API Key Validation**: 778+ API key validation templates for testing and validating discovered keys
 
 ### 📊 **Monitoring & Tracking**
 - **Target Monitoring**: Database-backed continuous monitoring of web targets
@@ -217,6 +218,12 @@ Once the bot is running, use these slash commands in Discord:
 - `/dns domain:example.com` - DNS takeover detection
 - `/ports domain:example.com [threads:100]` - Port scanning
 
+#### KeyHack API Key Validation
+- `/keyhack_list` - List all available API key validation templates (778+ templates)
+- `/keyhack_search query:stripe` - Search for API key validation templates by name
+- `/keyhack_validate provider:Stripe api_key:sk_live_abc123` - Generate validation command for an API key
+- `/keyhack_add keyname:Slack command:"curl -H 'Authorization: Bearer \$API_KEY' https://slack.com/api/auth.test" description:"Slack API validation" notes:"Requires Bearer token"` - Add a new API key validation template
+
 #### GitHub Reconnaissance
 - `/github scan repo:microsoft/PowerShell` - Scan specific repository for secrets
 - `/github org:microsoft` - Scan entire organization (50 repos max)
@@ -266,6 +273,12 @@ docker exec -it autoar-bot bash
 /app/main.sh s3 scan -b bucket-name
 /app/main.sh dns takeover -d example.com
 
+# KeyHack API key validation
+/app/main.sh keyhack list                                    # List all templates
+/app/main.sh keyhack search stripe                           # Search for templates
+/app/main.sh keyhack validate Stripe sk_live_abc123          # Generate validation command
+/app/main.sh keyhack add "Slack" "curl -H 'Authorization: Bearer \$API_KEY' https://slack.com/api/auth.test" "Slack API validation" "Requires Bearer token"  # Add new template
+
 # Workflows
 /app/main.sh lite run -d example.com
 /app/main.sh fastlook run -d example.com
@@ -292,6 +305,110 @@ Notes:
 /app/main.sh db subdomains list -d example.com
 /app/main.sh db subdomains export -d example.com -o results.txt
 ```
+
+## 🔑 KeyHack API Key Validation
+
+AutoAR includes **KeyHack**, a comprehensive API key validation system with **778+ templates** for testing and validating discovered API keys across hundreds of services.
+
+### Features
+
+- **📋 778+ Templates**: Comprehensive collection of API key validation templates from KeysKit and custom additions
+- **🔍 Smart Search**: Search templates by provider name or description
+- **✅ Quick Validation**: Generate ready-to-use validation commands (curl or shell)
+- **➕ Extensible**: Add custom validation templates via Discord or CLI
+- **🌐 Multi-Format Support**: Supports HTTP-based (curl) and shell-based (AWS CLI, etc.) validation methods
+
+### Usage Examples
+
+#### List All Templates
+```bash
+# CLI
+/app/main.sh keyhack list
+
+# Discord
+/keyhack_list
+```
+
+#### Search for Templates
+```bash
+# CLI - Search for Stripe templates
+/app/main.sh keyhack search stripe
+
+# Discord
+/keyhack_search query:stripe
+```
+
+**Output:**
+```
+📋 Stripe
+   Description: Stripe is a global technology company that builds economic infrastructure...
+   Command:
+   curl -H 'Authorization: Basic $Basic_Auth' 'https://api.stripe.com/v1/account'
+   Note: Base64 encode "{Secret_key}:"
+```
+
+#### Validate an API Key
+```bash
+# CLI - Generate validation command for Stripe
+/app/main.sh keyhack validate Stripe sk_live_abc123
+
+# Discord
+/keyhack_validate provider:Stripe api_key:sk_live_abc123
+```
+
+**Output:**
+```
+🔐 API Key Validation Command
+Provider: Stripe
+Command:
+curl -H 'Authorization: Basic <base64_encoded_key>' 'https://api.stripe.com/v1/account'
+```
+
+#### Add Custom Template
+```bash
+# CLI
+/app/main.sh keyhack add "MyService" \
+  "curl -H 'Authorization: Bearer \$API_KEY' https://api.myservice.com/v1/test" \
+  "MyService API validation" \
+  "Requires Bearer token"
+
+# Discord
+/keyhack_add keyname:MyService command:"curl -H 'Authorization: Bearer \$API_KEY' https://api.myservice.com/v1/test" description:"MyService API validation" notes:"Requires Bearer token"
+```
+
+### Supported Services
+
+KeyHack includes validation templates for 778+ services including:
+- **Payment Processors**: Stripe, PayPal, Square
+- **Cloud Providers**: AWS, Azure, GCP, DigitalOcean
+- **Communication**: Slack, Discord, Telegram, Twilio
+- **Development**: GitHub, GitLab, Bitbucket, npm
+- **APIs**: Twitter, Facebook, Google, Microsoft
+- **And 700+ more services**
+
+### Database Storage
+
+All templates are stored in PostgreSQL/SQLite database (`keyhack_templates` table) for:
+- Fast search and retrieval
+- Easy template management
+- Persistent storage across restarts
+- Version control and updates
+
+### Template Format
+
+Templates support multiple validation methods:
+- **HTTP GET/POST**: Standard curl commands with headers
+- **Basic Auth**: Base64-encoded credentials
+- **Bearer Tokens**: OAuth-style token authentication
+- **Shell Commands**: AWS CLI, gcloud, etc.
+
+### Integration with GitHub Scanning
+
+KeyHack seamlessly integrates with GitHub scanning:
+1. Scan repositories for exposed API keys
+2. Use KeyHack to validate discovered keys
+3. Determine key permissions and scope
+4. Report findings with validation results
 
 ## 🔍 GitHub Scanning Features
 
@@ -449,6 +566,7 @@ AutoAR/
 │   ├── livehosts.sh        # Live host detection
 │   ├── nuclei.sh           # Nuclei integration
 │   ├── wp_plugin_confusion.sh # WordPress scanning
+│   ├── keyhack.sh          # API key validation (778+ templates)
 │   └── ...                 # Other modules
 ├── python/                 # Python utilities
 │   ├── discord_bot.py      # Discord bot
@@ -459,6 +577,10 @@ AutoAR/
 │   ├── utils.sh            # Common utilities
 │   └── discord.sh          # Discord integration
 ├── nuclei_templates/       # Nuclei vulnerability templates
+├── keyhack_templates/      # KeyHack API key validation templates (778+)
+├── scripts/               # Utility scripts
+│   ├── import_keyhack_templates.sh  # Import KeyHack templates
+│   └── migrate_keyskit_to_keyhack.sh  # Migration script
 ├── Wordlists/             # Wordlists and patterns
 ├── regexes/               # Custom regex patterns
 ├── docker-compose.yml     # Docker configuration
@@ -597,7 +719,27 @@ curl -X POST "http://localhost:8000/scan/s3" \
 curl -X POST "http://localhost:8000/scan/github" \
   -H "Content-Type: application/json" \
   -d '{"repo": "owner/repository"}'
+
+# GitHub Organization Scanning
+curl -X POST "http://localhost:8000/scan/github_org" \
+  -H "Content-Type: application/json" \
+  -d '{"org": "organization", "max_repos": 50}'
 ```
+
+#### KeyHack API Key Validation
+```bash
+# Search for templates
+curl -X POST "http://localhost:8000/keyhack/search" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "stripe"}'
+
+# Validate an API key
+curl -X POST "http://localhost:8000/keyhack/validate" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "Stripe", "api_key": "sk_live_abc123"}'
+```
+
+**Note**: Use the CLI or Discord commands for listing all templates, as the API focuses on search and validation operations.
 
 #### Scan Management
 ```bash
