@@ -64,9 +64,13 @@ COPY . /app
 
 # Clone submodules directly (since .git is not available in Docker context)
 RUN cd /app && \
-    rm -rf nuclei_templates Wordlists && \
+    rm -rf nuclei_templates Wordlists keyskit_templates && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
-    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
+    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists && \
+    git clone --depth 1 https://github.com/MrMax4o4/KeysKit.git /tmp/KeysKit && \
+    mkdir -p /app/keyskit_templates && \
+    cp -r /tmp/KeysKit/templates/* /app/keyskit_templates/ && \
+    rm -rf /tmp/KeysKit
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
@@ -98,7 +102,8 @@ RUN chmod +x /app/generate_config.sh || true \
     && chmod +x /app/python/db_handler.py || true \
     && chmod +x /app/lib/db_wrapper.sh || true \
     && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
-    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
+    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true \
+    && find /app/scripts -type f -name '*.sh' -exec chmod +x {} + || true
 
 # Add a non-root user
 RUN useradd -m -u 10001 autoar && chown -R autoar:autoar /app

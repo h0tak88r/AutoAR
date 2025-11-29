@@ -120,9 +120,24 @@ db_init_schema() {
       updated_at TIMESTAMP DEFAULT NOW()
     );
     
+    CREATE TABLE IF NOT EXISTS keyskit_templates (
+      id SERIAL PRIMARY KEY,
+      keyname VARCHAR(255) UNIQUE NOT NULL,
+      command_template TEXT NOT NULL,
+      method VARCHAR(10) DEFAULT 'GET',
+      url TEXT NOT NULL,
+      header TEXT,
+      body TEXT,
+      note TEXT,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+    
     CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
     CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
     CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
+    CREATE INDEX IF NOT EXISTS idx_keyskit_templates_keyname ON keyskit_templates(keyname);
     "
   else
     # SQLite schema
@@ -157,9 +172,24 @@ db_init_schema() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     
+    CREATE TABLE IF NOT EXISTS keyskit_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      keyname TEXT UNIQUE NOT NULL,
+      command_template TEXT NOT NULL,
+      method TEXT DEFAULT 'GET',
+      url TEXT NOT NULL,
+      header TEXT,
+      body TEXT,
+      note TEXT,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    
     CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
     CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
     CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
+    CREATE INDEX IF NOT EXISTS idx_keyskit_templates_keyname ON keyskit_templates(keyname);
     "
   fi
   
@@ -526,5 +556,100 @@ db_export_subdomains() {
     fi
   else
     log_warn "No subdomains found for $domain"
+  fi
+}
+
+# Insert or update KeysKit template
+db_insert_keyskit_template() {
+  local keyname="$1"
+  local command_template="$2"
+  local method="${3:-GET}"
+  local url="$4"
+  local header="${5:-}"
+  local body="${6:-}"
+  local note="${7:-}"
+  local description="${8:-}"
+  
+  local escaped_keyname
+  escaped_keyname=$(db_escape_string "$keyname")
+  local escaped_command_template
+  escaped_command_template=$(db_escape_string "$command_template")
+  local escaped_method
+  escaped_method=$(db_escape_string "$method")
+  local escaped_url
+  escaped_url=$(db_escape_string "$url")
+  local escaped_header
+  escaped_header=$(db_escape_string "$header")
+  local escaped_body
+  escaped_body=$(db_escape_string "$body")
+  local escaped_note
+  escaped_note=$(db_escape_string "$note")
+  local escaped_description
+  escaped_description=$(db_escape_string "$description")
+  
+  if [[ "$DB_TYPE" == "postgresql" ]]; then
+    db_exec "INSERT INTO keyskit_templates (keyname, command_template, method, url, header, body, note, description) 
+             VALUES ('$escaped_keyname', '$escaped_command_template', '$escaped_method', '$escaped_url', '$escaped_header', '$escaped_body', '$escaped_note', '$escaped_description')
+             ON CONFLICT (keyname) DO UPDATE SET 
+             command_template = EXCLUDED.command_template,
+             method = EXCLUDED.method,
+             url = EXCLUDED.url,
+             header = EXCLUDED.header,
+             body = EXCLUDED.body,
+             note = EXCLUDED.note,
+             description = EXCLUDED.description,
+             updated_at = NOW();"
+  else
+    db_exec "INSERT OR REPLACE INTO keyskit_templates (keyname, command_template, method, url, header, body, note, description) 
+             VALUES ('$escaped_keyname', '$escaped_command_template', '$escaped_method', '$escaped_url', '$escaped_header', '$escaped_body', '$escaped_note', '$escaped_description');"
+  fi
+}
+
+# Search KeysKit templates
+db_search_keyskit_templates() {
+  local query="$1"
+  local escaped_query
+  escaped_query=$(db_escape_string "$query")
+  
+  if [[ "$DB_TYPE" == "postgresql" ]]; then
+    db_query "SELECT keyname, command_template, method, url, header, body, note, description 
+              FROM keyskit_templates 
+              WHERE keyname ILIKE '%$escaped_query%' OR description ILIKE '%$escaped_query%'
+              ORDER BY keyname 
+              LIMIT 50;"
+  else
+    db_query "SELECT keyname, command_template, method, url, header, body, note, description 
+              FROM keyskit_templates 
+              WHERE keyname LIKE '%$escaped_query%' OR description LIKE '%$escaped_query%'
+              ORDER BY keyname 
+              LIMIT 50;"
+  fi
+}
+
+# Get KeysKit template by keyname
+db_get_keyskit_template() {
+  local keyname="$1"
+  local escaped_keyname
+  escaped_keyname=$(db_escape_string "$keyname")
+  
+  if [[ "$DB_TYPE" == "postgresql" ]]; then
+    db_query "SELECT keyname, command_template, method, url, header, body, note, description 
+              FROM keyskit_templates 
+              WHERE keyname ILIKE '$escaped_keyname'
+              LIMIT 1;"
+  else
+    db_query "SELECT keyname, command_template, method, url, header, body, note, description 
+              FROM keyskit_templates 
+              WHERE keyname LIKE '$escaped_keyname'
+              LIMIT 1;"
+  fi
+}
+
+# List all KeysKit templates
+db_list_keyskit_templates() {
+  if [[ "$DB_TYPE" == "postgresql" ]]; then
+    db_query "SELECT keyname FROM keyskit_templates ORDER BY keyname;"
+  else
+    db_query "SELECT keyname FROM keyskit_templates ORDER BY keyname;"
   fi
 }
