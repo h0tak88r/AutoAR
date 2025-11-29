@@ -78,42 +78,109 @@ keyskit_search() {
         return 1
     fi
     
-    # Parse results using awk - psql outputs pipe-separated: keyname|command_template|method|url|header|body|note|description
-    # Note: command_template is JSON and may contain special characters, but psql -t -A uses | as separator
-    local count=0
-    echo "$results" | awk -F'|' 'NF >= 8 {
-        keyname = $1
-        gsub(/^[ \t]+|[ \t]+$/, "", keyname)  # Trim whitespace
-        if (keyname == "" || keyname ~ /^\[/) next
-        
-        command_template = $2
-        method = $3
-        url = $4
-        header = $5
-        body = $6
-        note = $7
-        description = $8
-        
-        count++
-        print "  📋 " keyname
-        if (description != "") {
-            desc_preview = substr(description, 1, 100)
-            if (length(description) > 100) desc_preview = desc_preview "..."
-            print "     Description: " desc_preview
+    # Parse results and generate curl commands using Python
+    # psql outputs pipe-separated: keyname|command_template|method|url|header|body|note|description
+    # Process all results at once using Python for better handling
+    echo "$results" | python3 -c "
+import json
+import sys
+import re
+import base64
+
+lines = sys.stdin.readlines()
+count = 0
+
+for line in lines:
+    line = line.strip()
+    if not line or '|' not in line:
+        continue
+    
+    # Split by pipe (max 8 parts)
+    parts = line.split('|', 7)
+    if len(parts) < 8:
+        parts.extend([''] * (8 - len(parts)))
+    
+    keyname = parts[0].strip()
+    command_template_json = parts[1]
+    method = parts[2].strip()
+    url = parts[3].strip()
+    header = parts[4].strip()
+    body = parts[5].strip()
+    note = parts[6].strip()
+    description = parts[7].strip()
+    
+    if not keyname or keyname.startswith('['):
+        continue
+    
+    # Parse JSON template
+    try:
+        template = json.loads(command_template_json)
+    except:
+        # Fallback to direct values if JSON parsing fails
+        template = {
+            'method': method or 'GET',
+            'url': url or '',
+            'header': header or '',
+            'body': body or '',
+            'note': note or '',
+            'description': description or ''
         }
-        print "     Method: " method
-        print "     URL: " url
-        print ""
-    } END {
-        if (count == 0) exit 1
-    }'
+    
+    method = template.get('method', method or 'GET')
+    url_template = template.get('url', url or '')
+    header_template = template.get('header', header or '')
+    body_template = template.get('body', body or '')
+    note = template.get('note', note or '')
+    description = template.get('description', description or '')
+    
+    # Build curl command with placeholders
+    curl_parts = ['curl']
+    
+    # Add method
+    if method.upper() == 'POST':
+        curl_parts.append('-X POST')
+    elif method.upper() != 'GET':
+        curl_parts.append(f\"-X {method.upper()}\")
+    
+    # Add headers (keep placeholders like \$API_KEY, \$Basic_Auth, etc.)
+    if header_template:
+        # Parse header format: 'Header-Key':'Value'
+        pattern = r\"'([^']+)':'([^']+)'\"
+        matches = re.findall(pattern, header_template)
+        for key, value in matches:
+            curl_parts.append(f\"-H '{key}: {value}'\")
+    
+    # Add body for POST requests
+    if method.upper() == 'POST' and body_template:
+        curl_parts.append(f\"-d '{body_template}'\")
+    
+    # Add URL
+    curl_parts.append(f\"'{url_template}'\")
+    
+    curl_cmd = ' '.join(curl_parts)
+    
+    # Output formatted result
+    print(f\"📋 {keyname}\")
+    if description:
+        desc_preview = description[:100] + ('...' if len(description) > 100 else '')
+        print(f\"   Description: {desc_preview}\")
+    print(f\"   Command:\")
+    print(f\"   {curl_cmd}\")
+    if note:
+        print(f\"   Note: {note}\")
+    print()
+    count += 1
+
+if count == 0:
+    sys.exit(1)
+" 2>/dev/null
     
     if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
         log_warn "No templates found matching: $query"
         return 1
     fi
     
-    # Count results for success message
+    # Count total results for success message
     count=$(echo "$results" | awk -F'|' 'NF >= 8 && $1 != "" && $1 !~ /^\[/ {count++} END {print count+0}')
     
     log_success "Found $count matching template(s)"
