@@ -66,41 +66,55 @@ keyskit_search() {
         return 1
     fi
     
-    # Search in database - escape query and use db_query directly
-    local escaped_query
-    escaped_query=$(echo "$query" | sed "s/'/''/g")
-    
-    # Use db_query and filter out any log messages
+    # Use the db_search_keyskit_templates function from db.sh
+    # This function handles escaping and returns pipe-separated results
+    # Redirect stderr to /dev/null to suppress log messages, then filter out any remaining log lines
     local results
-    results=$(db_query "SELECT keyname, command_template, method, url, header, body, note, description FROM keyskit_templates WHERE keyname ILIKE '%$escaped_query%' OR description ILIKE '%$escaped_query%' ORDER BY keyname LIMIT 50;" 2>/dev/null | grep -v "^\[" | grep -v "^$" | grep .)
+    results=$(db_search_keyskit_templates "$query" 2>/dev/null | grep -v "^\[" | grep -v "^$" | grep -F "|")
     
-    # Check if we have actual data (must contain pipe separator)
+    # Check if we have actual data (must contain pipe separator and not be empty)
     if [[ -z "$results" ]] || [[ ! "$results" =~ \| ]]; then
         log_warn "No templates found matching: $query"
         return 1
     fi
     
-    # Parse results (pipe-separated from psql: keyname|command_template|method|url|header|body|note|description)
+    # Parse results using awk - psql outputs pipe-separated: keyname|command_template|method|url|header|body|note|description
+    # Note: command_template is JSON and may contain special characters, but psql -t -A uses | as separator
     local count=0
-    while IFS='|' read -r keyname command_template method url header body note description; do
-        # Skip empty lines or lines that don't look like data
-        if [[ -z "$keyname" ]] || [[ "$keyname" =~ ^\[ ]]; then
-            continue
-        fi
-        ((count++))
+    echo "$results" | awk -F'|' 'NF >= 8 {
+        keyname = $1
+        gsub(/^[ \t]+|[ \t]+$/, "", keyname)  # Trim whitespace
+        if (keyname == "" || keyname ~ /^\[/) next
         
-        echo "  📋 $keyname"
-        if [[ -n "$description" ]]; then
-            local desc_preview="${description:0:100}"
-            if [[ ${#description} -gt 100 ]]; then
-                desc_preview="${desc_preview}..."
-            fi
-            echo "     Description: $desc_preview"
-        fi
-        echo "     Method: $method"
-        echo "     URL: $url"
-        echo ""
-    done <<< "$results"
+        command_template = $2
+        method = $3
+        url = $4
+        header = $5
+        body = $6
+        note = $7
+        description = $8
+        
+        count++
+        print "  📋 " keyname
+        if (description != "") {
+            desc_preview = substr(description, 1, 100)
+            if (length(description) > 100) desc_preview = desc_preview "..."
+            print "     Description: " desc_preview
+        }
+        print "     Method: " method
+        print "     URL: " url
+        print ""
+    } END {
+        if (count == 0) exit 1
+    }'
+    
+    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+        log_warn "No templates found matching: $query"
+        return 1
+    fi
+    
+    # Count results for success message
+    count=$(echo "$results" | awk -F'|' 'NF >= 8 && $1 != "" && $1 !~ /^\[/ {count++} END {print count+0}')
     
     log_success "Found $count matching template(s)"
     
