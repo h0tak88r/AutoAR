@@ -8,7 +8,7 @@ source "$ROOT_DIR/lib/discord.sh"
 
 usage() { echo "Usage: github scan -r <owner/repo> | github org -o <org> [-m <max-repos>] | github depconfusion -r <owner/repo> | github experimental -r <owner/repo>"; }
 
-# Function to generate HTML report for GitHub secrets
+# Function to generate HTML report for GitHub secrets using Python script
 generate_github_html_report() {
     local repo_name="$1"
     local org_name="$2"
@@ -18,300 +18,21 @@ generate_github_html_report() {
     
     log_info "Generating HTML report for $repo_name..."
     
-    cat > "$html_file" <<EOF
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub Secrets Scan Report - $repo_name</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-            color: #333;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        .header h1 {
-            margin: 0 0 10px 0;
-            font-size: 2.5em;
-        }
-        .header p {
-            margin: 5px 0;
-            font-size: 1.1em;
-        }
-        .timestamp {
-            font-style: italic;
-            opacity: 0.9;
-        }
-        .summary {
-            padding: 30px;
-            border-bottom: 1px solid #eee;
-        }
-        .summary h2 {
-            color: #667eea;
-            margin-top: 0;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        .stat-card {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-            border-left: 4px solid #667eea;
-        }
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #667eea;
-        }
-        .stat-label {
-            color: #666;
-            margin-top: 5px;
-        }
-        .secrets-section {
-            padding: 30px;
-        }
-        .secret-item {
-            background: #fff;
-            border: 1px solid #e1e5e9;
-            border-radius: 8px;
-            margin: 20px 0;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        .secret-header {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            border-bottom: 1px solid #e1e5e9;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .secret-title {
-            font-weight: bold;
-            color: #333;
-            font-size: 1.1em;
-        }
-        .severity {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: bold;
-        }
-        .severity.high {
-            background: #ffebee;
-            color: #c62828;
-        }
-        .severity.medium {
-            background: #fff3e0;
-            color: #ef6c00;
-        }
-        .severity.low {
-            background: #e8f5e8;
-            color: #2e7d32;
-        }
-        .secret-content {
-            padding: 20px;
-        }
-        .secret-meta {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        .meta-item {
-            display: flex;
-            flex-direction: column;
-        }
-        .meta-label {
-            font-weight: bold;
-            color: #666;
-            font-size: 0.9em;
-            margin-bottom: 5px;
-        }
-        .meta-value {
-            color: #333;
-            word-break: break-all;
-        }
-        .secret-value {
-            background: #f8f9fa;
-            border: 1px solid #e1e5e9;
-            border-radius: 4px;
-            padding: 10px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-            word-break: break-all;
-            margin: 10px 0;
-        }
-        .no-secrets {
-            text-align: center;
-            padding: 60px 20px;
-            color: #666;
-        }
-        .no-secrets h3 {
-            color: #2e7d32;
-            margin-bottom: 10px;
-        }
-        .footer {
-            background: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            color: #666;
-            border-top: 1px solid #e1e5e9;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🔍 GitHub Secrets Scan Report</h1>
-            <p>Repository: <strong>$repo_name</strong></p>
-            <p>Organization: <strong>$org_name</strong></p>
-            <p class="timestamp">Generated: $(date)</p>
-        </div>
-        
-        <div class="summary">
-            <h2>📊 Scan Summary</h2>
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-number">$secret_count</div>
-                    <div class="stat-label">Secrets Found</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">$(date +%Y-%m-%d)</div>
-                    <div class="stat-label">Scan Date</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">TruffleHog</div>
-                    <div class="stat-label">Scanner Used</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="secrets-section">
-            <h2>🔐 Detected Secrets</h2>
-EOF
-
-    if [[ "$secret_count" -gt 0 ]]; then
-        # Process JSON file and generate secret items
-        # Use a more efficient approach that handles large files better
-        local temp_html_section=$(mktemp)
-        
-        # Process all secrets - handle large files by processing in chunks if needed
-        # Use jq to extract and process each secret object
-        jq -c '.[]' "$json_file" 2>/dev/null | while IFS= read -r secret_obj; do
-            if [[ -z "$secret_obj" || "$secret_obj" == "null" ]]; then
-                continue
-            fi
-            
-            # Extract all fields at once using jq with proper fallbacks
-            local detector_name=$(echo "$secret_obj" | jq -r '.SourceMetadata.DetectorName // .DetectorName // "Unknown"')
-            local severity=$(echo "$secret_obj" | jq -r '.SourceMetadata.Severity // .Severity // "medium"')
-            local verified=$(echo "$secret_obj" | jq -r '.SourceMetadata.Verified // .Verified // false')
-            local redacted=$(echo "$secret_obj" | jq -r '.Redacted // ""')
-            local is_canary=$(echo "$secret_obj" | jq -r '.SourceMetadata.Canary // .Canary // false')
-            
-            # Extract GitHub-specific metadata from nested structure (handle both Github and Git keys)
-            local file=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.file // .SourceMetadata.Data.Git.file // .File // "N/A"')
-            local line_num=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.line // .SourceMetadata.Data.Git.line // .Line // "N/A"')
-            local commit=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.commit // .SourceMetadata.Data.Git.commit // .Commit // "N/A"')
-            local link=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.link // .SourceMetadata.Data.Git.link // .Link // "N/A"')
-            
-            # Skip if detector name is missing (invalid entry)
-            if [[ "$detector_name" == "Unknown" || -z "$detector_name" ]]; then
-                continue
-            fi
-            
-            # Escape HTML special characters to prevent XSS
-            detector_name=$(echo "$detector_name" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
-            file=$(echo "$file" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
-            line_num=$(echo "$line_num" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
-            commit=$(echo "$commit" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
-            link=$(echo "$link" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
-            redacted=$(echo "$redacted" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
-            
-            # Write HTML section to temp file
-            {
-                echo "            <div class=\"secret-item\">"
-                echo "                <div class=\"secret-header\">"
-                echo "                    <div class=\"secret-title\">$detector_name</div>"
-                echo "                    <div class=\"severity $severity\">$severity</div>"
-                echo "                </div>"
-                echo "                <div class=\"secret-content\">"
-                echo "                    <div class=\"secret-meta\">"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">File:</span> $file</div>"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Line:</span> $line_num</div>"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Commit:</span> $commit</div>"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Verified:</span> $verified</div>"
-                
-                if [[ "$is_canary" == "true" ]]; then
-                    echo "                        <div class=\"meta-item\"><span class=\"meta-label\">⚠️ Canary Token:</span> Yes</div>"
-                fi
-                
-                if [[ "$link" != "N/A" && "$link" != "null" && -n "$link" ]]; then
-                    echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Link:</span> <a href=\"$link\" target=\"_blank\">View in GitHub</a></div>"
-                fi
-                
-                echo "                    </div>"
-                
-                if [[ -n "$redacted" && "$redacted" != "null" && "$redacted" != "" ]]; then
-                    echo "                    <div class=\"secret-value\">$redacted</div>"
-                fi
-                
-                echo "                </div>"
-                echo "            </div>"
-            } >> "$temp_html_section"
-        done
-        
-        # Append all generated HTML sections to the main file
-        if [[ -f "$temp_html_section" && -s "$temp_html_section" ]]; then
-            cat "$temp_html_section" >> "$html_file"
-            rm -f "$temp_html_section"
-            log_info "Successfully generated HTML report with secrets"
-        else
-            log_warn "No HTML sections were generated from JSON file"
-        fi
-    else
-        echo "            <div class=\"no-secrets\">" >> "$html_file"
-        echo "                <h3>✅ No Secrets Found</h3>" >> "$html_file"
-        echo "                <p>Great! No secrets were detected in this repository.</p>" >> "$html_file"
-        echo "            </div>" >> "$html_file"
+    # Use Python script for HTML generation (more reliable and handles large files better)
+    local python_script="$ROOT_DIR/python/github_html_report.py"
+    
+    if [[ ! -f "$python_script" ]]; then
+        log_error "Python HTML report generator not found: $python_script"
+        return 1
     fi
     
-    cat >> "$html_file" <<EOF
-        </div>
-        
-        <div class="footer">
-            <p>Generated by AutoAR GitHub Secrets Scanner | Powered by TruffleHog</p>
-            <p>Scan completed at $(date)</p>
-        </div>
-    </div>
-</body>
-</html>
-EOF
-    
-    log_success "HTML report generated: $html_file"
+    if python3 "$python_script" "$json_file" "$html_file" "$repo_name" "$org_name" "$secret_count"; then
+        log_success "HTML report generated: $html_file"
+        return 0
+    else
+        log_error "Failed to generate HTML report"
+        return 1
+    fi
 }
 
 # Function to scan GitHub repository for secrets
@@ -351,6 +72,15 @@ github_scan() {
     # Validate required arguments
     if [[ -z "$repo_url" ]]; then
         log_error "Repository URL is required. Use: github scan -r <owner/repo>"
+        exit 1
+    fi
+    
+    # Detect if input is organization vs repository
+    # If it doesn't contain a "/" and isn't a full URL, it's likely an organization
+    if [[ "$repo_url" != http* && "$repo_url" != */* ]]; then
+        log_error "Input '$repo_url' appears to be an organization, not a repository."
+        log_error "For organization scans, use: github org -o $repo_url"
+        log_error "For repository scans, use: github scan -r <owner/repo> (e.g., github scan -r $repo_url/some-repo)"
         exit 1
     fi
     
