@@ -64,12 +64,12 @@ COPY . /app
 
 # Clone submodules directly (since .git is not available in Docker context)
 RUN cd /app && \
-    rm -rf nuclei_templates Wordlists keyskit_templates && \
+    rm -rf nuclei_templates Wordlists keyhack_templates && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
     git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists && \
     git clone --depth 1 https://github.com/MrMax4o4/KeysKit.git /tmp/KeysKit && \
-    mkdir -p /app/keyskit_templates && \
-    cp -r /tmp/KeysKit/templates/* /app/keyskit_templates/ && \
+    mkdir -p /app/keyhack_templates && \
+    cp -r /tmp/KeysKit/templates/* /app/keyhack_templates/ && \
     rm -rf /tmp/KeysKit
 
 # Copy Go tools from builder stage

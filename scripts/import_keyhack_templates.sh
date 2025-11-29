@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# One-time script to import KeysKit templates into the database
+# One-time script to import KeyHack templates into the database
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/db.sh"
 
-TEMPLATES_DIR="$ROOT_DIR/keyskit_templates"
+TEMPLATES_DIR="$ROOT_DIR/keyhack_templates"
 
 main() {
-    log_info "Starting KeysKit templates import..."
+    log_info "Starting KeyHack templates import..."
     
     if [[ ! -d "$TEMPLATES_DIR" ]]; then
         log_error "Templates directory not found: $TEMPLATES_DIR"
@@ -83,7 +83,7 @@ except Exception as e:
         fi
         
         # Insert into database (suppress errors to continue)
-        db_insert_keyskit_template "$keyname" "$command_template" "$method" "$url" "$header" "$body" "$note" "$description" 2>/dev/null
+        db_insert_keyhack_template "$keyname" "$command_template" "$method" "$url" "$header" "$body" "$note" "$description" 2>/dev/null
         if [[ $? -eq 0 ]]; then
             ((count++))
             if [[ $((count % 50)) -eq 0 ]]; then
@@ -106,9 +106,9 @@ except Exception as e:
     # Show total count in database
     local total_count
     if [[ "$DB_TYPE" == "postgresql" ]]; then
-        total_count=$(db_query "SELECT COUNT(*) FROM keyskit_templates;" | tr -d ' ')
+        total_count=$(db_query "SELECT COUNT(*) FROM keyhack_templates;" | tr -d ' ')
     else
-        total_count=$(db_query "SELECT COUNT(*) FROM keyskit_templates;" | tr -d ' ')
+        total_count=$(db_query "SELECT COUNT(*) FROM keyhack_templates;" | tr -d ' ')
     fi
     
     log_info "Total templates in database: $total_count"
