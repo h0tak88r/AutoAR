@@ -226,12 +226,26 @@ github_scan() {
         if [[ "$secret_count" -gt 0 ]]; then
             log_success "Found $secret_count secrets in $repo_name"
             
-            # Generate HTML report
+            # Generate HTML report using new parser (with duplicate removal)
             local html_report="$github_dir/${repo_name}_secrets.html"
             generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
             
-            # Send summary message to Discord
-            discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`$secret_count\`\n**Timestamp:** \`$(date)\`"
+            # Generate Discord message using parser
+            local discord_msg_file="$github_dir/${repo_name}_discord_msg.txt"
+            local python_parser="$ROOT_DIR/python/github_secrets_parser.py"
+            if [[ -f "$python_parser" ]]; then
+                python3 "$python_parser" "$temp_json_array" "discord" "$discord_msg_file" "$repo_name" "$org_name" 2>/dev/null
+                if [[ -f "$discord_msg_file" && -s "$discord_msg_file" ]]; then
+                    local discord_msg=$(cat "$discord_msg_file")
+                    discord_send "$discord_msg"
+                else
+                    # Fallback to simple message
+                    discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`$secret_count\`\n**Timestamp:** \`$(date)\`"
+                fi
+            else
+                # Fallback to simple message
+                discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`$secret_count\`\n**Timestamp:** \`$(date)\`"
+            fi
             
             # Send both JSON and HTML reports to Discord
             discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
@@ -615,12 +629,26 @@ github_org_scan() {
         if [[ "$total_secrets" -gt 0 ]]; then
             log_success "Found $total_secrets secrets in organization $org_name"
             
-            # Generate HTML report for organization
+            # Generate HTML report for organization using new parser (with duplicate removal)
             local html_report="$org_dir/org_secrets.html"
             generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "$total_secrets"
             
-            # Send summary message to Discord
-            discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`$total_secrets\`\n**Timestamp:** \`$(date)\`"
+            # Generate Discord message using parser
+            local discord_msg_file="$org_dir/org_discord_msg.txt"
+            local python_parser="$ROOT_DIR/python/github_secrets_parser.py"
+            if [[ -f "$python_parser" ]]; then
+                python3 "$python_parser" "$temp_json_array" "discord" "$discord_msg_file" "$org_name" "$org_name" 2>/dev/null
+                if [[ -f "$discord_msg_file" && -s "$discord_msg_file" ]]; then
+                    local discord_msg=$(cat "$discord_msg_file")
+                    discord_send "$discord_msg"
+                else
+                    # Fallback to simple message
+                    discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`$total_secrets\`\n**Timestamp:** \`$(date)\`"
+                fi
+            else
+                # Fallback to simple message
+                discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`$total_secrets\`\n**Timestamp:** \`$(date)\`"
+            fi
             
             # Send both JSON and HTML reports to Discord
             discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
