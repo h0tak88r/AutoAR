@@ -63,9 +63,10 @@ Commands:
   misconfig service <target> <service-id>     Scan specific service
   misconfig list                              List available services
   misconfig update                            Update templates
-  keyskit list                                List all API key validation templates
-  keyskit search <query>                      Search API key validation templates
-  keyskit validate <provider> <api_key>       Generate validation command for API key
+  keyhack list                                List all API key validation templates
+  keyhack search <query>                      Search API key validation templates
+  keyhack validate <provider> <api_key>       Generate validation command for API key
+  keyhack add <keyname> <command> <desc> [notes] Add a new template
 
 Workflows:
   lite run            -d <domain>
@@ -113,7 +114,7 @@ cmd_backup()     { "$ROOT_DIR/modules/backup_scan.sh"    "$@"; }
 cmd_depconfusion() { "$ROOT_DIR/modules/depconfusion.sh" "$@"; }
 cmd_misconfig()  { "$ROOT_DIR/modules/misconfig.sh"     "$@"; }
 cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
-cmd_keyskit()    { "$ROOT_DIR/modules/keyskit.sh"       "$@"; }
+cmd_keyhack()    { "$ROOT_DIR/modules/keyhack.sh"       "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
 
@@ -167,7 +168,7 @@ main() {
   depconfusion) cmd_depconfusion "$@" ;;
   misconfig)   cmd_misconfig   "$@" ;;
   fastlook)    cmd_fastlook    "$@" ;;
-  keyskit)     cmd_keyskit     "$@" ;;
+  keyhack)     cmd_keyhack     "$@" ;;
   help)        cmd_help        "$@" ;;
   wpDepConf)   cmd_wpdepconf   "$@" ;;
   --help|-h)  print_usage ;;

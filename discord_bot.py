@@ -1310,22 +1310,22 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(
-        name="keyskit_search", description="🔍 Search for API key validation templates"
+        name="keyhack_search", description="🔍 Search for API key validation templates"
     )
     @app_commands.describe(
         query="Search query (provider name or partial match)"
     )
-    async def keyskit_search_cmd(
+    async def keyhack_search_cmd(
         self, interaction: discord.Interaction, query: str
     ):
         """Search for API key validation templates."""
         await interaction.response.defer()
         
-        scan_id = f"keyskit_search_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "keyskit", "search", query]
+        scan_id = f"keyhack_search_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "keyhack", "search", query]
         
         active_scans[scan_id] = {
-            "type": "keyskit_search",
+            "type": "keyhack_search",
             "target": query,
             "started_at": datetime.now().isoformat(),
             "status": "running",
@@ -1339,7 +1339,7 @@ class AutoARBot(commands.Cog):
             active_scans[scan_id]["output"] = output
             
             embed = discord.Embed(
-                title="🔍 KeysKit Search Results",
+                title="🔍 KeyHack Search Results",
                 description=f"**Query:** `{query}`",
                 color=discord.Color.blue(),
             )
@@ -1356,7 +1356,7 @@ class AutoARBot(commands.Cog):
             active_scans[scan_id]["error"] = error_msg
             
             embed = discord.Embed(
-                title="❌ KeysKit Search Failed",
+                title="❌ KeyHack Search Failed",
                 description=f"**Query:** `{query}`",
                 color=discord.Color.red(),
             )
@@ -1364,23 +1364,88 @@ class AutoARBot(commands.Cog):
             await interaction.followup.send(embed=embed)
 
     @app_commands.command(
-        name="keyskit_validate", description="🔐 Generate API key validation command"
+        name="keyhack_add", description="➕ Add a new API key validation template"
+    )
+    @app_commands.describe(
+        keyname="Template name (e.g., Slack, Bing Maps)",
+        command="Validation command (curl or shell command with $API_KEY placeholder)",
+        description="Description of the template",
+        notes="Optional notes or additional information"
+    )
+    async def keyhack_add_cmd(
+        self,
+        interaction: discord.Interaction,
+        keyname: str,
+        command: str,
+        description: str,
+        notes: str = "",
+    ):
+        """Add a new API key validation template to the database."""
+        await interaction.response.defer()
+
+        scan_id = f"keyhack_add_{int(time.time())}"
+        cmd = [AUTOAR_SCRIPT_PATH, "keyhack", "add", keyname, command, description]
+        if notes:
+            cmd.append(notes)
+
+        active_scans[scan_id] = {
+            "type": "keyhack_add",
+            "target": keyname,
+            "started_at": datetime.now().isoformat(),
+            "status": "running",
+        }
+
+        result = await self.run_autoar_command(cmd, scan_id, timeout=10)
+
+        if result["returncode"] == 0:
+            output = result["stdout"]
+            active_scans[scan_id]["status"] = "completed"
+            active_scans[scan_id]["output"] = output
+
+            embed = discord.Embed(
+                title="✅ Template Added Successfully",
+                description=f"**Template:** `{keyname}`",
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="Description", value=description, inline=False)
+            if notes:
+                embed.add_field(name="Notes", value=notes, inline=False)
+            embed.add_field(
+                name="Command", value=f"```bash\n{command[:500]}\n```", inline=False
+            )
+
+            await interaction.followup.send(embed=embed)
+        else:
+            error_msg = result["stderr"] or result["stdout"] or "Failed to add template"
+            active_scans[scan_id]["status"] = "failed"
+            active_scans[scan_id]["error"] = error_msg
+
+            embed = discord.Embed(
+                title="❌ Failed to Add Template",
+                description=f"**Template:** `{keyname}`",
+                color=discord.Color.red(),
+            )
+            embed.add_field(name="Error", value=f"```\n{error_msg[:1000]}\n```", inline=False)
+            await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
+        name="keyhack_validate", description="🔐 Generate API key validation command"
     )
     @app_commands.describe(
         provider="Provider name (e.g., Stripe, AWS, GitHub)",
         api_key="API key to validate"
     )
-    async def keyskit_validate_cmd(
+    async def keyhack_validate_cmd(
         self, interaction: discord.Interaction, provider: str, api_key: str
     ):
         """Generate validation command for an API key."""
         await interaction.response.defer()
         
-        scan_id = f"keyskit_validate_{int(time.time())}"
-        command = [AUTOAR_SCRIPT_PATH, "keyskit", "validate", provider, api_key]
+        scan_id = f"keyhack_validate_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "keyhack", "validate", provider, api_key]
         
         active_scans[scan_id] = {
-            "type": "keyskit_validate",
+            "type": "keyhack_validate",
             "target": provider,
             "started_at": datetime.now().isoformat(),
             "status": "running",

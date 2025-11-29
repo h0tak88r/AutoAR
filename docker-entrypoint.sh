@@ -18,16 +18,16 @@ if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
   echo "[entrypoint] Initializing database schema"
   source /app/lib/db.sh && db_init_schema || echo "[entrypoint] Database schema initialization completed with warnings"
   
-  # Import KeysKit templates if database is available and templates directory exists
-  if [[ -d "/app/keyskit_templates" && -f "/app/scripts/import_keyskit_templates.sh" ]]; then
-    echo "[entrypoint] Checking KeysKit templates in database..."
+  # Import KeyHack templates if database is available and templates directory exists
+  if [[ -d "/app/keyhack_templates" && -f "/app/scripts/import_keyhack_templates.sh" ]]; then
+    echo "[entrypoint] Checking KeyHack templates in database..."
     # Check if templates are already imported (quick check - count should be > 0)
-    template_count=$(source /app/lib/db.sh 2>/dev/null && db_query "SELECT COUNT(*) FROM keyskit_templates;" 2>/dev/null | tr -d ' ' | grep -v "^\[" | head -1)
+    template_count=$(source /app/lib/db.sh 2>/dev/null && db_query "SELECT COUNT(*) FROM keyhack_templates;" 2>/dev/null | tr -d ' ' | grep -v "^\[" | head -1)
     if [[ -z "$template_count" ]] || [[ "$template_count" == "0" ]]; then
-      echo "[entrypoint] Importing KeysKit templates into database..."
-      bash /app/scripts/import_keyskit_templates.sh 2>/dev/null || echo "[entrypoint] KeysKit templates import completed with warnings"
+      echo "[entrypoint] Importing KeyHack templates into database..."
+      bash /app/scripts/import_keyhack_templates.sh 2>/dev/null || echo "[entrypoint] KeyHack templates import completed with warnings"
     else
-      echo "[entrypoint] KeysKit templates already imported ($template_count templates), skipping"
+      echo "[entrypoint] KeyHack templates already imported ($template_count templates), skipping"
     fi
   fi
 else

@@ -282,9 +282,9 @@ new-results/
 - Discord notifications for errors
 - Graceful fallbacks (e.g., jtbl → plain text)
 
-## KeysKit Integration
+## KeyHack Integration
 
-**Location:** `modules/keyskit.sh`, `keyskit_templates/`
+**Location:** `modules/keyhack.sh`, `keyhack_templates/`
 
 **Features:**
 - Search through 750+ API key validation templates
@@ -298,29 +298,29 @@ new-results/
 **CLI:**
 ```bash
 # Search for templates
-./main.sh keyskit search stripe
+./main.sh keyhack search stripe
 
 # Generate validation command
-./main.sh keyskit validate Stripe sk_live_abc123
+./main.sh keyhack validate Stripe sk_live_abc123
 ```
 
 **API:**
 ```bash
 # Search
-POST /keyskit/search
+POST /keyhack/search
 {"query": "stripe"}
 
 # Validate
-POST /keyskit/validate
+POST /keyhack/validate
 {"provider": "Stripe", "api_key": "sk_live_abc123"}
 ```
 
 **Discord:**
-- `/keyskit_search <query>` - Search for templates
-- `/keyskit_validate <provider> <api_key>` - Generate validation command
+- `/keyhack_search <query>` - Search for templates
+- `/keyhack_validate <provider> <api_key>` - Generate validation command
 
 **Templates:**
-- Located in `keyskit_templates/` directory
+- Located in `keyhack_templates/` directory
 - 750+ templates from [KeysKit project](https://github.com/MrMax4o4/KeysKit)
 - Each template contains: name, method, header, url, body, note, description
 
@@ -339,8 +339,8 @@ POST /keyskit/validate
 
 ## Recent Changes
 
-### KeysKit Integration (2025-11-29)
-- Added KeysKit integration for API key validation
+### KeyHack Integration (2025-11-29)
+- Added KeyHack integration for API key validation
 - Integrated 750+ validation templates
 - Added CLI, API, and Discord bot support
 - Automatic variable replacement and Basic Auth encoding
