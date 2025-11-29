@@ -55,8 +55,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install jtbl (JSON to table converter) via pip
-RUN pip3 install --no-cache-dir jtbl || \
-    (echo "jtbl installation failed, will use fallback text format" && echo "#!/bin/sh" > /usr/local/bin/jtbl && chmod +x /usr/local/bin/jtbl)
+# Note: jtbl is a Python package, so we install it and it will be available via 'python3 -m jtbl' or 'jtbl' if entry point is created
+RUN pip3 install --no-cache-dir jtbl && \
+    python3 -m jtbl --version >/dev/null 2>&1 || echo "Warning: jtbl installation may have issues, will use fallback"
 
 # Copy application code
 COPY . /app

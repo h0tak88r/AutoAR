@@ -62,10 +62,24 @@ generate_secrets_table() {
     
     log_info "Generating secrets table (deduplicating by raw secret value)..."
     
-    # Check if jtbl is available
+    # Check if jtbl is available (try multiple methods)
+    local jtbl_cmd=""
     if command -v jtbl >/dev/null 2>&1; then
+        jtbl_cmd="jtbl"
+    elif python3 -m jtbl --version >/dev/null 2>&1; then
+        jtbl_cmd="python3 -m jtbl"
+    elif python3 -c "import jtbl" >/dev/null 2>&1; then
+        jtbl_cmd="python3 -m jtbl"
+    fi
+    
+    if [[ -n "$jtbl_cmd" ]]; then
         # Use jtbl to create a nice table from JSON
         # Extract detector name and raw secret, deduplicate by secret value only
+        # jtbl expects JSON array input, so we collect all objects into an array
+        local temp_json=$(mktemp)
+        local jq_error=$(mktemp)
+        
+        # Extract and deduplicate secrets
         jq -r '.[] | 
             select((.Raw != null and .Raw != "" and .Raw != "null") or 
                    (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
@@ -74,13 +88,32 @@ generate_secrets_table() {
                 "Secret": (.Raw // .SourceMetadata.Raw // "")
             } | 
             select(.Secret != "")' \
-            "$json_file" 2>/dev/null | \
-        jq -s 'unique_by(.Secret) | .[]' | \
-        jtbl > "$output_file" 2>/dev/null || {
-            # Fallback to plain text if jtbl fails
-            log_warn "jtbl processing failed, falling back to plain text"
+            "$json_file" 2>"$jq_error" | \
+        jq -s 'unique_by(.Secret)' > "$temp_json" 2>>"$jq_error"
+        
+        if [[ -f "$temp_json" && -s "$temp_json" ]]; then
+            # jtbl works with JSON arrays
+            local jtbl_error=$(mktemp)
+            if $jtbl_cmd < "$temp_json" > "$output_file" 2>"$jtbl_error"; then
+                rm -f "$temp_json" "$jq_error" "$jtbl_error"
+                log_success "Secrets table generated using jtbl: $output_file"
+                return 0
+            else
+                if [[ -s "$jtbl_error" ]]; then
+                    log_warn "jtbl error: $(cat "$jtbl_error" | head -1)"
+                fi
+                rm -f "$temp_json" "$jq_error" "$jtbl_error"
+                log_warn "jtbl processing failed, falling back to plain text"
+                extract_unique_secrets "$json_file" "$output_file"
+            fi
+        else
+            if [[ -s "$jq_error" ]]; then
+                log_warn "jq extraction error: $(cat "$jq_error" | head -1)"
+            fi
+            rm -f "$temp_json" "$jq_error"
+            log_warn "Failed to extract secrets for table, falling back to plain text"
             extract_unique_secrets "$json_file" "$output_file"
-        }
+        fi
     else
         # Fallback to plain text extraction if jtbl is not available
         log_warn "jtbl not found, using plain text format"
@@ -88,7 +121,6 @@ generate_secrets_table() {
     fi
     
     if [[ -f "$output_file" && -s "$output_file" ]]; then
-        log_success "Secrets table generated: $output_file"
         return 0
     else
         log_warn "Failed to generate secrets table"
