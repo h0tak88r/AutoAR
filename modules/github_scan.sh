@@ -215,50 +215,83 @@ EOF
 
     if [[ "$secret_count" -gt 0 ]]; then
         # Process JSON file and generate secret items
-        jq -r '.[] | @base64' "$json_file" 2>/dev/null | while IFS= read -r line; do
-            if [[ -n "$line" ]]; then
-                local secret_data=$(echo "$line" | base64 -d)
-                local detector_name=$(echo "$secret_data" | jq -r '.DetectorName // "Unknown"')
-                local severity=$(echo "$secret_data" | jq -r '.Severity // "medium"')
-                local verified=$(echo "$secret_data" | jq -r '.Verified // false')
-                local raw=$(echo "$secret_data" | jq -r '.Raw // ""')
-                local redacted=$(echo "$secret_data" | jq -r '.Redacted // ""')
-                local file=$(echo "$secret_data" | jq -r '.File // "N/A"')
-                local line_num=$(echo "$secret_data" | jq -r '.Line // "N/A"')
-                local commit=$(echo "$secret_data" | jq -r '.Commit // "N/A"')
-                local link=$(echo "$secret_data" | jq -r '.Link // "N/A"')
-                local is_canary=$(echo "$secret_data" | jq -r '.Canary // false')
-                
-                echo "            <div class=\"secret-item\">" >> "$html_file"
-                echo "                <div class=\"secret-header\">" >> "$html_file"
-                echo "                    <div class=\"secret-title\">$detector_name</div>" >> "$html_file"
-                echo "                    <div class=\"severity $severity\">$severity</div>" >> "$html_file"
-                echo "                </div>" >> "$html_file"
-                echo "                <div class=\"secret-content\">" >> "$html_file"
-                echo "                    <div class=\"secret-meta\">" >> "$html_file"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">File:</span> $file</div>" >> "$html_file"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Line:</span> $line_num</div>" >> "$html_file"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Commit:</span> $commit</div>" >> "$html_file"
-                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Verified:</span> $verified</div>" >> "$html_file"
+        # Use a more efficient approach that handles large files better
+        local temp_html_section=$(mktemp)
+        
+        # Process all secrets - handle large files by processing in chunks if needed
+        # Use jq to extract and process each secret object
+        jq -c '.[]' "$json_file" 2>/dev/null | while IFS= read -r secret_obj; do
+            if [[ -z "$secret_obj" || "$secret_obj" == "null" ]]; then
+                continue
+            fi
+            
+            # Extract all fields at once using jq with proper fallbacks
+            local detector_name=$(echo "$secret_obj" | jq -r '.SourceMetadata.DetectorName // .DetectorName // "Unknown"')
+            local severity=$(echo "$secret_obj" | jq -r '.SourceMetadata.Severity // .Severity // "medium"')
+            local verified=$(echo "$secret_obj" | jq -r '.SourceMetadata.Verified // .Verified // false')
+            local redacted=$(echo "$secret_obj" | jq -r '.Redacted // ""')
+            local is_canary=$(echo "$secret_obj" | jq -r '.SourceMetadata.Canary // .Canary // false')
+            
+            # Extract GitHub-specific metadata from nested structure (handle both Github and Git keys)
+            local file=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.file // .SourceMetadata.Data.Git.file // .File // "N/A"')
+            local line_num=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.line // .SourceMetadata.Data.Git.line // .Line // "N/A"')
+            local commit=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.commit // .SourceMetadata.Data.Git.commit // .Commit // "N/A"')
+            local link=$(echo "$secret_obj" | jq -r '.SourceMetadata.Data.Github.link // .SourceMetadata.Data.Git.link // .Link // "N/A"')
+            
+            # Skip if detector name is missing (invalid entry)
+            if [[ "$detector_name" == "Unknown" || -z "$detector_name" ]]; then
+                continue
+            fi
+            
+            # Escape HTML special characters to prevent XSS
+            detector_name=$(echo "$detector_name" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
+            file=$(echo "$file" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
+            line_num=$(echo "$line_num" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
+            commit=$(echo "$commit" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
+            link=$(echo "$link" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
+            redacted=$(echo "$redacted" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g')
+            
+            # Write HTML section to temp file
+            {
+                echo "            <div class=\"secret-item\">"
+                echo "                <div class=\"secret-header\">"
+                echo "                    <div class=\"secret-title\">$detector_name</div>"
+                echo "                    <div class=\"severity $severity\">$severity</div>"
+                echo "                </div>"
+                echo "                <div class=\"secret-content\">"
+                echo "                    <div class=\"secret-meta\">"
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">File:</span> $file</div>"
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Line:</span> $line_num</div>"
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Commit:</span> $commit</div>"
+                echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Verified:</span> $verified</div>"
                 
                 if [[ "$is_canary" == "true" ]]; then
-                    echo "                        <div class=\"meta-item\"><span class=\"meta-label\">⚠️ Canary Token:</span> Yes</div>" >> "$html_file"
+                    echo "                        <div class=\"meta-item\"><span class=\"meta-label\">⚠️ Canary Token:</span> Yes</div>"
                 fi
                 
-                if [[ "$link" != "N/A" ]]; then
-                    echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Link:</span> <a href=\"$link\" target=\"_blank\">View in GitHub</a></div>" >> "$html_file"
+                if [[ "$link" != "N/A" && "$link" != "null" && -n "$link" ]]; then
+                    echo "                        <div class=\"meta-item\"><span class=\"meta-label\">Link:</span> <a href=\"$link\" target=\"_blank\">View in GitHub</a></div>"
                 fi
                 
-                echo "                    </div>" >> "$html_file"
+                echo "                    </div>"
                 
-                if [[ -n "$redacted" && "$redacted" != "null" ]]; then
-                    echo "                    <div class=\"secret-value\">$redacted</div>" >> "$html_file"
+                if [[ -n "$redacted" && "$redacted" != "null" && "$redacted" != "" ]]; then
+                    echo "                    <div class=\"secret-value\">$redacted</div>"
                 fi
                 
-                echo "                </div>" >> "$html_file"
-                echo "            </div>" >> "$html_file"
-            fi
+                echo "                </div>"
+                echo "            </div>"
+            } >> "$temp_html_section"
         done
+        
+        # Append all generated HTML sections to the main file
+        if [[ -f "$temp_html_section" && -s "$temp_html_section" ]]; then
+            cat "$temp_html_section" >> "$html_file"
+            rm -f "$temp_html_section"
+            log_info "Successfully generated HTML report with secrets"
+        else
+            log_warn "No HTML sections were generated from JSON file"
+        fi
     else
         echo "            <div class=\"no-secrets\">" >> "$html_file"
         echo "                <h3>✅ No Secrets Found</h3>" >> "$html_file"
