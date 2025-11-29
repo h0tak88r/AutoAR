@@ -65,7 +65,7 @@ generate_secrets_table() {
     # Check if jtbl is available (try multiple methods)
     local jtbl_cmd=""
     if command -v jtbl >/dev/null 2>&1; then
-        jtbl_cmd="jtbl"
+        jtbl_cmd="jtbl -n"
     elif python3 -m jtbl --version >/dev/null 2>&1; then
         jtbl_cmd="python3 -m jtbl"
     elif python3 -c "import jtbl" >/dev/null 2>&1; then
