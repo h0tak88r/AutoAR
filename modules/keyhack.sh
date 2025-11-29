@@ -80,17 +80,36 @@ keyhack_search() {
         return 1
     fi
     
+    # Debug: Check if we have results
+    local result_count=$(echo "$results" | wc -l)
+    if [[ $result_count -eq 0 ]]; then
+        log_warn "No templates found matching: $query"
+        return 1
+    fi
+    
     # Parse results and generate curl commands using Python
     # psql outputs pipe-separated: keyname|command_template|method|url|header|body|note|description
     # Process all results at once using Python for better handling
     # Use here-document to prevent bash variable expansion
-    echo "$results" | python3 <<'PYTHON_SCRIPT'
+    # Write to temp file to ensure Python gets all data correctly
+    local temp_file=$(mktemp)
+    echo "$results" > "$temp_file"
+    TEMP_FILE="$temp_file" python3 <<'PYTHON_SCRIPT'
 import json
 import sys
 import re
 import base64
+import os
 
-lines = sys.stdin.readlines()
+# Read from temp file (passed via environment variable)
+temp_file = os.environ.get('TEMP_FILE', '')
+if not temp_file:
+    # Fallback: read from stdin
+    lines = sys.stdin.readlines()
+else:
+    with open(temp_file, 'r') as f:
+        lines = f.readlines()
+
 count = 0
 
 for line in lines:
@@ -185,8 +204,10 @@ for line in lines:
 if count == 0:
     sys.exit(1)
 PYTHON_SCRIPT
+    local python_exit=$?
+    rm -f "$temp_file"
     
-    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+    if [[ $python_exit -ne 0 ]]; then
         log_warn "No templates found matching: $query"
         return 1
     fi

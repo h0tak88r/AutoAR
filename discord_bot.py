@@ -1310,6 +1310,54 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(
+        name="keyhack_list", description="📋 List all API key validation templates"
+    )
+    async def keyhack_list_cmd(self, interaction: discord.Interaction):
+        """List all available API key validation templates."""
+        await interaction.response.defer()
+        
+        scan_id = f"keyhack_list_{int(time.time())}"
+        command = [AUTOAR_SCRIPT_PATH, "keyhack", "list"]
+        
+        active_scans[scan_id] = {
+            "type": "keyhack_list",
+            "target": "all",
+            "started_at": datetime.now().isoformat(),
+            "status": "running",
+        }
+        
+        result = await self.run_autoar_command(command, scan_id, timeout=10)
+        
+        if result["returncode"] == 0:
+            output = result["stdout"]
+            active_scans[scan_id]["status"] = "completed"
+            active_scans[scan_id]["output"] = output
+            
+            embed = discord.Embed(
+                title="📋 KeyHack Templates List",
+                description="All available API key validation templates",
+                color=discord.Color.blue(),
+            )
+            
+            # Format output for Discord (limit to 2000 chars)
+            if len(output) > 1900:
+                output = output[:1900] + "\n... (truncated - use search for specific templates)"
+            
+            embed.add_field(name="Templates", value=f"```\n{output}\n```", inline=False)
+            await interaction.followup.send(embed=embed)
+        else:
+            error_msg = result["stderr"] or "Failed to list templates"
+            active_scans[scan_id]["status"] = "failed"
+            active_scans[scan_id]["error"] = error_msg
+            
+            embed = discord.Embed(
+                title="❌ KeyHack List Failed",
+                color=discord.Color.red(),
+            )
+            embed.add_field(name="Error", value=f"```\n{error_msg}\n```", inline=False)
+            await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
         name="keyhack_search", description="🔍 Search for API key validation templates"
     )
     @app_commands.describe(
