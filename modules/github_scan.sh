@@ -8,29 +8,79 @@ source "$ROOT_DIR/lib/discord.sh"
 
 usage() { echo "Usage: github scan -r <owner/repo> | github org -o <org> [-m <max-repos>] | github depconfusion -r <owner/repo> | github experimental -r <owner/repo>"; }
 
-# Function to generate HTML report for GitHub secrets using Python script
-generate_github_html_report() {
-    local repo_name="$1"
-    local org_name="$2"
-    local json_file="$3"
-    local html_file="$4"
-    local secret_count="$5"
+# Function to extract unique secrets (detector name + raw secret value) using jq
+extract_unique_secrets() {
+    local json_file="$1"
+    local output_file="$2"
     
-    log_info "Generating HTML report for $repo_name..."
+    log_info "Extracting unique secrets from JSON..."
     
-    # Use Python script for HTML generation (more reliable and handles large files better)
-    local python_script="$ROOT_DIR/python/github_html_report.py"
+    # Extract unique secrets: detector_name and raw secret value
+    # Try multiple JSON path variations to handle different TruffleHog versions
+    jq -r '.[] | 
+        select((.Raw != null and .Raw != "" and .Raw != "null") or 
+               (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
+        "\(.SourceMetadata.DetectorName // .DetectorName // "Unknown")|\(.Raw // .SourceMetadata.Raw // "")"' \
+        "$json_file" 2>/dev/null | \
+    sort -u | \
+    awk -F'|' '{if ($2 != "") print $1 ": " $2}' > "$output_file" 2>/dev/null || {
+        # Fallback: try Redacted if Raw is not available
+        jq -r '.[] | 
+            select((.Redacted != null and .Redacted != "" and .Redacted != "null") or 
+                   (.SourceMetadata.Redacted != null and .SourceMetadata.Redacted != "" and .SourceMetadata.Redacted != "null")) |
+            "\(.SourceMetadata.DetectorName // .DetectorName // "Unknown")|\(.Redacted // .SourceMetadata.Redacted // "")"' \
+            "$json_file" 2>/dev/null | \
+        sort -u | \
+        awk -F'|' '{if ($2 != "") print $1 ": " $2}' > "$output_file" 2>/dev/null || {
+            echo "No secrets found" > "$output_file"
+        }
+    }
     
-    if [[ ! -f "$python_script" ]]; then
-        log_error "Python HTML report generator not found: $python_script"
-        return 1
-    fi
-    
-    if python3 "$python_script" "$json_file" "$html_file" "$repo_name" "$org_name" "$secret_count"; then
-        log_success "HTML report generated: $html_file"
+    if [[ -f "$output_file" && -s "$output_file" ]]; then
+        local count=$(wc -l < "$output_file" 2>/dev/null || echo "0")
+        log_success "Extracted $count unique secrets to $output_file"
         return 0
     else
-        log_error "Failed to generate HTML report"
+        log_warn "Failed to extract secrets"
+        return 1
+    fi
+}
+
+# Function to generate table format using jtbl (if available) or plain text
+generate_secrets_table() {
+    local json_file="$1"
+    local output_file="$2"
+    
+    log_info "Generating secrets table..."
+    
+    # Check if jtbl is available
+    if command -v jtbl >/dev/null 2>&1; then
+        # Use jtbl to create a nice table from JSON
+        # Extract detector name and raw secret, convert to JSON array for jtbl
+        jq -r '.[] | 
+            select((.Raw != null and .Raw != "" and .Raw != "null") or 
+                   (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
+            {
+                "Detector": (.SourceMetadata.DetectorName // .DetectorName // "Unknown"),
+                "Secret": (.Raw // .SourceMetadata.Raw // "")
+            }' \
+            "$json_file" 2>/dev/null | \
+        jq -s 'unique_by(.Secret) | .[]' | \
+        jtbl > "$output_file" 2>/dev/null || {
+            # Fallback to plain text if jtbl fails
+            extract_unique_secrets "$json_file" "$output_file"
+        }
+    else
+        # Fallback to plain text extraction if jtbl is not available
+        log_warn "jtbl not found, using plain text format"
+        extract_unique_secrets "$json_file" "$output_file"
+    fi
+    
+    if [[ -f "$output_file" && -s "$output_file" ]]; then
+        log_success "Secrets table generated: $output_file"
+        return 0
+    else
+        log_warn "Failed to generate secrets table"
         return 1
     fi
 }
@@ -226,47 +276,38 @@ github_scan() {
         if [[ "$secret_count" -gt 0 ]]; then
             log_success "Found $secret_count secrets in $repo_name"
             
-            # Generate HTML report using new parser (with duplicate removal)
-            local html_report="$github_dir/${repo_name}_secrets.html"
-            generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
+            # Extract unique secrets (detector name + raw secret value)
+            local secrets_txt="$github_dir/${repo_name}_secrets.txt"
+            extract_unique_secrets "$temp_json_array" "$secrets_txt"
             
-            # Generate Discord message using parser
-            local discord_msg_file="$github_dir/${repo_name}_discord_msg.txt"
-            local python_parser="$ROOT_DIR/python/github_secrets_parser.py"
-            if [[ -f "$python_parser" ]]; then
-                python3 "$python_parser" "$temp_json_array" "discord" "$discord_msg_file" "$repo_name" "$org_name" 2>/dev/null
-                if [[ -f "$discord_msg_file" && -s "$discord_msg_file" ]]; then
-                    local discord_msg=$(cat "$discord_msg_file")
-                    discord_send "$discord_msg"
-                else
-                    # Fallback to simple message
-                    discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`$secret_count\`\n**Timestamp:** \`$(date)\`"
-                fi
-            else
-                # Fallback to simple message
-                discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`$secret_count\`\n**Timestamp:** \`$(date)\`"
+            # Generate table format if jtbl is available
+            local secrets_table="$github_dir/${repo_name}_secrets_table.txt"
+            generate_secrets_table "$temp_json_array" "$secrets_table"
+            
+            # Count unique secrets
+            local unique_count=$(wc -l < "$secrets_txt" 2>/dev/null || echo "0")
+            
+            # Send summary message to Discord
+            discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Total findings:** \`$secret_count\`\n**Unique secrets:** \`$unique_count\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send JSON file and unique secrets text file to Discord
+            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            discord_file "$secrets_txt" "**GitHub Repository Unique Secrets (Text) for \`$repo_name\`**"
+            
+            # Send table if it was generated and is different from text file
+            if [[ -f "$secrets_table" && -s "$secrets_table" && "$secrets_table" != "$secrets_txt" ]]; then
+                discord_file "$secrets_table" "**GitHub Repository Secrets Table for \`$repo_name\`**"
             fi
             
-            # Send both JSON and HTML reports to Discord
-            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
-            discord_file "$html_report" "**GitHub Repository Secrets Report (HTML) for \`$repo_name\`**"
-            
-            log_success "GitHub scan completed for $repo_name - Found $secret_count secrets"
+            log_success "GitHub scan completed for $repo_name - Found $secret_count secrets ($unique_count unique)"
         else
             log_info "No secrets found in $repo_name"
-            
-            # Generate empty reports for no findings
-            local json_report="$github_dir/${repo_name}_secrets.json"
-            local html_report="$github_dir/${repo_name}_secrets.html"
-            echo "[]" > "$json_report"
-            generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
             
             # Send summary message to Discord
             discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
             
-            # Send both JSON and HTML reports to Discord
+            # Send JSON report to Discord (even if empty)
             discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
-            discord_file "$html_report" "**GitHub Repository Secrets Report (HTML) for \`$repo_name\`**"
             
             log_success "GitHub scan completed for $repo_name - No secrets found"
         fi
@@ -629,45 +670,38 @@ github_org_scan() {
         if [[ "$total_secrets" -gt 0 ]]; then
             log_success "Found $total_secrets secrets in organization $org_name"
             
-            # Generate HTML report for organization using new parser (with duplicate removal)
-            local html_report="$org_dir/org_secrets.html"
-            generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "$total_secrets"
+            # Extract unique secrets (detector name + raw secret value)
+            local secrets_txt="$org_dir/org_secrets.txt"
+            extract_unique_secrets "$temp_json_array" "$secrets_txt"
             
-            # Generate Discord message using parser
-            local discord_msg_file="$org_dir/org_discord_msg.txt"
-            local python_parser="$ROOT_DIR/python/github_secrets_parser.py"
-            if [[ -f "$python_parser" ]]; then
-                python3 "$python_parser" "$temp_json_array" "discord" "$discord_msg_file" "$org_name" "$org_name" 2>/dev/null
-                if [[ -f "$discord_msg_file" && -s "$discord_msg_file" ]]; then
-                    local discord_msg=$(cat "$discord_msg_file")
-                    discord_send "$discord_msg"
-                else
-                    # Fallback to simple message
-                    discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`$total_secrets\`\n**Timestamp:** \`$(date)\`"
-                fi
-            else
-                # Fallback to simple message
-                discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`$total_secrets\`\n**Timestamp:** \`$(date)\`"
+            # Generate table format if jtbl is available
+            local secrets_table="$org_dir/org_secrets_table.txt"
+            generate_secrets_table "$temp_json_array" "$secrets_table"
+            
+            # Count unique secrets
+            local unique_count=$(wc -l < "$secrets_txt" 2>/dev/null || echo "0")
+            
+            # Send summary message to Discord
+            discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Total findings:** \`$total_secrets\`\n**Unique secrets:** \`$unique_count\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send JSON file and unique secrets text file to Discord
+            discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
+            discord_file "$secrets_txt" "**GitHub Organization Unique Secrets (Text) for \`$org_name\`**"
+            
+            # Send table if it was generated and is different from text file
+            if [[ -f "$secrets_table" && -s "$secrets_table" && "$secrets_table" != "$secrets_txt" ]]; then
+                discord_file "$secrets_table" "**GitHub Organization Secrets Table for \`$org_name\`**"
             fi
             
-            # Send both JSON and HTML reports to Discord
-            discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
-            discord_file "$html_report" "**GitHub Organization Secrets Report (HTML) for \`$org_name\`**"
-            
-            log_success "Organization scan completed for $org_name - Found $total_secrets secrets"
+            log_success "Organization scan completed for $org_name - Found $total_secrets secrets ($unique_count unique)"
         else
             log_info "No secrets found in organization $org_name"
-            
-            # Generate empty reports for no findings
-            local html_report="$org_dir/org_secrets.html"
-            generate_github_html_report "$org_name" "$org_name" "$temp_json_array" "$html_report" "0"
             
             # Send summary message to Discord
             discord_send "**GitHub Organization Scan Results**\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
             
-            # Send both JSON and HTML reports to Discord
+            # Send JSON report to Discord (even if empty)
             discord_file "$temp_json_array" "**GitHub Organization Secrets Report (JSON) for \`$org_name\`**"
-            discord_file "$html_report" "**GitHub Organization Secrets Report (HTML) for \`$org_name\`**"
             
             log_success "Organization scan completed for $org_name - No secrets found"
         fi
@@ -787,23 +821,38 @@ github_experimental_scan() {
         if [[ "$secret_count" -gt 0 ]]; then
             log_success "Found $secret_count secrets in $repo_name (experimental scan)"
             
-            # Generate HTML report
-            local html_report="$github_dir/${repo_name}_secrets.html"
-            generate_github_html_report "$repo_name" "$org_name" "$temp_json_array" "$html_report" "$secret_count"
+            # Extract unique secrets (detector name + raw secret value)
+            local secrets_txt="$github_dir/${repo_name}_secrets.txt"
+            extract_unique_secrets "$temp_json_array" "$secrets_txt"
             
-            # Discord notification will be handled by the bot automatically
+            # Generate table format if jtbl is available
+            local secrets_table="$github_dir/${repo_name}_secrets_table.txt"
+            generate_secrets_table "$temp_json_array" "$secrets_table"
             
-            log_success "GitHub experimental scan completed for $repo_name - Found $secret_count secrets"
+            # Count unique secrets
+            local unique_count=$(wc -l < "$secrets_txt" 2>/dev/null || echo "0")
+            
+            # Send summary message to Discord
+            discord_send "**GitHub Repository Scan Results (Experimental)**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Total findings:** \`$secret_count\`\n**Unique secrets:** \`$unique_count\`\n**Timestamp:** \`$(date)\`"
+            
+            # Send JSON file and unique secrets text file to Discord
+            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            discord_file "$secrets_txt" "**GitHub Repository Unique Secrets (Text) for \`$repo_name\`**"
+            
+            # Send table if it was generated and is different from text file
+            if [[ -f "$secrets_table" && -s "$secrets_table" && "$secrets_table" != "$secrets_txt" ]]; then
+                discord_file "$secrets_table" "**GitHub Repository Secrets Table for \`$repo_name\`**"
+            fi
+            
+            log_success "GitHub experimental scan completed for $repo_name - Found $secret_count secrets ($unique_count unique)"
         else
             log_info "No secrets found in $repo_name (experimental scan)"
             
-            # Generate empty reports for no findings
-            local json_report="$github_dir/${repo_name}_secrets.json"
-            local html_report="$github_dir/${repo_name}_secrets.html"
-            echo "[]" > "$json_report"
-            generate_github_html_report "$repo_name" "$org_name" "$json_report" "$html_report" "0"
+            # Send summary message to Discord
+            discord_send "**GitHub Repository Scan Results (Experimental)**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
             
-            # Discord notification will be handled by the bot automatically
+            # Send JSON report to Discord (even if empty)
+            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
             
             log_success "GitHub experimental scan completed for $repo_name - No secrets found"
         fi

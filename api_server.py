@@ -472,6 +472,29 @@ async def scan_github(background_tasks: BackgroundTasks, request: ScanRequest):
     )
 
 
+# GitHub Organization Scan
+@app.post("/scan/github_org", response_model=ScanResponse)
+async def scan_github_org(background_tasks: BackgroundTasks, request: ScanRequest):
+    """Scan GitHub organization for secrets."""
+    org = request.repo or getattr(request, 'org', None)
+    if not org:
+        raise HTTPException(
+            status_code=400, detail="Organization name is required (use 'repo' field)"
+        )
+
+    scan_id = str(uuid.uuid4())
+    command = [AUTOAR_SCRIPT_PATH, "github", "org", "-o", org]
+
+    background_tasks.add_task(execute_scan, scan_id, command, "github_org")
+
+    return ScanResponse(
+        scan_id=scan_id,
+        status="started",
+        message=f"GitHub organization scan started for {org}",
+        command=" ".join(command),
+    )
+
+
 # Lite Scan
 @app.post("/scan/lite", response_model=ScanResponse)
 async def scan_lite(background_tasks: BackgroundTasks, request: ScanRequest):
