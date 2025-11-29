@@ -8,37 +8,45 @@ source "$ROOT_DIR/lib/discord.sh"
 
 usage() { echo "Usage: github scan -r <owner/repo> | github org -o <org> [-m <max-repos>] | github depconfusion -r <owner/repo> | github experimental -r <owner/repo>"; }
 
-# Function to extract unique secrets (detector name + raw secret value) using jq
+# Function to extract unique secrets (deduplicate by raw secret value only) using jq
 extract_unique_secrets() {
     local json_file="$1"
     local output_file="$2"
     
-    log_info "Extracting unique secrets from JSON..."
+    log_info "Extracting unique secrets from JSON (deduplicating by raw secret value)..."
     
-    # Extract unique secrets: detector_name and raw secret value
-    # Try multiple JSON path variations to handle different TruffleHog versions
+    # Extract secrets and deduplicate by raw secret value only
+    # This ensures the same secret value appears only once, regardless of detector name
     jq -r '.[] | 
         select((.Raw != null and .Raw != "" and .Raw != "null") or 
                (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
-        "\(.SourceMetadata.DetectorName // .DetectorName // "Unknown")|\(.Raw // .SourceMetadata.Raw // "")"' \
+        {
+            "detector": (.SourceMetadata.DetectorName // .DetectorName // "Unknown"),
+            "secret": (.Raw // .SourceMetadata.Raw // "")
+        } | 
+        select(.secret != "")' \
         "$json_file" 2>/dev/null | \
-    sort -u | \
-    awk -F'|' '{if ($2 != "") print $1 ": " $2}' > "$output_file" 2>/dev/null || {
+    jq -s 'unique_by(.secret) | .[] | "\(.detector): \(.secret)"' \
+        > "$output_file" 2>/dev/null || {
         # Fallback: try Redacted if Raw is not available
         jq -r '.[] | 
             select((.Redacted != null and .Redacted != "" and .Redacted != "null") or 
                    (.SourceMetadata.Redacted != null and .SourceMetadata.Redacted != "" and .SourceMetadata.Redacted != "null")) |
-            "\(.SourceMetadata.DetectorName // .DetectorName // "Unknown")|\(.Redacted // .SourceMetadata.Redacted // "")"' \
+            {
+                "detector": (.SourceMetadata.DetectorName // .DetectorName // "Unknown"),
+                "secret": (.Redacted // .SourceMetadata.Redacted // "")
+            } | 
+            select(.secret != "")' \
             "$json_file" 2>/dev/null | \
-        sort -u | \
-        awk -F'|' '{if ($2 != "") print $1 ": " $2}' > "$output_file" 2>/dev/null || {
+        jq -s 'unique_by(.secret) | .[] | "\(.detector): \(.secret)"' \
+            > "$output_file" 2>/dev/null || {
             echo "No secrets found" > "$output_file"
         }
     }
     
     if [[ -f "$output_file" && -s "$output_file" ]]; then
         local count=$(wc -l < "$output_file" 2>/dev/null || echo "0")
-        log_success "Extracted $count unique secrets to $output_file"
+        log_success "Extracted $count unique secrets (deduplicated by raw value) to $output_file"
         return 0
     else
         log_warn "Failed to extract secrets"
@@ -47,27 +55,30 @@ extract_unique_secrets() {
 }
 
 # Function to generate table format using jtbl (if available) or plain text
+# Deduplicates by raw secret value only
 generate_secrets_table() {
     local json_file="$1"
     local output_file="$2"
     
-    log_info "Generating secrets table..."
+    log_info "Generating secrets table (deduplicating by raw secret value)..."
     
     # Check if jtbl is available
     if command -v jtbl >/dev/null 2>&1; then
         # Use jtbl to create a nice table from JSON
-        # Extract detector name and raw secret, convert to JSON array for jtbl
+        # Extract detector name and raw secret, deduplicate by secret value only
         jq -r '.[] | 
             select((.Raw != null and .Raw != "" and .Raw != "null") or 
                    (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) |
             {
                 "Detector": (.SourceMetadata.DetectorName // .DetectorName // "Unknown"),
                 "Secret": (.Raw // .SourceMetadata.Raw // "")
-            }' \
+            } | 
+            select(.Secret != "")' \
             "$json_file" 2>/dev/null | \
         jq -s 'unique_by(.Secret) | .[]' | \
         jtbl > "$output_file" 2>/dev/null || {
             # Fallback to plain text if jtbl fails
+            log_warn "jtbl processing failed, falling back to plain text"
             extract_unique_secrets "$json_file" "$output_file"
         }
     else
