@@ -473,34 +473,30 @@ class AutoARBot(commands.Cog):
 
             if result.returncode == 0:
                 output = result.stdout
-                # If output is too long, send as file instead of embed
-                if len(output) > 1500:  # Leave room for embed description
-                    # Save to temp file and send as attachment
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-                        f.write(output)
-                        temp_path = f.name
-                    
-                    embed = discord.Embed(
-                        title="✅ JWT Log Query Result",
-                        description=f"**Query ID:** `{query_id}`\n\nOutput too long for message. See attached file.",
-                        color=discord.Color.green(),
-                    )
-                    file = discord.File(temp_path, filename=f"jwt_query_{query_id}.txt")
-                    await interaction.edit_original_response(embed=embed, attachments=[file])
-                    # Clean up temp file after sending
-                    import os
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
-                else:
-                    embed = discord.Embed(
-                        title="✅ JWT Log Query Result",
-                        description=f"**Query ID:** `{query_id}`\n\n```\n{output}\n```",
-                        color=discord.Color.green(),
-                    )
-                    await interaction.edit_original_response(embed=embed)
+                # Strip ANSI escape codes (colors, formatting, etc.)
+                import re
+                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                output = ansi_escape.sub('', output)
+                
+                # Always send as file to avoid Discord message limits and formatting issues
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                    f.write(output)
+                    temp_path = f.name
+                
+                embed = discord.Embed(
+                    title="✅ JWT Log Query Result",
+                    description=f"**Query ID:** `{query_id}`\n\nSee attached file for query results.",
+                    color=discord.Color.green(),
+                )
+                file = discord.File(temp_path, filename=f"jwt_query_{query_id}.txt")
+                await interaction.edit_original_response(embed=embed, attachments=[file])
+                # Clean up temp file after sending
+                import os
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
             else:
                 # Try to get error message from stderr or stdout
                 error_msg = result.stderr.strip() if result.stderr else ""
