@@ -71,7 +71,7 @@ RUN cd /app && \
     mkdir -p /app/keyhack_templates && \
     cp -r /tmp/KeysKit/templates/* /app/keyhack_templates/ && \
     rm -rf /tmp/KeysKit && \
-    git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /app/tools/jwt_tool || true
+    git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /app/python/jwt_tool || true
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
