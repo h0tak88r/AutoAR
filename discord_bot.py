@@ -369,6 +369,54 @@ class AutoARBot(commands.Cog):
 
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
+    @app_commands.command(
+        name="jwt_scan",
+        description="🔐 Test JWT security using ticarpi/jwt_tool",
+    )
+    @app_commands.describe(
+        url="Target URL to test (e.g. https://www.ticarpi.com/)",
+        cookie='Raw cookie string including the JWT (e.g. "jwt=JWT_HERE;anothercookie=test")',
+        mode="jwt_tool attack mode (default: pb)",
+    )
+    async def jwt_scan_cmd(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+        cookie: str,
+        mode: str = "pb",
+    ):
+        """Run jwt_tool against a target URL and cookie."""
+        scan_id = f"jwt_{int(time.time())}"
+
+        command = [
+            AUTOAR_SCRIPT_PATH,
+            "jwt",
+            "scan",
+            "-t",
+            url,
+            "-c",
+            cookie,
+            "-M",
+            mode,
+        ]
+
+        active_scans[scan_id] = {
+            "type": "jwt",
+            "target": url,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+        }
+
+        embed = discord.Embed(
+            title="🔐 JWT Security Test",
+            description=f"**Target:** `{url}`\n**Mode:** `{mode}`",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
     @app_commands.command(name="s3_scan", description="Scan for S3 buckets")
     @app_commands.describe(
         bucket="S3 bucket name to scan",

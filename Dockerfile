@@ -70,7 +70,8 @@ RUN cd /app && \
     git clone --depth 1 https://github.com/MrMax4o4/KeysKit.git /tmp/KeysKit && \
     mkdir -p /app/keyhack_templates && \
     cp -r /tmp/KeysKit/templates/* /app/keyhack_templates/ && \
-    rm -rf /tmp/KeysKit
+    rm -rf /tmp/KeysKit && \
+    git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /app/tools/jwt_tool || true
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
@@ -85,13 +86,25 @@ RUN misconfig-mapper -update-templates || true
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
 
 # Python dependencies
-# Prefer existing requirements.txt; append discord.py if missing
+# Prefer existing requirements.txt; append discord.py and jwt_tool deps if missing
 RUN set -e; \
     if ! grep -iq '^discord\.py' requirements.txt 2>/dev/null; then \
       printf "\ndiscord.py>=2.4.0\n" >> requirements.txt; \
     fi; \
     if ! grep -iq '^pyyaml' requirements.txt 2>/dev/null; then \
       printf "pyyaml>=6.0.1\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^termcolor' requirements.txt 2>/dev/null; then \
+      printf "termcolor\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^cprint' requirements.txt 2>/dev/null; then \
+      printf "cprint\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^pycryptodomex' requirements.txt 2>/dev/null; then \
+      printf "pycryptodomex\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^requests' requirements.txt 2>/dev/null; then \
+      printf "requests\n" >> requirements.txt; \
     fi; \
     pip install --no-cache-dir -r requirements.txt \
     && pip3 install --no-cache-dir git+https://github.com/codingo/Interlace.git
