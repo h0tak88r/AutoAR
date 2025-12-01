@@ -247,6 +247,11 @@ class AutoARBot(commands.Cog):
         domain="The domain to scan",
         verbose="Enable verbose output",
         skip_js="Skip JavaScript scanning step",
+        phase_timeout="Default per-phase timeout in seconds (0 = no limit, default 3600)",
+        timeout_livehosts="Override timeout for livehosts phase (seconds, optional)",
+        timeout_reflection="Override timeout for reflection phase (seconds, optional)",
+        timeout_js="Override timeout for JS phase (seconds, optional)",
+        timeout_nuclei="Override timeout for nuclei phase (seconds, optional)",
     )
     async def lite_scan(
         self,
@@ -254,6 +259,11 @@ class AutoARBot(commands.Cog):
         domain: str,
         verbose: bool = False,
         skip_js: bool = False,
+        phase_timeout: int = 3600,
+        timeout_livehosts: Optional[int] = None,
+        timeout_reflection: Optional[int] = None,
+        timeout_js: Optional[int] = None,
+        timeout_nuclei: Optional[int] = None,
     ):
         """Perform a lite domain scan."""
         scan_id = f"lite_{int(time.time())}"
@@ -264,6 +274,18 @@ class AutoARBot(commands.Cog):
         if skip_js:
             command.append("--skip-js")
 
+        # Per-phase timeout configuration
+        if phase_timeout and phase_timeout > 0:
+            command.extend(["--phase-timeout", str(phase_timeout)])
+        if timeout_livehosts is not None and timeout_livehosts >= 0:
+            command.extend(["--timeout-livehosts", str(timeout_livehosts)])
+        if timeout_reflection is not None and timeout_reflection >= 0:
+            command.extend(["--timeout-reflection", str(timeout_reflection)])
+        if timeout_js is not None and timeout_js >= 0:
+            command.extend(["--timeout-js", str(timeout_js)])
+        if timeout_nuclei is not None and timeout_nuclei >= 0:
+            command.extend(["--timeout-nuclei", str(timeout_nuclei)])
+
         active_scans[scan_id] = {
             "type": "lite",
             "target": domain,
@@ -272,7 +294,14 @@ class AutoARBot(commands.Cog):
             "interaction": interaction,
         }
 
-        embed = self.create_scan_embed("Lite Scan", domain, "running")
+        embed_desc = f"**Target:** `{domain}`\n**Default per-phase timeout:** {phase_timeout or 0}s"
+        if skip_js:
+            embed_desc += "\n**JS Phase:** skipped"
+        embed = discord.Embed(
+            title="🔍 AutoAR Lite Scan",
+            description=embed_desc,
+            color=discord.Color.blue(),
+        )
         await interaction.response.send_message(embed=embed)
 
         asyncio.create_task(self._run_scan_background(scan_id, command))
