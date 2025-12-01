@@ -67,6 +67,7 @@ Commands:
   keyhack search <query>                      Search API key validation templates
   keyhack validate <provider> <api_key>       Generate validation command for API key
   keyhack add <keyname> <command> <desc> [notes] Add a new template
+  jwt scan             -t <url> -c "<cookie_string>" [-M <mode>]   Test JWT security using jwt_tool
 
 Workflows:
   lite run            -d <domain>
@@ -115,6 +116,7 @@ cmd_depconfusion() { "$ROOT_DIR/modules/depconfusion.sh" "$@"; }
 cmd_misconfig()  { "$ROOT_DIR/modules/misconfig.sh"     "$@"; }
 cmd_fastlook()   { "$ROOT_DIR/modules/fastlook.sh"      "$@"; }
 cmd_keyhack()    { "$ROOT_DIR/modules/keyhack.sh"       "$@"; }
+cmd_jwt()        { "$ROOT_DIR/modules/jwt_scan.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
 
@@ -169,6 +171,7 @@ main() {
   misconfig)   cmd_misconfig   "$@" ;;
   fastlook)    cmd_fastlook    "$@" ;;
   keyhack)     cmd_keyhack     "$@" ;;
+  jwt)         cmd_jwt         "$@" ;;
   help)        cmd_help        "$@" ;;
   wpDepConf)   cmd_wpdepconf   "$@" ;;
   --help|-h)  print_usage ;;
