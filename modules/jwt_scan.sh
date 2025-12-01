@@ -8,38 +8,35 @@ source "$ROOT_DIR/lib/discord.sh"
 
 usage() {
   cat <<EOF
-Usage: jwt scan -t <url> --jwt <token> [--via header|cookie]
-                [--header-name <name>] [--cookie-name <name>]
-                [-M <mode>] [--canary <value>] [--post-data <data>]
+Usage: jwt scan -t <url> [--cookie <name=value>] [--header <name: value>] [-M <mode>]
 
 Examples:
-  # Send JWT via Authorization header (default)
-  jwt scan -t https://www.ticarpi.com/ --jwt JWT_HERE -M pb
+  # Send JWT via cookie
+  jwt scan -t https://www.ticarpi.com/ --cookie auth=JWT_TOKEN -M at
 
-  # Send JWT via cookie named "jwt"
-  jwt scan -t https://www.ticarpi.com/ --jwt JWT_HERE --via cookie --cookie-name jwt -M er
+  # Send JWT via header
+  jwt scan -t https://www.ticarpi.com/ --header "Authorization: Bearer JWT_TOKEN" -M pb
 
 Notes:
   - This is a thin wrapper around ticarpi/jwt_tool.
-  - The JWT is automatically placed in either a request header (-rh) or cookie (-rc).
+  - You must provide either --cookie or --header (not both).
+  - Cookie format: name=value
+  - Header format: name: value
 EOF
 }
 
 jwt_scan() {
-  local target="" jwt="" mode="pb"
-  local via="header"
-  local header_name="Authorization"
-  local cookie_name="jwt"
+  local target="" mode="pb"
+  local cookie=""
+  local header=""
   local canary=""
   local post_data=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -t|--target) target="$2"; shift 2;;
-      --jwt)       jwt="$2"; shift 2;;
-      --via)       via="$2"; shift 2;;
-      --header-name) header_name="$2"; shift 2;;
-      --cookie-name) cookie_name="$2"; shift 2;;
+      --cookie)    cookie="$2"; shift 2;;
+      --header)    header="$2"; shift 2;;
       -M|--mode)   mode="$2"; shift 2;;
       --canary)    canary="$2"; shift 2;;
       --post-data) post_data="$2"; shift 2;;
@@ -47,7 +44,19 @@ jwt_scan() {
     esac
   done
 
-  if [[ -z "$target" || -z "$jwt" ]]; then
+  if [[ -z "$target" ]]; then
+    usage
+    exit 1
+  fi
+
+  if [[ -z "$cookie" && -z "$header" ]]; then
+    log_error "You must provide either --cookie or --header"
+    usage
+    exit 1
+  fi
+
+  if [[ -n "$cookie" && -n "$header" ]]; then
+    log_error "You cannot provide both --cookie and --header. Choose one."
     usage
     exit 1
   fi
@@ -74,26 +83,22 @@ jwt_scan() {
   ts="$(date +%Y%m%d_%H%M%S)"
   local out_file="$out_dir/jwt_tool_${ts}.txt"
 
-  log_info "Running jwt_tool against $target with mode '$mode' (via $via)"
-  log_info "Results will be saved to $out_file"
-
+  local via=""
   local rh_arg="" rc_arg="" cv_arg="" data_arg=""
-  if [[ "$via" == "header" ]]; then
-    local header_value
-    if [[ "$header_name" =~ [Aa]uthorization ]]; then
-      header_value="$header_name: Bearer $jwt"
-    else
-      header_value="$header_name: $jwt"
-    fi
-    rh_arg="-rh"
-    rc_arg=""
-    log_info "Using header: $header_value"
-  else
-    local cookie_value="${cookie_name}=${jwt}"
+  
+  if [[ -n "$cookie" ]]; then
+    via="cookie"
     rc_arg="-rc"
-    rh_arg=""
-    log_info "Using cookie: $cookie_value"
+    log_info "Running jwt_tool against $target with mode '$mode' (via cookie)"
+    log_info "Using cookie: $cookie"
+  else
+    via="header"
+    rh_arg="-rh"
+    log_info "Running jwt_tool against $target with mode '$mode' (via header)"
+    log_info "Using header: $header"
   fi
+
+  log_info "Results will be saved to $out_file"
 
   if [[ -n "$canary" ]]; then
     cv_arg="-cv"
@@ -106,14 +111,16 @@ jwt_scan() {
   if [[ "$via" == "header" ]]; then
     python3 "$tool_script" \
       -t "$target" \
-      $rh_arg "$header_value" \
+      -np \
+      $rh_arg "$header" \
       ${cv_arg:+$cv_arg "$canary"} \
       ${data_arg:+$data_arg "$post_data"} \
       -M "$mode" | tee "$out_file"
   else
     python3 "$tool_script" \
       -t "$target" \
-      $rc_arg "$cookie_value" \
+      -np \
+      $rc_arg "$cookie" \
       ${cv_arg:+$cv_arg "$canary"} \
       ${data_arg:+$data_arg "$post_data"} \
       -M "$mode" | tee "$out_file"

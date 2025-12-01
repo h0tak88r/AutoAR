@@ -375,10 +375,8 @@ class AutoARBot(commands.Cog):
     )
     @app_commands.describe(
         url="Target URL to test (e.g. https://www.ticarpi.com/)",
-        jwt="Raw JWT token value (without Bearer prefix)",
-        location="Where to send the JWT: header or cookie (default: header)",
-        header_name="Header name if using header (default: Authorization)",
-        cookie_name="Cookie name if using cookie (default: jwt)",
+        cookie="Cookie string with JWT (format: name=value, e.g. auth=JWT_TOKEN)",
+        header="Header string with JWT (format: name: value, e.g. Authorization: Bearer JWT_TOKEN)",
         canary="Expected text in a successful response (jwt_tool -cv)",
         post_data="Optional POST body to send with the request",
         mode="jwt_tool attack mode (default: pb)",
@@ -387,23 +385,37 @@ class AutoARBot(commands.Cog):
         self,
         interaction: discord.Interaction,
         url: str,
-        jwt: str,
-        location: str = "header",
-        header_name: str = "Authorization",
-        cookie_name: str = "jwt",
+        cookie: Optional[str] = None,
+        header: Optional[str] = None,
         canary: Optional[str] = None,
         post_data: Optional[str] = None,
         mode: str = "pb",
     ):
-        """Run jwt_tool against a target URL and cookie."""
+        """Run jwt_tool against a target URL with cookie or header."""
+        if not cookie and not header:
+            await interaction.response.send_message(
+                "❌ You must provide either `cookie` or `header` parameter.",
+                ephemeral=True,
+            )
+            return
+
+        if cookie and header:
+            await interaction.response.send_message(
+                "❌ You cannot provide both `cookie` and `header`. Choose one.",
+                ephemeral=True,
+            )
+            return
+
         scan_id = f"jwt_{int(time.time())}"
 
-        via = "cookie" if location.lower() == "cookie" else "header"
-        command = [AUTOAR_SCRIPT_PATH, "jwt", "scan", "-t", url, "--jwt", jwt, "--via", via]
-        if via == "header" and header_name:
-            command.extend(["--header-name", header_name])
-        if via == "cookie" and cookie_name:
-            command.extend(["--cookie-name", cookie_name])
+        command = [AUTOAR_SCRIPT_PATH, "jwt", "scan", "-t", url]
+        if cookie:
+            command.extend(["--cookie", cookie])
+            via = "cookie"
+        else:
+            command.extend(["--header", header])
+            via = "header"
+
         if canary:
             command.extend(["--canary", canary])
         if post_data:
