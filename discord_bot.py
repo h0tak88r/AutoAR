@@ -440,6 +440,68 @@ class AutoARBot(commands.Cog):
 
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
+    @app_commands.command(
+        name="jwt_query",
+        description="🔍 Query JWT tool log by request ID",
+    )
+    @app_commands.describe(
+        query_id="JWT tool request ID (e.g. jwttool_4e7d0ae3c2bb25dfa4d765d9bb3f8317)",
+    )
+    async def jwt_query_cmd(
+        self,
+        interaction: discord.Interaction,
+        query_id: str,
+    ):
+        """Query JWT tool log entry by ID."""
+        command = [AUTOAR_SCRIPT_PATH, "jwt", "query", query_id]
+
+        embed = discord.Embed(
+            title="🔍 JWT Log Query",
+            description=f"**Query ID:** `{query_id}`",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+        # Run query synchronously since it's quick
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode == 0:
+                output = result.stdout
+                if len(output) > 2000:
+                    output = output[:1900] + "\n... (truncated)"
+                embed = discord.Embed(
+                    title="✅ JWT Log Query Result",
+                    description=f"**Query ID:** `{query_id}`\n\n```\n{output}\n```",
+                    color=discord.Color.green(),
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ JWT Log Query Failed",
+                    description=f"**Query ID:** `{query_id}`\n\nError: {result.stderr}",
+                    color=discord.Color.red(),
+                )
+            await interaction.edit_original_response(embed=embed)
+        except subprocess.TimeoutExpired:
+            embed = discord.Embed(
+                title="⏱️ JWT Log Query Timeout",
+                description=f"Query for `{query_id}` took too long.",
+                color=discord.Color.orange(),
+            )
+            await interaction.edit_original_response(embed=embed)
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ JWT Log Query Error",
+                description=f"Error querying log: {str(e)}",
+                color=discord.Color.red(),
+            )
+            await interaction.edit_original_response(embed=embed)
+
     @app_commands.command(name="s3_scan", description="Scan for S3 buckets")
     @app_commands.describe(
         bucket="S3 bucket name to scan",

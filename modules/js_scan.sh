@@ -90,7 +90,7 @@ js_scan() {
         log_info "Scanning with all custom JS templates (including all tokens)"
         local custom_status=0
         if ! run_js_with_phase_timeout "Custom JS Nuclei templates" \
-          nuclei -l "$urls_file" \
+        nuclei -l "$urls_file" \
           -t "$ROOT_DIR/nuclei_templates/js/" \
           -silent \
           -duc \
@@ -118,7 +118,7 @@ js_scan() {
         log_info "Scanning with all public Nuclei exposure templates"
         local public_status=0
         if ! run_js_with_phase_timeout "Public exposure Nuclei templates" \
-          nuclei -l "$urls_file" \
+        nuclei -l "$urls_file" \
           -t "$ROOT_DIR/nuclei-templates/http/exposures/" \
           -silent \
           -duc \
