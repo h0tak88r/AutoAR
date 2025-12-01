@@ -106,6 +106,9 @@ RUN set -e; \
     if ! grep -iq '^requests' requirements.txt 2>/dev/null; then \
       printf "requests\n" >> requirements.txt; \
     fi; \
+    if ! grep -iq '^ratelimit' requirements.txt 2>/dev/null; then \
+      printf "ratelimit\n" >> requirements.txt; \
+    fi; \
     pip install --no-cache-dir -r requirements.txt \
     && pip3 install --no-cache-dir git+https://github.com/codingo/Interlace.git
 

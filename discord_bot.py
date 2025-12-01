@@ -375,30 +375,41 @@ class AutoARBot(commands.Cog):
     )
     @app_commands.describe(
         url="Target URL to test (e.g. https://www.ticarpi.com/)",
-        cookie='Raw cookie string including the JWT (e.g. "jwt=JWT_HERE;anothercookie=test")',
+        jwt="Raw JWT token value (without Bearer prefix)",
+        location="Where to send the JWT: header or cookie (default: header)",
+        header_name="Header name if using header (default: Authorization)",
+        cookie_name="Cookie name if using cookie (default: jwt)",
+        canary="Expected text in a successful response (jwt_tool -cv)",
+        post_data="Optional POST body to send with the request",
         mode="jwt_tool attack mode (default: pb)",
     )
     async def jwt_scan_cmd(
         self,
         interaction: discord.Interaction,
         url: str,
-        cookie: str,
+        jwt: str,
+        location: str = "header",
+        header_name: str = "Authorization",
+        cookie_name: str = "jwt",
+        canary: Optional[str] = None,
+        post_data: Optional[str] = None,
         mode: str = "pb",
     ):
         """Run jwt_tool against a target URL and cookie."""
         scan_id = f"jwt_{int(time.time())}"
 
-        command = [
-            AUTOAR_SCRIPT_PATH,
-            "jwt",
-            "scan",
-            "-t",
-            url,
-            "-c",
-            cookie,
-            "-M",
-            mode,
-        ]
+        via = "cookie" if location.lower() == "cookie" else "header"
+        command = [AUTOAR_SCRIPT_PATH, "jwt", "scan", "-t", url, "--jwt", jwt, "--via", via]
+        if via == "header" and header_name:
+            command.extend(["--header-name", header_name])
+        if via == "cookie" and cookie_name:
+            command.extend(["--cookie-name", cookie_name])
+        if canary:
+            command.extend(["--canary", canary])
+        if post_data:
+            command.extend(["--post-data", post_data])
+        if mode:
+            command.extend(["-M", mode])
 
         active_scans[scan_id] = {
             "type": "jwt",
@@ -410,7 +421,7 @@ class AutoARBot(commands.Cog):
 
         embed = discord.Embed(
             title="🔐 JWT Security Test",
-            description=f"**Target:** `{url}`\n**Mode:** `{mode}`",
+            description=f"**Target:** `{url}`\n**Mode:** `{mode}`\n**Via:** `{via}`",
             color=discord.Color.blue(),
         )
         await interaction.response.send_message(embed=embed)
