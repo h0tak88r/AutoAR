@@ -90,7 +90,7 @@ def find_wordlist_file(filename):
 def cprintc(textval, colval):
     if args.bare:
         # In bare mode, output plain text without colors
-        print(textval, end='')
+        print(textval)
     else:
         cprint(textval, colval)
 
@@ -1415,6 +1415,7 @@ def searchLog(logID):
             return jwt
         else:
             cprintc("ID not found in logfile", "red")
+            exit(1)
 
 def injectOut(newheadDict, newpaylDict):
     if not args.crack and not args.exploit and not args.verify and not args.tamper and not args.sign:
@@ -1955,6 +1956,22 @@ if __name__ == '__main__':
     parser.add_argument("-y", "--yes", action="store_true",
                         help="Skip interactive prompts and continue automatically")
     args = parser.parse_args()
+    
+    # Handle query early - before logo and config loading
+    if args.query:
+        # Minimal setup for query only
+        try:
+            path = os.path.expanduser("~/.jwt_tool")
+            if not os.path.exists(path):
+                os.makedirs(path)
+        except:
+            path = sys.path[0]
+        logFilename = path+"/logs.txt"
+        # Run query and exit
+        jwt = searchLog(args.query)
+        exit(0)
+    
+    # Only print logo if not in bare mode
     if not args.bare:
         printLogo()
     try:
@@ -1968,7 +1985,8 @@ if __name__ == '__main__':
     config = configparser.ConfigParser()
     if (os.path.isfile(configFileName)):
         config.read(configFileName)
-        print(configFileName)
+        if not args.bare:
+            print(configFileName)
         # Update wordlist paths to use smart resolution
         if 'input' in config:
             config['input']['wordlist'] = find_wordlist_file(config['input'].get('wordlist', 'jwt-common.txt'))
@@ -2118,9 +2136,7 @@ if __name__ == '__main__':
                 cprintc("Cannot find a valid JWT", "red")
                 cprintc(searchString, "cyan")
                 exit(1)
-    if args.query:
-        jwt = searchLog(args.query)
-    elif args.jwt:
+    if args.jwt:
         jwt = args.jwt
         cprintc("Original JWT: "+findJWT+"\n", "cyan")
     elif findJWT:
