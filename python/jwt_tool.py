@@ -88,7 +88,10 @@ def find_wordlist_file(filename):
     return filename
 
 def cprintc(textval, colval):
-    if not args.bare:
+    if args.bare:
+        # In bare mode, output plain text without colors
+        print(textval, end='')
+    else:
         cprint(textval, colval)
 
 def createConfig():

@@ -178,11 +178,32 @@ jwt_query() {
 
   log_info "Querying JWT tool log for ID: $query_id"
   
-  python3 "$tool_script" -Q "$query_id"
+  # Create output directory for query results
+  local out_dir
+  out_dir="$(results_dir "jwt-queries")"
+  ensure_dir "$out_dir"
+  local out_file="$out_dir/jwt_query_${query_id}.txt"
+  
+  # Use --bare flag to suppress logo and use plain text output
+  # Capture output and strip ANSI codes
+  python3 "$tool_script" -b -Q "$query_id" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$out_file"
   local status=$?
 
   if [[ $status -ne 0 ]]; then
     log_warn "jwt_tool query exited with status $status"
+    if [[ -s "$out_file" ]]; then
+      # Still send the output even if there was an error
+      discord_file "$out_file" "🔍 JWT Query Result for $query_id (exit code: $status)"
+    fi
+    return 1
+  fi
+
+  # Send results via webhook if file was created and has content
+  if [[ -s "$out_file" ]]; then
+    discord_file "$out_file" "🔍 JWT Query Result for $query_id"
+    log_success "Query results saved to $out_file and sent via Discord"
+  else
+    log_warn "No output generated for query ID: $query_id"
     return 1
   fi
 
