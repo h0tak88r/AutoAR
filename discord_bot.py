@@ -502,7 +502,14 @@ class AutoARBot(commands.Cog):
                     )
                     await interaction.edit_original_response(embed=embed)
             else:
-                error_msg = result.stderr or "Unknown error"
+                # Try to get error message from stderr or stdout
+                error_msg = result.stderr.strip() if result.stderr else ""
+                if not error_msg and result.stdout:
+                    # Sometimes errors go to stdout
+                    error_msg = result.stdout.strip()[:500]  # Limit length
+                if not error_msg:
+                    error_msg = f"Command exited with code {result.returncode}"
+                
                 embed = discord.Embed(
                     title="❌ JWT Log Query Failed",
                     description=f"**Query ID:** `{query_id}`\n\nError: {error_msg}",
