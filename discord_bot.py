@@ -473,20 +473,42 @@ class AutoARBot(commands.Cog):
 
             if result.returncode == 0:
                 output = result.stdout
-                if len(output) > 2000:
-                    output = output[:1900] + "\n... (truncated)"
-                embed = discord.Embed(
-                    title="✅ JWT Log Query Result",
-                    description=f"**Query ID:** `{query_id}`\n\n```\n{output}\n```",
-                    color=discord.Color.green(),
-                )
+                # If output is too long, send as file instead of embed
+                if len(output) > 1500:  # Leave room for embed description
+                    # Save to temp file and send as attachment
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                        f.write(output)
+                        temp_path = f.name
+                    
+                    embed = discord.Embed(
+                        title="✅ JWT Log Query Result",
+                        description=f"**Query ID:** `{query_id}`\n\nOutput too long for message. See attached file.",
+                        color=discord.Color.green(),
+                    )
+                    file = discord.File(temp_path, filename=f"jwt_query_{query_id}.txt")
+                    await interaction.edit_original_response(embed=embed, attachments=[file])
+                    # Clean up temp file after sending
+                    import os
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+                else:
+                    embed = discord.Embed(
+                        title="✅ JWT Log Query Result",
+                        description=f"**Query ID:** `{query_id}`\n\n```\n{output}\n```",
+                        color=discord.Color.green(),
+                    )
+                    await interaction.edit_original_response(embed=embed)
             else:
+                error_msg = result.stderr or "Unknown error"
                 embed = discord.Embed(
                     title="❌ JWT Log Query Failed",
-                    description=f"**Query ID:** `{query_id}`\n\nError: {result.stderr}",
+                    description=f"**Query ID:** `{query_id}`\n\nError: {error_msg}",
                     color=discord.Color.red(),
                 )
-            await interaction.edit_original_response(embed=embed)
+                await interaction.edit_original_response(embed=embed)
         except subprocess.TimeoutExpired:
             embed = discord.Embed(
                 title="⏱️ JWT Log Query Timeout",

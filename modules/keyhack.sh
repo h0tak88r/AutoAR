@@ -106,7 +106,7 @@ import os
 temp_file = os.environ.get('TEMP_FILE', '')
 if not temp_file:
     # Fallback: read from stdin
-lines = sys.stdin.readlines()
+    lines = sys.stdin.readlines()
 else:
     with open(temp_file, 'r') as f:
         lines = f.readlines()
