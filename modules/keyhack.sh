@@ -105,7 +105,7 @@ import os
 temp_file = os.environ.get('TEMP_FILE', '')
 if not temp_file:
     # Fallback: read from stdin
-    lines = sys.stdin.readlines()
+lines = sys.stdin.readlines()
 else:
     with open(temp_file, 'r') as f:
         lines = f.readlines()
@@ -164,30 +164,30 @@ for line in lines:
             curl_cmd = 'Shell command (see note for details)'
     else:
         # Build curl command with placeholders for HTTP methods
-        curl_parts = ['curl']
-        
-        # Add method
-        if method.upper() == 'POST':
-            curl_parts.append('-X POST')
-        elif method.upper() != 'GET':
+    curl_parts = ['curl']
+    
+    # Add method
+    if method.upper() == 'POST':
+        curl_parts.append('-X POST')
+    elif method.upper() != 'GET':
             curl_parts.append(f'-X {method.upper()}')
-        
+    
         # Add headers (keep placeholders like $API_KEY, $Basic_Auth, etc.)
-        if header_template:
-            # Parse header format: 'Header-Key':'Value'
+    if header_template:
+        # Parse header format: 'Header-Key':'Value'
             pattern = r"'([^']+)':'([^']+)'"
-            matches = re.findall(pattern, header_template)
-            for key, value in matches:
+        matches = re.findall(pattern, header_template)
+        for key, value in matches:
                 curl_parts.append(f"-H '{key}: {value}'")
-        
-        # Add body for POST requests
-        if method.upper() == 'POST' and body_template:
+    
+    # Add body for POST requests
+    if method.upper() == 'POST' and body_template:
             curl_parts.append(f"-d '{body_template}'")
-        
-        # Add URL
+    
+    # Add URL
         curl_parts.append(f"'{url_template}'")
-        
-        curl_cmd = ' '.join(curl_parts)
+    
+    curl_cmd = ' '.join(curl_parts)
     
     # Output formatted result
     print(f'📋 {keyname}')
