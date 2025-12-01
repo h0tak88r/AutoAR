@@ -14,6 +14,56 @@ results_dir() {
   echo "${AUTOAR_RESULTS_DIR}/$d"
 }
 
+# ----- Phase timeout helpers -----
+
+phase_timeout_enabled() {
+  [[ -n "${AUTOAR_PHASE_TIMEOUT:-}" ]] || return 1
+  [[ -n "${AUTOAR_PHASE_START_TS:-}" ]] || return 1
+  [[ "${AUTOAR_PHASE_TIMEOUT:-0}" -gt 0 ]] || return 1
+  return 0
+}
+
+phase_time_remaining() {
+  if ! phase_timeout_enabled; then
+    echo ""
+    return 1
+  fi
+
+  local now
+  now=$(date +%s)
+  local elapsed=$((now - AUTOAR_PHASE_START_TS))
+  local remaining=$((AUTOAR_PHASE_TIMEOUT - elapsed))
+  if (( remaining < 0 )); then
+    remaining=0
+  fi
+  echo "$remaining"
+  return 0
+}
+
+run_with_phase_timeout() {
+  local description="$1"
+  shift
+
+  local remaining
+  remaining=$(phase_time_remaining)
+
+  if [[ -n "$remaining" ]]; then
+    if (( remaining <= 0 )); then
+      log_warn "Phase timeout reached before ${description:-command}; skipping."
+      return 124
+    fi
+
+    if command -v timeout >/dev/null 2>&1; then
+      timeout --preserve-status --signal TERM --kill-after=30 "$remaining" "$@"
+      return $?
+    else
+      log_warn "Phase timeout requested for ${description:-command} but 'timeout' command is unavailable; running without enforcement."
+    fi
+  fi
+
+  "$@"
+}
+
 # Check if Discord bot is available (running in Docker with bot)
 is_discord_bot_available() {
   # Check if we're in Docker and Discord bot token is set
