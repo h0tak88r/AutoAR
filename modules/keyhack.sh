@@ -37,7 +37,8 @@ keyhack_list() {
     
     if [[ -z "$templates" ]]; then
         log_warn "No templates found in database"
-        log_info "Run the import script first: ./scripts/import_keyhack_templates.sh"
+        log_info "Add templates using: keyhack add <keyname> <command> <description> [notes]"
+        log_info "Or use Discord command: /keyhack_add"
         return 1
     fi
     

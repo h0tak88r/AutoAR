@@ -8,7 +8,9 @@ source "$ROOT_DIR/lib/discord.sh"
 
 usage() {
   cat <<EOF
-Usage: jwt scan -t <url> [--cookie <name=value>] [--header <name: value>] [-M <mode>]
+Usage: 
+  jwt scan -t <url> [--cookie <name=value>] [--header <name: value>] [-M <mode>]
+  jwt query <query_id>
 
 Examples:
   # Send JWT via cookie
@@ -16,6 +18,9 @@ Examples:
 
   # Send JWT via header
   jwt scan -t https://www.ticarpi.com/ --header "Authorization: Bearer JWT_TOKEN" -M pb
+
+  # Query a log entry by ID
+  jwt query jwttool_4e7d0ae3c2bb25dfa4d765d9bb3f8317
 
 Notes:
   - This is a thin wrapper around ticarpi/jwt_tool.
@@ -148,8 +153,45 @@ jwt_scan() {
   return 0
 }
 
+jwt_query() {
+  local query_id="$1"
+
+  if [[ -z "$query_id" ]]; then
+    log_error "Query ID is required"
+    usage
+    exit 1
+  fi
+
+  # Check both possible locations: python/jwt_tool.py (file) or python/jwt_tool/jwt_tool.py (directory)
+  local tool_script=""
+  if [[ -f "$ROOT_DIR/python/jwt_tool.py" ]]; then
+    tool_script="$ROOT_DIR/python/jwt_tool.py"
+  elif [[ -f "$ROOT_DIR/python/jwt_tool/jwt_tool.py" ]]; then
+    tool_script="$ROOT_DIR/python/jwt_tool/jwt_tool.py"
+  else
+    log_error "jwt_tool not found. Expected at:"
+    log_error "  $ROOT_DIR/python/jwt_tool.py"
+    log_error "  or"
+    log_error "  $ROOT_DIR/python/jwt_tool/jwt_tool.py"
+    exit 1
+  fi
+
+  log_info "Querying JWT tool log for ID: $query_id"
+  
+  python3 "$tool_script" -Q "$query_id"
+  local status=$?
+
+  if [[ $status -ne 0 ]]; then
+    log_warn "jwt_tool query exited with status $status"
+    return 1
+  fi
+
+  return 0
+}
+
 case "${1:-}" in
   scan) shift; jwt_scan "$@" ;;
+  query) shift; jwt_query "$@" ;;
   *) usage; exit 1;;
 esac
 

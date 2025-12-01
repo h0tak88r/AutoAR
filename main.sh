@@ -67,7 +67,8 @@ Commands:
   keyhack search <query>                      Search API key validation templates
   keyhack validate <provider> <api_key>       Generate validation command for API key
   keyhack add <keyname> <command> <desc> [notes] Add a new template
-  jwt scan             -t <url> -c "<cookie_string>" [-M <mode>]   Test JWT security using jwt_tool
+  jwt scan             -t <url> [--cookie|--header] [-M <mode>]   Test JWT security using jwt_tool
+  jwt query            <query_id>                                   Query JWT tool log by ID
 
 Workflows:
   lite run            -d <domain>
