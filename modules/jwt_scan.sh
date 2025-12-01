@@ -61,15 +61,20 @@ jwt_scan() {
     exit 1
   fi
 
-  local tool_dir="$ROOT_DIR/tools/jwt_tool"
-  local tool_script="$tool_dir/jwt_tool.py"
-
-  if [[ ! -f "$tool_script" ]]; then
-    log_error "jwt_tool not found at $tool_script"
-    log_error "Please clone it with:"
-    log_error "  git clone https://github.com/ticarpi/jwt_tool \"$tool_dir\""
+  # Check both possible locations: python/jwt_tool.py (file) or python/jwt_tool/jwt_tool.py (directory)
+  local tool_script=""
+  if [[ -f "$ROOT_DIR/python/jwt_tool.py" ]]; then
+    tool_script="$ROOT_DIR/python/jwt_tool.py"
+  elif [[ -f "$ROOT_DIR/python/jwt_tool/jwt_tool.py" ]]; then
+    tool_script="$ROOT_DIR/python/jwt_tool/jwt_tool.py"
+  else
+    log_error "jwt_tool not found. Expected at:"
+    log_error "  $ROOT_DIR/python/jwt_tool.py"
+    log_error "  or"
+    log_error "  $ROOT_DIR/python/jwt_tool/jwt_tool.py"
+    log_error "Please ensure jwt_tool.py is located in one of these locations"
     log_error "and install deps:"
-    log_error "  python3 -m pip install termcolor cprint pycryptodomex requests"
+    log_error "  python3 -m pip install termcolor cprint pycryptodomex requests ratelimit"
     exit 1
   fi
 
@@ -112,6 +117,7 @@ jwt_scan() {
     python3 "$tool_script" \
       -t "$target" \
       -np \
+      -y \
       $rh_arg "$header" \
       ${cv_arg:+$cv_arg "$canary"} \
       ${data_arg:+$data_arg "$post_data"} \
@@ -120,6 +126,7 @@ jwt_scan() {
     python3 "$tool_script" \
       -t "$target" \
       -np \
+      -y \
       $rc_arg "$cookie" \
       ${cv_arg:+$cv_arg "$canary"} \
       ${data_arg:+$data_arg "$post_data"} \
