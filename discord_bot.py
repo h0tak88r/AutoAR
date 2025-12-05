@@ -1347,6 +1347,7 @@ class AutoARBot(commands.Cog):
             "status": "running",
             "start_time": datetime.now(),
             "interaction": interaction,
+            "verbose": verbose,
         }
 
         embed = discord.Embed(
@@ -1367,10 +1368,13 @@ class AutoARBot(commands.Cog):
         """Run React2Shell test with both Nuclei and Python script."""
         try:
             results = {"nuclei": None, "react2shell": None}
-            all_output = []
-            all_errors = []
+            full_log_content = []
+            verbose = active_scans.get(scan_id, {}).get("verbose", False)
+            webhook_url = self.get_discord_webhook()
 
             # Run Nuclei template
+            nuclei_vulnerable = False
+            nuclei_status = "Not Vulnerable"
             try:
                 env = os.environ.copy()
                 nuclei_cmd_str = " ".join(nuclei_cmd)
@@ -1392,32 +1396,51 @@ class AutoARBot(commands.Cog):
                     "stderr": nuclei_stderr_str,
                 }
                 
-                # Always show Nuclei output (even if empty)
-                nuclei_output_section = f"**Nuclei Command:** `{nuclei_cmd_str}`\n"
-                nuclei_output_section += f"**Exit Code:** {nuclei_result.returncode}\n"
-                if nuclei_stdout_str.strip():
-                    nuclei_output_section += f"**Stdout:**\n```\n{nuclei_stdout_str}\n```"
-                else:
-                    nuclei_output_section += "**Stdout:** (empty - no matches found)"
-                if nuclei_stderr_str.strip():
-                    nuclei_output_section += f"\n**Stderr:**\n```\n{nuclei_stderr_str}\n```"
-                all_output.append(nuclei_output_section)
+                # Check if Nuclei found the vulnerability
+                if nuclei_stdout_str:
+                    if ("CVE-2025-55182" in nuclei_stdout_str or 
+                        "[CVE-2025-55182]" in nuclei_stdout_str or
+                        '"matched-at"' in nuclei_stdout_str or
+                        "matched-at" in nuclei_stdout_str):
+                        nuclei_vulnerable = True
+                        nuclei_status = "Vulnerable"
+                
+                # Build full log content for webhook
+                full_log_content.append("=" * 80)
+                full_log_content.append("NUCLEI SCAN RESULTS")
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"Command: {nuclei_cmd_str}")
+                full_log_content.append(f"Exit Code: {nuclei_result.returncode}")
+                full_log_content.append(f"\n--- STDOUT ---")
+                full_log_content.append(nuclei_stdout_str if nuclei_stdout_str else "(empty)")
+                if nuclei_stderr_str:
+                    full_log_content.append(f"\n--- STDERR ---")
+                    full_log_content.append(nuclei_stderr_str)
+                full_log_content.append("")
             except asyncio.TimeoutError:
                 results["nuclei"] = {
                     "returncode": -1,
                     "stdout": "",
                     "stderr": "Nuclei scan timed out after 30 seconds",
                 }
-                all_errors.append("**Nuclei:** Timed out")
+                nuclei_status = "Error (Timeout)"
+                full_log_content.append("=" * 80)
+                full_log_content.append("NUCLEI SCAN - TIMEOUT")
+                full_log_content.append("=" * 80)
             except Exception as e:
                 results["nuclei"] = {
                     "returncode": -1,
                     "stdout": "",
                     "stderr": str(e),
                 }
-                all_errors.append(f"**Nuclei Error:** {str(e)}")
+                nuclei_status = f"Error ({str(e)})"
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"NUCLEI SCAN - ERROR: {str(e)}")
+                full_log_content.append("=" * 80)
 
             # Run react2shell script
+            react2shell_vulnerable = False
+            react2shell_status = "not vulnerable"
             try:
                 env = os.environ.copy()
                 react2shell_result = await asyncio.create_subprocess_exec(
@@ -1438,94 +1461,138 @@ class AutoARBot(commands.Cog):
                 react2shell_stderr_str = react2shell_stderr.decode("utf-8", errors="ignore") if react2shell_stderr else ""
                 react2shell_cmd_str = " ".join(react2shell_cmd)
                 
-                # Always show React2Shell output
-                react2shell_output_section = f"**React2Shell Command:** `{react2shell_cmd_str}`\n"
-                react2shell_output_section += f"**Exit Code:** {react2shell_result.returncode}\n"
-                if react2shell_stdout_str.strip():
-                    react2shell_output_section += f"**Stdout:**\n```\n{react2shell_stdout_str}\n```"
-                else:
-                    react2shell_output_section += "**Stdout:** (empty)"
-                if react2shell_stderr_str.strip():
-                    react2shell_output_section += f"\n**Stderr:**\n```\n{react2shell_stderr_str}\n```"
-                all_output.append(react2shell_output_section)
+                # Check if react2shell found vulnerability
+                if "[VULNERABLE]" in react2shell_stdout_str:
+                    react2shell_vulnerable = True
+                    react2shell_status = "vulnerable"
+                
+                # Build full log content for webhook
+                full_log_content.append("=" * 80)
+                full_log_content.append("REACT2SHELL SCAN RESULTS")
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"Command: {react2shell_cmd_str}")
+                full_log_content.append(f"Exit Code: {react2shell_result.returncode}")
+                full_log_content.append(f"\n--- STDOUT ---")
+                full_log_content.append(react2shell_stdout_str if react2shell_stdout_str else "(empty)")
+                if react2shell_stderr_str:
+                    full_log_content.append(f"\n--- STDERR ---")
+                    full_log_content.append(react2shell_stderr_str)
+                full_log_content.append("")
             except asyncio.TimeoutError:
                 results["react2shell"] = {
                     "returncode": -1,
                     "stdout": "",
                     "stderr": "React2Shell scan timed out after 60 seconds",
                 }
-                all_errors.append("**React2Shell:** Timed out")
+                react2shell_status = "Error (Timeout)"
+                full_log_content.append("=" * 80)
+                full_log_content.append("REACT2SHELL SCAN - TIMEOUT")
+                full_log_content.append("=" * 80)
             except Exception as e:
                 results["react2shell"] = {
                     "returncode": -1,
                     "stdout": "",
                     "stderr": str(e),
                 }
-                all_errors.append(f"**React2Shell Error:** {str(e)}")
+                react2shell_status = f"Error ({str(e)})"
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"REACT2SHELL SCAN - ERROR: {str(e)}")
+                full_log_content.append("=" * 80)
 
             # Update scan status
             if scan_id in active_scans:
                 active_scans[scan_id]["status"] = "completed"
                 active_scans[scan_id]["results"] = results
 
-                # Determine if vulnerable
-                vulnerable = False
-                if results["nuclei"] and results["nuclei"]["stdout"]:
-                    # Check if Nuclei found the vulnerability (check for CVE ID or match indicators)
-                    nuclei_output = results["nuclei"]["stdout"]
-                    if ("CVE-2025-55182" in nuclei_output or 
-                        "[CVE-2025-55182]" in nuclei_output or
-                        '"matched-at"' in nuclei_output or
-                        "matched-at" in nuclei_output):
-                        vulnerable = True
-                if results["react2shell"] and results["react2shell"]["stdout"]:
-                    # Check if react2shell found vulnerability
-                    if "[VULNERABLE]" in results["react2shell"]["stdout"]:
-                        vulnerable = True
-
-                # Create embed
-                color = discord.Color.red() if vulnerable else discord.Color.green()
-                status_text = "✅ VULNERABLE" if vulnerable else "✅ NOT VULNERABLE"
+                # Determine overall vulnerability status
+                overall_vulnerable = nuclei_vulnerable or react2shell_vulnerable
+                
+                # Create brief embed with simple status
+                color = discord.Color.red() if overall_vulnerable else discord.Color.green()
                 
                 embed = discord.Embed(
                     title="🔍 React2Shell RCE Test Results",
-                    description=f"**Target:** `{target}`\n**Status:** {status_text}",
+                    description=f"**Target:** `{target}`",
                     color=color,
                 )
-
-                # Add output fields - split into separate fields if too long
-                full_output = "\n\n".join(all_output)
-                full_errors = "\n".join(all_errors) if all_errors else None
                 
-                # Discord field value limit is 1024 characters, so we need to split if needed
-                if len(full_output) > 1000:
-                    # Split into multiple fields or use file attachment
-                    # For now, show first part and indicate truncation
-                    embed.add_field(
-                        name="Output (truncated)",
-                        value=full_output[:950] + "\n... (output too long, see full logs)",
-                        inline=False,
-                    )
-                elif full_output:
-                    embed.add_field(
-                        name="Output",
-                        value=full_output,
-                        inline=False,
-                    )
-
-                if full_errors and len(full_errors) > 0:
-                    if len(full_errors) > 1000:
+                # Add brief status fields
+                embed.add_field(
+                    name="Nuclei Check",
+                    value=f"**{nuclei_status}**",
+                    inline=True,
+                )
+                embed.add_field(
+                    name="React2Shell",
+                    value=f"**{react2shell_status}**",
+                    inline=True,
+                )
+                
+                # If verbose and webhook is available, send full logs to webhook
+                if verbose and webhook_url:
+                    try:
+                        # Create temporary log file
+                        log_file = tempfile.NamedTemporaryFile(
+                            mode='w', 
+                            suffix='.txt', 
+                            delete=False,
+                            prefix=f'react2shell_{scan_id}_'
+                        )
+                        log_content = "\n".join(full_log_content)
+                        log_file.write(log_content)
+                        log_file.write(f"\n\nScan completed at: {datetime.now().isoformat()}\n")
+                        log_file.write(f"Target: {target}\n")
+                        log_file.write(f"Scan ID: {scan_id}\n")
+                        log_file.close()
+                        
+                        # Send to webhook
+                        import subprocess
+                        import json
+                        description = f"**React2Shell Full Logs**\nTarget: `{target}`\nScan ID: `{scan_id}`"
+                        payload_json = json.dumps({"content": description})
+                        result = subprocess.run(
+                            [
+                                'curl', '-sS',
+                                '-F', f'file=@{log_file.name}',
+                                '-F', f'payload_json={payload_json}',
+                                webhook_url
+                            ],
+                            capture_output=True,
+                            timeout=10
+                        )
+                        
+                        if result.returncode == 0:
+                            embed.add_field(
+                                name="📄 Full Logs",
+                                value=f"Sent to webhook",
+                                inline=False,
+                            )
+                        else:
+                            embed.add_field(
+                                name="⚠️ Logs",
+                                value="Failed to send to webhook",
+                                inline=False,
+                            )
+                        
+                        # Clean up temp file
+                        try:
+                            os.unlink(log_file.name)
+                        except:
+                            pass
+                            
+                    except Exception as e:
+                        print(f"Error sending logs to webhook: {e}")
                         embed.add_field(
-                            name="Errors (truncated)",
-                            value=full_errors[:950] + "\n... (errors too long)",
+                            name="⚠️ Logs",
+                            value=f"Error: {str(e)[:100]}",
                             inline=False,
                         )
-                    else:
-                        embed.add_field(
-                            name="Errors",
-                            value=full_errors,
-                            inline=False,
-                        )
+                elif verbose and not webhook_url:
+                    embed.add_field(
+                        name="⚠️ Verbose Mode",
+                        value="Webhook not configured. Full logs not sent.",
+                        inline=False,
+                    )
 
                 # Update Discord message
                 interaction = active_scans[scan_id]["interaction"]
