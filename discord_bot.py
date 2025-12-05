@@ -1324,12 +1324,11 @@ class AutoARBot(commands.Cog):
         react2shell_script = "/app/python/react2shell.py"
 
         # Build commands
-        # 1. Run Nuclei template
+        # 1. Run Nuclei template (without -silent to see raw output)
         nuclei_cmd = [
             "nuclei",
             "-t", nuclei_template,
             "-u", url,
-            "-silent",
         ]
 
         # 2. Run react2shell script with WAF bypass
@@ -1374,6 +1373,7 @@ class AutoARBot(commands.Cog):
             # Run Nuclei template
             try:
                 env = os.environ.copy()
+                nuclei_cmd_str = " ".join(nuclei_cmd)
                 nuclei_result = await asyncio.create_subprocess_exec(
                     *nuclei_cmd,
                     stdout=asyncio.subprocess.PIPE,
@@ -1383,15 +1383,25 @@ class AutoARBot(commands.Cog):
                 nuclei_stdout, nuclei_stderr = await asyncio.wait_for(
                     nuclei_result.communicate(), timeout=30
                 )
+                nuclei_stdout_str = nuclei_stdout.decode("utf-8", errors="ignore") if nuclei_stdout else ""
+                nuclei_stderr_str = nuclei_stderr.decode("utf-8", errors="ignore") if nuclei_stderr else ""
+                
                 results["nuclei"] = {
                     "returncode": nuclei_result.returncode,
-                    "stdout": nuclei_stdout.decode("utf-8", errors="ignore"),
-                    "stderr": nuclei_stderr.decode("utf-8", errors="ignore"),
+                    "stdout": nuclei_stdout_str,
+                    "stderr": nuclei_stderr_str,
                 }
-                if nuclei_stdout:
-                    all_output.append(f"**Nuclei Output:**\n```\n{nuclei_stdout.decode('utf-8', errors='ignore')[:500]}\n```")
-                if nuclei_stderr:
-                    all_errors.append(f"**Nuclei Errors:**\n```\n{nuclei_stderr.decode('utf-8', errors='ignore')[:500]}\n```")
+                
+                # Always show Nuclei output (even if empty)
+                nuclei_output_section = f"**Nuclei Command:** `{nuclei_cmd_str}`\n"
+                nuclei_output_section += f"**Exit Code:** {nuclei_result.returncode}\n"
+                if nuclei_stdout_str.strip():
+                    nuclei_output_section += f"**Stdout:**\n```\n{nuclei_stdout_str}\n```"
+                else:
+                    nuclei_output_section += "**Stdout:** (empty - no matches found)"
+                if nuclei_stderr_str.strip():
+                    nuclei_output_section += f"\n**Stderr:**\n```\n{nuclei_stderr_str}\n```"
+                all_output.append(nuclei_output_section)
             except asyncio.TimeoutError:
                 results["nuclei"] = {
                     "returncode": -1,
@@ -1424,10 +1434,20 @@ class AutoARBot(commands.Cog):
                     "stdout": react2shell_stdout.decode("utf-8", errors="ignore"),
                     "stderr": react2shell_stderr.decode("utf-8", errors="ignore"),
                 }
-                if react2shell_stdout:
-                    all_output.append(f"**React2Shell Output:**\n```\n{react2shell_stdout.decode('utf-8', errors='ignore')[:1000]}\n```")
-                if react2shell_stderr:
-                    all_errors.append(f"**React2Shell Errors:**\n```\n{react2shell_stderr.decode('utf-8', errors='ignore')[:500]}\n```")
+                react2shell_stdout_str = react2shell_stdout.decode("utf-8", errors="ignore") if react2shell_stdout else ""
+                react2shell_stderr_str = react2shell_stderr.decode("utf-8", errors="ignore") if react2shell_stderr else ""
+                react2shell_cmd_str = " ".join(react2shell_cmd)
+                
+                # Always show React2Shell output
+                react2shell_output_section = f"**React2Shell Command:** `{react2shell_cmd_str}`\n"
+                react2shell_output_section += f"**Exit Code:** {react2shell_result.returncode}\n"
+                if react2shell_stdout_str.strip():
+                    react2shell_output_section += f"**Stdout:**\n```\n{react2shell_stdout_str}\n```"
+                else:
+                    react2shell_output_section += "**Stdout:** (empty)"
+                if react2shell_stderr_str.strip():
+                    react2shell_output_section += f"\n**Stderr:**\n```\n{react2shell_stderr_str}\n```"
+                all_output.append(react2shell_output_section)
             except asyncio.TimeoutError:
                 results["react2shell"] = {
                     "returncode": -1,
@@ -1473,20 +1493,39 @@ class AutoARBot(commands.Cog):
                     color=color,
                 )
 
-                # Add output fields
-                if all_output:
+                # Add output fields - split into separate fields if too long
+                full_output = "\n\n".join(all_output)
+                full_errors = "\n".join(all_errors) if all_errors else None
+                
+                # Discord field value limit is 1024 characters, so we need to split if needed
+                if len(full_output) > 1000:
+                    # Split into multiple fields or use file attachment
+                    # For now, show first part and indicate truncation
+                    embed.add_field(
+                        name="Output (truncated)",
+                        value=full_output[:950] + "\n... (output too long, see full logs)",
+                        inline=False,
+                    )
+                elif full_output:
                     embed.add_field(
                         name="Output",
-                        value="\n".join(all_output)[:1000] + ("..." if len("\n".join(all_output)) > 1000 else ""),
+                        value=full_output,
                         inline=False,
                     )
 
-                if all_errors:
-                    embed.add_field(
-                        name="Errors",
-                        value="\n".join(all_errors)[:1000] + ("..." if len("\n".join(all_errors)) > 1000 else ""),
-                        inline=False,
-                    )
+                if full_errors and len(full_errors) > 0:
+                    if len(full_errors) > 1000:
+                        embed.add_field(
+                            name="Errors (truncated)",
+                            value=full_errors[:950] + "\n... (errors too long)",
+                            inline=False,
+                        )
+                    else:
+                        embed.add_field(
+                            name="Errors",
+                            value=full_errors,
+                            inline=False,
+                        )
 
                 # Update Discord message
                 interaction = active_scans[scan_id]["interaction"]
