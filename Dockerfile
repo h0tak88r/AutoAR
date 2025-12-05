@@ -106,6 +106,12 @@ RUN set -e; \
     if ! grep -iq '^ratelimit' requirements.txt 2>/dev/null; then \
       printf "ratelimit\n" >> requirements.txt; \
     fi; \
+    if ! grep -iq '^tqdm' requirements.txt 2>/dev/null; then \
+      printf "tqdm>=4.64.0\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^urllib3' requirements.txt 2>/dev/null; then \
+      printf "urllib3>=1.26.0\n" >> requirements.txt; \
+    fi; \
     pip install --no-cache-dir -r requirements.txt \
     && pip3 install --no-cache-dir git+https://github.com/codingo/Interlace.git
 
