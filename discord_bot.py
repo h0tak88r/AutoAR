@@ -1330,7 +1330,6 @@ class AutoARBot(commands.Cog):
             "-t", nuclei_template,
             "-u", url,
             "-silent",
-            "-json",
         ]
 
         # 2. Run react2shell script with WAF bypass
@@ -1452,8 +1451,12 @@ class AutoARBot(commands.Cog):
                 # Determine if vulnerable
                 vulnerable = False
                 if results["nuclei"] and results["nuclei"]["stdout"]:
-                    # Check if Nuclei found the vulnerability
-                    if "CVE-2025-55182" in results["nuclei"]["stdout"] or '"matched-at"' in results["nuclei"]["stdout"]:
+                    # Check if Nuclei found the vulnerability (check for CVE ID or match indicators)
+                    nuclei_output = results["nuclei"]["stdout"]
+                    if ("CVE-2025-55182" in nuclei_output or 
+                        "[CVE-2025-55182]" in nuclei_output or
+                        '"matched-at"' in nuclei_output or
+                        "matched-at" in nuclei_output):
                         vulnerable = True
                 if results["react2shell"] and results["react2shell"]["stdout"]:
                     # Check if react2shell found vulnerability
