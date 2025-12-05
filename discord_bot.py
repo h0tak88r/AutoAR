@@ -1381,6 +1381,9 @@ class AutoARBot(commands.Cog):
                 "-t", str(livehosts_threads),
             ]
 
+            live_hosts = []
+            live_hosts_file = f"{RESULTS_DIR}/{domain}/subs/live-subs.txt"
+            
             try:
                 env = os.environ.copy()
                 livehosts_result = await asyncio.create_subprocess_exec(
@@ -1403,30 +1406,75 @@ class AutoARBot(commands.Cog):
                     full_log_content.append(f"\n--- STDERR ---")
                     full_log_content.append(livehosts_stderr_str)
                 
-                # Read live hosts file
-                live_hosts_file = f"{RESULTS_DIR}/{domain}/subs/live-subs.txt"
-                live_hosts = []
+                # Wait a bit for file to be fully written (httpx might still be flushing)
+                await asyncio.sleep(2)
                 
-                if os.path.exists(live_hosts_file):
-                    with open(live_hosts_file, "r") as f:
-                        live_hosts = [line.strip() for line in f if line.strip()]
-                    full_log_content.append(f"\nFound {len(live_hosts)} live hosts")
-                else:
-                    full_log_content.append(f"\nWARNING: Live hosts file not found: {live_hosts_file}")
-                    # Try to get from database or fallback
-                    log_warn(f"Live hosts file not found, attempting alternative methods")
+                # Try reading the file with retries
+                max_retries = 5
+                for attempt in range(max_retries):
+                    if os.path.exists(live_hosts_file):
+                        # Check if file has content
+                        try:
+                            with open(live_hosts_file, "r") as f:
+                                raw_lines = [line.strip() for line in f if line.strip()]
+                            
+                            if raw_lines:
+                                # httpx outputs full URLs (https://host or http://host)
+                                # Extract hostname from URL or use as-is if already hostname
+                                for line in raw_lines:
+                                    line = line.strip()
+                                    if not line:
+                                        continue
+                                    # If it's a URL, extract hostname; otherwise use as-is
+                                    if line.startswith(("http://", "https://")):
+                                        # It's a URL, use it directly (react2shell accepts URLs)
+                                        live_hosts.append(line)
+                                    else:
+                                        # It's just a hostname, add https:// prefix
+                                        live_hosts.append(f"https://{line}")
+                                
+                                full_log_content.append(f"\nFound {len(live_hosts)} live hosts (attempt {attempt + 1})")
+                                break
+                            else:
+                                full_log_content.append(f"\nFile exists but is empty (attempt {attempt + 1}/{max_retries})")
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(2)
+                        except Exception as e:
+                            full_log_content.append(f"\nError reading file (attempt {attempt + 1}): {str(e)}")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(2)
+                    else:
+                        full_log_content.append(f"\nFile not found: {live_hosts_file} (attempt {attempt + 1}/{max_retries})")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2)
+                
+                if not live_hosts:
+                    full_log_content.append(f"\nWARNING: Could not read live hosts from {live_hosts_file}")
+                    full_log_content.append(f"File exists: {os.path.exists(live_hosts_file)}")
+                    if os.path.exists(live_hosts_file):
+                        try:
+                            file_size = os.path.getsize(live_hosts_file)
+                            full_log_content.append(f"File size: {file_size} bytes")
+                            # Try to read first few lines for debugging
+                            with open(live_hosts_file, "r") as f:
+                                sample = f.read(500)
+                                full_log_content.append(f"File sample (first 500 chars): {sample}")
+                        except Exception as e:
+                            full_log_content.append(f"Error checking file: {str(e)}")
                     
             except asyncio.TimeoutError:
                 full_log_content.append("Live host collection timed out after 5 minutes")
                 live_hosts = []
             except Exception as e:
                 full_log_content.append(f"Error collecting live hosts: {str(e)}")
+                import traceback
+                full_log_content.append(traceback.format_exc())
                 live_hosts = []
 
             if not live_hosts:
                 embed = discord.Embed(
                     title="🔍 React2Shell RCE Test Results",
-                    description=f"**Domain:** `{domain}`\n**Status:** No live hosts found or collection failed",
+                    description=f"**Domain:** `{domain}`\n**Status:** No live hosts found or collection failed\n\n**Debug Info:**\n- File path: `{live_hosts_file}`\n- File exists: `{os.path.exists(live_hosts_file) if live_hosts_file else 'N/A'}`",
                     color=discord.Color.orange(),
                 )
                 if scan_id in active_scans:
@@ -1449,11 +1497,8 @@ class AutoARBot(commands.Cog):
             async def scan_host(host: str) -> dict:
                 """Scan a single host for React2Shell vulnerability."""
                 async with semaphore:
-                    # Normalize host URL
-                    if not host.startswith(("http://", "https://")):
-                        host_url = f"https://{host}"
-                    else:
-                        host_url = host
+                    # Host is already a URL (https://host) from our processing above
+                    host_url = host if host.startswith(("http://", "https://")) else f"https://{host}"
 
                     result = {
                         "host": host_url,
