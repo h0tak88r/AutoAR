@@ -6,3 +6,5 @@ python-multipart==0.0.6
 discord.py>=2.4.0
 psycopg2-binary>=2.9.0
 requests>=2.31.0
+tqdm>=4.64.0
+urllib3>=1.26.0
