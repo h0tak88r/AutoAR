@@ -1449,19 +1449,103 @@ class AutoARBot(commands.Cog):
                             await asyncio.sleep(2)
                 
                 if not live_hosts:
-                    full_log_content.append(f"\nWARNING: Could not read live hosts from {live_hosts_file}")
-                    full_log_content.append(f"File exists: {os.path.exists(live_hosts_file)}")
+                    # Collect more debug info
+                    debug_info = []
+                    debug_info.append(f"File path: `{live_hosts_file}`")
+                    debug_info.append(f"File exists: `{os.path.exists(live_hosts_file)}`")
+                    
                     if os.path.exists(live_hosts_file):
                         try:
                             file_size = os.path.getsize(live_hosts_file)
-                            full_log_content.append(f"File size: {file_size} bytes")
-                            # Try to read first few lines for debugging
-                            with open(live_hosts_file, "r") as f:
-                                sample = f.read(500)
-                                full_log_content.append(f"File sample (first 500 chars): {sample}")
+                            debug_info.append(f"File size: `{file_size} bytes`")
+                            
+                            # Try to read the file
+                            with open(live_hosts_file, "r", encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                                lines = [line.strip() for line in content.split('\n') if line.strip()]
+                                debug_info.append(f"Lines in file: `{len(lines)}`")
+                                
+                                if content:
+                                    # Show first 200 chars as sample
+                                    sample = content[:200].replace('`', "'")  # Escape backticks for Discord
+                                    if len(content) > 200:
+                                        sample += "..."
+                                    debug_info.append(f"File sample: `{sample}`")
+                                    
+                                    # Show first 3 lines
+                                    if lines:
+                                        debug_info.append(f"First 3 lines:")
+                                        for i, line in enumerate(lines[:3], 1):
+                                            debug_info.append(f"  {i}. `{line[:100]}`")
+                                else:
+                                    debug_info.append("File is **empty**")
                         except Exception as e:
-                            full_log_content.append(f"Error checking file: {str(e)}")
+                            debug_info.append(f"Error reading file: `{str(e)}`")
                     
+                    # Add to full log
+                    full_log_content.append(f"\nWARNING: Could not read live hosts from {live_hosts_file}")
+                    for info in debug_info:
+                        full_log_content.append(info)
+                    
+                    # Create embed with detailed debug info
+                    embed = discord.Embed(
+                        title="🔍 React2Shell RCE Test Results",
+                        description=f"**Domain:** `{domain}`\n**Status:** No live hosts found or collection failed",
+                        color=discord.Color.orange(),
+                    )
+                    
+                    # Add debug info as fields (Discord has field limit, so combine if needed)
+                    debug_text = "\n".join(debug_info)
+                    if len(debug_text) > 1024:  # Discord field value limit
+                        debug_text = debug_text[:1020] + "..."
+                    embed.add_field(
+                        name="🔍 Debug Information",
+                        value=debug_text,
+                        inline=False,
+                    )
+                    
+                    # Also send full logs to webhook if available
+                    if webhook_url:
+                        try:
+                            log_file = tempfile.NamedTemporaryFile(
+                                mode='w',
+                                suffix='.txt',
+                                delete=False,
+                                prefix=f'react2shell_debug_{scan_id}_'
+                            )
+                            log_content = "\n".join(full_log_content)
+                            log_file.write(log_content)
+                            log_file.close()
+                            
+                            import json
+                            description = f"**React2Shell Debug Logs**\nDomain: `{domain}`\nScan ID: `{scan_id}`"
+                            payload_json = json.dumps({"content": description})
+                            subprocess.run(
+                                [
+                                    'curl', '-sS',
+                                    '-F', f'file=@{log_file.name}',
+                                    '-F', f'payload_json={payload_json}',
+                                    webhook_url
+                                ],
+                                capture_output=True,
+                                timeout=10
+                            )
+                            
+                            try:
+                                os.unlink(log_file.name)
+                            except:
+                                pass
+                        except Exception as e:
+                            print(f"Error sending debug logs to webhook: {e}")
+                    
+                    if scan_id in active_scans:
+                        interaction = active_scans[scan_id]["interaction"]
+                        try:
+                            await interaction.edit_original_response(embed=embed)
+                        except:
+                            pass
+                    return
+
             except asyncio.TimeoutError:
                 full_log_content.append("Live host collection timed out after 5 minutes")
                 live_hosts = []
