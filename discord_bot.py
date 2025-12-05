@@ -1298,6 +1298,206 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
+    @app_commands.command(
+        name="react2shell",
+        description="Test for React Server Components RCE (CVE-2025-55182) using Nuclei template and react2shell scanner"
+    )
+    @app_commands.describe(
+        url="Target URL to test (e.g., https://example.com)",
+        verbose="Enable verbose output",
+    )
+    async def react2shell_cmd(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+        verbose: bool = False,
+    ):
+        """Test for React Server Components RCE vulnerability."""
+        scan_id = f"react2shell_{int(time.time())}"
+
+        # Normalize URL
+        if not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+
+        # Paths
+        nuclei_template = "/app/nuclei_templates/cves/CVE-2025-55182.yaml"
+        react2shell_script = "/app/python/react2shell.py"
+
+        # Build commands
+        # 1. Run Nuclei template
+        nuclei_cmd = [
+            "nuclei",
+            "-t", nuclei_template,
+            "-u", url,
+            "-silent",
+            "-json",
+        ]
+
+        # 2. Run react2shell script with WAF bypass
+        react2shell_cmd = [
+            "python3",
+            react2shell_script,
+            "-u", url,
+            "--waf-bypass",
+        ]
+        if verbose:
+            react2shell_cmd.append("-v")
+
+        active_scans[scan_id] = {
+            "type": "react2shell",
+            "target": url,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+        }
+
+        embed = discord.Embed(
+            title="🔍 React2Shell RCE Test",
+            description=f"**Target:** `{url}`\n**Template:** CVE-2025-55182.yaml\n**WAF Bypass:** Enabled",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+        # Run both commands sequentially
+        asyncio.create_task(
+            self._run_react2shell(scan_id, nuclei_cmd, react2shell_cmd, url)
+        )
+
+    async def _run_react2shell(
+        self, scan_id: str, nuclei_cmd: list, react2shell_cmd: list, target: str
+    ):
+        """Run React2Shell test with both Nuclei and Python script."""
+        try:
+            results = {"nuclei": None, "react2shell": None}
+            all_output = []
+            all_errors = []
+
+            # Run Nuclei template
+            try:
+                env = os.environ.copy()
+                nuclei_result = await asyncio.create_subprocess_exec(
+                    *nuclei_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+                nuclei_stdout, nuclei_stderr = await asyncio.wait_for(
+                    nuclei_result.communicate(), timeout=30
+                )
+                results["nuclei"] = {
+                    "returncode": nuclei_result.returncode,
+                    "stdout": nuclei_stdout.decode("utf-8", errors="ignore"),
+                    "stderr": nuclei_stderr.decode("utf-8", errors="ignore"),
+                }
+                if nuclei_stdout:
+                    all_output.append(f"**Nuclei Output:**\n```\n{nuclei_stdout.decode('utf-8', errors='ignore')[:500]}\n```")
+                if nuclei_stderr:
+                    all_errors.append(f"**Nuclei Errors:**\n```\n{nuclei_stderr.decode('utf-8', errors='ignore')[:500]}\n```")
+            except asyncio.TimeoutError:
+                results["nuclei"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": "Nuclei scan timed out after 30 seconds",
+                }
+                all_errors.append("**Nuclei:** Timed out")
+            except Exception as e:
+                results["nuclei"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": str(e),
+                }
+                all_errors.append(f"**Nuclei Error:** {str(e)}")
+
+            # Run react2shell script
+            try:
+                env = os.environ.copy()
+                react2shell_result = await asyncio.create_subprocess_exec(
+                    *react2shell_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+                react2shell_stdout, react2shell_stderr = await asyncio.wait_for(
+                    react2shell_result.communicate(), timeout=60
+                )
+                results["react2shell"] = {
+                    "returncode": react2shell_result.returncode,
+                    "stdout": react2shell_stdout.decode("utf-8", errors="ignore"),
+                    "stderr": react2shell_stderr.decode("utf-8", errors="ignore"),
+                }
+                if react2shell_stdout:
+                    all_output.append(f"**React2Shell Output:**\n```\n{react2shell_stdout.decode('utf-8', errors='ignore')[:1000]}\n```")
+                if react2shell_stderr:
+                    all_errors.append(f"**React2Shell Errors:**\n```\n{react2shell_stderr.decode('utf-8', errors='ignore')[:500]}\n```")
+            except asyncio.TimeoutError:
+                results["react2shell"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": "React2Shell scan timed out after 60 seconds",
+                }
+                all_errors.append("**React2Shell:** Timed out")
+            except Exception as e:
+                results["react2shell"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": str(e),
+                }
+                all_errors.append(f"**React2Shell Error:** {str(e)}")
+
+            # Update scan status
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "completed"
+                active_scans[scan_id]["results"] = results
+
+                # Determine if vulnerable
+                vulnerable = False
+                if results["nuclei"] and results["nuclei"]["stdout"]:
+                    # Check if Nuclei found the vulnerability
+                    if "CVE-2025-55182" in results["nuclei"]["stdout"] or '"matched-at"' in results["nuclei"]["stdout"]:
+                        vulnerable = True
+                if results["react2shell"] and results["react2shell"]["stdout"]:
+                    # Check if react2shell found vulnerability
+                    if "[VULNERABLE]" in results["react2shell"]["stdout"]:
+                        vulnerable = True
+
+                # Create embed
+                color = discord.Color.red() if vulnerable else discord.Color.green()
+                status_text = "✅ VULNERABLE" if vulnerable else "✅ NOT VULNERABLE"
+                
+                embed = discord.Embed(
+                    title="🔍 React2Shell RCE Test Results",
+                    description=f"**Target:** `{target}`\n**Status:** {status_text}",
+                    color=color,
+                )
+
+                # Add output fields
+                if all_output:
+                    embed.add_field(
+                        name="Output",
+                        value="\n".join(all_output)[:1000] + ("..." if len("\n".join(all_output)) > 1000 else ""),
+                        inline=False,
+                    )
+
+                if all_errors:
+                    embed.add_field(
+                        name="Errors",
+                        value="\n".join(all_errors)[:1000] + ("..." if len("\n".join(all_errors)) > 1000 else ""),
+                        inline=False,
+                    )
+
+                # Update Discord message
+                interaction = active_scans[scan_id]["interaction"]
+                try:
+                    await interaction.edit_original_response(embed=embed)
+                except:
+                    pass  # Ignore if message was deleted
+
+        except Exception as e:
+            print(f"Error in React2Shell test {scan_id}: {e}")
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "failed"
+                active_scans[scan_id]["error"] = str(e)
+
     @app_commands.command(name="tech", description="Detect technologies on live hosts")
     @app_commands.describe(
         domain="The domain", threads="Number of threads for httpx (default: 100)"
