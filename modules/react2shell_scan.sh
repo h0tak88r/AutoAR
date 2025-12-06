@@ -115,9 +115,6 @@ react2shell_scan_run() {
   local host_count=$(wc -l < "$live_hosts_file")
   log_success "Found $host_count live hosts to scan"
 
-  # Send scan start notification
-  discord_send "**React2Shell scan started for:** \`$domain\` (hosts: \`$host_count\`)"
-
   # Normalize hosts (ensure they have http:// or https://)
   local temp_hosts_file="$dir/temp-hosts-normalized.txt"
   > "$temp_hosts_file"
@@ -130,12 +127,14 @@ react2shell_scan_run() {
     fi
   done < "$live_hosts_file"
 
+  local scanned_count=$(wc -l < "$temp_hosts_file")
+
   # Step 2: Scan with Nuclei template
   log_info "=== Scanning with Nuclei template (CVE-2025-55182.yaml) ==="
   local nuclei_out="$output_dir/nuclei-cve-2025-55182.txt"
   local nuclei_log="$output_dir/nuclei-cve-2025-55182.log"
   
-  # Capture both stdout and stderr to log file
+  # Capture both stdout and stderr to log file (but don't send to Discord)
   nuclei -l "$temp_hosts_file" \
     -t "$nuclei_template" \
     -c "$threads" \
@@ -145,21 +144,17 @@ react2shell_scan_run() {
     > "$nuclei_log" 2>&1 || true
 
   local nuclei_vulnerable=0
+  local nuclei_hosts_file="$output_dir/nuclei-vulnerable-hosts.txt"
+  > "$nuclei_hosts_file"
   if [[ -s "$nuclei_out" ]]; then
     nuclei_vulnerable=$(wc -l < "$nuclei_out")
-  fi
-  
-  # Always send log file to Discord (contains stdout + stderr)
-  if [[ -s "$nuclei_log" ]]; then
-    discord_file "$nuclei_log" "**Nuclei - CVE-2025-55182 Logs (\`$domain\`)** - Vulnerable: $nuclei_vulnerable"
-  fi
-  
-  # Send results file if vulnerabilities found
-  if [[ $nuclei_vulnerable -gt 0 ]]; then
-    log_success "Found $nuclei_vulnerable vulnerable host(s) with Nuclei"
-    discord_file "$nuclei_out" "**Nuclei - CVE-2025-55182 Results (\`$domain\`)** - $nuclei_vulnerable vulnerable"
-  else
-    log_info "No vulnerable hosts found with Nuclei"
+    # Nuclei output contains full URLs, extract them
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      # Nuclei output format: https://host/path [info]
+      # Extract just the URL part (before space or bracket)
+      echo "$line" | awk '{print $1}' | sed 's|^https\?://||' | sed 's|/.*||' >> "$nuclei_hosts_file"
+    done < "$nuclei_out"
   fi
 
   # Step 3: Scan with WAF bypass
@@ -167,7 +162,7 @@ react2shell_scan_run() {
   local waf_bypass_out="$output_dir/react2shell-waf-bypass.txt"
   local waf_bypass_log="$output_dir/react2shell-waf-bypass.log"
   
-  # Capture both stdout and stderr to log file
+  # Capture both stdout and stderr to log file (but don't send to Discord)
   python3 "$react2shell_script" \
     -l "$temp_hosts_file" \
     --waf-bypass \
@@ -178,27 +173,35 @@ react2shell_scan_run() {
     > "$waf_bypass_log" 2>&1 || true
 
   local waf_vulnerable=0
+  local waf_hosts_file="$output_dir/waf-vulnerable-hosts.txt"
+  > "$waf_hosts_file"
   if [[ -s "$waf_bypass_out" ]]; then
-    # Check JSON output for vulnerable hosts
+    # Extract vulnerable hosts from JSON output
     if command -v jq >/dev/null 2>&1; then
-      waf_vulnerable=$(jq '.results[] | select(.vulnerable == true) | .host' "$waf_bypass_out" 2>/dev/null | wc -l)
+      jq -r '.results[] | select(.vulnerable == true) | .host' "$waf_bypass_out" 2>/dev/null | \
+        sed -E 's|^https?://||' | sed 's|/.*||' >> "$waf_hosts_file" || true
+      waf_vulnerable=$(wc -l < "$waf_hosts_file" 2>/dev/null || echo 0)
     else
-      # Fallback to grep if jq is not available
-      waf_vulnerable=$(grep -c '"vulnerable": true' "$waf_bypass_out" 2>/dev/null || echo 0)
+      # Fallback: use Python to parse JSON
+      python3 -c "
+import json
+import sys
+try:
+    with open('$waf_bypass_out', 'r') as f:
+        data = json.load(f)
+    for result in data.get('results', []):
+        if result.get('vulnerable') is True:
+            host = result.get('host', '')
+            if host:
+                # Remove protocol and path
+                host = host.replace('https://', '').replace('http://', '')
+                host = host.split('/')[0]
+                print(host)
+except:
+    pass
+" >> "$waf_hosts_file" 2>/dev/null || true
+      waf_vulnerable=$(wc -l < "$waf_hosts_file" 2>/dev/null || echo 0)
     fi
-  fi
-  
-  # Always send log file to Discord (contains stdout + stderr)
-  if [[ -s "$waf_bypass_log" ]]; then
-    discord_file "$waf_bypass_log" "**React2Shell - WAF Bypass Logs (\`$domain\`)** - Vulnerable: $waf_vulnerable"
-  fi
-  
-  # Send results file if vulnerabilities found
-  if [[ $waf_vulnerable -gt 0 ]]; then
-    log_success "Found $waf_vulnerable vulnerable host(s) with WAF bypass"
-    discord_file "$waf_bypass_out" "**React2Shell - WAF Bypass Results (\`$domain\`)** - $waf_vulnerable vulnerable"
-  else
-    log_info "No vulnerable hosts found with WAF bypass"
   fi
 
   # Step 4: Scan with Vercel WAF bypass
@@ -206,7 +209,7 @@ react2shell_scan_run() {
   local vercel_waf_bypass_out="$output_dir/react2shell-vercel-waf-bypass.txt"
   local vercel_waf_bypass_log="$output_dir/react2shell-vercel-waf-bypass.log"
   
-  # Capture both stdout and stderr to log file
+  # Capture both stdout and stderr to log file (but don't send to Discord)
   python3 "$react2shell_script" \
     -l "$temp_hosts_file" \
     --vercel-waf-bypass \
@@ -217,43 +220,92 @@ react2shell_scan_run() {
     > "$vercel_waf_bypass_log" 2>&1 || true
 
   local vercel_vulnerable=0
+  local vercel_hosts_file="$output_dir/vercel-vulnerable-hosts.txt"
+  > "$vercel_hosts_file"
   if [[ -s "$vercel_waf_bypass_out" ]]; then
-    # Check JSON output for vulnerable hosts
+    # Extract vulnerable hosts from JSON output
     if command -v jq >/dev/null 2>&1; then
-      vercel_vulnerable=$(jq '.results[] | select(.vulnerable == true) | .host' "$vercel_waf_bypass_out" 2>/dev/null | wc -l)
+      jq -r '.results[] | select(.vulnerable == true) | .host' "$vercel_waf_bypass_out" 2>/dev/null | \
+        sed -E 's|^https?://||' | sed 's|/.*||' >> "$vercel_hosts_file" || true
+      vercel_vulnerable=$(wc -l < "$vercel_hosts_file" 2>/dev/null || echo 0)
     else
-      # Fallback to grep if jq is not available
-      vercel_vulnerable=$(grep -c '"vulnerable": true' "$vercel_waf_bypass_out" 2>/dev/null || echo 0)
+      # Fallback: use Python to parse JSON
+      python3 -c "
+import json
+import sys
+try:
+    with open('$vercel_waf_bypass_out', 'r') as f:
+        data = json.load(f)
+    for result in data.get('results', []):
+        if result.get('vulnerable') is True:
+            host = result.get('host', '')
+            if host:
+                # Remove protocol and path
+                host = host.replace('https://', '').replace('http://', '')
+                host = host.split('/')[0]
+                print(host)
+except:
+    pass
+" >> "$vercel_hosts_file" 2>/dev/null || true
+      vercel_vulnerable=$(wc -l < "$vercel_hosts_file" 2>/dev/null || echo 0)
     fi
-  fi
-  
-  # Always send log file to Discord (contains stdout + stderr)
-  if [[ -s "$vercel_waf_bypass_log" ]]; then
-    discord_file "$vercel_waf_bypass_log" "**React2Shell - Vercel WAF Bypass Logs (\`$domain\`)** - Vulnerable: $vercel_vulnerable"
-  fi
-  
-  # Send results file if vulnerabilities found
-  if [[ $vercel_vulnerable -gt 0 ]]; then
-    log_success "Found $vercel_vulnerable vulnerable host(s) with Vercel WAF bypass"
-    discord_file "$vercel_waf_bypass_out" "**React2Shell - Vercel WAF Bypass Results (\`$domain\`)** - $vercel_vulnerable vulnerable"
-  else
-    log_info "No vulnerable hosts found with Vercel WAF bypass"
   fi
 
   # Cleanup temp file
   rm -f "$temp_hosts_file"
 
-  # Summary
-  local total_vulnerable=$((nuclei_vulnerable + waf_vulnerable + vercel_vulnerable))
-  if [[ $total_vulnerable -gt 0 ]]; then
-    log_success "React2Shell scan completed: $total_vulnerable vulnerable host(s) found"
+  # Collect all unique vulnerable hosts
+  local all_vulnerable_hosts_file="$output_dir/all-vulnerable-hosts.txt"
+  > "$all_vulnerable_hosts_file"
+  [[ -s "$nuclei_hosts_file" ]] && cat "$nuclei_hosts_file" >> "$all_vulnerable_hosts_file"
+  [[ -s "$waf_hosts_file" ]] && cat "$waf_hosts_file" >> "$all_vulnerable_hosts_file"
+  [[ -s "$vercel_hosts_file" ]] && cat "$vercel_hosts_file" >> "$all_vulnerable_hosts_file"
+  
+  # Get unique vulnerable hosts
+  local unique_vulnerable_hosts=0
+  local unique_hosts_file="$output_dir/unique-vulnerable-hosts.txt"
+  if [[ -s "$all_vulnerable_hosts_file" ]]; then
+    sort -u "$all_vulnerable_hosts_file" > "$unique_hosts_file"
+    unique_vulnerable_hosts=$(wc -l < "$unique_hosts_file")
+  fi
+
+  # Send summary to Discord
+  if [[ $unique_vulnerable_hosts -gt 0 ]]; then
+    log_success "React2Shell scan completed: $unique_vulnerable_hosts unique vulnerable host(s) found"
     log_info "  - Nuclei: $nuclei_vulnerable"
     log_info "  - WAF Bypass: $waf_vulnerable"
     log_info "  - Vercel WAF Bypass: $vercel_vulnerable"
-    discord_send "**React2Shell scan completed for:** \`$domain\` - **$total_vulnerable vulnerable host(s) found** (Nuclei: $nuclei_vulnerable, WAF: $waf_vulnerable, Vercel: $vercel_vulnerable)"
+    
+    # Build message with vulnerable hosts list
+    local message="**React2Shell scan completed for:** \`$domain\`\n"
+    message+="**Vulnerable hosts found:** $unique_vulnerable_hosts\n\n"
+    
+    # Add vulnerable hosts list
+    message+="**Vulnerable hosts:**\n"
+    local line_count=0
+    while IFS= read -r host; do
+      [[ -z "$host" ]] && continue
+      message+="\`$host\`\n"
+      line_count=$((line_count + 1))
+      # Limit to 15 hosts to avoid Discord message limits
+      if [[ $line_count -ge 15 ]]; then
+        message+="\n... and $((unique_vulnerable_hosts - 15)) more vulnerable host(s)"
+        break
+      fi
+    done < "$unique_hosts_file"
+    
+    discord_send "$message"
   else
     log_success "React2Shell scan completed: No vulnerable hosts found"
-    discord_send "**React2Shell scan completed for:** \`$domain\` - No vulnerable hosts found"
+    local message="**React2Shell scan completed for:** \`$domain\`\n"
+    message+="**No vulnerable hosts found**\n\n"
+    message+="**Statistics:**\n"
+    message+="• Live hosts: \`$host_count\`\n"
+    message+="• Scanned: \`$scanned_count\`\n"
+    message+="• Vulnerable (Nuclei): \`$nuclei_vulnerable\`\n"
+    message+="• Vulnerable (WAF Bypass): \`$waf_vulnerable\`\n"
+    message+="• Vulnerable (Vercel WAF Bypass): \`$vercel_vulnerable\`\n"
+    discord_send "$message"
   fi
 }
 
