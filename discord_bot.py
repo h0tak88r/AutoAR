@@ -1636,6 +1636,38 @@ class AutoARBot(commands.Cog):
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
     @app_commands.command(
+        name="react2shell_scan",
+        description="Scan domain hosts for React Server Components RCE (CVE-2025-55182) using WAF bypass methods"
+    )
+    @app_commands.describe(
+        domain="The domain to scan",
+        threads="Number of threads for livehosts detection (default: 100)"
+    )
+    async def react2shell_scan_cmd(
+        self, interaction: discord.Interaction, domain: str, threads: int = 100
+    ):
+        scan_id = f"react2shell_scan_{int(time.time())}"
+        command = [
+            AUTOAR_SCRIPT_PATH,
+            "react2shell_scan",
+            "run",
+            "-d",
+            domain,
+            "-t",
+            str(threads),
+        ]
+        active_scans[scan_id] = {
+            "type": "react2shell_scan",
+            "target": domain,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+        }
+        embed = self.create_scan_embed("React2Shell Host Scan", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(
         name="ports", description="Run port scan (naabu) on live hosts"
     )
     @app_commands.describe(
