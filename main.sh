@@ -120,6 +120,7 @@ cmd_keyhack()    { "$ROOT_DIR/modules/keyhack.sh"       "$@"; }
 cmd_jwt()        { "$ROOT_DIR/modules/jwt_scan.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
+cmd_react2shell_scan() { "$ROOT_DIR/modules/react2shell_scan.sh" "$@"; }
 
 main() {
   if [[ $# -lt 1 ]]; then
