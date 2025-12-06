@@ -14,6 +14,31 @@ results_dir() {
   echo "${AUTOAR_RESULTS_DIR}/$d"
 }
 
+# Cleanup domain results directory in Docker mode
+# Usage: cleanup_domain_results <domain> [--force]
+# If --force is provided, cleanup even if not in Docker mode
+cleanup_domain_results() {
+  local domain="$1"
+  local force="${2:-}"
+  local domain_dir
+  
+  [[ -z "$domain" ]] && return 1
+  
+  domain_dir="$(results_dir "$domain")"
+  
+  # Only cleanup in Docker mode (unless --force is specified)
+  if [[ "${AUTOAR_ENV:-}" == "docker" || "$force" == "--force" ]]; then
+    if [[ -d "$domain_dir" ]]; then
+      log_info "Cleaning up domain results directory: $domain_dir"
+      rm -rf "$domain_dir" 2>/dev/null || true
+      log_success "Removed domain results directory: $domain_dir"
+      return 0
+    fi
+  fi
+  
+  return 0
+}
+
 # ----- Phase timeout helpers -----
 
 phase_timeout_enabled() {
