@@ -2254,6 +2254,106 @@ class AutoARBot(commands.Cog):
 
         await interaction.edit_original_response(embed=embed)
 
+    async def _format_react2shell_scan_results(
+        self, domain: str, stdout: str
+    ) -> discord.Embed:
+        """Format React2Shell scan results into a Discord embed."""
+        embed = discord.Embed(
+            title="🔍 React2Shell RCE Test Results",
+            description=f"**Target:** `{domain}`",
+            color=discord.Color.green(),
+        )
+
+        # Parse the structured output
+        lines = stdout.split("\n")
+        status = "not vulnerable"
+        vulnerable_hosts = []
+        stats = {}
+        in_hosts_section = False
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith("STATUS:"):
+                status_val = line.split(":", 1)[1].strip()
+                status = "vulnerable" if status_val == "VULNERABLE" else "not vulnerable"
+            elif line.startswith("TOTAL_VULNERABLE:"):
+                stats["total"] = line.split(":", 1)[1].strip()
+            elif line.startswith("LIVE_HOSTS:"):
+                stats["live_hosts"] = line.split(":", 1)[1].strip()
+            elif line.startswith("SCANNED:"):
+                stats["scanned"] = line.split(":", 1)[1].strip()
+            elif line.startswith("NUCLEI_COUNT:"):
+                stats["nuclei"] = line.split(":", 1)[1].strip()
+            elif line.startswith("WAF_BYPASS_COUNT:"):
+                stats["waf"] = line.split(":", 1)[1].strip()
+            elif line.startswith("VERCEL_WAF_BYPASS_COUNT:"):
+                stats["vercel"] = line.split(":", 1)[1].strip()
+            elif line == "VULNERABLE_HOSTS_START":
+                in_hosts_section = True
+            elif line == "VULNERABLE_HOSTS_END":
+                in_hosts_section = False
+            elif in_hosts_section and line:
+                vulnerable_hosts.append(line)
+
+        if status == "vulnerable":
+            embed.color = discord.Color.red()
+            embed.add_field(
+                name="Status", value="🔴 **Vulnerable**", inline=False
+            )
+            if stats.get("total"):
+                embed.add_field(
+                    name="Vulnerable Hosts Found",
+                    value=f"**{stats['total']}** unique host(s)",
+                    inline=False,
+                )
+            
+            # Add vulnerable hosts list
+            if vulnerable_hosts:
+                hosts_text = ""
+                for i, host in enumerate(vulnerable_hosts[:15], 1):
+                    hosts_text += f"`{host}`\n"
+                if len(vulnerable_hosts) > 15:
+                    hosts_text += f"\n... and {len(vulnerable_hosts) - 15} more"
+                embed.add_field(
+                    name="Vulnerable Hosts", value=hosts_text, inline=False
+                )
+            
+            # Add breakdown
+            breakdown = []
+            if stats.get("nuclei") and stats["nuclei"] != "0":
+                breakdown.append(f"Nuclei: {stats['nuclei']}")
+            if stats.get("waf") and stats["waf"] != "0":
+                breakdown.append(f"WAF Bypass: {stats['waf']}")
+            if stats.get("vercel") and stats["vercel"] != "0":
+                breakdown.append(f"Vercel WAF: {stats['vercel']}")
+            if breakdown:
+                embed.add_field(
+                    name="Breakdown", value=" • ".join(breakdown), inline=False
+                )
+        else:
+            embed.color = discord.Color.green()
+            embed.add_field(
+                name="Status", value="✅ **Not Vulnerable**", inline=False
+            )
+            
+            # Add statistics
+            stats_text = ""
+            if stats.get("live_hosts"):
+                stats_text += f"**Live hosts:** `{stats['live_hosts']}`\n"
+            if stats.get("scanned"):
+                stats_text += f"**Scanned:** `{stats['scanned']}`\n"
+            if stats.get("nuclei"):
+                stats_text += f"**Nuclei findings:** `{stats['nuclei']}`\n"
+            if stats.get("waf"):
+                stats_text += f"**WAF Bypass findings:** `{stats['waf']}`\n"
+            if stats.get("vercel"):
+                stats_text += f"**Vercel WAF findings:** `{stats['vercel']}`\n"
+            
+            if stats_text:
+                embed.add_field(name="Statistics", value=stats_text, inline=False)
+
+        return embed
+
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
         try:
@@ -2270,25 +2370,33 @@ class AutoARBot(commands.Cog):
 
                 # Update Discord message
                 interaction = active_scans[scan_id]["interaction"]
-                embed = self.create_scan_embed(
-                    active_scans[scan_id]["type"],
-                    active_scans[scan_id]["target"],
-                    "completed",
-                    results,
-                )
+                scan_type = active_scans[scan_id]["type"]
+                
+                # Special handling for react2shell_scan
+                if scan_type == "react2shell_scan" and results["stdout"]:
+                    embed = await self._format_react2shell_scan_results(
+                        active_scans[scan_id]["target"], results["stdout"]
+                    )
+                else:
+                    embed = self.create_scan_embed(
+                        scan_type,
+                        active_scans[scan_id]["target"],
+                        "completed",
+                        results,
+                    )
 
-                # Add logs to embed if available
-                if results["stdout"] or results["stderr"]:
-                    log_text = ""
-                    if results["stdout"]:
-                        log_text += f"**Output:**\n```\n{results['stdout'][:1000]}{'...' if len(results['stdout']) > 1000 else ''}\n```\n"
-                    if results["stderr"]:
-                        log_text += f"**Errors:**\n```\n{results['stderr'][:1000]}{'...' if len(results['stderr']) > 1000 else ''}\n```"
+                    # Add logs to embed if available (only for non-react2shell_scan)
+                    if results["stdout"] or results["stderr"]:
+                        log_text = ""
+                        if results["stdout"]:
+                            log_text += f"**Output:**\n```\n{results['stdout'][:1000]}{'...' if len(results['stdout']) > 1000 else ''}\n```\n"
+                        if results["stderr"]:
+                            log_text += f"**Errors:**\n```\n{results['stderr'][:1000]}{'...' if len(results['stderr']) > 1000 else ''}\n```"
 
-                    if log_text:
-                        embed.add_field(
-                            name="Execution Logs", value=log_text, inline=False
-                        )
+                        if log_text:
+                            embed.add_field(
+                                name="Execution Logs", value=log_text, inline=False
+                            )
 
                 try:
                     await interaction.edit_original_response(embed=embed)
