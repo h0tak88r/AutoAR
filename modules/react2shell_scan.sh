@@ -13,6 +13,7 @@ Usage: react2shell_scan run [OPTIONS]
 
 Options:
   -d, --domain <domain>        Target domain to scan
+  -l, --list <file>            File containing list of domains (one per line)
   -t, --threads <num>          Number of threads for livehosts detection (default: 100)
   -h, --help                   Show this help message
 
@@ -24,20 +25,27 @@ Description:
   - react2shell.py with --vercel-waf-bypass flag
 
 Examples:
-  # Scan domain for React2Shell vulnerability
+  # Scan single domain for React2Shell vulnerability
   react2shell_scan run -d example.com
 
   # Scan with custom threads
   react2shell_scan run -d example.com -t 200
+
+  # Scan multiple domains from a file
+  react2shell_scan run -l domains.txt
+
+  # Scan multiple domains from a file with custom threads
+  react2shell_scan run -l domains.txt -t 200
 EOF
 }
 
 react2shell_scan_run() {
-  local domain="" threads="100"
+  local domain="" list_file="" threads="100"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
+      -l|--list) list_file="$2"; shift 2;;
       -t|--threads) threads="$2"; shift 2;;
       -h|--help) usage; exit 0;;
       *) log_error "Unknown option: $1"; usage; exit 1;;
@@ -45,38 +53,118 @@ react2shell_scan_run() {
   done
 
   # Validation
-  [[ -z "$domain" ]] && { log_error "Domain (-d) is required"; usage; exit 1; }
+  if [[ -z "$domain" && -z "$list_file" ]]; then
+    log_error "Either domain (-d) or list file (-l) is required"
+    usage
+    exit 1
+  fi
+
+  if [[ -n "$domain" && -n "$list_file" ]]; then
+    log_error "Cannot specify both domain (-d) and list file (-l). Use one or the other."
+    usage
+    exit 1
+  fi
+
+  # If list file is provided, process each domain
+  if [[ -n "$list_file" ]]; then
+    if [[ ! -f "$list_file" ]]; then
+      log_error "List file not found: $list_file"
+      exit 1
+    fi
+
+    if [[ ! -s "$list_file" ]]; then
+      log_error "List file is empty: $list_file"
+      exit 1
+    fi
+
+    log_info "Processing domains from file: $list_file"
+    local domain_count=0
+    local processed_count=0
+    local failed_count=0
+
+    # Count total domains
+    domain_count=$(grep -v '^[[:space:]]*$' "$list_file" | grep -v '^[[:space:]]*#' | wc -l)
+    log_info "Found $domain_count domain(s) to scan"
+
+    # Process each domain
+    while IFS= read -r current_domain || [[ -n "$current_domain" ]]; do
+      # Skip empty lines and comments
+      [[ -z "$current_domain" ]] && continue
+      [[ "$current_domain" =~ ^[[:space:]]*# ]] && continue
+      
+      # Trim whitespace
+      current_domain=$(echo "$current_domain" | xargs)
+      [[ -z "$current_domain" ]] && continue
+
+      log_info "=========================================="
+      log_info "Processing domain: $current_domain"
+      log_info "=========================================="
+
+      if react2shell_scan_single_domain "$current_domain" "$threads"; then
+        processed_count=$((processed_count + 1))
+        log_success "Completed scan for: $current_domain"
+      else
+        failed_count=$((failed_count + 1))
+        log_error "Failed scan for: $current_domain"
+      fi
+
+      log_info ""
+    done < "$list_file"
+
+    log_info "=========================================="
+    log_success "Batch scan completed!"
+    log_info "Total domains: $domain_count"
+    log_info "Successfully processed: $processed_count"
+    log_info "Failed: $failed_count"
+    log_info "=========================================="
+
+    return 0
+  fi
+
+  # Single domain mode
+  react2shell_scan_single_domain "$domain" "$threads"
+}
+
+react2shell_scan_single_domain() {
+  local domain="$1"
+  local threads="${2:-100}"
+
+  # Validation
+  [[ -z "$domain" ]] && { log_error "Domain is required"; return 1; }
 
   # Check if react2shell.py exists
   local react2shell_script="$ROOT_DIR/python/react2shell.py"
   if [[ ! -f "$react2shell_script" ]]; then
     log_error "react2shell.py not found at $react2shell_script"
-    exit 1
+    return 1
   fi
 
   # Check if Python 3 is available
   if ! command -v python3 >/dev/null 2>&1; then
     log_error "python3 is not installed or not in PATH"
-    exit 1
+    return 1
   fi
 
   # Check if nuclei is available
   if ! command -v nuclei >/dev/null 2>&1; then
     log_error "nuclei is not installed or not in PATH"
-    exit 1
+    return 1
   fi
 
   # Check if Nuclei template exists
   local nuclei_template="$ROOT_DIR/nuclei_templates/cves/CVE-2025-55182.yaml"
   if [[ ! -f "$nuclei_template" ]]; then
     log_error "Nuclei template not found at $nuclei_template"
-    exit 1
+    return 1
   fi
 
   log_info "Starting React2Shell scan for domain: $domain"
   local dir; dir="$(results_dir "$domain")"
   local output_dir="$dir/vulnerabilities"
   ensure_dir "$output_dir"
+  
+  # Store domain for cleanup in Docker mode
+  local domain_to_cleanup="$domain"
 
   # Step 1: Get live hosts using livehosts module
   log_info "Getting live hosts for $domain using livehosts module..."
@@ -332,6 +420,11 @@ except:
     echo "WAF_BYPASS_COUNT: $waf_vulnerable"
     echo "VERCEL_WAF_BYPASS_COUNT: $vercel_vulnerable"
   fi
+
+  # Cleanup: Remove domain results directory if running in Docker mode
+  cleanup_domain_results "$domain_to_cleanup"
+
+  return 0
 }
 
 case "${1:-}" in
