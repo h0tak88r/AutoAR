@@ -148,13 +148,43 @@ react2shell_scan_run() {
   > "$nuclei_hosts_file"
   if [[ -s "$nuclei_out" ]]; then
     nuclei_vulnerable=$(wc -l < "$nuclei_out")
-    # Nuclei output contains full URLs, extract them
+    # Nuclei output format can be: [CVE-2025-55182] https://host/path or just https://host/path
+    # Also handle JSON format if nuclei outputs JSON
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
-      # Nuclei output format: https://host/path [info]
-      # Extract just the URL part (before space or bracket)
-      echo "$line" | awk '{print $1}' | sed 's|^https\?://||' | sed 's|/.*||' >> "$nuclei_hosts_file"
+      
+      # Skip lines that are just CVE tags without URLs
+      if [[ "$line" =~ ^\[CVE-[0-9-]+\]$ ]]; then
+        continue
+      fi
+      
+      # Remove CVE tag if present, then extract hostname from URL
+      # Handle formats like: [CVE-2025-55182] https://host/path or https://host/path
+      local url=$(echo "$line" | sed -E 's/^\[[^\]]+\][[:space:]]*//' | awk '{print $1}')
+      
+      # Extract hostname from URL
+      if [[ -n "$url" && "$url" =~ ^https?:// ]]; then
+        local hostname=$(echo "$url" | sed 's|^https\?://||' | sed 's|/.*||' | sed 's|:.*||')
+        if [[ -n "$hostname" ]]; then
+          echo "$hostname" >> "$nuclei_hosts_file"
+        fi
+      # If line doesn't start with http but contains a domain-like pattern, try to extract it
+      elif [[ "$line" =~ [a-zA-Z0-9.-]+\.[a-zA-Z]{2,} ]]; then
+        # Extract potential hostname (skip CVE tags)
+        local hostname=$(echo "$line" | grep -oE '[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' | head -1)
+        if [[ -n "$hostname" && ! "$hostname" =~ ^CVE- ]]; then
+          echo "$hostname" >> "$nuclei_hosts_file"
+        fi
+      fi
     done < "$nuclei_out"
+    
+    # Recalculate actual vulnerable count from extracted hosts
+    if [[ -s "$nuclei_hosts_file" ]]; then
+      nuclei_vulnerable=$(sort -u "$nuclei_hosts_file" | wc -l)
+      sort -u "$nuclei_hosts_file" > "${nuclei_hosts_file}.tmp" && mv "${nuclei_hosts_file}.tmp" "$nuclei_hosts_file"
+    else
+      nuclei_vulnerable=0
+    fi
   fi
 
   # Step 3: Scan with WAF bypass
@@ -269,43 +299,38 @@ except:
     unique_vulnerable_hosts=$(wc -l < "$unique_hosts_file")
   fi
 
-  # Send summary to Discord
+  # Output results to stdout for Discord bot to process
   if [[ $unique_vulnerable_hosts -gt 0 ]]; then
     log_success "React2Shell scan completed: $unique_vulnerable_hosts unique vulnerable host(s) found"
     log_info "  - Nuclei: $nuclei_vulnerable"
     log_info "  - WAF Bypass: $waf_vulnerable"
     log_info "  - Vercel WAF Bypass: $vercel_vulnerable"
     
-    # Build message with vulnerable hosts list
-    local message="**React2Shell scan completed for:** \`$domain\`\n"
-    message+="**Vulnerable hosts found:** $unique_vulnerable_hosts\n\n"
-    
-    # Add vulnerable hosts list
-    message+="**Vulnerable hosts:**\n"
-    local line_count=0
+    # Output vulnerable hosts to stdout (bot will format this)
+    echo "=== REACT2SHELL_SCAN_RESULTS ==="
+    echo "STATUS: VULNERABLE"
+    echo "DOMAIN: $domain"
+    echo "TOTAL_VULNERABLE: $unique_vulnerable_hosts"
+    echo "NUCLEI_COUNT: $nuclei_vulnerable"
+    echo "WAF_BYPASS_COUNT: $waf_vulnerable"
+    echo "VERCEL_WAF_BYPASS_COUNT: $vercel_vulnerable"
+    echo "VULNERABLE_HOSTS_START"
     while IFS= read -r host; do
       [[ -z "$host" ]] && continue
-      message+="\`$host\`\n"
-      line_count=$((line_count + 1))
-      # Limit to 15 hosts to avoid Discord message limits
-      if [[ $line_count -ge 15 ]]; then
-        message+="\n... and $((unique_vulnerable_hosts - 15)) more vulnerable host(s)"
-        break
-      fi
+      echo "$host"
     done < "$unique_hosts_file"
-    
-    discord_send "$message"
+    echo "VULNERABLE_HOSTS_END"
   else
     log_success "React2Shell scan completed: No vulnerable hosts found"
-    local message="**React2Shell scan completed for:** \`$domain\`\n"
-    message+="**No vulnerable hosts found**\n\n"
-    message+="**Statistics:**\n"
-    message+="• Live hosts: \`$host_count\`\n"
-    message+="• Scanned: \`$scanned_count\`\n"
-    message+="• Vulnerable (Nuclei): \`$nuclei_vulnerable\`\n"
-    message+="• Vulnerable (WAF Bypass): \`$waf_vulnerable\`\n"
-    message+="• Vulnerable (Vercel WAF Bypass): \`$vercel_vulnerable\`\n"
-    discord_send "$message"
+    # Output statistics to stdout
+    echo "=== REACT2SHELL_SCAN_RESULTS ==="
+    echo "STATUS: NOT_VULNERABLE"
+    echo "DOMAIN: $domain"
+    echo "LIVE_HOSTS: $host_count"
+    echo "SCANNED: $scanned_count"
+    echo "NUCLEI_COUNT: $nuclei_vulnerable"
+    echo "WAF_BYPASS_COUNT: $waf_vulnerable"
+    echo "VERCEL_WAF_BYPASS_COUNT: $vercel_vulnerable"
   fi
 }
 
