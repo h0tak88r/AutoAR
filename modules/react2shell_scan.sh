@@ -150,14 +150,9 @@ react2shell_scan_run() {
       discord_file "$nuclei_out" "**Nuclei - CVE-2025-55182 Results (\`$domain\`)** - $nuclei_vulnerable vulnerable"
     else
       log_info "No vulnerable hosts found with Nuclei"
-      # Still send to Discord even if no vulnerabilities found
-      discord_file "$nuclei_out" "**Nuclei - CVE-2025-55182 Results (\`$domain\`)** - No vulnerabilities found"
     fi
   else
-    log_info "No results with Nuclei (empty output file)"
-    # Create empty file notification for Discord
-    echo "No vulnerabilities found with Nuclei template CVE-2025-55182.yaml" > "$nuclei_out"
-    discord_file "$nuclei_out" "**Nuclei - CVE-2025-55182 Results (\`$domain\`)** - No vulnerabilities found"
+    log_info "No results with Nuclei"
   fi
 
   # Step 3: Scan with WAF bypass
@@ -229,15 +224,15 @@ react2shell_scan_run() {
 
   # Summary
   local total_vulnerable=$((nuclei_vulnerable + waf_vulnerable + vercel_vulnerable))
-  log_success "React2Shell scan completed: $total_vulnerable vulnerable host(s) found"
-  log_info "  - Nuclei: $nuclei_vulnerable"
-  log_info "  - WAF Bypass: $waf_vulnerable"
-  log_info "  - Vercel WAF Bypass: $vercel_vulnerable"
-  
   if [[ $total_vulnerable -gt 0 ]]; then
+    log_success "React2Shell scan completed: $total_vulnerable vulnerable host(s) found"
+    log_info "  - Nuclei: $nuclei_vulnerable"
+    log_info "  - WAF Bypass: $waf_vulnerable"
+    log_info "  - Vercel WAF Bypass: $vercel_vulnerable"
     discord_send "**React2Shell scan completed for:** \`$domain\` - **$total_vulnerable vulnerable host(s) found** (Nuclei: $nuclei_vulnerable, WAF: $waf_vulnerable, Vercel: $vercel_vulnerable)"
   else
-    discord_send "**React2Shell scan completed for:** \`$domain\` - No vulnerable hosts found (Nuclei: $nuclei_vulnerable, WAF: $waf_vulnerable, Vercel: $vercel_vulnerable)"
+    log_success "React2Shell scan completed: No vulnerable hosts found"
+    discord_send "**React2Shell scan completed for:** \`$domain\` - No vulnerable hosts found"
   fi
 }
 
