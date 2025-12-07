@@ -2378,25 +2378,25 @@ class AutoARBot(commands.Cog):
                         active_scans[scan_id]["target"], results["stdout"]
                     )
                 else:
-                embed = self.create_scan_embed(
+                    embed = self.create_scan_embed(
                         scan_type,
-                    active_scans[scan_id]["target"],
-                    "completed",
-                    results,
-                )
+                        active_scans[scan_id]["target"],
+                        "completed",
+                        results,
+                    )
 
                     # Add logs to embed if available (only for non-react2shell_scan)
-                if results["stdout"] or results["stderr"]:
-                    log_text = ""
-                    if results["stdout"]:
-                        log_text += f"**Output:**\n```\n{results['stdout'][:1000]}{'...' if len(results['stdout']) > 1000 else ''}\n```\n"
-                    if results["stderr"]:
-                        log_text += f"**Errors:**\n```\n{results['stderr'][:1000]}{'...' if len(results['stderr']) > 1000 else ''}\n```"
+                    if results["stdout"] or results["stderr"]:
+                        log_text = ""
+                        if results["stdout"]:
+                            log_text += f"**Output:**\n```\n{results['stdout'][:1000]}{'...' if len(results['stdout']) > 1000 else ''}\n```\n"
+                        if results["stderr"]:
+                            log_text += f"**Errors:**\n```\n{results['stderr'][:1000]}{'...' if len(results['stderr']) > 1000 else ''}\n```"
 
-                    if log_text:
-                        embed.add_field(
-                            name="Execution Logs", value=log_text, inline=False
-                        )
+                        if log_text:
+                            embed.add_field(
+                                name="Execution Logs", value=log_text, inline=False
+                            )
 
                 try:
                     await interaction.edit_original_response(embed=embed)
