@@ -87,7 +87,9 @@ react2shell_scan_run() {
     log_info "Found $domain_count domain(s) to scan"
 
     # Process each domain
-    while IFS= read -r current_domain || [[ -n "$current_domain" ]]; do
+    # Use explicit file descriptor to avoid issues with background processes
+    exec 3< "$list_file"
+    while IFS= read -r current_domain <&3 || [[ -n "$current_domain" ]]; do
       # Skip empty lines and comments
       [[ -z "$current_domain" ]] && continue
       [[ "$current_domain" =~ ^[[:space:]]*# ]] && continue
@@ -97,7 +99,7 @@ react2shell_scan_run() {
       [[ -z "$current_domain" ]] && continue
 
       log_info "=========================================="
-      log_info "Processing domain: $current_domain"
+      log_info "Processing domain: $current_domain ($((processed_count + failed_count + 1))/$domain_count)"
       log_info "=========================================="
 
       if react2shell_scan_single_domain "$current_domain" "$threads"; then
@@ -109,7 +111,8 @@ react2shell_scan_run() {
       fi
 
       log_info ""
-    done < "$list_file"
+    done
+    exec 3<&-
 
     log_info "=========================================="
     log_success "Batch scan completed!"
@@ -175,7 +178,7 @@ react2shell_scan_single_domain() {
     "$livehosts_script" get -d "$domain" -t "$threads" || log_warn "livehosts module exited with non-zero status"
   else
     log_error "livehosts module not found at $livehosts_script"
-    exit 1
+    return 1
   fi
 
   # Check for live hosts file
@@ -197,7 +200,7 @@ react2shell_scan_single_domain() {
 
   if [[ ! -s "$live_hosts_file" ]]; then
     log_error "No live hosts found for $domain"
-    exit 1
+    return 1
   fi
 
   local host_count=$(wc -l < "$live_hosts_file")
