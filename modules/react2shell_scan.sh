@@ -397,6 +397,33 @@ except:
     log_info "  - WAF Bypass: $waf_vulnerable"
     log_info "  - Vercel WAF Bypass: $vercel_vulnerable"
     
+    # Send Discord webhook notification for vulnerabilities found
+    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
+      local vuln_message="🚨 **React2Shell Vulnerability Found!**\n"
+      vuln_message+="**Domain:** $domain\n"
+      vuln_message+="**Total Vulnerable Hosts:** $unique_vulnerable_hosts\n"
+      vuln_message+="**Breakdown:**\n"
+      vuln_message+="  • Nuclei: $nuclei_vulnerable\n"
+      vuln_message+="  • WAF Bypass: $waf_vulnerable\n"
+      vuln_message+="  • Vercel WAF Bypass: $vercel_vulnerable\n"
+      
+      # Send notification message
+      discord_send "$vuln_message"
+      
+      # Send vulnerable hosts file
+      if [[ -s "$unique_hosts_file" ]]; then
+        discord_send_file "$unique_hosts_file" "React2Shell Vulnerable Hosts for $domain"
+      fi
+      
+      # Also send detailed results if available
+      if [[ -s "$nuclei_out" ]]; then
+        discord_send_file "$nuclei_out" "Nuclei CVE-2025-55182 results for $domain"
+      fi
+      if [[ -s "$waf_bypass_out" ]]; then
+        discord_send_file "$waf_bypass_out" "WAF Bypass scan results for $domain"
+      fi
+    fi
+    
     # Output vulnerable hosts to stdout (bot will format this)
     echo "=== REACT2SHELL_SCAN_RESULTS ==="
     echo "STATUS: VULNERABLE"
@@ -413,6 +440,14 @@ except:
     echo "VULNERABLE_HOSTS_END"
   else
     log_success "React2Shell scan completed: No vulnerable hosts found"
+    
+    # Send progress update to Discord (optional, less verbose)
+    if [[ -n "${DISCORD_WEBHOOK:-}" && -n "${REACT2SHELL_VERBOSE_NOTIFICATIONS:-}" ]]; then
+      local progress_msg="✅ React2Shell scan completed for **$domain**\n"
+      progress_msg+="Scanned $scanned_count live hosts - No vulnerabilities found"
+      discord_send_progress "$progress_msg"
+    fi
+    
     # Output statistics to stdout
     echo "=== REACT2SHELL_SCAN_RESULTS ==="
     echo "STATUS: NOT_VULNERABLE"
