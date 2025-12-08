@@ -174,8 +174,8 @@ react2shell_scan_single_domain() {
   local livehosts_script="$ROOT_DIR/modules/livehosts.sh"
   
   if [[ -f "$livehosts_script" ]]; then
-    log_info "Invoking livehosts module: $livehosts_script get -d $domain -t $threads"
-    "$livehosts_script" get -d "$domain" -t "$threads" || log_warn "livehosts module exited with non-zero status"
+    log_info "Invoking livehosts module: $livehosts_script get -d $domain -t $threads --silent"
+    "$livehosts_script" get -d "$domain" -t "$threads" --silent || log_warn "livehosts module exited with non-zero status"
   else
     log_error "livehosts module not found at $livehosts_script"
     return 1
