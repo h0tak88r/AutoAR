@@ -15,16 +15,19 @@ source "$ROOT_DIR/lib/discord.sh"
 source "$ROOT_DIR/lib/db.sh"
 
 usage() { 
-  echo "Usage: subdomains get -d <domain> [-t <threads>]"
+  echo "Usage: subdomains get -d <domain> [-t <threads>] [-s|--silent]"
   echo "  -d, --domain     Target domain to enumerate"
   echo "  -t, --threads    Number of threads for subfinder (default: 100)"
+  echo "  -s, --silent     Silent mode: don't send Discord notifications"
 }
 
 subdomains_get() {
-  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100" silent=false
+  while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
       -t|--threads) threads="$2"; shift 2;;
+      -s|--silent) silent=true; shift;;
       *) usage; exit 1;;
     esac
   done
@@ -68,7 +71,10 @@ subdomains_get() {
     fi
   fi
   
-  discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
+  # Send Discord notification only if not in silent mode
+  if [[ "$silent" != "true" ]]; then
+    discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
+  fi
 }
 
 case "${1:-}" in
