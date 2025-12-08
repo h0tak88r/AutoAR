@@ -142,6 +142,7 @@ domain_dir_init() {
 ensure_subdomains() {
   local domain="$1"
   local subs_file="$2"  # e.g., /app/new-results/example.com/subs/all-subs.txt
+  local silent="${3:-false}"  # Optional silent flag
   
   # Check if file exists and is not empty
   if [[ -s "$subs_file" ]]; then
@@ -165,7 +166,11 @@ ensure_subdomains() {
   
   # Run subdomain enumeration
   log_info "No subdomains in DB, running enumeration"
-  "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || return 1
+  if [[ "$silent" == "true" ]]; then
+    "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" --silent || return 1
+  else
+    "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || return 1
+  fi
 }
 
 ensure_live_hosts() {
