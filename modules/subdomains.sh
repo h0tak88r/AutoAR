@@ -73,7 +73,7 @@ subdomains_get() {
   
   # Send Discord notification only if not in silent mode
   if [[ "$silent" != "true" ]]; then
-    discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
+  discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
   fi
 }
 
