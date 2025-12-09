@@ -14,6 +14,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 🛡️ **Vulnerability Scanning**
 - **Nuclei Integration**: 1000+ vulnerability templates with custom rate limiting
+- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods
 - **WordPress Plugin Confusion**: Automated WP plugin/theme confusion attack detection
 - **Dependency Confusion**: GitHub repository dependency confusion scanning
 - **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis
@@ -204,6 +205,7 @@ Once the bot is running, use these slash commands in Discord:
 
 #### Vulnerability Scanning
 - `/nuclei domain:example.com [threads:100]` - Run Nuclei scans
+- `/react2shell_scan domain:example.com [threads:100]` - Scan for React Server Components RCE (CVE-2025-55182) with WAF bypass
 - `/wpdepconf domain:example.com` - WordPress plugin confusion
 - `/dalfox domain:example.com [threads:100]` - XSS detection
 - `/sqlmap domain:example.com [threads:100]` - SQL injection testing
@@ -259,6 +261,8 @@ docker exec -it autoar-bot bash
 
 # Vulnerability scanning (with threading)
 /app/main.sh nuclei run -d example.com -t 100
+/app/main.sh react2shell_scan run -d example.com -t 50
+/app/main.sh react2shell_scan run -l domains.txt -t 50  # Scan multiple domains from file
 /app/main.sh dalfox run -d example.com -t 100
 /app/main.sh sqlmap run -d example.com -t 100
 /app/main.sh ports scan -d example.com -t 100
@@ -563,7 +567,8 @@ Configure these for enhanced functionality:
 AutoAR/
 ├── modules/                 # Core scanning modules
 │   ├── subdomains.sh       # Subdomain enumeration
-│   ├── livehosts.sh        # Live host detection
+│   ├── livehosts.sh        # Live host detection (supports --silent flag)
+│   ├── react2shell_scan.sh # React Server Components RCE scanner (CVE-2025-55182)
 │   ├── nuclei.sh           # Nuclei integration
 │   ├── wp_plugin_confusion.sh # WordPress scanning
 │   ├── keyhack.sh          # API key validation (778+ templates)

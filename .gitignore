@@ -67,3 +67,5 @@ generate_from_env.sh
 # nuclei_templates/  # Now using as submodule
 # Wordlists/  # Now using as submodule
 keyhack_templates/  # Cloned in Docker from KeysKit repo
+
+*.txt
