@@ -1,5 +1,5 @@
 # AutoAR (Automated Attack Reconnaissance) 🚀
-
+ 
 AutoAR is a comprehensive, modular security automation toolkit designed for bug bounty hunters, penetration testers, and security researchers. It provides **three operational modes**: Discord bot, REST API, or both simultaneously, all powered by a robust bash-based CLI backend for automated reconnaissance, vulnerability scanning, and attack surface analysis.
 
 ## ✨ Features

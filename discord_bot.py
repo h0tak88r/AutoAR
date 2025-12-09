@@ -247,6 +247,11 @@ class AutoARBot(commands.Cog):
         domain="The domain to scan",
         verbose="Enable verbose output",
         skip_js="Skip JavaScript scanning step",
+        phase_timeout="Default per-phase timeout in seconds (0 = no limit, default 3600)",
+        timeout_livehosts="Override timeout for livehosts phase (seconds, optional)",
+        timeout_reflection="Override timeout for reflection phase (seconds, optional)",
+        timeout_js="Override timeout for JS phase (seconds, optional)",
+        timeout_nuclei="Override timeout for nuclei phase (seconds, optional)",
     )
     async def lite_scan(
         self,
@@ -254,6 +259,11 @@ class AutoARBot(commands.Cog):
         domain: str,
         verbose: bool = False,
         skip_js: bool = False,
+        phase_timeout: int = 3600,
+        timeout_livehosts: Optional[int] = None,
+        timeout_reflection: Optional[int] = None,
+        timeout_js: Optional[int] = None,
+        timeout_nuclei: Optional[int] = None,
     ):
         """Perform a lite domain scan."""
         scan_id = f"lite_{int(time.time())}"
@@ -264,6 +274,18 @@ class AutoARBot(commands.Cog):
         if skip_js:
             command.append("--skip-js")
 
+        # Per-phase timeout configuration
+        if phase_timeout and phase_timeout > 0:
+            command.extend(["--phase-timeout", str(phase_timeout)])
+        if timeout_livehosts is not None and timeout_livehosts >= 0:
+            command.extend(["--timeout-livehosts", str(timeout_livehosts)])
+        if timeout_reflection is not None and timeout_reflection >= 0:
+            command.extend(["--timeout-reflection", str(timeout_reflection)])
+        if timeout_js is not None and timeout_js >= 0:
+            command.extend(["--timeout-js", str(timeout_js)])
+        if timeout_nuclei is not None and timeout_nuclei >= 0:
+            command.extend(["--timeout-nuclei", str(timeout_nuclei)])
+
         active_scans[scan_id] = {
             "type": "lite",
             "target": domain,
@@ -272,7 +294,14 @@ class AutoARBot(commands.Cog):
             "interaction": interaction,
         }
 
-        embed = self.create_scan_embed("Lite Scan", domain, "running")
+        embed_desc = f"**Target:** `{domain}`\n**Default per-phase timeout:** {phase_timeout or 0}s"
+        if skip_js:
+            embed_desc += "\n**JS Phase:** skipped"
+        embed = discord.Embed(
+            title="🔍 AutoAR Lite Scan",
+            description=embed_desc,
+            color=discord.Color.blue(),
+        )
         await interaction.response.send_message(embed=embed)
 
         asyncio.create_task(self._run_scan_background(scan_id, command))
@@ -339,6 +368,164 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
         asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(
+        name="jwt_scan",
+        description="🔐 Test JWT security using ticarpi/jwt_tool",
+    )
+    @app_commands.describe(
+        url="Target URL to test (e.g. https://www.ticarpi.com/)",
+        cookie="Cookie string with JWT (format: name=value, e.g. auth=JWT_TOKEN)",
+        header="Header string with JWT (format: name: value, e.g. Authorization: Bearer JWT_TOKEN)",
+        canary="Expected text in a successful response (jwt_tool -cv)",
+        post_data="Optional POST body to send with the request",
+        mode="jwt_tool attack mode (default: pb)",
+    )
+    async def jwt_scan_cmd(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+        cookie: Optional[str] = None,
+        header: Optional[str] = None,
+        canary: Optional[str] = None,
+        post_data: Optional[str] = None,
+        mode: str = "pb",
+    ):
+        """Run jwt_tool against a target URL with cookie or header."""
+        if not cookie and not header:
+            await interaction.response.send_message(
+                "❌ You must provide either `cookie` or `header` parameter.",
+                ephemeral=True,
+            )
+            return
+
+        if cookie and header:
+            await interaction.response.send_message(
+                "❌ You cannot provide both `cookie` and `header`. Choose one.",
+                ephemeral=True,
+            )
+            return
+
+        scan_id = f"jwt_{int(time.time())}"
+
+        command = [AUTOAR_SCRIPT_PATH, "jwt", "scan", "-t", url]
+        if cookie:
+            command.extend(["--cookie", cookie])
+            via = "cookie"
+        else:
+            command.extend(["--header", header])
+            via = "header"
+
+        if canary:
+            command.extend(["--canary", canary])
+        if post_data:
+            command.extend(["--post-data", post_data])
+        if mode:
+            command.extend(["-M", mode])
+
+        active_scans[scan_id] = {
+            "type": "jwt",
+            "target": url,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+        }
+
+        embed = discord.Embed(
+            title="🔐 JWT Security Test",
+            description=f"**Target:** `{url}`\n**Mode:** `{mode}`\n**Via:** `{via}`",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(
+        name="jwt_query",
+        description="🔍 Query JWT tool log by request ID",
+    )
+    @app_commands.describe(
+        query_id="JWT tool request ID (e.g. jwttool_4e7d0ae3c2bb25dfa4d765d9bb3f8317)",
+    )
+    async def jwt_query_cmd(
+        self,
+        interaction: discord.Interaction,
+        query_id: str,
+    ):
+        """Query JWT tool log entry by ID."""
+        command = [AUTOAR_SCRIPT_PATH, "jwt", "query", query_id]
+
+        embed = discord.Embed(
+            title="🔍 JWT Log Query",
+            description=f"**Query ID:** `{query_id}`",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+        # Run query synchronously since it's quick
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode == 0:
+                output = result.stdout
+                # Strip ANSI escape codes (colors, formatting, etc.)
+                import re
+                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                output = ansi_escape.sub('', output)
+                
+                # Always send as file to avoid Discord message limits and formatting issues
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                    f.write(output)
+                    temp_path = f.name
+                
+                embed = discord.Embed(
+                    title="✅ JWT Log Query Result",
+                    description=f"**Query ID:** `{query_id}`\n\nSee attached file for query results.",
+                    color=discord.Color.green(),
+                )
+                file = discord.File(temp_path, filename=f"jwt_query_{query_id}.txt")
+                await interaction.edit_original_response(embed=embed, attachments=[file])
+                # Clean up temp file after sending
+                import os
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            else:
+                # Try to get error message from stderr or stdout
+                error_msg = result.stderr.strip() if result.stderr else ""
+                if not error_msg and result.stdout:
+                    # Sometimes errors go to stdout
+                    error_msg = result.stdout.strip()[:500]  # Limit length
+                if not error_msg:
+                    error_msg = f"Command exited with code {result.returncode}"
+                
+                embed = discord.Embed(
+                    title="❌ JWT Log Query Failed",
+                    description=f"**Query ID:** `{query_id}`\n\nError: {error_msg}",
+                    color=discord.Color.red(),
+                )
+                await interaction.edit_original_response(embed=embed)
+        except subprocess.TimeoutExpired:
+            embed = discord.Embed(
+                title="⏱️ JWT Log Query Timeout",
+                description=f"Query for `{query_id}` took too long.",
+                color=discord.Color.orange(),
+            )
+            await interaction.edit_original_response(embed=embed)
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ JWT Log Query Error",
+                description=f"Error querying log: {str(e)}",
+                color=discord.Color.red(),
+            )
+            await interaction.edit_original_response(embed=embed)
 
     @app_commands.command(name="s3_scan", description="Scan for S3 buckets")
     @app_commands.describe(
@@ -1111,6 +1298,315 @@ class AutoARBot(commands.Cog):
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
+    @app_commands.command(
+        name="react2shell",
+        description="Test for React Server Components RCE (CVE-2025-55182) using Nuclei template and react2shell scanner"
+    )
+    @app_commands.describe(
+        url="Target URL to test (e.g., https://example.com)",
+        verbose="Enable verbose output",
+    )
+    async def react2shell_cmd(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+        verbose: bool = False,
+    ):
+        """Test for React Server Components RCE vulnerability."""
+        scan_id = f"react2shell_{int(time.time())}"
+
+        # Normalize URL
+        if not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+
+        # Paths
+        nuclei_template = "/app/nuclei_templates/cves/CVE-2025-55182.yaml"
+        react2shell_script = "/app/python/react2shell.py"
+
+        # Build commands
+        # 1. Run Nuclei template (without -silent to see raw output)
+        nuclei_cmd = [
+            "nuclei",
+            "-t", nuclei_template,
+            "-u", url,
+        ]
+
+        # 2. Run react2shell script with WAF bypass
+        react2shell_cmd = [
+            "python3",
+            react2shell_script,
+            "-u", url,
+            "--waf-bypass",
+        ]
+        if verbose:
+            react2shell_cmd.append("-v")
+
+        active_scans[scan_id] = {
+            "type": "react2shell",
+            "target": url,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+            "verbose": verbose,
+        }
+
+        embed = discord.Embed(
+            title="🔍 React2Shell RCE Test",
+            description=f"**Target:** `{url}`\n**Template:** CVE-2025-55182.yaml\n**WAF Bypass:** Enabled",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+        # Run both commands sequentially
+        asyncio.create_task(
+            self._run_react2shell(scan_id, nuclei_cmd, react2shell_cmd, url)
+        )
+
+    async def _run_react2shell(
+        self, scan_id: str, nuclei_cmd: list, react2shell_cmd: list, target: str
+    ):
+        """Run React2Shell test with both Nuclei and Python script."""
+        try:
+            results = {"nuclei": None, "react2shell": None}
+            full_log_content = []
+            verbose = active_scans.get(scan_id, {}).get("verbose", False)
+            webhook_url = self.get_discord_webhook()
+
+            # Run Nuclei template
+            nuclei_vulnerable = False
+            nuclei_status = "Not Vulnerable"
+            try:
+                env = os.environ.copy()
+                nuclei_cmd_str = " ".join(nuclei_cmd)
+                nuclei_result = await asyncio.create_subprocess_exec(
+                    *nuclei_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+                nuclei_stdout, nuclei_stderr = await asyncio.wait_for(
+                    nuclei_result.communicate(), timeout=30
+                )
+                nuclei_stdout_str = nuclei_stdout.decode("utf-8", errors="ignore") if nuclei_stdout else ""
+                nuclei_stderr_str = nuclei_stderr.decode("utf-8", errors="ignore") if nuclei_stderr else ""
+                
+                results["nuclei"] = {
+                    "returncode": nuclei_result.returncode,
+                    "stdout": nuclei_stdout_str,
+                    "stderr": nuclei_stderr_str,
+                }
+                
+                # Check if Nuclei found the vulnerability
+                if nuclei_stdout_str:
+                    if ("CVE-2025-55182" in nuclei_stdout_str or 
+                        "[CVE-2025-55182]" in nuclei_stdout_str or
+                        '"matched-at"' in nuclei_stdout_str or
+                        "matched-at" in nuclei_stdout_str):
+                        nuclei_vulnerable = True
+                        nuclei_status = "Vulnerable"
+                
+                # Build full log content for webhook
+                full_log_content.append("=" * 80)
+                full_log_content.append("NUCLEI SCAN RESULTS")
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"Command: {nuclei_cmd_str}")
+                full_log_content.append(f"Exit Code: {nuclei_result.returncode}")
+                full_log_content.append(f"\n--- STDOUT ---")
+                full_log_content.append(nuclei_stdout_str if nuclei_stdout_str else "(empty)")
+                if nuclei_stderr_str:
+                    full_log_content.append(f"\n--- STDERR ---")
+                    full_log_content.append(nuclei_stderr_str)
+                full_log_content.append("")
+            except asyncio.TimeoutError:
+                results["nuclei"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": "Nuclei scan timed out after 30 seconds",
+                }
+                nuclei_status = "Error (Timeout)"
+                full_log_content.append("=" * 80)
+                full_log_content.append("NUCLEI SCAN - TIMEOUT")
+                full_log_content.append("=" * 80)
+            except Exception as e:
+                results["nuclei"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": str(e),
+                }
+                nuclei_status = f"Error ({str(e)})"
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"NUCLEI SCAN - ERROR: {str(e)}")
+                full_log_content.append("=" * 80)
+
+            # Run react2shell script
+            react2shell_vulnerable = False
+            react2shell_status = "not vulnerable"
+            try:
+                env = os.environ.copy()
+                react2shell_result = await asyncio.create_subprocess_exec(
+                    *react2shell_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+                react2shell_stdout, react2shell_stderr = await asyncio.wait_for(
+                    react2shell_result.communicate(), timeout=60
+                )
+                results["react2shell"] = {
+                    "returncode": react2shell_result.returncode,
+                    "stdout": react2shell_stdout.decode("utf-8", errors="ignore"),
+                    "stderr": react2shell_stderr.decode("utf-8", errors="ignore"),
+                }
+                react2shell_stdout_str = react2shell_stdout.decode("utf-8", errors="ignore") if react2shell_stdout else ""
+                react2shell_stderr_str = react2shell_stderr.decode("utf-8", errors="ignore") if react2shell_stderr else ""
+                react2shell_cmd_str = " ".join(react2shell_cmd)
+                
+                # Check if react2shell found vulnerability
+                if "[VULNERABLE]" in react2shell_stdout_str:
+                    react2shell_vulnerable = True
+                    react2shell_status = "vulnerable"
+                
+                # Build full log content for webhook
+                full_log_content.append("=" * 80)
+                full_log_content.append("REACT2SHELL SCAN RESULTS")
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"Command: {react2shell_cmd_str}")
+                full_log_content.append(f"Exit Code: {react2shell_result.returncode}")
+                full_log_content.append(f"\n--- STDOUT ---")
+                full_log_content.append(react2shell_stdout_str if react2shell_stdout_str else "(empty)")
+                if react2shell_stderr_str:
+                    full_log_content.append(f"\n--- STDERR ---")
+                    full_log_content.append(react2shell_stderr_str)
+                full_log_content.append("")
+            except asyncio.TimeoutError:
+                results["react2shell"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": "React2Shell scan timed out after 60 seconds",
+                }
+                react2shell_status = "Error (Timeout)"
+                full_log_content.append("=" * 80)
+                full_log_content.append("REACT2SHELL SCAN - TIMEOUT")
+                full_log_content.append("=" * 80)
+            except Exception as e:
+                results["react2shell"] = {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": str(e),
+                }
+                react2shell_status = f"Error ({str(e)})"
+                full_log_content.append("=" * 80)
+                full_log_content.append(f"REACT2SHELL SCAN - ERROR: {str(e)}")
+                full_log_content.append("=" * 80)
+
+            # Update scan status
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "completed"
+                active_scans[scan_id]["results"] = results
+
+                # Determine overall vulnerability status
+                overall_vulnerable = nuclei_vulnerable or react2shell_vulnerable
+                
+                # Create brief embed with simple status
+                color = discord.Color.red() if overall_vulnerable else discord.Color.green()
+                
+                embed = discord.Embed(
+                    title="🔍 React2Shell RCE Test Results",
+                    description=f"**Target:** `{target}`",
+                    color=color,
+                )
+                
+                # Add brief status fields
+                embed.add_field(
+                    name="Nuclei Check",
+                    value=f"**{nuclei_status}**",
+                    inline=True,
+                )
+                embed.add_field(
+                    name="React2Shell",
+                    value=f"**{react2shell_status}**",
+                    inline=True,
+                )
+                
+                # If verbose and webhook is available, send full logs to webhook
+                if verbose and webhook_url:
+                    try:
+                        # Create temporary log file
+                        log_file = tempfile.NamedTemporaryFile(
+                            mode='w', 
+                            suffix='.txt', 
+                            delete=False,
+                            prefix=f'react2shell_{scan_id}_'
+                        )
+                        log_content = "\n".join(full_log_content)
+                        log_file.write(log_content)
+                        log_file.write(f"\n\nScan completed at: {datetime.now().isoformat()}\n")
+                        log_file.write(f"Target: {target}\n")
+                        log_file.write(f"Scan ID: {scan_id}\n")
+                        log_file.close()
+                        
+                        # Send to webhook
+                        import subprocess
+                        import json
+                        description = f"**React2Shell Full Logs**\nTarget: `{target}`\nScan ID: `{scan_id}`"
+                        payload_json = json.dumps({"content": description})
+                        result = subprocess.run(
+                            [
+                                'curl', '-sS',
+                                '-F', f'file=@{log_file.name}',
+                                '-F', f'payload_json={payload_json}',
+                                webhook_url
+                            ],
+                            capture_output=True,
+                            timeout=10
+                        )
+                        
+                        if result.returncode == 0:
+                            embed.add_field(
+                                name="📄 Full Logs",
+                                value=f"Sent to webhook",
+                                inline=False,
+                            )
+                        else:
+                            embed.add_field(
+                                name="⚠️ Logs",
+                                value="Failed to send to webhook",
+                                inline=False,
+                            )
+                        
+                        # Clean up temp file
+                        try:
+                            os.unlink(log_file.name)
+                        except:
+                            pass
+                            
+                    except Exception as e:
+                        print(f"Error sending logs to webhook: {e}")
+                        embed.add_field(
+                            name="⚠️ Logs",
+                            value=f"Error: {str(e)[:100]}",
+                            inline=False,
+                        )
+                elif verbose and not webhook_url:
+                    embed.add_field(
+                        name="⚠️ Verbose Mode",
+                        value="Webhook not configured. Full logs not sent.",
+                        inline=False,
+                    )
+
+                # Update Discord message
+                interaction = active_scans[scan_id]["interaction"]
+                try:
+                    await interaction.edit_original_response(embed=embed)
+                except:
+                    pass  # Ignore if message was deleted
+
+        except Exception as e:
+            print(f"Error in React2Shell test {scan_id}: {e}")
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "failed"
+                active_scans[scan_id]["error"] = str(e)
+
     @app_commands.command(name="tech", description="Detect technologies on live hosts")
     @app_commands.describe(
         domain="The domain", threads="Number of threads for httpx (default: 100)"
@@ -1136,6 +1632,38 @@ class AutoARBot(commands.Cog):
             "interaction": interaction,
         }
         embed = self.create_scan_embed("Tech Detect", domain, "running")
+        await interaction.response.send_message(embed=embed)
+        asyncio.create_task(self._run_scan_background(scan_id, command))
+
+    @app_commands.command(
+        name="react2shell_scan",
+        description="Scan domain hosts for React Server Components RCE (CVE-2025-55182) using WAF bypass methods"
+    )
+    @app_commands.describe(
+        domain="The domain to scan",
+        threads="Number of threads for livehosts detection (default: 100)"
+    )
+    async def react2shell_scan_cmd(
+        self, interaction: discord.Interaction, domain: str, threads: int = 100
+    ):
+        scan_id = f"react2shell_scan_{int(time.time())}"
+        command = [
+            AUTOAR_SCRIPT_PATH,
+            "react2shell_scan",
+            "run",
+            "-d",
+            domain,
+            "-t",
+            str(threads),
+        ]
+        active_scans[scan_id] = {
+            "type": "react2shell_scan",
+            "target": domain,
+            "status": "running",
+            "start_time": datetime.now(),
+            "interaction": interaction,
+        }
+        embed = self.create_scan_embed("React2Shell Host Scan", domain, "running")
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
@@ -1726,6 +2254,106 @@ class AutoARBot(commands.Cog):
 
         await interaction.edit_original_response(embed=embed)
 
+    async def _format_react2shell_scan_results(
+        self, domain: str, stdout: str
+    ) -> discord.Embed:
+        """Format React2Shell scan results into a Discord embed."""
+        embed = discord.Embed(
+            title="🔍 React2Shell RCE Test Results",
+            description=f"**Target:** `{domain}`",
+            color=discord.Color.green(),
+        )
+
+        # Parse the structured output
+        lines = stdout.split("\n")
+        status = "not vulnerable"
+        vulnerable_hosts = []
+        stats = {}
+        in_hosts_section = False
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith("STATUS:"):
+                status_val = line.split(":", 1)[1].strip()
+                status = "vulnerable" if status_val == "VULNERABLE" else "not vulnerable"
+            elif line.startswith("TOTAL_VULNERABLE:"):
+                stats["total"] = line.split(":", 1)[1].strip()
+            elif line.startswith("LIVE_HOSTS:"):
+                stats["live_hosts"] = line.split(":", 1)[1].strip()
+            elif line.startswith("SCANNED:"):
+                stats["scanned"] = line.split(":", 1)[1].strip()
+            elif line.startswith("NUCLEI_COUNT:"):
+                stats["nuclei"] = line.split(":", 1)[1].strip()
+            elif line.startswith("WAF_BYPASS_COUNT:"):
+                stats["waf"] = line.split(":", 1)[1].strip()
+            elif line.startswith("VERCEL_WAF_BYPASS_COUNT:"):
+                stats["vercel"] = line.split(":", 1)[1].strip()
+            elif line == "VULNERABLE_HOSTS_START":
+                in_hosts_section = True
+            elif line == "VULNERABLE_HOSTS_END":
+                in_hosts_section = False
+            elif in_hosts_section and line:
+                vulnerable_hosts.append(line)
+
+        if status == "vulnerable":
+            embed.color = discord.Color.red()
+            embed.add_field(
+                name="Status", value="🔴 **Vulnerable**", inline=False
+            )
+            if stats.get("total"):
+                embed.add_field(
+                    name="Vulnerable Hosts Found",
+                    value=f"**{stats['total']}** unique host(s)",
+                    inline=False,
+                )
+            
+            # Add vulnerable hosts list
+            if vulnerable_hosts:
+                hosts_text = ""
+                for i, host in enumerate(vulnerable_hosts[:15], 1):
+                    hosts_text += f"`{host}`\n"
+                if len(vulnerable_hosts) > 15:
+                    hosts_text += f"\n... and {len(vulnerable_hosts) - 15} more"
+                embed.add_field(
+                    name="Vulnerable Hosts", value=hosts_text, inline=False
+                )
+            
+            # Add breakdown
+            breakdown = []
+            if stats.get("nuclei") and stats["nuclei"] != "0":
+                breakdown.append(f"Nuclei: {stats['nuclei']}")
+            if stats.get("waf") and stats["waf"] != "0":
+                breakdown.append(f"WAF Bypass: {stats['waf']}")
+            if stats.get("vercel") and stats["vercel"] != "0":
+                breakdown.append(f"Vercel WAF: {stats['vercel']}")
+            if breakdown:
+                embed.add_field(
+                    name="Breakdown", value=" • ".join(breakdown), inline=False
+                )
+        else:
+            embed.color = discord.Color.green()
+            embed.add_field(
+                name="Status", value="✅ **Not Vulnerable**", inline=False
+            )
+            
+            # Add statistics
+            stats_text = ""
+            if stats.get("live_hosts"):
+                stats_text += f"**Live hosts:** `{stats['live_hosts']}`\n"
+            if stats.get("scanned"):
+                stats_text += f"**Scanned:** `{stats['scanned']}`\n"
+            if stats.get("nuclei"):
+                stats_text += f"**Nuclei findings:** `{stats['nuclei']}`\n"
+            if stats.get("waf"):
+                stats_text += f"**WAF Bypass findings:** `{stats['waf']}`\n"
+            if stats.get("vercel"):
+                stats_text += f"**Vercel WAF findings:** `{stats['vercel']}`\n"
+            
+            if stats_text:
+                embed.add_field(name="Statistics", value=stats_text, inline=False)
+
+        return embed
+
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
         try:
@@ -1742,25 +2370,33 @@ class AutoARBot(commands.Cog):
 
                 # Update Discord message
                 interaction = active_scans[scan_id]["interaction"]
-                embed = self.create_scan_embed(
-                    active_scans[scan_id]["type"],
-                    active_scans[scan_id]["target"],
-                    "completed",
-                    results,
-                )
+                scan_type = active_scans[scan_id]["type"]
+                
+                # Special handling for react2shell_scan
+                if scan_type == "react2shell_scan" and results["stdout"]:
+                    embed = await self._format_react2shell_scan_results(
+                        active_scans[scan_id]["target"], results["stdout"]
+                    )
+                else:
+                    embed = self.create_scan_embed(
+                        scan_type,
+                        active_scans[scan_id]["target"],
+                        "completed",
+                        results,
+                    )
 
-                # Add logs to embed if available
-                if results["stdout"] or results["stderr"]:
-                    log_text = ""
-                    if results["stdout"]:
-                        log_text += f"**Output:**\n```\n{results['stdout'][:1000]}{'...' if len(results['stdout']) > 1000 else ''}\n```\n"
-                    if results["stderr"]:
-                        log_text += f"**Errors:**\n```\n{results['stderr'][:1000]}{'...' if len(results['stderr']) > 1000 else ''}\n```"
+                    # Add logs to embed if available (only for non-react2shell_scan)
+                    if results["stdout"] or results["stderr"]:
+                        log_text = ""
+                        if results["stdout"]:
+                            log_text += f"**Output:**\n```\n{results['stdout'][:1000]}{'...' if len(results['stdout']) > 1000 else ''}\n```\n"
+                        if results["stderr"]:
+                            log_text += f"**Errors:**\n```\n{results['stderr'][:1000]}{'...' if len(results['stderr']) > 1000 else ''}\n```"
 
-                    if log_text:
-                        embed.add_field(
-                            name="Execution Logs", value=log_text, inline=False
-                        )
+                        if log_text:
+                            embed.add_field(
+                                name="Execution Logs", value=log_text, inline=False
+                            )
 
                 try:
                     await interaction.edit_original_response(embed=embed)
