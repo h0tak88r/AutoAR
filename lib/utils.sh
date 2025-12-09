@@ -14,6 +14,81 @@ results_dir() {
   echo "${AUTOAR_RESULTS_DIR}/$d"
 }
 
+# Cleanup domain results directory in Docker mode
+# Usage: cleanup_domain_results <domain> [--force]
+# If --force is provided, cleanup even if not in Docker mode
+cleanup_domain_results() {
+  local domain="$1"
+  local force="${2:-}"
+  local domain_dir
+  
+  [[ -z "$domain" ]] && return 1
+  
+  domain_dir="$(results_dir "$domain")"
+  
+  # Only cleanup in Docker mode (unless --force is specified)
+  if [[ "${AUTOAR_ENV:-}" == "docker" || "$force" == "--force" ]]; then
+    if [[ -d "$domain_dir" ]]; then
+      log_info "Cleaning up domain results directory: $domain_dir"
+      rm -rf "$domain_dir" 2>/dev/null || true
+      log_success "Removed domain results directory: $domain_dir"
+      return 0
+    fi
+  fi
+  
+  return 0
+}
+
+# ----- Phase timeout helpers -----
+
+phase_timeout_enabled() {
+  [[ -n "${AUTOAR_PHASE_TIMEOUT:-}" ]] || return 1
+  [[ -n "${AUTOAR_PHASE_START_TS:-}" ]] || return 1
+  [[ "${AUTOAR_PHASE_TIMEOUT:-0}" -gt 0 ]] || return 1
+  return 0
+}
+
+phase_time_remaining() {
+  if ! phase_timeout_enabled; then
+    echo ""
+    return 1
+  fi
+
+  local now
+  now=$(date +%s)
+  local elapsed=$((now - AUTOAR_PHASE_START_TS))
+  local remaining=$((AUTOAR_PHASE_TIMEOUT - elapsed))
+  if (( remaining < 0 )); then
+    remaining=0
+  fi
+  echo "$remaining"
+  return 0
+}
+
+run_with_phase_timeout() {
+  local description="$1"
+  shift
+
+  local remaining
+  remaining=$(phase_time_remaining)
+
+  if [[ -n "$remaining" ]]; then
+    if (( remaining <= 0 )); then
+      log_warn "Phase timeout reached before ${description:-command}; skipping."
+      return 124
+    fi
+
+    if command -v timeout >/dev/null 2>&1; then
+      timeout --preserve-status --signal TERM --kill-after=30 "$remaining" "$@"
+      return $?
+    else
+      log_warn "Phase timeout requested for ${description:-command} but 'timeout' command is unavailable; running without enforcement."
+    fi
+  fi
+
+  "$@"
+}
+
 # Check if Discord bot is available (running in Docker with bot)
 is_discord_bot_available() {
   # Check if we're in Docker and Discord bot token is set
@@ -67,6 +142,7 @@ domain_dir_init() {
 ensure_subdomains() {
   local domain="$1"
   local subs_file="$2"  # e.g., /app/new-results/example.com/subs/all-subs.txt
+  local silent="${3:-false}"  # Optional silent flag
   
   # Check if file exists and is not empty
   if [[ -s "$subs_file" ]]; then
@@ -90,7 +166,11 @@ ensure_subdomains() {
   
   # Run subdomain enumeration
   log_info "No subdomains in DB, running enumeration"
-  "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || return 1
+  if [[ "$silent" == "true" ]]; then
+    "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" --silent || return 1
+  else
+    "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || return 1
+  fi
 }
 
 ensure_live_hosts() {

@@ -63,6 +63,26 @@ class ScanRequest(BaseModel):
         "full", description="Nuclei scan mode: full, cves, panels, default-logins, or vulnerabilities"
     )
     skip_js: Optional[bool] = Field(False, description="Skip JavaScript scanning step (for lite scan)")
+    phase_timeout: Optional[int] = Field(
+        None,
+        description="Default per-phase timeout for lite scans in seconds (e.g., 3600).",
+    )
+    timeout_livehosts: Optional[int] = Field(
+        None,
+        description="Override timeout for livehosts phase in seconds.",
+    )
+    timeout_reflection: Optional[int] = Field(
+        None,
+        description="Override timeout for reflection phase in seconds.",
+    )
+    timeout_js: Optional[int] = Field(
+        None,
+        description="Override timeout for JS phase in seconds.",
+    )
+    timeout_nuclei: Optional[int] = Field(
+        None,
+        description="Override timeout for nuclei phase in seconds.",
+    )
     query: Optional[str] = Field(None, description="Search query for keyhack")
     provider: Optional[str] = Field(None, description="Provider name for keyhack validation")
     api_key: Optional[str] = Field(None, description="API key to validate")
@@ -511,9 +531,23 @@ async def scan_lite(background_tasks: BackgroundTasks, request: ScanRequest):
     if request.skip_js:
         command.append("--skip-js")
 
+    # Per-phase timeout support
+    if request.phase_timeout and request.phase_timeout > 0:
+        command.extend(["--phase-timeout", str(request.phase_timeout)])
+    if request.timeout_livehosts is not None and request.timeout_livehosts >= 0:
+        command.extend(["--timeout-livehosts", str(request.timeout_livehosts)])
+    if request.timeout_reflection is not None and request.timeout_reflection >= 0:
+        command.extend(["--timeout-reflection", str(request.timeout_reflection)])
+    if request.timeout_js is not None and request.timeout_js >= 0:
+        command.extend(["--timeout-js", str(request.timeout_js)])
+    if request.timeout_nuclei is not None and request.timeout_nuclei >= 0:
+        command.extend(["--timeout-nuclei", str(request.timeout_nuclei)])
+
     background_tasks.add_task(execute_scan, scan_id, command, "lite")
 
-    message = f"Lite scan started for {request.domain}"
+    message = f"Lite scan started for {request.domain} (per-phase timeout: 1h default)"
+    if request.phase_timeout:
+        message = f"Lite scan started for {request.domain} (default per-phase timeout: {request.phase_timeout}s)"
     if request.skip_js:
         message += " (JavaScript scanning skipped)"
 

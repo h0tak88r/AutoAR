@@ -64,13 +64,11 @@ COPY . /app
 
 # Clone submodules directly (since .git is not available in Docker context)
 RUN cd /app && \
-    rm -rf nuclei_templates Wordlists keyhack_templates && \
+    rm -rf nuclei_templates Wordlists && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
-    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists && \
-    git clone --depth 1 https://github.com/MrMax4o4/KeysKit.git /tmp/KeysKit && \
-    mkdir -p /app/keyhack_templates && \
-    cp -r /tmp/KeysKit/templates/* /app/keyhack_templates/ && \
-    rm -rf /tmp/KeysKit
+    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
+    # jwt_tool is already integrated in /app/python/jwt_tool.py - no need to clone
+    # KeyHack templates are already in the database - no need to clone KeysKit
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
@@ -85,13 +83,34 @@ RUN misconfig-mapper -update-templates || true
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
 
 # Python dependencies
-# Prefer existing requirements.txt; append discord.py if missing
+# Prefer existing requirements.txt; append discord.py and jwt_tool deps if missing
 RUN set -e; \
     if ! grep -iq '^discord\.py' requirements.txt 2>/dev/null; then \
       printf "\ndiscord.py>=2.4.0\n" >> requirements.txt; \
     fi; \
     if ! grep -iq '^pyyaml' requirements.txt 2>/dev/null; then \
       printf "pyyaml>=6.0.1\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^termcolor' requirements.txt 2>/dev/null; then \
+      printf "termcolor\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^cprint' requirements.txt 2>/dev/null; then \
+      printf "cprint\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^pycryptodomex' requirements.txt 2>/dev/null; then \
+      printf "pycryptodomex\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^requests' requirements.txt 2>/dev/null; then \
+      printf "requests\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^ratelimit' requirements.txt 2>/dev/null; then \
+      printf "ratelimit\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^tqdm' requirements.txt 2>/dev/null; then \
+      printf "tqdm>=4.64.0\n" >> requirements.txt; \
+    fi; \
+    if ! grep -iq '^urllib3' requirements.txt 2>/dev/null; then \
+      printf "urllib3>=1.26.0\n" >> requirements.txt; \
     fi; \
     pip install --no-cache-dir -r requirements.txt \
     && pip3 install --no-cache-dir git+https://github.com/codingo/Interlace.git
@@ -102,8 +121,7 @@ RUN chmod +x /app/generate_config.sh || true \
     && chmod +x /app/python/db_handler.py || true \
     && chmod +x /app/lib/db_wrapper.sh || true \
     && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
-    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true \
-    && find /app/scripts -type f -name '*.sh' -exec chmod +x {} + || true
+    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
 
 # Add a non-root user
 RUN useradd -m -u 10001 autoar && chown -R autoar:autoar /app

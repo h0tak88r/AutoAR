@@ -9,16 +9,19 @@ source "$ROOT_DIR/lib/discord.sh"
 source "$ROOT_DIR/lib/db.sh"
 
 usage() { 
-  echo "Usage: livehosts get -d <domain> [-t <threads>]"
+  echo "Usage: livehosts get -d <domain> [-t <threads>] [-s|--silent]"
   echo "  -d, --domain     Target domain to scan"
   echo "  -t, --threads    Number of threads for httpx (default: 100)"
+  echo "  -s, --silent     Silent mode: don't send Discord notifications"
 }
 
 livehosts_get() {
-  local domain="" threads="100"; while [[ $# -gt 0 ]]; do
+  local domain="" threads="100" silent=false
+  while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
       -t|--threads) threads="$2"; shift 2;;
+      -s|--silent) silent=true; shift;;
       *) usage; exit 1;;
     esac
   done
@@ -29,7 +32,8 @@ livehosts_get() {
   ensure_dir "$subs_dir"
   
   # Ensure subdomains exist (from DB or enumeration)
-  ensure_subdomains "$domain" "$subs_dir/all-subs.txt" || { log_warn "Failed to get subdomains for $domain"; exit 1; }
+  # Pass silent flag to ensure_subdomains to prevent Discord notifications
+  ensure_subdomains "$domain" "$subs_dir/all-subs.txt" "$silent" || { log_warn "Failed to get subdomains for $domain"; exit 1; }
 
   log_info "Filtering live hosts via httpx with $threads threads"
   if command -v httpx >/dev/null 2>&1; then
@@ -60,7 +64,10 @@ livehosts_get() {
     fi
   fi
   
-  discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
+  # Send Discord notification only if not in silent mode
+  if [[ "$silent" != "true" ]]; then
+    discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
+  fi
 }
 
 case "${1:-}" in
