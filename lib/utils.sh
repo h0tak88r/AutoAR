@@ -169,7 +169,7 @@ ensure_subdomains() {
   if [[ "$silent" == "true" ]]; then
     "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" --silent || return 1
   else
-    "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || return 1
+  "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || return 1
   fi
 }
 
