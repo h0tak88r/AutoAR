@@ -16,6 +16,29 @@ source "$ROOT_DIR/lib/db.sh"
 
 usage() { echo "Usage: js scan -d <domain> [-s <subdomain>]"; }
 
+ensure_phase_time_remaining() {
+  local remaining
+  remaining=$(phase_time_remaining)
+  if [[ -n "$remaining" && "$remaining" -le 0 ]]; then
+    log_warn "Phase timeout reached for JavaScript scanning; skipping remaining JS tasks."
+    return 1
+  fi
+  return 0
+}
+
+run_js_with_phase_timeout() {
+  local description="$1"
+  shift
+  if ! run_with_phase_timeout "$description" "$@"; then
+    local status=$?
+    if [[ $status -eq 124 ]]; then
+      log_warn "$description exceeded the configured phase timeout for this lite phase."
+    fi
+    return $status
+  fi
+  return 0
+}
+
 js_scan() {
   local domain="" sub=""
   while [[ $# -gt 0 ]]; do
@@ -51,6 +74,10 @@ js_scan() {
 
   # Only run JS analysis if URLs file exists and has content
   if [[ -s "$urls_file" ]]; then
+    if ! ensure_phase_time_remaining; then
+      return 0
+    fi
+
     # === Nuclei Template Scanning ===
     log_info "Running Nuclei template scans on JavaScript files"
 
@@ -61,12 +88,20 @@ js_scan() {
       # 1. Scan with all custom JS templates (including tokens)
       if [[ -d "$ROOT_DIR/nuclei_templates/js" ]]; then
         log_info "Scanning with all custom JS templates (including all tokens)"
+        local custom_status=0
+        if ! run_js_with_phase_timeout "Custom JS Nuclei templates" \
         nuclei -l "$urls_file" \
           -t "$ROOT_DIR/nuclei_templates/js/" \
           -silent \
           -duc \
           -o "$out_dir/nuclei-custom-js.txt" \
-          2>/dev/null || true
+          2>/dev/null; then
+          custom_status=$?
+          if [[ $custom_status -eq 124 ]]; then
+            return 0
+          fi
+          log_warn "Custom JS Nuclei scan exited with status $custom_status, continuing..."
+        fi
 
         if [[ -s "$out_dir/nuclei-custom-js.txt" ]]; then
           local custom_count=$(wc -l < "$out_dir/nuclei-custom-js.txt")
@@ -81,12 +116,20 @@ js_scan() {
       # 2. Scan with all public Nuclei exposure templates
       if [[ -d "$ROOT_DIR/nuclei-templates/http/exposures" ]]; then
         log_info "Scanning with all public Nuclei exposure templates"
+        local public_status=0
+        if ! run_js_with_phase_timeout "Public exposure Nuclei templates" \
         nuclei -l "$urls_file" \
           -t "$ROOT_DIR/nuclei-templates/http/exposures/" \
           -silent \
           -duc \
           -o "$out_dir/nuclei-public-exposures.txt" \
-          2>/dev/null || true
+          2>/dev/null; then
+          public_status=$?
+          if [[ $public_status -eq 124 ]]; then
+            return 0
+          fi
+          log_warn "Public exposure Nuclei scan exited with status $public_status, continuing..."
+        fi
 
         if [[ -s "$out_dir/nuclei-public-exposures.txt" ]]; then
           local public_count=$(wc -l < "$out_dir/nuclei-public-exposures.txt")
@@ -111,8 +154,19 @@ js_scan() {
     log_info "Running JS regex analysis with jsleak"
 
     if command -v jsleak >/dev/null 2>&1; then
+      if ! ensure_phase_time_remaining; then
+        return 0
+      fi
       log_info "Scanning with trufflehog-v3 patterns"
-      jsleak -t "$ROOT_DIR/regexes/trufflehog-v3.yaml" -s -c 20 < "$urls_file" > "$out_dir/trufflehog.txt" 2>/dev/null || true
+      local truffle_status=0
+      if ! run_js_with_phase_timeout "trufflehog regex scan" \
+        jsleak -t "$ROOT_DIR/regexes/trufflehog-v3.yaml" -s -c 20 < "$urls_file" > "$out_dir/trufflehog.txt" 2>/dev/null; then
+        truffle_status=$?
+        if [[ $truffle_status -eq 124 ]]; then
+          return 0
+        fi
+        log_warn "trufflehog regex scan exited with status $truffle_status, continuing..."
+      fi
 
       # Show results if any found
       if [[ -s "$out_dir/trufflehog.txt" ]]; then
@@ -128,8 +182,19 @@ js_scan() {
         [[ -f "$f" ]] || continue
         base="$(basename "$f" .yaml)"
         if [[ "$base" != "trufflehog-v3" ]]; then
+          if ! ensure_phase_time_remaining; then
+            return 0
+          fi
           log_info "Scanning with $base patterns"
-          jsleak -t "$f" -s -c 20 < "$urls_file" > "$out_dir/$base.txt" 2>/dev/null || true
+          local regex_status=0
+          if ! run_js_with_phase_timeout "$base regex scan" \
+            jsleak -t "$f" -s -c 20 < "$urls_file" > "$out_dir/$base.txt" 2>/dev/null; then
+            regex_status=$?
+            if [[ $regex_status -eq 124 ]]; then
+              return 0
+            fi
+            log_warn "$base regex scan exited with status $regex_status, continuing..."
+          fi
 
           # Show results if any found
           if [[ -s "$out_dir/$base.txt" ]]; then
