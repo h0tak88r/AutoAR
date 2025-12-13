@@ -641,45 +641,88 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 }
 
-// Scan Status
+// Scan Status - List all scans
 func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	scanID := ""
-
-	for _, opt := range options {
-		if opt.Name == "scan_id" {
-			scanID = opt.StringValue()
-		}
-	}
-
-	if scanID == "" {
-		respond(s, i, "❌ Scan ID is required", false)
-		return
-	}
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
 
 	scansMutex.RLock()
-	scan, ok := activeScans[scanID]
+	activeCount := len(activeScans)
+	activeList := make([]*ScanInfo, 0, activeCount)
+	for _, scan := range activeScans {
+		activeList = append(activeList, scan)
+	}
 	scansMutex.RUnlock()
 
-	if !ok {
-		respond(s, i, fmt.Sprintf("❌ Scan ID `%s` not found", scanID), false)
-		return
-	}
+	// Get completed scans from API results (if available)
+	completedList := getCompletedScans(20)
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "📊 Scan Status",
-		Description: fmt.Sprintf("**Scan ID:** `%s`\n**Type:** %s\n**Target:** `%s`\n**Status:** %s", scanID, scan.Type, scan.Target, scan.Status),
+		Title:       "📊 All Scan Status",
+		Description: fmt.Sprintf("**Active Scans:** %d\n**Recent Completed Scans:** %d", activeCount, len(completedList)),
 		Color:       0x3498db,
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Started", Value: scan.StartTime.Format(time.RFC3339), Inline: false},
-			{Name: "Command", Value: fmt.Sprintf("```%s```", scan.Command), Inline: false},
-		},
+		Fields:     []*discordgo.MessageEmbedField{},
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
+	// Add active scans
+	if activeCount > 0 {
+		activeText := ""
+		for i, scan := range activeList {
+			if i >= 10 {
+				activeText += fmt.Sprintf("\n... and %d more active scans", activeCount-10)
+				break
+			}
+			statusEmoji := "🟡"
+			if scan.Status == "completed" {
+				statusEmoji = "✅"
+			} else if scan.Status == "failed" {
+				statusEmoji = "❌"
+			}
+			activeText += fmt.Sprintf("%s **%s** - `%s` (%s)\n", statusEmoji, scan.Type, scan.Target, scan.Status)
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  fmt.Sprintf("Active Scans (%d)", activeCount),
+			Value: activeText,
+		})
+	} else {
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Active Scans",
+			Value: "No active scans",
+		})
+	}
+
+	// Add completed scans
+	if len(completedList) > 0 {
+		completedText := ""
+		for i, result := range completedList {
+			if i >= 10 {
+				completedText += fmt.Sprintf("\n... and %d more completed scans", len(completedList)-10)
+				break
+			}
+			statusEmoji := "✅"
+			if result.Status == "failed" {
+				statusEmoji = "❌"
+			}
+			// Use ScanID as target identifier
+		target := result.ScanID
+		if result.ScanType != "" {
+			target = result.ScanType
+		}
+		completedText += fmt.Sprintf("%s **%s** - `%s` (%s)\n", statusEmoji, result.ScanType, target, result.Status)
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  fmt.Sprintf("Recent Completed Scans (%d)", len(completedList)),
+			Value: completedText,
+		})
+	} else {
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Completed Scans",
+			Value: "No completed scans",
+		})
+	}
+
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
