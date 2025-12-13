@@ -2667,6 +2667,100 @@ class AutoARBot(commands.Cog):
         except Exception as e:
             print(f"[ERROR] Failed to update embed: {e}")
 
+    async def _run_livehosts_scan(self, scan_id: str, command: list, domain: str):
+        """Run livehosts scan and send file to Discord."""
+        try:
+            # Determine timeout
+            timeout = 5 * 60 * 60  # 5 hours default
+            
+            # Run the scan
+            results = await self.run_autoar_command(command, scan_id, timeout)
+            
+            # Update scan status
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "completed"
+                active_scans[scan_id]["results"] = results
+                
+                # Find and send live hosts file
+                results_dir = Path(RESULTS_DIR) / domain
+                live_hosts_file = results_dir / "subs" / "live-subs.txt"
+                
+                # Update Discord message
+                interaction = active_scans[scan_id]["interaction"]
+                embed = self.create_scan_embed(
+                    "Live Hosts",
+                    domain,
+                    "completed",
+                    results,
+                )
+                
+                # Send live hosts file if it exists
+                if live_hosts_file.exists() and live_hosts_file.stat().st_size > 0:
+                    try:
+                        # Count lines
+                        with open(live_hosts_file, 'r') as f:
+                            line_count = sum(1 for _ in f)
+                        
+                        # Send file via Discord bot
+                        file = discord.File(str(live_hosts_file), filename=f"live-hosts-{domain}.txt")
+                        embed.add_field(
+                            name="Live Hosts File",
+                            value=f"**{line_count}** live subdomains found\nFile attached below",
+                            inline=False,
+                        )
+                        await interaction.edit_original_response(embed=embed, attachments=[file])
+                        
+                        # Also send via webhook if available
+                        webhook_url = self.get_discord_webhook()
+                        if webhook_url:
+                            try:
+                                import subprocess
+                                description = f"**Live Hosts for `{domain}`**\n**Count:** {line_count} live subdomains"
+                                payload_json = json.dumps({"content": description})
+                                result = subprocess.run(
+                                    [
+                                        'curl', '-sS',
+                                        '-F', f'file=@{live_hosts_file}',
+                                        '-F', f'payload_json={payload_json}',
+                                        webhook_url
+                                    ],
+                                    capture_output=True,
+                                    timeout=30
+                                )
+                                if result.returncode != 0:
+                                    print(f"[WARN] Failed to send live hosts file to webhook: {result.stderr.decode('utf-8', errors='ignore')[:200]}")
+                            except Exception as e:
+                                print(f"[WARN] Error sending live hosts file to webhook: {e}")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to send live hosts file: {e}")
+                        await interaction.edit_original_response(embed=embed)
+                else:
+                    embed.add_field(
+                        name="Live Hosts File",
+                        value="No live hosts file found",
+                        inline=False,
+                    )
+                    await interaction.edit_original_response(embed=embed)
+                
+                # Store results
+                scan_results[scan_id] = results
+                
+        except Exception as e:
+            print(f"Error in livehosts scan {scan_id}: {e}")
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "failed"
+                active_scans[scan_id]["error"] = str(e)
+                try:
+                    interaction = active_scans[scan_id]["interaction"]
+                    embed = discord.Embed(
+                        title="❌ Live Hosts Scan Failed",
+                        description=f"**Domain:** `{domain}`\n**Error:** {str(e)}",
+                        color=discord.Color.red(),
+                    )
+                    await interaction.edit_original_response(embed=embed)
+                except:
+                    pass
+    
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
         try:
