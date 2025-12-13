@@ -13,7 +13,8 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
@@ -1642,23 +1643,13 @@ class AutoARBot(commands.Cog):
     @app_commands.describe(
         domain="The domain to scan",
         threads="Number of threads for livehosts detection (default: 100)",
-        enable_source_exposure="Enable source code exposure check via ACTION_ID extraction from JS files (default: False, can be slow)"
+        enable_source_exposure="Enable source code exposure check via ACTION_ID extraction from JS files (default: False, can be slow)",
+        dos_test="Enable DoS test by sending multiple requests (default: False)"
     )
     async def react2shell_scan_cmd(
-        self, interaction: discord.Interaction, domain: str, threads: int = 100, enable_source_exposure: bool = False
+        self, interaction: discord.Interaction, domain: str, threads: int = 100, enable_source_exposure: bool = False, dos_test: bool = False
     ):
         scan_id = f"react2shell_scan_{int(time.time())}"
-        command = [
-            AUTOAR_SCRIPT_PATH,
-            "react2shell_scan",
-            "run",
-            "-d",
-            domain,
-            "-t",
-            str(threads),
-        ]
-        if enable_source_exposure:
-            command.append("--enable-source-exposure")
         active_scans[scan_id] = {
             "type": "react2shell_scan",
             "target": domain,
@@ -1666,6 +1657,8 @@ class AutoARBot(commands.Cog):
             "start_time": datetime.now(),
             "interaction": interaction,
             "enable_source_exposure": enable_source_exposure,
+            "dos_test": dos_test,
+            "threads": threads,
         }
         
         # Create embed with source exposure status
@@ -1675,6 +1668,10 @@ class AutoARBot(commands.Cog):
             embed_desc += "\n**Source Exposure Check:** Enabled (may take longer)"
         else:
             embed_desc += "\n**Source Exposure Check:** Disabled (faster scan)"
+        if dos_test:
+            embed_desc += "\n**DoS Test:** Enabled"
+        else:
+            embed_desc += "\n**DoS Test:** Disabled"
         
         embed = discord.Embed(
             title=embed_title,
@@ -1684,7 +1681,7 @@ class AutoARBot(commands.Cog):
         embed.add_field(name="Status", value="🟡 Running", inline=False)
         
         await interaction.response.send_message(embed=embed)
-        asyncio.create_task(self._run_scan_background(scan_id, command))
+        asyncio.create_task(self._run_react2shell_scan(scan_id, domain, threads, enable_source_exposure, dos_test))
 
     @app_commands.command(
         name="ports", description="Run port scan (naabu) on live hosts"
@@ -2372,6 +2369,401 @@ class AutoARBot(commands.Cog):
                 embed.add_field(name="Statistics", value=stats_text, inline=False)
 
         return embed
+
+    async def _run_react2shell_scan(
+        self, scan_id: str, domain: str, threads: int, enable_source_exposure: bool, dos_test: bool
+    ):
+        """Run React2Shell scan directly using next88 tool."""
+        try:
+            # Get Discord webhook for next88
+            discord_webhook = self.get_discord_webhook()
+            
+            # Step 1: Get live hosts
+            live_hosts_file = await self._get_live_hosts(domain, threads)
+            if not live_hosts_file:
+                await self._update_scan_embed(scan_id, "❌ No live hosts found", discord.Color.red())
+                return
+            
+            # Normalize hosts (add https:// if missing)
+            normalized_hosts = await self._normalize_hosts(live_hosts_file)
+            if not normalized_hosts:
+                await self._update_scan_embed(scan_id, "❌ Failed to normalize hosts", discord.Color.red())
+                return
+            
+            # Step 2: Run Nuclei scan
+            nuclei_results = await self._run_nuclei_scan(normalized_hosts, threads)
+            
+            # Step 3: DoS test (if enabled)
+            dos_results = []
+            if dos_test:
+                dos_results = await self._run_next88_scan(normalized_hosts, ["-dos-test", "-dos-requests", "100"], discord_webhook)
+            
+            # Step 4: Run next88 with WAF bypass
+            waf_results = await self._run_next88_scan(normalized_hosts, ["-waf-bypass"], discord_webhook)
+            
+            # Step 5: Run next88 with Vercel WAF bypass
+            vercel_results = await self._run_next88_scan(normalized_hosts, ["-vercel-waf-bypass"], discord_webhook)
+            
+            # Step 6: Run next88 with common paths
+            paths_file = Path("/app/Wordlists/react-nextjs-paths.txt")
+            paths_results = []
+            if paths_file.exists():
+                paths_results = await self._run_next88_scan(normalized_hosts, ["-path-file", str(paths_file)], discord_webhook)
+            
+            # Step 7: Source code exposure check (optional)
+            source_exposure_results = []
+            if enable_source_exposure:
+                source_exposure_results = await self._run_source_exposure_check(domain, normalized_hosts, discord_webhook)
+            
+            # Collect all vulnerable hosts
+            all_vulnerable = set()
+            all_vulnerable.update(nuclei_results)
+            all_vulnerable.update(dos_results)
+            all_vulnerable.update(waf_results)
+            all_vulnerable.update(vercel_results)
+            all_vulnerable.update(paths_results)
+            all_vulnerable.update(source_exposure_results)
+            
+            # Format and send results
+            await self._send_react2shell_results(
+                scan_id, domain, len(normalized_hosts), 
+                len(nuclei_results), len(dos_results), len(waf_results), len(vercel_results), 
+                len(paths_results), len(source_exposure_results), 
+                list(all_vulnerable)
+            )
+            
+        except Exception as e:
+            error_msg = f"❌ Error during scan: {str(e)}"
+            print(f"[ERROR] {error_msg}")
+            await self._update_scan_embed(scan_id, error_msg, discord.Color.red())
+    
+    async def _get_live_hosts(self, domain: str, threads: int) -> Optional[str]:
+        """Get live hosts using livehosts module."""
+        try:
+            livehosts_script = Path("/app/modules/livehosts.sh")
+            if not livehosts_script.exists():
+                return None
+            
+            # Run livehosts module
+            command = [str(livehosts_script), "get", "-d", domain, "-t", str(threads), "--silent"]
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await process.wait()
+            
+            # Check for live hosts file
+            results_dir = Path(RESULTS_DIR) / domain
+            live_hosts_file = results_dir / "subs" / "live-subs.txt"
+            
+            if live_hosts_file.exists() and live_hosts_file.stat().st_size > 0:
+                return str(live_hosts_file)
+            
+            # Try all-subs.txt as fallback
+            all_subs_file = results_dir / "subs" / "all-subs.txt"
+            if all_subs_file.exists() and all_subs_file.stat().st_size > 0:
+                return str(all_subs_file)
+            
+            return None
+        except Exception as e:
+            print(f"[ERROR] Failed to get live hosts: {e}")
+            return None
+    
+    async def _normalize_hosts(self, hosts_file: str) -> Optional[list]:
+        """Normalize hosts (add https:// if missing)."""
+        try:
+            normalized = []
+            with open(hosts_file, 'r') as f:
+                for line in f:
+                    host = line.strip()
+                    if not host:
+                        continue
+                    if not host.startswith(('http://', 'https://')):
+                        host = f"https://{host}"
+                    normalized.append(host)
+            return normalized if normalized else None
+        except Exception as e:
+            print(f"[ERROR] Failed to normalize hosts: {e}")
+            return None
+    
+    async def _run_nuclei_scan(self, hosts: list, threads: int) -> list:
+        """Run Nuclei template scan."""
+        try:
+            nuclei_template = Path("/app/nuclei_templates/cves/CVE-2025-55182.yaml")
+            if not nuclei_template.exists():
+                return []
+            
+            # Write hosts to temp file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+                for host in hosts:
+                    f.write(f"{host}\n")
+                temp_file = f.name
+            
+            try:
+                command = [
+                    "nuclei", "-l", temp_file,
+                    "-t", str(nuclei_template),
+                    "-c", str(threads),
+                    "-silent", "-duc"
+                ]
+                
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await process.communicate()
+                
+                # Parse Nuclei output
+                vulnerable_hosts = set()
+                for line in stdout.decode('utf-8').split('\n'):
+                    line = line.strip()
+                    if not line or line.startswith('['):
+                        continue
+                    # Extract hostname from URL
+                    if '://' in line:
+                        url = line.split()[0] if ' ' in line else line
+                        url = url.replace('[CVE-2025-55182]', '').strip()
+                        if url.startswith(('http://', 'https://')):
+                            parsed = urlparse(url)
+                            if parsed.netloc:
+                                vulnerable_hosts.add(parsed.netloc.split(':')[0])
+                
+                return list(vulnerable_hosts)
+            finally:
+                os.unlink(temp_file)
+        except Exception as e:
+            print(f"[ERROR] Nuclei scan failed: {e}")
+            return []
+    
+    async def _run_next88_scan(self, hosts: list, extra_flags: list, discord_webhook: Optional[str]) -> list:
+        """Run next88 scan with given flags."""
+        try:
+            # Find next88 binary
+            next88_bin = None
+            for bin_name in ["next88", "react2shell"]:
+                result = await asyncio.create_subprocess_exec(
+                    "which", bin_name,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await result.wait()
+                if result.returncode == 0:
+                    next88_bin = bin_name
+                    break
+            
+            if not next88_bin:
+                # Fallback to Python script
+                python_script = Path("/app/python/react2shell.py")
+                if not python_script.exists():
+                    return []
+                next88_bin = "python3"
+                extra_flags = [str(python_script)] + extra_flags
+            
+            # Write hosts to temp file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+                for host in hosts:
+                    f.write(f"{host}\n")
+                temp_file = f.name
+            
+            # Write results to temp JSON file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+                results_file = f.name
+            
+            try:
+                command = [next88_bin]
+                if next88_bin == "python3":
+                    # Python script flags
+                    command.extend([
+                        "-l", temp_file,
+                        "-k", "-q", "-o", results_file, "-all-results"
+                    ])
+                    # Convert Go flags to Python flags
+                    python_flags = []
+                    i = 0
+                    while i < len(extra_flags):
+                        flag = extra_flags[i]
+                        if flag == "-waf-bypass":
+                            python_flags.append("--waf-bypass")
+                        elif flag == "-vercel-waf-bypass":
+                            python_flags.append("--vercel-waf-bypass")
+                        elif flag == "-check-source-exposure":
+                            python_flags.append("--check-source-exposure")
+                        elif flag == "-dos-test":
+                            python_flags.append("--dos-test")
+                        elif flag == "-dos-requests" and i + 1 < len(extra_flags):
+                            python_flags.extend(["--dos-requests", extra_flags[i + 1]])
+                            i += 1
+                        elif flag == "-path-file" and i + 1 < len(extra_flags):
+                            python_flags.extend(["--path-file", extra_flags[i + 1]])
+                            i += 1
+                        i += 1
+                    command.extend(python_flags)
+                else:
+                    # Go binary flags
+                    command.extend([
+                        "-l", temp_file,
+                        "-k", "-q", "-o", results_file, "-all-results"
+                    ])
+                    # Handle dos-test and dos-requests flags specially
+                    i = 0
+                    while i < len(extra_flags):
+                        flag = extra_flags[i]
+                        if flag == "-dos-test":
+                            command.append("-dos-test")
+                        elif flag == "-dos-requests" and i + 1 < len(extra_flags):
+                            command.extend(["-dos-requests", extra_flags[i + 1]])
+                            i += 1
+                        else:
+                            command.append(flag)
+                        i += 1
+                
+                # Add Discord webhook if available
+                if discord_webhook:
+                    if next88_bin == "python3":
+                        command.extend(["--discord-webhook", discord_webhook])
+                    else:
+                        command.extend(["--discord-webhook", discord_webhook])
+                
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await process.wait()
+                
+                # Parse JSON results
+                vulnerable_hosts = set()
+                if os.path.exists(results_file):
+                    with open(results_file, 'r') as f:
+                        data = json.load(f)
+                        for result in data.get('results', []):
+                            if result.get('vulnerable') is True:
+                                host = result.get('host', '')
+                                if host:
+                                    parsed = urlparse(host)
+                                    if parsed.netloc:
+                                        vulnerable_hosts.add(parsed.netloc.split(':')[0])
+                                    else:
+                                        vulnerable_hosts.add(host.replace('https://', '').replace('http://', '').split('/')[0])
+                
+                return list(vulnerable_hosts)
+            finally:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+                if os.path.exists(results_file):
+                    os.unlink(results_file)
+        except Exception as e:
+            print(f"[ERROR] next88 scan failed: {e}")
+            return []
+    
+    async def _run_source_exposure_check(
+        self, domain: str, hosts: list, discord_webhook: Optional[str]
+    ) -> list:
+        """Run source code exposure check via ACTION_ID extraction."""
+        try:
+            # This is a simplified version - the full implementation would:
+            # 1. Collect JS URLs using ensure_urls
+            # 2. Download JS files and extract ACTION_IDs
+            # 3. Test ACTION_IDs with next88 --check-source-exposure
+            
+            # For now, just run next88 with --check-source-exposure flag
+            return await self._run_next88_scan(
+                hosts, ["-check-source-exposure"], discord_webhook
+            )
+        except Exception as e:
+            print(f"[ERROR] Source exposure check failed: {e}")
+            return []
+    
+    async def _send_react2shell_results(
+        self, scan_id: str, domain: str, total_hosts: int,
+        nuclei_count: int, dos_count: int, waf_count: int, vercel_count: int,
+        paths_count: int, source_exposure_count: int,
+        all_vulnerable: list
+    ):
+        """Format and send React2Shell scan results."""
+        try:
+            interaction = active_scans[scan_id]["interaction"]
+            
+            embed = discord.Embed(
+                title="🔍 React2Shell RCE Test Results",
+                description=f"**Target:** `{domain}`",
+                color=discord.Color.red() if all_vulnerable else discord.Color.green(),
+            )
+            
+            if all_vulnerable:
+                embed.add_field(
+                    name="Status", value="🔴 **Vulnerable**", inline=False
+                )
+                embed.add_field(
+                    name="Vulnerable Hosts Found",
+                    value=f"**{len(all_vulnerable)}** unique host(s)",
+                    inline=False,
+                )
+                
+                # Add vulnerable hosts list
+                hosts_text = ""
+                for i, host in enumerate(all_vulnerable[:15], 1):
+                    hosts_text += f"`{host}`\n"
+                if len(all_vulnerable) > 15:
+                    hosts_text += f"\n... and {len(all_vulnerable) - 15} more"
+                embed.add_field(
+                    name="Vulnerable Hosts", value=hosts_text, inline=False
+                )
+                
+                # Add breakdown
+                breakdown = []
+                if nuclei_count > 0:
+                    breakdown.append(f"Nuclei: {nuclei_count}")
+                if dos_count > 0:
+                    breakdown.append(f"DoS Test: {dos_count}")
+                if waf_count > 0:
+                    breakdown.append(f"WAF Bypass: {waf_count}")
+                if vercel_count > 0:
+                    breakdown.append(f"Vercel WAF: {vercel_count}")
+                if paths_count > 0:
+                    breakdown.append(f"Paths: {paths_count}")
+                if source_exposure_count > 0:
+                    breakdown.append(f"Source Exposure: {source_exposure_count}")
+                if breakdown:
+                    embed.add_field(
+                        name="Breakdown", value=" • ".join(breakdown), inline=False
+                    )
+            else:
+                embed.add_field(
+                    name="Status", value="✅ **Not Vulnerable**", inline=False
+                )
+                stats_text = f"**Live hosts:** `{total_hosts}`\n"
+                stats_text += f"**Nuclei findings:** `{nuclei_count}`\n"
+                if dos_count > 0:
+                    stats_text += f"**DoS Test findings:** `{dos_count}`\n"
+                stats_text += f"**WAF Bypass findings:** `{waf_count}`\n"
+                stats_text += f"**Vercel WAF findings:** `{vercel_count}`\n"
+                if paths_count > 0:
+                    stats_text += f"**Paths findings:** `{paths_count}`\n"
+                if source_exposure_count > 0:
+                    stats_text += f"**Source Exposure findings:** `{source_exposure_count}`\n"
+                embed.add_field(name="Statistics", value=stats_text, inline=False)
+            
+            await interaction.edit_original_response(embed=embed)
+            active_scans[scan_id]["status"] = "completed"
+        except Exception as e:
+            print(f"[ERROR] Failed to send results: {e}")
+    
+    async def _update_scan_embed(self, scan_id: str, message: str, color: discord.Color):
+        """Update scan embed with message."""
+        try:
+            if scan_id in active_scans:
+                interaction = active_scans[scan_id]["interaction"]
+                embed = discord.Embed(
+                    title="React2Shell Host Scan",
+                    description=message,
+                    color=color,
+                )
+                await interaction.edit_original_response(embed=embed)
+        except Exception as e:
+            print(f"[ERROR] Failed to update embed: {e}")
 
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
