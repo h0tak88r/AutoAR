@@ -69,7 +69,6 @@ Commands:
   keyhack add <keyname> <command> <desc> [notes] Add a new template
   jwt scan             -t <url> [--cookie|--header] [-M <mode>]   Test JWT security using jwt_tool
   jwt query            <query_id>                                   Query JWT tool log by ID
-  react2shell_scan run -d <domain> [-t <threads>]                  Scan hosts for React Server Components RCE (CVE-2025-55182)
 
 Workflows:
   lite run            -d <domain>
@@ -121,7 +120,6 @@ cmd_keyhack()    { "$ROOT_DIR/modules/keyhack.sh"       "$@"; }
 cmd_jwt()        { "$ROOT_DIR/modules/jwt_scan.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
-cmd_react2shell_scan() { "$ROOT_DIR/modules/react2shell_scan.sh" "$@"; }
 
 main() {
   if [[ $# -lt 1 ]]; then
@@ -175,7 +173,6 @@ main() {
   fastlook)    cmd_fastlook    "$@" ;;
   keyhack)     cmd_keyhack     "$@" ;;
   jwt)         cmd_jwt         "$@" ;;
-  react2shell_scan) cmd_react2shell_scan "$@" ;;
   help)        cmd_help        "$@" ;;
   wpDepConf)   cmd_wpdepconf   "$@" ;;
   --help|-h)  print_usage ;;
