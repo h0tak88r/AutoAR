@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/gin-gonic/gin"
 )
 
 var (
@@ -72,7 +71,7 @@ func startDiscordBot() {
 	defer dg.Close()
 
 	// Register slash commands
-	registerCommands(dg)
+	registerAllCommands(dg)
 
 	fmt.Println("AutoAR Discord Bot is running.")
 	
@@ -102,90 +101,121 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 }
 
 func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.ApplicationCommandData().Name == "react2shell_scan" {
+	cmdName := i.ApplicationCommandData().Name
+	
+	// Route to appropriate handler
+	switch cmdName {
+	case "react2shell_scan":
 		handleReact2ShellScan(s, i)
-	} else if i.ApplicationCommandData().Name == "react2shell" {
+	case "react2shell":
 		handleReact2Shell(s, i)
-	} else if i.ApplicationCommandData().Name == "livehosts" {
+	case "scan_domain":
+		handleScanDomain(s, i)
+	case "scan_subdomain":
+		handleScanSubdomain(s, i)
+	case "lite_scan":
+		handleLiteScan(s, i)
+	case "fast_look":
+		handleFastLook(s, i)
+	case "domain_run":
+		handleDomainRun(s, i)
+	case "subdomains":
+		handleSubdomains(s, i)
+	case "cnames":
+		handleCnames(s, i)
+	case "livehosts":
 		handleLivehosts(s, i)
+	case "urls":
+		handleURLs(s, i)
+	case "reflection":
+		handleReflection(s, i)
+	case "tech":
+		handleTech(s, i)
+	case "ports":
+		handlePorts(s, i)
+	case "nuclei":
+		handleNuclei(s, i)
+	case "js_scan":
+		handleJSScan(s, i)
+	case "gf_scan":
+		handleGFScan(s, i)
+	case "sqlmap":
+		handleSQLMap(s, i)
+	case "dalfox":
+		handleDalfox(s, i)
+	case "dns_takeover":
+		handleDNSTakeover(s, i)
+	case "dns_cname":
+		handleDNSCname(s, i)
+	case "dns_ns":
+		handleDNSNs(s, i)
+	case "dns_azure_aws":
+		handleDNSAzureAws(s, i)
+	case "dns_dnsreaper":
+		handleDNSDNSReaper(s, i)
+	case "s3_scan":
+		handleS3Scan(s, i)
+	case "s3_enum":
+		handleS3Enum(s, i)
+	case "github_scan":
+		handleGitHubScan(s, i)
+	case "github_org_scan":
+		handleGitHubOrgScan(s, i)
+	case "github_experimental_scan":
+		handleGitHubExperimentalScan(s, i)
+	case "github_wordlist":
+		handleGitHubWordlist(s, i)
+	case "githubdepconf":
+		handleGitHubDepConf(s, i)
+	case "db_domains":
+		handleDBDomains(s, i)
+	case "db_subdomains":
+		handleDBSubdomains(s, i)
+	case "db_delete_domain":
+		handleDBDeleteDomain(s, i)
+	case "keyhack_list":
+		handleKeyhackList(s, i)
+	case "keyhack_search":
+		handleKeyhackSearch(s, i)
+	case "keyhack_add":
+		handleKeyhackAdd(s, i)
+	case "keyhack_validate":
+		handleKeyhackValidate(s, i)
+	case "monitor_updates_add":
+		handleMonitorUpdatesAdd(s, i)
+	case "monitor_updates_remove":
+		handleMonitorUpdatesRemove(s, i)
+	case "monitor_updates_start":
+		handleMonitorUpdatesStart(s, i)
+	case "monitor_updates_stop":
+		handleMonitorUpdatesStop(s, i)
+	case "monitor_updates_list":
+		handleMonitorUpdatesList(s, i)
+	case "jwt_scan":
+		handleJWTScan(s, i)
+	case "jwt_query":
+		handleJWTQuery(s, i)
+	case "backup_scan":
+		handleBackupScan(s, i)
+	case "check_tools":
+		handleCheckTools(s, i)
+	case "cleanup":
+		handleCleanup(s, i)
+	case "misconfig":
+		handleMisconfig(s, i)
+	case "live_depconfusion_scan":
+		handleLiveDepconfusionScan(s, i)
+	case "webdepconf":
+		handleWebDepConf(s, i)
+	case "wp_depconf":
+		handleWPDepConf(s, i)
+	case "help_autoar":
+		handleHelp(s, i)
+	case "scan_status":
+		handleScanStatus(s, i)
+	default:
+		log.Printf("Unknown command: %s", cmdName)
+		respond(s, i, fmt.Sprintf("❌ Unknown command: %s", cmdName), false)
 	}
-	// Add more command handlers here
 }
 
-func registerCommands(s *discordgo.Session) {
-	commands := []*discordgo.ApplicationCommand{
-		{
-			Name:        "react2shell_scan",
-			Description: "Scan domain hosts for React Server Components RCE using next88 smart scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "domain",
-					Description: "The domain to scan",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "threads",
-					Description: "Number of threads (default: 100)",
-					Required:    false,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "enable_source_exposure",
-					Description: "Enable source code exposure check (default: false)",
-					Required:    false,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "dos_test",
-					Description: "Enable DoS test (default: false)",
-					Required:    false,
-				},
-			},
-		},
-		{
-			Name:        "react2shell",
-			Description: "Test single URL for React Server Components RCE using next88 smart scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "url",
-					Description: "Target URL to test",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "verbose",
-					Description: "Enable verbose output",
-					Required:    false,
-				},
-			},
-		},
-		{
-			Name:        "livehosts",
-			Description: "Filter live hosts from subdomains",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "domain",
-					Description: "The domain",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "threads",
-					Description: "Number of threads (default: 100)",
-					Required:    false,
-				},
-			},
-		},
-	}
-
-	for _, cmd := range commands {
-		_, err := s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
-		if err != nil {
-			log.Printf("Cannot create command %v: %v", cmd.Name, err)
-		}
-	}
-}
