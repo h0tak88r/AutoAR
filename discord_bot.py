@@ -2436,7 +2436,7 @@ class AutoARBot(commands.Cog):
                         "-l", temp_file,
                         "-k", "-q", "-o", results_file, "-all-results"
                     ])
-                    # Handle dos-test and dos-requests flags specially
+                    # Handle flags - smart-scan may not be available, so we'll try it but handle errors
                     i = 0
                     while i < len(extra_flags):
                         flag = extra_flags[i]
@@ -2445,6 +2445,10 @@ class AutoARBot(commands.Cog):
                         elif flag == "-dos-requests" and i + 1 < len(extra_flags):
                             command.extend(["-dos-requests", extra_flags[i + 1]])
                             i += 1
+                        elif flag == "-smart-scan":
+                            # Try to add smart-scan flag - if next88 doesn't support it, it will error
+                            # But we'll catch that and continue without it
+                            command.append("-smart-scan")
                         else:
                             command.append(flag)
                         i += 1
@@ -2461,22 +2465,61 @@ class AutoARBot(commands.Cog):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                stdout, stderr = await process.communicate()
                 await process.wait()
+                
+                # Check for errors (like unknown flag)
+                stderr_str = stderr.decode("utf-8", errors="ignore") if stderr else ""
+                if stderr_str and ("not defined" in stderr_str.lower() or "unknown flag" in stderr_str.lower()):
+                    print(f"[WARN] next88 error: {stderr_str}")
+                    # If smart-scan flag failed, retry without it
+                    if "-smart-scan" in extra_flags:
+                        print("[INFO] Retrying without -smart-scan flag...")
+                        # Remove smart-scan and retry with normal scan
+                        retry_flags = [f for f in extra_flags if f != "-smart-scan"]
+                        return await self._run_next88_scan(hosts, retry_flags, discord_webhook)
                 
                 # Parse JSON results
                 vulnerable_hosts = set()
-                if os.path.exists(results_file):
-                    with open(results_file, 'r') as f:
-                        data = json.load(f)
-                        for result in data.get('results', []):
-                            if result.get('vulnerable') is True:
-                                host = result.get('host', '')
-                                if host:
-                                    parsed = urlparse(host)
-                                    if parsed.netloc:
-                                        vulnerable_hosts.add(parsed.netloc.split(':')[0])
-                                    else:
-                                        vulnerable_hosts.add(host.replace('https://', '').replace('http://', '').split('/')[0])
+                if os.path.exists(results_file) and os.path.getsize(results_file) > 0:
+                    try:
+                        with open(results_file, 'r') as f:
+                            data = json.load(f)
+                            for result in data.get('results', []):
+                                # Check multiple possible field names for vulnerability
+                                is_vulnerable = (
+                                    result.get('vulnerable') is True or
+                                    result.get('vulnerable') == 'true' or
+                                    result.get('is_vulnerable') is True or
+                                    'vulnerable' in str(result).lower()
+                                )
+                                if is_vulnerable:
+                                    host = result.get('host', result.get('url', result.get('target', '')))
+                                    if host:
+                                        # Clean up host string
+                                        host = host.strip()
+                                        parsed = urlparse(host)
+                                        if parsed.netloc:
+                                            vulnerable_hosts.add(parsed.netloc.split(':')[0])
+                                        else:
+                                            # Remove protocol and path
+                                            clean_host = host.replace('https://', '').replace('http://', '').split('/')[0].split(':')[0]
+                                            if clean_host:
+                                                vulnerable_hosts.add(clean_host)
+                    except Exception as e:
+                        print(f"[ERROR] Failed to parse next88 JSON results: {e}")
+                        # Try to read raw file for debugging
+                        if os.path.exists(results_file):
+                            try:
+                                with open(results_file, 'r') as f:
+                                    content = f.read()
+                                    print(f"[DEBUG] JSON file content (first 500 chars): {content[:500]}")
+                            except:
+                                pass
+                else:
+                    print(f"[WARN] Results file missing or empty: {results_file}")
+                    if stderr_str:
+                        print(f"[WARN] next88 stderr: {stderr_str[:500]}")
                 
                 return list(vulnerable_hosts)
             finally:
