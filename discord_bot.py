@@ -1378,38 +1378,58 @@ class AutoARBot(commands.Cog):
                         pass
                 return
             
-            # Build next88 command with smart scan
-            command = [
-                next88_bin,
-                "-u", target,
-                "-smart-scan",
-                "-k",  # Insecure (skip SSL verification)
-            ]
+            # Create temp file for JSON output
+            results_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json').name
             
-            if verbose:
-                command.append("-v")
-            
-            if webhook_url:
-                command.extend(["--discord-webhook", webhook_url])
-            
-            # Run next88
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=120
-            )
-            
-            stdout_str = stdout.decode("utf-8", errors="ignore") if stdout else ""
-            stderr_str = stderr.decode("utf-8", errors="ignore") if stderr else ""
-            
-            # Check if vulnerable
-            is_vulnerable = "[VULNERABLE]" in stdout_str or process.returncode == 1
-            
-            # Update scan status
-            if scan_id in active_scans:
+            try:
+                # Build next88 command - use JSON output for proper parsing
+                command = [
+                    next88_bin,
+                    "-u", target,
+                    "-k",  # Insecure (skip SSL verification)
+                    "-o", results_file,
+                    "-all-results",  # Get all results in JSON
+                ]
+                
+                # Note: Smart scan flag may not be available in all next88 versions
+                # We'll rely on JSON output parsing instead
+                
+                if webhook_url:
+                    command.extend(["--discord-webhook", webhook_url])
+                
+                # Run next88
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=120
+                )
+                
+                stdout_str = stdout.decode("utf-8", errors="ignore") if stdout else ""
+                stderr_str = stderr.decode("utf-8", errors="ignore") if stderr else ""
+                
+                # Parse JSON results to check if vulnerable
+                is_vulnerable = False
+                if os.path.exists(results_file) and os.path.getsize(results_file) > 0:
+                    try:
+                        with open(results_file, 'r') as f:
+                            data = json.load(f)
+                            for result in data.get('results', []):
+                                if result.get('vulnerable') is True:
+                                    is_vulnerable = True
+                                    break
+                    except Exception as e:
+                        print(f"[WARN] Failed to parse JSON results: {e}")
+                        # Fallback to stdout check
+                        is_vulnerable = "[VULNERABLE]" in stdout_str or "vulnerable" in stdout_str.lower()
+                else:
+                    # Fallback to stdout/stderr check
+                    is_vulnerable = "[VULNERABLE]" in stdout_str or "vulnerable" in stdout_str.lower() or process.returncode != 0
+                
+                # Update scan status
+                if scan_id in active_scans:
                 active_scans[scan_id]["status"] = "completed"
                 active_scans[scan_id]["results"] = {
                     "returncode": process.returncode,
@@ -1448,6 +1468,13 @@ class AutoARBot(commands.Cog):
                     await interaction.edit_original_response(embed=embed)
                 except:
                     pass
+            finally:
+                # Clean up temp file
+                if os.path.exists(results_file):
+                    try:
+                        os.unlink(results_file)
+                    except:
+                        pass
                     
         except asyncio.TimeoutError:
             error_msg = "Scan timed out after 120 seconds"
