@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -452,8 +453,307 @@ func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// TODO: Implement single URL test
-	respond(s, i, "Single URL test - Coming soon in Go implementation", false)
+	options := i.ApplicationCommandData().Options
+	url := ""
+	verbose := false
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "url":
+			url = opt.StringValue()
+		case "verbose":
+			verbose = opt.BoolValue()
+		}
+	}
+
+	if url == "" {
+		respond(s, i, "❌ URL is required", false)
+		return
+	}
+
+	// Normalize URL
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
+	}
+
+	// Send initial response
+	embed := &discordgo.MessageEmbed{
+		Title:       "🔍 React2Shell RCE Test",
+		Description: fmt.Sprintf("**Target:** `%s`\n**Method:** next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)", url),
+		Color:       0x3498db, // Blue
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "🟡 Running", Inline: false},
+		},
+	}
+
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+	if err != nil {
+		log.Printf("Error responding to interaction: %v", err)
+		return
+	}
+
+	// Run scan in background
+	go runReact2ShellSingle(s, i, url, verbose)
+}
+
+func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
+	// Find next88 binary
+	next88Bin := findNext88()
+	if next88Bin == "" {
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ React2Shell Test Failed",
+			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** next88 binary not found. Please install: go install github.com/h0tak88r/next88@latest", target),
+			Color:       0xff0000,
+		}
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	// Create temp file for JSON output
+	resultsFile, err := os.CreateTemp("", "next88-single-*.json")
+	if err != nil {
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ React2Shell Test Failed",
+			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** Failed to create temp file: %v", target, err),
+			Color:       0xff0000,
+		}
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+	resultsFile.Close()
+	defer os.Remove(resultsFile.Name())
+
+	// Build next88 command
+	command := []string{
+		next88Bin,
+		"-u", target,
+		"-k", // Insecure (skip SSL verification)
+		"-o", resultsFile.Name(),
+		"-all-results", // Get all results in JSON
+	}
+
+	webhookURL := getDiscordWebhook()
+	if webhookURL != "" {
+		command = append(command, "--discord-webhook", webhookURL)
+	}
+
+	log.Printf("[DEBUG] next88 single URL command: %s", strings.Join(command, " "))
+
+	// Run next88
+	cmd := exec.Command(command[0], command[1:]...)
+	output, err := cmd.CombinedOutput()
+
+	stdoutStr := string(output)
+	stderrStr := ""
+	if err != nil {
+		stderrStr = err.Error()
+	}
+
+	// Parse JSON results
+	isVulnerable := false
+	var vulnerabilityDetails map[string]interface{}
+	var pocData map[string]interface{}
+
+	if fileInfo, err := os.Stat(resultsFile.Name()); err == nil && fileInfo.Size() > 0 {
+		data, err := os.ReadFile(resultsFile.Name())
+		if err == nil {
+			var jsonData map[string]interface{}
+			if err := json.Unmarshal(data, &jsonData); err == nil {
+				results, ok := jsonData["results"].([]interface{})
+				if ok {
+					for _, result := range results {
+						resultMap, ok := result.(map[string]interface{})
+						if !ok {
+							continue
+						}
+
+						// Check if vulnerable
+						if v, ok := resultMap["vulnerable"].(bool); ok && v {
+							isVulnerable = true
+
+							// Extract vulnerability details
+							vulnerabilityDetails = map[string]interface{}{
+								"method":      getStringValue(resultMap, "method", "test_method", "Unknown"),
+								"phase":       getStringValue(resultMap, "phase", "waf_bypass", "bypass_type", "normal"),
+								"path":        getStringValue(resultMap, "path", "url", ""),
+								"status_code": getStringValue(resultMap, "status_code", "status", ""),
+							}
+
+							// Extract PoC data
+							pocData = map[string]interface{}{
+								"request":  getStringValue(resultMap, "request", "request_body", "payload", "request_data", ""),
+								"response": getStringValue(resultMap, "response", "response_body", "response_data", ""),
+								"headers":  resultMap["headers"],
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to stdout check if JSON parsing failed
+	if !isVulnerable {
+		isVulnerable = strings.Contains(strings.ToLower(stdoutStr), "vulnerable") ||
+			strings.Contains(strings.ToLower(stderrStr), "vulnerable")
+	}
+
+	// Create result embed
+	color := 0xff0000 // Red
+	if !isVulnerable {
+		color = 0x00ff00 // Green
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🔍 React2Shell RCE Test Results",
+		Description: fmt.Sprintf("**Target:** `%s`", target),
+		Color:       color,
+	}
+
+	statusText := "🔴 **Vulnerable**"
+	if !isVulnerable {
+		statusText = "✅ **Not Vulnerable**"
+	}
+	embed.Fields = []*discordgo.MessageEmbedField{
+		{Name: "Status", Value: statusText, Inline: false},
+	}
+
+	// Add detection phase/method details if available
+	if isVulnerable && vulnerabilityDetails != nil {
+		phase := getStringFromMap(vulnerabilityDetails, "phase", "Unknown")
+		method := getStringFromMap(vulnerabilityDetails, "method", "Unknown")
+
+		// Map phase to readable format
+		phaseMap := map[string]string{
+			"normal":     "Normal RCE Test",
+			"waf_bypass": "WAF Bypass",
+			"vercel_waf": "Vercel WAF Bypass",
+			"paths":      "Common Paths",
+		}
+		phaseDisplay := phaseMap[strings.ToLower(phase)]
+		if phaseDisplay == "" {
+			phaseDisplay = strings.Title(phase)
+		}
+
+		detectionInfo := fmt.Sprintf("**Detection Phase:** %s", phaseDisplay)
+		if method != "" && method != "Unknown" {
+			detectionInfo += fmt.Sprintf("\n**Method:** %s", method)
+		}
+		if path := getStringFromMap(vulnerabilityDetails, "path", ""); path != "" {
+			detectionInfo += fmt.Sprintf("\n**Path:** `%s`", path)
+		}
+		if statusCode := getStringFromMap(vulnerabilityDetails, "status_code", ""); statusCode != "" {
+			detectionInfo += fmt.Sprintf("\n**Status Code:** `%s`", statusCode)
+		}
+
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Detection Details",
+			Value: detectionInfo,
+		})
+	} else {
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Method",
+			Value: "next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)",
+		})
+	}
+
+	// Create PoC JSON file if vulnerable
+	var pocFile *os.File
+	if isVulnerable && pocData != nil {
+		pocJSON := map[string]interface{}{
+			"target":              target,
+			"vulnerable":          true,
+			"vulnerability_details": vulnerabilityDetails,
+			"poc":                 pocData,
+			"timestamp":           time.Now().Format(time.RFC3339),
+		}
+
+		pocDataJSON, err := json.MarshalIndent(pocJSON, "", "  ")
+		if err == nil {
+			pocFile, err = os.CreateTemp("", "poc-*.json")
+			if err == nil {
+				pocFile.Write(pocDataJSON)
+				pocFile.Close()
+			}
+		}
+	}
+
+	// Update embed
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("Error updating embed: %v", err)
+	}
+
+	// Update embed first
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("Error updating embed: %v", err)
+	}
+
+	// Send PoC file if available (as followup message)
+	if pocFile != nil && pocFile.Name() != "" {
+		file, err := os.Open(pocFile.Name())
+		if err == nil {
+			defer file.Close()
+			defer os.Remove(pocFile.Name())
+
+			fileName := fmt.Sprintf("poc-%s.json", time.Now().Format("20060102-150405"))
+			
+			// Read file content
+			fileData, err := os.ReadFile(pocFile.Name())
+			if err == nil {
+				// Send as followup message with file attachment
+				_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+					Files: []*discordgo.File{
+						{
+							Name:        fileName,
+							ContentType: "application/json",
+							Reader:      strings.NewReader(string(fileData)),
+						},
+					},
+				})
+				if err != nil {
+					log.Printf("Error sending PoC file: %v", err)
+				}
+			}
+		}
+	}
+}
+
+// Helper function to get string value from map with multiple possible keys
+func getStringValue(m map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if val, ok := m[key]; ok {
+			if str, ok := val.(string); ok {
+				return str
+			}
+		}
+	}
+	return ""
+}
+
+// Helper function to get string from map
+func getStringFromMap(m map[string]interface{}, key, defaultValue string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return defaultValue
 }
 
 func handleLivehosts(s *discordgo.Session, i *discordgo.InteractionCreate) {
