@@ -66,9 +66,9 @@ livehosts_get() {
   
   # Send Discord notification only if not in silent mode
   # COMMENTED OUT: Force silent mode for react2shell_scan
-  # if [[ "$silent" != "true" ]]; then
-  #   discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
-  # fi
+  if [[ "$silent" != "true" ]]; then
+    discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
+  fi
 }
 
 case "${1:-}" in
