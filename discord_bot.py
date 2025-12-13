@@ -2390,44 +2390,40 @@ class AutoARBot(commands.Cog):
                 await self._update_scan_embed(scan_id, "❌ Failed to normalize hosts", discord.Color.red())
                 return
             
-            # Step 2: Run Nuclei scan
-            nuclei_results = await self._run_nuclei_scan(normalized_hosts, threads)
-            
-            # Step 3: DoS test (if enabled)
+            # Step 2: DoS test (if enabled)
             dos_results = []
             if dos_test:
                 dos_results = await self._run_next88_scan(normalized_hosts, ["-dos-test", "-dos-requests", "100"], discord_webhook)
             
-            # Step 4: Run next88 with WAF bypass
+            # Step 3: Run next88 with WAF bypass
             waf_results = await self._run_next88_scan(normalized_hosts, ["-waf-bypass"], discord_webhook)
             
-            # Step 5: Run next88 with Vercel WAF bypass
+            # Step 4: Run next88 with Vercel WAF bypass
             vercel_results = await self._run_next88_scan(normalized_hosts, ["-vercel-waf-bypass"], discord_webhook)
             
-            # Step 6: Run next88 with common paths
+            # Step 5: Run next88 with common paths
             paths_file = Path("/app/Wordlists/react-nextjs-paths.txt")
             paths_results = []
             if paths_file.exists():
                 paths_results = await self._run_next88_scan(normalized_hosts, ["-path-file", str(paths_file)], discord_webhook)
             
-            # Step 7: Source code exposure check (optional)
+            # Step 6: Source code exposure check (optional)
             source_exposure_results = []
             if enable_source_exposure:
                 source_exposure_results = await self._run_source_exposure_check(domain, normalized_hosts, discord_webhook)
             
-            # Collect all vulnerable hosts
+            # Collect all vulnerable hosts (only from next88 scans)
             all_vulnerable = set()
-            all_vulnerable.update(nuclei_results)
             all_vulnerable.update(dos_results)
             all_vulnerable.update(waf_results)
             all_vulnerable.update(vercel_results)
             all_vulnerable.update(paths_results)
             all_vulnerable.update(source_exposure_results)
             
-            # Format and send results
+            # Format and send results (nuclei_count is now 0 since we don't use Nuclei)
             await self._send_react2shell_results(
                 scan_id, domain, len(normalized_hosts), 
-                len(nuclei_results), len(dos_results), len(waf_results), len(vercel_results), 
+                0, len(dos_results), len(waf_results), len(vercel_results), 
                 len(paths_results), len(source_exposure_results), 
                 list(all_vulnerable)
             )
@@ -2712,10 +2708,8 @@ class AutoARBot(commands.Cog):
                     name="Vulnerable Hosts", value=hosts_text, inline=False
                 )
                 
-                # Add breakdown
+                # Add breakdown (only next88 results, no Nuclei)
                 breakdown = []
-                if nuclei_count > 0:
-                    breakdown.append(f"Nuclei: {nuclei_count}")
                 if dos_count > 0:
                     breakdown.append(f"DoS Test: {dos_count}")
                 if waf_count > 0:
@@ -2735,7 +2729,6 @@ class AutoARBot(commands.Cog):
                     name="Status", value="✅ **Not Vulnerable**", inline=False
                 )
                 stats_text = f"**Live hosts:** `{total_hosts}`\n"
-                stats_text += f"**Nuclei findings:** `{nuclei_count}`\n"
                 if dos_count > 0:
                     stats_text += f"**DoS Test findings:** `{dos_count}`\n"
                 stats_text += f"**WAF Bypass findings:** `{waf_count}`\n"
