@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -736,4 +737,23 @@ func handleDalfox(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 
 	go runScanBackground(scanID, "dalfox", domain, command, s, i)
+}
+
+// Helper function for responding to interactions
+func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message string, ephemeral bool) {
+	flags := discordgo.MessageFlagsEphemeral
+	if !ephemeral {
+		flags = 0
+	}
+
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: message,
+			Flags:   flags,
+		},
+	})
+	if err != nil {
+		log.Printf("Error responding: %v", err)
+	}
 }
