@@ -1,13 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,21 +13,11 @@ import (
 )
 
 var (
-	activeScans   = make(map[string]*ScanInfo)
 	scanResults   = make(map[string]*ScanResult)
-	scansMutex    sync.RWMutex
-	autoarScript  = getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh")
-	resultsDir    = getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
+	apiScansMutex sync.RWMutex
 )
 
-type ScanInfo struct {
-	ScanID     string    `json:"scan_id"`
-	Status     string    `json:"status"`
-	ScanType   string    `json:"scan_type"`
-	StartedAt  time.Time `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	Command    string    `json:"command"`
-}
+// ScanInfo is defined in commands.go
 
 type ScanResult struct {
 	ScanID     string    `json:"scan_id"`
@@ -182,7 +169,7 @@ func scanSubdomains(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "subdomains", "get", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "subdomains", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "subdomains")
 
@@ -207,7 +194,7 @@ func scanLivehosts(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "livehosts", "get", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "livehosts", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "livehosts")
 
@@ -232,7 +219,7 @@ func scanCnames(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "cnames", "get", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "cnames", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "cnames")
 
@@ -257,7 +244,7 @@ func scanURLs(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "urls", "collect", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "urls", "collect", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "urls")
 
@@ -282,7 +269,7 @@ func scanJS(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "js", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "js", "scan", "-d", *req.Domain}
 
 	if req.Subdomain != nil && *req.Subdomain != "" {
 		command = append(command, "-s", *req.Subdomain)
@@ -311,7 +298,7 @@ func scanReflection(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "reflection", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "reflection", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "reflection")
 
@@ -341,7 +328,7 @@ func scanNuclei(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "nuclei", "run"}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "nuclei", "run"}
 
 	var target string
 	if req.Domain != nil {
@@ -385,7 +372,7 @@ func scanTech(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "tech", "detect", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "tech", "detect", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "tech")
 
@@ -410,7 +397,7 @@ func scanPorts(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "ports", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "ports", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "ports")
 
@@ -435,7 +422,7 @@ func scanGF(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "gf", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "gf", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "gf")
 
@@ -460,7 +447,7 @@ func scanDNSTakeover(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "dns", "takeover", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "dns", "takeover", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "dns-takeover")
 
@@ -485,7 +472,7 @@ func scanS3(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "s3", "scan", "-b", *req.Bucket}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "s3", "scan", "-b", *req.Bucket}
 
 	if req.Region != nil && *req.Region != "" {
 		command = append(command, "-r", *req.Region)
@@ -514,7 +501,7 @@ func scanGitHub(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "github", "scan", "-r", *req.Repo}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "github", "scan", "-r", *req.Repo}
 
 	go executeScan(scanID, command, "github")
 
@@ -540,7 +527,7 @@ func scanGitHubOrg(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "github", "org", "-o", *org}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "github", "org", "-o", *org}
 
 	go executeScan(scanID, command, "github_org")
 
@@ -565,7 +552,7 @@ func scanLite(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "lite", "run", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "lite", "run", "-d", *req.Domain}
 
 	if req.SkipJS != nil && *req.SkipJS {
 		command = append(command, "--skip-js")
@@ -618,7 +605,7 @@ func keyhackSearch(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "keyhack", "search", *req.Query}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "keyhack", "search", *req.Query}
 
 	go executeScan(scanID, command, "keyhack_search")
 
@@ -648,7 +635,7 @@ func keyhackValidate(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{autoarScript, "keyhack", "validate", *req.Provider, *req.APIKey}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "keyhack", "validate", *req.Provider, *req.APIKey}
 
 	go executeScan(scanID, command, "keyhack_validate")
 
@@ -666,14 +653,13 @@ func getScanStatus(c *gin.Context) {
 	scansMutex.RLock()
 	defer scansMutex.RUnlock()
 
-	// Check active scans
+	// Check active scans (from commands.go)
 	if scan, ok := activeScans[scanID]; ok {
-		completedAt := scan.CompletedAt
 		c.JSON(http.StatusOK, ScanStatusResponse{
 			ScanID:      scanID,
 			Status:      scan.Status,
 			StartedAt:   scan.StartedAt,
-			CompletedAt: completedAt,
+			CompletedAt: scan.CompletedAt,
 			Output:      nil,
 			Error:       nil,
 		})
@@ -707,8 +693,8 @@ func getScanStatus(c *gin.Context) {
 func getScanResults(c *gin.Context) {
 	scanID := c.Param("scan_id")
 
-	scansMutex.RLock()
-	defer scansMutex.RUnlock()
+	apiScansMutex.RLock()
+	defer apiScansMutex.RUnlock()
 
 	if scan, ok := scanResults[scanID]; ok {
 		c.JSON(http.StatusOK, scan)
@@ -721,9 +707,9 @@ func getScanResults(c *gin.Context) {
 func downloadScanResults(c *gin.Context) {
 	scanID := c.Param("scan_id")
 
-	scansMutex.RLock()
+	apiScansMutex.RLock()
 	scan, ok := scanResults[scanID]
-	scansMutex.RUnlock()
+	apiScansMutex.RUnlock()
 
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Scan results not found"})
@@ -767,6 +753,9 @@ func downloadScanResults(c *gin.Context) {
 func listScans(c *gin.Context) {
 	scansMutex.RLock()
 	defer scansMutex.RUnlock()
+	
+	apiScansMutex.RLock()
+	defer apiScansMutex.RUnlock()
 
 	active := make([]ScanInfo, 0, len(activeScans))
 	for _, scan := range activeScans {
@@ -781,8 +770,11 @@ func listScans(c *gin.Context) {
 		}
 		completed = append(completed, ScanInfo{
 			ScanID:      scan.ScanID,
-			Status:      scan.Status,
+			Type:        scan.ScanType,
 			ScanType:    scan.ScanType,
+			Target:      scan.ScanID,
+			Status:      scan.Status,
+			StartTime:   scan.StartedAt,
 			StartedAt:   scan.StartedAt,
 			CompletedAt: scan.CompletedAt,
 		})
@@ -820,10 +812,11 @@ func executeScan(scanID string, command []string, scanType string) {
 	completedAt := time.Now()
 
 	scansMutex.Lock()
-	defer scansMutex.Unlock()
-
-	// Remove from active scans
 	delete(activeScans, scanID)
+	scansMutex.Unlock()
+
+	apiScansMutex.Lock()
+	defer apiScansMutex.Unlock()
 
 	// Add to results
 	result := &ScanResult{
@@ -843,9 +836,4 @@ func executeScan(scanID string, command []string, scanType string) {
 	scanResults[scanID] = result
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
+// getEnv is defined in main.go
