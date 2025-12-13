@@ -3,25 +3,57 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/gin-gonic/gin"
 )
 
 var (
 	botToken     = os.Getenv("DISCORD_BOT_TOKEN")
-	autoarScript = os.Getenv("AUTOAR_SCRIPT_PATH")
-	configFile   = os.Getenv("AUTOAR_CONFIG_FILE")
-	resultsDir   = os.Getenv("AUTOAR_RESULTS_DIR")
+	autoarMode   = getEnv("AUTOAR_MODE", "discord")
+	apiHost      = getEnv("API_HOST", "0.0.0.0")
+	apiPort      = getEnv("API_PORT", "8000")
 )
 
 func main() {
-	if botToken == "" {
-		log.Fatal("DISCORD_BOT_TOKEN environment variable is required")
+	var wg sync.WaitGroup
+
+	// Start Discord bot if needed
+	if autoarMode == "discord" || autoarMode == "both" {
+		if botToken == "" {
+			log.Fatal("DISCORD_BOT_TOKEN environment variable is required")
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			startDiscordBot()
+		}()
 	}
 
+	// Start API server if needed
+	if autoarMode == "api" || autoarMode == "both" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			startAPIServer()
+		}()
+	}
+
+	// Wait for interrupt signal
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	<-sc
+
+	fmt.Println("\nShutting down...")
+}
+
+func startDiscordBot() {
 	// Create Discord session
 	dg, err := discordgo.New("Bot " + botToken)
 	if err != nil {
@@ -42,14 +74,27 @@ func main() {
 	// Register slash commands
 	registerCommands(dg)
 
-	fmt.Println("AutoAR Discord Bot is running. Press CTRL-C to exit.")
+	fmt.Println("AutoAR Discord Bot is running.")
+	
+	// Keep running
+	select {}
+}
 
-	// Wait for interrupt signal
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
+func startAPIServer() {
+	router := setupAPI()
+	addr := fmt.Sprintf("%s:%s", apiHost, apiPort)
+	fmt.Printf("AutoAR API Server starting on %s\n", addr)
+	
+	if err := http.ListenAndServe(addr, router); err != nil {
+		log.Fatalf("API server failed: %v", err)
+	}
+}
 
-	fmt.Println("\nShutting down...")
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 func ready(s *discordgo.Session, event *discordgo.Ready) {
