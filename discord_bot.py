@@ -1301,7 +1301,7 @@ class AutoARBot(commands.Cog):
 
     @app_commands.command(
         name="react2shell",
-        description="Test for React Server Components RCE (CVE-2025-55182) using Nuclei template and react2shell scanner"
+        description="Test single URL for React Server Components RCE (CVE-2025-55182) using next88 smart scan"
     )
     @app_commands.describe(
         url="Target URL to test (e.g., https://example.com)",
@@ -1313,34 +1313,12 @@ class AutoARBot(commands.Cog):
         url: str,
         verbose: bool = False,
     ):
-        """Test for React Server Components RCE vulnerability."""
+        """Test for React Server Components RCE vulnerability using next88 smart scan."""
         scan_id = f"react2shell_{int(time.time())}"
 
         # Normalize URL
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
-
-        # Paths
-        nuclei_template = "/app/nuclei_templates/cves/CVE-2025-55182.yaml"
-        react2shell_script = "/app/python/react2shell.py"
-
-        # Build commands
-        # 1. Run Nuclei template (without -silent to see raw output)
-        nuclei_cmd = [
-            "nuclei",
-            "-t", nuclei_template,
-            "-u", url,
-        ]
-
-        # 2. Run react2shell script with WAF bypass
-        react2shell_cmd = [
-            "python3",
-            react2shell_script,
-            "-u", url,
-            "--waf-bypass",
-        ]
-        if verbose:
-            react2shell_cmd.append("-v")
 
         active_scans[scan_id] = {
             "type": "react2shell",
@@ -1353,260 +1331,154 @@ class AutoARBot(commands.Cog):
 
         embed = discord.Embed(
             title="🔍 React2Shell RCE Test",
-            description=f"**Target:** `{url}`\n**Template:** CVE-2025-55182.yaml\n**WAF Bypass:** Enabled",
+            description=f"**Target:** `{url}`\n**Method:** next88 Smart Scan (sequential: normal -> WAF bypass -> Vercel WAF -> paths)",
             color=discord.Color.blue(),
         )
         await interaction.response.send_message(embed=embed)
 
-        # Run both commands sequentially
+        # Run next88 smart scan
         asyncio.create_task(
-            self._run_react2shell(scan_id, nuclei_cmd, react2shell_cmd, url)
+            self._run_react2shell_single(scan_id, url, verbose)
         )
 
-    async def _run_react2shell(
-        self, scan_id: str, nuclei_cmd: list, react2shell_cmd: list, target: str
+    async def _run_react2shell_single(
+        self, scan_id: str, target: str, verbose: bool
     ):
-        """Run React2Shell test with both Nuclei and Python script."""
+        """Run React2Shell test on single URL using next88 smart scan."""
         try:
-            results = {"nuclei": None, "react2shell": None}
-            full_log_content = []
-            verbose = active_scans.get(scan_id, {}).get("verbose", False)
             webhook_url = self.get_discord_webhook()
-
-            # Run Nuclei template
-            nuclei_vulnerable = False
-            nuclei_status = "Not Vulnerable"
-            try:
-                env = os.environ.copy()
-                nuclei_cmd_str = " ".join(nuclei_cmd)
-                nuclei_result = await asyncio.create_subprocess_exec(
-                    *nuclei_cmd,
+            
+            # Find next88 binary
+            next88_bin = None
+            for bin_name in ["next88", "react2shell"]:
+                result = await asyncio.create_subprocess_exec(
+                    "which", bin_name,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    env=env,
                 )
-                nuclei_stdout, nuclei_stderr = await asyncio.wait_for(
-                    nuclei_result.communicate(), timeout=30
-                )
-                nuclei_stdout_str = nuclei_stdout.decode("utf-8", errors="ignore") if nuclei_stdout else ""
-                nuclei_stderr_str = nuclei_stderr.decode("utf-8", errors="ignore") if nuclei_stderr else ""
-                
-                results["nuclei"] = {
-                    "returncode": nuclei_result.returncode,
-                    "stdout": nuclei_stdout_str,
-                    "stderr": nuclei_stderr_str,
-                }
-                
-                # Check if Nuclei found the vulnerability
-                if nuclei_stdout_str:
-                    if ("CVE-2025-55182" in nuclei_stdout_str or 
-                        "[CVE-2025-55182]" in nuclei_stdout_str or
-                        '"matched-at"' in nuclei_stdout_str or
-                        "matched-at" in nuclei_stdout_str):
-                        nuclei_vulnerable = True
-                        nuclei_status = "Vulnerable"
-                
-                # Build full log content for webhook
-                full_log_content.append("=" * 80)
-                full_log_content.append("NUCLEI SCAN RESULTS")
-                full_log_content.append("=" * 80)
-                full_log_content.append(f"Command: {nuclei_cmd_str}")
-                full_log_content.append(f"Exit Code: {nuclei_result.returncode}")
-                full_log_content.append(f"\n--- STDOUT ---")
-                full_log_content.append(nuclei_stdout_str if nuclei_stdout_str else "(empty)")
-                if nuclei_stderr_str:
-                    full_log_content.append(f"\n--- STDERR ---")
-                    full_log_content.append(nuclei_stderr_str)
-                full_log_content.append("")
-            except asyncio.TimeoutError:
-                results["nuclei"] = {
-                    "returncode": -1,
-                    "stdout": "",
-                    "stderr": "Nuclei scan timed out after 30 seconds",
-                }
-                nuclei_status = "Error (Timeout)"
-                full_log_content.append("=" * 80)
-                full_log_content.append("NUCLEI SCAN - TIMEOUT")
-                full_log_content.append("=" * 80)
-            except Exception as e:
-                results["nuclei"] = {
-                    "returncode": -1,
-                    "stdout": "",
-                    "stderr": str(e),
-                }
-                nuclei_status = f"Error ({str(e)})"
-                full_log_content.append("=" * 80)
-                full_log_content.append(f"NUCLEI SCAN - ERROR: {str(e)}")
-                full_log_content.append("=" * 80)
-
-            # Run react2shell script
-            react2shell_vulnerable = False
-            react2shell_status = "not vulnerable"
-            try:
-                env = os.environ.copy()
-                react2shell_result = await asyncio.create_subprocess_exec(
-                    *react2shell_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                react2shell_stdout, react2shell_stderr = await asyncio.wait_for(
-                    react2shell_result.communicate(), timeout=60
-                )
-                results["react2shell"] = {
-                    "returncode": react2shell_result.returncode,
-                    "stdout": react2shell_stdout.decode("utf-8", errors="ignore"),
-                    "stderr": react2shell_stderr.decode("utf-8", errors="ignore"),
-                }
-                react2shell_stdout_str = react2shell_stdout.decode("utf-8", errors="ignore") if react2shell_stdout else ""
-                react2shell_stderr_str = react2shell_stderr.decode("utf-8", errors="ignore") if react2shell_stderr else ""
-                react2shell_cmd_str = " ".join(react2shell_cmd)
-                
-                # Check if react2shell found vulnerability
-                if "[VULNERABLE]" in react2shell_stdout_str:
-                    react2shell_vulnerable = True
-                    react2shell_status = "vulnerable"
-                
-                # Build full log content for webhook
-                full_log_content.append("=" * 80)
-                full_log_content.append("REACT2SHELL SCAN RESULTS")
-                full_log_content.append("=" * 80)
-                full_log_content.append(f"Command: {react2shell_cmd_str}")
-                full_log_content.append(f"Exit Code: {react2shell_result.returncode}")
-                full_log_content.append(f"\n--- STDOUT ---")
-                full_log_content.append(react2shell_stdout_str if react2shell_stdout_str else "(empty)")
-                if react2shell_stderr_str:
-                    full_log_content.append(f"\n--- STDERR ---")
-                    full_log_content.append(react2shell_stderr_str)
-                full_log_content.append("")
-            except asyncio.TimeoutError:
-                results["react2shell"] = {
-                    "returncode": -1,
-                    "stdout": "",
-                    "stderr": "React2Shell scan timed out after 60 seconds",
-                }
-                react2shell_status = "Error (Timeout)"
-                full_log_content.append("=" * 80)
-                full_log_content.append("REACT2SHELL SCAN - TIMEOUT")
-                full_log_content.append("=" * 80)
-            except Exception as e:
-                results["react2shell"] = {
-                    "returncode": -1,
-                    "stdout": "",
-                    "stderr": str(e),
-                }
-                react2shell_status = f"Error ({str(e)})"
-                full_log_content.append("=" * 80)
-                full_log_content.append(f"REACT2SHELL SCAN - ERROR: {str(e)}")
-                full_log_content.append("=" * 80)
-
+                await result.wait()
+                if result.returncode == 0:
+                    next88_bin = bin_name
+                    break
+            
+            if not next88_bin:
+                error_msg = "next88 binary not found. Please install: go install github.com/h0tak88r/next88@latest"
+                if scan_id in active_scans:
+                    active_scans[scan_id]["status"] = "failed"
+                    active_scans[scan_id]["error"] = error_msg
+                    interaction = active_scans[scan_id]["interaction"]
+                    embed = discord.Embed(
+                        title="❌ React2Shell Test Failed",
+                        description=f"**Target:** `{target}`\n**Error:** {error_msg}",
+                        color=discord.Color.red(),
+                    )
+                    try:
+                        await interaction.edit_original_response(embed=embed)
+                    except:
+                        pass
+                return
+            
+            # Build next88 command with smart scan
+            command = [
+                next88_bin,
+                "-u", target,
+                "-smart-scan",
+                "-k",  # Insecure (skip SSL verification)
+            ]
+            
+            if verbose:
+                command.append("-v")
+            
+            if webhook_url:
+                command.extend(["--discord-webhook", webhook_url])
+            
+            # Run next88
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=120
+            )
+            
+            stdout_str = stdout.decode("utf-8", errors="ignore") if stdout else ""
+            stderr_str = stderr.decode("utf-8", errors="ignore") if stderr else ""
+            
+            # Check if vulnerable
+            is_vulnerable = "[VULNERABLE]" in stdout_str or process.returncode == 1
+            
             # Update scan status
             if scan_id in active_scans:
                 active_scans[scan_id]["status"] = "completed"
-                active_scans[scan_id]["results"] = results
-
-                # Determine overall vulnerability status
-                overall_vulnerable = nuclei_vulnerable or react2shell_vulnerable
+                active_scans[scan_id]["results"] = {
+                    "returncode": process.returncode,
+                    "stdout": stdout_str,
+                    "stderr": stderr_str,
+                }
                 
-                # Create brief embed with simple status
-                color = discord.Color.red() if overall_vulnerable else discord.Color.green()
-                
+                # Create result embed
+                color = discord.Color.red() if is_vulnerable else discord.Color.green()
                 embed = discord.Embed(
                     title="🔍 React2Shell RCE Test Results",
                     description=f"**Target:** `{target}`",
                     color=color,
                 )
                 
-                # Add brief status fields
+                status_text = "🔴 **Vulnerable**" if is_vulnerable else "✅ **Not Vulnerable**"
+                embed.add_field(name="Status", value=status_text, inline=False)
                 embed.add_field(
-                    name="Nuclei Check",
-                    value=f"**{nuclei_status}**",
-                    inline=True,
-                )
-                embed.add_field(
-                    name="React2Shell",
-                    value=f"**{react2shell_status}**",
-                    inline=True,
+                    name="Method",
+                    value="next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)",
+                    inline=False,
                 )
                 
-                # If verbose and webhook is available, send full logs to webhook
-                if verbose and webhook_url:
-                    try:
-                        # Create temporary log file
-                        log_file = tempfile.NamedTemporaryFile(
-                            mode='w', 
-                            suffix='.txt', 
-                            delete=False,
-                            prefix=f'react2shell_{scan_id}_'
-                        )
-                        log_content = "\n".join(full_log_content)
-                        log_file.write(log_content)
-                        log_file.write(f"\n\nScan completed at: {datetime.now().isoformat()}\n")
-                        log_file.write(f"Target: {target}\n")
-                        log_file.write(f"Scan ID: {scan_id}\n")
-                        log_file.close()
-                        
-                        # Send to webhook
-                        import subprocess
-                        import json
-                        description = f"**React2Shell Full Logs**\nTarget: `{target}`\nScan ID: `{scan_id}`"
-                        payload_json = json.dumps({"content": description})
-                        result = subprocess.run(
-                            [
-                                'curl', '-sS',
-                                '-F', f'file=@{log_file.name}',
-                                '-F', f'payload_json={payload_json}',
-                                webhook_url
-                            ],
-                            capture_output=True,
-                            timeout=10
-                        )
-                        
-                        if result.returncode == 0:
-                            embed.add_field(
-                                name="📄 Full Logs",
-                                value=f"Sent to webhook",
-                                inline=False,
-                            )
-                        else:
-                            embed.add_field(
-                                name="⚠️ Logs",
-                                value="Failed to send to webhook",
-                                inline=False,
-                            )
-                        
-                        # Clean up temp file
-                        try:
-                            os.unlink(log_file.name)
-                        except:
-                            pass
-                            
-                    except Exception as e:
-                        print(f"Error sending logs to webhook: {e}")
-                        embed.add_field(
-                            name="⚠️ Logs",
-                            value=f"Error: {str(e)[:100]}",
-                            inline=False,
-                        )
-                elif verbose and not webhook_url:
-                    embed.add_field(
-                        name="⚠️ Verbose Mode",
-                        value="Webhook not configured. Full logs not sent.",
-                        inline=False,
-                    )
-
+                if verbose and (stdout_str or stderr_str):
+                    log_text = ""
+                    if stdout_str:
+                        log_text += f"**Output:**\n```\n{stdout_str[:1000]}{'...' if len(stdout_str) > 1000 else ''}\n```\n"
+                    if stderr_str:
+                        log_text += f"**Errors:**\n```\n{stderr_str[:500]}{'...' if len(stderr_str) > 500 else ''}\n```"
+                    if log_text:
+                        embed.add_field(name="Details", value=log_text, inline=False)
+                
                 # Update Discord message
                 interaction = active_scans[scan_id]["interaction"]
                 try:
                     await interaction.edit_original_response(embed=embed)
                 except:
-                    pass  # Ignore if message was deleted
-
+                    pass
+                    
+        except asyncio.TimeoutError:
+            error_msg = "Scan timed out after 120 seconds"
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "failed"
+                active_scans[scan_id]["error"] = error_msg
+                interaction = active_scans[scan_id]["interaction"]
+                embed = discord.Embed(
+                    title="⏱️ React2Shell Test Timeout",
+                    description=f"**Target:** `{target}`\n**Error:** {error_msg}",
+                    color=discord.Color.orange(),
+                )
+                try:
+                    await interaction.edit_original_response(embed=embed)
+                except:
+                    pass
         except Exception as e:
             print(f"Error in React2Shell test {scan_id}: {e}")
             if scan_id in active_scans:
                 active_scans[scan_id]["status"] = "failed"
                 active_scans[scan_id]["error"] = str(e)
+                interaction = active_scans[scan_id]["interaction"]
+                embed = discord.Embed(
+                    title="❌ React2Shell Test Failed",
+                    description=f"**Target:** `{target}`\n**Error:** {str(e)}",
+                    color=discord.Color.red(),
+                )
+                try:
+                    await interaction.edit_original_response(embed=embed)
+                except:
+                    pass
 
     @app_commands.command(name="tech", description="Detect technologies on live hosts")
     @app_commands.describe(
@@ -2610,9 +2482,9 @@ class AutoARBot(commands.Cog):
                 interaction = active_scans[scan_id]["interaction"]
                 scan_type = active_scans[scan_id]["type"]
                 
-                # react2shell_scan now uses _send_react2shell_results directly
-                # No special formatting needed here
-                if scan_type != "react2shell_scan":
+                # react2shell_scan and react2shell use their own result formatting
+                # No special formatting needed here for these scan types
+                if scan_type not in ["react2shell_scan", "react2shell"]:
                     embed = self.create_scan_embed(
                         scan_type,
                         active_scans[scan_id]["target"],
