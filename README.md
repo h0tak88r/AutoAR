@@ -14,7 +14,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 🛡️ **Vulnerability Scanning**
 - **Nuclei Integration**: 1000+ vulnerability templates with custom rate limiting
-- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods
+- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods, source code exposure checks, and DoS testing
 - **WordPress Plugin Confusion**: Automated WP plugin/theme confusion attack detection
 - **Dependency Confusion**: GitHub repository dependency confusion scanning
 - **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis
@@ -131,6 +131,7 @@ sudo apt install -y subfinder amass assetfinder httpx nuclei nmap sqlmap dalfox 
 go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
+go install -v github.com/h0tak88r/next88@latest  # React2Shell scanner (automatically installed in Docker)
 ```
 
 2. **Configure the system**:
@@ -261,8 +262,8 @@ docker exec -it autoar-bot bash
 
 # Vulnerability scanning (with threading)
 /app/main.sh nuclei run -d example.com -t 100
-/app/main.sh react2shell_scan run -d example.com -t 50
-/app/main.sh react2shell_scan run -l domains.txt -t 50  # Scan multiple domains from file
+# Note: react2shell_scan is now integrated in Discord bot - use /react2shell_scan command
+# Or use next88 directly: next88 -u https://example.com --dos-test --dos-requests 100
 /app/main.sh dalfox run -d example.com -t 100
 /app/main.sh sqlmap run -d example.com -t 100
 /app/main.sh ports scan -d example.com -t 100
@@ -568,7 +569,7 @@ AutoAR/
 ├── modules/                 # Core scanning modules
 │   ├── subdomains.sh       # Subdomain enumeration
 │   ├── livehosts.sh        # Live host detection (supports --silent flag)
-│   ├── react2shell_scan.sh # React Server Components RCE scanner (CVE-2025-55182)
+│   ├── (react2shell_scan.sh removed - now integrated directly in discord_bot.py using next88)
 │   ├── nuclei.sh           # Nuclei integration
 │   ├── wp_plugin_confusion.sh # WordPress scanning
 │   ├── keyhack.sh          # API key validation (778+ templates)
