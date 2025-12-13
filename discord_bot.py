@@ -1672,6 +1672,7 @@ class AutoARBot(commands.Cog):
             embed_desc += "\n**DoS Test:** Enabled"
         else:
             embed_desc += "\n**DoS Test:** Disabled"
+        embed_desc += "\n**Scan Method:** Smart Scan (next88 - sequential testing)"
         
         embed = discord.Embed(
             title=embed_title,
@@ -2270,105 +2271,6 @@ class AutoARBot(commands.Cog):
 
         await interaction.edit_original_response(embed=embed)
 
-    async def _format_react2shell_scan_results(
-        self, domain: str, stdout: str
-    ) -> discord.Embed:
-        """Format React2Shell scan results into a Discord embed."""
-        embed = discord.Embed(
-            title="🔍 React2Shell RCE Test Results",
-            description=f"**Target:** `{domain}`",
-            color=discord.Color.green(),
-        )
-
-        # Parse the structured output
-        lines = stdout.split("\n")
-        status = "not vulnerable"
-        vulnerable_hosts = []
-        stats = {}
-        in_hosts_section = False
-
-        for line in lines:
-            line = line.strip()
-            if line.startswith("STATUS:"):
-                status_val = line.split(":", 1)[1].strip()
-                status = "vulnerable" if status_val == "VULNERABLE" else "not vulnerable"
-            elif line.startswith("TOTAL_VULNERABLE:"):
-                stats["total"] = line.split(":", 1)[1].strip()
-            elif line.startswith("LIVE_HOSTS:"):
-                stats["live_hosts"] = line.split(":", 1)[1].strip()
-            elif line.startswith("SCANNED:"):
-                stats["scanned"] = line.split(":", 1)[1].strip()
-            elif line.startswith("NUCLEI_COUNT:"):
-                stats["nuclei"] = line.split(":", 1)[1].strip()
-            elif line.startswith("WAF_BYPASS_COUNT:"):
-                stats["waf"] = line.split(":", 1)[1].strip()
-            elif line.startswith("VERCEL_WAF_BYPASS_COUNT:"):
-                stats["vercel"] = line.split(":", 1)[1].strip()
-            elif line == "VULNERABLE_HOSTS_START":
-                in_hosts_section = True
-            elif line == "VULNERABLE_HOSTS_END":
-                in_hosts_section = False
-            elif in_hosts_section and line:
-                vulnerable_hosts.append(line)
-
-        if status == "vulnerable":
-            embed.color = discord.Color.red()
-            embed.add_field(
-                name="Status", value="🔴 **Vulnerable**", inline=False
-            )
-            if stats.get("total"):
-                embed.add_field(
-                    name="Vulnerable Hosts Found",
-                    value=f"**{stats['total']}** unique host(s)",
-                    inline=False,
-                )
-            
-            # Add vulnerable hosts list
-            if vulnerable_hosts:
-                hosts_text = ""
-                for i, host in enumerate(vulnerable_hosts[:15], 1):
-                    hosts_text += f"`{host}`\n"
-                if len(vulnerable_hosts) > 15:
-                    hosts_text += f"\n... and {len(vulnerable_hosts) - 15} more"
-                embed.add_field(
-                    name="Vulnerable Hosts", value=hosts_text, inline=False
-                )
-            
-            # Add breakdown
-            breakdown = []
-            if stats.get("nuclei") and stats["nuclei"] != "0":
-                breakdown.append(f"Nuclei: {stats['nuclei']}")
-            if stats.get("waf") and stats["waf"] != "0":
-                breakdown.append(f"WAF Bypass: {stats['waf']}")
-            if stats.get("vercel") and stats["vercel"] != "0":
-                breakdown.append(f"Vercel WAF: {stats['vercel']}")
-            if breakdown:
-                embed.add_field(
-                    name="Breakdown", value=" • ".join(breakdown), inline=False
-                )
-        else:
-            embed.color = discord.Color.green()
-            embed.add_field(
-                name="Status", value="✅ **Not Vulnerable**", inline=False
-            )
-            
-            # Add statistics
-            stats_text = ""
-            if stats.get("live_hosts"):
-                stats_text += f"**Live hosts:** `{stats['live_hosts']}`\n"
-            if stats.get("scanned"):
-                stats_text += f"**Scanned:** `{stats['scanned']}`\n"
-            if stats.get("nuclei"):
-                stats_text += f"**Nuclei findings:** `{stats['nuclei']}`\n"
-            if stats.get("waf"):
-                stats_text += f"**WAF Bypass findings:** `{stats['waf']}`\n"
-            if stats.get("vercel"):
-                stats_text += f"**Vercel WAF findings:** `{stats['vercel']}`\n"
-            
-            if stats_text:
-                embed.add_field(name="Statistics", value=stats_text, inline=False)
-
-        return embed
 
     async def _run_react2shell_scan(
         self, scan_id: str, domain: str, threads: int, enable_source_exposure: bool, dos_test: bool
@@ -2470,56 +2372,6 @@ class AutoARBot(commands.Cog):
         except Exception as e:
             print(f"[ERROR] Failed to normalize hosts: {e}")
             return None
-    
-    async def _run_nuclei_scan(self, hosts: list, threads: int) -> list:
-        """Run Nuclei template scan."""
-        try:
-            nuclei_template = Path("/app/nuclei_templates/cves/CVE-2025-55182.yaml")
-            if not nuclei_template.exists():
-                return []
-            
-            # Write hosts to temp file
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-                for host in hosts:
-                    f.write(f"{host}\n")
-                temp_file = f.name
-            
-            try:
-                command = [
-                    "nuclei", "-l", temp_file,
-                    "-t", str(nuclei_template),
-                    "-c", str(threads),
-                    "-silent", "-duc"
-                ]
-                
-                process = await asyncio.create_subprocess_exec(
-                    *command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await process.communicate()
-                
-                # Parse Nuclei output
-                vulnerable_hosts = set()
-                for line in stdout.decode('utf-8').split('\n'):
-                    line = line.strip()
-                    if not line or line.startswith('['):
-                        continue
-                    # Extract hostname from URL
-                    if '://' in line:
-                        url = line.split()[0] if ' ' in line else line
-                        url = url.replace('[CVE-2025-55182]', '').strip()
-                        if url.startswith(('http://', 'https://')):
-                            parsed = urlparse(url)
-                            if parsed.netloc:
-                                vulnerable_hosts.add(parsed.netloc.split(':')[0])
-                
-                return list(vulnerable_hosts)
-            finally:
-                os.unlink(temp_file)
-        except Exception as e:
-            print(f"[ERROR] Nuclei scan failed: {e}")
-            return []
     
     async def _run_next88_scan(self, hosts: list, extra_flags: list, discord_webhook: Optional[str]) -> list:
         """Run next88 scan with given flags."""
@@ -2758,12 +2610,9 @@ class AutoARBot(commands.Cog):
                 interaction = active_scans[scan_id]["interaction"]
                 scan_type = active_scans[scan_id]["type"]
                 
-                # Special handling for react2shell_scan
-                if scan_type == "react2shell_scan" and results["stdout"]:
-                    embed = await self._format_react2shell_scan_results(
-                        active_scans[scan_id]["target"], results["stdout"]
-                    )
-                else:
+                # react2shell_scan now uses _send_react2shell_results directly
+                # No special formatting needed here
+                if scan_type != "react2shell_scan":
                     embed = self.create_scan_embed(
                         scan_type,
                         active_scans[scan_id]["target"],
