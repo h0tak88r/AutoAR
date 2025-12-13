@@ -836,4 +836,28 @@ func executeScan(scanID string, command []string, scanType string) {
 	scanResults[scanID] = result
 }
 
+// getCompletedScans returns recent completed scans (for Discord bot)
+func getCompletedScans(limit int) []*ScanResult {
+	apiScansMutex.RLock()
+	defer apiScansMutex.RUnlock()
+	
+	results := make([]*ScanResult, 0, limit)
+	count := 0
+	for _, result := range scanResults {
+		if count >= limit {
+			break
+		}
+		results = append(results, result)
+		count++
+	}
+	return results
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // getEnv is defined in main.go

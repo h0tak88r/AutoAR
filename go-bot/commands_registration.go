@@ -428,10 +428,7 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		{
 			Name:        "scan_status",
-			Description: "Get status of a scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_id", Description: "Scan ID to check", Required: true},
-			},
+			Description: "List all active and recent completed scans",
 		},
 	}
 
