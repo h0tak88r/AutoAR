@@ -1410,8 +1410,11 @@ class AutoARBot(commands.Cog):
                 stdout_str = stdout.decode("utf-8", errors="ignore") if stdout else ""
                 stderr_str = stderr.decode("utf-8", errors="ignore") if stderr else ""
                 
-                # Parse JSON results to check if vulnerable
+                # Parse JSON results to check if vulnerable and extract details
                 is_vulnerable = False
+                vulnerability_details = None
+                poc_data = None
+                
                 if os.path.exists(results_file) and os.path.getsize(results_file) > 0:
                     try:
                         with open(results_file, 'r') as f:
@@ -1419,6 +1422,19 @@ class AutoARBot(commands.Cog):
                             for result in data.get('results', []):
                                 if result.get('vulnerable') is True:
                                     is_vulnerable = True
+                                    # Extract vulnerability details - try multiple possible field names
+                                    vulnerability_details = {
+                                        'method': result.get('method', result.get('test_method', 'Unknown')),
+                                        'phase': result.get('phase', result.get('waf_bypass', result.get('bypass_type', 'normal'))),
+                                        'path': result.get('path', result.get('url', '')),
+                                        'status_code': result.get('status_code', result.get('status', '')),
+                                    }
+                                    # Extract PoC (request/response) - try multiple possible field names
+                                    poc_data = {
+                                        'request': result.get('request', result.get('request_body', result.get('payload', result.get('request_data', '')))),
+                                        'response': result.get('response', result.get('response_body', result.get('response_data', ''))),
+                                        'headers': result.get('headers', result.get('request_headers', {})),
+                                    }
                                     break
                     except Exception as e:
                         print(f"[WARN] Failed to parse JSON results: {e}")
@@ -1447,12 +1463,92 @@ class AutoARBot(commands.Cog):
                 
                 status_text = "🔴 **Vulnerable**" if is_vulnerable else "✅ **Not Vulnerable**"
                 embed.add_field(name="Status", value=status_text, inline=False)
-                embed.add_field(
-                    name="Method",
-                    value="next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)",
-                    inline=False,
-                )
                 
+                # Add detection phase/method details if available
+                if is_vulnerable and vulnerability_details:
+                    phase = vulnerability_details.get('phase', 'Unknown')
+                    method = vulnerability_details.get('method', 'Unknown')
+                    
+                    # Map phase to readable format
+                    phase_map = {
+                        'normal': 'Normal RCE Test',
+                        'waf_bypass': 'WAF Bypass',
+                        'vercel_waf': 'Vercel WAF Bypass',
+                        'paths': 'Common Paths',
+                    }
+                    phase_display = phase_map.get(phase.lower(), phase.title())
+                    
+                    detection_info = f"**Detection Phase:** {phase_display}"
+                    if method and method != 'Unknown':
+                        detection_info += f"\n**Method:** {method}"
+                    if vulnerability_details.get('path'):
+                        detection_info += f"\n**Path:** `{vulnerability_details['path']}`"
+                    if vulnerability_details.get('status_code'):
+                        detection_info += f"\n**Status Code:** `{vulnerability_details['status_code']}`"
+                    
+                    embed.add_field(name="Detection Details", value=detection_info, inline=False)
+                else:
+                    embed.add_field(
+                        name="Method",
+                        value="next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)",
+                        inline=False,
+                    )
+                
+                # Add PoC (Proof of Concept) if available
+                poc_file_path = None
+                if is_vulnerable and poc_data:
+                    # Create PoC JSON file
+                    poc_json = {
+                        'target': target,
+                        'vulnerability_details': vulnerability_details,
+                        'request': poc_data.get('request', ''),
+                        'response': poc_data.get('response', ''),
+                        'headers': poc_data.get('headers', {}),
+                    }
+                    
+                    try:
+                        safe_filename = target.replace('https://', '').replace('http://', '').replace('/', '_').replace(':', '_')
+                        poc_file_path = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', prefix=f'poc_{safe_filename}_')
+                        json.dump(poc_json, poc_file_path, indent=2)
+                        poc_file_path.close()
+                        poc_file_path = poc_file_path.name
+                    except Exception as e:
+                        print(f"[WARN] Failed to create PoC file: {e}")
+                        poc_file_path = None
+                    
+                    # Add PoC summary to embed
+                    poc_summary = ""
+                    if poc_data.get('request'):
+                        request_preview = str(poc_data['request'])[:500]
+                        poc_summary += f"**Request:**\n```\n{request_preview}{'...' if len(str(poc_data['request'])) > 500 else ''}\n```\n"
+                    if poc_data.get('response'):
+                        response_preview = str(poc_data['response'])[:500]
+                        poc_summary += f"**Response:**\n```\n{response_preview}{'...' if len(str(poc_data['response'])) > 500 else ''}\n```\n"
+                    
+                    if poc_summary:
+                        embed.add_field(name="Proof of Concept", value=poc_summary, inline=False)
+                
+                # Update Discord message
+                interaction = active_scans[scan_id]["interaction"]
+                try:
+                    if poc_file_path and os.path.exists(poc_file_path):
+                        poc_file = discord.File(poc_file_path, filename=f"poc_{target.replace('https://', '').replace('http://', '').replace('/', '_')[:50]}.json")
+                        await interaction.edit_original_response(embed=embed, attachments=[poc_file])
+                        # Clean up PoC file after sending
+                        try:
+                            os.unlink(poc_file_path)
+                        except:
+                            pass
+                    else:
+                        await interaction.edit_original_response(embed=embed)
+                except Exception as e:
+                    print(f"[WARN] Failed to send message: {e}")
+                    try:
+                        await interaction.edit_original_response(embed=embed)
+                    except:
+                        pass
+                
+                # Add verbose output if requested
                 if verbose and (stdout_str or stderr_str):
                     log_text = ""
                     if stdout_str:
@@ -1460,14 +1556,11 @@ class AutoARBot(commands.Cog):
                     if stderr_str:
                         log_text += f"**Errors:**\n```\n{stderr_str[:500]}{'...' if len(stderr_str) > 500 else ''}\n```"
                     if log_text:
-                        embed.add_field(name="Details", value=log_text, inline=False)
-                
-                # Update Discord message
-                interaction = active_scans[scan_id]["interaction"]
-                try:
-                    await interaction.edit_original_response(embed=embed)
-                except:
-                    pass
+                        # Create a followup message for verbose output to avoid embed size limits
+                        try:
+                            await interaction.followup.send(f"**Verbose Output:**\n{log_text}", ephemeral=True)
+                        except:
+                            pass
             finally:
                 # Clean up temp file
                 if os.path.exists(results_file):
