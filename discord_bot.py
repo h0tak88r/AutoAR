@@ -2410,6 +2410,17 @@ class AutoARBot(commands.Cog):
                     f.write(f"{host}\n")
                 temp_file = f.name
             
+            # Debug: Log what we're writing to the file
+            print(f"[DEBUG] Writing {len(hosts)} hosts to temp file: {temp_file}")
+            if len(hosts) > 0:
+                print(f"[DEBUG] First 5 hosts in file: {hosts[:5]}")
+                # Check if tictactoe is in the list
+                tictactoe_in_list = any('tictactoe' in h.lower() for h in hosts)
+                print(f"[DEBUG] tictactoe.digitalofthings.dev in hosts list: {tictactoe_in_list}")
+                if tictactoe_in_list:
+                    tictactoe_host = [h for h in hosts if 'tictactoe' in h.lower()][0]
+                    print(f"[DEBUG] tictactoe host format: {tictactoe_host}")
+            
             # Write results to temp JSON file
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
                 results_file = f.name
@@ -2527,7 +2538,14 @@ class AutoARBot(commands.Cog):
                             # Sometimes the JSON is just an array
                             results_list = data
                         
-                        for result in results_list:
+                        print(f"[DEBUG] Processing {len(results_list)} results from next88")
+                        
+                        for idx, result in enumerate(results_list):
+                            # Debug first few results
+                            if idx < 3:
+                                print(f"[DEBUG] Result {idx} keys: {list(result.keys())}")
+                                print(f"[DEBUG] Result {idx} sample: {json.dumps(result, indent=2)[:300]}")
+                            
                             # Check multiple possible field names for vulnerability
                             is_vulnerable = (
                                 result.get('vulnerable') is True or
@@ -2550,6 +2568,12 @@ class AutoARBot(commands.Cog):
                                     response = result.get('response', result.get('response_body', ''))
                                     if response and ('vulnerable' in str(response).lower() or 'rce' in str(response).lower()):
                                         is_vulnerable = True
+                                        print(f"[DEBUG] Marked as vulnerable based on response body")
+                            
+                            # Debug: Log all results, not just vulnerable ones
+                            if idx < 5:
+                                host = result.get('host', result.get('url', result.get('target', result.get('hostname', ''))))
+                                print(f"[DEBUG] Result {idx} - Host: {host}, Vulnerable: {is_vulnerable}")
                             
                             if is_vulnerable:
                                 host = result.get('host', result.get('url', result.get('target', result.get('hostname', ''))))
