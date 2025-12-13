@@ -206,7 +206,8 @@ Once the bot is running, use these slash commands in Discord:
 
 #### Vulnerability Scanning
 - `/nuclei domain:example.com [threads:100]` - Run Nuclei scans
-- `/react2shell_scan domain:example.com [threads:100]` - Scan for React Server Components RCE (CVE-2025-55182) with WAF bypass
+- `/react2shell_scan domain:example.com [threads:100] [enable_source_exposure:false] [dos_test:false]` - Scan domain hosts for React Server Components RCE (CVE-2025-55182) using next88 smart scan (sequential: normal → WAF bypass → Vercel WAF → paths)
+- `/react2shell url:https://example.com [verbose:false]` - Test single URL for React Server Components RCE using next88 smart scan
 - `/wpdepconf domain:example.com` - WordPress plugin confusion
 - `/dalfox domain:example.com [threads:100]` - XSS detection
 - `/sqlmap domain:example.com [threads:100]` - SQL injection testing
