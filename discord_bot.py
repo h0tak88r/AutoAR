@@ -1347,7 +1347,7 @@ class AutoARBot(commands.Cog):
         """Run React2Shell test on single URL using next88 smart scan."""
         try:
             webhook_url = self.get_discord_webhook()
-            
+
             # Find next88 binary
             next88_bin = None
             for bin_name in ["next88", "react2shell"]:
@@ -1436,17 +1436,17 @@ class AutoARBot(commands.Cog):
                                         'headers': result.get('headers', result.get('request_headers', {})),
                                     }
                                     break
-                    except Exception as e:
+            except Exception as e:
                         print(f"[WARN] Failed to parse JSON results: {e}")
                         # Fallback to stdout check
                         is_vulnerable = "[VULNERABLE]" in stdout_str or "vulnerable" in stdout_str.lower()
                 else:
                     # Fallback to stdout/stderr check
                     is_vulnerable = "[VULNERABLE]" in stdout_str or "vulnerable" in stdout_str.lower() or process.returncode != 0
-                
-                # Update scan status
-                if scan_id in active_scans:
-                    active_scans[scan_id]["status"] = "completed"
+
+            # Update scan status
+            if scan_id in active_scans:
+                active_scans[scan_id]["status"] = "completed"
                 active_scans[scan_id]["results"] = {
                     "returncode": process.returncode,
                     "stdout": stdout_str,
@@ -1487,13 +1487,13 @@ class AutoARBot(commands.Cog):
                         detection_info += f"\n**Status Code:** `{vulnerability_details['status_code']}`"
                     
                     embed.add_field(name="Detection Details", value=detection_info, inline=False)
-                else:
-                    embed.add_field(
+                        else:
+                            embed.add_field(
                         name="Method",
                         value="next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)",
-                        inline=False,
-                    )
-                
+                                inline=False,
+                            )
+                        
                 # Add PoC (Proof of Concept) if available
                 poc_file_path = None
                 if is_vulnerable and poc_data:
@@ -1527,7 +1527,7 @@ class AutoARBot(commands.Cog):
                     
                     if poc_summary:
                         embed.add_field(name="Proof of Concept", value=poc_summary, inline=False)
-                
+
                 # Update Discord message
                 interaction = active_scans[scan_id]["interaction"]
                 try:
@@ -1543,9 +1543,9 @@ class AutoARBot(commands.Cog):
                         await interaction.edit_original_response(embed=embed)
                 except Exception as e:
                     print(f"[WARN] Failed to send message: {e}")
-                    try:
-                        await interaction.edit_original_response(embed=embed)
-                    except:
+                try:
+                    await interaction.edit_original_response(embed=embed)
+                except:
                         pass
                 
                 # Add verbose output if requested
@@ -2652,23 +2652,23 @@ class AutoARBot(commands.Cog):
         try:
             interaction = active_scans[scan_id]["interaction"]
             
-            embed = discord.Embed(
-                title="🔍 React2Shell RCE Test Results",
-                description=f"**Target:** `{domain}`",
+        embed = discord.Embed(
+            title="🔍 React2Shell RCE Test Results",
+            description=f"**Target:** `{domain}`",
                 color=discord.Color.red() if all_vulnerable else discord.Color.green(),
             )
             
             if all_vulnerable:
-                embed.add_field(
-                    name="Status", value="🔴 **Vulnerable**", inline=False
-                )
+            embed.add_field(
+                name="Status", value="🔴 **Vulnerable**", inline=False
+            )
                 embed.add_field(
                     name="Vulnerable Hosts Found",
                     value=f"**{len(all_vulnerable)}** unique host(s)",
                     inline=False,
                 )
-                
-                # Add vulnerable hosts list
+            
+            # Add vulnerable hosts list
                 hosts_text = ""
                 for i, host in enumerate(all_vulnerable[:15], 1):
                     hosts_text += f"`{host}`\n"
@@ -2677,23 +2677,23 @@ class AutoARBot(commands.Cog):
                 embed.add_field(
                     name="Vulnerable Hosts", value=hosts_text, inline=False
                 )
-                
+            
                 # Add breakdown (smart scan + optional tests)
-                breakdown = []
+            breakdown = []
                 if smart_scan_count > 0:
                     breakdown.append(f"Smart Scan: {smart_scan_count}")
                 if dos_count > 0:
                     breakdown.append(f"DoS Test: {dos_count}")
                 if source_exposure_count > 0:
                     breakdown.append(f"Source Exposure: {source_exposure_count}")
-                if breakdown:
-                    embed.add_field(
-                        name="Breakdown", value=" • ".join(breakdown), inline=False
-                    )
-            else:
+            if breakdown:
                 embed.add_field(
-                    name="Status", value="✅ **Not Vulnerable**", inline=False
+                    name="Breakdown", value=" • ".join(breakdown), inline=False
                 )
+        else:
+            embed.add_field(
+                name="Status", value="✅ **Not Vulnerable**", inline=False
+            )
                 stats_text = f"**Live hosts:** `{total_hosts}`\n"
                 stats_text += f"**Smart Scan findings:** `{smart_scan_count}`\n"
                 if dos_count > 0:
@@ -2836,7 +2836,7 @@ class AutoARBot(commands.Cog):
                     await interaction.edit_original_response(embed=embed)
                 except:
                     pass
-    
+
     async def _run_scan_background(self, scan_id: str, command: list):
         """Run scan in background and update Discord."""
         try:
