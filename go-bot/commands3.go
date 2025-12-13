@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"regexp"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
