@@ -49,16 +49,16 @@ fi
 # Launch based on mode
 case "${AUTOAR_MODE}" in
   discord)
-    echo "[entrypoint] Launching Discord Bot only..."
-    exec python /app/discord_bot.py
+    echo "[entrypoint] Launching Discord Bot only (Go)..."
+    exec /usr/local/bin/autoar-bot
     ;;
   api)
-    echo "[entrypoint] Launching API Server only..."
-    exec python /app/api_server.py
+    echo "[entrypoint] Launching API Server only (Go)..."
+    exec /usr/local/bin/autoar-bot
     ;;
   both)
-    echo "[entrypoint] Launching both Discord Bot and API Server..."
-    exec python /app/launcher.py
+    echo "[entrypoint] Launching both Discord Bot and API Server (Go)..."
+    exec /usr/local/bin/autoar-bot
     ;;
   *)
     echo "[entrypoint] Error: Invalid AUTOAR_MODE '${AUTOAR_MODE}'" >&2
