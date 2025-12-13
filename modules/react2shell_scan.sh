@@ -372,6 +372,200 @@ except:
     fi
   fi
 
+  # Step 5: Scan with common Next.js/React paths
+  log_info "=== Scanning with common framework paths (--path-file) ==="
+  local paths_file="$ROOT_DIR/Wordlists/react-nextjs-paths.txt"
+  local paths_scan_out="$output_dir/react2shell-paths-scan.txt"
+  local paths_scan_log="$output_dir/react2shell-paths-scan.log"
+  local paths_vulnerable=0
+  local paths_hosts_file="$output_dir/paths-vulnerable-hosts.txt"
+  > "$paths_hosts_file"
+  
+  if [[ -f "$paths_file" ]]; then
+    log_info "Using paths file: $paths_file"
+    # Capture both stdout and stderr to log file (but don't send to Discord)
+    python3 "$react2shell_script" \
+      -l "$temp_hosts_file" \
+      --path-file "$paths_file" \
+      --insecure \
+      --quiet \
+      --output "$paths_scan_out" \
+      --all-results \
+      > "$paths_scan_log" 2>&1 || true
+
+    if [[ -s "$paths_scan_out" ]]; then
+      # Extract vulnerable hosts from JSON output
+      if command -v jq >/dev/null 2>&1; then
+        jq -r '.results[] | select(.vulnerable == true) | .host' "$paths_scan_out" 2>/dev/null | \
+          sed -E 's|^https?://||' | sed 's|/.*||' >> "$paths_hosts_file" || true
+        paths_vulnerable=$(wc -l < "$paths_hosts_file" 2>/dev/null || echo 0)
+      else
+        # Fallback: use Python to parse JSON
+        python3 -c "
+import json
+import sys
+try:
+    with open('$paths_scan_out', 'r') as f:
+        data = json.load(f)
+    for result in data.get('results', []):
+        if result.get('vulnerable') is True:
+            host = result.get('host', '')
+            if host:
+                # Remove protocol and path
+                host = host.replace('https://', '').replace('http://', '')
+                host = host.split('/')[0]
+                print(host)
+except:
+    pass
+" >> "$paths_hosts_file" 2>/dev/null || true
+        paths_vulnerable=$(wc -l < "$paths_hosts_file" 2>/dev/null || echo 0)
+      fi
+    fi
+  else
+    log_warn "Paths file not found: $paths_file, skipping paths scan"
+  fi
+
+  # Step 6: Scan with double URL encoding bypass
+  log_info "=== Scanning with double URL encoding bypass (--double-encode) ==="
+  local double_encode_out="$output_dir/react2shell-double-encode.txt"
+  local double_encode_log="$output_dir/react2shell-double-encode.log"
+  local double_encode_vulnerable=0
+  local double_encode_hosts_file="$output_dir/double-encode-vulnerable-hosts.txt"
+  > "$double_encode_hosts_file"
+  
+  # Capture both stdout and stderr to log file (but don't send to Discord)
+  python3 "$react2shell_script" \
+    -l "$temp_hosts_file" \
+    --double-encode \
+    --insecure \
+    --quiet \
+    --output "$double_encode_out" \
+    --all-results \
+    > "$double_encode_log" 2>&1 || true
+
+  if [[ -s "$double_encode_out" ]]; then
+    # Extract vulnerable hosts from JSON output
+    if command -v jq >/dev/null 2>&1; then
+      jq -r '.results[] | select(.vulnerable == true) | .host' "$double_encode_out" 2>/dev/null | \
+        sed -E 's|^https?://||' | sed 's|/.*||' >> "$double_encode_hosts_file" || true
+      double_encode_vulnerable=$(wc -l < "$double_encode_hosts_file" 2>/dev/null || echo 0)
+    else
+      # Fallback: use Python to parse JSON
+      python3 -c "
+import json
+import sys
+try:
+    with open('$double_encode_out', 'r') as f:
+        data = json.load(f)
+    for result in data.get('results', []):
+        if result.get('vulnerable') is True:
+            host = result.get('host', '')
+            if host:
+                # Remove protocol and path
+                host = host.replace('https://', '').replace('http://', '')
+                host = host.split('/')[0]
+                print(host)
+except:
+    pass
+" >> "$double_encode_hosts_file" 2>/dev/null || true
+      double_encode_vulnerable=$(wc -l < "$double_encode_hosts_file" 2>/dev/null || echo 0)
+    fi
+  fi
+
+  # Step 7: Scan with semicolon bypass
+  log_info "=== Scanning with semicolon bypass (--semicolon-bypass) ==="
+  local semicolon_bypass_out="$output_dir/react2shell-semicolon-bypass.txt"
+  local semicolon_bypass_log="$output_dir/react2shell-semicolon-bypass.log"
+  local semicolon_bypass_vulnerable=0
+  local semicolon_bypass_hosts_file="$output_dir/semicolon-bypass-vulnerable-hosts.txt"
+  > "$semicolon_bypass_hosts_file"
+  
+  # Capture both stdout and stderr to log file (but don't send to Discord)
+  python3 "$react2shell_script" \
+    -l "$temp_hosts_file" \
+    --semicolon-bypass \
+    --insecure \
+    --quiet \
+    --output "$semicolon_bypass_out" \
+    --all-results \
+    > "$semicolon_bypass_log" 2>&1 || true
+
+  if [[ -s "$semicolon_bypass_out" ]]; then
+    # Extract vulnerable hosts from JSON output
+    if command -v jq >/dev/null 2>&1; then
+      jq -r '.results[] | select(.vulnerable == true) | .host' "$semicolon_bypass_out" 2>/dev/null | \
+        sed -E 's|^https?://||' | sed 's|/.*||' >> "$semicolon_bypass_hosts_file" || true
+      semicolon_bypass_vulnerable=$(wc -l < "$semicolon_bypass_hosts_file" 2>/dev/null || echo 0)
+    else
+      # Fallback: use Python to parse JSON
+      python3 -c "
+import json
+import sys
+try:
+    with open('$semicolon_bypass_out', 'r') as f:
+        data = json.load(f)
+    for result in data.get('results', []):
+        if result.get('vulnerable') is True:
+            host = result.get('host', '')
+            if host:
+                # Remove protocol and path
+                host = host.replace('https://', '').replace('http://', '')
+                host = host.split('/')[0]
+                print(host)
+except:
+    pass
+" >> "$semicolon_bypass_hosts_file" 2>/dev/null || true
+      semicolon_bypass_vulnerable=$(wc -l < "$semicolon_bypass_hosts_file" 2>/dev/null || echo 0)
+    fi
+  fi
+
+  # Step 8: Scan for source code exposure via ACTION_ID extraction
+  log_info "=== Scanning for source code exposure (--check-source-exposure) ==="
+  local source_exposure_out="$output_dir/react2shell-source-exposure.txt"
+  local source_exposure_log="$output_dir/react2shell-source-exposure.log"
+  local source_exposure_vulnerable=0
+  local source_exposure_hosts_file="$output_dir/source-exposure-vulnerable-hosts.txt"
+  > "$source_exposure_hosts_file"
+  
+  # Capture both stdout and stderr to log file (but don't send to Discord)
+  python3 "$react2shell_script" \
+    -l "$temp_hosts_file" \
+    --check-source-exposure \
+    --insecure \
+    --quiet \
+    --output "$source_exposure_out" \
+    --all-results \
+    > "$source_exposure_log" 2>&1 || true
+
+  if [[ -s "$source_exposure_out" ]]; then
+    # Extract vulnerable hosts from JSON output
+    if command -v jq >/dev/null 2>&1; then
+      jq -r '.results[] | select(.vulnerable == true) | .host' "$source_exposure_out" 2>/dev/null | \
+        sed -E 's|^https?://||' | sed 's|/.*||' >> "$source_exposure_hosts_file" || true
+      source_exposure_vulnerable=$(wc -l < "$source_exposure_hosts_file" 2>/dev/null || echo 0)
+    else
+      # Fallback: use Python to parse JSON
+      python3 -c "
+import json
+import sys
+try:
+    with open('$source_exposure_out', 'r') as f:
+        data = json.load(f)
+    for result in data.get('results', []):
+        if result.get('vulnerable') is True:
+            host = result.get('host', '')
+            if host:
+                # Remove protocol and path
+                host = host.replace('https://', '').replace('http://', '')
+                host = host.split('/')[0]
+                print(host)
+except:
+    pass
+" >> "$source_exposure_hosts_file" 2>/dev/null || true
+      source_exposure_vulnerable=$(wc -l < "$source_exposure_hosts_file" 2>/dev/null || echo 0)
+    fi
+  fi
+
   # Cleanup temp file
   rm -f "$temp_hosts_file"
 
@@ -381,6 +575,10 @@ except:
   [[ -s "$nuclei_hosts_file" ]] && cat "$nuclei_hosts_file" >> "$all_vulnerable_hosts_file"
   [[ -s "$waf_hosts_file" ]] && cat "$waf_hosts_file" >> "$all_vulnerable_hosts_file"
   [[ -s "$vercel_hosts_file" ]] && cat "$vercel_hosts_file" >> "$all_vulnerable_hosts_file"
+  [[ -s "$paths_hosts_file" ]] && cat "$paths_hosts_file" >> "$all_vulnerable_hosts_file"
+  [[ -s "$double_encode_hosts_file" ]] && cat "$double_encode_hosts_file" >> "$all_vulnerable_hosts_file"
+  [[ -s "$semicolon_bypass_hosts_file" ]] && cat "$semicolon_bypass_hosts_file" >> "$all_vulnerable_hosts_file"
+  [[ -s "$source_exposure_hosts_file" ]] && cat "$source_exposure_hosts_file" >> "$all_vulnerable_hosts_file"
   
   # Get unique vulnerable hosts
   local unique_vulnerable_hosts=0
@@ -396,6 +594,10 @@ except:
     log_info "  - Nuclei: $nuclei_vulnerable"
     log_info "  - WAF Bypass: $waf_vulnerable"
     log_info "  - Vercel WAF Bypass: $vercel_vulnerable"
+    log_info "  - Common Paths: $paths_vulnerable"
+    log_info "  - Double Encoding: $double_encode_vulnerable"
+    log_info "  - Semicolon Bypass: $semicolon_bypass_vulnerable"
+    log_info "  - Source Code Exposure: $source_exposure_vulnerable"
     
     # Send Discord webhook notification for vulnerabilities found
     if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
@@ -406,6 +608,10 @@ except:
       vuln_message+="  • Nuclei: $nuclei_vulnerable\n"
       vuln_message+="  • WAF Bypass: $waf_vulnerable\n"
       vuln_message+="  • Vercel WAF Bypass: $vercel_vulnerable\n"
+      vuln_message+="  • Common Paths: $paths_vulnerable\n"
+      vuln_message+="  • Double Encoding: $double_encode_vulnerable\n"
+      vuln_message+="  • Semicolon Bypass: $semicolon_bypass_vulnerable\n"
+      vuln_message+="  • Source Code Exposure: $source_exposure_vulnerable\n"
       
       # Send notification message
       discord_send "$vuln_message"
@@ -422,17 +628,36 @@ except:
       if [[ -s "$waf_bypass_out" ]]; then
         discord_send_file "$waf_bypass_out" "WAF Bypass scan results for $domain"
       fi
+      if [[ -s "$vercel_waf_bypass_out" ]]; then
+        discord_send_file "$vercel_waf_bypass_out" "Vercel WAF Bypass scan results for $domain"
+      fi
+      if [[ -s "$paths_scan_out" ]]; then
+        discord_send_file "$paths_scan_out" "Common Paths scan results for $domain"
+      fi
+      if [[ -s "$double_encode_out" ]]; then
+        discord_send_file "$double_encode_out" "Double Encoding bypass results for $domain"
+      fi
+      if [[ -s "$semicolon_bypass_out" ]]; then
+        discord_send_file "$semicolon_bypass_out" "Semicolon bypass results for $domain"
+      fi
+      if [[ -s "$source_exposure_out" ]]; then
+        discord_send_file "$source_exposure_out" "Source Code Exposure scan results for $domain"
+      fi
     fi
     
     # Output vulnerable hosts to stdout (bot will format this)
     echo "=== REACT2SHELL_SCAN_RESULTS ==="
     echo "STATUS: VULNERABLE"
     echo "DOMAIN: $domain"
-    echo "TOTAL_VULNERABLE: $unique_vulnerable_hosts"
-    echo "NUCLEI_COUNT: $nuclei_vulnerable"
-    echo "WAF_BYPASS_COUNT: $waf_vulnerable"
-    echo "VERCEL_WAF_BYPASS_COUNT: $vercel_vulnerable"
-    echo "VULNERABLE_HOSTS_START"
+      echo "TOTAL_VULNERABLE: $unique_vulnerable_hosts"
+      echo "NUCLEI_COUNT: $nuclei_vulnerable"
+      echo "WAF_BYPASS_COUNT: $waf_vulnerable"
+      echo "VERCEL_WAF_BYPASS_COUNT: $vercel_vulnerable"
+      echo "PATHS_SCAN_COUNT: $paths_vulnerable"
+      echo "DOUBLE_ENCODE_COUNT: $double_encode_vulnerable"
+      echo "SEMICOLON_BYPASS_COUNT: $semicolon_bypass_vulnerable"
+      echo "SOURCE_EXPOSURE_COUNT: $source_exposure_vulnerable"
+      echo "VULNERABLE_HOSTS_START"
     while IFS= read -r host; do
       [[ -z "$host" ]] && continue
       echo "$host"
@@ -452,11 +677,15 @@ except:
     echo "=== REACT2SHELL_SCAN_RESULTS ==="
     echo "STATUS: NOT_VULNERABLE"
     echo "DOMAIN: $domain"
-    echo "LIVE_HOSTS: $host_count"
-    echo "SCANNED: $scanned_count"
-    echo "NUCLEI_COUNT: $nuclei_vulnerable"
-    echo "WAF_BYPASS_COUNT: $waf_vulnerable"
-    echo "VERCEL_WAF_BYPASS_COUNT: $vercel_vulnerable"
+      echo "LIVE_HOSTS: $host_count"
+      echo "SCANNED: $scanned_count"
+      echo "NUCLEI_COUNT: $nuclei_vulnerable"
+      echo "WAF_BYPASS_COUNT: $waf_vulnerable"
+      echo "VERCEL_WAF_BYPASS_COUNT: $vercel_vulnerable"
+      echo "PATHS_SCAN_COUNT: $paths_vulnerable"
+      echo "DOUBLE_ENCODE_COUNT: $double_encode_vulnerable"
+      echo "SEMICOLON_BYPASS_COUNT: $semicolon_bypass_vulnerable"
+      echo "SOURCE_EXPOSURE_COUNT: $source_exposure_vulnerable"
   fi
 
   # Cleanup: Remove domain results directory if running in Docker mode
