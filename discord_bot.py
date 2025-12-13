@@ -1430,7 +1430,7 @@ class AutoARBot(commands.Cog):
                 
                 # Update scan status
                 if scan_id in active_scans:
-                active_scans[scan_id]["status"] = "completed"
+                    active_scans[scan_id]["status"] = "completed"
                 active_scans[scan_id]["results"] = {
                     "returncode": process.returncode,
                     "stdout": stdout_str,
