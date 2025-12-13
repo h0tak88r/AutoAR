@@ -2470,6 +2470,12 @@ class AutoARBot(commands.Cog):
                 
                 # Check for errors (like unknown flag)
                 stderr_str = stderr.decode("utf-8", errors="ignore") if stderr else ""
+                stdout_str = stdout.decode("utf-8", errors="ignore") if stdout else ""
+                
+                # Log command for debugging
+                print(f"[DEBUG] next88 command: {' '.join(command)}")
+                print(f"[DEBUG] next88 return code: {process.returncode}")
+                
                 if stderr_str and ("not defined" in stderr_str.lower() or "unknown flag" in stderr_str.lower()):
                     print(f"[WARN] next88 error: {stderr_str}")
                     # If smart-scan flag failed, retry without it
@@ -2479,47 +2485,81 @@ class AutoARBot(commands.Cog):
                         retry_flags = [f for f in extra_flags if f != "-smart-scan"]
                         return await self._run_next88_scan(hosts, retry_flags, discord_webhook)
                 
+                # Also check if process failed
+                if process.returncode != 0 and not stderr_str:
+                    print(f"[WARN] next88 exited with code {process.returncode} but no stderr")
+                    if stdout_str:
+                        print(f"[DEBUG] stdout: {stdout_str[:500]}")
+                
                 # Parse JSON results
                 vulnerable_hosts = set()
                 if os.path.exists(results_file) and os.path.getsize(results_file) > 0:
                     try:
                         with open(results_file, 'r') as f:
                             data = json.load(f)
-                            for result in data.get('results', []):
-                                # Check multiple possible field names for vulnerability
-                                is_vulnerable = (
-                                    result.get('vulnerable') is True or
-                                    result.get('vulnerable') == 'true' or
-                                    result.get('is_vulnerable') is True or
-                                    'vulnerable' in str(result).lower()
-                                )
-                                if is_vulnerable:
-                                    host = result.get('host', result.get('url', result.get('target', '')))
-                                    if host:
-                                        # Clean up host string
-                                        host = host.strip()
-                                        parsed = urlparse(host)
-                                        if parsed.netloc:
-                                            vulnerable_hosts.add(parsed.netloc.split(':')[0])
-                                        else:
-                                            # Remove protocol and path
-                                            clean_host = host.replace('https://', '').replace('http://', '').split('/')[0].split(':')[0]
-                                            if clean_host:
-                                                vulnerable_hosts.add(clean_host)
+                            
+                        # Debug: Print structure to understand format
+                        print(f"[DEBUG] next88 JSON structure - top level keys: {list(data.keys())}")
+                        if 'results' in data:
+                            print(f"[DEBUG] Number of results: {len(data.get('results', []))}")
+                            if len(data.get('results', [])) > 0:
+                                print(f"[DEBUG] First result keys: {list(data['results'][0].keys())}")
+                                print(f"[DEBUG] First result sample: {json.dumps(data['results'][0], indent=2)[:500]}")
+                        
+                        # Handle different JSON structures
+                        results_list = data.get('results', [])
+                        if not results_list and isinstance(data, list):
+                            # Sometimes the JSON is just an array
+                            results_list = data
+                        
+                        for result in results_list:
+                            # Check multiple possible field names for vulnerability
+                            is_vulnerable = (
+                                result.get('vulnerable') is True or
+                                result.get('vulnerable') == 'true' or
+                                result.get('vulnerable') == 'True' or
+                                result.get('is_vulnerable') is True or
+                                result.get('found') is True or
+                                result.get('detected') is True or
+                                'vulnerable' in str(result).lower() and 'false' not in str(result).lower()
+                            )
+                            
+                            if is_vulnerable:
+                                host = result.get('host', result.get('url', result.get('target', result.get('hostname', ''))))
+                                if host:
+                                    # Clean up host string
+                                    host = host.strip()
+                                    parsed = urlparse(host)
+                                    if parsed.netloc:
+                                        vulnerable_hosts.add(parsed.netloc.split(':')[0])
+                                    else:
+                                        # Remove protocol and path
+                                        clean_host = host.replace('https://', '').replace('http://', '').split('/')[0].split(':')[0]
+                                        if clean_host:
+                                            vulnerable_hosts.add(clean_host)
+                                print(f"[DEBUG] Found vulnerable host: {host}")
+                        
+                        print(f"[DEBUG] Total vulnerable hosts found: {len(vulnerable_hosts)}")
                     except Exception as e:
                         print(f"[ERROR] Failed to parse next88 JSON results: {e}")
+                        import traceback
+                        traceback.print_exc()
                         # Try to read raw file for debugging
                         if os.path.exists(results_file):
                             try:
                                 with open(results_file, 'r') as f:
                                     content = f.read()
-                                    print(f"[DEBUG] JSON file content (first 500 chars): {content[:500]}")
+                                    print(f"[DEBUG] JSON file content (first 1000 chars): {content[:1000]}")
                             except:
                                 pass
                 else:
                     print(f"[WARN] Results file missing or empty: {results_file}")
                     if stderr_str:
                         print(f"[WARN] next88 stderr: {stderr_str[:500]}")
+                    if stdout:
+                        stdout_str = stdout.decode("utf-8", errors="ignore") if stdout else ""
+                        if stdout_str:
+                            print(f"[DEBUG] next88 stdout (first 500 chars): {stdout_str[:500]}")
                 
                 return list(vulnerable_hosts)
             finally:
