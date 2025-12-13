@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -66,63 +67,81 @@ func handleReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate)
 
 // runReact2ShellScan runs the actual scan
 func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, threads int, enableSourceExposure, dosTest bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ERROR] Panic in runReact2ShellScan: %v", r)
+			updateEmbed(s, i, fmt.Sprintf("❌ Scan failed with error: %v", r), 0xff0000)
+		}
+	}()
+
+	log.Printf("[DEBUG] Starting domain scan for: %s", domain)
+
 	// Step 1: Get live hosts
+	log.Printf("[DEBUG] Step 1: Getting live hosts for %s", domain)
 	liveHostsFile, err := getLiveHosts(domain, threads)
 	if err != nil {
+		log.Printf("[ERROR] Failed to get live hosts: %v", err)
 		updateEmbed(s, i, fmt.Sprintf("❌ Failed to get live hosts: %v", err), 0xff0000)
 		return
 	}
+	log.Printf("[DEBUG] Live hosts file: %s", liveHostsFile)
 
 	// Step 2: Normalize hosts
+	log.Printf("[DEBUG] Step 2: Normalizing hosts")
 	hosts, err := normalizeHosts(liveHostsFile)
 	if err != nil {
+		log.Printf("[ERROR] Failed to normalize hosts: %v", err)
 		updateEmbed(s, i, fmt.Sprintf("❌ Failed to normalize hosts: %v", err), 0xff0000)
 		return
 	}
 
 	log.Printf("[DEBUG] Normalized %d hosts from %s", len(hosts), liveHostsFile)
+	if len(hosts) == 0 {
+		log.Printf("[WARN] No hosts found to scan")
+		sendReact2ShellResults(s, i, domain, 0, 0, 0, 0, []string{})
+		return
+	}
+
 	if len(hosts) > 0 {
 		log.Printf("[DEBUG] First 5 hosts: %v", hosts[:min(5, len(hosts))])
-		tictactoeFound := false
-		for _, h := range hosts {
-			if strings.Contains(strings.ToLower(h), "tictactoe") {
-				tictactoeFound = true
-				log.Printf("[DEBUG] tictactoe.digitalofthings.dev in list: true")
-				log.Printf("[DEBUG] tictactoe host format: %s", h)
-				break
-			}
-		}
-		if !tictactoeFound {
-			log.Printf("[DEBUG] tictactoe.digitalofthings.dev in list: false")
-		}
 	}
 
 	// Step 3: Run smart scan
+	log.Printf("[DEBUG] Step 3: Running smart scan on %d hosts", len(hosts))
 	smartScanResults, err := runNext88Scan(hosts, []string{"-smart-scan"}, getDiscordWebhook())
 	if err != nil {
 		log.Printf("[ERROR] Smart scan failed: %v", err)
 		smartScanResults = []string{}
+	} else {
+		log.Printf("[DEBUG] Smart scan completed, found %d vulnerable hosts", len(smartScanResults))
 	}
 
 	// Step 4: DoS test (if enabled)
 	dosResults := []string{}
 	if dosTest {
+		log.Printf("[DEBUG] Step 4: Running DoS test")
 		dosResults, err = runNext88Scan(hosts, []string{"-dos-test", "-dos-requests", "100"}, getDiscordWebhook())
 		if err != nil {
 			log.Printf("[ERROR] DoS test failed: %v", err)
+		} else {
+			log.Printf("[DEBUG] DoS test completed, found %d vulnerable hosts", len(dosResults))
 		}
 	}
 
 	// Step 5: Source exposure check (if enabled)
 	sourceExposureResults := []string{}
 	if enableSourceExposure {
+		log.Printf("[DEBUG] Step 5: Running source exposure check")
 		sourceExposureResults, err = runSourceExposureCheck(domain, hosts, getDiscordWebhook())
 		if err != nil {
 			log.Printf("[ERROR] Source exposure check failed: %v", err)
+		} else {
+			log.Printf("[DEBUG] Source exposure check completed, found %d vulnerable hosts", len(sourceExposureResults))
 		}
 	}
 
 	// Collect all vulnerable hosts
+	log.Printf("[DEBUG] Collecting all vulnerable hosts")
 	allVulnerable := make(map[string]bool)
 	for _, h := range smartScanResults {
 		allVulnerable[h] = true
@@ -139,8 +158,24 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 		vulnerableList = append(vulnerableList, h)
 	}
 
-	// Send results
-	sendReact2ShellResults(s, i, domain, len(hosts), len(smartScanResults), len(dosResults), len(sourceExposureResults), vulnerableList)
+	log.Printf("[DEBUG] Total unique vulnerable hosts: %d", len(vulnerableList))
+	log.Printf("[DEBUG] Sending results to Discord for domain: %s", domain)
+
+	// Send results - with retry logic
+	maxRetries := 3
+	for retry := 0; retry < maxRetries; retry++ {
+		err := sendReact2ShellResults(s, i, domain, len(hosts), len(smartScanResults), len(dosResults), len(sourceExposureResults), vulnerableList)
+		if err == nil {
+			log.Printf("[DEBUG] Successfully sent results to Discord")
+			break
+		}
+		log.Printf("[WARN] Failed to send results (attempt %d/%d): %v", retry+1, maxRetries, err)
+		if retry < maxRetries-1 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	
+	log.Printf("[DEBUG] Domain scan completed for: %s", domain)
 }
 
 // runNext88Scan runs next88 with given flags and returns vulnerable hosts
@@ -188,23 +223,71 @@ func runNext88Scan(hosts []string, extraFlags []string, webhookURL string) ([]st
 	defer os.Remove(resultsFile.Name())
 	resultsFile.Close()
 
-	// Build command
-	cmd := exec.Command(next88Bin, "-l", tmpFile.Name(), "-k", "-q", "-o", resultsFile.Name(), "-all-results")
-	cmd.Args = append(cmd.Args, extraFlags...)
+	// Build command with timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	
+	args := []string{"-l", tmpFile.Name(), "-k", "-q", "-o", resultsFile.Name(), "-all-results"}
+	args = append(args, extraFlags...)
 	if webhookURL != "" {
-		cmd.Args = append(cmd.Args, "--discord-webhook", webhookURL)
+		args = append(args, "--discord-webhook", webhookURL)
 	}
 
-	log.Printf("[DEBUG] next88 command: %s", strings.Join(cmd.Args, " "))
+	log.Printf("[DEBUG] next88 command: %s %s", next88Bin, strings.Join(args, " "))
 
-	// Run command
+	// Run command with timeout
+	cmd := exec.CommandContext(ctx, next88Bin, args...)
+	
+	log.Printf("[DEBUG] Executing next88 command (timeout: 10min)")
 	output, err := cmd.CombinedOutput()
+	
+	if ctx.Err() == context.DeadlineExceeded {
+		log.Printf("[ERROR] next88 command timed out after 10 minutes")
+		return []string{}, fmt.Errorf("command timed out")
+	}
+	
 	if err != nil {
 		log.Printf("[WARN] next88 command failed: %v, output: %s", err, string(output))
 		// Continue anyway - might have found vulnerabilities before error
+	} else {
+		log.Printf("[DEBUG] next88 command completed successfully")
+	}
+
+	// Check if results file exists and has content
+	if fileInfo, err := os.Stat(resultsFile.Name()); err != nil || fileInfo.Size() == 0 {
+		log.Printf("[WARN] Results file is empty or missing: %v", err)
+		// Fallback: check stdout for vulnerable hosts
+		if strings.Contains(strings.ToLower(string(output)), "vulnerable") {
+			log.Printf("[DEBUG] Found 'vulnerable' keyword in stdout, attempting to extract hosts")
+			// Try to extract hosts from stdout
+			lines := strings.Split(string(output), "\n")
+			hosts := []string{}
+			for _, line := range lines {
+				if strings.Contains(strings.ToLower(line), "vulnerable") {
+					// Try to extract URL/host from line
+					if strings.Contains(line, "http") {
+						parts := strings.Fields(line)
+						for _, part := range parts {
+							if strings.HasPrefix(part, "http") {
+								hostname := extractHostname(part)
+								if hostname != "" {
+									hosts = append(hosts, hostname)
+								}
+							}
+						}
+					}
+				}
+			}
+			if len(hosts) > 0 {
+				log.Printf("[DEBUG] Extracted %d vulnerable hosts from stdout", len(hosts))
+				return hosts, nil
+			}
+		}
+		return []string{}, nil
 	}
 
 	// Parse results
+	log.Printf("[DEBUG] Parsing next88 JSON results from: %s", resultsFile.Name())
 	vulnerableHosts, err := parseNext88Results(resultsFile.Name())
 	if err != nil {
 		log.Printf("[ERROR] Failed to parse next88 results: %v", err)
@@ -379,7 +462,7 @@ func runSourceExposureCheck(domain string, hosts []string, webhookURL string) ([
 	return runNext88Scan(hosts, []string{"-check-source-exposure"}, webhookURL)
 }
 
-func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, totalHosts, smartScanCount, dosCount, sourceExposureCount int, allVulnerable []string) {
+func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, totalHosts, smartScanCount, dosCount, sourceExposureCount int, allVulnerable []string) error {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🔍 React2Shell RCE Test Results",
 		Description: fmt.Sprintf("**Target:** `%s`", domain),
@@ -448,8 +531,20 @@ func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 	if err != nil {
-		log.Printf("Error updating interaction: %v", err)
+		log.Printf("[ERROR] Failed to update Discord message: %v", err)
+		// Try to send as followup message as fallback
+		_, err2 := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		if err2 != nil {
+			log.Printf("[ERROR] Failed to send followup message: %v", err2)
+			return fmt.Errorf("both edit and followup failed: edit=%v, followup=%v", err, err2)
+		}
+		log.Printf("[DEBUG] Sent results as followup message (edit failed)")
+		return nil
 	}
+	log.Printf("[DEBUG] Successfully updated Discord message for domain scan: %s", domain)
+	return nil
 }
 
 func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -693,15 +788,14 @@ func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, 
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 	if err != nil {
-		log.Printf("Error updating embed: %v", err)
-	}
-
-	// Update embed first
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-	if err != nil {
-		log.Printf("Error updating embed: %v", err)
+		log.Printf("[ERROR] Error updating embed: %v", err)
+		// Try followup as fallback
+		_, err2 := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		if err2 != nil {
+			log.Printf("[ERROR] Failed to send followup message: %v", err2)
+		}
 	}
 
 	// Send PoC file if available (as followup message)
