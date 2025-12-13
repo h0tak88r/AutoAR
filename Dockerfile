@@ -12,9 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install next88 (React2Shell scanner) from GitHub
 RUN go install github.com/h0tak88r/next88@latest && \
-    # Create react2shell symlink for backward compatibility
-    ln -sf /go/bin/next88 /go/bin/react2shell && \
-    chmod +x /go/bin/next88 /go/bin/react2shell
+    # Create react2shell symlink for backward compatibility (in /usr/local/bin after copy)
+    chmod +x /go/bin/next88
 
 WORKDIR /app
 
@@ -78,8 +77,11 @@ RUN cd /app && \
     # jwt_tool is already integrated in /app/python/jwt_tool.py - no need to clone
     # KeyHack templates are already in the database - no need to clone KeysKit
 
-# Copy Go tools from builder stage (including react2shell)
+# Copy Go tools from builder stage (including next88)
 COPY --from=builder /go/bin/ /usr/local/bin/
+# Create react2shell symlink for backward compatibility
+RUN ln -sf /usr/local/bin/next88 /usr/local/bin/react2shell && \
+    chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
