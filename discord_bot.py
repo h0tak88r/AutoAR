@@ -2727,16 +2727,20 @@ class AutoARBot(commands.Cog):
                                 file_path = str(live_hosts_file.resolve())
                                 print(f"[DEBUG] Sending live hosts file to webhook: {file_path}")
                                 
-                                result = subprocess.run(
-                                    [
-                                        'curl', '-sS', '--fail',
-                                        '-F', f'file=@{file_path}',
-                                        '-F', f'payload_json={payload_json}',
-                                        webhook_url
-                                    ],
-                                    capture_output=True,
-                                    timeout=30
-                                )
+                                # Ensure file exists before sending
+                                if not os.path.exists(file_path):
+                                    print(f"[ERROR] File does not exist: {file_path}")
+                                else:
+                                    result = subprocess.run(
+                                        [
+                                            'curl', '-sS', '--fail',
+                                            '-F', f'file=@{file_path}',
+                                            '-F', f'payload_json={payload_json}',
+                                            webhook_url
+                                        ],
+                                        capture_output=True,
+                                        timeout=30
+                                    )
                                 
                                 if result.returncode == 0:
                                     print(f"[INFO] Successfully sent live hosts file to webhook")
