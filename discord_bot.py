@@ -2685,6 +2685,11 @@ class AutoARBot(commands.Cog):
                 results_dir = Path(RESULTS_DIR) / domain
                 live_hosts_file = results_dir / "subs" / "live-subs.txt"
                 
+                print(f"[DEBUG] Looking for live hosts file at: {live_hosts_file}")
+                print(f"[DEBUG] File exists: {live_hosts_file.exists()}")
+                if live_hosts_file.exists():
+                    print(f"[DEBUG] File size: {live_hosts_file.stat().st_size} bytes")
+                
                 # Update Discord message
                 interaction = active_scans[scan_id]["interaction"]
                 embed = self.create_scan_embed(
@@ -2717,20 +2722,33 @@ class AutoARBot(commands.Cog):
                                 import subprocess
                                 description = f"**Live Hosts for `{domain}`**\n**Count:** {line_count} live subdomains"
                                 payload_json = json.dumps({"content": description})
+                                
+                                # Use absolute path for file
+                                file_path = str(live_hosts_file.resolve())
+                                print(f"[DEBUG] Sending live hosts file to webhook: {file_path}")
+                                
                                 result = subprocess.run(
                                     [
-                                        'curl', '-sS',
-                                        '-F', f'file=@{live_hosts_file}',
+                                        'curl', '-sS', '--fail',
+                                        '-F', f'file=@{file_path}',
                                         '-F', f'payload_json={payload_json}',
                                         webhook_url
                                     ],
                                     capture_output=True,
                                     timeout=30
                                 )
-                                if result.returncode != 0:
-                                    print(f"[WARN] Failed to send live hosts file to webhook: {result.stderr.decode('utf-8', errors='ignore')[:200]}")
+                                
+                                if result.returncode == 0:
+                                    print(f"[INFO] Successfully sent live hosts file to webhook")
+                                else:
+                                    error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else result.stdout.decode('utf-8', errors='ignore')
+                                    print(f"[ERROR] Failed to send live hosts file to webhook (code {result.returncode}): {error_msg[:500]}")
                             except Exception as e:
-                                print(f"[WARN] Error sending live hosts file to webhook: {e}")
+                                import traceback
+                                print(f"[ERROR] Exception sending live hosts file to webhook: {e}")
+                                traceback.print_exc()
+                        else:
+                            print(f"[WARN] No webhook URL configured, skipping webhook file send")
                     except Exception as e:
                         print(f"[ERROR] Failed to send live hosts file: {e}")
                         await interaction.edit_original_response(embed=embed)
