@@ -1641,10 +1641,11 @@ class AutoARBot(commands.Cog):
     )
     @app_commands.describe(
         domain="The domain to scan",
-        threads="Number of threads for livehosts detection (default: 100)"
+        threads="Number of threads for livehosts detection (default: 100)",
+        enable_source_exposure="Enable source code exposure check via ACTION_ID extraction from JS files (default: False, can be slow)"
     )
     async def react2shell_scan_cmd(
-        self, interaction: discord.Interaction, domain: str, threads: int = 100
+        self, interaction: discord.Interaction, domain: str, threads: int = 100, enable_source_exposure: bool = False
     ):
         scan_id = f"react2shell_scan_{int(time.time())}"
         command = [
@@ -1656,14 +1657,32 @@ class AutoARBot(commands.Cog):
             "-t",
             str(threads),
         ]
+        if enable_source_exposure:
+            command.append("--enable-source-exposure")
         active_scans[scan_id] = {
             "type": "react2shell_scan",
             "target": domain,
             "status": "running",
             "start_time": datetime.now(),
             "interaction": interaction,
+            "enable_source_exposure": enable_source_exposure,
         }
-        embed = self.create_scan_embed("React2Shell Host Scan", domain, "running")
+        
+        # Create embed with source exposure status
+        embed_title = "React2Shell Host Scan"
+        embed_desc = f"**Domain:** `{domain}`\n**Threads:** {threads}"
+        if enable_source_exposure:
+            embed_desc += "\n**Source Exposure Check:** Enabled (may take longer)"
+        else:
+            embed_desc += "\n**Source Exposure Check:** Disabled (faster scan)"
+        
+        embed = discord.Embed(
+            title=embed_title,
+            description=embed_desc,
+            color=discord.Color.blue(),
+        )
+        embed.add_field(name="Status", value="🟡 Running", inline=False)
+        
         await interaction.response.send_message(embed=embed)
         asyncio.create_task(self._run_scan_background(scan_id, command))
 
