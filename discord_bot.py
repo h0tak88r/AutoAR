@@ -2390,41 +2390,29 @@ class AutoARBot(commands.Cog):
                 await self._update_scan_embed(scan_id, "❌ Failed to normalize hosts", discord.Color.red())
                 return
             
-            # Step 2: DoS test (if enabled)
+            # Step 2: Run smart scan (normal -> WAF bypass -> Vercel WAF -> paths sequentially)
+            smart_scan_results = await self._run_next88_scan(normalized_hosts, ["-smart-scan"], discord_webhook)
+            
+            # Step 3: DoS test (if enabled)
             dos_results = []
             if dos_test:
                 dos_results = await self._run_next88_scan(normalized_hosts, ["-dos-test", "-dos-requests", "100"], discord_webhook)
             
-            # Step 3: Run next88 with WAF bypass
-            waf_results = await self._run_next88_scan(normalized_hosts, ["-waf-bypass"], discord_webhook)
-            
-            # Step 4: Run next88 with Vercel WAF bypass
-            vercel_results = await self._run_next88_scan(normalized_hosts, ["-vercel-waf-bypass"], discord_webhook)
-            
-            # Step 5: Run next88 with common paths
-            paths_file = Path("/app/Wordlists/react-nextjs-paths.txt")
-            paths_results = []
-            if paths_file.exists():
-                paths_results = await self._run_next88_scan(normalized_hosts, ["-path-file", str(paths_file)], discord_webhook)
-            
-            # Step 6: Source code exposure check (optional)
+            # Step 4: Source code exposure check (optional)
             source_exposure_results = []
             if enable_source_exposure:
                 source_exposure_results = await self._run_source_exposure_check(domain, normalized_hosts, discord_webhook)
             
-            # Collect all vulnerable hosts (only from next88 scans)
+            # Collect all vulnerable hosts (from smart scan + optional tests)
             all_vulnerable = set()
+            all_vulnerable.update(smart_scan_results)
             all_vulnerable.update(dos_results)
-            all_vulnerable.update(waf_results)
-            all_vulnerable.update(vercel_results)
-            all_vulnerable.update(paths_results)
             all_vulnerable.update(source_exposure_results)
             
-            # Format and send results (nuclei_count is now 0 since we don't use Nuclei)
+            # Format and send results
             await self._send_react2shell_results(
                 scan_id, domain, len(normalized_hosts), 
-                0, len(dos_results), len(waf_results), len(vercel_results), 
-                len(paths_results), len(source_exposure_results), 
+                len(smart_scan_results), len(dos_results), len(source_exposure_results), 
                 list(all_vulnerable)
             )
             
@@ -2591,6 +2579,8 @@ class AutoARBot(commands.Cog):
                         elif flag == "-dos-requests" and i + 1 < len(extra_flags):
                             python_flags.extend(["--dos-requests", extra_flags[i + 1]])
                             i += 1
+                        elif flag == "-smart-scan":
+                            python_flags.append("--smart-scan")
                         elif flag == "-path-file" and i + 1 < len(extra_flags):
                             python_flags.extend(["--path-file", extra_flags[i + 1]])
                             i += 1
@@ -2674,8 +2664,7 @@ class AutoARBot(commands.Cog):
     
     async def _send_react2shell_results(
         self, scan_id: str, domain: str, total_hosts: int,
-        nuclei_count: int, dos_count: int, waf_count: int, vercel_count: int,
-        paths_count: int, source_exposure_count: int,
+        smart_scan_count: int, dos_count: int, source_exposure_count: int,
         all_vulnerable: list
     ):
         """Format and send React2Shell scan results."""
@@ -2708,16 +2697,12 @@ class AutoARBot(commands.Cog):
                     name="Vulnerable Hosts", value=hosts_text, inline=False
                 )
                 
-                # Add breakdown (only next88 results, no Nuclei)
+                # Add breakdown (smart scan + optional tests)
                 breakdown = []
+                if smart_scan_count > 0:
+                    breakdown.append(f"Smart Scan: {smart_scan_count}")
                 if dos_count > 0:
                     breakdown.append(f"DoS Test: {dos_count}")
-                if waf_count > 0:
-                    breakdown.append(f"WAF Bypass: {waf_count}")
-                if vercel_count > 0:
-                    breakdown.append(f"Vercel WAF: {vercel_count}")
-                if paths_count > 0:
-                    breakdown.append(f"Paths: {paths_count}")
                 if source_exposure_count > 0:
                     breakdown.append(f"Source Exposure: {source_exposure_count}")
                 if breakdown:
@@ -2729,12 +2714,9 @@ class AutoARBot(commands.Cog):
                     name="Status", value="✅ **Not Vulnerable**", inline=False
                 )
                 stats_text = f"**Live hosts:** `{total_hosts}`\n"
+                stats_text += f"**Smart Scan findings:** `{smart_scan_count}`\n"
                 if dos_count > 0:
                     stats_text += f"**DoS Test findings:** `{dos_count}`\n"
-                stats_text += f"**WAF Bypass findings:** `{waf_count}`\n"
-                stats_text += f"**Vercel WAF findings:** `{vercel_count}`\n"
-                if paths_count > 0:
-                    stats_text += f"**Paths findings:** `{paths_count}`\n"
                 if source_exposure_count > 0:
                     stats_text += f"**Source Exposure findings:** `{source_exposure_count}`\n"
                 embed.add_field(name="Statistics", value=stats_text, inline=False)
