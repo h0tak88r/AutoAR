@@ -10,6 +10,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl build-essential cmake libpcap-dev python3 python3-pip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Install next88 (React2Shell scanner) from GitHub
+RUN go install github.com/h0tak88r/next88@latest && \
+    # Create react2shell symlink for backward compatibility
+    ln -sf /go/bin/next88 /go/bin/react2shell && \
+    chmod +x /go/bin/next88 /go/bin/react2shell
+
+WORKDIR /app
+
 # Install Go-based security tools directly
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
     go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
@@ -70,7 +78,7 @@ RUN cd /app && \
     # jwt_tool is already integrated in /app/python/jwt_tool.py - no need to clone
     # KeyHack templates are already in the database - no need to clone KeysKit
 
-# Copy Go tools from builder stage
+# Copy Go tools from builder stage (including react2shell)
 COPY --from=builder /go/bin/ /usr/local/bin/
 
 # Install Nuclei templates to a known location
