@@ -98,7 +98,7 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 	log.Printf("[DEBUG] Normalized %d hosts from %s", len(hosts), liveHostsFile)
 	if len(hosts) == 0 {
 		log.Printf("[WARN] No hosts found to scan")
-		sendReact2ShellResults(s, i, domain, 0, 0, 0, 0, 0, []string{})
+		sendReact2ShellResults(s, i, domain, 0, 0, 0, 0, []string{})
 		return
 	}
 
@@ -106,31 +106,21 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 		log.Printf("[DEBUG] First 5 hosts: %v", hosts[:min(5, len(hosts))])
 	}
 
-	// Step 3: Run smart scan (next88) - NO webhook
-	log.Printf("[DEBUG] Step 3: Running next88 smart scan on %d hosts", len(hosts))
-	smartScanResults, err := runNext88Scan(hosts, []string{"-smart-scan"}, "")
+	// Step 3: Run smart scan
+	log.Printf("[DEBUG] Step 3: Running smart scan on %d hosts", len(hosts))
+	smartScanResults, err := runNext88Scan(hosts, []string{"-smart-scan"}, getDiscordWebhook())
 	if err != nil {
 		log.Printf("[ERROR] Smart scan failed: %v", err)
 		smartScanResults = []string{}
 	} else {
-		log.Printf("[DEBUG] next88 smart scan completed, found %d vulnerable hosts", len(smartScanResults))
+		log.Printf("[DEBUG] Smart scan completed, found %d vulnerable hosts", len(smartScanResults))
 	}
 
-	// Step 4: Run nuclei scan for CVE-2025-55182.yaml to verify results
-	log.Printf("[DEBUG] Step 4: Running nuclei scan for CVE-2025-55182.yaml on %d hosts", len(hosts))
-	nucleiResults, err := runNucleiScan(hosts, "CVE-2025-55182.yaml")
-	if err != nil {
-		log.Printf("[ERROR] Nuclei scan failed: %v", err)
-		nucleiResults = []string{}
-	} else {
-		log.Printf("[DEBUG] Nuclei scan completed, found %d vulnerable hosts", len(nucleiResults))
-	}
-
-	// Step 5: DoS test (if enabled) - NO webhook
+	// Step 4: DoS test (if enabled)
 	dosResults := []string{}
 	if dosTest {
-		log.Printf("[DEBUG] Step 5: Running DoS test")
-		dosResults, err = runNext88Scan(hosts, []string{"-dos-test", "-dos-requests", "100"}, "")
+		log.Printf("[DEBUG] Step 4: Running DoS test")
+		dosResults, err = runNext88Scan(hosts, []string{"-dos-test", "-dos-requests", "100"}, getDiscordWebhook())
 		if err != nil {
 			log.Printf("[ERROR] DoS test failed: %v", err)
 		} else {
@@ -138,11 +128,11 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 		}
 	}
 
-	// Step 6: Source exposure check (if enabled) - NO webhook
+	// Step 5: Source exposure check (if enabled)
 	sourceExposureResults := []string{}
 	if enableSourceExposure {
-		log.Printf("[DEBUG] Step 6: Running source exposure check")
-		sourceExposureResults, err = runSourceExposureCheck(domain, hosts, "")
+		log.Printf("[DEBUG] Step 5: Running source exposure check")
+		sourceExposureResults, err = runSourceExposureCheck(domain, hosts, getDiscordWebhook())
 		if err != nil {
 			log.Printf("[ERROR] Source exposure check failed: %v", err)
 		} else {
@@ -150,13 +140,10 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 		}
 	}
 
-	// Collect all vulnerable hosts (from both next88 and nuclei)
-	log.Printf("[DEBUG] Collecting all vulnerable hosts from next88 and nuclei")
+	// Collect all vulnerable hosts
+	log.Printf("[DEBUG] Collecting all vulnerable hosts")
 	allVulnerable := make(map[string]bool)
 	for _, h := range smartScanResults {
-		allVulnerable[h] = true
-	}
-	for _, h := range nucleiResults {
 		allVulnerable[h] = true
 	}
 	for _, h := range dosResults {
@@ -174,10 +161,10 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 	log.Printf("[DEBUG] Total unique vulnerable hosts: %d", len(vulnerableList))
 	log.Printf("[DEBUG] Sending results to Discord for domain: %s", domain)
 
-	// Send results - with retry logic (include nuclei results count)
+	// Send results - with retry logic
 	maxRetries := 3
 	for retry := 0; retry < maxRetries; retry++ {
-		err := sendReact2ShellResults(s, i, domain, len(hosts), len(smartScanResults), len(nucleiResults), len(dosResults), len(sourceExposureResults), vulnerableList)
+		err := sendReact2ShellResults(s, i, domain, len(hosts), len(smartScanResults), len(dosResults), len(sourceExposureResults), vulnerableList)
 		if err == nil {
 			log.Printf("[DEBUG] Successfully sent results to Discord")
 			break
@@ -242,9 +229,10 @@ func runNext88Scan(hosts []string, extraFlags []string, webhookURL string) ([]st
 	
 	args := []string{"-l", tmpFile.Name(), "-k", "-q", "-o", resultsFile.Name(), "-all-results"}
 	args = append(args, extraFlags...)
-	if webhookURL != "" {
-		args = append(args, "--discord-webhook", webhookURL)
-	}
+	// Don't pass webhook URL - we handle Discord messages directly via bot
+	// if webhookURL != "" {
+	// 	args = append(args, "--discord-webhook", webhookURL)
+	// }
 
 	log.Printf("[DEBUG] next88 command: %s %s", next88Bin, strings.Join(args, " "))
 
@@ -472,154 +460,11 @@ func getDiscordWebhook() string {
 }
 
 func runSourceExposureCheck(domain string, hosts []string, webhookURL string) ([]string, error) {
+	// Don't pass webhook - we handle Discord messages directly
 	return runNext88Scan(hosts, []string{"-check-source-exposure"}, "")
 }
 
-// runNucleiScan runs nuclei with specific template and returns vulnerable hosts
-func runNucleiScan(hosts []string, templateName string) ([]string, error) {
-	// Find nuclei binary
-	nucleiBin := "nuclei"
-	if _, err := exec.LookPath(nucleiBin); err != nil {
-		return nil, fmt.Errorf("nuclei binary not found")
-	}
-
-	// Create temp file for hosts (nuclei expects URLs)
-	tmpFile, err := os.CreateTemp("", "nuclei-hosts-*.txt")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	for _, host := range hosts {
-		tmpFile.WriteString(host + "\n")
-	}
-	tmpFile.Close()
-
-	// Create temp file for results
-	resultsFile, err := os.CreateTemp("", "nuclei-results-*.json")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(resultsFile.Name())
-
-	// Find template file
-	templatePaths := []string{
-		fmt.Sprintf("/app/nuclei_templates/cves/%s", templateName),
-		fmt.Sprintf("/app/nuclei-templates/http/cves/%s", templateName),
-		fmt.Sprintf("nuclei_templates/cves/%s", templateName),
-		fmt.Sprintf("nuclei-templates/http/cves/%s", templateName),
-	}
-
-	templatePath := ""
-	for _, path := range templatePaths {
-		if _, err := os.Stat(path); err == nil {
-			templatePath = path
-			break
-		}
-	}
-
-	if templatePath == "" {
-		log.Printf("[WARN] Template %s not found in standard locations, trying direct path", templateName)
-		templatePath = templateName
-	}
-
-	log.Printf("[DEBUG] Using nuclei template: %s", templatePath)
-
-	// Build nuclei command
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	args := []string{
-		"-l", tmpFile.Name(),
-		"-t", templatePath,
-		"-json",
-		"-o", resultsFile.Name(),
-		"-silent",
-	}
-
-	log.Printf("[DEBUG] nuclei command: %s %s", nucleiBin, strings.Join(args, " "))
-
-	// Run nuclei
-	cmd := exec.CommandContext(ctx, nucleiBin, args...)
-	output, err := cmd.CombinedOutput()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		log.Printf("[ERROR] nuclei command timed out after 5 minutes")
-		return []string{}, fmt.Errorf("command timed out")
-	}
-
-	if err != nil {
-		log.Printf("[WARN] nuclei command failed: %v, output: %s", err, string(output))
-		// Continue anyway - might have found vulnerabilities before error
-	} else {
-		log.Printf("[DEBUG] nuclei command completed successfully")
-	}
-
-	// Parse JSON results
-	vulnerableHosts, err := parseNucleiResults(resultsFile.Name())
-	if err != nil {
-		log.Printf("[ERROR] Failed to parse nuclei results: %v", err)
-		return []string{}, nil
-	}
-
-	log.Printf("[DEBUG] Nuclei found %d vulnerable hosts", len(vulnerableHosts))
-	return vulnerableHosts, nil
-}
-
-// parseNucleiResults parses nuclei JSON output
-func parseNucleiResults(resultsFile string) ([]string, error) {
-	data, err := os.ReadFile(resultsFile)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(data) == 0 {
-		return []string{}, nil
-	}
-
-	// Nuclei outputs one JSON object per line
-	lines := strings.Split(string(data), "\n")
-	vulnerableHosts := make(map[string]bool)
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &result); err != nil {
-			continue
-		}
-
-		// Extract host/URL from nuclei result
-		host := ""
-		if h, ok := result["host"].(string); ok {
-			host = h
-		} else if h, ok := result["matched-at"].(string); ok {
-			host = h
-		} else if h, ok := result["url"].(string); ok {
-			host = h
-		}
-
-		if host != "" {
-			hostname := extractHostname(host)
-			if hostname != "" {
-				vulnerableHosts[hostname] = true
-				log.Printf("[DEBUG] Nuclei found vulnerable host: %s", hostname)
-			}
-		}
-	}
-
-	result := make([]string, 0, len(vulnerableHosts))
-	for h := range vulnerableHosts {
-		result = append(result, h)
-	}
-
-	return result, nil
-}
-
-func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, totalHosts, smartScanCount, nucleiCount, dosCount, sourceExposureCount int, allVulnerable []string) error {
+func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, totalHosts, smartScanCount, dosCount, sourceExposureCount int, allVulnerable []string) error {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🔍 React2Shell RCE Test Results",
 		Description: fmt.Sprintf("**Target:** `%s`", domain),
@@ -670,8 +515,7 @@ func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate
 		}
 
 		statsText := fmt.Sprintf("**Live hosts:** `%d`\n", totalHosts)
-		statsText += fmt.Sprintf("**next88 findings:** `%d`\n", smartScanCount)
-		statsText += fmt.Sprintf("**Nuclei (CVE-2025-55182) findings:** `%d`\n", nucleiCount)
+		statsText += fmt.Sprintf("**Smart Scan findings:** `%d`\n", smartScanCount)
 		if dosCount > 0 {
 			statsText += fmt.Sprintf("**DoS Test findings:** `%d`\n", dosCount)
 		}
@@ -750,59 +594,59 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	// Run scan in background (with both next88 and nuclei)
-	go runReact2ShellSingleWithNuclei(s, i, url, verbose)
+	// Run scan in background
+	go runReact2ShellSingle(s, i, url, verbose)
 }
 
-// runReact2ShellSingleWithNuclei runs next88 and then nuclei for single URL
-func runReact2ShellSingleWithNuclei(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
-	// Step 1: Run next88 (NO webhook)
-	log.Printf("[DEBUG] Running next88 scan for: %s", target)
-	next88Vulnerable, next88Details, next88POC, err := runNext88SingleURL(target)
-	if err != nil {
-		log.Printf("[ERROR] next88 scan failed: %v", err)
-		next88Vulnerable = false
-	}
-
-	// Step 2: Run nuclei scan for CVE-2025-55182.yaml to verify
-	log.Printf("[DEBUG] Running nuclei scan for CVE-2025-55182.yaml: %s", target)
-	nucleiVulnerable, err := runNucleiSingleURL(target, "CVE-2025-55182.yaml")
-	if err != nil {
-		log.Printf("[ERROR] Nuclei scan failed: %v", err)
-		nucleiVulnerable = false
-	}
-
-	// Consider vulnerable if EITHER next88 OR nuclei found it
-	isVulnerable := next88Vulnerable || nucleiVulnerable
-
-	// Update Discord message with combined results
-	updateSingleURLResults(s, i, target, isVulnerable, next88Vulnerable, nucleiVulnerable, next88Details, next88POC)
-}
-
-func runNext88SingleURL(target string) (bool, map[string]interface{}, map[string]interface{}, error) {
+func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
+	// Find next88 binary
 	next88Bin := findNext88()
 	if next88Bin == "" {
-		return false, nil, nil, fmt.Errorf("next88 binary not found")
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ React2Shell Test Failed",
+			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** next88 binary not found. Please install: go install github.com/h0tak88r/next88@latest", target),
+			Color:       0xff0000,
+		}
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		return
 	}
 
+	// Create temp file for JSON output
 	resultsFile, err := os.CreateTemp("", "next88-single-*.json")
 	if err != nil {
-		return false, nil, nil, err
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ React2Shell Test Failed",
+			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** Failed to create temp file: %v", target, err),
+			Color:       0xff0000,
+		}
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		return
 	}
-	defer os.Remove(resultsFile.Name())
 	resultsFile.Close()
+	defer os.Remove(resultsFile.Name())
 
+	// Build next88 command
 	command := []string{
 		next88Bin,
 		"-u", target,
-		"-k",
+		"-k", // Insecure (skip SSL verification)
 		"-o", resultsFile.Name(),
-		"-all-results",
-		// NO webhook flag - don't send messages to Discord webhook
+		"-all-results", // Get all results in JSON
 	}
+
+	// Don't pass webhook URL - we handle Discord messages directly via bot
+	// webhookURL := getDiscordWebhook()
+	// if webhookURL != "" {
+	// 	command = append(command, "--discord-webhook", webhookURL)
+	// }
 
 	log.Printf("[DEBUG] next88 single URL command: %s", strings.Join(command, " "))
 
+	// Run next88
 	cmd := exec.Command(command[0], command[1:]...)
 	output, err := cmd.CombinedOutput()
 
@@ -862,87 +706,7 @@ func runNext88SingleURL(target string) (bool, map[string]interface{}, map[string
 			strings.Contains(strings.ToLower(stderrStr), "vulnerable")
 	}
 
-	return isVulnerable, vulnerabilityDetails, pocData, nil
-}
-
-func runNucleiSingleURL(target string, templateName string) (bool, error) {
-	nucleiBin := "nuclei"
-	if _, err := exec.LookPath(nucleiBin); err != nil {
-		return false, fmt.Errorf("nuclei binary not found")
-	}
-
-	// Find template file
-	templatePaths := []string{
-		fmt.Sprintf("/app/nuclei_templates/cves/%s", templateName),
-		fmt.Sprintf("/app/nuclei-templates/http/cves/%s", templateName),
-		fmt.Sprintf("nuclei_templates/cves/%s", templateName),
-		fmt.Sprintf("nuclei-templates/http/cves/%s", templateName),
-	}
-
-	templatePath := ""
-	for _, path := range templatePaths {
-		if _, err := os.Stat(path); err == nil {
-			templatePath = path
-			break
-		}
-	}
-
-	if templatePath == "" {
-		log.Printf("[WARN] Template %s not found, trying direct path", templateName)
-		templatePath = templateName
-	}
-
-	resultsFile, err := os.CreateTemp("", "nuclei-single-*.json")
-	if err != nil {
-		return false, err
-	}
-	defer os.Remove(resultsFile.Name())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	args := []string{
-		"-u", target,
-		"-t", templatePath,
-		"-json",
-		"-o", resultsFile.Name(),
-		"-silent",
-	}
-
-	log.Printf("[DEBUG] nuclei single URL command: %s %s", nucleiBin, strings.Join(args, " "))
-
-	cmd := exec.CommandContext(ctx, nucleiBin, args...)
-	output, err := cmd.CombinedOutput()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return false, fmt.Errorf("command timed out")
-	}
-
-	if err != nil {
-		log.Printf("[WARN] nuclei command failed: %v, output: %s", err, string(output))
-	}
-
-	// Parse results - nuclei outputs one JSON object per line
-	data, err := os.ReadFile(resultsFile.Name())
-	if err == nil && len(data) > 0 {
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			// If we have any JSON line, it means vulnerability was found
-			var result map[string]interface{}
-			if err := json.Unmarshal([]byte(line), &result); err == nil {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
-}
-
-func updateSingleURLResults(s *discordgo.Session, i *discordgo.InteractionCreate, target string, isVulnerable, next88Found, nucleiFound bool, vulnerabilityDetails map[string]interface{}, pocData map[string]interface{}) {
+	// Create result embed
 	color := 0xff0000 // Red
 	if !isVulnerable {
 		color = 0x00ff00 // Green
@@ -962,19 +726,6 @@ func updateSingleURLResults(s *discordgo.Session, i *discordgo.InteractionCreate
 		{Name: "Status", Value: statusText, Inline: false},
 	}
 
-	// Add detection method details
-	detectionInfo := "**Verification Methods:**\n"
-	if next88Found {
-		detectionInfo += "✅ next88: Detected\n"
-	} else {
-		detectionInfo += "❌ next88: Not detected\n"
-	}
-	if nucleiFound {
-		detectionInfo += "✅ Nuclei (CVE-2025-55182.yaml): Detected\n"
-	} else {
-		detectionInfo += "❌ Nuclei (CVE-2025-55182.yaml): Not detected\n"
-	}
-
 	// Add detection phase/method details if available
 	if isVulnerable && vulnerabilityDetails != nil {
 		phase := getStringFromMap(vulnerabilityDetails, "phase", "Unknown")
@@ -992,36 +743,37 @@ func updateSingleURLResults(s *discordgo.Session, i *discordgo.InteractionCreate
 			phaseDisplay = strings.Title(phase)
 		}
 
-		if phase != "Unknown" || method != "Unknown" {
-			detectionInfo += fmt.Sprintf("\n**Detection Phase:** %s", phaseDisplay)
-			if method != "" && method != "Unknown" {
-				detectionInfo += fmt.Sprintf("\n**Method:** %s", method)
-			}
-			if path := getStringFromMap(vulnerabilityDetails, "path", ""); path != "" {
-				detectionInfo += fmt.Sprintf("\n**Path:** `%s`", path)
-			}
-			if statusCode := getStringFromMap(vulnerabilityDetails, "status_code", ""); statusCode != "" {
-				detectionInfo += fmt.Sprintf("\n**Status Code:** `%s`", statusCode)
-			}
+		detectionInfo := fmt.Sprintf("**Detection Phase:** %s", phaseDisplay)
+		if method != "" && method != "Unknown" {
+			detectionInfo += fmt.Sprintf("\n**Method:** %s", method)
 		}
-	}
+		if path := getStringFromMap(vulnerabilityDetails, "path", ""); path != "" {
+			detectionInfo += fmt.Sprintf("\n**Path:** `%s`", path)
+		}
+		if statusCode := getStringFromMap(vulnerabilityDetails, "status_code", ""); statusCode != "" {
+			detectionInfo += fmt.Sprintf("\n**Status Code:** `%s`", statusCode)
+		}
 
-	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-		Name:  "Detection Details",
-		Value: detectionInfo,
-	})
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Detection Details",
+			Value: detectionInfo,
+		})
+	} else {
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Method",
+			Value: "next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)",
+		})
+	}
 
 	// Create PoC JSON file if vulnerable
 	var pocFile *os.File
 	if isVulnerable && pocData != nil {
 		pocJSON := map[string]interface{}{
-			"target":                target,
-			"vulnerable":            true,
-			"next88_detected":       next88Found,
-			"nuclei_detected":       nucleiFound,
+			"target":              target,
+			"vulnerable":          true,
 			"vulnerability_details": vulnerabilityDetails,
-			"poc":                   pocData,
-			"timestamp":             time.Now().Format(time.RFC3339),
+			"poc":                 pocData,
+			"timestamp":           time.Now().Format(time.RFC3339),
 		}
 
 		pocDataJSON, err := json.MarshalIndent(pocJSON, "", "  ")
@@ -1035,7 +787,7 @@ func updateSingleURLResults(s *discordgo.Session, i *discordgo.InteractionCreate
 	}
 
 	// Update embed
-	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 	if err != nil {
@@ -1057,12 +809,12 @@ func updateSingleURLResults(s *discordgo.Session, i *discordgo.InteractionCreate
 			defer os.Remove(pocFile.Name())
 
 			fileName := fmt.Sprintf("poc-%s.json", time.Now().Format("20060102-150405"))
-
+			
 			// Read file content
 			fileData, err := os.ReadFile(pocFile.Name())
 			if err == nil {
 				// Send as followup message with file attachment
-				_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 					Files: []*discordgo.File{
 						{
 							Name:        fileName,
@@ -1072,43 +824,14 @@ func updateSingleURLResults(s *discordgo.Session, i *discordgo.InteractionCreate
 					},
 				})
 				if err != nil {
-					log.Printf("[ERROR] Error sending PoC file: %v", err)
+					log.Printf("Error sending PoC file: %v", err)
 				}
 			}
 		}
 	}
-	}
-
-
-func updateEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, message string, color int) {
-	embed := &discordgo.MessageEmbed{
-		Title:       "React2Shell Host Scan",
-		Description: message,
-		Color:       color,
-	}
-
-	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-	if err != nil {
-		log.Printf("Error updating embed: %v", err)
-	}
 }
 
-func boolToStatus(b bool) string {
-	if b {
-		return "Enabled"
-	}
-	return "Disabled"
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
+// Helper function to get string value from map with multiple possible keys
 func getStringValue(m map[string]interface{}, keys ...string) string {
 	for _, key := range keys {
 		if val, ok := m[key]; ok {
@@ -1120,6 +843,7 @@ func getStringValue(m map[string]interface{}, keys ...string) string {
 	return ""
 }
 
+// Helper function to get string from map
 func getStringFromMap(m map[string]interface{}, key, defaultValue string) string {
 	if val, ok := m[key]; ok {
 		if str, ok := val.(string); ok {
@@ -1148,16 +872,210 @@ func handleLivehosts(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	scanID := fmt.Sprintf("live_%d", time.Now().Unix())
-	command := []string{autoarScript, "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads)}
+	// Send initial response
+	embed := &discordgo.MessageEmbed{
+		Title:       "🔍 Livehosts Scan",
+		Description: fmt.Sprintf("**Target:** `%s`\n**Threads:** %d", domain, threads),
+		Color:       0x3498db,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "🟡 Running", Inline: false},
+		},
+	}
 
-	embed := createScanEmbed("Live Hosts", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Embeds: []*discordgo.MessageEmbed{embed},
 		},
 	})
+	if err != nil {
+		log.Printf("Error responding to interaction: %v", err)
+		return
+	}
 
-	go runScanBackground(scanID, "livehosts", domain, command, s, i)
+	// Run scan in background
+	go runLivehostsScan(s, i, domain, threads)
+}
+
+func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, threads int) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ERROR] Panic in runLivehostsScan: %v", r)
+			updateEmbed(s, i, fmt.Sprintf("❌ Scan failed with error: %v", r), 0xff0000)
+		}
+	}()
+
+	log.Printf("[DEBUG] Starting livehosts scan for: %s", domain)
+
+	// Run livehosts.sh script (it handles DB operations internally)
+	script := "/app/modules/livehosts.sh"
+	cmd := exec.Command(script, "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
+	
+	output, err := cmd.CombinedOutput()
+	outputStr := string(output)
+	
+	if err != nil {
+		log.Printf("[ERROR] livehosts command failed: %v, output: %s", err, outputStr)
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Livehosts Scan Failed",
+			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** %v", domain, err),
+			Color:       0xff0000,
+			Fields: []*discordgo.MessageEmbedField{
+				{Name: "Output", Value: fmt.Sprintf("```%s```", outputStr[:1000]), Inline: false},
+			},
+		}
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	// Get results file
+	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
+	liveHostsFile := filepath.Join(resultsDir, domain, "subs", "live-subs.txt")
+	
+	var totalHosts, liveHosts int
+	var liveHostsList []string
+
+	// Read live hosts file
+	if fileInfo, err := os.Stat(liveHostsFile); err == nil && fileInfo.Size() > 0 {
+		data, err := os.ReadFile(liveHostsFile)
+		if err == nil {
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					liveHostsList = append(liveHostsList, line)
+				}
+			}
+			liveHosts = len(liveHostsList)
+		}
+	}
+
+	// Get total subdomains count
+	allSubsFile := filepath.Join(resultsDir, domain, "subs", "all-subs.txt")
+	if fileInfo, err := os.Stat(allSubsFile); err == nil && fileInfo.Size() > 0 {
+		data, err := os.ReadFile(allSubsFile)
+		if err == nil {
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			for _, line := range lines {
+				if strings.TrimSpace(line) != "" {
+					totalHosts++
+				}
+			}
+		}
+	}
+
+	// Create result embed
+	color := 0x00ff00 // Green
+	if liveHosts == 0 {
+		color = 0xffaa00 // Orange
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "✅ Livehosts Scan Complete",
+		Description: fmt.Sprintf("**Target:** `%s`", domain),
+		Color:       color,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "✅ Completed", Inline: false},
+			{Name: "Results", Value: fmt.Sprintf("**Live:** `%d`\n**Total:** `%d`", liveHosts, totalHosts), Inline: false},
+		},
+	}
+
+	// Add live hosts list if available
+	if liveHosts > 0 {
+		hostsText := ""
+		for i, host := range liveHostsList {
+			if i >= 20 {
+				hostsText += fmt.Sprintf("\n... and %d more", liveHosts-20)
+				break
+			}
+			hostsText += fmt.Sprintf("`%s`\n", host)
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  fmt.Sprintf("Live Hosts (%d)", liveHosts),
+			Value: hostsText,
+		})
+
+		// Attach live hosts file
+		if fileInfo, err := os.Stat(liveHostsFile); err == nil && fileInfo.Size() > 0 {
+			file, err := os.Open(liveHostsFile)
+			if err == nil {
+				defer file.Close()
+				fileData, err := os.ReadFile(liveHostsFile)
+				if err == nil {
+					fileName := fmt.Sprintf("live-subs-%s.txt", time.Now().Format("20060102-150405"))
+					_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+						Files: []*discordgo.File{
+							{
+								Name:        fileName,
+								ContentType: "text/plain",
+								Reader:      strings.NewReader(string(fileData)),
+							},
+						},
+					})
+					if err != nil {
+						log.Printf("[WARN] Failed to send live hosts file: %v", err)
+					}
+				}
+			}
+		}
+	}
+
+	// Update embed
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("[ERROR] Failed to update embed: %v", err)
+	}
+
+	log.Printf("[DEBUG] Livehosts scan completed for: %s (live: %d, total: %d)", domain, liveHosts, totalHosts)
+}
+
+func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message string, ephemeral bool) {
+	flags := discordgo.MessageFlagsEphemeral
+	if !ephemeral {
+		flags = 0
+	}
+
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: message,
+			Flags:   flags,
+		},
+	})
+	if err != nil {
+		log.Printf("Error responding: %v", err)
+	}
+}
+
+func updateEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, message string, color int) {
+	embed := &discordgo.MessageEmbed{
+		Title:       "React2Shell Host Scan",
+		Description: message,
+		Color:       color,
+	}
+
+	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("Error updating embed: %v", err)
+	}
+}
+
+func boolToStatus(b bool) string {
+	if b {
+		return "Enabled"
+	}
+	return "Disabled"
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
