@@ -2357,12 +2357,27 @@ class AutoARBot(commands.Cog):
                     host = line.strip()
                     if not host:
                         continue
-                    if not host.startswith(('http://', 'https://')):
-                        host = f"https://{host}"
-                    normalized.append(host)
+                    # Remove trailing slashes
+                    host = host.rstrip('/')
+                    # If it's already a full URL, use it as-is
+                    if host.startswith(('http://', 'https://')):
+                        normalized.append(host)
+                    else:
+                        # Just hostname, add https://
+                        normalized.append(f"https://{host}")
+            
+            print(f"[DEBUG] Normalized {len(normalized)} hosts from {hosts_file}")
+            if len(normalized) > 0:
+                print(f"[DEBUG] First 5 hosts: {normalized[:5]}")
+                # Check if tictactoe is in the list
+                tictactoe_found = any('tictactoe' in h.lower() for h in normalized)
+                print(f"[DEBUG] tictactoe.digitalofthings.dev in list: {tictactoe_found}")
+            
             return normalized if normalized else None
         except Exception as e:
             print(f"[ERROR] Failed to normalize hosts: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def _run_next88_scan(self, hosts: list, extra_flags: list, discord_webhook: Optional[str]) -> list:
@@ -2524,20 +2539,35 @@ class AutoARBot(commands.Cog):
                                 'vulnerable' in str(result).lower() and 'false' not in str(result).lower()
                             )
                             
+                            # Also check if result indicates vulnerability in other ways
+                            # Some tools might use status codes or other indicators
+                            if not is_vulnerable:
+                                # Check for common vulnerability indicators
+                                status_code = result.get('status_code', result.get('status', 0))
+                                # 200 status with certain response patterns might indicate vulnerability
+                                if isinstance(status_code, int) and status_code == 200:
+                                    # Check response body for vulnerability indicators
+                                    response = result.get('response', result.get('response_body', ''))
+                                    if response and ('vulnerable' in str(response).lower() or 'rce' in str(response).lower()):
+                                        is_vulnerable = True
+                            
                             if is_vulnerable:
                                 host = result.get('host', result.get('url', result.get('target', result.get('hostname', ''))))
                                 if host:
                                     # Clean up host string
-                                    host = host.strip()
+                                    host = host.strip().rstrip('/')
                                     parsed = urlparse(host)
                                     if parsed.netloc:
-                                        vulnerable_hosts.add(parsed.netloc.split(':')[0])
+                                        # Extract just the hostname (no port)
+                                        hostname = parsed.netloc.split(':')[0]
+                                        vulnerable_hosts.add(hostname)
+                                        print(f"[DEBUG] Found vulnerable host: {hostname} (from: {host})")
                                     else:
                                         # Remove protocol and path
                                         clean_host = host.replace('https://', '').replace('http://', '').split('/')[0].split(':')[0]
                                         if clean_host:
                                             vulnerable_hosts.add(clean_host)
-                                print(f"[DEBUG] Found vulnerable host: {host}")
+                                            print(f"[DEBUG] Found vulnerable host: {clean_host} (from: {host})")
                         
                         print(f"[DEBUG] Total vulnerable hosts found: {len(vulnerable_hosts)}")
                     except Exception as e:
