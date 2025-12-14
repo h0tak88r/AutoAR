@@ -46,11 +46,19 @@ discord_send_file_via_bot() {
     payload="${payload}}"
     
     # Send file via bot API
-    if curl -sS -X POST "$api_url" \
+    local curl_output
+    curl_output=$(curl -sS -w "\n%{http_code}" -X POST "$api_url" \
       -H "Content-Type: application/json" \
-      -d "$payload" >/dev/null 2>&1; then
+      -d "$payload" 2>&1)
+    local http_code=$(echo "$curl_output" | tail -n1)
+    local response=$(echo "$curl_output" | sed '$d')
+    
+    if [[ "$http_code" == "200" ]]; then
       log_info "File sent via Discord bot: $desc"
       return 0
+    else
+      log_warn "Failed to send file via bot API (HTTP $http_code): $response"
+      log_warn "Falling back to webhook"
     fi
   fi
   
