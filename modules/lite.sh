@@ -83,6 +83,11 @@ run_phase() {
 
   [[ -n "$phase_key" ]] || return 1
 
+  # Ensure timeout_seconds is numeric, default to 0 if empty/invalid
+  if [[ -z "$timeout_seconds" || ! "$timeout_seconds" =~ ^[0-9]+$ ]]; then
+    timeout_seconds=0
+  fi
+
   local timeout_label=""
   if [[ "$timeout_seconds" -gt 0 ]]; then
     timeout_label=" (timeout: $(format_timeout_value "$timeout_seconds"))"
@@ -97,7 +102,7 @@ run_phase() {
   export AUTOAR_PHASE_START_TS="$(date +%s)"
 
   local phase_status=0
-  if [[ "$timeout_seconds" -gt 0 && command -v timeout >/dev/null 2>&1 ]]; then
+  if [[ "$timeout_seconds" -gt 0 ]] && command -v timeout >/dev/null 2>&1; then
     set +e
     timeout --preserve-status --signal TERM --kill-after=30 "$timeout_seconds" "$@"
     phase_status=$?
