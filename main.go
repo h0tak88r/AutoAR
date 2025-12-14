@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
+	"github.com/h0tak88r/AutoAR/gomodules/gobot"
 	"github.com/h0tak88r/AutoAR/gomodules/wp-confusion"
 )
 
@@ -245,21 +246,17 @@ func main() {
 	case "bot":
 		// Start Discord bot (from gobot module)
 		fmt.Println("Starting Discord bot...")
-		// This would call gobot.StartBot() - implementation needed
-		fmt.Println("Bot functionality not yet integrated into main CLI")
-		err = fmt.Errorf("bot command not yet implemented")
+		err = gobot.StartBot()
 	
 	case "api":
 		// Start API server (from gobot module)
 		fmt.Println("Starting REST API server...")
-		// This would call gobot.StartAPI() - implementation needed
-		fmt.Println("API functionality not yet integrated into main CLI")
-		err = fmt.Errorf("api command not yet implemented")
+		err = gobot.StartAPI()
 	
 	case "both":
 		// Start both
 		fmt.Println("Starting both bot and API...")
-		err = fmt.Errorf("both command not yet implemented")
+		err = gobot.StartBoth()
 	
 	// Help
 	case "help", "--help", "-h":
