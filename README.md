@@ -143,7 +143,13 @@ cp env.example .env
 
 3. **Run the Discord bot**:
 ```bash
-python discord_bot.py
+# Using Docker (recommended)
+docker-compose up autoar-discord
+
+# Or run the Go binary directly
+export AUTOAR_MODE=discord
+export DISCORD_BOT_TOKEN=your_token_here
+/usr/local/bin/autoar-bot
 ```
 
 ## 📖 Usage
@@ -160,7 +166,7 @@ docker-compose up autoar-discord
 # Without Docker
 export AUTOAR_MODE=discord
 export DISCORD_BOT_TOKEN=your_token_here
-python discord_bot.py
+/usr/local/bin/autoar-bot
 ```
 
 #### 2. REST API Mode
@@ -570,15 +576,21 @@ AutoAR/
 ├── modules/                 # Core scanning modules
 │   ├── subdomains.sh       # Subdomain enumeration
 │   ├── livehosts.sh        # Live host detection (supports --silent flag)
-│   ├── (react2shell_scan.sh removed - now integrated directly in discord_bot.py using next88)
+│   ├── (react2shell_scan.sh removed - now integrated directly in Go bot using next88)
 │   ├── nuclei.sh           # Nuclei integration
 │   ├── wp_plugin_confusion.sh # WordPress scanning
 │   ├── keyhack.sh          # API key validation (778+ templates)
 │   └── ...                 # Other modules
-├── python/                 # Python utilities
-│   ├── discord_bot.py      # Discord bot
-│   ├── db_handler.py       # Database operations
-│   └── wp_update_confusion.py # WP confusion scanner
+├── python/                 # Python utilities (for specific tools)
+│   ├── jwt_tool.py         # JWT scanning tool
+│   ├── wp_update_confusion.py # WP confusion scanner
+│   ├── github_wordlist.py  # GitHub wordlist generator
+│   └── db_handler.py       # Database operations
+├── go-bot/                 # Go implementation
+│   ├── main.go             # Entry point (Discord bot + API server)
+│   ├── api.go              # REST API implementation
+│   ├── react2shell.go      # React2Shell scanning
+│   └── commands*.go        # Discord command handlers
 ├── lib/                    # Shared libraries
 │   ├── logging.sh          # Logging utilities
 │   ├── utils.sh            # Common utilities
@@ -863,7 +875,8 @@ AutoAR supports three operational modes:
 docker-compose up autoar-discord
 # or
 export AUTOAR_MODE=discord
-python discord_bot.py
+export DISCORD_BOT_TOKEN=your_token_here
+/usr/local/bin/autoar-bot
 ```
 
 #### 2. REST API Only
@@ -871,7 +884,9 @@ python discord_bot.py
 docker-compose --profile api up autoar-api
 # or
 export AUTOAR_MODE=api
-python api_server.py
+export API_HOST=0.0.0.0
+export API_PORT=8000
+/usr/local/bin/autoar-bot
 ```
 
 #### 3. Hybrid Mode (Both Discord + API)
@@ -879,7 +894,10 @@ python api_server.py
 docker-compose --profile full up autoar-full
 # or
 export AUTOAR_MODE=both
-python launcher.py
+export DISCORD_BOT_TOKEN=your_token_here
+export API_HOST=0.0.0.0
+export API_PORT=8000
+/usr/local/bin/autoar-bot
 ```
 
 ### API Response Format
