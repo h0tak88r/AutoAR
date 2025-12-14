@@ -3,31 +3,15 @@ package gobot
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
-	"syscall"
 	"sync"
-
-	"github.com/bwmarrin/discordgo"
+	"syscall"
 )
 
-var (
-	botToken     = os.Getenv("DISCORD_BOT_TOKEN")
-	autoarMode   = getEnv("AUTOAR_MODE", "discord")
-	apiHost      = getEnv("API_HOST", "0.0.0.0")
-	apiPort      = getEnv("API_PORT", "8000")
-	
-	// Global Discord session for file sending from modules
-	globalDiscordSession *discordgo.Session
-	discordSessionMutex  sync.RWMutex
-	
-	// Channel ID storage for file notifications
-	activeChannels = make(map[string]string) // scanID -> channelID
-	channelsMutex  sync.RWMutex
-)
-
-func main() {
+// Main function for standalone bot execution (backward compatibility)
+// This can be used if someone wants to run the bot standalone
+func Main() {
 	var wg sync.WaitGroup
 
 	// Start Discord bot if needed
@@ -39,7 +23,9 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			startDiscordBot()
+			if err := StartBot(); err != nil {
+				log.Fatalf("Discord bot error: %v", err)
+			}
 		}()
 	}
 
@@ -48,7 +34,9 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			startAPIServer()
+			if err := StartAPI(); err != nil {
+				log.Fatalf("API server error: %v", err)
+			}
 		}()
 	}
 
@@ -58,55 +46,6 @@ func main() {
 	<-sc
 
 	fmt.Println("\nShutting down...")
-}
-
-func startDiscordBot() {
-	// Create Discord session
-	dg, err := discordgo.New("Bot " + botToken)
-	if err != nil {
-		log.Fatalf("Error creating Discord session: %v", err)
-	}
-
-	// Store globally for file sending
-	discordSessionMutex.Lock()
-	globalDiscordSession = dg
-	discordSessionMutex.Unlock()
-
-	// Register handlers
-	dg.AddHandler(ready)
-	dg.AddHandler(interactionCreate)
-
-	// Open Discord session
-	err = dg.Open()
-	if err != nil {
-		log.Fatalf("Error opening Discord session: %v", err)
-	}
-	defer dg.Close()
-
-	// Register slash commands
-	registerAllCommands(dg)
-
-	fmt.Println("AutoAR Discord Bot is running.")
-	
-	// Keep running
-	select {}
-}
-
-func startAPIServer() {
-	router := setupAPI()
-	addr := fmt.Sprintf("%s:%s", apiHost, apiPort)
-	fmt.Printf("AutoAR API Server starting on %s\n", addr)
-	
-	if err := http.ListenAndServe(addr, router); err != nil {
-		log.Fatalf("API server failed: %v", err)
-	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }
 
 func ready(s *discordgo.Session, event *discordgo.Ready) {
