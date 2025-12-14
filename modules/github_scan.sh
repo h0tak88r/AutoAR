@@ -375,24 +375,26 @@ github_scan() {
                 unique_count=$(jq -r '.[] | select((.Raw != null and .Raw != "" and .Raw != "null") or (.SourceMetadata.Raw != null and .SourceMetadata.Raw != "" and .SourceMetadata.Raw != "null")) | .Raw // .SourceMetadata.Raw // ""' "$temp_json_array" 2>/dev/null | sort -u | wc -l 2>/dev/null || echo "0")
             fi
             
-            # Send summary message to Discord
+            # Send summary message to Discord (webhook for logging)
             discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Total findings:** \`$secret_count\`\n**Unique secrets:** \`$unique_count\`\n**Timestamp:** \`$(date)\`"
             
-            # Send JSON file and secrets table to Discord
-            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            # Send final results via bot
+            local scan_id="${AUTOAR_CURRENT_SCAN_ID:-github_scan_$(date +%s)}"
+            discord_send_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**" "$scan_id"
             if [[ -f "$secrets_table" && -s "$secrets_table" ]]; then
-                discord_file "$secrets_table" "**GitHub Repository Secrets Table for \`$repo_name\`**"
+                discord_send_file "$secrets_table" "**GitHub Repository Secrets Table for \`$repo_name\`**" "$scan_id"
             fi
             
             log_success "GitHub scan completed for $repo_name - Found $secret_count secrets ($unique_count unique)"
         else
             log_info "No secrets found in $repo_name"
             
-            # Send summary message to Discord
+            # Send summary message to Discord (webhook for logging)
             discord_send "**GitHub Repository Scan Results**\n**Repository:** \`$repo_name\`\n**Organization:** \`$org_name\`\n**Secrets found:** \`0\`\n**Timestamp:** \`$(date)\`"
             
-            # Send JSON report to Discord (even if empty)
-            discord_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**"
+            # Send JSON report via bot (even if empty)
+            local scan_id="${AUTOAR_CURRENT_SCAN_ID:-github_scan_$(date +%s)}"
+            discord_send_file "$temp_json_array" "**GitHub Repository Secrets Report (JSON) for \`$repo_name\`**" "$scan_id"
             
             log_success "GitHub scan completed for $repo_name - No secrets found"
         fi
