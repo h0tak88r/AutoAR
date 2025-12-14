@@ -11,70 +11,57 @@ import (
 // JWT Commands
 func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
-	url := ""
-	var cookie, header, canary, postData *string
-	mode := "pb"
+	token := ""
+	skipCrack := false
+	skipPayloads := false
+	var wordlist *string
+	var maxCrackAttempts *int
 
 	for _, opt := range options {
 		switch opt.Name {
-		case "url":
-			url = opt.StringValue()
-		case "cookie":
+		case "token":
+			token = opt.StringValue()
+		case "skip_crack":
+			skipCrack = opt.BoolValue()
+		case "skip_payloads":
+			skipPayloads = opt.BoolValue()
+		case "wordlist":
 			val := opt.StringValue()
-			cookie = &val
-		case "header":
-			val := opt.StringValue()
-			header = &val
-		case "canary":
-			val := opt.StringValue()
-			canary = &val
-		case "post_data":
-			val := opt.StringValue()
-			postData = &val
-		case "mode":
-			mode = opt.StringValue()
+			wordlist = &val
+		case "max_crack_attempts":
+			val := int(opt.IntValue())
+			maxCrackAttempts = &val
 		}
 	}
 
-	if url == "" {
-		respond(s, i, "❌ URL is required", false)
+	if token == "" {
+		respond(s, i, "❌ JWT token is required", true)
 		return
 	}
 
-	if cookie == nil && header == nil {
-		respond(s, i, "❌ You must provide either cookie or header parameter", true)
-		return
+	// Build command
+	command := []string{autoarScript, "jwt", "scan", "--token", token}
+	
+	if skipCrack {
+		command = append(command, "--skip-crack")
 	}
-
-	if cookie != nil && header != nil {
-		respond(s, i, "❌ You cannot provide both cookie and header. Choose one.", true)
-		return
+	if skipPayloads {
+		command = append(command, "--skip-payloads")
 	}
-
-	command := []string{autoarScript, "jwt", "scan", "-t", url}
-
-	via := "cookie"
-	if cookie != nil {
-		command = append(command, "--cookie", *cookie)
-	} else {
-		command = append(command, "--header", *header)
-		via = "header"
+	if wordlist != nil && *wordlist != "" {
+		command = append(command, "-w", *wordlist)
 	}
-
-	if canary != nil && *canary != "" {
-		command = append(command, "--canary", *canary)
-	}
-	if postData != nil && *postData != "" {
-		command = append(command, "--post-data", *postData)
-	}
-	if mode != "" {
-		command = append(command, "-M", mode)
+	if maxCrackAttempts != nil && *maxCrackAttempts > 0 {
+		command = append(command, "--max-crack-attempts", fmt.Sprintf("%d", *maxCrackAttempts))
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "🔐 JWT Security Test",
-		Description: fmt.Sprintf("**Target:** `%s`\n**Mode:** `%s`\n**Via:** `%s`", url, mode, via),
+		Title:       "🔐 JWT Security Scan",
+		Description: fmt.Sprintf("**Token:** `%s...`\n**Tool:** jwt-hack", token[:min(20, len(token))]),
 		Color:       0x3498db,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "🟡 Running", Inline: false},
+		},
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -85,7 +72,14 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 
 	scanID := fmt.Sprintf("jwt_%d", time.Now().Unix())
-	go runScanBackground(scanID, "jwt", url, command, s, i)
+	go runScanBackground(scanID, "jwt", "JWT Token", command, s, i)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func handleJWTQuery(s *discordgo.Session, i *discordgo.InteractionCreate) {
