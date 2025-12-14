@@ -43,8 +43,8 @@ func main() {
 		}()
 	}
 
-	// Start API server if needed (always start in discord/both mode for internal file sending)
-	if autoarMode == "api" || autoarMode == "both" || autoarMode == "discord" {
+	// Start API server if needed
+	if autoarMode == "api" || autoarMode == "both" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
