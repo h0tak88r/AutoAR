@@ -5,11 +5,16 @@ FROM golang:1.24-bullseye AS builder
 
 WORKDIR /app
 
-# Install system packages required for building tools (including Rust for jwt-hack)
+# Install system packages required for building tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl build-essential cmake libpcap-dev ca-certificates \
-    rustc cargo \
+    pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Rust using rustup (newer version needed for jwt-hack)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && \
+    export PATH="$HOME/.cargo/bin:$PATH" && \
+    rustc --version && cargo --version
 
 # Install next88 (React2Shell scanner) from GitHub
 RUN go install github.com/h0tak88r/next88@latest && \
