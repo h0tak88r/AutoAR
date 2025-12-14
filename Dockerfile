@@ -76,11 +76,17 @@ RUN set -e && \
 
 # Build AutoAR main CLI and modules
 WORKDIR /app
+
+# Copy go.mod and go.sum first
 COPY go.mod go.sum ./
+
+# Copy gomodules directory (needed for go mod download with replace directives)
+COPY gomodules/ ./gomodules/
+
+# Download dependencies
 RUN go mod download
 
-# Copy all Go modules
-COPY gomodules/ ./gomodules/
+# Copy main.go
 COPY main.go ./
 
 # Build main autoar binary
