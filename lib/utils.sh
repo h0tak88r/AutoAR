@@ -99,15 +99,19 @@ is_discord_bot_available() {
 }
 
 # Send file via Discord (bot for final results, webhook for logging)
+# Note: In Discord bot mode, files are sent directly by the bot after scan completes
+# This function is kept for webhook fallback and non-bot modes
 discord_send_file() {
   local file_path="$1"
   local description="$2"
   local scan_id="${3:-}"
   
-  # Always try bot first for final results (if in bot mode)
+  # In Discord bot mode, files are sent directly by the bot after scan completes
+  # (like livehosts does). We just log here and let the bot handle it.
   if is_discord_bot_available; then
-    # Use bot API for final result files
-    discord_send_file_via_bot "$file_path" "$description" "$scan_id"
+    log_info "File will be sent by Discord bot: $description"
+    # Don't send via webhook in bot mode - let the bot send it directly
+    return 0
   elif [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
     # Fallback to webhook if bot not available
     discord_file "$file_path" "$description"
