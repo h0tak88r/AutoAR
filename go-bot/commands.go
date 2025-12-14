@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,6 +111,67 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
+
+	// Send result files directly from bot (like livehosts does)
+	if err == nil {
+		sendResultFiles(s, i, scanType, target)
+	}
+}
+
+// sendResultFiles sends result files directly from the bot using FollowupMessageCreate
+// This works like livehosts and doesn't require an HTTP API
+func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanType, target string) {
+	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
+	
+	// Map scan types to their expected result file paths
+	var resultFiles []string
+	
+	switch scanType {
+	case "cnames":
+		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "cname-records.txt")}
+	case "urls":
+		resultFiles = []string{
+			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
+			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
+		}
+	case "reflection":
+		resultFiles = []string{filepath.Join(resultsDir, target, "vulnerabilities", "kxss-results.txt")}
+	case "tech":
+		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "tech-detect.txt")}
+	case "ports":
+		resultFiles = []string{filepath.Join(resultsDir, target, "ports", "ports.txt")}
+	case "sqlmap":
+		resultFiles = []string{filepath.Join(resultsDir, target, "vulnerabilities", "sqli", "sqlmap-results.txt")}
+	case "dalfox":
+		resultFiles = []string{filepath.Join(resultsDir, target, "dalfox-results.txt")}
+	case "subdomains":
+		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "all-subs.txt")}
+	// Add more scan types as needed
+	}
+	
+	// Send each result file that exists
+	for _, filePath := range resultFiles {
+		if fileInfo, err := os.Stat(filePath); err == nil && fileInfo.Size() > 0 {
+			fileData, err := os.ReadFile(filePath)
+			if err == nil {
+				fileName := filepath.Base(filePath)
+				_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Files: []*discordgo.File{
+						{
+							Name:        fileName,
+							ContentType: "text/plain",
+							Reader:      strings.NewReader(string(fileData)),
+						},
+					},
+				})
+				if err != nil {
+					log.Printf("[WARN] Failed to send result file %s: %v", fileName, err)
+				} else {
+					log.Printf("[INFO] Sent result file via bot: %s", fileName)
+				}
+			}
+		}
+	}
 }
 
 func createScanEmbed(scanType, target, status string) *discordgo.MessageEmbed {
