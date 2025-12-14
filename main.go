@@ -18,19 +18,41 @@ var (
 )
 
 func init() {
-	// Get root directory
-	var err error
-	rootDir, err = filepath.Abs(filepath.Dir(os.Args[0]))
-	if err != nil {
+	// Priority order for finding root directory:
+	// 1. Check /app (Docker default)
+	// 2. Check current working directory
+	// 3. Check executable directory
+	// 4. Fallback to "."
+	
+	if _, err := os.Stat("/app/modules"); err == nil {
+		// Docker environment - use /app
+		rootDir = "/app"
+		modulesDir = "/app/modules"
+	} else if cwd, err := os.Getwd(); err == nil {
+		// Try current working directory
+		if _, err := os.Stat(filepath.Join(cwd, "modules")); err == nil {
+			rootDir = cwd
+			modulesDir = filepath.Join(cwd, "modules")
+		} else if exe, err := os.Executable(); err == nil {
+			// Try executable directory
+			exeDir := filepath.Dir(exe)
+			if _, err := os.Stat(filepath.Join(exeDir, "modules")); err == nil {
+				rootDir = exeDir
+				modulesDir = filepath.Join(exeDir, "modules")
+			} else {
+				// Fallback
+				rootDir = cwd
+				modulesDir = filepath.Join(cwd, "modules")
+			}
+		} else {
+			rootDir = cwd
+			modulesDir = filepath.Join(cwd, "modules")
+		}
+	} else {
 		rootDir = "."
+		modulesDir = "./modules"
 	}
 	
-	// If running as binary, try to find script location
-	if exe, err := os.Executable(); err == nil {
-		rootDir = filepath.Dir(exe)
-	}
-	
-	modulesDir = filepath.Join(rootDir, "modules")
 	autoarScript = filepath.Join(rootDir, "main.sh")
 	
 	// Fallback: if main.sh doesn't exist, use this binary
@@ -122,7 +144,18 @@ func runBashModule(module string, args []string) error {
 	
 	// Check if script exists
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-		return fmt.Errorf("module %s not found", module)
+		// Try /app/modules (Docker fallback)
+		if altPath := filepath.Join("/app/modules", module+".sh"); altPath != scriptPath {
+			if _, err2 := os.Stat(altPath); err2 == nil {
+				scriptPath = altPath
+				modulesDir = "/app/modules"
+				rootDir = "/app"
+			} else {
+				return fmt.Errorf("module %s not found (tried: %s, %s)", module, scriptPath, altPath)
+			}
+		} else {
+			return fmt.Errorf("module %s not found at %s", module, scriptPath)
+		}
 	}
 	
 	cmdArgs := append([]string{scriptPath}, args...)
@@ -131,6 +164,9 @@ func runBashModule(module string, args []string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Dir = rootDir
+	
+	// Set environment variables that bash modules might need
+	cmd.Env = os.Environ()
 	
 	return cmd.Run()
 }
