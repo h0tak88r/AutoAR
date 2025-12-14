@@ -75,13 +75,6 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	go runScanBackground(scanID, "jwt", "JWT Token", command, s, i)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func handleJWTQuery(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	queryID := ""
