@@ -90,9 +90,14 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	embed := createScanEmbed(scanType, target, activeScans[scanID].Status)
 	if err != nil {
 		embed.Color = 0xff0000 // Red
+		outputStr := string(output)
+		// Truncate very long error messages
+		if len(outputStr) > 1500 {
+			outputStr = outputStr[:1500] + "\n... (truncated)"
+		}
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:  "Error",
-			Value: fmt.Sprintf("```%s```", string(output)),
+			Value: fmt.Sprintf("```%s```", outputStr),
 		})
 	} else {
 		embed.Color = 0x00ff00 // Green
@@ -146,6 +151,25 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 		resultFiles = []string{filepath.Join(resultsDir, target, "dalfox-results.txt")}
 	case "subdomains":
 		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "all-subs.txt")}
+	case "jwt":
+		// JWT scan results - find the most recent file
+		jwtDir := filepath.Join(resultsDir, "jwt-scan", "vulnerabilities", "jwt")
+		if matches, err := filepath.Glob(filepath.Join(jwtDir, "jwt_hack_*.txt")); err == nil && len(matches) > 0 {
+			// Get the most recent file
+			var latestFile string
+			var latestTime time.Time
+			for _, match := range matches {
+				if info, err := os.Stat(match); err == nil {
+					if info.ModTime().After(latestTime) {
+						latestTime = info.ModTime()
+						latestFile = match
+					}
+				}
+			}
+			if latestFile != "" {
+				resultFiles = []string{latestFile}
+			}
+		}
 	case "fast":
 		// Fast look sends multiple files from different modules
 		resultFiles = []string{
