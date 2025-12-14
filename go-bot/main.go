@@ -206,8 +206,6 @@ func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleMonitorUpdatesList(s, i)
 	case "jwt_scan":
 		handleJWTScan(s, i)
-	case "jwt_query":
-		handleJWTQuery(s, i)
 	case "backup_scan":
 		handleBackupScan(s, i)
 	case "check_tools":
