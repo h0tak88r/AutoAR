@@ -49,7 +49,8 @@ parse_timeout_value() {
 
 format_timeout_value() {
   local seconds="${1:-0}"
-  if [[ -z "$seconds" || "$seconds" -le 0 ]]; then
+  # Ensure seconds is numeric before comparison
+  if [[ -z "$seconds" || ! "$seconds" =~ ^[0-9]+$ || "$seconds" -le 0 ]]; then
     echo "no limit"
     return
   fi
@@ -107,7 +108,7 @@ run_phase() {
     timeout --preserve-status --signal TERM --kill-after=30 "$timeout_seconds" "$@"
     phase_status=$?
     set -e
-  elif [[ "$timeout_seconds" -gt 0 ]]; then
+  elif [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && [[ "$timeout_seconds" -gt 0 ]]; then
     log_warn "'timeout' command not available; running $phase_key without enforcement"
     set +e
     "$@"
