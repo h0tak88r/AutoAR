@@ -178,7 +178,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-python api_server.py
+/usr/local/bin/autoar-bot
 ```
 Access API documentation at: `http://localhost:8000/docs`
 
@@ -667,7 +667,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-python api_server.py
+/usr/local/bin/autoar-bot
 ```
 
 #### Access Interactive Documentation
