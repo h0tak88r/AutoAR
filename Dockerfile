@@ -38,6 +38,13 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/h0tak88r/confused2/cmd/confused2@latest && \
     go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
+# Build custom Go tools
+WORKDIR /app/go-tools
+COPY go-tools/github-wordlist ./github-wordlist
+COPY go-tools/wp-confusion ./wp-confusion
+RUN cd github-wordlist && go mod init github-wordlist 2>/dev/null || true && go build -o /go/bin/github-wordlist . && \
+    cd ../wp-confusion && go mod init wp-confusion 2>/dev/null || true && go build -o /go/bin/wp-confusion .
+
 # Install TruffleHog using the official install script
 RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin || \
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
