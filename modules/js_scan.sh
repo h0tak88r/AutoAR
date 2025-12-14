@@ -19,7 +19,8 @@ usage() { echo "Usage: js scan -d <domain> [-s <subdomain>]"; }
 ensure_phase_time_remaining() {
   local remaining
   remaining=$(phase_time_remaining)
-  if [[ -n "$remaining" && "$remaining" -le 0 ]]; then
+  # Ensure remaining is numeric before comparison
+  if [[ -n "$remaining" ]] && [[ "$remaining" =~ ^[0-9]+$ ]] && [[ "$remaining" -le 0 ]]; then
     log_warn "Phase timeout reached for JavaScript scanning; skipping remaining JS tasks."
     return 1
   fi

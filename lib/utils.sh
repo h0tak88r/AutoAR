@@ -72,7 +72,7 @@ run_with_phase_timeout() {
   local remaining
   remaining=$(phase_time_remaining)
 
-  if [[ -n "$remaining" ]]; then
+  if [[ -n "$remaining" ]] && [[ "$remaining" =~ ^[0-9]+$ ]]; then
     if (( remaining <= 0 )); then
       log_warn "Phase timeout reached before ${description:-command}; skipping."
       return 124
