@@ -50,15 +50,15 @@ fi
 case "${AUTOAR_MODE}" in
   discord)
     echo "[entrypoint] Launching Discord Bot only (Go)..."
-    exec /usr/local/bin/autoar-bot
+    exec /usr/local/bin/autoar bot
     ;;
   api)
     echo "[entrypoint] Launching API Server only (Go)..."
-    exec /usr/local/bin/autoar-bot
+    exec /usr/local/bin/autoar api
     ;;
   both)
     echo "[entrypoint] Launching both Discord Bot and API Server (Go)..."
-    exec /usr/local/bin/autoar-bot
+    exec /usr/local/bin/autoar both
     ;;
   *)
     echo "[entrypoint] Error: Invalid AUTOAR_MODE '${AUTOAR_MODE}'" >&2
