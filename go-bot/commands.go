@@ -119,6 +119,8 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 
 	// Send result files directly from bot (like livehosts does)
 	if err == nil {
+		// Small delay to ensure files are written to disk
+		time.Sleep(500 * time.Millisecond)
 		sendResultFiles(s, i, scanType, target)
 	}
 }
@@ -154,7 +156,9 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 	case "jwt":
 		// JWT scan results - find the most recent file
 		jwtDir := filepath.Join(resultsDir, "jwt-scan", "vulnerabilities", "jwt")
+		log.Printf("[DEBUG] Looking for JWT result files in: %s", jwtDir)
 		if matches, err := filepath.Glob(filepath.Join(jwtDir, "jwt_hack_*.txt")); err == nil && len(matches) > 0 {
+			log.Printf("[DEBUG] Found %d JWT result file(s)", len(matches))
 			// Get the most recent file
 			var latestFile string
 			var latestTime time.Time
@@ -167,8 +171,13 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 				}
 			}
 			if latestFile != "" {
+				log.Printf("[DEBUG] Selected most recent JWT file: %s", latestFile)
 				resultFiles = []string{latestFile}
+			} else {
+				log.Printf("[WARN] No valid JWT result file found despite matches")
 			}
+		} else {
+			log.Printf("[WARN] No JWT result files found in %s (err: %v)", jwtDir, err)
 		}
 	case "fast":
 		// Fast look sends multiple files from different modules
@@ -210,25 +219,35 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 
 // sendSingleFile sends a single file via FollowupMessageCreate
 func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePath string) {
-	if fileInfo, err := os.Stat(filePath); err == nil && fileInfo.Size() > 0 {
-		fileData, err := os.ReadFile(filePath)
-		if err == nil {
-			fileName := filepath.Base(filePath)
-			_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Files: []*discordgo.File{
-					{
-						Name:        fileName,
-						ContentType: "text/plain",
-						Reader:      strings.NewReader(string(fileData)),
-					},
-				},
-			})
-			if err != nil {
-				log.Printf("[WARN] Failed to send result file %s: %v", fileName, err)
-			} else {
-				log.Printf("[INFO] Sent result file via bot: %s", fileName)
-			}
+	log.Printf("[DEBUG] Attempting to send file: %s", filePath)
+	if fileInfo, err := os.Stat(filePath); err == nil {
+		if fileInfo.Size() == 0 {
+			log.Printf("[WARN] File %s exists but is empty (size: 0)", filePath)
+			return
 		}
+		log.Printf("[DEBUG] File found: %s (size: %d bytes)", filePath, fileInfo.Size())
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("[ERROR] Failed to read file %s: %v", filePath, err)
+			return
+		}
+		fileName := filepath.Base(filePath)
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Files: []*discordgo.File{
+				{
+					Name:        fileName,
+					ContentType: "text/plain",
+					Reader:      strings.NewReader(string(fileData)),
+				},
+			},
+		})
+		if err != nil {
+			log.Printf("[WARN] Failed to send result file %s: %v", fileName, err)
+		} else {
+			log.Printf("[INFO] Successfully sent result file via bot: %s", fileName)
+		}
+	} else {
+		log.Printf("[WARN] File not found or cannot access: %s (err: %v)", filePath, err)
 	}
 }
 
