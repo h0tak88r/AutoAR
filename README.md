@@ -193,7 +193,7 @@ docker-compose up autoar-discord
 # Without Docker
 export AUTOAR_MODE=discord
 export DISCORD_BOT_TOKEN=your_token_here
-/usr/local/bin/autoar-bot
+autoar bot
 ```
 
 #### 2. REST API Mode
