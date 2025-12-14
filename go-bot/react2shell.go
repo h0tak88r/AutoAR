@@ -398,28 +398,80 @@ func findNext88() string {
 }
 
 func getLiveHosts(domain string, threads int) (string, error) {
-	script := "/app/modules/livehosts.sh"
-	cmd := exec.Command(script, "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if resultsDir == "" {
 		resultsDir = "/app/new-results"
 	}
 
-	liveHostsFile := filepath.Join(resultsDir, domain, "subs", "live-subs.txt")
-	if _, err := os.Stat(liveHostsFile); err == nil {
-		return liveHostsFile, nil
+	subsDir := filepath.Join(resultsDir, domain, "subs")
+	
+	// Ensure subdomains exist first (this will enumerate if needed)
+	// We need to run subdomains.sh first to ensure we have fresh data
+	subdomainsScript := "/app/modules/subdomains.sh"
+	subdomainsCmd := exec.Command(subdomainsScript, "get", "-d", domain, "-s", "--silent")
+	if err := subdomainsCmd.Run(); err != nil {
+		log.Printf("[WARN] Subdomain enumeration failed: %v, continuing anyway", err)
 	}
 
-	allSubsFile := filepath.Join(resultsDir, domain, "subs", "all-subs.txt")
-	if _, err := os.Stat(allSubsFile); err == nil {
-		return allSubsFile, nil
+	// Now run livehosts.sh to filter live hosts
+	script := "/app/modules/livehosts.sh"
+	cmd := exec.Command(script, "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
+	
+	// Capture output for debugging
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[ERROR] livehosts.sh failed: %v, output: %s", err, string(output))
+		return "", fmt.Errorf("livehosts.sh failed: %v", err)
 	}
 
-	return "", fmt.Errorf("no live hosts file found")
+	log.Printf("[DEBUG] livehosts.sh output: %s", string(output))
+
+	// Check for live hosts file first
+	liveHostsFile := filepath.Join(subsDir, "live-subs.txt")
+	if fileInfo, err := os.Stat(liveHostsFile); err == nil {
+		// Verify file is not empty
+		if fileInfo.Size() > 0 {
+			// Count lines to verify we got results
+			data, err := os.ReadFile(liveHostsFile)
+			if err == nil {
+				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+				nonEmptyLines := 0
+				for _, line := range lines {
+					if strings.TrimSpace(line) != "" {
+						nonEmptyLines++
+					}
+				}
+				log.Printf("[DEBUG] Found %d live hosts in %s", nonEmptyLines, liveHostsFile)
+				if nonEmptyLines > 0 {
+					return liveHostsFile, nil
+				}
+			}
+		}
+	}
+
+	// Fallback to all-subs.txt only if live-subs.txt doesn't exist or is empty
+	allSubsFile := filepath.Join(subsDir, "all-subs.txt")
+	if fileInfo, err := os.Stat(allSubsFile); err == nil {
+		if fileInfo.Size() > 0 {
+			// Count lines to verify we got results
+			data, err := os.ReadFile(allSubsFile)
+			if err == nil {
+				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+				nonEmptyLines := 0
+				for _, line := range lines {
+					if strings.TrimSpace(line) != "" {
+						nonEmptyLines++
+					}
+				}
+				log.Printf("[DEBUG] Found %d total subdomains in %s (using as fallback)", nonEmptyLines, allSubsFile)
+				if nonEmptyLines > 0 {
+					return allSubsFile, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no live hosts file found or all files are empty")
 }
 
 func normalizeHosts(hostsFile string) ([]string, error) {

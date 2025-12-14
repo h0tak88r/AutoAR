@@ -143,11 +143,25 @@ ensure_subdomains() {
   local domain="$1"
   local subs_file="$2"  # e.g., /app/new-results/example.com/subs/all-subs.txt
   local silent="${3:-false}"  # Optional silent flag
+  local force_refresh="${4:-false}"  # Optional force refresh flag
+  
+  # If force_refresh is true, remove existing file to force re-enumeration
+  if [[ "$force_refresh" == "true" && -f "$subs_file" ]]; then
+    log_info "Force refresh requested, removing existing subdomains file"
+    rm -f "$subs_file"
+  fi
   
   # Check if file exists and is not empty
   if [[ -s "$subs_file" ]]; then
-    log_info "Using existing subdomains from $subs_file"
-    return 0
+    local count=$(wc -l < "$subs_file" 2>/dev/null || echo 0)
+    log_info "Using existing subdomains from $subs_file ($count subdomains)"
+    # If file has very few subdomains (< 5), it might be stale - re-enumerate
+    if [[ $count -lt 5 ]]; then
+      log_warn "Very few subdomains found ($count), might be stale. Re-enumerating..."
+      rm -f "$subs_file"
+    else
+      return 0
+    fi
   fi
   
   # Try to pull from database (if database is available)
