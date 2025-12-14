@@ -51,11 +51,23 @@ RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
 
 # Install jwt-hack (Rust-based JWT toolkit)
-# Ensure cargo is in PATH and install jwt-hack
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rustc --version && cargo --version && \
-    cargo install jwt-hack --locked --root /usr/local 2>&1 | tee /tmp/jwt-hack-install.log || \
-    (echo "[ERROR] jwt-hack installation failed. Log:" && cat /tmp/jwt-hack-install.log && exit 1)
+# Install additional dependencies that might be needed
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/* || true
+
+# Install jwt-hack with proper error handling
+RUN set -e && \
+    echo "Installing jwt-hack..." && \
+    cargo install jwt-hack --locked --root /usr/local --verbose 2>&1 | tee /tmp/jwt-hack-install.log && \
+    if [ ! -f /usr/local/bin/jwt-hack ] || [ ! -s /usr/local/bin/jwt-hack ]; then \
+        echo "[ERROR] jwt-hack binary not found or empty after installation" && \
+        cat /tmp/jwt-hack-install.log && \
+        exit 1; \
+    fi && \
+    chmod +x /usr/local/bin/jwt-hack && \
+    /usr/local/bin/jwt-hack --version && \
+    echo "jwt-hack installed successfully"
 
 # Build AutoAR Go bot
 WORKDIR /app/go-bot
