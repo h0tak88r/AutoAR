@@ -68,7 +68,6 @@ Commands:
   keyhack validate <provider> <api_key>       Generate validation command for API key
   keyhack add <keyname> <command> <desc> [notes] Add a new template
   jwt scan             --token <JWT_TOKEN> [OPTIONS]                Scan JWT token for vulnerabilities using jwt-hack
-  jwt query            <query_id>                                   Query JWT tool log by ID (deprecated - not supported by jwt-hack)
 
 Workflows:
   lite run            -d <domain>
