@@ -9,36 +9,34 @@ source "$ROOT_DIR/lib/discord.sh"
 usage() {
   cat <<EOF
 Usage: 
-  jwt scan -t <url> [--cookie <name=value>] [--header <name: value>] [OPTIONS]
-  jwt query <query_id>
+  jwt scan --token <JWT_TOKEN> [OPTIONS]
 
 Examples:
-  # Full scan via cookie
-  jwt scan -t https://www.example.com/ --cookie auth=JWT_TOKEN
+  # Full scan including weak secret detection and payload generation
+  jwt scan --token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
-  # Scan via header (skip secret cracking for faster results)
-  jwt scan -t https://www.example.com/ --header "Authorization: Bearer JWT_TOKEN" --skip-crack
+  # Skip secret cracking for faster results
+  jwt scan --token JWT_TOKEN --skip-crack
 
-  # Scan with custom wordlist
-  jwt scan -t https://www.example.com/ --cookie auth=JWT_TOKEN -w /path/to/wordlist.txt
+  # Skip payload generation
+  jwt scan --token JWT_TOKEN --skip-payloads
 
-  # Scan with limited crack attempts
-  jwt scan -t https://www.example.com/ --cookie auth=JWT_TOKEN --max-crack-attempts 50
+  # Use custom wordlist for weak secret detection
+  jwt scan --token JWT_TOKEN -w /path/to/wordlist.txt
+
+  # Limit secret testing attempts
+  jwt scan --token JWT_TOKEN --max-crack-attempts 50
 
 Options:
-  -t, --target <url>          Target URL
-  --cookie <name=value>       JWT token via cookie (format: name=JWT_TOKEN)
-  --header <name: value>      JWT token via header (format: "Authorization: Bearer JWT_TOKEN")
+  --token <JWT_TOKEN>         JWT token to scan (required)
   --skip-crack                Skip secret cracking for faster results
   --skip-payloads             Skip payload generation
   -w, --wordlist <file>       Custom wordlist for weak secret detection
   --max-crack-attempts <num>  Limit secret testing attempts
 
 Notes:
-  - This uses jwt-hack (https://github.com/hahwul/jwt-hack) instead of jwt_tool.py
-  - You must provide either --cookie or --header (not both).
-  - Cookie format: name=JWT_TOKEN
-  - Header format: "Authorization: Bearer JWT_TOKEN" or "Authorization: JWT_TOKEN"
+  - This uses jwt-hack (https://github.com/hahwul/jwt-hack)
+  - Simply provide the JWT token directly - no URL, cookie, or header needed
 EOF
 }
 

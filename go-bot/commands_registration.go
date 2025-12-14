@@ -353,14 +353,13 @@ func registerAllCommands(s *discordgo.Session) {
 		// JWT commands
 		{
 			Name:        "jwt_scan",
-			Description: "Test JWT security using ticarpi/jwt_tool",
+			Description: "Scan JWT token for vulnerabilities using jwt-hack",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Target URL to test", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "cookie", Description: "Cookie string with JWT (format: name=value)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "header", Description: "Header string with JWT (format: name: value)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "canary", Description: "Expected text in a successful response", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "post_data", Description: "Optional POST body to send with the request", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "mode", Description: "jwt_tool attack mode (default: pb)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "token", Description: "JWT token to scan", Required: true},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_crack", Description: "Skip secret cracking for faster results", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_payloads", Description: "Skip payload generation", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "wordlist", Description: "Custom wordlist for weak secret detection", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "max_crack_attempts", Description: "Limit secret testing attempts", Required: false},
 			},
 		},
 		{
