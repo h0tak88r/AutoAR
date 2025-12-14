@@ -22,10 +22,11 @@ AutoAR/
 │   ├── config.sh             # Configuration management
 │   └── discord.sh            # Discord integration
 ├── python/                    # Python utility scripts (for specific tools)
-│   ├── jwt_tool.py           # JWT scanning tool
-│   ├── wp_update_confusion.py # WordPress confusion scanner
-│   ├── github_wordlist.py    # GitHub wordlist generator
+│   ├── jwt_tool.py           # JWT scanning tool (large, kept as-is)
 │   └── db_handler.py         # Database operations
+├── go-tools/                  # Custom Go tools
+│   ├── github-wordlist/      # GitHub wordlist generator (Go)
+│   └── wp-confusion/         # WordPress confusion scanner (Go)
 ├── go-bot/                    # Go implementation (Discord bot + API server)
 │   ├── main.go               # Entry point
 │   ├── api.go                # REST API server
