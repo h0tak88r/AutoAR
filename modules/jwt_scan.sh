@@ -9,33 +9,47 @@ source "$ROOT_DIR/lib/discord.sh"
 usage() {
   cat <<EOF
 Usage: 
-  jwt scan -t <url> [--cookie <name=value>] [--header <name: value>] [-M <mode>]
+  jwt scan -t <url> [--cookie <name=value>] [--header <name: value>] [OPTIONS]
   jwt query <query_id>
 
 Examples:
-  # Send JWT via cookie
-  jwt scan -t https://www.ticarpi.com/ --cookie auth=JWT_TOKEN -M at
+  # Full scan via cookie
+  jwt scan -t https://www.example.com/ --cookie auth=JWT_TOKEN
 
-  # Send JWT via header
-  jwt scan -t https://www.ticarpi.com/ --header "Authorization: Bearer JWT_TOKEN" -M pb
+  # Scan via header (skip secret cracking for faster results)
+  jwt scan -t https://www.example.com/ --header "Authorization: Bearer JWT_TOKEN" --skip-crack
 
-  # Query a log entry by ID
-  jwt query jwttool_4e7d0ae3c2bb25dfa4d765d9bb3f8317
+  # Scan with custom wordlist
+  jwt scan -t https://www.example.com/ --cookie auth=JWT_TOKEN -w /path/to/wordlist.txt
+
+  # Scan with limited crack attempts
+  jwt scan -t https://www.example.com/ --cookie auth=JWT_TOKEN --max-crack-attempts 50
+
+Options:
+  -t, --target <url>          Target URL
+  --cookie <name=value>       JWT token via cookie (format: name=JWT_TOKEN)
+  --header <name: value>      JWT token via header (format: "Authorization: Bearer JWT_TOKEN")
+  --skip-crack                Skip secret cracking for faster results
+  --skip-payloads             Skip payload generation
+  -w, --wordlist <file>       Custom wordlist for weak secret detection
+  --max-crack-attempts <num>  Limit secret testing attempts
 
 Notes:
-  - This is a thin wrapper around ticarpi/jwt_tool.
+  - This uses jwt-hack (https://github.com/hahwul/jwt-hack) instead of jwt_tool.py
   - You must provide either --cookie or --header (not both).
-  - Cookie format: name=value
-  - Header format: name: value
+  - Cookie format: name=JWT_TOKEN
+  - Header format: "Authorization: Bearer JWT_TOKEN" or "Authorization: JWT_TOKEN"
 EOF
 }
 
 jwt_scan() {
-  local target="" mode="pb"
+  local target="" mode="scan"
   local cookie=""
   local header=""
-  local canary=""
-  local post_data=""
+  local skip_crack=""
+  local skip_payloads=""
+  local wordlist=""
+  local max_crack_attempts=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -43,8 +57,10 @@ jwt_scan() {
       --cookie)    cookie="$2"; shift 2;;
       --header)    header="$2"; shift 2;;
       -M|--mode)   mode="$2"; shift 2;;
-      --canary)    canary="$2"; shift 2;;
-      --post-data) post_data="$2"; shift 2;;
+      --skip-crack) skip_crack="--skip-crack"; shift;;
+      --skip-payloads) skip_payloads="--skip-payloads"; shift;;
+      -w|--wordlist) wordlist="$2"; shift 2;;
+      --max-crack-attempts) max_crack_attempts="$2"; shift 2;;
       *) usage; exit 1;;
     esac
   done
@@ -66,20 +82,33 @@ jwt_scan() {
     exit 1
   fi
 
-  # Check both possible locations: python/jwt_tool.py (file) or python/jwt_tool/jwt_tool.py (directory)
-  local tool_script=""
-  if [[ -f "$ROOT_DIR/python/jwt_tool.py" ]]; then
-    tool_script="$ROOT_DIR/python/jwt_tool.py"
-  elif [[ -f "$ROOT_DIR/python/jwt_tool/jwt_tool.py" ]]; then
-    tool_script="$ROOT_DIR/python/jwt_tool/jwt_tool.py"
-  else
-    log_error "jwt_tool not found. Expected at:"
-    log_error "  $ROOT_DIR/python/jwt_tool.py"
+  # Check if jwt-hack is available
+  if ! command -v jwt-hack >/dev/null 2>&1; then
+    log_error "jwt-hack not found. Please install it:"
+    log_error "  cargo install jwt-hack"
     log_error "  or"
-    log_error "  $ROOT_DIR/python/jwt_tool/jwt_tool.py"
-    log_error "Please ensure jwt_tool.py is located in one of these locations"
-    log_error "and install deps:"
-    log_error "  python3 -m pip install termcolor cprint pycryptodomex requests ratelimit"
+    log_error "  brew install jwt-hack"
+    log_error "  or"
+    log_error "  docker pull ghcr.io/hahwul/jwt-hack:latest"
+    exit 1
+  fi
+
+  # Extract JWT token from cookie or header
+  local jwt_token=""
+  if [[ -n "$cookie" ]]; then
+    # Cookie format: name=JWT_TOKEN
+    jwt_token=$(echo "$cookie" | cut -d'=' -f2-)
+    log_info "Running jwt-hack scan against $target (via cookie)"
+    log_info "Using cookie: $cookie"
+  else
+    # Header format: "Authorization: Bearer JWT_TOKEN" or "Authorization: JWT_TOKEN"
+    jwt_token=$(echo "$header" | sed -E 's/^[^:]+:\s*(Bearer\s+)?//')
+    log_info "Running jwt-hack scan against $target (via header)"
+    log_info "Using header: $header"
+  fi
+
+  if [[ -z "$jwt_token" ]]; then
+    log_error "Failed to extract JWT token from cookie/header"
     exit 1
   fi
 
@@ -91,59 +120,45 @@ jwt_scan() {
   ensure_dir "$out_dir"
   local ts
   ts="$(date +%Y%m%d_%H%M%S)"
-  local out_file="$out_dir/jwt_tool_${ts}.txt"
-
-  local via=""
-  local rh_arg="" rc_arg="" cv_arg="" data_arg=""
-  
-  if [[ -n "$cookie" ]]; then
-    via="cookie"
-    rc_arg="-rc"
-    log_info "Running jwt_tool against $target with mode '$mode' (via cookie)"
-    log_info "Using cookie: $cookie"
-  else
-    via="header"
-    rh_arg="-rh"
-    log_info "Running jwt_tool against $target with mode '$mode' (via header)"
-    log_info "Using header: $header"
-  fi
+  local out_file="$out_dir/jwt_hack_${ts}.txt"
 
   log_info "Results will be saved to $out_file"
 
-  if [[ -n "$canary" ]]; then
-    cv_arg="-cv"
-  fi
-  if [[ -n "$post_data" ]]; then
-    data_arg="--data"
-  fi
+  # Build jwt-hack command - default to scan mode
+  local cmd_args=("scan" "$jwt_token")
+  
+  # Map old mode parameter to jwt-hack options (for backward compatibility)
+  case "$mode" in
+    scan|pb|at)
+      # Full scan mode (default)
+      ;;
+    decode)
+      cmd_args=("decode" "$jwt_token")
+      ;;
+    verify)
+      log_warn "Verify mode requires --secret parameter (not yet implemented in wrapper)"
+      cmd_args=("decode" "$jwt_token")
+      ;;
+    *)
+      # Default to scan
+      ;;
+  esac
+
+  # Add optional flags if provided
+  [[ -n "$skip_crack" ]] && cmd_args+=("--skip-crack")
+  [[ -n "$skip_payloads" ]] && cmd_args+=("--skip-payloads")
+  [[ -n "$wordlist" ]] && cmd_args+=("-w" "$wordlist")
+  [[ -n "$max_crack_attempts" ]] && cmd_args+=("--max-crack-attempts" "$max_crack_attempts")
 
   set +e
-  if [[ "$via" == "header" ]]; then
-    python3 "$tool_script" \
-      -t "$target" \
-      -np \
-      -y \
-      $rh_arg "$header" \
-      ${cv_arg:+$cv_arg "$canary"} \
-      ${data_arg:+$data_arg "$post_data"} \
-      -M "$mode" | tee "$out_file"
-  else
-    python3 "$tool_script" \
-      -t "$target" \
-      -np \
-      -y \
-      $rc_arg "$cookie" \
-      ${cv_arg:+$cv_arg "$canary"} \
-      ${data_arg:+$data_arg "$post_data"} \
-      -M "$mode" | tee "$out_file"
-  fi
+  jwt-hack "${cmd_args[@]}" | tee "$out_file"
   local status=$?
   set -e
 
   if [[ $status -ne 0 ]]; then
-    log_warn "jwt_tool exited with status $status"
+    log_warn "jwt-hack exited with status $status"
   else
-    log_success "jwt_tool completed (exit code 0)"
+    log_success "jwt-hack completed (exit code 0)"
   fi
 
   if [[ -s "$out_file" ]]; then
@@ -163,54 +178,11 @@ jwt_query() {
     exit 1
   fi
 
-  # Check both possible locations: python/jwt_tool.py (file) or python/jwt_tool/jwt_tool.py (directory)
-  local tool_script=""
-  if [[ -f "$ROOT_DIR/python/jwt_tool.py" ]]; then
-    tool_script="$ROOT_DIR/python/jwt_tool.py"
-  elif [[ -f "$ROOT_DIR/python/jwt_tool/jwt_tool.py" ]]; then
-    tool_script="$ROOT_DIR/python/jwt_tool/jwt_tool.py"
-  else
-    log_error "jwt_tool not found. Expected at:"
-    log_error "  $ROOT_DIR/python/jwt_tool.py"
-    log_error "  or"
-    log_error "  $ROOT_DIR/python/jwt_tool/jwt_tool.py"
-    exit 1
-  fi
-
-  log_info "Querying JWT tool log for ID: $query_id"
+  log_warn "jwt-hack does not support query mode like jwt_tool.py"
+  log_warn "Query ID: $query_id"
+  log_warn "Please use jwt-hack scan/decode/verify commands directly"
   
-  # Create output directory for query results
-  local out_dir
-  out_dir="$(results_dir "jwt-queries")"
-  ensure_dir "$out_dir"
-  local out_file="$out_dir/jwt_query_${query_id}.txt"
-  
-  # Use --bare flag to suppress logo and use plain text output
-  # Capture output and strip ANSI codes
-  python3 "$tool_script" -b -Q "$query_id" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$out_file"
-  local status=$?
-
-  if [[ $status -ne 0 ]]; then
-    log_warn "jwt_tool query exited with status $status"
-    if [[ -s "$out_file" ]]; then
-      # Still send the output even if there was an error
-      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-jwt_query_$(date +%s)}"
-      discord_send_file "$out_file" "🔍 JWT Query Result for $query_id (exit code: $status)" "$scan_id"
-    fi
-    return 1
-  fi
-
-  # Send results via bot if file was created and has content
-  if [[ -s "$out_file" ]]; then
-    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-jwt_query_$(date +%s)}"
-    discord_send_file "$out_file" "🔍 JWT Query Result for $query_id" "$scan_id"
-    log_success "Query results saved to $out_file and sent via Discord"
-  else
-    log_warn "No output generated for query ID: $query_id"
-    return 1
-  fi
-
-  return 0
+  return 1
 }
 
 case "${1:-}" in
