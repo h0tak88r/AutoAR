@@ -73,6 +73,8 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 # Exclude all markdown files except README.md
 *.md
 !README.md
+# Allow nuclei-templates markdown files (submodule)
 !nuclei-templates/**/*.md
 !nuclei_templates/**/*.md
-!gomodules/**/README.mdautoar
+# Allow gomodules README files
+!gomodules/**/README.md
