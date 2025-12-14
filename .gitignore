@@ -78,3 +78,6 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 !nuclei_templates/**/*.md
 # Allow gomodules README files
 !gomodules/**/README.md
+
+# Compiled binaries
+autoar
