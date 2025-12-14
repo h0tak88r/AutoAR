@@ -154,30 +154,40 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 	case "subdomains":
 		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "all-subs.txt")}
 	case "jwt":
-		// JWT scan results - find the most recent file
+		// JWT scan results - find the most recent file with retry logic
 		jwtDir := filepath.Join(resultsDir, "jwt-scan", "vulnerabilities", "jwt")
 		log.Printf("[DEBUG] Looking for JWT result files in: %s", jwtDir)
-		if matches, err := filepath.Glob(filepath.Join(jwtDir, "jwt_hack_*.txt")); err == nil && len(matches) > 0 {
-			log.Printf("[DEBUG] Found %d JWT result file(s)", len(matches))
-			// Get the most recent file
-			var latestFile string
-			var latestTime time.Time
-			for _, match := range matches {
-				if info, err := os.Stat(match); err == nil {
-					if info.ModTime().After(latestTime) {
-						latestTime = info.ModTime()
-						latestFile = match
+		
+		// Retry up to 3 times with delays (file might still be writing)
+		var latestFile string
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			}
+			if matches, err := filepath.Glob(filepath.Join(jwtDir, "jwt_hack_*.txt")); err == nil && len(matches) > 0 {
+				log.Printf("[DEBUG] Found %d JWT result file(s) on attempt %d", len(matches), attempt+1)
+				// Get the most recent file
+				var latestTime time.Time
+				for _, match := range matches {
+					if info, err := os.Stat(match); err == nil {
+						if info.ModTime().After(latestTime) {
+							latestTime = info.ModTime()
+							latestFile = match
+						}
+					}
+				}
+				if latestFile != "" {
+					// Verify file has content
+					if info, err := os.Stat(latestFile); err == nil && info.Size() > 0 {
+						log.Printf("[DEBUG] Selected most recent JWT file: %s (size: %d bytes)", latestFile, info.Size())
+						resultFiles = []string{latestFile}
+						break
 					}
 				}
 			}
-			if latestFile != "" {
-				log.Printf("[DEBUG] Selected most recent JWT file: %s", latestFile)
-				resultFiles = []string{latestFile}
-			} else {
-				log.Printf("[WARN] No valid JWT result file found despite matches")
-			}
-		} else {
-			log.Printf("[WARN] No JWT result files found in %s (err: %v)", jwtDir, err)
+		}
+		if latestFile == "" {
+			log.Printf("[WARN] No JWT result files found in %s after retries", jwtDir)
 		}
 	case "fast":
 		// Fast look sends multiple files from different modules
