@@ -96,8 +96,9 @@ scan_local() {
         discord_send_progress "✅ **No dependency confusion vulnerabilities found in $file**"
     fi
     
-    # Send results to Discord
-    discord_file "$output_dir/scan-output.txt" "Dependency confusion scan results for $file"
+    # Send final results via bot
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-depconfusion_$(date +%s)}"
+    discord_send_file "$output_dir/scan-output.txt" "Dependency confusion scan results for $file" "$scan_id"
     
     # Only exit with error if there was a real failure (not just file saving issues)
     if [[ $exit_code -ne 0 ]] && ! grep -q "Issues found" "$output_dir/scan-output.txt"; then
@@ -151,8 +152,9 @@ scan_github_repo() {
             discord_send_progress "✅ **No dependency confusion vulnerabilities found in $repo**"
         fi
         
-        # Send results to Discord
-        discord_file "$output_dir/github-scan-output.txt" "Dependency confusion scan results for $repo"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-depconfusion_github_$(date +%s)}"
+        discord_send_file "$output_dir/github-scan-output.txt" "Dependency confusion scan results for $repo" "$scan_id"
     else
         log_error "GitHub repository scan failed"
         discord_send_progress "❌ **GitHub repository scan failed**"
@@ -204,8 +206,9 @@ scan_github_org() {
             discord_send_progress "✅ **No dependency confusion vulnerabilities found in $org**"
         fi
         
-        # Send results to Discord
-        discord_file "$output_dir/github-org-scan-output.txt" "Dependency confusion scan results for $org"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-depconfusion_github_org_$(date +%s)}"
+        discord_send_file "$output_dir/github-org-scan-output.txt" "Dependency confusion scan results for $org" "$scan_id"
     else
         log_error "GitHub organization scan failed"
         discord_send_progress "❌ **GitHub organization scan failed**"
@@ -248,8 +251,9 @@ scan_web() {
             discord_send_progress "✅ **No dependency confusion vulnerabilities found in web targets**"
         fi
         
-        # Send results to Discord
-        discord_file "$output_dir/web-scan-output.txt" "Dependency confusion scan results for web targets"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-depconfusion_web_$(date +%s)}"
+        discord_send_file "$output_dir/web-scan-output.txt" "Dependency confusion scan results for web targets" "$scan_id"
     else
         log_error "Web targets scan failed"
         discord_send_progress "❌ **Web targets scan failed**"
@@ -301,8 +305,9 @@ scan_web_file() {
             discord_send_progress "✅ **No dependency confusion vulnerabilities found in web targets**"
         fi
         
-        # Send results to Discord
-        discord_file "$output_dir/web-file-scan-output.txt" "Dependency confusion scan results for web targets"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-depconfusion_web_file_$(date +%s)}"
+        discord_send_file "$output_dir/web-file-scan-output.txt" "Dependency confusion scan results for web targets" "$scan_id"
     else
         log_error "Web targets file scan failed"
         discord_send_progress "❌ **Web targets file scan failed**"
@@ -422,8 +427,9 @@ scan_web_full() {
             discord_send_progress "✅ **No dependency confusion vulnerabilities found in live hosts**"
         fi
         
-        # Send results to Discord
-        discord_file "$output_dir/web-full-scan-output.txt" "Full web dependency confusion scan results for $domain"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-depconfusion_web_full_$(date +%s)}"
+        discord_send_file "$output_dir/web-full-scan-output.txt" "Full web dependency confusion scan results for $domain" "$scan_id"
     else
         log_error "Full web dependency confusion scan failed"
         discord_send_progress "❌ **Full web dependency confusion scan failed**"

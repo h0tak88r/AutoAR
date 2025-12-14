@@ -17,6 +17,14 @@ var (
 	autoarMode   = getEnv("AUTOAR_MODE", "discord")
 	apiHost      = getEnv("API_HOST", "0.0.0.0")
 	apiPort      = getEnv("API_PORT", "8000")
+	
+	// Global Discord session for file sending from modules
+	globalDiscordSession *discordgo.Session
+	discordSessionMutex  sync.RWMutex
+	
+	// Channel ID storage for file notifications
+	activeChannels = make(map[string]string) // scanID -> channelID
+	channelsMutex  sync.RWMutex
 )
 
 func main() {
@@ -58,6 +66,11 @@ func startDiscordBot() {
 	if err != nil {
 		log.Fatalf("Error creating Discord session: %v", err)
 	}
+
+	// Store globally for file sending
+	discordSessionMutex.Lock()
+	globalDiscordSession = dg
+	discordSessionMutex.Unlock()
 
 	// Register handlers
 	dg.AddHandler(ready)

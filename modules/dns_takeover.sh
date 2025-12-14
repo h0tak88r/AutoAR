@@ -149,18 +149,20 @@ check_azure_aws_takeover() {
     if [[ $vulnerable_count -gt 0 ]]; then
         log_success "Found $vulnerable_count subdomain takeover vulnerabilities ($azure_count Azure, $aws_count AWS)"
         
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_azure_aws_$(date +%s)}"
         if [[ $azure_count -gt 0 ]]; then
-            discord_send_file "$azure_output" "Azure Subdomain Takeover Results ($azure_count vulnerabilities)"
+            discord_send_file "$azure_output" "Azure Subdomain Takeover Results ($azure_count vulnerabilities)" "$scan_id"
         fi
         
         if [[ $aws_count -gt 0 ]]; then
-            discord_send_file "$aws_output" "AWS Subdomain Takeover Results ($aws_count vulnerabilities)"
+            discord_send_file "$aws_output" "AWS Subdomain Takeover Results ($aws_count vulnerabilities)" "$scan_id"
         fi
         
-        discord_send_file "$combined_output" "Azure & AWS Subdomain Takeover Summary ($vulnerable_count total)"
+        discord_send_file "$combined_output" "Azure & AWS Subdomain Takeover Summary ($vulnerable_count total)" "$scan_id"
     else
         log_info "No Azure or AWS subdomain takeover vulnerabilities found"
-        discord_send_file "$combined_output" "Azure & AWS Subdomain Takeover Scan - No vulnerabilities found"
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_azure_aws_$(date +%s)}"
+        discord_send_file "$combined_output" "Azure & AWS Subdomain Takeover Scan - No vulnerabilities found" "$scan_id"
     fi
     
     log_success "Azure and AWS takeover detection completed. Found $vulnerable_count total vulnerabilities"
@@ -200,7 +202,8 @@ run_dnsreaper_scan() {
     if docker run --rm -v "$(pwd):/etc/dnsreaper" punksecurity/dnsreaper file --filename "/etc/dnsreaper/$findings_dir/dnsreaper-input.txt" > "$findings_dir/dnsreaper-results.txt" 2>/dev/null; then
         if [[ -s "$findings_dir/dnsreaper-results.txt" ]]; then
             log_success "DNSReaper scan completed with findings"
-            discord_send_file "$findings_dir/dnsreaper-results.txt" "DNSReaper Takeover Results"
+            local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_takeover_$(date +%s)}"
+            discord_send_file "$findings_dir/dnsreaper-results.txt" "DNSReaper Takeover Results" "$scan_id"
         else
             log_info "DNSReaper scan completed - no findings"
         fi
@@ -237,7 +240,8 @@ run_nuclei_takeover() {
         if nuclei -l "$domain_dir/subs/all-subs.txt" -t "$nuclei_templates_dir/http/takeovers/" -o "$findings_dir/nuclei-takeover-public.txt" >/dev/null 2>&1; then
             if [[ -s "$findings_dir/nuclei-takeover-public.txt" ]]; then
                 log_success "Nuclei public takeover scan completed with findings"
-                discord_send_file "$findings_dir/nuclei-takeover-public.txt" "Nuclei Public Takeover Findings"
+                local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_takeover_$(date +%s)}"
+                discord_send_file "$findings_dir/nuclei-takeover-public.txt" "Nuclei Public Takeover Findings" "$scan_id"
             else
                 log_info "Nuclei public takeover scan completed - no findings"
             fi
@@ -264,7 +268,8 @@ run_nuclei_takeover() {
         if nuclei -l "$domain_dir/subs/all-subs.txt" -t "$nuclei_custom_dir/http/takeovers/" -o "$findings_dir/nuclei-takeover-custom.txt" >/dev/null 2>&1; then
             if [[ -s "$findings_dir/nuclei-takeover-custom.txt" ]]; then
                 log_success "Nuclei custom takeover scan completed with findings"
-                discord_send_file "$findings_dir/nuclei-takeover-custom.txt" "Nuclei Custom Takeover Findings"
+                local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_takeover_$(date +%s)}"
+                discord_send_file "$findings_dir/nuclei-takeover-custom.txt" "Nuclei Custom Takeover Findings" "$scan_id"
             else
                 log_info "Nuclei custom takeover scan completed - no findings"
             fi
@@ -306,12 +311,13 @@ run_ns_takeover() {
     
     log_info "Found $ns_takeover_raw_count subdomains and $ns_servers_vuln_count NS servers with DNS errors"
 
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_ns_$(date +%s)}"
     if [[ $ns_takeover_raw_count -gt 0 ]]; then
-        discord_send_file "$findings_dir/ns-takeover-raw.txt" "NS Takeover Candidates (Subdomain DNS Errors)"
+        discord_send_file "$findings_dir/ns-takeover-raw.txt" "NS Takeover Candidates (Subdomain DNS Errors)" "$scan_id"
     fi
 
     if [[ $ns_servers_vuln_count -gt 0 ]]; then
-        discord_send_file "$findings_dir/ns-servers-vuln.txt" "NS Takeover Candidates (NS Server DNS Errors)"
+        discord_send_file "$findings_dir/ns-servers-vuln.txt" "NS Takeover Candidates (NS Server DNS Errors)" "$scan_id"
     fi
 
     # Filter for known vulnerable/edge-case NS providers
@@ -319,8 +325,9 @@ run_ns_takeover() {
     grep -Ei "$ns_vuln_regex" "$findings_dir/ns-takeover-raw.txt" > "$findings_dir/ns-takeover-vuln.txt" 2>/dev/null || true
     local ns_takeover_vuln_count=$(wc -l < "$findings_dir/ns-takeover-vuln.txt" 2>/dev/null || echo "0")
     
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_ns_$(date +%s)}"
     if [[ $ns_takeover_vuln_count -gt 0 ]]; then
-        discord_send_file "$findings_dir/ns-takeover-vuln.txt" "NS Takeover Filtered Targets (Vulnerable Providers)"
+        discord_send_file "$findings_dir/ns-takeover-vuln.txt" "NS Takeover Filtered Targets (Vulnerable Providers)" "$scan_id"
     fi
     
     log_success "NS takeover scan completed. Found $ns_takeover_raw_count subdomain errors, $ns_servers_vuln_count NS server errors, $ns_takeover_vuln_count vulnerable providers"
@@ -434,8 +441,9 @@ dns_takeover_comprehensive() {
         echo "- AWS: https://godiego.co/posts/STO-AWS/"
     } > "$findings_dir/dns-takeover-summary.txt"
     
-    # Send final summary
-    discord_send_file "$findings_dir/dns-takeover-summary.txt" "Comprehensive DNS Takeover Summary for $domain"
+    # Send final summary via bot
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dns_takeover_$(date +%s)}"
+    discord_send_file "$findings_dir/dns-takeover-summary.txt" "Comprehensive DNS Takeover Summary for $domain" "$scan_id"
     
     # Send completion notification
     local total_findings=$((nuclei_public_count + nuclei_custom_count + dnsreaper_count + azure_count + aws_count + ns_raw_count + ns_servers_count + ns_vuln_count))

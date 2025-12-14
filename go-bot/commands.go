@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -32,7 +33,24 @@ type ScanInfo struct {
 // Note: ScanInfo is shared between commands.go and api.go
 
 // Helper function to run scan in background
+// Store channel ID for file notifications
+func storeChannelID(scanID, channelID string) {
+	channelsMutex.Lock()
+	activeChannels[scanID] = channelID
+	channelsMutex.Unlock()
+}
+
+// Get channel ID for file notifications
+func getChannelID(scanID string) string {
+	channelsMutex.RLock()
+	defer channelsMutex.RUnlock()
+	return activeChannels[scanID]
+}
+
 func runScanBackground(scanID, scanType, target string, command []string, s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Store channel ID for file notifications from modules
+	storeChannelID(scanID, i.ChannelID)
+	
 	scansMutex.Lock()
 	now := time.Now()
 	activeScans[scanID] = &ScanInfo{
@@ -47,8 +65,12 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	}
 	scansMutex.Unlock()
 
-	// Execute command
+	// Execute command with environment variables for modules
 	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
+		fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", i.ChannelID),
+	)
 	output, err := cmd.CombinedOutput()
 
 	// Update status

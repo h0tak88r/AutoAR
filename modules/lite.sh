@@ -224,7 +224,8 @@ lite_run() {
       for findings_file in "$js_results_dir"/*.txt; do
         if [[ -s "$findings_file" ]]; then
           base="$(basename "$findings_file" .txt)"
-          discord_file "$findings_file" "**JavaScript Scan Matches (\`$base\`) for \`$domain\`**"
+          local scan_id="${AUTOAR_CURRENT_SCAN_ID:-lite_scan_$(date +%s)}"
+          discord_send_file "$findings_file" "**JavaScript Scan Matches (\`$base\`) for \`$domain\`**" "$scan_id"
           any_js_file_sent=1
         fi
       done

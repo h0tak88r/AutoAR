@@ -236,17 +236,19 @@ js_scan() {
   for findings_file in "$out_dir"/*.txt; do
     if [[ -s "$findings_file" ]]; then
       base="$(basename "$findings_file" .txt)"
+      # Send final results via bot (webhook used for logging)
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-js_scan_$(date +%s)}"
       case "$base" in
         nuclei-custom-js)
-          discord_file "$findings_file" "🔍 JS Scan - All Custom Templates (JS + 144+ Tokens)"
+          discord_send_file "$findings_file" "🔍 JS Scan - All Custom Templates (JS + 144+ Tokens)" "$scan_id"
           ((files_sent++))
           ;;
         nuclei-public-exposures)
-          discord_file "$findings_file" "🌐 JS Scan - Public Nuclei Exposure Templates (All)"
+          discord_send_file "$findings_file" "🌐 JS Scan - Public Nuclei Exposure Templates (All)" "$scan_id"
           ((files_sent++))
           ;;
         *)
-          discord_file "$findings_file" "JS scan matches ($base)"
+          discord_send_file "$findings_file" "JS scan matches ($base)" "$scan_id"
           ((files_sent++))
           ;;
       esac

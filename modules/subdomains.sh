@@ -71,9 +71,10 @@ subdomains_get() {
     fi
   fi
   
-  # Send Discord notification only if not in silent mode
+  # Send final results via bot only if not in silent mode
   if [[ "$silent" != "true" ]]; then
-  discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain"
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-subdomains_$(date +%s)}"
+    discord_send_file "$subs_dir/all-subs.txt" "Subdomains for $domain" "$scan_id"
   fi
 }
 

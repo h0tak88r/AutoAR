@@ -147,7 +147,8 @@ jwt_scan() {
   fi
 
   if [[ -s "$out_file" ]]; then
-    discord_file "$out_file" "🔐 JWT security test results for $target (mode: $mode)"
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-jwt_scan_$(date +%s)}"
+    discord_send_file "$out_file" "🔐 JWT security test results for $target (mode: $mode)" "$scan_id"
   fi
 
   return 0
@@ -193,14 +194,16 @@ jwt_query() {
     log_warn "jwt_tool query exited with status $status"
     if [[ -s "$out_file" ]]; then
       # Still send the output even if there was an error
-      discord_file "$out_file" "🔍 JWT Query Result for $query_id (exit code: $status)"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-jwt_query_$(date +%s)}"
+      discord_send_file "$out_file" "🔍 JWT Query Result for $query_id (exit code: $status)" "$scan_id"
     fi
     return 1
   fi
 
-  # Send results via webhook if file was created and has content
+  # Send results via bot if file was created and has content
   if [[ -s "$out_file" ]]; then
-    discord_file "$out_file" "🔍 JWT Query Result for $query_id"
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-jwt_query_$(date +%s)}"
+    discord_send_file "$out_file" "🔍 JWT Query Result for $query_id" "$scan_id"
     log_success "Query results saved to $out_file and sent via Discord"
   else
     log_warn "No output generated for query ID: $query_id"
