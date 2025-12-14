@@ -146,29 +146,63 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 		resultFiles = []string{filepath.Join(resultsDir, target, "dalfox-results.txt")}
 	case "subdomains":
 		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "all-subs.txt")}
+	case "fast":
+		// Fast look sends multiple files from different modules
+		resultFiles = []string{
+			filepath.Join(resultsDir, target, "subs", "all-subs.txt"),
+			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
+			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
+			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
+		}
+	case "lite":
+		// Lite scan can send multiple result files - use glob pattern
+		jsDir := filepath.Join(resultsDir, target, "vulnerabilities", "js")
+		if matches, err := filepath.Glob(filepath.Join(jsDir, "*.txt")); err == nil {
+			resultFiles = append(resultFiles, matches...)
+		}
+		resultFiles = append(resultFiles,
+			filepath.Join(resultsDir, target, "subs", "all-subs.txt"),
+			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
+			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
+		)
 	// Add more scan types as needed
 	}
 	
 	// Send each result file that exists
 	for _, filePath := range resultFiles {
-		if fileInfo, err := os.Stat(filePath); err == nil && fileInfo.Size() > 0 {
-			fileData, err := os.ReadFile(filePath)
+		// Handle glob patterns (e.g., *.txt)
+		if strings.Contains(filePath, "*") {
+			matches, err := filepath.Glob(filePath)
 			if err == nil {
-				fileName := filepath.Base(filePath)
-				_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-					Files: []*discordgo.File{
-						{
-							Name:        fileName,
-							ContentType: "text/plain",
-							Reader:      strings.NewReader(string(fileData)),
-						},
-					},
-				})
-				if err != nil {
-					log.Printf("[WARN] Failed to send result file %s: %v", fileName, err)
-				} else {
-					log.Printf("[INFO] Sent result file via bot: %s", fileName)
+				for _, match := range matches {
+					sendSingleFile(s, i, match)
 				}
+			}
+		} else {
+			sendSingleFile(s, i, filePath)
+		}
+	}
+}
+
+// sendSingleFile sends a single file via FollowupMessageCreate
+func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePath string) {
+	if fileInfo, err := os.Stat(filePath); err == nil && fileInfo.Size() > 0 {
+		fileData, err := os.ReadFile(filePath)
+		if err == nil {
+			fileName := filepath.Base(filePath)
+			_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Files: []*discordgo.File{
+					{
+						Name:        fileName,
+						ContentType: "text/plain",
+						Reader:      strings.NewReader(string(fileData)),
+					},
+				},
+			})
+			if err != nil {
+				log.Printf("[WARN] Failed to send result file %s: %v", fileName, err)
+			} else {
+				log.Printf("[INFO] Sent result file via bot: %s", fileName)
 			}
 		}
 	}

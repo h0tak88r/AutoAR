@@ -5,9 +5,10 @@ FROM golang:1.24-bullseye AS builder
 
 WORKDIR /app
 
-# Install system packages required for building tools
+# Install system packages required for building tools (including Rust for jwt-hack)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl build-essential cmake libpcap-dev ca-certificates \
+    rustc cargo \
     && rm -rf /var/lib/apt/lists/*
 
 # Install next88 (React2Shell scanner) from GitHub
@@ -48,6 +49,10 @@ RUN cd github-wordlist && go mod init github-wordlist 2>/dev/null || true && go 
 # Install TruffleHog using the official install script
 RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin || \
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
+
+# Install jwt-hack (Rust-based JWT toolkit)
+RUN cargo install jwt-hack --locked || \
+    (echo "jwt-hack installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/jwt-hack && chmod +x /go/bin/jwt-hack)
 
 # Build AutoAR Go bot
 WORKDIR /app/go-bot
