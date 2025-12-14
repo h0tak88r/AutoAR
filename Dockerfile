@@ -90,7 +90,7 @@ RUN cd /app && \
 COPY --from=builder /go/bin/ /usr/local/bin/
 COPY --from=builder /app/autoar-bot /usr/local/bin/autoar-bot
 # Copy jwt-hack from builder stage (installed to /usr/local/bin)
-COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack || true
+COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
 # Create react2shell symlink for backward compatibility
 RUN ln -sf /usr/local/bin/next88 /usr/local/bin/react2shell && \
     chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell /usr/local/bin/autoar-bot /usr/local/bin/jwt-hack 2>/dev/null || true
