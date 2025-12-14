@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/bwmarrin/discordgo"
 )
 
 var (
@@ -115,6 +117,12 @@ func setupAPI() *gin.Engine {
 	{
 		keyhack.POST("/search", keyhackSearch)
 		keyhack.POST("/validate", keyhackValidate)
+	}
+
+	// Internal endpoints for module file notifications
+	internal := r.Group("/internal")
+	{
+		internal.POST("/send-file", sendFileToDiscord)
 	}
 
 	// List all scans
@@ -834,6 +842,92 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 
 	scanResults[scanID] = result
+}
+
+// sendFileToDiscord handles file uploads from modules
+func sendFileToDiscord(c *gin.Context) {
+	var req struct {
+		ScanID      string `json:"scan_id"`
+		FilePath    string `json:"file_path" binding:"required"`
+		Description string `json:"description"`
+		ChannelID   string `json:"channel_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get channel ID - priority: request > scan_id lookup > environment > default
+	var channelID string
+	if req.ChannelID != "" {
+		channelID = req.ChannelID
+	} else if req.ScanID != "" {
+		channelID = getChannelID(req.ScanID)
+	}
+	
+	if channelID == "" {
+		// Try to get from environment (set by modules)
+		channelID = os.Getenv("AUTOAR_CURRENT_CHANNEL_ID")
+	}
+	
+	if channelID == "" {
+		// Try default channel from environment
+		channelID = os.Getenv("DISCORD_DEFAULT_CHANNEL_ID")
+	}
+	
+	if channelID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no channel ID found. Provide channel_id, scan_id, or set AUTOAR_CURRENT_CHANNEL_ID"})
+		return
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(req.FilePath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+
+	// Read file
+	fileData, err := os.ReadFile(req.FilePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
+		return
+	}
+
+	// Get Discord session
+	discordSessionMutex.RLock()
+	session := globalDiscordSession
+	discordSessionMutex.RUnlock()
+
+	if session == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
+		return
+	}
+
+	// Send file to Discord channel
+	fileName := filepath.Base(req.FilePath)
+	description := req.Description
+	if description == "" {
+		description = fmt.Sprintf("📁 %s", fileName)
+	}
+
+	_, err = session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Content: description,
+		Files: []*discordgo.File{
+			{
+				Name:        fileName,
+				ContentType: http.DetectContentType(fileData),
+				Reader:      strings.NewReader(string(fileData)),
+			},
+		},
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "file sent successfully"})
 }
 
 // getCompletedScans returns recent completed scans (for Discord bot)

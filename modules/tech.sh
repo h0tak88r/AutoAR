@@ -34,7 +34,8 @@ tech_detect() {
     httpx -l "$subs" -tech-detect -title -status-code -server -nc -silent -threads "$threads" -o "$out" >/dev/null 2>&1 || true
     local count=$(wc -l < "$out" 2>/dev/null || echo 0)
     log_success "Technology detection completed for $count hosts"
-    discord_send_file "$out" "Technology detection results ($count)"
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-tech_$(date +%s)}"
+    discord_send_file "$out" "Technology detection results ($count)" "$scan_id"
   fi
 }
 

@@ -98,21 +98,18 @@ is_discord_bot_available() {
   return 1
 }
 
-# Send file via Discord (bot or webhook)
+# Send file via Discord (bot for final results, webhook for logging)
 discord_send_file() {
   local file_path="$1"
   local description="$2"
+  local scan_id="${3:-}"
   
+  # Always try bot first for final results (if in bot mode)
   if is_discord_bot_available; then
-    # For Discord bot, we'll use webhook for immediate sending
-    # This provides better user experience with progressive updates
-    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-      discord_file "$file_path" "$description"
-    else
-      log_info "File will be sent via Discord bot: $description"
-    fi
+    # Use bot API for final result files
+    discord_send_file_via_bot "$file_path" "$description" "$scan_id"
   elif [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-    # Fallback to webhook
+    # Fallback to webhook if bot not available
     discord_file "$file_path" "$description"
   else
     log_info "No Discord integration available for: $description"
