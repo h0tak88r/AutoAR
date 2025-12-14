@@ -111,7 +111,7 @@ cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
 cmd_updates()    { "$ROOT_DIR/modules/updates.sh"     "$@"; }
 cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
 cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
-cmd_github_wordlist() { python3 "$ROOT_DIR/python/github_wordlist.py" "$1"; }
+cmd_github_wordlist() { github-wordlist "$1"; }
 cmd_backup()     { "$ROOT_DIR/modules/backup_scan.sh"    "$@"; }
 cmd_depconfusion() { "$ROOT_DIR/modules/depconfusion.sh" "$@"; }
 cmd_misconfig()  { "$ROOT_DIR/modules/misconfig.sh"     "$@"; }

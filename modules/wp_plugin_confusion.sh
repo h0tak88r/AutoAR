@@ -18,13 +18,6 @@ run_wp_confusion_scan() {
   local scan_type="${2:-plugins}"
   local output_dir="$3"
   
-  local wp_tool="$ROOT_DIR/python/wp_update_confusion.py"
-  
-  if [[ ! -f "$wp_tool" ]]; then
-    log_error "WordPress confusion tool not found: $wp_tool"
-    return 1
-  fi
-  
   # Generate output filename
   local timestamp=$(date +"%Y%m%d_%H%M%S")
   local target_name=$(echo "$target" | sed 's|https\?://||' | sed 's|/|_|g')
@@ -32,8 +25,8 @@ run_wp_confusion_scan() {
   
   log_info "Running WordPress Plugin Confusion scan for: $target"
   
-  # Build command
-  local cmd=("python3" "$wp_tool")
+  # Build command using Go binary
+  local cmd=("wp-confusion")
   
   if [[ "$target" =~ ^https?:// ]]; then
     cmd+=("-u" "$target")
@@ -49,7 +42,10 @@ run_wp_confusion_scan() {
     cmd+=("-p" "-t")  # Both plugins and themes
   fi
   
-  cmd+=("-o" "$output_file" "--discord")
+  cmd+=("-o" "$output_file")
+  if [[ -n "${DISCORD_WEBHOOK:-}" ]] || [[ -n "${DISCORD_WEBHOOK_URL:-}" ]]; then
+    cmd+=("--discord")
+  fi
   
   log_info "Command: ${cmd[*]}"
   
