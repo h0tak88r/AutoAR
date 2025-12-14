@@ -113,7 +113,7 @@ docker compose up -d
 
 6. **Verify installation**:
 ```bash
-docker logs autoar-bot
+docker logs autoar-discord
 ```
 
 ### Manual Installation
@@ -205,7 +205,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-/usr/local/bin/autoar-bot
+autoar bot
 ```
 Access API documentation at: `http://localhost:8000/docs`
 
@@ -698,7 +698,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-/usr/local/bin/autoar-bot
+autoar bot
 ```
 
 #### Access Interactive Documentation
@@ -907,7 +907,7 @@ docker-compose up autoar-discord
 # or
 export AUTOAR_MODE=discord
 export DISCORD_BOT_TOKEN=your_token_here
-/usr/local/bin/autoar-bot
+autoar bot
 ```
 
 #### 2. REST API Only
@@ -917,7 +917,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-/usr/local/bin/autoar-bot
+autoar bot
 ```
 
 #### 3. Hybrid Mode (Both Discord + API)
@@ -928,7 +928,7 @@ export AUTOAR_MODE=both
 export DISCORD_BOT_TOKEN=your_token_here
 export API_HOST=0.0.0.0
 export API_PORT=8000
-/usr/local/bin/autoar-bot
+autoar bot
 ```
 
 ### API Response Format
