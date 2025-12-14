@@ -582,10 +582,11 @@ AutoAR/
 │   ├── keyhack.sh          # API key validation (778+ templates)
 │   └── ...                 # Other modules
 ├── python/                 # Python utilities (for specific tools)
-│   ├── jwt_tool.py         # JWT scanning tool
-│   ├── wp_update_confusion.py # WP confusion scanner
-│   ├── github_wordlist.py  # GitHub wordlist generator
+│   ├── jwt_tool.py         # JWT scanning tool (large, kept as-is)
 │   └── db_handler.py       # Database operations
+├── go-tools/               # Custom Go tools
+│   ├── github-wordlist/    # GitHub wordlist generator (Go)
+│   └── wp-confusion/       # WordPress confusion scanner (Go)
 ├── go-bot/                 # Go implementation
 │   ├── main.go             # Entry point (Discord bot + API server)
 │   ├── api.go              # REST API implementation
