@@ -69,3 +69,10 @@ generate_from_env.sh
 keyhack_templates/  # Cloned in Docker from KeysKit repo
 
 *.txt
+
+# Exclude all markdown files except README.md
+*.md
+!README.md
+!nuclei-templates/**/*.md
+!nuclei_templates/**/*.md
+!gomodules/**/README.mdautoar
