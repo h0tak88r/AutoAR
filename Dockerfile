@@ -51,8 +51,8 @@ RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
 
 # Install jwt-hack (Rust-based JWT toolkit)
-RUN cargo install jwt-hack --locked || \
-    (echo "jwt-hack installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/jwt-hack && chmod +x /go/bin/jwt-hack)
+RUN cargo install jwt-hack --locked --root /usr/local || \
+    (echo "jwt-hack installation failed, continuing without it..." && echo "#!/bin/sh" > /usr/local/bin/jwt-hack && chmod +x /usr/local/bin/jwt-hack)
 
 # Build AutoAR Go bot
 WORKDIR /app/go-bot
