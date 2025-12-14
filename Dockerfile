@@ -11,10 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust using rustup (newer version needed for jwt-hack)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && \
+# Install Rust using rustup (newer version required for jwt-hack)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     export PATH="$HOME/.cargo/bin:$PATH" && \
-    rustc --version && cargo --version
+    rustup default stable && \
+    rustc --version && \
+    cargo --version
 
 # Install next88 (React2Shell scanner) from GitHub
 RUN go install github.com/h0tak88r/next88@latest && \
@@ -56,14 +58,12 @@ RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
 
 # Install jwt-hack (Rust-based JWT toolkit)
-# Install additional dependencies that might be needed
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/* || true
-
-# Install jwt-hack with proper error handling
+# Use rustup-installed Rust (ensure PATH is set)
+ENV PATH="/root/.cargo/bin:${PATH}"
 RUN set -e && \
     echo "Installing jwt-hack..." && \
+    rustc --version && \
+    cargo --version && \
     cargo install jwt-hack --locked --root /usr/local --verbose 2>&1 | tee /tmp/jwt-hack-install.log && \
     if [ ! -f /usr/local/bin/jwt-hack ] || [ ! -s /usr/local/bin/jwt-hack ]; then \
         echo "[ERROR] jwt-hack binary not found or empty after installation" && \
