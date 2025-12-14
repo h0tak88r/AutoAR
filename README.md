@@ -219,7 +219,7 @@ export AUTOAR_MODE=both
 export DISCORD_BOT_TOKEN=your_token_here
 export API_HOST=0.0.0.0
 export API_PORT=8000
-python launcher.py
+autoar both
 ```
 
 📚 **For detailed API documentation, see [API_README.md](API_README.md) and [API_QUICKSTART.md](API_QUICKSTART.md)**
