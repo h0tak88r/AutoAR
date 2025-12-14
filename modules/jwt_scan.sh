@@ -121,25 +121,8 @@ jwt_scan() {
   return 0
 }
 
-jwt_query() {
-  local query_id="$1"
-
-  if [[ -z "$query_id" ]]; then
-    log_error "Query ID is required"
-    usage
-    exit 1
-  fi
-
-  log_warn "jwt-hack does not support query mode like jwt_tool.py"
-  log_warn "Query ID: $query_id"
-  log_warn "Please use jwt-hack scan/decode/verify commands directly"
-  
-  return 1
-}
-
 case "${1:-}" in
   scan) shift; jwt_scan "$@" ;;
-  query) shift; jwt_query "$@" ;;
   *) usage; exit 1;;
 esac
 

@@ -362,13 +362,6 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "max_crack_attempts", Description: "Limit secret testing attempts", Required: false},
 			},
 		},
-		{
-			Name:        "jwt_query",
-			Description: "Query JWT tool log by request ID",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "query_id", Description: "JWT tool request ID", Required: true},
-			},
-		},
 		// Other commands
 		{
 			Name:        "backup_scan",

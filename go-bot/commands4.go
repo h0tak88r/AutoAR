@@ -75,59 +75,6 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	go runScanBackground(scanID, "jwt", "JWT Token", command, s, i)
 }
 
-func handleJWTQuery(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	queryID := ""
-
-	for _, opt := range options {
-		if opt.Name == "query_id" {
-			queryID = opt.StringValue()
-		}
-	}
-
-	if queryID == "" {
-		respond(s, i, "❌ Query ID is required", false)
-		return
-	}
-
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	})
-
-	command := []string{autoarScript, "jwt", "query", queryID}
-
-	output, stderr, err := runCommandSync(command)
-
-	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 JWT Query Results",
-		Description: fmt.Sprintf("**Query ID:** `%s`", queryID),
-		Color:       0x3498db,
-	}
-
-	if err != nil {
-		embed.Title = "❌ JWT Query Failed"
-		embed.Color = 0xff0000
-		errorMsg := stderr
-		if errorMsg == "" {
-			errorMsg = "Query failed"
-		}
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Error", Value: fmt.Sprintf("```\n%s\n```", errorMsg), Inline: false},
-		}
-	} else {
-		if len(output) > 1900 {
-			output = output[:1900] + "\n... (truncated)"
-		}
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Results", Value: fmt.Sprintf("```\n%s\n```", output), Inline: false},
-		}
-	}
-
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-}
-
 // Other Commands
 func handleBackupScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
