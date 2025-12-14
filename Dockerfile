@@ -74,13 +74,17 @@ RUN set -e && \
     /usr/local/bin/jwt-hack --version && \
     echo "jwt-hack installed successfully"
 
-# Build AutoAR Go bot
-WORKDIR /app/go-bot
-COPY go-bot/go.mod go-bot/go.sum ./
+# Build AutoAR main CLI and modules
+WORKDIR /app
+COPY go.mod go.sum ./
 RUN go mod download
 
-COPY go-bot/*.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar-bot .
+# Copy all Go modules
+COPY gomodules/ ./gomodules/
+COPY main.go ./
+
+# Build main autoar binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar .
 
 # --- Runtime stage: minimal Debian image ---
 FROM debian:bullseye-slim
@@ -106,14 +110,17 @@ RUN cd /app && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
     git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
 
-# Copy Go tools from builder stage (including next88 and autoar-bot)
+# Copy Go tools from builder stage (including next88)
 COPY --from=builder /go/bin/ /usr/local/bin/
-COPY --from=builder /app/autoar-bot /usr/local/bin/autoar-bot
+# Copy main autoar binary
+COPY --from=builder /app/autoar /usr/local/bin/autoar
 # Copy jwt-hack from builder stage (installed to /usr/local/bin)
 COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
 # Create react2shell symlink for backward compatibility
+# Also create main.sh symlink to autoar for backward compatibility
 RUN ln -sf /usr/local/bin/next88 /usr/local/bin/react2shell && \
-    chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell /usr/local/bin/autoar-bot /usr/local/bin/jwt-hack 2>/dev/null || true
+    ln -sf /usr/local/bin/autoar /app/main.sh && \
+    chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell /usr/local/bin/autoar /usr/local/bin/jwt-hack 2>/dev/null || true
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true

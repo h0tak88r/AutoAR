@@ -1,4 +1,4 @@
-module autoar-bot
+module github.com/h0tak88r/AutoAR/gomodules/gobot
 
 go 1.21
 
