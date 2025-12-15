@@ -96,8 +96,7 @@ services:
             - results-data:/app/new-results
             - ./regexes:/app/regexes:ro
         healthcheck:
-            test:
-                ["CMD-SHELL", "pgrep -f autoar-bot || exit 1"]
+            test: ["CMD-SHELL", "pgrep -f 'autoar bot' || pgrep -f 'autoar both' || exit 1"]
             interval: 30s
             timeout: 5s
             retries: 3
