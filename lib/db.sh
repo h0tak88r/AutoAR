@@ -210,13 +210,26 @@ db_insert_domain() {
   fi
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    # Try to insert/update using domain column only (name column may not exist)
-    domain_id=$(db_query "INSERT INTO domains (domain) VALUES ('$escaped_domain') 
-                          ON CONFLICT (domain) DO UPDATE SET updated_at = NOW() 
-                          RETURNING id;" 2>&1 | grep -E '^[0-9]+$' | head -1 | tr -d '[:space:]')
+    # Try to insert/update using domain column only
+    local query_result
+    query_result=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "INSERT INTO domains (domain) VALUES ('$escaped_domain') ON CONFLICT (domain) DO UPDATE SET updated_at = NOW() RETURNING id;" 2>&1)
+    
+    # Extract numeric ID from result (filter out error messages)
+    domain_id=$(echo "$query_result" | grep -E '^[0-9]+$' | head -1 | tr -d '[:space:]')
+    
+    # Check for errors in the output
+    if echo "$query_result" | grep -qi "error\|fatal\|failed"; then
+      log_error "db_insert_domain: Database error for domain '$domain': $(echo "$query_result" | grep -i "error\|fatal" | head -1)"
+    fi
+    
     # If still no ID, try to get existing
     if [[ -z "$domain_id" ]]; then
-      domain_id=$(db_query "SELECT id FROM domains WHERE domain = '$escaped_domain' LIMIT 1;" 2>&1 | grep -E '^[0-9]+$' | head -1 | tr -d '[:space:]')
+      query_result=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "SELECT id FROM domains WHERE domain = '$escaped_domain' LIMIT 1;" 2>&1)
+      domain_id=$(echo "$query_result" | grep -E '^[0-9]+$' | head -1 | tr -d '[:space:]')
+      
+      if echo "$query_result" | grep -qi "error\|fatal\|failed"; then
+        log_error "db_insert_domain: Database error when selecting domain '$domain': $(echo "$query_result" | grep -i "error\|fatal" | head -1)"
+      fi
     fi
   else
     domain_id=$(db_query "INSERT OR IGNORE INTO domains (domain) VALUES ('$escaped_domain'); SELECT id FROM domains WHERE domain = '$escaped_domain';" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
