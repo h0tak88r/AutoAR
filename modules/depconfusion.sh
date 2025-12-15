@@ -5,12 +5,21 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/.env" 2>/dev/null || true
 
-# Load compatibility functions
+# Load compatibility functions (replaces lib/ functions)
 if [[ -f "$ROOT_DIR/gomodules/compat.sh" ]]; then
   source "$ROOT_DIR/gomodules/compat.sh"
+else
+  # Minimal fallback functions
+  log_info()    { printf "[INFO] %s\n" "$*"; }
+  log_warn()    { printf "[WARN] %s\n" "$*"; }
+  log_error()   { printf "[ERROR] %s\n" "$*" 1>&2; }
+  log_success() { printf "[OK] %s\n" "$*"; }
+  ensure_dir() { mkdir -p "$1"; }
+  results_dir() { echo "${AUTOAR_RESULTS_DIR:-new-results}/$1"; }
+  discord_send_file() { log_info "File will be sent by Discord bot: $2"; }
 fi
+source "$ROOT_DIR/.env" 2>/dev/null || true
 
 # Find confused2 tool binary
 CONFUSED_BIN=""
