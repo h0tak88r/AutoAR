@@ -10,16 +10,18 @@ import (
 	"strings"
 
 	"github.com/h0tak88r/AutoAR/gomodules/db"
+	"github.com/h0tak88r/AutoAR/gomodules/dns"
 	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
 	"github.com/h0tak88r/AutoAR/gomodules/gobot"
 	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
 	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
+	"github.com/h0tak88r/AutoAR/gomodules/urls"
 	"github.com/h0tak88r/AutoAR/gomodules/wp-confusion"
 )
 
 var (
-	rootDir     string
-	modulesDir  string
+	rootDir      string
+	modulesDir   string
 	autoarScript string
 )
 
@@ -29,7 +31,7 @@ func init() {
 	// 2. Check current working directory
 	// 3. Check executable directory
 	// 4. Fallback to "."
-	
+
 	if _, err := os.Stat("/app/modules"); err == nil {
 		// Docker environment - use /app
 		rootDir = "/app"
@@ -58,7 +60,7 @@ func init() {
 		rootDir = "."
 		modulesDir = "./modules"
 	}
-	
+
 	// Use the autoar binary directly
 	autoarScript = os.Args[0]
 }
@@ -143,7 +145,7 @@ Special:
 
 func runBashModule(module string, args []string) error {
 	scriptPath := filepath.Join(modulesDir, module+".sh")
-	
+
 	// Check if script exists
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		// Try /app/modules (Docker fallback)
@@ -159,17 +161,17 @@ func runBashModule(module string, args []string) error {
 			return fmt.Errorf("module %s not found at %s", module, scriptPath)
 		}
 	}
-	
+
 	cmdArgs := append([]string{scriptPath}, args...)
 	cmd := exec.Command("bash", cmdArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Dir = rootDir
-	
+
 	// Set environment variables that bash modules might need
 	cmd.Env = os.Environ()
-	
+
 	return cmd.Run()
 }
 
@@ -179,12 +181,12 @@ func handleGitHubWordlist(args []string) error {
 	if outputDir == "" {
 		outputDir = "new-results"
 	}
-	
+
 	// Parse arguments: scan -o <org> [-t <token>]
 	if len(args) < 2 || args[0] != "scan" {
 		return fmt.Errorf("usage: github-wordlist scan -o <org> [-t <token>]")
 	}
-	
+
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "-o", "--org":
@@ -199,17 +201,17 @@ func handleGitHubWordlist(args []string) error {
 			}
 		}
 	}
-	
+
 	if org == "" {
 		return fmt.Errorf("organization (-o) is required")
 	}
-	
+
 	return githubwordlist.GenerateWordlist(org, token, outputDir)
 }
 
 func handleWPConfusion(args []string) error {
 	opts := wpconfusion.ScanOptions{}
-	
+
 	// Support both legacy bash-style and new AutoAR-style CLI:
 	// - Legacy:  wpDepConf -u <url> [-t] [-p] [-o <output>]
 	// - AutoAR:  wpDepConf scan -d <domain> | -l <live_hosts_file>
@@ -220,12 +222,12 @@ func handleWPConfusion(args []string) error {
 	// - At least one of Theme/Plugins is enabled (default: plugins only)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		// Ignore optional "scan" subcommand
 		if arg == "scan" {
 			continue
 		}
-		
+
 		switch arg {
 		case "-u", "--url":
 			if i+1 < len(args) {
@@ -265,19 +267,19 @@ func handleWPConfusion(args []string) error {
 			opts.Discord = true
 		}
 	}
-	
+
 	// If neither theme nor plugins explicitly set, default to plugins scan
 	if !opts.Theme && !opts.Plugins {
 		opts.Plugins = true
 	}
-	
+
 	return wpconfusion.ScanWPConfusion(opts)
 }
 
 func handleSubdomainsGo(args []string) error {
 	var domain string
 	threads := 100
-	
+
 	// Parse arguments: get -d <domain> [-t <threads>] [-s|--silent]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -297,17 +299,17 @@ func handleSubdomainsGo(args []string) error {
 			// Silent mode - just ignore for now
 		}
 	}
-	
+
 	if domain == "" {
 		return fmt.Errorf("domain (-d) is required")
 	}
-	
+
 	// Use Go subdomains module
 	results, err := subdomains.EnumerateSubdomains(domain, threads)
 	if err != nil {
 		return fmt.Errorf("failed to enumerate subdomains: %v", err)
 	}
-	
+
 	// Save to file (same location as bash module)
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if resultsDir == "" {
@@ -317,20 +319,20 @@ func handleSubdomainsGo(args []string) error {
 	if err := os.MkdirAll(domainDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %v", err)
 	}
-	
+
 	outputFile := filepath.Join(domainDir, "all-subs.txt")
 	file, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %v", err)
 	}
 	defer file.Close()
-	
+
 	for _, subdomain := range results {
 		fmt.Fprintln(file, subdomain)
 	}
-	
+
 	fmt.Printf("[OK] Found %d unique subdomains for %s\n", len(results), domain)
-	
+
 	// Save to database if configured
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err == nil {
@@ -340,7 +342,7 @@ func handleSubdomainsGo(args []string) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -388,19 +390,104 @@ func handleLivehostsGo(args []string) error {
 	return nil
 }
 
+// handleURLsGo runs URL collection for a given domain using the Go urls module.
+// It mirrors the behaviour of "modules/urls.sh collect" but implemented in Go.
+func handleURLsGo(args []string) error {
+	var domain string
+	threads := 100
+
+	// Parse arguments: collect -d <domain> [-t <threads>]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					threads = t
+				}
+				i++
+			}
+		}
+	}
+
+	if domain == "" {
+		fmt.Println("Usage: urls collect -d <domain> [-t <threads>]")
+		return fmt.Errorf("domain is required")
+	}
+
+	res, err := urls.CollectURLs(domain, threads)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[OK] Found %d total URLs; %d JavaScript URLs for %s\n", res.TotalURLs, res.JSURLs, res.Domain)
+	fmt.Printf("[INFO] All URLs saved to %s\n", res.AllFile)
+	if res.JSURLs > 0 {
+		fmt.Printf("[INFO] JS URLs saved to %s\n", res.JSFile)
+	}
+
+	return nil
+}
+
+// handleDNSCommand routes `autoar dns ...` to the dns Go module.
+// It keeps the existing subcommand shapes but lets Go own the entrypoint,
+// while the underlying implementation still uses the existing bash tooling.
+func handleDNSCommand(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: autoar dns <takeover|cname|ns|azure-aws|dnsreaper|all> -d <domain>")
+	}
+
+	sub := args[0]
+	subArgs := args[1:]
+
+	// parse -d/--domain
+	var domain string
+	for i := 0; i < len(subArgs); i++ {
+		switch subArgs[i] {
+		case "-d", "--domain":
+			if i+1 < len(subArgs) {
+				domain = subArgs[i+1]
+				i++
+			}
+		}
+	}
+	if domain == "" {
+		return fmt.Errorf("domain (-d) is required")
+	}
+
+	switch sub {
+	case "takeover", "all":
+		return dns.Takeover(domain)
+	case "cname":
+		return dns.CNAME(domain)
+	case "ns":
+		return dns.NS(domain)
+	case "azure-aws":
+		return dns.AzureAWS(domain)
+	case "dnsreaper":
+		return dns.DNSReaper(domain)
+	default:
+		return fmt.Errorf("unknown dns action: %s", sub)
+	}
+}
+
 func handleDBCommand(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: autoar db <command> [args...]")
 	}
-	
+
 	command := args[0]
 	subArgs := args[1:]
-	
+
 	// Initialize database connection
 	if err := db.Init(); err != nil {
 		return fmt.Errorf("failed to initialize database: %v", err)
 	}
-	
+
 	switch command {
 	case "init-schema":
 		if err := db.InitSchema(); err != nil {
@@ -408,22 +495,23 @@ func handleDBCommand(args []string) error {
 		}
 		fmt.Println("[OK] Database schema initialized")
 		return nil
-		
+
 	case "check-connection":
 		fmt.Println("[OK] Database connection successful")
 		return nil
-		
+
 	case "insert-domain":
 		if len(subArgs) < 1 {
 			return fmt.Errorf("usage: autoar db insert-domain <domain>")
 		}
-		domainID, err := db.InsertOrGetDomain(subArgs[0])
+		domain := subArgs[0]
+		domainID, err := db.InsertOrGetDomain(domain)
 		if err != nil {
 			return fmt.Errorf("failed to insert/get domain: %v", err)
 		}
 		fmt.Println(domainID)
 		return nil
-		
+
 	case "batch-insert-subdomains":
 		if len(subArgs) < 2 {
 			return fmt.Errorf("usage: autoar db batch-insert-subdomains <domain> <file> [is_live]")
@@ -434,32 +522,32 @@ func handleDBCommand(args []string) error {
 		if len(subArgs) >= 3 {
 			isLive = subArgs[2] == "true" || subArgs[2] == "1" || subArgs[2] == "TRUE"
 		}
-		
+
 		// Read subdomains from file
 		file, err := os.Open(filePath)
 		if err != nil {
 			return fmt.Errorf("failed to open file: %v", err)
 		}
 		defer file.Close()
-		
-		var subdomains []string
+
+		var subs []string
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line != "" && !strings.HasPrefix(line, "#") {
-				subdomains = append(subdomains, line)
+				subs = append(subs, line)
 			}
 		}
-		
+
 		if err := scanner.Err(); err != nil {
 			return fmt.Errorf("failed to read file: %v", err)
 		}
-		
-		if err := db.BatchInsertSubdomains(domain, subdomains, isLive); err != nil {
+
+		if err := db.BatchInsertSubdomains(domain, subs, isLive); err != nil {
 			return fmt.Errorf("failed to batch insert subdomains: %v", err)
 		}
 		return nil
-		
+
 	case "insert-subdomain":
 		if len(subArgs) < 2 {
 			return fmt.Errorf("usage: autoar db insert-subdomain <domain> <subdomain> [is_live] [http_url] [https_url] [http_status] [https_status]")
@@ -471,7 +559,7 @@ func handleDBCommand(args []string) error {
 		httpsURL := ""
 		httpStatus := 0
 		httpsStatus := 0
-		
+
 		if len(subArgs) >= 3 {
 			isLive = subArgs[2] == "true" || subArgs[2] == "1" || subArgs[2] == "TRUE"
 		}
@@ -491,12 +579,12 @@ func handleDBCommand(args []string) error {
 				httpsStatus = s
 			}
 		}
-		
+
 		if err := db.InsertSubdomain(domain, subdomain, isLive, httpURL, httpsURL, httpStatus, httpsStatus); err != nil {
 			return fmt.Errorf("failed to insert subdomain: %v", err)
 		}
 		return nil
-		
+
 	case "insert-js-file":
 		if len(subArgs) < 2 {
 			return fmt.Errorf("usage: autoar db insert-js-file <domain> <js_url> [content_hash]")
@@ -507,12 +595,12 @@ func handleDBCommand(args []string) error {
 		if len(subArgs) >= 3 {
 			contentHash = subArgs[2]
 		}
-		
+
 		if err := db.InsertJSFile(domain, jsURL, contentHash); err != nil {
 			return fmt.Errorf("failed to insert JS file: %v", err)
 		}
 		return nil
-		
+
 	case "insert-keyhack-template":
 		if len(subArgs) < 8 {
 			return fmt.Errorf("usage: autoar db insert-keyhack-template <keyname> <command> <method> <url> <header> <body> <notes> <description>")
@@ -521,7 +609,7 @@ func handleDBCommand(args []string) error {
 			return fmt.Errorf("failed to insert keyhack template: %v", err)
 		}
 		return nil
-		
+
 	default:
 		return fmt.Errorf("unknown db command: %s", command)
 	}
@@ -532,20 +620,21 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
-	
+
 	cmd := os.Args[1]
 	args := os.Args[2:]
-	
+
 	var err error
-	
+
 	switch cmd {
 	// Bash modules - most commands
-	case "cnames", "urls", "js", "s3", "domain",
+	case "cnames", "js", "s3", "domain",
 		"cleanup", "check-tools", "lite", "reflection", "nuclei", "tech",
-		"ports", "gf", "sqlmap", "dalfox", "dns", "github", "backup",
+		"ports", "gf", "sqlmap", "dalfox", "github", "backup",
 		"depconfusion", "misconfig", "fastlook", "keyhack", "jwt":
+		// These are still implemented as bash modules
 		err = runBashModule(cmd, args)
-	
+
 	// Special nested commands
 	case "monitor":
 		if len(args) < 1 {
@@ -560,11 +649,11 @@ func main() {
 			printUsage()
 			os.Exit(1)
 		}
-	
+
 	// Go modules - direct calls
 	case "github-wordlist":
 		err = handleGitHubWordlist(args)
-	
+
 	case "subdomains":
 		// Use Go subdomains module if action is "get"
 		if len(args) > 0 && args[0] == "get" {
@@ -573,7 +662,7 @@ func main() {
 			// Fallback to bash module for other actions
 			err = runBashModule("subdomains", args)
 		}
-	
+
 	case "livehosts":
 		// Use Go livehosts module if action is "get"
 		if len(args) > 0 && args[0] == "get" {
@@ -582,42 +671,54 @@ func main() {
 			// Fallback to bash module for other actions (none currently)
 			err = runBashModule("livehosts", args)
 		}
-	
+
+	case "urls":
+		// Use Go URLs module (no bash fallback)
+		if len(args) > 0 && args[0] == "collect" {
+			err = handleURLsGo(args[1:])
+		} else {
+			err = fmt.Errorf("unsupported urls action; use: autoar urls collect -d <domain> [-t <threads>]")
+		}
+
+	case "dns":
+		// DNS takeover and related scans via Go wrapper (still using underlying bash script)
+		err = handleDNSCommand(args)
+
 	case "db":
 		// Database operations via Go module
 		err = handleDBCommand(args)
-	
+
 	case "wpDepConf":
 		// WordPress dependency confusion scan via Go module
 		err = handleWPConfusion(args)
-	
+
 	// Bot/API commands
 	case "bot":
 		// Start Discord bot (from gobot module)
 		fmt.Println("Starting Discord bot...")
 		err = gobot.StartBot()
-	
+
 	case "api":
 		// Start API server (from gobot module)
 		fmt.Println("Starting REST API server...")
 		err = gobot.StartAPI()
-	
+
 	case "both":
 		// Start both
 		fmt.Println("Starting both bot and API...")
 		err = gobot.StartBoth()
-	
+
 	// Help
 	case "help", "--help", "-h":
 		printUsage()
 		os.Exit(0)
-	
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		printUsage()
 		os.Exit(1)
 	}
-	
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

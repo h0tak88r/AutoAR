@@ -164,7 +164,6 @@ ensure_subdomains() {
 ensure_live_hosts() {
   local domain="$1"
   local live_file="$2"
-  local ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || echo .)}"
   
   if [[ -s "$live_file" ]]; then
     return 0
@@ -186,11 +185,12 @@ ensure_live_hosts() {
   local subs_file="$(dirname "$live_file")/all-subs.txt"
   ensure_subdomains "$domain" "$subs_file" || return 1
   
-  # Run live host check
+  # Run live host check via Go-powered CLI
   if command -v autoar >/dev/null 2>&1; then
     autoar livehosts get -d "$domain" || return 1
   else
-    "${ROOT_DIR}/modules/livehosts.sh" get -d "$domain" || return 1
+    log_error "autoar binary not found; cannot run livehosts module"
+    return 1
   fi
 }
 
@@ -212,6 +212,7 @@ ensure_urls() {
   if command -v autoar >/dev/null 2>&1; then
     autoar urls collect -d "$domain" || return 1
   else
-    "${ROOT_DIR}/modules/urls.sh" collect -d "$domain" || return 1
+    log_error "autoar binary not found; cannot run urls module"
+    return 1
   fi
 }

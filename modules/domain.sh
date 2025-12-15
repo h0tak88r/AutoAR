@@ -31,9 +31,9 @@ domain_run() {
   # Stepwise pipeline with soft-fail behavior
   "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || true
   "$ROOT_DIR/modules/cnames.sh" get -d "$domain" || true
-  "$ROOT_DIR/modules/livehosts.sh" get -d "$domain" || true
+  autoar livehosts get -d "$domain" -s || true
   "$ROOT_DIR/modules/tech.sh" detect -d "$domain" || true
-  "$ROOT_DIR/modules/urls.sh" collect -d "$domain" || true
+  autoar urls collect -d "$domain" || true
   "$ROOT_DIR/modules/js_scan.sh" scan -d "$domain" || true
   "$ROOT_DIR/modules/reflection.sh" scan -d "$domain" || true
   "$ROOT_DIR/modules/gf_scan.sh" scan -d "$domain" || true
@@ -41,7 +41,7 @@ domain_run() {
   "$ROOT_DIR/modules/dalfox.sh" run -d "$domain" || true
   "$ROOT_DIR/modules/ports.sh" scan -d "$domain" || true
   "$ROOT_DIR/modules/nuclei.sh" run -d "$domain" || true
-  "$ROOT_DIR/modules/dns_takeover.sh" takeover -d "$domain" || true
+  autoar dns takeover -d "$domain" || true
 }
 
 case "${1:-}" in

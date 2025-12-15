@@ -214,7 +214,7 @@ lite_run() {
 
   local current_step=1
   run_phase "livehosts" "$current_step" "$total_steps" "Live host filtering" "${phase_timeouts[livehosts]}" "$domain" \
-    "$ROOT_DIR/modules/livehosts.sh" get -d "$domain" || true
+    autoar livehosts get -d "$domain" -s || true
   ((current_step++))
 
   run_phase "reflection" "$current_step" "$total_steps" "Reflection scanning" "${phase_timeouts[reflection]}" "$domain" \
