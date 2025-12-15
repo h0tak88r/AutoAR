@@ -20,14 +20,11 @@ echo "[entrypoint] Configuration loaded successfully"
 # Initialize database schema (only if database is configured)
 if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
   echo "[entrypoint] Initializing database schema"
-  if command -v db-cli >/dev/null 2>&1; then
-    db-cli init-schema || echo "[entrypoint] Database schema initialization completed with warnings"
+  if command -v autoar >/dev/null 2>&1; then
+    autoar db init-schema || echo "[entrypoint] Database schema initialization completed with warnings"
   else
-    echo "[entrypoint] db-cli not found, skipping schema initialization"
+    echo "[entrypoint] autoar binary not found, schema will be initialized by Go modules on startup"
   fi
-  
-  # KeyHack templates are already in the database - no import needed
-  # Templates can be added via 'keyhack add' command or Discord /keyhack_add
 else
   echo "[entrypoint] Database not configured, skipping schema initialization"
 fi

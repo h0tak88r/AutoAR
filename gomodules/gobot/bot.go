@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/h0tak88r/AutoAR/gomodules/db"
 )
 
 var (
@@ -27,8 +28,19 @@ var (
 	channelsMutex  sync.RWMutex
 )
 
-// StartBot starts the Discord bot
+// StartBot starts the Discord bot and initializes database
 func StartBot() error {
+	// Initialize database if configured
+	if os.Getenv("DB_HOST") != "" {
+		log.Println("[INFO] Initializing database...")
+		if err := db.Init(); err != nil {
+			log.Printf("[WARN] Failed to initialize database: %v", err)
+		} else {
+			if err := db.InitSchema(); err != nil {
+				log.Printf("[WARN] Failed to initialize database schema: %v", err)
+			}
+		}
+	}
 	if botToken == "" {
 		return fmt.Errorf("DISCORD_BOT_TOKEN environment variable is required")
 	}
