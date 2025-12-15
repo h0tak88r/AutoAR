@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
+	"github.com/h0tak88r/AutoAR/gomodules/db"
 	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
 	"github.com/h0tak88r/AutoAR/gomodules/gobot"
+	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
 	"github.com/h0tak88r/AutoAR/gomodules/wp-confusion"
 )
 
@@ -236,6 +241,215 @@ func handleWPConfusion(args []string) error {
 	return wpconfusion.ScanWPConfusion(opts)
 }
 
+func handleSubdomainsGo(args []string) error {
+	var domain string
+	threads := 100
+	
+	// Parse arguments: get -d <domain> [-t <threads>] [-s|--silent]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					threads = t
+				}
+				i++
+			}
+		case "-s", "--silent":
+			// Silent mode - just ignore for now
+		}
+	}
+	
+	if domain == "" {
+		return fmt.Errorf("domain (-d) is required")
+	}
+	
+	// Use Go subdomains module
+	results, err := subdomains.EnumerateSubdomains(domain, threads)
+	if err != nil {
+		return fmt.Errorf("failed to enumerate subdomains: %v", err)
+	}
+	
+	// Save to file (same location as bash module)
+	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+	if resultsDir == "" {
+		resultsDir = "new-results"
+	}
+	domainDir := filepath.Join(resultsDir, domain, "subs")
+	if err := os.MkdirAll(domainDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %v", err)
+	}
+	
+	outputFile := filepath.Join(domainDir, "all-subs.txt")
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %v", err)
+	}
+	defer file.Close()
+	
+	for _, subdomain := range results {
+		fmt.Fprintln(file, subdomain)
+	}
+	
+	fmt.Printf("[OK] Found %d unique subdomains for %s\n", len(results), domain)
+	
+	// Save to database if configured
+	if os.Getenv("DB_HOST") != "" {
+		if err := db.Init(); err == nil {
+			db.InitSchema() // Ignore errors
+			if err := db.BatchInsertSubdomains(domain, results, false); err != nil {
+				fmt.Printf("[WARN] Failed to save subdomains to database: %v\n", err)
+			}
+		}
+	}
+	
+	return nil
+}
+
+func handleDBCommand(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: autoar db <command> [args...]")
+	}
+	
+	command := args[0]
+	subArgs := args[1:]
+	
+	// Initialize database connection
+	if err := db.Init(); err != nil {
+		return fmt.Errorf("failed to initialize database: %v", err)
+	}
+	
+	switch command {
+	case "init-schema":
+		if err := db.InitSchema(); err != nil {
+			return fmt.Errorf("failed to initialize schema: %v", err)
+		}
+		fmt.Println("[OK] Database schema initialized")
+		return nil
+		
+	case "check-connection":
+		fmt.Println("[OK] Database connection successful")
+		return nil
+		
+	case "insert-domain":
+		if len(subArgs) < 1 {
+			return fmt.Errorf("usage: autoar db insert-domain <domain>")
+		}
+		domainID, err := db.InsertOrGetDomain(subArgs[0])
+		if err != nil {
+			return fmt.Errorf("failed to insert/get domain: %v", err)
+		}
+		fmt.Println(domainID)
+		return nil
+		
+	case "batch-insert-subdomains":
+		if len(subArgs) < 2 {
+			return fmt.Errorf("usage: autoar db batch-insert-subdomains <domain> <file> [is_live]")
+		}
+		domain := subArgs[0]
+		filePath := subArgs[1]
+		isLive := false
+		if len(subArgs) >= 3 {
+			isLive = subArgs[2] == "true" || subArgs[2] == "1" || subArgs[2] == "TRUE"
+		}
+		
+		// Read subdomains from file
+		file, err := os.Open(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to open file: %v", err)
+		}
+		defer file.Close()
+		
+		var subdomains []string
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" && !strings.HasPrefix(line, "#") {
+				subdomains = append(subdomains, line)
+			}
+		}
+		
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("failed to read file: %v", err)
+		}
+		
+		if err := db.BatchInsertSubdomains(domain, subdomains, isLive); err != nil {
+			return fmt.Errorf("failed to batch insert subdomains: %v", err)
+		}
+		return nil
+		
+	case "insert-subdomain":
+		if len(subArgs) < 2 {
+			return fmt.Errorf("usage: autoar db insert-subdomain <domain> <subdomain> [is_live] [http_url] [https_url] [http_status] [https_status]")
+		}
+		domain := subArgs[0]
+		subdomain := subArgs[1]
+		isLive := false
+		httpURL := ""
+		httpsURL := ""
+		httpStatus := 0
+		httpsStatus := 0
+		
+		if len(subArgs) >= 3 {
+			isLive = subArgs[2] == "true" || subArgs[2] == "1" || subArgs[2] == "TRUE"
+		}
+		if len(subArgs) >= 4 {
+			httpURL = subArgs[3]
+		}
+		if len(subArgs) >= 5 {
+			httpsURL = subArgs[4]
+		}
+		if len(subArgs) >= 6 {
+			if s, err := strconv.Atoi(subArgs[5]); err == nil {
+				httpStatus = s
+			}
+		}
+		if len(subArgs) >= 7 {
+			if s, err := strconv.Atoi(subArgs[6]); err == nil {
+				httpsStatus = s
+			}
+		}
+		
+		if err := db.InsertSubdomain(domain, subdomain, isLive, httpURL, httpsURL, httpStatus, httpsStatus); err != nil {
+			return fmt.Errorf("failed to insert subdomain: %v", err)
+		}
+		return nil
+		
+	case "insert-js-file":
+		if len(subArgs) < 2 {
+			return fmt.Errorf("usage: autoar db insert-js-file <domain> <js_url> [content_hash]")
+		}
+		domain := subArgs[0]
+		jsURL := subArgs[1]
+		contentHash := ""
+		if len(subArgs) >= 3 {
+			contentHash = subArgs[2]
+		}
+		
+		if err := db.InsertJSFile(domain, jsURL, contentHash); err != nil {
+			return fmt.Errorf("failed to insert JS file: %v", err)
+		}
+		return nil
+		
+	case "insert-keyhack-template":
+		if len(subArgs) < 8 {
+			return fmt.Errorf("usage: autoar db insert-keyhack-template <keyname> <command> <method> <url> <header> <body> <notes> <description>")
+		}
+		if err := db.InsertKeyhackTemplate(subArgs[0], subArgs[1], subArgs[2], subArgs[3], subArgs[4], subArgs[5], subArgs[6], subArgs[7]); err != nil {
+			return fmt.Errorf("failed to insert keyhack template: %v", err)
+		}
+		return nil
+		
+	default:
+		return fmt.Errorf("unknown db command: %s", command)
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -249,8 +463,8 @@ func main() {
 	
 	switch cmd {
 	// Bash modules - most commands
-	case "subdomains", "livehosts", "cnames", "urls", "js", "s3", "domain",
-		"cleanup", "db", "check-tools", "lite", "reflection", "nuclei", "tech",
+	case "livehosts", "cnames", "urls", "js", "s3", "domain",
+		"cleanup", "check-tools", "lite", "reflection", "nuclei", "tech",
 		"ports", "gf", "sqlmap", "dalfox", "dns", "github", "backup",
 		"depconfusion", "misconfig", "fastlook", "keyhack", "jwt", "wpDepConf":
 		err = runBashModule(cmd, args)
@@ -273,6 +487,19 @@ func main() {
 	// Go modules - direct calls
 	case "github-wordlist":
 		err = handleGitHubWordlist(args)
+	
+	case "subdomains":
+		// Use Go subdomains module if action is "get"
+		if len(args) > 0 && args[0] == "get" {
+			err = handleSubdomainsGo(args[1:])
+		} else {
+			// Fallback to bash module for other actions
+			err = runBashModule("subdomains", args)
+		}
+	
+	case "db":
+		// Database operations via Go module
+		err = handleDBCommand(args)
 	
 	// Bot/API commands
 	case "bot":
