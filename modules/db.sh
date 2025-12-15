@@ -11,20 +11,20 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   source "$ROOT_DIR/.env"
 fi
 
-source "$ROOT_DIR/lib/logging.sh" 2>/dev/null || true
-source "$ROOT_DIR/lib/utils.sh" 2>/dev/null || true
+# lib/logging.sh removed - functionality in gomodules/ 2>/dev/null || true
+# lib/utils.sh removed - functionality in gomodules/ 2>/dev/null || true
 
 # Load database functions (prefer Go wrapper, fallback to bash)
 if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
   source "$ROOT_DIR/gomodules/db/wrapper.sh"
 elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
-  source "$ROOT_DIR/lib/db.sh" || { echo "ERROR: Failed to load database functions" >&2; exit 1; }
+  # lib/db.sh removed - functionality in gomodules/ || { echo "ERROR: Failed to load database functions" >&2; exit 1; }
 else
   echo "ERROR: No database functions available" >&2
   exit 1
 fi
 
-source "$ROOT_DIR/lib/discord.sh" 2>/dev/null || true
+# lib/discord.sh removed - functionality in gomodules/ 2>/dev/null || true
 
 die() { echo "$1" >&2; exit 1; }
 

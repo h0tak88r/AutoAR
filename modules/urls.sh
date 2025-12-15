@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/lib/logging.sh"
-source "$ROOT_DIR/lib/utils.sh"
-source "$ROOT_DIR/lib/config.sh"
-source "$ROOT_DIR/lib/discord.sh"
+# lib/logging.sh removed - functionality in gomodules/
+# lib/utils.sh removed - functionality in gomodules/
+# lib/config.sh removed - functionality in gomodules/
+# lib/discord.sh removed - functionality in gomodules/
 
 usage() { 
   echo "Usage: urls collect -d <domain> [-t <threads>]"
