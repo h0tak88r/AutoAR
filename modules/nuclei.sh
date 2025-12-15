@@ -2,10 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# lib/logging.sh functionality in gomodules/ - functionality in gomodules/
-# lib/utils.sh functionality in gomodules/ - functionality in gomodules/
-# lib/config.sh functionality in gomodules/ - functionality in gomodules/
-# lib/discord.sh functionality in gomodules/ - functionality in gomodules/
+
+# Load compatibility functions
+if [[ -f "$ROOT_DIR/gomodules/compat.sh" ]]; then
+  source "$ROOT_DIR/gomodules/compat.sh"
+fi
 
 usage() {
   cat << EOF
