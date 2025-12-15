@@ -127,10 +127,13 @@ ensure_subdomains() {
   
   # Run subdomain enumeration
   log_info "No subdomains in DB, running enumeration"
+  
+  # Ensure directory exists
+  local dir=$(dirname "$subs_file")
+  mkdir -p "$dir"
+  
   if command -v autoar >/dev/null 2>&1; then
     # Try Go subdomains module first
-    local dir=$(dirname "$subs_file")
-    mkdir -p "$dir"
     if autoar subdomains get -d "$domain" -t 100 ${silent:+-s} 2>&1; then
       # Check if file was created
       if [[ -f "$subs_file" ]]; then
@@ -140,7 +143,19 @@ ensure_subdomains() {
   fi
   
   # Fallback to bash module
-  local root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  # Try to find ROOT_DIR from calling script's context
+  local root_dir="${ROOT_DIR:-}"
+  if [[ -z "$root_dir" ]]; then
+    # Try common locations
+    if [[ -d "/app/modules" ]]; then
+      root_dir="/app"
+    elif [[ -d "$(pwd)/modules" ]]; then
+      root_dir="$(pwd)"
+    else
+      root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    fi
+  fi
+  
   if [[ "$silent" == "true" ]]; then
     "$root_dir/modules/subdomains.sh" get -d "$domain" --silent || return 1
   else
@@ -169,6 +184,16 @@ ensure_live_hosts() {
   ensure_subdomains "$domain" "$subs_file" || return 1
   
   # Run live host check
-  local root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  local root_dir="${ROOT_DIR:-}"
+  if [[ -z "$root_dir" ]]; then
+    if [[ -d "/app/modules" ]]; then
+      root_dir="/app"
+    elif [[ -d "$(pwd)/modules" ]]; then
+      root_dir="$(pwd)"
+    else
+      root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    fi
+  fi
+  
   "$root_dir/modules/livehosts.sh" get -d "$domain" || return 1
 }
