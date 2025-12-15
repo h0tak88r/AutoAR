@@ -8,16 +8,16 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   source "$ROOT_DIR/.env"
 fi
 
-source "$ROOT_DIR/lib/logging.sh"
-source "$ROOT_DIR/lib/utils.sh"
-source "$ROOT_DIR/lib/config.sh"
-source "$ROOT_DIR/lib/discord.sh"
+# lib/logging.sh removed - functionality in gomodules/
+# lib/utils.sh removed - functionality in gomodules/
+# lib/config.sh removed - functionality in gomodules/
+# lib/discord.sh removed - functionality in gomodules/
 
 # Load database functions (prefer Go wrapper, fallback to bash)
 if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
   source "$ROOT_DIR/gomodules/db/wrapper.sh"
 elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
-  source "$ROOT_DIR/lib/db.sh"
+  # lib/db.sh removed - functionality in gomodules/
 fi
 
 usage() { echo "Usage: js scan -d <domain> [-s <subdomain>]"; }

@@ -2,9 +2,9 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/lib/logging.sh"
-source "$ROOT_DIR/lib/utils.sh"
-source "$ROOT_DIR/lib/discord.sh"
+# lib/logging.sh removed - functionality in gomodules/
+# lib/utils.sh removed - functionality in gomodules/
+# lib/discord.sh removed - functionality in gomodules/
 
 usage() { 
   echo "Usage: wp_plugin_confusion scan -d <domain> | -l <live_hosts_file>"
