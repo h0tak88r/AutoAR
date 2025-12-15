@@ -424,17 +424,16 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		{
 			Name:        "scan_from_file",
-			Description: "Run a scan using targets from a file. Attach file directly, or use message_id, or right-click message → Apps → Scan File",
+			Description: "Scan targets from a file. Attach file or use message_id",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_type", Description: "Type of scan (subdomains, livehosts, nuclei, etc.)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "message_id", Description: "Message ID with file (optional - attach file directly or use context menu)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "message_id", Description: "Message ID with file (optional)", Required: false},
 			},
 		},
 		// Message context command - right-click on message with file
 		{
-			Name:        "Scan File",
-			Type:        discordgo.MessageApplicationCommand,
-			Description: "Scan targets from a file attachment",
+			Name: "Scan File",
+			Type: discordgo.MessageApplicationCommand,
 		},
 	}
 
