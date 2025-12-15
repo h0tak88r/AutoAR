@@ -136,7 +136,7 @@ go install -v github.com/h0tak88r/next88@latest  # React2Shell scanner (automati
 
 2. **Configure the system**:
 ```bash
-chmod +x *.sh modules/*.sh
+# All modules are now Go-based - no bash scripts to chmod
 cp env.example .env
 # Edit .env with your configuration
 ```

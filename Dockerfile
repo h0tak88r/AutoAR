@@ -79,11 +79,11 @@ COPY gomodules/ ./gomodules/
 # Download dependencies
 RUN go mod download
 
-# Copy main.go
-COPY main.go ./
+# Copy cmd directory
+COPY cmd/ ./cmd/
 
-# Build main autoar binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar .
+# Build main autoar binary from cmd/autoar
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar ./cmd/autoar
 
 # --- Runtime stage: minimal Debian image ---
 FROM debian:bullseye-slim
@@ -100,8 +100,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client awscli docker.io \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy application code
-COPY . /app
+# Copy application code (excluding build artifacts)
+COPY go.mod go.sum ./
+COPY gomodules/ ./gomodules/
+COPY cmd/ ./cmd/
+COPY regexes/ ./regexes/
+COPY templates/ ./templates/
+COPY autoar.sample.yaml ./
+COPY env.example ./
+COPY .dockerignore ./
+COPY .gitignore ./
 
 # Clone submodules directly
 RUN cd /app && \
@@ -130,24 +138,28 @@ RUN misconfig-mapper -update-templates || true
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
 
-# Permissions and executables
-RUN chmod +x /app/generate_config.sh || true \
-    && chmod +x /app/main.sh || true \
-    && chmod +x /app/python/db_handler.py || true \
-    && chmod +x /app/lib/db_wrapper.sh || true \
-    && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
-    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
+# Permissions
+RUN chmod +x /app/generate_config.sh 2>/dev/null || true \
+    && chmod +x /app/main.sh 2>/dev/null || true \
+    && chmod +x /app/python/db_handler.py 2>/dev/null || true \
+    && echo "All modules are now Go-based - pure Go implementation" || true
+
+# Build entrypoint binary (replaces docker-entrypoint.sh)
+# Need to build as root, then switch user
+COPY gomodules/entrypoint/ ./gomodules/entrypoint/
+WORKDIR /app/gomodules/entrypoint
+RUN go build -o /usr/local/bin/autoar-entrypoint . && \
+    chmod +x /usr/local/bin/autoar-entrypoint
+WORKDIR /app
 
 # Add a non-root user
-RUN useradd -m -u 10001 autoar && chown -R autoar:autoar /app
+RUN useradd -m -u 10001 autoar && \
+    chown -R autoar:autoar /app && \
+    chown autoar:autoar /usr/local/bin/autoar-entrypoint
 USER autoar
 
-# Entrypoint script that generates config and starts the bot
-COPY --chown=autoar:autoar docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
-
 # Use tini as init for proper signal handling
-ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/autoar-entrypoint"]
 
 # Basic healthcheck: ensure process is running
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
