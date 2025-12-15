@@ -282,11 +282,24 @@ func InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL st
 }
 
 // InsertJSFile inserts or updates a JS file for a subdomain
-func InsertJSFile(domain, subdomain, jsURL, contentHash string) error {
+// It extracts the subdomain from the JS URL automatically
+func InsertJSFile(domain, jsURL, contentHash string) error {
 	if dbConn == nil {
 		if err := Init(); err != nil {
 			return err
 		}
+	}
+	
+	// Extract subdomain from URL (e.g., https://sub.example.com/path.js -> sub.example.com)
+	subdomain := jsURL
+	if strings.HasPrefix(jsURL, "http://") {
+		subdomain = strings.TrimPrefix(jsURL, "http://")
+	} else if strings.HasPrefix(jsURL, "https://") {
+		subdomain = strings.TrimPrefix(jsURL, "https://")
+	}
+	// Get just the hostname part
+	if idx := strings.Index(subdomain, "/"); idx != -1 {
+		subdomain = subdomain[:idx]
 	}
 	
 	domainID, err := InsertOrGetDomain(domain)
