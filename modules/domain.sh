@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# lib/logging.sh removed - functionality in gomodules/
-# lib/utils.sh removed - functionality in gomodules/
+# lib/logging.sh functionality in gomodules/ - functionality in gomodules/
+# lib/utils.sh functionality in gomodules/ - functionality in gomodules/
 
 usage() { echo "Usage: domain run -d <domain>"; }
 
