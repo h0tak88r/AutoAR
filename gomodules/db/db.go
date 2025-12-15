@@ -343,6 +343,35 @@ func InsertJSFile(domain, jsURL, contentHash string) error {
 	return nil
 }
 
+// InsertKeyhackTemplate inserts or updates a KeyHack template
+func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description string) error {
+	if dbConn == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	
+	_, err := dbConn.Exec(`
+		INSERT INTO keyhack_templates (keyname, command_template, method, url, header, body, description, notes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (keyname) DO UPDATE SET
+			command_template = $2,
+			method = $3,
+			url = $4,
+			header = $5,
+			body = $6,
+			description = $7,
+			notes = $8,
+			updated_at = NOW();
+	`, keyname, commandTemplate, method, url, header, body, description, notes)
+	
+	if err != nil {
+		return fmt.Errorf("failed to insert/update keyhack template: %v", err)
+	}
+	
+	return nil
+}
+
 // GetConnection returns the database connection (for advanced use)
 func GetConnection() *sql.DB {
 	return dbConn
