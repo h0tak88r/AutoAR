@@ -97,10 +97,7 @@ services:
             - ./regexes:/app/regexes:ro
         healthcheck:
             test:
-                [
-                    "CMD-SHELL",
-                    'python -c ''import importlib; importlib.import_module("discord")'' || exit 1',
-                ]
+                ["CMD-SHELL", "pgrep -f autoar-bot || exit 1"]
             interval: 30s
             timeout: 5s
             retries: 3

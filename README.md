@@ -1,6 +1,6 @@
 # AutoAR (Automated Attack Reconnaissance) 🚀
  
-AutoAR is a comprehensive, modular security automation toolkit designed for bug bounty hunters, penetration testers, and security researchers. It provides **three operational modes**: Discord bot, REST API, or both simultaneously, all powered by a robust bash-based CLI backend for automated reconnaissance, vulnerability scanning, and attack surface analysis.
+AutoAR is a comprehensive, modular security automation toolkit designed for bug bounty hunters, penetration testers, and security researchers. It provides **three operational modes**: Discord bot, REST API, or both simultaneously, powered by a unified Go-based CLI that orchestrates bash modules for automated reconnaissance, vulnerability scanning, and attack surface analysis.
 
 ## ✨ Features
 
@@ -14,7 +14,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 🛡️ **Vulnerability Scanning**
 - **Nuclei Integration**: 1000+ vulnerability templates with custom rate limiting
-- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods
+- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods, source code exposure checks, and DoS testing
 - **WordPress Plugin Confusion**: Automated WP plugin/theme confusion attack detection
 - **Dependency Confusion**: GitHub repository dependency confusion scanning
 - **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis
@@ -113,7 +113,7 @@ docker compose up -d
 
 6. **Verify installation**:
 ```bash
-docker logs autoar-bot
+docker logs autoar-discord
 ```
 
 ### Manual Installation
@@ -131,6 +131,7 @@ sudo apt install -y subfinder amass assetfinder httpx nuclei nmap sqlmap dalfox 
 go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
+go install -v github.com/h0tak88r/next88@latest  # React2Shell scanner (automatically installed in Docker)
 ```
 
 2. **Configure the system**:
@@ -140,12 +141,45 @@ cp env.example .env
 # Edit .env with your configuration
 ```
 
-3. **Run the Discord bot**:
+3. **Run AutoAR**:
 ```bash
-python discord_bot.py
+# Using Docker (recommended)
+docker-compose up autoar-discord
+
+# Or run the Go CLI directly
+export AUTOAR_MODE=discord
+export DISCORD_BOT_TOKEN=your_token_here
+autoar bot  # Start Discord bot
+# or
+autoar api  # Start REST API
+# or
+autoar both # Start both
 ```
 
 ## 📖 Usage
+
+### CLI Commands
+
+AutoAR provides a unified Go CLI (`autoar`) that replaces the previous bash script:
+
+```bash
+# Basic usage
+autoar <command> <action> [options]
+
+# Examples
+autoar subdomains get -d example.com
+autoar livehosts get -d example.com
+autoar nuclei run -d example.com
+autoar github-wordlist scan -o orgname
+autoar bot    # Start Discord bot
+autoar api    # Start REST API server
+autoar both   # Start both bot and API
+
+# See all commands
+autoar help
+```
+
+### Operational Modes
 
 AutoAR supports three operational modes to fit your workflow:
 
@@ -159,7 +193,7 @@ docker-compose up autoar-discord
 # Without Docker
 export AUTOAR_MODE=discord
 export DISCORD_BOT_TOKEN=your_token_here
-python discord_bot.py
+autoar bot
 ```
 
 #### 2. REST API Mode
@@ -171,7 +205,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-python api_server.py
+autoar bot
 ```
 Access API documentation at: `http://localhost:8000/docs`
 
@@ -185,7 +219,7 @@ export AUTOAR_MODE=both
 export DISCORD_BOT_TOKEN=your_token_here
 export API_HOST=0.0.0.0
 export API_PORT=8000
-python launcher.py
+autoar both
 ```
 
 📚 **For detailed API documentation, see [API_README.md](API_README.md) and [API_QUICKSTART.md](API_QUICKSTART.md)**
@@ -205,7 +239,9 @@ Once the bot is running, use these slash commands in Discord:
 
 #### Vulnerability Scanning
 - `/nuclei domain:example.com [threads:100]` - Run Nuclei scans
-- `/react2shell_scan domain:example.com [threads:100]` - Scan for React Server Components RCE (CVE-2025-55182) with WAF bypass
+- `/react2shell_scan domain:example.com [threads:100] [enable_source_exposure:false] [dos_test:false]` - Scan domain hosts for React Server Components RCE (CVE-2025-55182) using next88 smart scan (sequential: normal → WAF bypass → Vercel WAF → paths)
+- `/react2shell url:https://example.com [verbose:false]` - Test single URL for React Server Components RCE using next88 smart scan
+- `/jwt_scan token:<JWT_TOKEN> [skip_crack:false] [skip_payloads:false] [wordlist:] [max_crack_attempts:]` - JWT token vulnerability scanning using jwt-hack
 - `/wpdepconf domain:example.com` - WordPress plugin confusion
 - `/dalfox domain:example.com [threads:100]` - XSS detection
 - `/sqlmap domain:example.com [threads:100]` - SQL injection testing
@@ -250,43 +286,47 @@ Access the container and use the CLI directly:
 
 ```bash
 # Enter the container
-docker exec -it autoar-bot bash
+docker exec -it autoar-discord bash
 
 # Basic reconnaissance (with threading)
-/app/main.sh subdomains get -d example.com -t 100
-/app/main.sh livehosts get -d example.com -t 100
-/app/main.sh cnames get -d example.com
-/app/main.sh urls collect -d example.com -t 100
-/app/main.sh tech detect -d example.com -t 100
+autoar subdomains get -d example.com
+autoar livehosts get -d example.com
+autoar cnames get -d example.com
+autoar urls collect -d example.com
+autoar tech detect -d example.com
 
-# Vulnerability scanning (with threading)
-/app/main.sh nuclei run -d example.com -t 100
-/app/main.sh react2shell_scan run -d example.com -t 50
-/app/main.sh react2shell_scan run -l domains.txt -t 50  # Scan multiple domains from file
-/app/main.sh dalfox run -d example.com -t 100
-/app/main.sh sqlmap run -d example.com -t 100
-/app/main.sh ports scan -d example.com -t 100
-/app/main.sh backup scan -d example.com -t 100 --full
-/app/main.sh wpDepConf scan -d example.com
+# Vulnerability scanning
+autoar nuclei run -d example.com
+# Note: react2shell_scan is now integrated in Discord bot - use /react2shell_scan command
+# Or use next88 directly: next88 -u https://example.com --dos-test --dos-requests 100
+autoar dalfox run -d example.com
+autoar sqlmap run -d example.com
+autoar ports scan -d example.com
+autoar backup scan -d example.com
+autoar wpDepConf scan -d example.com
 
 # Specialized scans
-/app/main.sh js scan -d example.com
-/app/main.sh github scan -r owner/repo
-/app/main.sh github org -o company -m 50
-/app/main.sh github-wordlist scan -o company
-/app/main.sh s3 scan -b bucket-name
-/app/main.sh dns takeover -d example.com
+autoar js scan -d example.com
+autoar github scan -r owner/repo
+autoar github org -o company -m 50
+autoar github-wordlist scan -o company
+autoar s3 scan -b bucket-name
+autoar dns takeover -d example.com
 
 # KeyHack API key validation
-/app/main.sh keyhack list                                    # List all templates
-/app/main.sh keyhack search stripe                           # Search for templates
-/app/main.sh keyhack validate Stripe sk_live_abc123          # Generate validation command
-/app/main.sh keyhack add "Slack" "curl -H 'Authorization: Bearer \$API_KEY' https://slack.com/api/auth.test" "Slack API validation" "Requires Bearer token"  # Add new template
+autoar keyhack list                                    # List all templates
+autoar keyhack search stripe                           # Search for templates
+autoar keyhack validate Stripe sk_live_abc123          # Generate validation command
+autoar keyhack add "Slack" "curl -H 'Authorization: Bearer \$API_KEY' https://slack.com/api/auth.test" "Slack API validation" "Requires Bearer token"  # Add new template
 
 # Workflows
-/app/main.sh lite run -d example.com
-/app/main.sh fastlook run -d example.com
-/app/main.sh domain run -d example.com
+autoar lite run -d example.com
+autoar fastlook run -d example.com
+autoar domain run -d example.com
+
+# Note: main.sh is still available as a symlink to autoar for backward compatibility
+/main.sh subdomains get -d example.com  # Also works
+```
 
 # Updates Monitoring (CLI)
 ## Database-backed workflow
@@ -511,16 +551,15 @@ All Discord commands support optional `threads` parameter (default: 100):
 ```
 
 ### CLI Commands
-All CLI commands support `-t` or `--threads` flag:
+All CLI commands support `-t` or `--threads` flag (where applicable):
 ```bash
 # High-performance scanning
-./modules/subdomains.sh get -d example.com -t 200
-./modules/nuclei.sh run -d example.com -t 50
-./modules/ports.sh scan -d example.com -t 500
+autoar subdomains get -d example.com  # Threads configurable via module flags
+autoar nuclei run -d example.com
+autoar ports scan -d example.com
 
-# Conservative scanning (lower resource usage)
-./modules/subdomains.sh get -d example.com -t 25
-./modules/nuclei.sh run -d example.com -t 10
+# Note: Thread counts are typically configured via environment variables or module-specific flags
+# See individual module documentation for thread configuration options
 ```
 
 ### Performance Guidelines
@@ -565,32 +604,38 @@ Configure these for enhanced functionality:
 
 ```
 AutoAR/
-├── modules/                 # Core scanning modules
-│   ├── subdomains.sh       # Subdomain enumeration
-│   ├── livehosts.sh        # Live host detection (supports --silent flag)
-│   ├── react2shell_scan.sh # React Server Components RCE scanner (CVE-2025-55182)
-│   ├── nuclei.sh           # Nuclei integration
+├── main.go                # Go CLI entry point (replaces main.sh)
+├── autoar                 # Compiled Go binary
+├── go.mod                 # Go module definition
+├── gomodules/             # Go modules directory
+│   ├── gobot/             # Discord bot + API server
+│   │   ├── bot.go         # Bot/API startup functions
+│   │   ├── api.go         # REST API implementation
+│   │   ├── react2shell.go # React2Shell scanning
+│   │   └── commands*.go   # Discord command handlers
+│   ├── github-wordlist/   # GitHub wordlist generator (library)
+│   └── wp-confusion/      # WordPress confusion scanner (library)
+├── modules/               # Bash scanning modules (tool orchestration)
+│   ├── subdomains.sh      # Subdomain enumeration
+│   ├── livehosts.sh       # Live host detection
+│   ├── nuclei.sh          # Nuclei integration
 │   ├── wp_plugin_confusion.sh # WordPress scanning
-│   ├── keyhack.sh          # API key validation (778+ templates)
-│   └── ...                 # Other modules
-├── python/                 # Python utilities
-│   ├── discord_bot.py      # Discord bot
-│   ├── db_handler.py       # Database operations
-│   └── wp_update_confusion.py # WP confusion scanner
-├── lib/                    # Shared libraries
-│   ├── logging.sh          # Logging utilities
-│   ├── utils.sh            # Common utilities
-│   └── discord.sh          # Discord integration
-├── nuclei_templates/       # Nuclei vulnerability templates
-├── keyhack_templates/      # KeyHack API key validation templates (778+)
-├── scripts/               # Utility scripts
-│   ├── import_keyhack_templates.sh  # Import KeyHack templates
-│   └── migrate_keyskit_to_keyhack.sh  # Migration script
+│   ├── keyhack.sh         # API key validation (778+ templates)
+│   └── ...                # Other modules
+├── python/                # Python utilities (minimal, mostly replaced)
+│   └── db_handler.py      # Database operations
+├── lib/                   # Shared bash libraries
+│   ├── logging.sh         # Logging utilities
+│   ├── utils.sh           # Common utilities
+│   ├── discord.sh         # Discord integration
+│   └── db.sh              # Database operations
+├── nuclei_templates/      # Nuclei vulnerability templates
+├── keyhack_templates/     # KeyHack API key validation templates (778+)
 ├── Wordlists/             # Wordlists and patterns
 ├── regexes/               # Custom regex patterns
 ├── docker-compose.yml     # Docker configuration
-├── Dockerfile            # Container definition
-└── main.sh               # CLI entry point
+├── Dockerfile             # Container definition
+└── main.sh                # Bash CLI (backward compatibility, symlinks to autoar)
 ```
 
 ## 🛠️ Advanced Usage
@@ -653,7 +698,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-python api_server.py
+autoar bot
 ```
 
 #### Access Interactive Documentation
@@ -861,7 +906,8 @@ AutoAR supports three operational modes:
 docker-compose up autoar-discord
 # or
 export AUTOAR_MODE=discord
-python discord_bot.py
+export DISCORD_BOT_TOKEN=your_token_here
+autoar bot
 ```
 
 #### 2. REST API Only
@@ -869,7 +915,9 @@ python discord_bot.py
 docker-compose --profile api up autoar-api
 # or
 export AUTOAR_MODE=api
-python api_server.py
+export API_HOST=0.0.0.0
+export API_PORT=8000
+autoar bot
 ```
 
 #### 3. Hybrid Mode (Both Discord + API)
@@ -877,7 +925,10 @@ python api_server.py
 docker-compose --profile full up autoar-full
 # or
 export AUTOAR_MODE=both
-python launcher.py
+export DISCORD_BOT_TOKEN=your_token_here
+export API_HOST=0.0.0.0
+export API_PORT=8000
+autoar bot
 ```
 
 ### API Response Format

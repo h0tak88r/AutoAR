@@ -21,10 +21,17 @@ AutoAR/
 │   ├── utils.sh              # Common utilities
 │   ├── config.sh             # Configuration management
 │   └── discord.sh            # Discord integration
-├── python/                    # Python scripts
-│   ├── discord_bot.py        # Discord bot implementation
-│   ├── api_server.py         # FastAPI REST API server
+├── python/                    # Python utility scripts (for specific tools)
+│   ├── jwt_tool.py           # JWT scanning tool (large, kept as-is)
 │   └── db_handler.py         # Database operations
+├── go-tools/                  # Custom Go tools
+│   ├── github-wordlist/      # GitHub wordlist generator (Go)
+│   └── wp-confusion/         # WordPress confusion scanner (Go)
+├── go-bot/                    # Go implementation (Discord bot + API server)
+│   ├── main.go               # Entry point
+│   ├── api.go                # REST API server
+│   ├── react2shell.go        # React2Shell scanning
+│   └── commands*.go          # Discord command handlers
 ├── Dockerfile                # Docker build configuration
 ├── docker-compose.yml        # Docker Compose configuration
 ├── requirements.txt          # Python dependencies
@@ -101,7 +108,7 @@ Each module is a standalone bash script in `modules/` that:
 
 ### 5. REST API Server
 
-**Location:** `python/api_server.py`
+**Location:** `go-bot/api.go`
 
 **Framework:** FastAPI
 

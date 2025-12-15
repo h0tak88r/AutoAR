@@ -124,8 +124,9 @@ scan_misconfig() {
             discord_send_progress "✅ **No security misconfigurations found**"
         fi
         
-        # Send results to Discord
-        discord_file "$output_dir/misconfig-scan.txt" "Misconfiguration scan results for $target"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-misconfig_scan_$(date +%s)}"
+        discord_send_file "$output_dir/misconfig-scan.txt" "Misconfiguration scan results for $target" "$scan_id"
     else
         log_error "Misconfiguration scan failed"
         discord_send_progress "❌ **Misconfiguration scan failed**"
@@ -163,8 +164,9 @@ scan_service() {
             discord_send_progress "✅ **No misconfigurations found in service $service_id**"
         fi
         
-        # Send results to Discord
-        discord_file "$output_dir/misconfig-service-scan.txt" "Service $service_id misconfiguration scan results for $target"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-misconfig_service_$(date +%s)}"
+        discord_send_file "$output_dir/misconfig-service-scan.txt" "Service $service_id misconfiguration scan results for $target" "$scan_id"
     else
         log_error "Service misconfiguration scan failed"
         discord_send_progress "❌ **Service $service_id scan failed**"

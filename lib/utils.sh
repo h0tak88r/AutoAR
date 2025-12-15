@@ -72,7 +72,7 @@ run_with_phase_timeout() {
   local remaining
   remaining=$(phase_time_remaining)
 
-  if [[ -n "$remaining" ]]; then
+  if [[ -n "$remaining" ]] && [[ "$remaining" =~ ^[0-9]+$ ]]; then
     if (( remaining <= 0 )); then
       log_warn "Phase timeout reached before ${description:-command}; skipping."
       return 124
@@ -98,21 +98,22 @@ is_discord_bot_available() {
   return 1
 }
 
-# Send file via Discord (bot or webhook)
+# Send file via Discord (bot for final results, webhook for logging)
+# Note: In Discord bot mode, files are sent directly by the bot after scan completes
+# This function is kept for webhook fallback and non-bot modes
 discord_send_file() {
   local file_path="$1"
   local description="$2"
+  local scan_id="${3:-}"
   
+  # In Discord bot mode, files are sent directly by the bot after scan completes
+  # (like livehosts does). We just log here and let the bot handle it.
   if is_discord_bot_available; then
-    # For Discord bot, we'll use webhook for immediate sending
-    # This provides better user experience with progressive updates
-    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-      discord_file "$file_path" "$description"
-    else
-      log_info "File will be sent via Discord bot: $description"
-    fi
+    log_info "File will be sent by Discord bot: $description"
+    # Don't send via webhook in bot mode - let the bot send it directly
+    return 0
   elif [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-    # Fallback to webhook
+    # Fallback to webhook if bot not available
     discord_file "$file_path" "$description"
   else
     log_info "No Discord integration available for: $description"
@@ -143,11 +144,25 @@ ensure_subdomains() {
   local domain="$1"
   local subs_file="$2"  # e.g., /app/new-results/example.com/subs/all-subs.txt
   local silent="${3:-false}"  # Optional silent flag
+  local force_refresh="${4:-false}"  # Optional force refresh flag
+  
+  # If force_refresh is true, remove existing file to force re-enumeration
+  if [[ "$force_refresh" == "true" && -f "$subs_file" ]]; then
+    log_info "Force refresh requested, removing existing subdomains file"
+    rm -f "$subs_file"
+  fi
   
   # Check if file exists and is not empty
   if [[ -s "$subs_file" ]]; then
-    log_info "Using existing subdomains from $subs_file"
-    return 0
+    local count=$(wc -l < "$subs_file" 2>/dev/null || echo 0)
+    log_info "Using existing subdomains from $subs_file ($count subdomains)"
+    # If file has very few subdomains (< 5), it might be stale - re-enumerate
+    if [[ $count -lt 5 ]]; then
+      log_warn "Very few subdomains found ($count), might be stale. Re-enumerating..."
+      rm -f "$subs_file"
+    else
+      return 0
+    fi
   fi
   
   # Try to pull from database (if database is available)
