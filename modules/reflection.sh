@@ -35,7 +35,8 @@ reflection_scan() {
   if [[ -s "$out_file" ]]; then
     local count=$(wc -l < "$out_file")
     log_success "Found reflection points: $count"
-    discord_send_file "$out_file" "Reflection points for $domain ($count)"
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-reflection_$(date +%s)}"
+    discord_send_file "$out_file" "Reflection points for $domain ($count)" "$scan_id"
   else
     log_info "No reflection points found"
   fi

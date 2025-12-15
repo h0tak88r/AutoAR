@@ -40,7 +40,10 @@ dalfox_run() {
     log_info "Running dalfox with $threads threads"
     dalfox file "$in_file" --no-spinner --only-poc r --ignore-return 302,404,403 --skip-bav -b "0x88.xss.cl" -w "$threads" -o "$out_file" 2>/dev/null || true
   fi
-  [[ -s "$out_file" ]] && discord_send_file "$out_file" "Dalfox results for $domain"
+  if [[ -s "$out_file" ]]; then
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-dalfox_$(date +%s)}"
+    discord_send_file "$out_file" "Dalfox results for $domain" "$scan_id"
+  fi
 }
 
 case "${1:-}" in

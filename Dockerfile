@@ -1,14 +1,28 @@
 # syntax=docker/dockerfile:1.7
 
-# --- Builder stage: install Go-based security tools ---
+# --- Builder stage: install Go-based security tools and build AutoAR bot ---
 FROM golang:1.24-bullseye AS builder
 
 WORKDIR /app
 
 # Install system packages required for building tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl build-essential cmake libpcap-dev python3 python3-pip ca-certificates \
+    git curl build-essential cmake libpcap-dev ca-certificates \
+    pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Rust using rustup (newer version required for jwt-hack)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    export PATH="$HOME/.cargo/bin:$PATH" && \
+    rustup default stable && \
+    rustc --version && \
+    cargo --version
+
+# Install next88 (React2Shell scanner) from GitHub
+RUN go install github.com/h0tak88r/next88@latest && \
+    chmod +x /go/bin/next88
+
+WORKDIR /app
 
 # Install Go-based security tools directly
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
@@ -32,16 +46,49 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/h0tak88r/confused2/cmd/confused2@latest && \
     go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
-# Install TruffleHog using the official install script (more reliable than hardcoded version)
+# Install TruffleHog using the official install script
 RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin || \
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
 
-# --- Runtime stage: minimal Python image to run the Discord bot ---
-FROM python:3.11-slim AS runtime
+# Install jwt-hack (Rust-based JWT toolkit)
+# Use rustup-installed Rust (ensure PATH is set)
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN set -e && \
+    echo "Installing jwt-hack..." && \
+    rustc --version && \
+    cargo --version && \
+    cargo install jwt-hack --locked --root /usr/local --verbose 2>&1 | tee /tmp/jwt-hack-install.log && \
+    if [ ! -f /usr/local/bin/jwt-hack ] || [ ! -s /usr/local/bin/jwt-hack ]; then \
+        echo "[ERROR] jwt-hack binary not found or empty after installation" && \
+        cat /tmp/jwt-hack-install.log && \
+        exit 1; \
+    fi && \
+    chmod +x /usr/local/bin/jwt-hack && \
+    /usr/local/bin/jwt-hack --version && \
+    echo "jwt-hack installed successfully"
 
-ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    AUTOAR_SCRIPT_PATH=/app/main.sh \
+# Build AutoAR main CLI and modules
+WORKDIR /app
+
+# Copy go.mod and go.sum first
+COPY go.mod go.sum ./
+
+# Copy gomodules directory (needed for go mod download with replace directives)
+COPY gomodules/ ./gomodules/
+
+# Download dependencies
+RUN go mod download
+
+# Copy main.go
+COPY main.go ./
+
+# Build main autoar binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar .
+
+# --- Runtime stage: minimal Debian image ---
+FROM debian:bullseye-slim
+
+ENV AUTOAR_SCRIPT_PATH=/app/main.sh \
     AUTOAR_CONFIG_FILE=/app/autoar.yaml \
     AUTOAR_RESULTS_DIR=/app/new-results
 
@@ -49,29 +96,30 @@ WORKDIR /app
 
 # System deps for runtime and common tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates tini jq dnsutils python3-dev gcc \
-    postgresql-client libpq-dev awscli docker.io libpcap0.8 \
-    python3-pip \
+    git curl ca-certificates tini jq dnsutils libpcap0.8 \
+    postgresql-client awscli docker.io \
     && rm -rf /var/lib/apt/lists/*
-
-# Install jtbl (JSON to table converter) via pip
-# Note: jtbl is a Python package, so we install it and it will be available via 'python3 -m jtbl' or 'jtbl' if entry point is created
-RUN pip3 install --no-cache-dir jtbl && \
-    python3 -m jtbl --version >/dev/null 2>&1 || echo "Warning: jtbl installation may have issues, will use fallback"
 
 # Copy application code
 COPY . /app
 
-# Clone submodules directly (since .git is not available in Docker context)
+# Clone submodules directly
 RUN cd /app && \
     rm -rf nuclei_templates Wordlists && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
     git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
-    # jwt_tool is already integrated in /app/python/jwt_tool.py - no need to clone
-    # KeyHack templates are already in the database - no need to clone KeysKit
 
-# Copy Go tools from builder stage
+# Copy Go tools from builder stage (including next88)
 COPY --from=builder /go/bin/ /usr/local/bin/
+# Copy main autoar binary
+COPY --from=builder /app/autoar /usr/local/bin/autoar
+# Copy jwt-hack from builder stage (installed to /usr/local/bin)
+COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
+# Create react2shell symlink for backward compatibility
+# Also create main.sh symlink to autoar for backward compatibility
+RUN ln -sf /usr/local/bin/next88 /usr/local/bin/react2shell && \
+    ln -sf /usr/local/bin/autoar /app/main.sh && \
+    chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell /usr/local/bin/autoar /usr/local/bin/jwt-hack 2>/dev/null || true
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
@@ -81,39 +129,6 @@ RUN misconfig-mapper -update-templates || true
 
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
-
-# Python dependencies
-# Prefer existing requirements.txt; append discord.py and jwt_tool deps if missing
-RUN set -e; \
-    if ! grep -iq '^discord\.py' requirements.txt 2>/dev/null; then \
-      printf "\ndiscord.py>=2.4.0\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^pyyaml' requirements.txt 2>/dev/null; then \
-      printf "pyyaml>=6.0.1\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^termcolor' requirements.txt 2>/dev/null; then \
-      printf "termcolor\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^cprint' requirements.txt 2>/dev/null; then \
-      printf "cprint\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^pycryptodomex' requirements.txt 2>/dev/null; then \
-      printf "pycryptodomex\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^requests' requirements.txt 2>/dev/null; then \
-      printf "requests\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^ratelimit' requirements.txt 2>/dev/null; then \
-      printf "ratelimit\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^tqdm' requirements.txt 2>/dev/null; then \
-      printf "tqdm>=4.64.0\n" >> requirements.txt; \
-    fi; \
-    if ! grep -iq '^urllib3' requirements.txt 2>/dev/null; then \
-      printf "urllib3>=1.26.0\n" >> requirements.txt; \
-    fi; \
-    pip install --no-cache-dir -r requirements.txt \
-    && pip3 install --no-cache-dir git+https://github.com/codingo/Interlace.git
 
 # Permissions and executables
 RUN chmod +x /app/generate_config.sh || true \
@@ -134,8 +149,6 @@ RUN chmod +x /app/docker-entrypoint.sh
 # Use tini as init for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
 
-# Basic healthcheck: ensure process is running by checking python import
+# Basic healthcheck: ensure process is running
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD python -c "import sys,importlib; importlib.import_module('discord'); sys.exit(0)" || exit 1
-
-
+  CMD pgrep -f autoar || exit 1

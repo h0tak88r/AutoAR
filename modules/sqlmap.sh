@@ -55,7 +55,10 @@ sqlmap_run() {
     done < "$temp_urls"
   fi
 
-  [[ -s "$out_file" ]] && discord_send_file "$out_file" "SQLMap results for $domain"
+  if [[ -s "$out_file" ]]; then
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-sqlmap_$(date +%s)}"
+    discord_send_file "$out_file" "SQLMap results for $domain" "$scan_id"
+  fi
   rm -f "$temp_urls"
 }
 

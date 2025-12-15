@@ -384,9 +384,10 @@ s3_scan() {
   log_info "Results saved in: $s3_dir"
 
   # Send results to Discord
+  local scan_id="${AUTOAR_CURRENT_SCAN_ID:-s3_scan_$(date +%s)}"
   if [[ -s "$combined_results" ]]; then
       discord_send "✅ S3 scan completed for bucket: $bucket. Results attached."
-      discord_file "$combined_results" "S3 Scan Results for $bucket"
+      discord_send_file "$combined_results" "S3 Scan Results for $bucket" "$scan_id"
   else
       discord_send "ℹ️ S3 scan completed for bucket: $bucket. No findings."
   fi
@@ -453,7 +454,8 @@ s3_enum() {
     echo "Writable: $vulnerable_count"
   } >> "$out"
 
-  discord_send_file "$out" "S3 enum results for $root_domain (exist: $exists_count, writable: $vulnerable_count)"
+  local scan_id="${AUTOAR_CURRENT_SCAN_ID:-s3_enum_$(date +%s)}"
+  discord_send_file "$out" "S3 enum results for $root_domain (exist: $exists_count, writable: $vulnerable_count)" "$scan_id"
 }
 
 case "${1:-}" in

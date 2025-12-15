@@ -60,10 +60,9 @@ db_domains_list() {
     echo "" >> "$domains_file"
     echo "$result" >> "$domains_file"
     
-    # Send file via Discord webhook
-    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-      discord_send_file "$domains_file" "All domains from database"
-    fi
+    # Send final results via bot (webhook used for logging)
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-db_domains_$(date +%s)}"
+    discord_send_file "$domains_file" "All domains from database" "$scan_id"
     
     echo "Domains exported to: $domains_file"
   else
@@ -96,10 +95,9 @@ db_subdomains_list() {
     echo "" >> "$subdomains_file"
     echo "$result" >> "$subdomains_file"
     
-    # Send file via Discord webhook
-    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-      discord_send_file "$subdomains_file" "Subdomains for $domain from database"
-    fi
+    # Send final results via bot
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-db_subdomains_$(date +%s)}"
+    discord_send_file "$subdomains_file" "Subdomains for $domain from database" "$scan_id"
     
     echo "Subdomains exported to: $subdomains_file"
   else
@@ -152,10 +150,9 @@ db_all_subdomains_list() {
     echo "" >> "$all_subdomains_file"
     echo "$result" >> "$all_subdomains_file"
     
-    # Send file via Discord webhook
-    if [[ -n "${DISCORD_WEBHOOK:-}" ]]; then
-      discord_send_file "$all_subdomains_file" "All subdomains from database"
-    fi
+    # Send final results via bot
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-db_all_subdomains_$(date +%s)}"
+    discord_send_file "$all_subdomains_file" "All subdomains from database" "$scan_id"
     
     echo "All subdomains exported to: $all_subdomains_file"
   else

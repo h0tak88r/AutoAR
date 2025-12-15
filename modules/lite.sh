@@ -49,7 +49,8 @@ parse_timeout_value() {
 
 format_timeout_value() {
   local seconds="${1:-0}"
-  if [[ -z "$seconds" || "$seconds" -le 0 ]]; then
+  # Ensure seconds is numeric before comparison
+  if [[ -z "$seconds" || ! "$seconds" =~ ^[0-9]+$ || "$seconds" -le 0 ]]; then
     echo "no limit"
     return
   fi
@@ -83,6 +84,11 @@ run_phase() {
 
   [[ -n "$phase_key" ]] || return 1
 
+  # Ensure timeout_seconds is numeric, default to 0 if empty/invalid
+  if [[ -z "$timeout_seconds" || ! "$timeout_seconds" =~ ^[0-9]+$ ]]; then
+    timeout_seconds=0
+  fi
+
   local timeout_label=""
   if [[ "$timeout_seconds" -gt 0 ]]; then
     timeout_label=" (timeout: $(format_timeout_value "$timeout_seconds"))"
@@ -97,12 +103,12 @@ run_phase() {
   export AUTOAR_PHASE_START_TS="$(date +%s)"
 
   local phase_status=0
-  if [[ "$timeout_seconds" -gt 0 && command -v timeout >/dev/null 2>&1 ]]; then
+  if [[ "$timeout_seconds" -gt 0 ]] && command -v timeout >/dev/null 2>&1; then
     set +e
     timeout --preserve-status --signal TERM --kill-after=30 "$timeout_seconds" "$@"
     phase_status=$?
     set -e
-  elif [[ "$timeout_seconds" -gt 0 ]]; then
+  elif [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && [[ "$timeout_seconds" -gt 0 ]]; then
     log_warn "'timeout' command not available; running $phase_key without enforcement"
     set +e
     "$@"
@@ -218,7 +224,8 @@ lite_run() {
       for findings_file in "$js_results_dir"/*.txt; do
         if [[ -s "$findings_file" ]]; then
           base="$(basename "$findings_file" .txt)"
-          discord_file "$findings_file" "**JavaScript Scan Matches (\`$base\`) for \`$domain\`**"
+          local scan_id="${AUTOAR_CURRENT_SCAN_ID:-lite_scan_$(date +%s)}"
+          discord_send_file "$findings_file" "**JavaScript Scan Matches (\`$base\`) for \`$domain\`**" "$scan_id"
           any_js_file_sent=1
         fi
       done
