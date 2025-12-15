@@ -210,19 +210,13 @@ db_insert_domain() {
   fi
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
-    # Try to insert/update using domain column, also update name for backward compatibility
-    domain_id=$(db_query "INSERT INTO domains (domain, name) VALUES ('$escaped_domain', '$escaped_domain') 
-                          ON CONFLICT (domain) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW() 
-                          RETURNING id;" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
-    # If domain column conflict didn't work, try name column
-    if [[ -z "$domain_id" ]]; then
-      domain_id=$(db_query "INSERT INTO domains (domain, name) VALUES ('$escaped_domain', '$escaped_domain') 
-                            ON CONFLICT (name) DO UPDATE SET domain = COALESCE(domain, EXCLUDED.domain), updated_at = NOW() 
-                            RETURNING id;" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
-    fi
+    # Try to insert/update using domain column only (name column may not exist)
+    domain_id=$(db_query "INSERT INTO domains (domain) VALUES ('$escaped_domain') 
+                          ON CONFLICT (domain) DO UPDATE SET updated_at = NOW() 
+                          RETURNING id;" 2>&1 | grep -E '^[0-9]+$' | head -1 | tr -d '[:space:]')
     # If still no ID, try to get existing
     if [[ -z "$domain_id" ]]; then
-      domain_id=$(db_query "SELECT id FROM domains WHERE domain = '$escaped_domain' OR name = '$escaped_domain' LIMIT 1;" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
+      domain_id=$(db_query "SELECT id FROM domains WHERE domain = '$escaped_domain' LIMIT 1;" 2>&1 | grep -E '^[0-9]+$' | head -1 | tr -d '[:space:]')
     fi
   else
     domain_id=$(db_query "INSERT OR IGNORE INTO domains (domain) VALUES ('$escaped_domain'); SELECT id FROM domains WHERE domain = '$escaped_domain';" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
