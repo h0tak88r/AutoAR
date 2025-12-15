@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# lib/logging.sh removed - functionality in gomodules/
-# lib/utils.sh removed - functionality in gomodules/
-# lib/discord.sh removed - functionality in gomodules/
+# lib/logging.sh functionality in gomodules/ - functionality in gomodules/
+# lib/utils.sh functionality in gomodules/ - functionality in gomodules/
+# lib/discord.sh functionality in gomodules/ - functionality in gomodules/
 
 usage() { echo "Usage: s3 scan -b <bucket> [-r <region>] [--no-sign] | s3 enum -b <root-domain>"; exit 0; }
 

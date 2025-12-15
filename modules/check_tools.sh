@@ -8,7 +8,7 @@ PATH="$PATH:$HOME/go/bin:/usr/local/bin:/usr/bin"
 # Optional logging helpers
 if [[ -f "$ROOT_DIR/lib/logging.sh" ]]; then
   # shellcheck disable=SC1090
-  # lib/logging.sh removed - functionality in gomodules/
+  # lib/logging.sh functionality in gomodules/ - functionality in gomodules/
 else
   log_info(){ echo "[INFO] $*"; }
   log_success(){ echo "[OK] $*"; }
