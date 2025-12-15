@@ -88,7 +88,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar .
 # --- Runtime stage: minimal Debian image ---
 FROM debian:bullseye-slim
 
-ENV AUTOAR_SCRIPT_PATH=/app/main.sh \
+ENV AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar \
     AUTOAR_CONFIG_FILE=/app/autoar.yaml \
     AUTOAR_RESULTS_DIR=/app/new-results
 

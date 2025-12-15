@@ -53,12 +53,8 @@ func init() {
 		modulesDir = "./modules"
 	}
 	
-	autoarScript = filepath.Join(rootDir, "main.sh")
-	
-	// Fallback: if main.sh doesn't exist, use this binary
-	if _, err := os.Stat(autoarScript); os.IsNotExist(err) {
-		autoarScript = os.Args[0]
-	}
+	// Use the autoar binary directly
+	autoarScript = os.Args[0]
 }
 
 func printUsage() {
