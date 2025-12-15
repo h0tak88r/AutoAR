@@ -131,6 +131,12 @@ func Ready(s *discordgo.Session, event *discordgo.Ready) {
 
 // InteractionCreate handles Discord slash command interactions
 func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Handle modal submissions
+	if i.Type == discordgo.InteractionModalSubmit {
+		handleModalSubmit(s, i)
+		return
+	}
+	
 	cmdName := i.ApplicationCommandData().Name
 	
 	// Route to appropriate handler (handlers are in commands*.go files)
@@ -243,6 +249,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleScanStatus(s, i)
 	case "scan_from_file":
 		handleScanFromFile(s, i)
+	case "Scan File":
+		handleScanFromFileContext(s, i)
 	default:
 		log.Printf("Unknown command: %s", cmdName)
 		respond(s, i, fmt.Sprintf("❌ Unknown command: %s", cmdName), false)
