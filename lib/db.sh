@@ -212,7 +212,7 @@ db_insert_domain() {
   if [[ "$DB_TYPE" == "postgresql" ]]; then
     # Try to insert/update using domain column only
     local query_result
-    query_result=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "INSERT INTO domains (domain) VALUES ('$escaped_domain') ON CONFLICT (domain) DO UPDATE SET updated_at = NOW() RETURNING id;" 2>&1)
+    query_result=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "INSERT INTO domains (domain) VALUES ('$escaped_domain') ON CONFLICT (domain) DO NOTHING RETURNING id;" 2>&1)
     
     # Extract numeric ID from result (filter out error messages)
     domain_id=$(echo "$query_result" | grep -E '^[0-9]+$' | head -1 | tr -d '[:space:]')
