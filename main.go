@@ -244,7 +244,6 @@ func handleWPConfusion(args []string) error {
 func handleSubdomainsGo(args []string) error {
 	var domain string
 	threads := 100
-	silent := false
 	
 	// Parse arguments: get -d <domain> [-t <threads>] [-s|--silent]
 	for i := 0; i < len(args); i++ {
@@ -262,7 +261,7 @@ func handleSubdomainsGo(args []string) error {
 				i++
 			}
 		case "-s", "--silent":
-			silent = true
+			// Silent mode - just ignore for now
 		}
 	}
 	
@@ -297,9 +296,7 @@ func handleSubdomainsGo(args []string) error {
 		fmt.Fprintln(file, subdomain)
 	}
 	
-	if !silent {
-		fmt.Printf("[OK] Found %d unique subdomains for %s\n", len(results), domain)
-	}
+	fmt.Printf("[OK] Found %d unique subdomains for %s\n", len(results), domain)
 	
 	// Save to database if configured
 	if os.Getenv("DB_HOST") != "" {
