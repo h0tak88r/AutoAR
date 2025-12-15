@@ -231,10 +231,15 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", i.ChannelID),
 		)
-		err := cmd.Run()
+		output, err := cmd.CombinedOutput()
 
 		if err != nil {
-			log.Printf("[ERROR] Scan failed for %s: %v", target, err)
+			outputStr := string(output)
+			// Truncate very long error messages for logging
+			if len(outputStr) > 500 {
+				outputStr = outputStr[:500] + "... (truncated)"
+			}
+			log.Printf("[ERROR] Scan failed for %s: %v\nOutput: %s", target, err, outputStr)
 			failCount++
 		} else {
 			successCount++
@@ -537,10 +542,15 @@ func processFileScan(s *discordgo.Session, i *discordgo.InteractionCreate, messa
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", i.ChannelID),
 		)
-		err := cmd.Run()
+		output, err := cmd.CombinedOutput()
 
 		if err != nil {
-			log.Printf("[ERROR] Scan failed for %s: %v", target, err)
+			outputStr := string(output)
+			// Truncate very long error messages for logging
+			if len(outputStr) > 500 {
+				outputStr = outputStr[:500] + "... (truncated)"
+			}
+			log.Printf("[ERROR] Scan failed for %s: %v\nOutput: %s", target, err, outputStr)
 			failCount++
 		} else {
 			successCount++
