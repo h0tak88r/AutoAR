@@ -39,14 +39,28 @@ subdomains_get() {
 
   log_info "Collecting subdomains for $domain"
 
-  # API sources (lightweight)
+  # Try Go subdomains module first (uses subfinder library)
+  if command -v autoar >/dev/null 2>&1; then
+    log_info "Using Go subdomains module (subfinder library)"
+    if autoar subdomains get -d "$domain" -t "$threads" ${silent:+-s} 2>&1; then
+      # Go module handles everything including database saving
+      if [[ -f "$subs_dir/all-subs.txt" ]]; then
+        local total; total=$(wc -l < "$subs_dir/all-subs.txt" 2>/dev/null || echo 0)
+        log_success "Found $total unique subdomains"
+        return 0
+      fi
+    fi
+    log_warn "Go subdomains module failed, falling back to bash implementation"
+  fi
+
+  # Fallback: API sources (lightweight)
   tmp_file="$subs_dir/tmp_subs.txt"
   : > "$tmp_file"
   curl -s "https://api.hackertarget.com/hostsearch/?q=$domain" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" || true
   curl -s "https://crt.sh/?q=%.$domain&output=json" | grep -o -E "[a-zA-Z0-9._-]+\.$domain" >> "$tmp_file" || true
 
   if command -v subfinder >/dev/null 2>&1; then
-    log_info "Running subfinder with $threads threads"
+    log_info "Running subfinder binary with $threads threads"
     subfinder -d "$domain" -silent -o "$subs_dir/subfinder-subs.txt" -pc "${AUTOAR_CONFIG_FILE}" -t "$threads" >/dev/null 2>&1 || true
   else
     : > "$subs_dir/subfinder-subs.txt"
@@ -61,11 +75,11 @@ subdomains_get() {
   # Save subdomains to database (batch insert for performance)
   if [[ $total -gt 0 ]]; then
     log_info "Saving subdomains to database"
-    if command -v db-cli >/dev/null 2>&1; then
-      # Use Go database module
-      if db-cli check-connection >/dev/null 2>&1; then
-        db-cli init-schema >/dev/null 2>&1 || true
-        if ! db-cli batch-insert-subdomains "$domain" "$subs_dir/all-subs.txt" false; then
+    if command -v autoar >/dev/null 2>&1; then
+      # Use Go database module via autoar
+      if autoar db check-connection >/dev/null 2>&1; then
+        autoar db init-schema >/dev/null 2>&1 || true
+        if ! autoar db batch-insert-subdomains "$domain" "$subs_dir/all-subs.txt" false; then
           log_warn "Failed to save subdomains to database"
         fi
       else
@@ -77,15 +91,6 @@ subdomains_get() {
       if db_ensure_connection; then
         db_init_schema 2>/dev/null || true
         db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false || log_warn "Failed to save subdomains to database"
-      else
-        log_warn "Database connection failed, skipping database save"
-      fi
-    elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
-      # Fallback to bash db functions
-      # lib/db.sh functionality in gomodules/ - functionality in gomodules/
-      if db_ensure_connection; then
-        db_init_schema 2>/dev/null || true
-        db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false
       else
         log_warn "Database connection failed, skipping database save"
       fi
