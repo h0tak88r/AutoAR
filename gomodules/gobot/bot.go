@@ -241,6 +241,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleHelp(s, i)
 	case "scan_status":
 		handleScanStatus(s, i)
+	case "scan_from_file":
+		handleScanFromFile(s, i)
 	default:
 		log.Printf("Unknown command: %s", cmdName)
 		respond(s, i, fmt.Sprintf("❌ Unknown command: %s", cmdName), false)
