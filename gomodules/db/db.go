@@ -85,19 +85,12 @@ func InitSchema() error {
 		created_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Ensure UNIQUE constraint exists on domain column
+	-- Create unique index if it doesn't exist (more reliable than constraint check)
+	CREATE UNIQUE INDEX IF NOT EXISTS domains_domain_key ON domains (domain);
+	
+	-- Ensure updated_at column exists (for backward compatibility)
 	DO $$ 
 	BEGIN
-		-- Add unique constraint if it doesn't exist
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint 
-			WHERE conname = 'domains_domain_key' 
-			AND conrelid = 'domains'::regclass
-		) THEN
-			ALTER TABLE domains ADD CONSTRAINT domains_domain_key UNIQUE (domain);
-		END IF;
-		
-		-- Add updated_at column if it doesn't exist (for backward compatibility)
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='domains' AND column_name='updated_at') THEN
 			ALTER TABLE domains ADD COLUMN updated_at TIMESTAMP DEFAULT NOW();
 		END IF;
@@ -117,17 +110,8 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Ensure UNIQUE constraint exists on subdomain column
-	DO $$ 
-	BEGIN
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint 
-			WHERE conname = 'subdomains_subdomain_key' 
-			AND conrelid = 'subdomains'::regclass
-		) THEN
-			ALTER TABLE subdomains ADD CONSTRAINT subdomains_subdomain_key UNIQUE (subdomain);
-		END IF;
-	END $$;
+	-- Create unique index if it doesn't exist
+	CREATE UNIQUE INDEX IF NOT EXISTS subdomains_subdomain_key ON subdomains (subdomain);
 	
 	-- Create js_files table with proper constraints
 	CREATE TABLE IF NOT EXISTS js_files (
@@ -140,17 +124,8 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Ensure UNIQUE constraint exists on js_url column
-	DO $$ 
-	BEGIN
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint 
-			WHERE conname = 'js_files_js_url_key' 
-			AND conrelid = 'js_files'::regclass
-		) THEN
-			ALTER TABLE js_files ADD CONSTRAINT js_files_js_url_key UNIQUE (js_url);
-		END IF;
-	END $$;
+	-- Create unique index if it doesn't exist
+	CREATE UNIQUE INDEX IF NOT EXISTS js_files_js_url_key ON js_files (js_url);
 	
 	-- Create keyhack_templates table with proper constraints
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
@@ -167,17 +142,8 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Ensure UNIQUE constraint exists on keyname column
-	DO $$ 
-	BEGIN
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint 
-			WHERE conname = 'keyhack_templates_keyname_key' 
-			AND conrelid = 'keyhack_templates'::regclass
-		) THEN
-			ALTER TABLE keyhack_templates ADD CONSTRAINT keyhack_templates_keyname_key UNIQUE (keyname);
-		END IF;
-	END $$;
+	-- Create unique index if it doesn't exist
+	CREATE UNIQUE INDEX IF NOT EXISTS keyhack_templates_keyname_key ON keyhack_templates (keyname);
 	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
