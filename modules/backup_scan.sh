@@ -6,9 +6,11 @@ set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/.env" 2>/dev/null || true
-# lib/logging.sh functionality in gomodules/ - functionality in gomodules/
-# lib/utils.sh functionality in gomodules/ - functionality in gomodules/
-# lib/discord.sh functionality in gomodules/ - functionality in gomodules/
+
+# Load compatibility functions
+if [[ -f "$ROOT_DIR/gomodules/compat.sh" ]]; then
+  source "$ROOT_DIR/gomodules/compat.sh"
+fi
 
 usage() { 
   echo "Usage: backup scan -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>] [--full]"
