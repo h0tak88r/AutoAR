@@ -93,3 +93,82 @@ run_with_phase_timeout() {
   fi
   "$@"
 }
+
+# ensure_subdomains - Ensure subdomains file exists (from DB or enumeration)
+ensure_subdomains() {
+  local domain="$1"
+  local subs_file="$2"
+  local silent="${3:-false}"
+  local force_refresh="${4:-false}"
+  
+  # If force_refresh is true, remove existing file
+  if [[ "$force_refresh" == "true" && -f "$subs_file" ]]; then
+    log_info "Force refresh requested, removing existing subdomains file"
+    rm -f "$subs_file"
+  fi
+  
+  # Check if file exists and is not empty
+  if [[ -s "$subs_file" ]]; then
+    local count=$(wc -l < "$subs_file" 2>/dev/null || echo 0)
+    log_info "Using existing subdomains from $subs_file ($count subdomains)"
+    if [[ $count -lt 5 ]]; then
+      log_warn "Very few subdomains found ($count), might be stale. Re-enumerating..."
+      rm -f "$subs_file"
+    else
+      return 0
+    fi
+  fi
+  
+  # Try to pull from database (if database is available)
+  if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
+    log_info "Attempting to pull subdomains from database"
+    # Database lookup would go here if we add that function
+  fi
+  
+  # Run subdomain enumeration
+  log_info "No subdomains in DB, running enumeration"
+  if command -v autoar >/dev/null 2>&1; then
+    # Try Go subdomains module first
+    local dir=$(dirname "$subs_file")
+    mkdir -p "$dir"
+    if autoar subdomains get -d "$domain" -t 100 ${silent:+-s} 2>&1; then
+      # Check if file was created
+      if [[ -f "$subs_file" ]]; then
+        return 0
+      fi
+    fi
+  fi
+  
+  # Fallback to bash module
+  local root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [[ "$silent" == "true" ]]; then
+    "$root_dir/modules/subdomains.sh" get -d "$domain" --silent || return 1
+  else
+    "$root_dir/modules/subdomains.sh" get -d "$domain" || return 1
+  fi
+}
+
+# ensure_live_hosts - Ensure live hosts file exists
+ensure_live_hosts() {
+  local domain="$1"
+  local live_file="$2"
+  
+  if [[ -s "$live_file" ]]; then
+    return 0
+  fi
+  
+  # Try DB first (if database is available)
+  if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
+    local count
+    # Database lookup would go here if we add that function
+  fi
+  
+  # Ensure subdomains exist first
+  local dir=$(dirname "$(dirname "$live_file")")
+  local subs_file="$dir/subs/all-subs.txt"
+  ensure_subdomains "$domain" "$subs_file" || return 1
+  
+  # Run live host check
+  local root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  "$root_dir/modules/livehosts.sh" get -d "$domain" || return 1
+}
