@@ -17,33 +17,66 @@ import (
 
 // EnumerateSubdomains enumerates subdomains for a given domain using subfinder and API sources
 func EnumerateSubdomains(domain string, threads int) ([]string, error) {
-	var allResults []string
+	var results []string
 	var mu sync.Mutex
 	unique := make(map[string]bool)
 	
 	// Helper to add unique subdomain
-	addUnique := func(subdomain string) {
+	addSubdomain := func(subdomain string) {
 		subdomain = strings.TrimSpace(subdomain)
 		if subdomain != "" && !strings.Contains(subdomain, "*") {
 			mu.Lock()
 			if !unique[subdomain] {
 				unique[subdomain] = true
-				allResults = append(allResults, subdomain)
+				results = append(results, subdomain)
 			}
 			mu.Unlock()
 		}
 	}
 	
-	// Collect from API sources first (lightweight, fast)
-	var wg sync.WaitGroup
+	// 1. Get subdomains from API sources (lightweight, fast)
+	log.Printf("[INFO] Collecting subdomains from API sources for %s", domain)
+	apiResults := getSubdomainsFromAPIs(domain)
+	for _, subdomain := range apiResults {
+		addSubdomain(subdomain)
+	}
+	log.Printf("[INFO] Found %d subdomains from API sources", len(apiResults))
 	
-	// HackerTarget API
+	// 2. Get subdomains from subfinder library
+	log.Printf("[INFO] Collecting subdomains using subfinder library for %s", domain)
+	subfinderResults, err := getSubdomainsFromSubfinder(domain, threads)
+	if err != nil {
+		log.Printf("[WARN] Subfinder enumeration failed: %v", err)
+	} else {
+		for _, subdomain := range subfinderResults {
+			addSubdomain(subdomain)
+		}
+		log.Printf("[INFO] Found %d additional subdomains from subfinder", len(subfinderResults))
+	}
+
+	log.Printf("[OK] Found %d unique subdomains for %s", len(results), domain)
+	return results, nil
+}
+
+// getSubdomainsFromAPIs collects subdomains from hackertarget and crt.sh APIs
+func getSubdomainsFromAPIs(domain string) []string {
+	var results []string
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	
+	// Hackertarget API
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		apiResults := getSubdomainsFromHackerTarget(domain)
-		for _, subdomain := range apiResults {
-			addUnique(subdomain)
+		resp, err := http.Get(fmt.Sprintf("https://api.hackertarget.com/hostsearch/?q=%s", domain))
+		if err == nil {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			re := regexp.MustCompile(fmt.Sprintf(`[a-zA-Z0-9._-]+\.%s`, regexp.QuoteMeta(domain)))
+			matches := re.FindAllString(string(body), -1)
+			mu.Lock()
+			results = append(results, matches...)
+			mu.Unlock()
 		}
 	}()
 	
@@ -51,16 +84,41 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		apiResults := getSubdomainsFromCrtSh(domain)
-		for _, subdomain := range apiResults {
-			addUnique(subdomain)
+		resp, err := http.Get(fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain))
+		if err == nil {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			
+			// Parse JSON response
+			var crtData []map[string]interface{}
+			if json.Unmarshal(body, &crtData) == nil {
+				re := regexp.MustCompile(fmt.Sprintf(`[a-zA-Z0-9._-]+\.%s`, regexp.QuoteMeta(domain)))
+				for _, entry := range crtData {
+					if nameValue, ok := entry["name_value"].(string); ok {
+						matches := re.FindAllString(nameValue, -1)
+						mu.Lock()
+						results = append(results, matches...)
+						mu.Unlock()
+					}
+				}
+			} else {
+				// Fallback to regex if JSON parsing fails
+				re := regexp.MustCompile(fmt.Sprintf(`[a-zA-Z0-9._-]+\.%s`, regexp.QuoteMeta(domain)))
+				matches := re.FindAllString(string(body), -1)
+				mu.Lock()
+				results = append(results, matches...)
+				mu.Unlock()
+			}
 		}
 	}()
 	
-	// Wait for API calls to complete
 	wg.Wait()
-	
-	// Use subfinder library for comprehensive enumeration
+	return results
+}
+
+// getSubdomainsFromSubfinder collects subdomains using subfinder library
+func getSubdomainsFromSubfinder(domain string, threads int) ([]string, error) {
+	// Create runner options
 	opts := &runner.Options{
 		Threads:            threads,
 		Timeout:            30,
@@ -78,109 +136,32 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	// Create runner instance
 	subfinderRunner, err := runner.NewRunner(opts)
 	if err != nil {
-		log.Printf("[WARN] Failed to create subfinder runner: %v, using API results only", err)
-		return allResults, nil
+		return nil, fmt.Errorf("failed to create subfinder runner: %v", err)
 	}
 
 	// Run enumeration and capture output
 	var buf bytes.Buffer
 	err = subfinderRunner.EnumerateSingleDomain(domain, []io.Writer{&buf})
 	if err != nil {
-		log.Printf("[WARN] Subfinder enumeration failed: %v, using API results only", err)
-		return allResults, nil
+		return nil, fmt.Errorf("failed to enumerate subdomains: %v", err)
 	}
 	
 	// Parse results from buffer
 	bufData := buf.String()
 	lines := strings.Split(strings.TrimSpace(bufData), "\n")
 	
-	for _, line := range lines {
-		addUnique(line)
-	}
-
-	log.Printf("[OK] Found %d unique subdomains for %s", len(allResults), domain)
-	return allResults, nil
-}
-
-// getSubdomainsFromHackerTarget fetches subdomains from HackerTarget API
-func getSubdomainsFromHackerTarget(domain string) []string {
-	url := fmt.Sprintf("https://api.hackertarget.com/hostsearch/?q=%s", domain)
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil
-	}
-	
-	// Extract subdomains using regex
-	re := regexp.MustCompile(`[a-zA-Z0-9._-]+\.` + regexp.QuoteMeta(domain))
-	matches := re.FindAllString(string(body), -1)
-	
-	var results []string
-	for _, match := range matches {
-		results = append(results, strings.TrimSpace(match))
-	}
-	
-	return results
-}
-
-// getSubdomainsFromCrtSh fetches subdomains from crt.sh API
-func getSubdomainsFromCrtSh(domain string) []string {
-	url := fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain)
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil
-	}
-	
-	var crtEntries []struct {
-		NameValue string `json:"name_value"`
-	}
-	
-	if err := json.Unmarshal(body, &crtEntries); err != nil {
-		// If JSON parsing fails, try regex extraction
-		re := regexp.MustCompile(`[a-zA-Z0-9._-]+\.` + regexp.QuoteMeta(domain))
-		matches := re.FindAllString(string(body), -1)
-		var results []string
-		for _, match := range matches {
-			results = append(results, strings.TrimSpace(match))
-		}
-		return results
-	}
-	
 	var results []string
 	unique := make(map[string]bool)
 	
-	for _, entry := range crtEntries {
-		// Entry can contain multiple domains separated by newlines
-		names := strings.Split(entry.NameValue, "\n")
-		for _, name := range names {
-			name = strings.TrimSpace(name)
-			if name != "" && strings.HasSuffix(name, "."+domain) && !unique[name] {
-				unique[name] = true
-				results = append(results, name)
-			}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.Contains(line, "*") && !unique[line] {
+			unique[line] = true
+			results = append(results, line)
 		}
 	}
-	
-	return results
+
+	return results, nil
 }
 
 // getProviderConfig returns provider configuration from environment variables

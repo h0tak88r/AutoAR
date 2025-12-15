@@ -94,14 +94,17 @@ run_with_phase_timeout() {
   "$@"
 }
 
-# ensure_subdomains - Ensure subdomains file exists (from DB or enumeration)
+# Prerequisite helper functions
 ensure_subdomains() {
   local domain="$1"
-  local subs_file="$2"
-  local silent="${3:-false}"
-  local force_refresh="${4:-false}"
+  local subs_file="$2"  # e.g., /app/new-results/example.com/subs/all-subs.txt
+  local silent="${3:-false}"  # Optional silent flag
+  local force_refresh="${4:-false}"  # Optional force refresh flag
   
-  # If force_refresh is true, remove existing file
+  # Get ROOT_DIR if not set
+  local ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || echo .)}"
+  
+  # If force_refresh is true, remove existing file to force re-enumeration
   if [[ "$force_refresh" == "true" && -f "$subs_file" ]]; then
     log_info "Force refresh requested, removing existing subdomains file"
     rm -f "$subs_file"
@@ -111,6 +114,7 @@ ensure_subdomains() {
   if [[ -s "$subs_file" ]]; then
     local count=$(wc -l < "$subs_file" 2>/dev/null || echo 0)
     log_info "Using existing subdomains from $subs_file ($count subdomains)"
+    # If file has very few subdomains (< 5), it might be stale - re-enumerate
     if [[ $count -lt 5 ]]; then
       log_warn "Very few subdomains found ($count), might be stale. Re-enumerating..."
       rm -f "$subs_file"
@@ -122,51 +126,45 @@ ensure_subdomains() {
   # Try to pull from database (if database is available)
   if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
     log_info "Attempting to pull subdomains from database"
-    # Database lookup would go here if we add that function
+    local count
+    if command -v autoar >/dev/null 2>&1; then
+      # Use autoar db commands to get subdomains (if implemented)
+      # For now, skip DB lookup as it requires db query implementation
+      count=0
+    fi
+    
+    if [[ $count -gt 0 ]]; then
+      log_success "Loaded $count subdomains from database"
+      return 0
+    fi
+  else
+    log_info "Database not configured, skipping database lookup"
   fi
   
   # Run subdomain enumeration
   log_info "No subdomains in DB, running enumeration"
-  
-  # Ensure directory exists
-  local dir=$(dirname "$subs_file")
-  mkdir -p "$dir"
-  
-  if command -v autoar >/dev/null 2>&1; then
-    # Try Go subdomains module first
-    if autoar subdomains get -d "$domain" -t 100 ${silent:+-s} 2>&1; then
-      # Check if file was created
-      if [[ -f "$subs_file" ]]; then
-        return 0
-      fi
-    fi
-  fi
-  
-  # Fallback to bash module
-  # Try to find ROOT_DIR from calling script's context
-  local root_dir="${ROOT_DIR:-}"
-  if [[ -z "$root_dir" ]]; then
-    # Try common locations
-    if [[ -d "/app/modules" ]]; then
-      root_dir="/app"
-    elif [[ -d "$(pwd)/modules" ]]; then
-      root_dir="$(pwd)"
-    else
-      root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    fi
-  fi
+  local subs_dir="$(dirname "$subs_file")"
+  mkdir -p "$subs_dir"
   
   if [[ "$silent" == "true" ]]; then
-    "$root_dir/modules/subdomains.sh" get -d "$domain" --silent || return 1
+    if command -v autoar >/dev/null 2>&1; then
+      autoar subdomains get -d "$domain" -s 2>&1 || return 1
+    else
+      "${ROOT_DIR}/modules/subdomains.sh" get -d "$domain" --silent || return 1
+    fi
   else
-    "$root_dir/modules/subdomains.sh" get -d "$domain" || return 1
+    if command -v autoar >/dev/null 2>&1; then
+      autoar subdomains get -d "$domain" 2>&1 || return 1
+    else
+      "${ROOT_DIR}/modules/subdomains.sh" get -d "$domain" || return 1
+    fi
   fi
 }
 
-# ensure_live_hosts - Ensure live hosts file exists
 ensure_live_hosts() {
   local domain="$1"
   local live_file="$2"
+  local ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || echo .)}"
   
   if [[ -s "$live_file" ]]; then
     return 0
@@ -174,26 +172,46 @@ ensure_live_hosts() {
   
   # Try DB first (if database is available)
   if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
-    local count
-    # Database lookup would go here if we add that function
+    local count=0
+    # DB lookup would go here if implemented
+    if [[ $count -gt 0 ]]; then
+      log_success "Loaded $count live hosts from database"
+      return 0
+    fi
+  else
+    log_info "Database not configured, skipping database lookup"
   fi
   
-  # Ensure subdomains exist first
-  local dir=$(dirname "$(dirname "$live_file")")
-  local subs_file="$dir/subs/all-subs.txt"
+  # Ensure subdomains exist
+  local subs_file="$(dirname "$live_file")/all-subs.txt"
   ensure_subdomains "$domain" "$subs_file" || return 1
   
   # Run live host check
-  local root_dir="${ROOT_DIR:-}"
-  if [[ -z "$root_dir" ]]; then
-    if [[ -d "/app/modules" ]]; then
-      root_dir="/app"
-    elif [[ -d "$(pwd)/modules" ]]; then
-      root_dir="$(pwd)"
-    else
-      root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    fi
+  if command -v autoar >/dev/null 2>&1; then
+    autoar livehosts get -d "$domain" || return 1
+  else
+    "${ROOT_DIR}/modules/livehosts.sh" get -d "$domain" || return 1
+  fi
+}
+
+ensure_urls() {
+  local domain="$1"
+  local urls_file="$2"
+  local ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || echo .)}"
+  
+  if [[ -s "$urls_file" ]]; then
+    return 0
   fi
   
-  "$root_dir/modules/livehosts.sh" get -d "$domain" || return 1
+  # Ensure live hosts exist first
+  local dir="$(dirname "$(dirname "$urls_file")")"
+  local live_file="$dir/subs/live-subs.txt"
+  ensure_live_hosts "$domain" "$live_file" || return 1
+  
+  # Run URL collection
+  if command -v autoar >/dev/null 2>&1; then
+    autoar urls collect -d "$domain" || return 1
+  else
+    "${ROOT_DIR}/modules/urls.sh" collect -d "$domain" || return 1
+  fi
 }
