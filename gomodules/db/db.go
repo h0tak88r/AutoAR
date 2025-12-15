@@ -85,8 +85,27 @@ func InitSchema() error {
 		created_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Create unique index if it doesn't exist (more reliable than constraint check)
-	CREATE UNIQUE INDEX IF NOT EXISTS domains_domain_key ON domains (domain);
+	-- Create unique index if it doesn't exist, handling duplicates
+	DO $$ 
+	BEGIN
+		-- Check if index already exists
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_indexes 
+			WHERE schemaname = 'public' 
+			AND indexname = 'domains_domain_key'
+		) THEN
+			-- Remove duplicates before creating unique index (keep the one with highest id)
+			DELETE FROM domains d1
+			WHERE EXISTS (
+				SELECT 1 FROM domains d2 
+				WHERE d2.domain = d1.domain 
+				AND d2.id > d1.id
+			);
+			
+			-- Now create the unique index
+			CREATE UNIQUE INDEX domains_domain_key ON domains (domain);
+		END IF;
+	END $$;
 	
 	-- Ensure updated_at column exists (for backward compatibility)
 	DO $$ 
@@ -110,8 +129,27 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Create unique index if it doesn't exist
-	CREATE UNIQUE INDEX IF NOT EXISTS subdomains_subdomain_key ON subdomains (subdomain);
+	-- Create unique index if it doesn't exist, handling duplicates
+	DO $$ 
+	BEGIN
+		-- Check if index already exists
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_indexes 
+			WHERE schemaname = 'public' 
+			AND indexname = 'subdomains_subdomain_key'
+		) THEN
+			-- Remove duplicates before creating unique index (keep the one with highest id)
+			DELETE FROM subdomains s1
+			WHERE EXISTS (
+				SELECT 1 FROM subdomains s2 
+				WHERE s2.subdomain = s1.subdomain 
+				AND s2.id > s1.id
+			);
+			
+			-- Now create the unique index
+			CREATE UNIQUE INDEX subdomains_subdomain_key ON subdomains (subdomain);
+		END IF;
+	END $$;
 	
 	-- Create js_files table with proper constraints
 	CREATE TABLE IF NOT EXISTS js_files (
@@ -124,8 +162,27 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Create unique index if it doesn't exist
-	CREATE UNIQUE INDEX IF NOT EXISTS js_files_js_url_key ON js_files (js_url);
+	-- Create unique index if it doesn't exist, handling duplicates
+	DO $$ 
+	BEGIN
+		-- Check if index already exists
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_indexes 
+			WHERE schemaname = 'public' 
+			AND indexname = 'js_files_js_url_key'
+		) THEN
+			-- Remove duplicates before creating unique index (keep the one with highest id)
+			DELETE FROM js_files j1
+			WHERE EXISTS (
+				SELECT 1 FROM js_files j2 
+				WHERE j2.js_url = j1.js_url 
+				AND j2.id > j1.id
+			);
+			
+			-- Now create the unique index
+			CREATE UNIQUE INDEX js_files_js_url_key ON js_files (js_url);
+		END IF;
+	END $$;
 	
 	-- Create keyhack_templates table with proper constraints
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
@@ -142,8 +199,27 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Create unique index if it doesn't exist
-	CREATE UNIQUE INDEX IF NOT EXISTS keyhack_templates_keyname_key ON keyhack_templates (keyname);
+	-- Create unique index if it doesn't exist, handling duplicates
+	DO $$ 
+	BEGIN
+		-- Check if index already exists
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_indexes 
+			WHERE schemaname = 'public' 
+			AND indexname = 'keyhack_templates_keyname_key'
+		) THEN
+			-- Remove duplicates before creating unique index (keep the one with highest id)
+			DELETE FROM keyhack_templates k1
+			WHERE EXISTS (
+				SELECT 1 FROM keyhack_templates k2 
+				WHERE k2.keyname = k1.keyname 
+				AND k2.id > k1.id
+			);
+			
+			-- Now create the unique index
+			CREATE UNIQUE INDEX keyhack_templates_keyname_key ON keyhack_templates (keyname);
+		END IF;
+	END $$;
 	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
