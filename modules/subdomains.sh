@@ -61,13 +61,36 @@ subdomains_get() {
   # Save subdomains to database (batch insert for performance)
   if [[ $total -gt 0 ]]; then
     log_info "Saving subdomains to database"
-    if db_ensure_connection; then
-      # Initialize schema if needed
-      db_init_schema 2>/dev/null || true
-      # Batch insert subdomains
-      db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false
+    if command -v db-cli >/dev/null 2>&1; then
+      # Use Go database module
+      if db-cli check-connection >/dev/null 2>&1; then
+        db-cli init-schema >/dev/null 2>&1 || true
+        if ! db-cli batch-insert-subdomains "$domain" "$subs_dir/all-subs.txt" false; then
+          log_warn "Failed to save subdomains to database"
+        fi
+      else
+        log_warn "Database connection failed, skipping database save"
+      fi
+    elif [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
+      # Use Go wrapper script
+      source "$ROOT_DIR/gomodules/db/wrapper.sh"
+      if db_ensure_connection; then
+        db_init_schema 2>/dev/null || true
+        db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false || log_warn "Failed to save subdomains to database"
+      else
+        log_warn "Database connection failed, skipping database save"
+      fi
+    elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
+      # Fallback to bash db functions
+      source "$ROOT_DIR/lib/db.sh"
+      if db_ensure_connection; then
+        db_init_schema 2>/dev/null || true
+        db_batch_insert_subdomains "$domain" "$subs_dir/all-subs.txt" false
+      else
+        log_warn "Database connection failed, skipping database save"
+      fi
     else
-      log_warn "Database connection failed, skipping database save"
+      log_warn "Database tools not available, skipping database save"
     fi
   fi
   
