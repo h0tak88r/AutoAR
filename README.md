@@ -1,6 +1,6 @@
 # AutoAR (Automated Attack Reconnaissance) 🚀
  
-AutoAR is a comprehensive, modular security automation toolkit designed for bug bounty hunters, penetration testers, and security researchers. It provides **three operational modes**: Discord bot, REST API, or both simultaneously, powered by a unified Go-based CLI that orchestrates bash modules for automated reconnaissance, vulnerability scanning, and attack surface analysis.
+AutoAR is a comprehensive, modular security automation toolkit designed for bug bounty hunters, penetration testers, and security researchers. It provides **three operational modes**: Discord bot, REST API, or both simultaneously, powered by a **pure Go implementation** that orchestrates automated reconnaissance, vulnerability scanning, and attack surface analysis.
 
 ## ✨ Features
 
@@ -118,49 +118,67 @@ docker logs autoar-discord
 
 ### Manual Installation
 
-1. **Install dependencies**:
+1. **Install Go** (1.23 or later):
 ```bash
-# Python dependencies
-pip install -r requirements.txt
+# Install Go from https://golang.org/dl/
+# Or use package manager
+sudo apt install golang-go  # Ubuntu/Debian
+```
 
-# System dependencies (Ubuntu/Debian)
-sudo apt update
-sudo apt install -y subfinder amass assetfinder httpx nuclei nmap sqlmap dalfox ffuf gobuster dirb dirbuster wafw00f whatweb wpscan nikto masscan naabu naabu-probe httpx-probe
-
-# Additional tools
+2. **Install security tools** (required for scanning):
+```bash
+# Go-based tools (automatically installed in Docker)
 go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
-go install -v github.com/h0tak88r/next88@latest  # React2Shell scanner (automatically installed in Docker)
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+go install -v github.com/hahwul/dalfox/v2@latest
+go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
+go install -v github.com/kacakb/jsfinder@latest
+go install -v github.com/Emoe/kxss@latest
+go install -v github.com/tomnomnom/gf@latest
+go install -v github.com/channyein1337/jsleak@latest
+go install -v github.com/h0tak88r/next88@latest  # React2Shell scanner
+
+# Rust-based tools
+cargo install jwt-hack  # JWT vulnerability scanner
 ```
 
-2. **Configure the system**:
+3. **Build AutoAR**:
 ```bash
-# All modules are now Go-based - no bash scripts to chmod
+# Clone repository
+git clone https://github.com/h0tak88r/AutoAR.git
+cd AutoAR
+
+# Build the binary
+go build -o autoar ./cmd/autoar
+
+# Or install globally
+go install ./cmd/autoar
+```
+
+4. **Configure and run**:
+```bash
+# Set up environment
 cp env.example .env
 # Edit .env with your configuration
-```
 
-3. **Run AutoAR**:
-```bash
-# Using Docker (recommended)
-docker-compose up autoar-discord
-
-# Or run the Go CLI directly
+# Run AutoAR
 export AUTOAR_MODE=discord
 export DISCORD_BOT_TOKEN=your_token_here
-autoar bot  # Start Discord bot
+./autoar bot  # Start Discord bot
 # or
-autoar api  # Start REST API
+./autoar api  # Start REST API
 # or
-autoar both # Start both
+./autoar both # Start both
 ```
 
 ## 📖 Usage
 
 ### CLI Commands
 
-AutoAR provides a unified Go CLI (`autoar`) that replaces the previous bash script:
+AutoAR provides a unified **pure Go CLI** (`autoar`) with all functionality implemented in Go:
 
 ```bash
 # Basic usage
@@ -168,8 +186,16 @@ autoar <command> <action> [options]
 
 # Examples
 autoar subdomains get -d example.com
-autoar livehosts get -d example.com
-autoar nuclei run -d example.com
+autoar livehosts get -d example.com -t 100
+autoar cnames get -d example.com
+autoar urls collect -d example.com
+autoar nuclei run -d example.com -m full
+autoar reflection scan -d example.com
+autoar dalfox run -d example.com
+autoar sqlmap run -d example.com
+autoar ports scan -d example.com
+autoar tech detect -d example.com
+autoar gf scan -d example.com
 autoar github-wordlist scan -o orgname
 autoar bot    # Start Discord bot
 autoar api    # Start REST API server
@@ -205,7 +231,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-autoar bot
+./autoar api
 ```
 Access API documentation at: `http://localhost:8000/docs`
 
@@ -219,10 +245,8 @@ export AUTOAR_MODE=both
 export DISCORD_BOT_TOKEN=your_token_here
 export API_HOST=0.0.0.0
 export API_PORT=8000
-autoar both
+./autoar both
 ```
-
-📚 **For detailed API documentation, see [API_README.md](API_README.md) and [API_QUICKSTART.md](API_QUICKSTART.md)**
 
 ---
 
@@ -289,65 +313,34 @@ Access the container and use the CLI directly:
 docker exec -it autoar-discord bash
 
 # Basic reconnaissance (with threading)
-autoar subdomains get -d example.com
-autoar livehosts get -d example.com
+autoar subdomains get -d example.com -t 100
+autoar livehosts get -d example.com -t 100 -s
 autoar cnames get -d example.com
-autoar urls collect -d example.com
-autoar tech detect -d example.com
+autoar urls collect -d example.com -t 100
+autoar tech detect -d example.com -t 100
 
 # Vulnerability scanning
-autoar nuclei run -d example.com
-# Note: react2shell_scan is now integrated in Discord bot - use /react2shell_scan command
-# Or use next88 directly: next88 -u https://example.com --dos-test --dos-requests 100
-autoar dalfox run -d example.com
-autoar sqlmap run -d example.com
-autoar ports scan -d example.com
-autoar backup scan -d example.com
-autoar wpDepConf scan -d example.com
+autoar nuclei run -d example.com -m full -t 100
+autoar nuclei run -u https://example.com -m cves
+autoar reflection scan -d example.com
+autoar dalfox run -d example.com -t 100
+autoar sqlmap run -d example.com -t 100
+autoar ports scan -d example.com -t 100
+autoar gf scan -d example.com
 
 # Specialized scans
-autoar js scan -d example.com
-autoar github scan -r owner/repo
-autoar github org -o company -m 50
-autoar github-wordlist scan -o company
-autoar s3 scan -b bucket-name
-autoar dns takeover -d example.com
-
-# KeyHack API key validation
-autoar keyhack list                                    # List all templates
-autoar keyhack search stripe                           # Search for templates
-autoar keyhack validate Stripe sk_live_abc123          # Generate validation command
-autoar keyhack add "Slack" "curl -H 'Authorization: Bearer \$API_KEY' https://slack.com/api/auth.test" "Slack API validation" "Requires Bearer token"  # Add new template
+autoar wpDepConf scan -d example.com
 
 # Workflows
-autoar lite run -d example.com
 autoar fastlook run -d example.com
+autoar lite run -d example.com --skip-js
 autoar domain run -d example.com
 
-# Note: main.sh is still available as a symlink to autoar for backward compatibility
-/main.sh subdomains get -d example.com  # Also works
-```
-
-# Updates Monitoring (CLI)
-## Database-backed workflow
-# Add/remove target
-/app/main.sh monitor updates add -u https://example.com --strategy hash
-/app/main.sh monitor updates add -u https://site/blog --strategy regex --pattern '([A-Z][a-z]{2,8} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})'
-/app/main.sh monitor updates remove -u https://example.com
-
-# Start/stop monitors for all DB targets
-/app/main.sh monitor updates start --all --interval 900 --daemon
-/app/main.sh monitor updates list
-/app/main.sh monitor updates stop --all
-
-Notes:
-- Targets are stored in PostgreSQL (`updates_targets`), and detected changes are recorded in (`updates_events`).
-- The monitor maintains per-target state under `$AUTOAR_RESULTS_DIR/updates/` for PID and last-seen values.
-
 # Database operations
-/app/main.sh db domains list
-/app/main.sh db subdomains list -d example.com
-/app/main.sh db subdomains export -d example.com -o results.txt
+autoar db domains list
+autoar db subdomains list -d example.com
+autoar db subdomains export -d example.com -o results.txt
+autoar db js list -d example.com
 ```
 
 ## 🔑 KeyHack API Key Validation
@@ -366,8 +359,8 @@ AutoAR includes **KeyHack**, a comprehensive API key validation system with **77
 
 #### List All Templates
 ```bash
-# CLI
-/app/main.sh keyhack list
+# CLI (when implemented)
+autoar keyhack list
 
 # Discord
 /keyhack_list
@@ -375,46 +368,26 @@ AutoAR includes **KeyHack**, a comprehensive API key validation system with **77
 
 #### Search for Templates
 ```bash
-# CLI - Search for Stripe templates
-/app/main.sh keyhack search stripe
+# CLI (when implemented)
+autoar keyhack search stripe
 
 # Discord
 /keyhack_search query:stripe
 ```
 
-**Output:**
-```
-📋 Stripe
-   Description: Stripe is a global technology company that builds economic infrastructure...
-   Command:
-   curl -H 'Authorization: Basic $Basic_Auth' 'https://api.stripe.com/v1/account'
-   Note: Base64 encode "{Secret_key}:"
-```
-
 #### Validate an API Key
 ```bash
-# CLI - Generate validation command for Stripe
-/app/main.sh keyhack validate Stripe sk_live_abc123
+# CLI (when implemented)
+autoar keyhack validate Stripe sk_live_abc123
 
 # Discord
 /keyhack_validate provider:Stripe api_key:sk_live_abc123
 ```
 
-**Output:**
-```
-🔐 API Key Validation Command
-Provider: Stripe
-Command:
-curl -H 'Authorization: Basic <base64_encoded_key>' 'https://api.stripe.com/v1/account'
-```
-
 #### Add Custom Template
 ```bash
-# CLI
-/app/main.sh keyhack add "MyService" \
-  "curl -H 'Authorization: Bearer \$API_KEY' https://api.myservice.com/v1/test" \
-  "MyService API validation" \
-  "Requires Bearer token"
+# CLI (when implemented)
+autoar keyhack add "MyService" "curl -H 'Authorization: Bearer \$API_KEY' https://api.myservice.com/v1/test" "GET" "https://api.myservice.com/v1/test" "Authorization: Bearer \$API_KEY" "" "Requires Bearer token" "MyService API validation"
 
 # Discord
 /keyhack_add keyname:MyService command:"curl -H 'Authorization: Bearer \$API_KEY' https://api.myservice.com/v1/test" description:"MyService API validation" notes:"Requires Bearer token"
@@ -462,11 +435,11 @@ AutoAR includes powerful GitHub reconnaissance capabilities for discovering secr
 Scan individual repositories for exposed secrets and sensitive information:
 
 ```bash
-# Scan a specific repository
-/app/main.sh github scan -r owner/repository
+# Scan a specific repository (when implemented in Go)
+autoar github scan -r owner/repository
 
 # Example: Scan Microsoft's PowerShell repository
-/app/main.sh github scan -r microsoft/PowerShell
+autoar github scan -r microsoft/PowerShell
 ```
 
 **Features:**
@@ -479,11 +452,11 @@ Scan individual repositories for exposed secrets and sensitive information:
 Scan entire organizations to discover repositories and their secrets:
 
 ```bash
-# Scan an organization (default: 50 repos max)
-/app/main.sh github org -o microsoft
+# Scan an organization (when implemented in Go)
+autoar github org -o microsoft -m 50
 
 # Scan with custom repository limit
-/app/main.sh github org -o microsoft -m 100
+autoar github org -o microsoft -m 100
 ```
 
 **Features:**
@@ -497,10 +470,10 @@ Generate targeted wordlists from organization's ignore files and patterns:
 
 ```bash
 # Generate wordlist from organization
-/app/main.sh github-wordlist scan -o microsoft
+autoar github-wordlist scan -o microsoft
 
 # With custom GitHub token
-/app/main.sh github-wordlist scan -o microsoft -t your_github_token
+autoar github-wordlist scan -o microsoft -t your_github_token
 ```
 
 **Features:**
@@ -604,39 +577,57 @@ Configure these for enhanced functionality:
 
 ```
 AutoAR/
-├── main.go                # Go CLI entry point (replaces main.sh)
-├── autoar                 # Compiled Go binary
-├── go.mod                 # Go module definition
-├── gomodules/             # Go modules directory
+├── cmd/
+│   └── autoar/
+│       └── main.go        # Main CLI entry point (pure Go)
+├── gomodules/             # Internal Go modules (business logic)
 │   ├── gobot/             # Discord bot + API server
-│   │   ├── bot.go         # Bot/API startup functions
+│   │   ├── bot.go         # Bot startup and handlers
 │   │   ├── api.go         # REST API implementation
 │   │   ├── react2shell.go # React2Shell scanning
 │   │   └── commands*.go   # Discord command handlers
-│   ├── github-wordlist/   # GitHub wordlist generator (library)
-│   └── wp-confusion/      # WordPress confusion scanner (library)
-├── modules/               # Bash scanning modules (tool orchestration)
-│   ├── subdomains.sh      # Subdomain enumeration
-│   ├── livehosts.sh       # Live host detection
-│   ├── nuclei.sh          # Nuclei integration
-│   ├── wp_plugin_confusion.sh # WordPress scanning
-│   ├── keyhack.sh         # API key validation (778+ templates)
-│   └── ...                # Other modules
-├── python/                # Python utilities (minimal, mostly replaced)
-│   └── db_handler.py      # Database operations
-├── lib/                   # Shared bash libraries
-│   ├── logging.sh         # Logging utilities
-│   ├── utils.sh           # Common utilities
-│   ├── discord.sh         # Discord integration
-│   └── db.sh              # Database operations
-├── nuclei_templates/      # Nuclei vulnerability templates
-├── keyhack_templates/     # KeyHack API key validation templates (778+)
-├── Wordlists/             # Wordlists and patterns
+│   ├── db/                # Database operations (PostgreSQL)
+│   │   └── db.go          # Database functions using pgx/v5
+│   ├── scanner/           # Scanning modules (all pure Go)
+│   │   ├── subdomains/    # Subdomain enumeration
+│   │   ├── livehosts/     # Live host detection
+│   │   ├── urls/          # URL collection
+│   │   ├── cnames/        # CNAME analysis
+│   │   ├── nuclei/        # Nuclei integration
+│   │   ├── dalfox/        # XSS detection
+│   │   ├── sqlmap/        # SQL injection testing
+│   │   ├── ports/         # Port scanning
+│   │   ├── tech/          # Technology detection
+│   │   ├── gf/            # Pattern matching
+│   │   ├── reflection/    # Reflection testing
+│   │   └── dns/           # DNS takeover detection
+│   ├── workflow/          # Workflow orchestrators
+│   │   ├── lite/          # Lite scan workflow
+│   │   ├── fastlook/      # Fast look workflow
+│   │   └── domain/        # Full domain scan workflow
+│   ├── entrypoint/        # Docker entrypoint (Go binary)
+│   │   └── entrypoint.go
+│   ├── github-wordlist/   # GitHub wordlist generator
+│   ├── wp-confusion/      # WordPress confusion scanner
+│   ├── config/            # Configuration management
+│   └── utils/             # Utility functions
+├── go.mod                 # Go module definition
+├── go.sum                 # Go module checksums
+├── nuclei_templates/      # Nuclei vulnerability templates (cloned)
+├── nuclei-templates/       # Public Nuclei templates (cloned)
+├── Wordlists/             # Wordlists (cloned)
 ├── regexes/               # Custom regex patterns
+├── templates/             # Template files
 ├── docker-compose.yml     # Docker configuration
-├── Dockerfile             # Container definition
-└── main.sh                # Bash CLI (backward compatibility, symlinks to autoar)
+├── Dockerfile             # Multi-stage Docker build
+└── README.md              # This file
 ```
+
+**Key Points:**
+- **Pure Go Implementation**: All functionality is implemented in Go. No bash scripts remain.
+- **Standard Go Layout**: Following Go community best practices with `cmd/` for binaries
+- **Modular Design**: Each scanner/workflow is a separate Go module
+- **Docker-First**: Optimized for containerized deployment
 
 ## 🛠️ Advanced Usage
 
@@ -646,24 +637,27 @@ Create custom scanning workflows by combining modules:
 
 ```bash
 # Custom reconnaissance workflow
-/app/main.sh subdomains get -d example.com
-/app/main.sh livehosts get -d example.com
-/app/main.sh urls collect -d example.com
-/app/main.sh nuclei run -d example.com
-/app/main.sh dalfox run -d example.com
+autoar subdomains get -d example.com
+autoar livehosts get -d example.com -s
+autoar urls collect -d example.com
+autoar nuclei run -d example.com -m full
+autoar dalfox run -d example.com
 ```
 
 ### Database Management
 
 ```bash
 # List all domains
-/app/main.sh db domains list
+autoar db domains list
 
 # Export subdomains for a domain
-/app/main.sh db subdomains export -d example.com -o subdomains.txt
+autoar db subdomains export -d example.com -o subdomains.txt
 
-# Clean up old data
-/app/main.sh cleanup run --domain example.com
+# List subdomains for a domain
+autoar db subdomains list -d example.com
+
+# List JS files for a domain
+autoar db js list -d example.com
 ```
 
 ### Batch Processing
@@ -671,7 +665,7 @@ Create custom scanning workflows by combining modules:
 ```bash
 # Process multiple domains from a file
 while read domain; do
-  /app/main.sh domain run -d "$domain"
+  autoar domain run -d "$domain"
 done < domains.txt
 ```
 
@@ -698,7 +692,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-autoar bot
+./autoar api
 ```
 
 #### Access Interactive Documentation
@@ -907,7 +901,7 @@ docker-compose up autoar-discord
 # or
 export AUTOAR_MODE=discord
 export DISCORD_BOT_TOKEN=your_token_here
-autoar bot
+./autoar bot
 ```
 
 #### 2. REST API Only
@@ -917,7 +911,7 @@ docker-compose --profile api up autoar-api
 export AUTOAR_MODE=api
 export API_HOST=0.0.0.0
 export API_PORT=8000
-autoar bot
+./autoar api
 ```
 
 #### 3. Hybrid Mode (Both Discord + API)
@@ -928,7 +922,7 @@ export AUTOAR_MODE=both
 export DISCORD_BOT_TOKEN=your_token_here
 export API_HOST=0.0.0.0
 export API_PORT=8000
-autoar bot
+./autoar both
 ```
 
 ### API Response Format
@@ -939,7 +933,7 @@ All scan endpoints return a scan ID for tracking:
   "scan_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "status": "started",
   "message": "Scan started successfully",
-  "command": "/app/main.sh subdomains get -d example.com"
+  "command": "autoar subdomains get -d example.com"
 }
 ```
 
@@ -957,16 +951,18 @@ Check status:
 
 ### Testing the API
 
-A test suite is included:
+Test the API using curl or any HTTP client:
 ```bash
-# Run automated tests
-python test_api.py
+# Health check
+curl http://localhost:8000/health
 
-# Run curl examples
-./examples/curl_examples.sh
+# Start a scan
+curl -X POST "http://localhost:8000/scan/subdomains" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
 
-# Run Python examples
-python examples/api_example.py
+# Check scan status
+curl "http://localhost:8000/scan/{scan_id}/status"
 ```
 
 ### API Security Considerations
