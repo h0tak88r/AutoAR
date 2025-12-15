@@ -10,7 +10,11 @@ echo "[entrypoint] Mode: ${AUTOAR_MODE}"
 
 # Load configuration (will generate autoar.yaml if needed)
 echo "[entrypoint] Loading configuration..."
-source /app/lib/config.sh
+# Configuration is now handled by Go modules, but we still need env vars
+export AUTOAR_ROOT=/app
+export AUTOAR_RESULTS_DIR=/app/new-results
+export AUTOAR_CONFIG_FILE=/app/autoar.yaml
+export AUTOAR_ENV=docker
 echo "[entrypoint] Configuration loaded successfully"
 
 # Initialize database schema (only if database is configured)
