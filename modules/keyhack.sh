@@ -2,8 +2,20 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# lib/logging.sh functionality in gomodules/ - functionality in gomodules/
-# lib/utils.sh functionality in gomodules/ - functionality in gomodules/
+
+# Load compatibility functions (replaces lib/ functions)
+if [[ -f "$ROOT_DIR/gomodules/compat.sh" ]]; then
+  source "$ROOT_DIR/gomodules/compat.sh"
+else
+  # Minimal fallback functions
+  log_info()    { printf "[INFO] %s\n" "$*"; }
+  log_warn()    { printf "[WARN] %s\n" "$*"; }
+  log_error()   { printf "[ERROR] %s\n" "$*" 1>&2; }
+  log_success() { printf "[OK] %s\n" "$*"; }
+  ensure_dir() { mkdir -p "$1"; }
+  results_dir() { echo "${AUTOAR_RESULTS_DIR:-new-results}/$1"; }
+  discord_send_file() { log_info "File will be sent by Discord bot: $2"; }
+fi
 
 # Load database functions (prefer Go wrapper, fallback to bash)
 if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
