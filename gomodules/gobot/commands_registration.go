@@ -422,6 +422,15 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "scan_status",
 			Description: "List all active and recent completed scans",
 		},
+		{
+			Name:        "scan_from_file",
+			Description: "Run a scan using targets from an uploaded file (domains, URLs, etc.)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_type", Description: "Type of scan (subdomains, livehosts, nuclei, etc.)", Required: true},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File containing targets (one per line)", Required: true},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
+			},
+		},
 	}
 
 	for _, cmd := range commands {

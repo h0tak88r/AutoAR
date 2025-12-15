@@ -177,7 +177,7 @@ func scanSubdomains(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "subdomains", "get", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "subdomains", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "subdomains")
 
@@ -202,7 +202,7 @@ func scanLivehosts(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "livehosts", "get", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "livehosts", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "livehosts")
 
@@ -227,7 +227,7 @@ func scanCnames(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "cnames", "get", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "cnames", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "cnames")
 
@@ -252,7 +252,7 @@ func scanURLs(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "urls", "collect", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "urls", "collect", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "urls")
 
@@ -277,7 +277,7 @@ func scanJS(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "js", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "js", "scan", "-d", *req.Domain}
 
 	if req.Subdomain != nil && *req.Subdomain != "" {
 		command = append(command, "-s", *req.Subdomain)
@@ -306,7 +306,7 @@ func scanReflection(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "reflection", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "reflection", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "reflection")
 
@@ -336,7 +336,7 @@ func scanNuclei(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "nuclei", "run"}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "nuclei", "run"}
 
 	var target string
 	if req.Domain != nil {
@@ -380,7 +380,7 @@ func scanTech(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "tech", "detect", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "tech", "detect", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "tech")
 
@@ -405,7 +405,7 @@ func scanPorts(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "ports", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "ports", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "ports")
 
@@ -430,7 +430,7 @@ func scanGF(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "gf", "scan", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "gf", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "gf")
 
@@ -455,7 +455,7 @@ func scanDNSTakeover(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "dns", "takeover", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "dns", "takeover", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "dns-takeover")
 
@@ -480,7 +480,7 @@ func scanS3(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "s3", "scan", "-b", *req.Bucket}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "s3", "scan", "-b", *req.Bucket}
 
 	if req.Region != nil && *req.Region != "" {
 		command = append(command, "-r", *req.Region)
@@ -509,7 +509,7 @@ func scanGitHub(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "github", "scan", "-r", *req.Repo}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "github", "scan", "-r", *req.Repo}
 
 	go executeScan(scanID, command, "github")
 
@@ -535,7 +535,7 @@ func scanGitHubOrg(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "github", "org", "-o", *org}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "github", "org", "-o", *org}
 
 	go executeScan(scanID, command, "github_org")
 
@@ -560,7 +560,7 @@ func scanLite(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "lite", "run", "-d", *req.Domain}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "lite", "run", "-d", *req.Domain}
 
 	if req.SkipJS != nil && *req.SkipJS {
 		command = append(command, "--skip-js")
@@ -613,7 +613,7 @@ func keyhackSearch(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "keyhack", "search", *req.Query}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "keyhack", "search", *req.Query}
 
 	go executeScan(scanID, command, "keyhack_search")
 
@@ -643,7 +643,7 @@ func keyhackValidate(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh"), "keyhack", "validate", *req.Provider, *req.APIKey}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "keyhack", "validate", *req.Provider, *req.APIKey}
 
 	go executeScan(scanID, command, "keyhack_validate")
 
