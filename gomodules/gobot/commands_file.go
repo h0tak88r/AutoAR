@@ -60,11 +60,11 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Get attachment from message
 	var attachment *discordgo.MessageAttachment
 	
-	// Method 1: Check for file attached directly to the slash command
+	// Method 1: Check for file attached directly to the slash command (PRIORITY - check this first!)
 	if i.ApplicationCommandData().Resolved != nil && i.ApplicationCommandData().Resolved.Attachments != nil {
 		// Check all resolved attachments (files attached directly to command)
 		for attID, att := range i.ApplicationCommandData().Resolved.Attachments {
-			if att != nil {
+			if att != nil && att.URL != "" {
 				attachment = att
 				log.Printf("[INFO] Found attachment directly attached to command (ID: %s): %s", attID, attachment.Filename)
 				break
@@ -72,57 +72,57 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 	
-	// Method 2: Check if this is a message context command (right-click on message)
-	if attachment == nil && i.ApplicationCommandData().TargetID != "" {
-		// This is a message context command - fetch the target message
-		msg, err := s.ChannelMessage(i.ChannelID, i.ApplicationCommandData().TargetID)
-		if err != nil {
-			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Content: fmt.Sprintf("❌ Error fetching target message: %v", err),
-			})
-			return
+	// Only check other methods if no file was attached directly
+	if attachment == nil {
+		// Method 2: Check if this is a message context command (right-click on message)
+		if i.ApplicationCommandData().TargetID != "" {
+			// This is a message context command - fetch the target message
+			msg, err := s.ChannelMessage(i.ChannelID, i.ApplicationCommandData().TargetID)
+			if err != nil {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("❌ Error fetching target message: %v", err),
+				})
+				return
+			}
+			if len(msg.Attachments) == 0 {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: "❌ No file attachments found in the target message",
+				})
+				return
+			}
+			attachment = msg.Attachments[0]
+			log.Printf("[INFO] Found attachment from message context command: %s", attachment.Filename)
+		} else if messageID != "" {
+			// Method 3: Fetch message by ID (from slash command parameter) - only if no direct attachment
+			// Validate message ID format (should be numeric only, no hyphens)
+			if strings.Contains(messageID, "-") || strings.Contains(messageID, " ") {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("❌ Invalid message ID format: %s\nMessage ID should be a single number (get it by right-clicking message → Copy ID)", messageID),
+				})
+				return
+			}
+			msg, err := s.ChannelMessage(i.ChannelID, messageID)
+			if err != nil {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("❌ Error fetching message: %v\nMake sure the message ID is correct and in this channel.", err),
+				})
+				return
+			}
+			if len(msg.Attachments) == 0 {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: "❌ No file attachments found in the specified message",
+				})
+				return
+			}
+			attachment = msg.Attachments[0]
+			log.Printf("[INFO] Found attachment from message ID %s: %s", messageID, attachment.Filename)
 		}
-		if len(msg.Attachments) == 0 {
-			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Content: "❌ No file attachments found in the target message",
-			})
-			return
-		}
-		attachment = msg.Attachments[0]
-		log.Printf("[INFO] Found attachment from message context command: %s", attachment.Filename)
-	}
-	
-	// Method 3: Fetch message by ID (from slash command parameter)
-	if attachment == nil && messageID != "" {
-		// Method 2: Fetch message by ID
-		msg, err := s.ChannelMessage(i.ChannelID, messageID)
-		if err != nil {
-			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Content: fmt.Sprintf("❌ Error fetching message: %v", err),
-			})
-			return
-		}
-		if len(msg.Attachments) == 0 {
-			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Content: "❌ No file attachments found in the specified message",
-			})
-			return
-		}
-		attachment = msg.Attachments[0]
-		log.Printf("[INFO] Found attachment from message ID %s: %s", messageID, attachment.Filename)
 	}
 	
 	// If still no attachment found
 	if attachment == nil || attachment.URL == "" {
 		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: "❌ No file found. Please:\n1. **Attach a file** directly to this command, OR\n2. **Right-click** on a message with a file → Apps → Scan File, OR\n3. Use `/scan_from_file` with **message_id** parameter (get ID by right-clicking message → Copy ID)",
-		})
-		return
-	}
-	
-	if attachment == nil || attachment.URL == "" {
-		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: "❌ Error: Could not find valid attachment",
+			Content: "❌ No file found. Please:\n1. **Attach a file** directly to this command (recommended), OR\n2. **Right-click** on a message with a file → Apps → Scan File, OR\n3. Use `/scan_from_file` with **message_id** parameter (get ID by right-clicking message → Copy ID)",
 		})
 		return
 	}
