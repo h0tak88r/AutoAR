@@ -3,11 +3,10 @@ module github.com/h0tak88r/AutoAR
 go 1.23
 
 require (
-	github.com/h0tak88r/AutoAR/gomodules/db v0.0.0-00010101000000-000000000000
-	github.com/h0tak88r/AutoAR/gomodules/github-wordlist v0.0.0-00010101000000-000000000000
-	github.com/h0tak88r/AutoAR/gomodules/gobot v0.0.0-00010101000000-000000000000
-	github.com/h0tak88r/AutoAR/gomodules/subdomains v0.0.0-00010101000000-000000000000
-	github.com/h0tak88r/AutoAR/gomodules/wp-confusion v0.0.0-00010101000000-000000000000
+	github.com/bwmarrin/discordgo v0.28.1
+	github.com/gin-gonic/gin v1.10.0
+	github.com/jackc/pgx/v5 v5.5.5
+	github.com/projectdiscovery/subfinder/v2 v2.6.7
 )
 
 require (
@@ -23,7 +22,6 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bits-and-blooms/bitset v1.13.0 // indirect
-	github.com/bwmarrin/discordgo v0.28.1 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/charmbracelet/glamour v0.8.0 // indirect
@@ -43,7 +41,6 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gaissmai/bart v0.9.5 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
-	github.com/gin-gonic/gin v1.10.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
@@ -60,7 +57,6 @@ require (
 	github.com/hako/durafmt v0.0.0-20210316092057-3a2c319c1acd // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
-	github.com/jackc/pgx/v5 v5.5.5 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
@@ -100,10 +96,10 @@ require (
 	github.com/projectdiscovery/ratelimit v0.0.55 // indirect
 	github.com/projectdiscovery/retryabledns v1.0.80 // indirect
 	github.com/projectdiscovery/retryablehttp-go v1.0.82 // indirect
-	github.com/projectdiscovery/subfinder/v2 v2.6.7 // indirect
 	github.com/projectdiscovery/utils v0.2.15 // indirect
 	github.com/refraction-networking/utls v1.6.7 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/rs/xid v1.5.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/shirou/gopsutil/v3 v3.23.7 // indirect
@@ -150,13 +146,3 @@ require (
 	gopkg.in/djherbis/times.v1 v1.3.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/h0tak88r/AutoAR/gomodules/db => ./gomodules/db
-
-replace github.com/h0tak88r/AutoAR/gomodules/github-wordlist => ./gomodules/github-wordlist
-
-replace github.com/h0tak88r/AutoAR/gomodules/gobot => ./gomodules/gobot
-
-replace github.com/h0tak88r/AutoAR/gomodules/subdomains => ./gomodules/subdomains
-
-replace github.com/h0tak88r/AutoAR/gomodules/wp-confusion => ./gomodules/wp-confusion
