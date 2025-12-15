@@ -64,11 +64,12 @@ livehosts_get() {
     fi
   fi
   
-  # Send Discord notification only if not in silent mode
+  # Send final results via bot only if not in silent mode
   # COMMENTED OUT: Force silent mode for react2shell_scan
-  # if [[ "$silent" != "true" ]]; then
-  #   discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain"
-  # fi
+  if [[ "$silent" != "true" ]]; then
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-livehosts_$(date +%s)}"
+    discord_send_file "$subs_dir/live-subs.txt" "Live subdomains ($live/$total) for $domain" "$scan_id"
+  fi
 }
 
 case "${1:-}" in
