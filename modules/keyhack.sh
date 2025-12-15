@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/lib/logging.sh"
-source "$ROOT_DIR/lib/utils.sh"
+# lib/logging.sh removed - functionality in gomodules/
+# lib/utils.sh removed - functionality in gomodules/
 
 # Load database functions (prefer Go wrapper, fallback to bash)
 if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
   source "$ROOT_DIR/gomodules/db/wrapper.sh"
 elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
-  source "$ROOT_DIR/lib/db.sh"
+  # lib/db.sh removed - functionality in gomodules/
 fi
 
 usage() {
