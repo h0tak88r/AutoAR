@@ -6,7 +6,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/config.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/logging.sh" 2>/dev/null || true
 source "$ROOT_DIR/lib/utils.sh" 2>/dev/null || true
-source "$ROOT_DIR/lib/db.sh" 2>/dev/null || true
+
+# Load database functions (prefer Go wrapper, fallback to bash)
+if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
+  source "$ROOT_DIR/gomodules/db/wrapper.sh"
+elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
+  source "$ROOT_DIR/lib/db.sh"
+fi
 
 UPDATES_DIR="${AUTOAR_RESULTS_DIR}/updates"
 mkdir -p "$UPDATES_DIR"
