@@ -296,7 +296,9 @@ func handleSubdomainsGo(args []string) error {
 		fmt.Fprintln(file, subdomain)
 	}
 	
-	fmt.Printf("[OK] Found %d unique subdomains for %s\n", len(results), domain)
+	if !silent {
+		fmt.Printf("[OK] Found %d unique subdomains for %s\n", len(results), domain)
+	}
 	
 	// Save to database if configured
 	if os.Getenv("DB_HOST") != "" {
