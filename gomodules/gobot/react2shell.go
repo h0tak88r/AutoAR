@@ -174,7 +174,7 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 			time.Sleep(2 * time.Second)
 		}
 	}
-	
+
 	log.Printf("[DEBUG] Domain scan completed for: %s", domain)
 }
 
@@ -226,7 +226,7 @@ func runNext88Scan(hosts []string, extraFlags []string, webhookURL string) ([]st
 	// Build command with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	
+
 	args := []string{"-l", tmpFile.Name(), "-k", "-q", "-o", resultsFile.Name(), "-all-results"}
 	args = append(args, extraFlags...)
 	// Don't pass webhook URL - we handle Discord messages directly via bot
@@ -238,15 +238,15 @@ func runNext88Scan(hosts []string, extraFlags []string, webhookURL string) ([]st
 
 	// Run command with timeout
 	cmd := exec.CommandContext(ctx, next88Bin, args...)
-	
+
 	log.Printf("[DEBUG] Executing next88 command (timeout: 10min)")
 	output, err := cmd.CombinedOutput()
-	
+
 	if ctx.Err() == context.DeadlineExceeded {
 		log.Printf("[ERROR] next88 command timed out after 10 minutes")
 		return []string{}, fmt.Errorf("command timed out")
 	}
-	
+
 	if err != nil {
 		log.Printf("[WARN] next88 command failed: %v, output: %s", err, string(output))
 		// Continue anyway - might have found vulnerabilities before error
@@ -404,27 +404,24 @@ func getLiveHosts(domain string, threads int) (string, error) {
 	}
 
 	subsDir := filepath.Join(resultsDir, domain, "subs")
-	
-	// Ensure subdomains exist first (this will enumerate if needed)
-	// We need to run subdomains.sh first to ensure we have fresh data
-	subdomainsScript := "/app/modules/subdomains.sh"
-	subdomainsCmd := exec.Command(subdomainsScript, "get", "-d", domain, "-s", "--silent")
-	if err := subdomainsCmd.Run(); err != nil {
-		log.Printf("[WARN] Subdomain enumeration failed: %v, continuing anyway", err)
+
+	// Ensure subdomains exist first (this will enumerate if needed) using Go-backed CLI
+	subCmd := exec.Command(autoarScript, "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
+	if err := subCmd.Run(); err != nil {
+		log.Printf("[WARN] Subdomain enumeration via autoar failed: %v, continuing anyway", err)
 	}
 
-	// Now run livehosts.sh to filter live hosts
-	script := "/app/modules/livehosts.sh"
-	cmd := exec.Command(script, "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
-	
+	// Now run livehosts via Go-backed CLI to filter live hosts
+	cmd := exec.Command(autoarScript, "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
+
 	// Capture output for debugging
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("[ERROR] livehosts.sh failed: %v, output: %s", err, string(output))
-		return "", fmt.Errorf("livehosts.sh failed: %v", err)
+		log.Printf("[ERROR] livehosts command failed: %v, output: %s", err, string(output))
+		return "", fmt.Errorf("livehosts failed: %v", err)
 	}
 
-	log.Printf("[DEBUG] livehosts.sh output: %s", string(output))
+	log.Printf("[DEBUG] livehosts output: %s", string(output))
 
 	// Check for live hosts file first
 	liveHostsFile := filepath.Join(subsDir, "live-subs.txt")
@@ -821,11 +818,11 @@ func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, 
 	var pocFile *os.File
 	if isVulnerable && pocData != nil {
 		pocJSON := map[string]interface{}{
-			"target":              target,
-			"vulnerable":          true,
+			"target":                target,
+			"vulnerable":            true,
 			"vulnerability_details": vulnerabilityDetails,
-			"poc":                 pocData,
-			"timestamp":           time.Now().Format(time.RFC3339),
+			"poc":                   pocData,
+			"timestamp":             time.Now().Format(time.RFC3339),
 		}
 
 		pocDataJSON, err := json.MarshalIndent(pocJSON, "", "  ")
@@ -861,7 +858,7 @@ func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, 
 			defer os.Remove(pocFile.Name())
 
 			fileName := fmt.Sprintf("poc-%s.json", time.Now().Format("20060102-150405"))
-			
+
 			// Read file content
 			fileData, err := os.ReadFile(pocFile.Name())
 			if err == nil {
@@ -959,13 +956,12 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 
 	log.Printf("[DEBUG] Starting livehosts scan for: %s", domain)
 
-	// Run livehosts.sh script (it handles DB operations internally)
-	script := "/app/modules/livehosts.sh"
-	cmd := exec.Command(script, "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
-	
+	// Run livehosts via Go-backed CLI (it handles DB operations internally)
+	cmd := exec.Command(autoarScript, "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
+
 	output, err := cmd.CombinedOutput()
 	outputStr := string(output)
-	
+
 	if err != nil {
 		log.Printf("[ERROR] livehosts command failed: %v, output: %s", err, outputStr)
 		embed := &discordgo.MessageEmbed{
@@ -985,7 +981,7 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 	// Get results file
 	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
 	liveHostsFile := filepath.Join(resultsDir, domain, "subs", "live-subs.txt")
-	
+
 	var totalHosts, liveHosts int
 	var liveHostsList []string
 

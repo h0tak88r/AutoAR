@@ -17,11 +17,11 @@ import (
 
 // Result holds summary information for a livehosts run
 type Result struct {
-	Domain      string
-	Threads     int
-	TotalSubs   int
-	LiveSubs    int
-	SubsFile    string
+	Domain       string
+	Threads      int
+	TotalSubs    int
+	LiveSubs     int
+	SubsFile     string
 	LiveSubsFile string
 }
 
