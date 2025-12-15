@@ -12,7 +12,13 @@ source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
 source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/discord.sh"
-source "$ROOT_DIR/lib/db.sh"
+
+# Load database functions (prefer Go wrapper, fallback to bash)
+if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
+  source "$ROOT_DIR/gomodules/db/wrapper.sh"
+elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
+  source "$ROOT_DIR/lib/db.sh"
+fi
 
 usage() { echo "Usage: js scan -d <domain> [-s <subdomain>]"; }
 
