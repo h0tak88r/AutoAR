@@ -115,12 +115,13 @@ scan_backup_files() {
       if [[ "$found_count" -gt 0 ]]; then
         log_success "Found $found_count potential backup files"
         
-        # Send results to Discord
-        discord_file "$output_dir/fuzzuli-results.txt" "Backup files discovered for $domain ($found_count files found)"
+        # Send final results via bot (webhook used for logging)
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-backup_scan_$(date +%s)}"
+        discord_send_file "$output_dir/fuzzuli-results.txt" "Backup files discovered for $domain ($found_count files found)" "$scan_id"
         
         # Also send the output log for debugging
         if [[ -f "$output_dir/fuzzuli-output.log" ]]; then
-          discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan output for $domain"
+          discord_send_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan output for $domain" "$scan_id"
         fi
         
         discord_send_progress "✅ **Backup scan completed for $domain - Found $found_count potential backup files**"
@@ -142,8 +143,9 @@ scan_backup_files() {
       log_error "Fuzzuli output:"
       cat "$output_dir/fuzzuli-output.log" | tail -20
       
-      # Send error log to Discord
-      discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan error for $domain (exit code: $exit_code)"
+      # Send error log via bot
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-backup_scan_$(date +%s)}"
+      discord_send_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan error for $domain (exit code: $exit_code)" "$scan_id"
     fi
     
     discord_send_progress "❌ **Backup scan failed for $domain (exit code: $exit_code)**"
@@ -190,12 +192,13 @@ scan_backup_files_from_list() {
       if [[ "$found_count" -gt 0 ]]; then
         log_success "Found $found_count potential backup files"
         
-        # Send results to Discord
-        discord_file "$output_dir/fuzzuli-results.txt" "Backup files discovered for live hosts ($found_count files found)"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-backup_scan_live_$(date +%s)}"
+        discord_send_file "$output_dir/fuzzuli-results.txt" "Backup files discovered for live hosts ($found_count files found)" "$scan_id"
         
         # Also send the output log for debugging
         if [[ -f "$output_dir/fuzzuli-output.log" ]]; then
-          discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan output for live hosts"
+          discord_send_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan output for live hosts" "$scan_id"
         fi
         
         discord_send_progress "✅ **Backup scan completed for live hosts - Found $found_count potential backup files**"
@@ -217,8 +220,9 @@ scan_backup_files_from_list() {
       log_error "Fuzzuli output:"
       cat "$output_dir/fuzzuli-output.log" | tail -20
       
-      # Send error log to Discord
-      discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan error for live hosts (exit code: $exit_code)"
+      # Send error log via bot
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-backup_scan_live_$(date +%s)}"
+      discord_send_file "$output_dir/fuzzuli-output.log" "Fuzzuli scan error for live hosts (exit code: $exit_code)" "$scan_id"
     fi
     
     discord_send_progress "❌ **Backup scan failed for live hosts (exit code: $exit_code)**"
@@ -298,16 +302,17 @@ scan_backup_files_full() {
       if [[ "$found_count" -gt 0 ]]; then
         log_success "Found $found_count potential backup files across $total_subs subdomains"
         
-        # Send results to Discord
-        discord_file "$output_dir/fuzzuli-results.txt" "Full backup scan results for $domain ($found_count files found across $total_subs subdomains)"
+        # Send final results via bot
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-backup_scan_full_$(date +%s)}"
+        discord_send_file "$output_dir/fuzzuli-results.txt" "Full backup scan results for $domain ($found_count files found across $total_subs subdomains)" "$scan_id"
         
         # Also send the output log for debugging
         if [[ -f "$output_dir/fuzzuli-output.log" ]]; then
-          discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli full scan output for $domain"
+          discord_send_file "$output_dir/fuzzuli-output.log" "Fuzzuli full scan output for $domain" "$scan_id"
         fi
         
         # Send subdomain list as well
-        discord_file "$subs_file" "Subdomains used in full backup scan for $domain"
+        discord_send_file "$subs_file" "Subdomains used in full backup scan for $domain" "$scan_id"
         
         discord_send_progress "✅ **Full backup scan completed for $domain - Found $found_count potential backup files across $total_subs subdomains**"
       else
@@ -328,8 +333,9 @@ scan_backup_files_full() {
       log_error "Fuzzuli output:"
       cat "$output_dir/fuzzuli-output.log" | tail -20
       
-      # Send error log to Discord
-      discord_file "$output_dir/fuzzuli-output.log" "Fuzzuli full scan error for $domain (exit code: $exit_code)"
+      # Send error log via bot
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-backup_scan_full_$(date +%s)}"
+      discord_send_file "$output_dir/fuzzuli-output.log" "Fuzzuli full scan error for $domain (exit code: $exit_code)" "$scan_id"
     fi
     
     discord_send_progress "❌ **Full backup scan failed for $domain (exit code: $exit_code)**"

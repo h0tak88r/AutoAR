@@ -57,7 +57,8 @@ ports_scan() {
   if [[ -s "$out" ]]; then
     echo "[SUCCESS] Port scan results saved to: $out"
     echo "[INFO] File size: $(wc -l < "$out") lines"
-    discord_send_file "$out" "Port scan results for $domain"
+    local scan_id="${AUTOAR_CURRENT_SCAN_ID:-ports_$(date +%s)}"
+    discord_send_file "$out" "Port scan results for $domain" "$scan_id"
   else
     echo "[WARN] No port scan results generated"
   fi

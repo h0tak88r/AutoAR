@@ -35,7 +35,10 @@ cnames_get() {
 
   local count=$(wc -l < "$out" 2>/dev/null || echo 0)
   log_success "Found $count CNAME records"
-  discord_send_file "$out" "CNAME records for $domain ($count)"
+  
+  # Send final results via bot (webhook still used for logging via discord_send_progress)
+  local scan_id="${AUTOAR_CURRENT_SCAN_ID:-cnames_$(date +%s)}"
+  discord_send_file "$out" "CNAME records for $domain ($count)" "$scan_id"
 }
 
 case "${1:-}" in

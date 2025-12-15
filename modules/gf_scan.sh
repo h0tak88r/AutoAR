@@ -81,7 +81,8 @@ gf_scan() {
         local match_count=$(wc -l < "$out")
         log_success "GF $pattern: Found $match_count matches"
         total_matches=$((total_matches + match_count))
-        discord_file "$out" "GF $pattern matches for $domain ($match_count matches)"
+        local scan_id="${AUTOAR_CURRENT_SCAN_ID:-gf_scan_$(date +%s)}"
+        discord_send_file "$out" "GF $pattern matches for $domain ($match_count matches)" "$scan_id"
       else
         log_info "GF $pattern: No matches found"
       fi

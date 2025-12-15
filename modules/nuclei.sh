@@ -229,7 +229,8 @@ run_full_scan() {
       local count=$(wc -l < "$custom_out")
       log_success "Found $count findings with custom templates"
       results+=("$custom_out")
-      discord_file "$custom_out" "**Nuclei Full Scan - Custom Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_full_$(date +%s)}"
+      discord_send_file "$custom_out" "**Nuclei Full Scan - Custom Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No findings with custom templates"
     fi
@@ -252,7 +253,8 @@ run_full_scan() {
       local count=$(wc -l < "$public_out")
       log_success "Found $count findings with public HTTP templates"
       results+=("$public_out")
-      discord_file "$public_out" "**Nuclei Full Scan - Public HTTP Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_full_$(date +%s)}"
+      discord_send_file "$public_out" "**Nuclei Full Scan - Public HTTP Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No findings with public HTTP templates"
     fi
@@ -294,7 +296,8 @@ run_cves_scan() {
       local count=$(wc -l < "$custom_cves_out")
       log_success "Found $count CVE findings with custom templates"
       results+=("$custom_cves_out")
-      discord_file "$custom_cves_out" "**Nuclei CVEs - Custom Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_cves_$(date +%s)}"
+      discord_send_file "$custom_cves_out" "**Nuclei CVEs - Custom Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No CVE findings with custom templates"
     fi
@@ -319,7 +322,8 @@ run_cves_scan() {
       local count=$(wc -l < "$public_cves_out")
       log_success "Found $count CVE findings with public templates"
       results+=("$public_cves_out")
-      discord_file "$public_cves_out" "**Nuclei CVEs - Public Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_cves_$(date +%s)}"
+      discord_send_file "$public_cves_out" "**Nuclei CVEs - Public Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No CVE findings with public templates"
     fi
@@ -361,7 +365,8 @@ run_panels_scan() {
       local count=$(wc -l < "$custom_panels_out")
       log_success "Found $count panels with custom templates"
       results+=("$custom_panels_out")
-      discord_file "$custom_panels_out" "**Nuclei Panels Discovery - Custom Templates (1019+ Panels)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_panels_$(date +%s)}"
+      discord_send_file "$custom_panels_out" "**Nuclei Panels Discovery - Custom Templates (1019+ Panels)**" "$scan_id"
     else
       log_info "No panels found with custom templates"
     fi
@@ -386,7 +391,8 @@ run_panels_scan() {
       local count=$(wc -l < "$public_panels_out")
       log_success "Found $count exposed panels with public templates"
       results+=("$public_panels_out")
-      discord_file "$public_panels_out" "**Nuclei Panels Discovery - Public Templates**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_panels_$(date +%s)}"
+      discord_send_file "$public_panels_out" "**Nuclei Panels Discovery - Public Templates**" "$scan_id"
     else
       log_info "No exposed panels found with public templates"
     fi
@@ -429,7 +435,8 @@ run_default_logins_scan() {
       local count=$(wc -l < "$custom_logins_out")
       log_success "Found $count default login findings with custom templates"
       results+=("$custom_logins_out")
-      discord_file "$custom_logins_out" "**Nuclei Default Logins - Custom Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_logins_$(date +%s)}"
+      discord_send_file "$custom_logins_out" "**Nuclei Default Logins - Custom Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No default login findings with custom templates"
     fi
@@ -454,7 +461,8 @@ run_default_logins_scan() {
       local count=$(wc -l < "$public_logins_out")
       log_success "Found $count default login findings with public templates"
       results+=("$public_logins_out")
-      discord_file "$public_logins_out" "**Nuclei Default Logins - Public Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_logins_$(date +%s)}"
+      discord_send_file "$public_logins_out" "**Nuclei Default Logins - Public Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No default login findings with public templates"
     fi
@@ -498,7 +506,8 @@ run_vulnerabilities_scan() {
       local count=$(wc -l < "$custom_vulns_out")
       log_success "Found $count vulnerability findings with custom templates"
       results+=("$custom_vulns_out")
-      discord_file "$custom_vulns_out" "**Nuclei Vulnerabilities - Custom Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_vulns_$(date +%s)}"
+      discord_send_file "$custom_vulns_out" "**Nuclei Vulnerabilities - Custom Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No vulnerability findings with custom templates"
     fi
@@ -523,7 +532,8 @@ run_vulnerabilities_scan() {
       local count=$(wc -l < "$public_vulns_out")
       log_success "Found $count vulnerability findings with public templates"
       results+=("$public_vulns_out")
-      discord_file "$public_vulns_out" "**Nuclei Vulnerabilities - Public Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_vulns_$(date +%s)}"
+      discord_send_file "$public_vulns_out" "**Nuclei Vulnerabilities - Public Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No vulnerability findings with public templates"
     fi
@@ -548,7 +558,8 @@ run_vulnerabilities_scan() {
       local count=$(wc -l < "$dast_vulns_out")
       log_success "Found $count vulnerability findings with DAST templates"
       results+=("$dast_vulns_out")
-      discord_file "$dast_vulns_out" "**Nuclei Vulnerabilities - DAST Templates (\`$target_name\`)**"
+      local scan_id="${AUTOAR_CURRENT_SCAN_ID:-nuclei_vulns_$(date +%s)}"
+      discord_send_file "$dast_vulns_out" "**Nuclei Vulnerabilities - DAST Templates (\`$target_name\`)**" "$scan_id"
     else
       log_info "No vulnerability findings with DAST templates"
     fi

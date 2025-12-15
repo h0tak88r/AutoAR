@@ -67,9 +67,7 @@ Commands:
   keyhack search <query>                      Search API key validation templates
   keyhack validate <provider> <api_key>       Generate validation command for API key
   keyhack add <keyname> <command> <desc> [notes] Add a new template
-  jwt scan             -t <url> [--cookie|--header] [-M <mode>]   Test JWT security using jwt_tool
-  jwt query            <query_id>                                   Query JWT tool log by ID
-  react2shell_scan run -d <domain> [-t <threads>]                  Scan hosts for React Server Components RCE (CVE-2025-55182)
+  jwt scan             --token <JWT_TOKEN> [OPTIONS]                Scan JWT token for vulnerabilities using jwt-hack
 
 Workflows:
   lite run            -d <domain>
@@ -112,7 +110,7 @@ cmd_dalfox()     { "$ROOT_DIR/modules/dalfox.sh"      "$@"; }
 cmd_updates()    { "$ROOT_DIR/modules/updates.sh"     "$@"; }
 cmd_dns()        { "$ROOT_DIR/modules/dns_takeover.sh" "$@"; }
 cmd_github()     { "$ROOT_DIR/modules/github_scan.sh"    "$@"; }
-cmd_github_wordlist() { python3 "$ROOT_DIR/python/github_wordlist.py" "$1"; }
+cmd_github_wordlist() { github-wordlist "$1"; }
 cmd_backup()     { "$ROOT_DIR/modules/backup_scan.sh"    "$@"; }
 cmd_depconfusion() { "$ROOT_DIR/modules/depconfusion.sh" "$@"; }
 cmd_misconfig()  { "$ROOT_DIR/modules/misconfig.sh"     "$@"; }
@@ -121,7 +119,6 @@ cmd_keyhack()    { "$ROOT_DIR/modules/keyhack.sh"       "$@"; }
 cmd_jwt()        { "$ROOT_DIR/modules/jwt_scan.sh"      "$@"; }
 cmd_help()       { print_usage; }
 cmd_wpdepconf()  { "$ROOT_DIR/modules/wp_plugin_confusion.sh" "$@" ; }
-cmd_react2shell_scan() { "$ROOT_DIR/modules/react2shell_scan.sh" "$@"; }
 
 main() {
   if [[ $# -lt 1 ]]; then
@@ -175,7 +172,6 @@ main() {
   fastlook)    cmd_fastlook    "$@" ;;
   keyhack)     cmd_keyhack     "$@" ;;
   jwt)         cmd_jwt         "$@" ;;
-  react2shell_scan) cmd_react2shell_scan "$@" ;;
   help)        cmd_help        "$@" ;;
   wpDepConf)   cmd_wpdepconf   "$@" ;;
   --help|-h)  print_usage ;;
