@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Load compatibility functions
+# Load compatibility functions (replaces lib/ functions)
 if [[ -f "$ROOT_DIR/gomodules/compat.sh" ]]; then
   source "$ROOT_DIR/gomodules/compat.sh"
 else
@@ -14,15 +14,13 @@ else
   log_success() { printf "[OK] %s\n" "$*"; }
   ensure_dir() { mkdir -p "$1"; }
   results_dir() { echo "${AUTOAR_RESULTS_DIR:-new-results}/$1"; }
-  discord_send_file() { log_info "File will be sent by Discord bot: $2"; return 0; }
+  discord_send_file() { log_info "File will be sent by Discord bot: $2"; }
 fi
 
-# Load database functions
+# Load database functions (prefer Go wrapper)
 if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
   source "$ROOT_DIR/gomodules/db/wrapper.sh"
 fi
-
-# ensure_subdomains is now in compat.sh - no need to redefine here
 
 usage() { 
   echo "Usage: livehosts get -d <domain> [-t <threads>] [-s|--silent]"
