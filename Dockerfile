@@ -85,6 +85,11 @@ COPY cmd/ ./cmd/
 # Build main autoar binary from cmd/autoar
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar ./cmd/autoar
 
+# Build entrypoint binary (replaces docker-entrypoint.sh)
+WORKDIR /app/gomodules/entrypoint
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar-entrypoint .
+WORKDIR /app
+
 # --- Runtime stage: minimal Debian image ---
 FROM debian:bullseye-slim
 
@@ -119,6 +124,8 @@ RUN cd /app && \
 COPY --from=builder /go/bin/ /usr/local/bin/
 # Copy main autoar binary
 COPY --from=builder /app/autoar /usr/local/bin/autoar
+# Copy entrypoint binary
+COPY --from=builder /app/autoar-entrypoint /usr/local/bin/autoar-entrypoint
 # Copy jwt-hack from builder stage (installed to /usr/local/bin)
 COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
 # Create react2shell symlink for backward compatibility
@@ -140,15 +147,8 @@ RUN mkdir -p /app/new-results /app/nuclei_templates || true
 RUN chmod +x /app/generate_config.sh 2>/dev/null || true \
     && chmod +x /app/main.sh 2>/dev/null || true \
     && chmod +x /app/python/db_handler.py 2>/dev/null || true \
+    && chmod +x /usr/local/bin/autoar-entrypoint \
     && echo "All modules are now Go-based - pure Go implementation" || true
-
-# Build entrypoint binary (replaces docker-entrypoint.sh)
-# Need to build as root, then switch user
-COPY gomodules/entrypoint/ ./gomodules/entrypoint/
-WORKDIR /app/gomodules/entrypoint
-RUN go build -o /usr/local/bin/autoar-entrypoint . && \
-    chmod +x /usr/local/bin/autoar-entrypoint
-WORKDIR /app
 
 # Add a non-root user
 RUN useradd -m -u 10001 autoar && \
