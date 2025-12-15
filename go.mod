@@ -40,6 +40,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
+replace github.com/h0tak88r/AutoAR/gomodules/db => ./gomodules/db
+
 replace github.com/h0tak88r/AutoAR/gomodules/github-wordlist => ./gomodules/github-wordlist
 
 replace github.com/h0tak88r/AutoAR/gomodules/wp-confusion => ./gomodules/wp-confusion
