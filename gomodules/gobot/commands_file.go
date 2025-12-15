@@ -20,7 +20,6 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var scanType string
 	var attachmentID string
-	threads := 100
 
 	// Parse options
 	for _, opt := range options {
@@ -29,8 +28,6 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			scanType = opt.StringValue()
 		case "file":
 			attachmentID = opt.Value.(string)
-		case "threads":
-			threads = int(opt.IntValue())
 		}
 	}
 
@@ -44,7 +41,7 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 	if !isValid {
-		respondWithError(s, i, fmt.Sprintf("Invalid scan type: %s. Valid types: %s", scanType, strings.Join(validScanTypes, ", ")))
+		respond(s, i, fmt.Sprintf("❌ Invalid scan type: %s. Valid types: %s", scanType, strings.Join(validScanTypes, ", ")), false)
 		return
 	}
 
@@ -122,8 +119,9 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	// Update initial response
+	content := fmt.Sprintf("📋 Found %d targets in file. Starting %s scan...", len(targets), scanType)
 	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: fmt.Sprintf("📋 Found %d targets in file. Starting %s scan...", len(targets), scanType),
+		Content: &content,
 	})
 	if err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
@@ -176,7 +174,7 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", i.ChannelID),
 		)
-		output, err := cmd.CombinedOutput()
+		err := cmd.Run()
 
 		if err != nil {
 			log.Printf("[ERROR] Scan failed for %s: %v", target, err)
