@@ -41,8 +41,9 @@ if [[ "${AUTOAR_MODE}" == "discord" || "${AUTOAR_MODE}" == "both" ]]; then
   fi
 fi
 
-if [[ ! -f "${AUTOAR_SCRIPT_PATH:-/app/main.sh}" ]]; then
-  echo "[entrypoint] Error: AutoAR script not found at ${AUTOAR_SCRIPT_PATH:-/app/main.sh}" >&2
+# Check if autoar binary exists (main.sh is now a symlink)
+if [[ ! -f "/usr/local/bin/autoar" ]]; then
+  echo "[entrypoint] Error: AutoAR binary not found at /usr/local/bin/autoar" >&2
   exit 1
 fi
 
