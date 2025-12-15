@@ -128,6 +128,27 @@ func main() {
 			log.Fatalf("Failed to insert subdomain: %v", err)
 		}
 
+	case "insert-js-file":
+		if len(os.Args) < 5 {
+			fmt.Fprintf(os.Stderr, "Usage: %s insert-js-file <domain> <subdomain> <js_url> [content_hash]\n", os.Args[0])
+			os.Exit(1)
+		}
+		domain := os.Args[2]
+		subdomain := os.Args[3]
+		jsURL := os.Args[4]
+		contentHash := ""
+		if len(os.Args) >= 6 {
+			contentHash = os.Args[5]
+		}
+
+		if err := db.Init(); err != nil {
+			log.Fatalf("Failed to initialize database: %v", err)
+		}
+
+		if err := db.InsertJSFile(domain, subdomain, jsURL, contentHash); err != nil {
+			log.Fatalf("Failed to insert JS file: %v", err)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		os.Exit(1)

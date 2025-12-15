@@ -281,6 +281,55 @@ func InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL st
 	return nil
 }
 
+// InsertJSFile inserts or updates a JS file for a subdomain
+func InsertJSFile(domain, subdomain, jsURL, contentHash string) error {
+	if dbConn == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	
+	domainID, err := InsertOrGetDomain(domain)
+	if err != nil {
+		return fmt.Errorf("failed to get domain ID: %v", err)
+	}
+	
+	// Get or create subdomain
+	var subdomainID int
+	err = dbConn.QueryRow(`
+		SELECT id FROM subdomains WHERE domain_id = $1 AND subdomain = $2 LIMIT 1;
+	`, domainID, subdomain).Scan(&subdomainID)
+	
+	if err == sql.ErrNoRows {
+		// Create subdomain first
+		err = dbConn.QueryRow(`
+			INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status)
+			VALUES ($1, $2, false, '', '', 0, 0)
+			RETURNING id;
+		`, domainID, subdomain).Scan(&subdomainID)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("failed to get/create subdomain: %v", err)
+	}
+	
+	// Insert or update JS file
+	_, err = dbConn.Exec(`
+		INSERT INTO js_files (subdomain_id, js_url, content_hash, last_scanned)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (js_url) DO UPDATE SET
+			content_hash = $3,
+			last_scanned = NOW(),
+			updated_at = NOW();
+	`, subdomainID, jsURL, contentHash)
+	
+	if err != nil {
+		return fmt.Errorf("failed to insert/update JS file: %v", err)
+	}
+	
+	return nil
+}
+
 // GetConnection returns the database connection (for advanced use)
 func GetConnection() *sql.DB {
 	return dbConn
