@@ -424,11 +424,10 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		{
 			Name:        "scan_from_file",
-			Description: "Run a scan using targets from an uploaded file (domains, URLs, etc.)",
+			Description: "Run a scan using targets from a file. Reply to a message with a file attachment, or provide a message_id",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_type", Description: "Type of scan (subdomains, livehosts, nuclei, etc.)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File containing targets (one per line)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "message_id", Description: "Message ID containing the file attachment (optional if replying)", Required: false},
 			},
 		},
 	}

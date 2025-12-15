@@ -15,19 +15,19 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// handleScanFromFile processes a file upload and runs a scan on each target in the file
+// handleScanFromFile processes a file from a message (reply or message_id) and runs a scan on each target
 func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var scanType string
-	var attachmentID string
+	var messageID string
 
 	// Parse options
 	for _, opt := range options {
 		switch opt.Name {
 		case "scan_type":
 			scanType = opt.StringValue()
-		case "file":
-			attachmentID = opt.Value.(string)
+		case "message_id":
+			messageID = opt.StringValue()
 		}
 	}
 
@@ -49,7 +49,7 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: "📥 Downloading file and processing targets...",
+			Content: "📥 Looking for file attachment...",
 		},
 	})
 	if err != nil {
@@ -57,15 +57,65 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	// Get attachment details from resolved attachments
+	// Get attachment from message
 	var attachment *discordgo.MessageAttachment
-	if i.ApplicationCommandData().Resolved != nil && i.ApplicationCommandData().Resolved.Attachments != nil {
-		attachment = i.ApplicationCommandData().Resolved.Attachments[attachmentID]
+	
+	// Method 1: Check if this is a message command (reply context)
+	if i.Message != nil && len(i.Message.Attachments) > 0 {
+		// This is a message context command - use the first attachment
+		attachment = i.Message.Attachments[0]
+		log.Printf("[INFO] Found attachment from message context: %s", attachment.Filename)
+	} else if messageID != "" {
+		// Method 2: Fetch message by ID
+		msg, err := s.ChannelMessage(i.ChannelID, messageID)
+		if err != nil {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("❌ Error fetching message: %v", err),
+			})
+			return
+		}
+		if len(msg.Attachments) == 0 {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: "❌ No file attachments found in the specified message",
+			})
+			return
+		}
+		attachment = msg.Attachments[0]
+		log.Printf("[INFO] Found attachment from message ID: %s", attachment.Filename)
+	} else {
+		// Method 3: Check if there's a referenced message (reply)
+		if i.Message != nil && i.Message.MessageReference != nil {
+			refMsgID := i.Message.MessageReference.MessageID
+			refChannelID := i.Message.MessageReference.ChannelID
+			if refChannelID == "" {
+				refChannelID = i.ChannelID
+			}
+			msg, err := s.ChannelMessage(refChannelID, refMsgID)
+			if err != nil {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("❌ Error fetching replied message: %v", err),
+				})
+				return
+			}
+			if len(msg.Attachments) == 0 {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: "❌ No file attachments found in the replied message",
+				})
+				return
+			}
+			attachment = msg.Attachments[0]
+			log.Printf("[INFO] Found attachment from replied message: %s", attachment.Filename)
+		} else {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: "❌ No file found. Please:\n1. Reply to a message with a file attachment, OR\n2. Provide a message_id parameter with a message containing a file",
+			})
+			return
+		}
 	}
 	
 	if attachment == nil || attachment.URL == "" {
 		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: "❌ Error: Could not find attachment",
+			Content: "❌ Error: Could not find valid attachment",
 		})
 		return
 	}
