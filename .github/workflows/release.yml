@@ -38,17 +38,21 @@ jobs:
           # Copy all necessary files
           cp -r modules/ release/
           cp -r lib/ release/
-          cp -r python/ release/
-          cp -r nuclei_templates/ release/
-          cp -r Wordlists/ release/
+          # Copy python/ only if it exists (may contain db_handler.py)
+          [ -d python/ ] && cp -r python/ release/ || true
+          cp -r nuclei_templates/ release/ || true
+          cp -r Wordlists/ release/ || true
           cp -r regexes/ release/
-          cp -r newcves/ release/
-          cp *.sh release/
-          cp *.py release/
-          cp *.yaml release/
-          cp *.yml release/
-          cp *.txt release/
-          cp *.md release/
+          [ -d newcves/ ] && cp -r newcves/ release/ || true
+          [ -d gomodules/ ] && cp -r gomodules/ release/ || true
+          cp *.sh release/ 2>/dev/null || true
+          cp *.py release/ 2>/dev/null || true
+          cp *.yaml release/ 2>/dev/null || true
+          cp *.yml release/ 2>/dev/null || true
+          cp *.txt release/ 2>/dev/null || true
+          cp *.md release/ 2>/dev/null || true
+          cp go.mod go.sum release/ 2>/dev/null || true
+          cp main.go release/ 2>/dev/null || true
           cp Dockerfile release/
           cp docker-compose.yml release/
           cp docker-entrypoint.sh release/
