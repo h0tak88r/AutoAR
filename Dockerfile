@@ -79,6 +79,9 @@ COPY gomodules/ ./gomodules/
 # Download dependencies
 RUN go mod download
 
+# Build db-cli helper binary
+RUN cd gomodules/db/cmd && CGO_ENABLED=0 GOOS=linux go build -o /app/db-cli .
+
 # Copy main.go
 COPY main.go ./
 
@@ -113,6 +116,8 @@ RUN cd /app && \
 COPY --from=builder /go/bin/ /usr/local/bin/
 # Copy main autoar binary
 COPY --from=builder /app/autoar /usr/local/bin/autoar
+# Copy db-cli helper binary
+COPY --from=builder /app/db-cli /usr/local/bin/db-cli
 # Copy jwt-hack from builder stage (installed to /usr/local/bin)
 COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
 # Create react2shell symlink for backward compatibility
