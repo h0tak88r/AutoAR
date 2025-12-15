@@ -12,6 +12,7 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/db"
 	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
 	"github.com/h0tak88r/AutoAR/gomodules/gobot"
+	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
 	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
 	"github.com/h0tak88r/AutoAR/gomodules/wp-confusion"
 )
@@ -209,13 +210,40 @@ func handleGitHubWordlist(args []string) error {
 func handleWPConfusion(args []string) error {
 	opts := wpconfusion.ScanOptions{}
 	
-	// Parse arguments similar to original: -u <url> | -l <list> -t | -p [-o <output>]
+	// Support both legacy bash-style and new AutoAR-style CLI:
+	// - Legacy:  wpDepConf -u <url> [-t] [-p] [-o <output>]
+	// - AutoAR:  wpDepConf scan -d <domain> | -l <live_hosts_file>
+	//
+	// We normalize:
+	// - Leading "scan" subcommand is ignored
+	// - "-d <domain>" is converted to URL "https://<domain>"
+	// - At least one of Theme/Plugins is enabled (default: plugins only)
 	for i := 0; i < len(args); i++ {
-		switch args[i] {
+		arg := args[i]
+		
+		// Ignore optional "scan" subcommand
+		if arg == "scan" {
+			continue
+		}
+		
+		switch arg {
 		case "-u", "--url":
 			if i+1 < len(args) {
 				opts.URL = args[i+1]
 				i++
+			}
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain := strings.TrimSpace(args[i+1])
+				i++
+				if domain != "" {
+					// If the user passed bare domain (example.com), turn it into https://example.com
+					if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+						opts.URL = "https://" + domain
+					} else {
+						opts.URL = domain
+					}
+				}
 			}
 		case "-l", "--list":
 			if i+1 < len(args) {
@@ -236,6 +264,11 @@ func handleWPConfusion(args []string) error {
 		case "--discord":
 			opts.Discord = true
 		}
+	}
+	
+	// If neither theme nor plugins explicitly set, default to plugins scan
+	if !opts.Theme && !opts.Plugins {
+		opts.Plugins = true
 	}
 	
 	return wpconfusion.ScanWPConfusion(opts)
@@ -308,6 +341,50 @@ func handleSubdomainsGo(args []string) error {
 		}
 	}
 	
+	return nil
+}
+
+// handleLivehostsGo runs live host discovery for a given domain using the Go livehosts module.
+// It mirrors the behaviour of "modules/livehosts.sh get" but implemented in Go.
+func handleLivehostsGo(args []string) error {
+	var domain string
+	threads := 100
+	silent := false
+
+	// Parse arguments: get -d <domain> [-t <threads>] [-s|--silent]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					threads = t
+				}
+				i++
+			}
+		case "-s", "--silent":
+			silent = true
+		}
+	}
+
+	if domain == "" {
+		fmt.Println("Usage: livehosts get -d <domain> [-t <threads>] [-s|--silent]")
+		return fmt.Errorf("domain is required")
+	}
+
+	res, err := livehosts.FilterLiveHosts(domain, threads, silent)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[INFO] Filtering live hosts via httpx with %d threads\n", res.Threads)
+	fmt.Printf("[OK] Found %d live subdomains out of %d for %s\n", res.LiveSubs, res.TotalSubs, res.Domain)
+	fmt.Printf("[INFO] Live hosts saved to %s\n", res.LiveSubsFile)
+
 	return nil
 }
 
@@ -463,10 +540,10 @@ func main() {
 	
 	switch cmd {
 	// Bash modules - most commands
-	case "livehosts", "cnames", "urls", "js", "s3", "domain",
+	case "cnames", "urls", "js", "s3", "domain",
 		"cleanup", "check-tools", "lite", "reflection", "nuclei", "tech",
 		"ports", "gf", "sqlmap", "dalfox", "dns", "github", "backup",
-		"depconfusion", "misconfig", "fastlook", "keyhack", "jwt", "wpDepConf":
+		"depconfusion", "misconfig", "fastlook", "keyhack", "jwt":
 		err = runBashModule(cmd, args)
 	
 	// Special nested commands
@@ -497,9 +574,22 @@ func main() {
 			err = runBashModule("subdomains", args)
 		}
 	
+	case "livehosts":
+		// Use Go livehosts module if action is "get"
+		if len(args) > 0 && args[0] == "get" {
+			err = handleLivehostsGo(args[1:])
+		} else {
+			// Fallback to bash module for other actions (none currently)
+			err = runBashModule("livehosts", args)
+		}
+	
 	case "db":
 		// Database operations via Go module
 		err = handleDBCommand(args)
+	
+	case "wpDepConf":
+		// WordPress dependency confusion scan via Go module
+		err = handleWPConfusion(args)
 	
 	// Bot/API commands
 	case "bot":
