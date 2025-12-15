@@ -16,7 +16,11 @@ echo "[entrypoint] Configuration loaded successfully"
 # Initialize database schema (only if database is configured)
 if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
   echo "[entrypoint] Initializing database schema"
-  source /app/lib/db.sh && db_init_schema || echo "[entrypoint] Database schema initialization completed with warnings"
+  if command -v db-cli >/dev/null 2>&1; then
+    db-cli init-schema || echo "[entrypoint] Database schema initialization completed with warnings"
+  else
+    echo "[entrypoint] db-cli not found, skipping schema initialization"
+  fi
   
   # KeyHack templates are already in the database - no import needed
   # Templates can be added via 'keyhack add' command or Discord /keyhack_add
