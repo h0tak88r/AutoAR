@@ -75,7 +75,8 @@ db_query() {
   local query="$1"
   require_db_client
   
-  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "$query" 2>/dev/null || true
+  # Capture both stdout and stderr, but don't fail on errors
+  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -A -c "$query" 2>&1 || true
 }
 
 # Initialize database schema
@@ -203,23 +204,33 @@ db_insert_domain() {
   local escaped_domain
   escaped_domain=$(db_escape_string "$domain")
   
+  if [[ -z "$domain" ]]; then
+    log_error "db_insert_domain: domain is empty"
+    return 1
+  fi
+  
   if [[ "$DB_TYPE" == "postgresql" ]]; then
     # Try to insert/update using domain column, also update name for backward compatibility
     domain_id=$(db_query "INSERT INTO domains (domain, name) VALUES ('$escaped_domain', '$escaped_domain') 
                           ON CONFLICT (domain) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW() 
-                          RETURNING id;" | head -1)
+                          RETURNING id;" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
     # If domain column conflict didn't work, try name column
     if [[ -z "$domain_id" ]]; then
       domain_id=$(db_query "INSERT INTO domains (domain, name) VALUES ('$escaped_domain', '$escaped_domain') 
                             ON CONFLICT (name) DO UPDATE SET domain = COALESCE(domain, EXCLUDED.domain), updated_at = NOW() 
-                            RETURNING id;" | head -1)
+                            RETURNING id;" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
     fi
     # If still no ID, try to get existing
     if [[ -z "$domain_id" ]]; then
-      domain_id=$(db_query "SELECT id FROM domains WHERE domain = '$escaped_domain' OR name = '$escaped_domain' LIMIT 1;" | head -1)
+      domain_id=$(db_query "SELECT id FROM domains WHERE domain = '$escaped_domain' OR name = '$escaped_domain' LIMIT 1;" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
     fi
   else
-    domain_id=$(db_query "INSERT OR IGNORE INTO domains (domain) VALUES ('$escaped_domain'); SELECT id FROM domains WHERE domain = '$escaped_domain';" | head -1)
+    domain_id=$(db_query "INSERT OR IGNORE INTO domains (domain) VALUES ('$escaped_domain'); SELECT id FROM domains WHERE domain = '$escaped_domain';" 2>&1 | grep -v "^$" | head -1 | tr -d '[:space:]')
+  fi
+  
+  if [[ -z "$domain_id" ]]; then
+    log_error "db_insert_domain: Failed to get domain_id for domain: $domain"
+    return 1
   fi
   
   echo "$domain_id"
@@ -290,6 +301,11 @@ db_batch_insert_subdomains() {
   local domain_id
   domain_id=$(db_insert_domain "$domain")
   
+  if [[ -z "$domain_id" ]]; then
+    log_error "Failed to get domain_id for $domain, skipping database save"
+    return 1
+  fi
+
   log_info "Batch inserting subdomains for $domain (domain_id: $domain_id)"
   
   if [[ "$DB_TYPE" == "postgresql" ]]; then
