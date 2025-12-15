@@ -259,7 +259,7 @@ func BatchInsertSubdomains(domain string, subdomains []string, isLive bool) erro
 	defer tx.Rollback(ctx)
 	
 	// Prepare statement for batch insert
-	stmt, err := tx.Prepare(ctx, "batch_insert_subdomains", `
+	_, err = tx.Prepare(ctx, "batch_insert_subdomains", `
 		INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status)
 		VALUES ($1, $2, $3, '', '', 0, 0)
 		ON CONFLICT (subdomain) DO UPDATE SET 
