@@ -66,22 +66,6 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		attachment = i.ApplicationCommandData().Resolved.Attachments[attachmentID]
 	}
 	
-	// Fallback: try to get from options directly
-	if attachment == nil {
-		for _, opt := range options {
-			if opt.Name == "file" {
-				// Try to get attachment URL from option value
-				if attachmentURL, ok := opt.Value.(string); ok && attachmentURL != "" {
-					// Create a temporary attachment object
-					attachment = &discordgo.MessageAttachment{
-						URL: attachmentURL,
-					}
-					break
-				}
-			}
-		}
-	}
-	
 	if attachment == nil || attachment.URL == "" {
 		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: "❌ Error: Could not find attachment",
