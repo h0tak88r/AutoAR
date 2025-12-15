@@ -78,24 +78,36 @@ func InitSchema() error {
 	}
 	
 	schema := `
+	-- Create domains table with proper constraints
 	CREATE TABLE IF NOT EXISTS domains (
 		id SERIAL PRIMARY KEY,
-		domain VARCHAR(255) UNIQUE NOT NULL,
+		domain VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Add updated_at column if it doesn't exist (for backward compatibility)
+	-- Ensure UNIQUE constraint exists on domain column
 	DO $$ 
 	BEGIN
+		-- Add unique constraint if it doesn't exist
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'domains_domain_key' 
+			AND conrelid = 'domains'::regclass
+		) THEN
+			ALTER TABLE domains ADD CONSTRAINT domains_domain_key UNIQUE (domain);
+		END IF;
+		
+		-- Add updated_at column if it doesn't exist (for backward compatibility)
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='domains' AND column_name='updated_at') THEN
 			ALTER TABLE domains ADD COLUMN updated_at TIMESTAMP DEFAULT NOW();
 		END IF;
 	END $$;
 	
+	-- Create subdomains table with proper constraints
 	CREATE TABLE IF NOT EXISTS subdomains (
 		id SERIAL PRIMARY KEY,
 		domain_id INTEGER REFERENCES domains(id) ON DELETE CASCADE,
-		subdomain VARCHAR(255) UNIQUE NOT NULL,
+		subdomain VARCHAR(255) NOT NULL,
 		is_live BOOLEAN DEFAULT FALSE,
 		http_url VARCHAR(512),
 		https_url VARCHAR(512),
@@ -105,19 +117,45 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
+	-- Ensure UNIQUE constraint exists on subdomain column
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'subdomains_subdomain_key' 
+			AND conrelid = 'subdomains'::regclass
+		) THEN
+			ALTER TABLE subdomains ADD CONSTRAINT subdomains_subdomain_key UNIQUE (subdomain);
+		END IF;
+	END $$;
+	
+	-- Create js_files table with proper constraints
 	CREATE TABLE IF NOT EXISTS js_files (
 		id SERIAL PRIMARY KEY,
 		subdomain_id INTEGER REFERENCES subdomains(id) ON DELETE CASCADE,
-		js_url VARCHAR(1024) UNIQUE NOT NULL,
+		js_url VARCHAR(1024) NOT NULL,
 		content_hash VARCHAR(64),
 		last_scanned TIMESTAMP,
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
+	-- Ensure UNIQUE constraint exists on js_url column
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'js_files_js_url_key' 
+			AND conrelid = 'js_files'::regclass
+		) THEN
+			ALTER TABLE js_files ADD CONSTRAINT js_files_js_url_key UNIQUE (js_url);
+		END IF;
+	END $$;
+	
+	-- Create keyhack_templates table with proper constraints
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
 		id SERIAL PRIMARY KEY,
-		keyname VARCHAR(255) UNIQUE NOT NULL,
+		keyname VARCHAR(255) NOT NULL,
 		command_template TEXT NOT NULL,
 		method VARCHAR(10) DEFAULT 'GET',
 		url TEXT NOT NULL,
@@ -128,6 +166,18 @@ func InitSchema() error {
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
+	
+	-- Ensure UNIQUE constraint exists on keyname column
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'keyhack_templates_keyname_key' 
+			AND conrelid = 'keyhack_templates'::regclass
+		) THEN
+			ALTER TABLE keyhack_templates ADD CONSTRAINT keyhack_templates_keyname_key UNIQUE (keyname);
+		END IF;
+	END $$;
 	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
@@ -151,31 +201,34 @@ func InsertOrGetDomain(domain string) (int, error) {
 		}
 	}
 	
+	// First, try to get existing domain
 	var domainID int
-	
-	// Try to insert, on conflict get existing
 	err := dbPool.QueryRow(ctx, `
+		SELECT id FROM domains WHERE domain = $1 LIMIT 1;
+	`, domain).Scan(&domainID)
+	
+	if err == nil {
+		// Domain exists, return its ID
+		return domainID, nil
+	}
+	
+	if err != pgx.ErrNoRows {
+		// Unexpected error
+		return 0, fmt.Errorf("failed to query domain: %v", err)
+	}
+	
+	// Domain doesn't exist, insert it
+	err = dbPool.QueryRow(ctx, `
 		INSERT INTO domains (domain) 
 		VALUES ($1) 
-		ON CONFLICT (domain) DO NOTHING 
 		RETURNING id;
 	`, domain).Scan(&domainID)
 	
-	if err == pgx.ErrNoRows {
-		// Domain already exists, get its ID
-		err = dbPool.QueryRow(ctx, `
-			SELECT id FROM domains WHERE domain = $1 LIMIT 1;
-		`, domain).Scan(&domainID)
-	}
-	
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			// Try one more time with SELECT
-			err = dbPool.QueryRow(ctx, `
-				SELECT id FROM domains WHERE domain = $1 LIMIT 1;
-			`, domain).Scan(&domainID)
-		}
-		if err != nil {
+		// If insert failed due to race condition (another goroutine inserted it), try to get it again
+		if err := dbPool.QueryRow(ctx, `
+			SELECT id FROM domains WHERE domain = $1 LIMIT 1;
+		`, domain).Scan(&domainID); err != nil {
 			return 0, fmt.Errorf("failed to insert/get domain: %v", err)
 		}
 	}
@@ -205,10 +258,13 @@ func BatchInsertSubdomains(domain string, subdomains []string, isLive bool) erro
 	}
 	defer tx.Rollback(ctx)
 	
-	_, err = tx.Prepare(ctx, "batch_insert_subdomains", `
+	// Prepare statement for batch insert
+	stmt, err := tx.Prepare(ctx, "batch_insert_subdomains", `
 		INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status)
 		VALUES ($1, $2, $3, '', '', 0, 0)
-		ON CONFLICT (subdomain) DO UPDATE SET updated_at = $4;
+		ON CONFLICT (subdomain) DO UPDATE SET 
+			updated_at = $4,
+			domain_id = EXCLUDED.domain_id;
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %v", err)
@@ -333,7 +389,7 @@ func InsertJSFile(domain, jsURL, contentHash string) error {
 		INSERT INTO js_files (subdomain_id, js_url, content_hash, last_scanned)
 		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (js_url) DO UPDATE SET
-			content_hash = $3,
+			content_hash = EXCLUDED.content_hash,
 			last_scanned = NOW(),
 			updated_at = NOW();
 	`, subdomainID, jsURL, contentHash)
@@ -357,13 +413,13 @@ func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, 
 		INSERT INTO keyhack_templates (keyname, command_template, method, url, header, body, description, notes)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (keyname) DO UPDATE SET
-			command_template = $2,
-			method = $3,
-			url = $4,
-			header = $5,
-			body = $6,
-			description = $7,
-			notes = $8,
+			command_template = EXCLUDED.command_template,
+			method = EXCLUDED.method,
+			url = EXCLUDED.url,
+			header = EXCLUDED.header,
+			body = EXCLUDED.body,
+			description = EXCLUDED.description,
+			notes = EXCLUDED.notes,
 			updated_at = NOW();
 	`, keyname, commandTemplate, method, url, header, body, description, notes)
 	
