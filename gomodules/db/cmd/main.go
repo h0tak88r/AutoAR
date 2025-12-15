@@ -148,6 +148,28 @@ func main() {
 			log.Fatalf("Failed to insert JS file: %v", err)
 		}
 
+	case "insert-keyhack-template":
+		if len(os.Args) < 9 {
+			fmt.Fprintf(os.Stderr, "Usage: %s insert-keyhack-template <keyname> <command> <method> <url> <header> <body> <notes> <description>\n", os.Args[0])
+			os.Exit(1)
+		}
+		keyname := os.Args[2]
+		command := os.Args[3]
+		method := os.Args[4]
+		url := os.Args[5]
+		header := os.Args[6]
+		body := os.Args[7]
+		notes := os.Args[8]
+		description := os.Args[9]
+
+		if err := db.Init(); err != nil {
+			log.Fatalf("Failed to initialize database: %v", err)
+		}
+
+		if err := db.InsertKeyhackTemplate(keyname, command, method, url, header, body, notes, description); err != nil {
+			log.Fatalf("Failed to insert keyhack template: %v", err)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		os.Exit(1)

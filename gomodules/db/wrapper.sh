@@ -46,6 +46,29 @@ db_init_schema() {
   "$DB_CLI" init-schema >/dev/null 2>&1
 }
 
+# db_insert_js_file - Insert or update a JS file (subdomain extracted from URL automatically)
+db_insert_js_file() {
+  local domain="$1"
+  local js_url="$2"
+  local content_hash="${3:-}"
+  
+  "$DB_CLI" insert-js-file "$domain" "$js_url" "$content_hash"
+}
+
+# db_insert_keyhack_template - Insert or update a KeyHack template
+db_insert_keyhack_template() {
+  local keyname="$1"
+  local command_template="$2"
+  local method="${3:-GET}"
+  local url="$4"
+  local header="${5:-}"
+  local body="${6:-}"
+  local notes="${7:-}"
+  local description="${8:-}"
+  
+  "$DB_CLI" insert-keyhack-template "$keyname" "$command_template" "$method" "$url" "$header" "$body" "$notes" "$description"
+}
+
 # db_ensure_connection - Check database connection
 db_ensure_connection() {
   "$DB_CLI" check-connection >/dev/null 2>&1
