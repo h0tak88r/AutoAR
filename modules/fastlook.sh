@@ -39,12 +39,12 @@ fastlook_run() {
   # Step 2: Live host filtering
   log_info "Step 2/3: Live host filtering"
   discord_send_progress "🌐 **Step 2/3:** Filtering live hosts for $domain"
-  "$ROOT_DIR/modules/livehosts.sh" get -d "$domain" || log_warn "Live host filtering failed, continuing..."
+  autoar livehosts get -d "$domain" -s || log_warn "Live host filtering failed, continuing..."
   
   # Step 3: URL collection (including JS URLs)
   log_info "Step 3/3: URL collection"
   discord_send_progress "🔍 **Step 3/3:** Collecting URLs and JS files for $domain"
-  "$ROOT_DIR/modules/urls.sh" collect -d "$domain" || log_warn "URL collection failed, continuing..."
+  autoar urls collect -d "$domain" || log_warn "URL collection failed, continuing..."
   
   # Send completion notification
   discord_send_progress "✅ **Fast Look completed for $domain** - All results sent above"

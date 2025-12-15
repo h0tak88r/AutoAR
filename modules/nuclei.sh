@@ -124,20 +124,12 @@ nuclei_run() {
     ensure_dir "$output_dir"
 
     # Always perform subdomain enumeration and live-host detection for domain scans
-    log_info "Performing subdomain enumeration and live-host detection for $domain using livehosts module"
+    log_info "Performing subdomain enumeration and live-host detection for $domain using Go modules"
     ensure_dir "$dir/subs"
 
-    local livehosts_script="$ROOT_DIR/modules/livehosts.sh"
-
-    if [[ -f "$livehosts_script" ]]; then
-      # Use the livehosts module to enumerate subdomains and detect live hosts.
-      # This will produce $dir/subs/all-subs.txt and $dir/subs/live-subs.txt
-      log_info "Invoking livehosts module: $livehosts_script get -d $domain -t $threads"
-      # Run in subshell to avoid set -e causing exit on non-zero; livehosts.sh already handles failures gracefully.
-      "$livehosts_script" get -d "$domain" -t "$threads" || log_warn "livehosts module exited with non-zero status"
-    else
-      log_warn "livehosts module not found at $livehosts_script. This project centralizes subdomain enumeration & live-host detection in that module; please ensure it exists."
-    fi
+    # Ensure subdomains and live hosts via Go-backed helpers (silent to avoid extra Discord noise)
+    ensure_subdomains "$domain" "$dir/subs/all-subs.txt" true || log_warn "Subdomain enumeration failed for $domain"
+    ensure_live_hosts "$domain" "$dir/subs/live-subs.txt" || log_warn "Live host detection failed for $domain"
 
     # Report counts if files exist
     if [[ -s "$dir/subs/all-subs.txt" ]]; then
