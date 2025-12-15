@@ -22,59 +22,7 @@ if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
   source "$ROOT_DIR/gomodules/db/wrapper.sh"
 fi
 
-# ensure_subdomains - Ensure subdomains file exists (from DB or enumeration)
-ensure_subdomains() {
-  local domain="$1"
-  local subs_file="$2"
-  local silent="${3:-false}"
-  local force_refresh="${4:-false}"
-  
-  # If force_refresh is true, remove existing file
-  if [[ "$force_refresh" == "true" && -f "$subs_file" ]]; then
-    log_info "Force refresh requested, removing existing subdomains file"
-    rm -f "$subs_file"
-  fi
-  
-  # Check if file exists and is not empty
-  if [[ -s "$subs_file" ]]; then
-    local count=$(wc -l < "$subs_file" 2>/dev/null || echo 0)
-    log_info "Using existing subdomains from $subs_file ($count subdomains)"
-    if [[ $count -lt 5 ]]; then
-      log_warn "Very few subdomains found ($count), might be stale. Re-enumerating..."
-      rm -f "$subs_file"
-    else
-      return 0
-    fi
-  fi
-  
-  # Try to pull from database (if database is available)
-  if [[ -n "${DB_HOST:-}" && -n "${DB_USER:-}" ]]; then
-    log_info "Attempting to pull subdomains from database"
-    if command -v autoar >/dev/null 2>&1; then
-      # Use Go module to get subdomains from DB (if we add that function)
-      # For now, just try enumeration
-    fi
-  fi
-  
-  # Run subdomain enumeration
-  log_info "No subdomains in DB, running enumeration"
-  if command -v autoar >/dev/null 2>&1; then
-    # Try Go subdomains module first
-    if autoar subdomains get -d "$domain" -t 100 ${silent:+-s} 2>&1; then
-      # Check if file was created
-      if [[ -f "$subs_file" ]]; then
-        return 0
-      fi
-    fi
-  fi
-  
-  # Fallback to bash module
-  if [[ "$silent" == "true" ]]; then
-    "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" --silent || return 1
-  else
-    "$ROOT_DIR/modules/subdomains.sh" get -d "$domain" || return 1
-  fi
-}
+# ensure_subdomains is now in compat.sh - no need to redefine here
 
 usage() { 
   echo "Usage: livehosts get -d <domain> [-t <threads>] [-s|--silent]"
