@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	autoarScript = getEnv("AUTOAR_SCRIPT_PATH", "/app/main.sh")
+	autoarScript = getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar")
 	activeScans  = make(map[string]*ScanInfo)
 	scansMutex   sync.RWMutex
 )
