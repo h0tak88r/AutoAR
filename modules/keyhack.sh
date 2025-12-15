@@ -17,11 +17,9 @@ else
   discord_send_file() { log_info "File will be sent by Discord bot: $2"; }
 fi
 
-# Load database functions (prefer Go wrapper, fallback to bash)
+# Load database functions (prefer Go wrapper)
 if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
   source "$ROOT_DIR/gomodules/db/wrapper.sh"
-elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
-  # lib/db.sh functionality in gomodules/ - functionality in gomodules/
 fi
 
 usage() {
