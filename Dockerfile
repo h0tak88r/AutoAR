@@ -108,8 +108,6 @@ COPY regexes/ ./regexes/
 COPY templates/ ./templates/
 COPY autoar.sample.yaml ./
 COPY env.example ./
-COPY .dockerignore ./
-COPY .gitignore ./
 
 # Clone submodules directly
 RUN cd /app && \
