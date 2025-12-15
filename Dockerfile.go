@@ -8,15 +8,7 @@ WORKDIR /app
 # Install system packages required for building tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl build-essential cmake libpcap-dev ca-certificates \
-    pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Rust using rustup (newer version required for jwt-hack)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-    export PATH="$HOME/.cargo/bin:$PATH" && \
-    rustup default stable && \
-    rustc --version && \
-    cargo --version
 
 # Install next88 (React2Shell scanner) from GitHub
 RUN go install github.com/h0tak88r/next88@latest && \
@@ -50,40 +42,13 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
 RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin || \
     (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
 
-# Install jwt-hack (Rust-based JWT toolkit)
-# Use rustup-installed Rust (ensure PATH is set)
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN set -e && \
-    echo "Installing jwt-hack..." && \
-    rustc --version && \
-    cargo --version && \
-    cargo install jwt-hack --locked --root /usr/local --verbose 2>&1 | tee /tmp/jwt-hack-install.log && \
-    if [ ! -f /usr/local/bin/jwt-hack ] || [ ! -s /usr/local/bin/jwt-hack ]; then \
-        echo "[ERROR] jwt-hack binary not found or empty after installation" && \
-        cat /tmp/jwt-hack-install.log && \
-        exit 1; \
-    fi && \
-    chmod +x /usr/local/bin/jwt-hack && \
-    /usr/local/bin/jwt-hack --version && \
-    echo "jwt-hack installed successfully"
-
-# Build AutoAR main CLI and modules
-WORKDIR /app
-
-# Copy go.mod and go.sum first
-COPY go.mod go.sum ./
-
-# Copy gomodules directory (needed for go mod download with replace directives)
-COPY gomodules/ ./gomodules/
-
-# Download dependencies
+# Build AutoAR Go bot
+WORKDIR /app/go-bot
+COPY go-bot/go.mod go-bot/go.sum ./
 RUN go mod download
 
-# Copy main.go
-COPY main.go ./
-
-# Build main autoar binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar .
+COPY go-bot/*.go ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar-bot .
 
 # --- Runtime stage: minimal Debian image ---
 FROM debian:bullseye-slim
@@ -109,17 +74,12 @@ RUN cd /app && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
     git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
 
-# Copy Go tools from builder stage (including next88)
+# Copy Go tools from builder stage (including next88 and autoar-bot)
 COPY --from=builder /go/bin/ /usr/local/bin/
-# Copy main autoar binary
-COPY --from=builder /app/autoar /usr/local/bin/autoar
-# Copy jwt-hack from builder stage (installed to /usr/local/bin)
-COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
+COPY --from=builder /app/autoar-bot /usr/local/bin/autoar-bot
 # Create react2shell symlink for backward compatibility
-# Also create main.sh symlink to autoar for backward compatibility
 RUN ln -sf /usr/local/bin/next88 /usr/local/bin/react2shell && \
-    ln -sf /usr/local/bin/autoar /app/main.sh && \
-    chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell /usr/local/bin/autoar /usr/local/bin/jwt-hack 2>/dev/null || true
+    chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell /usr/local/bin/autoar-bot
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
@@ -151,4 +111,4 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
 
 # Basic healthcheck: ensure process is running
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD pgrep -f autoar || exit 1
+  CMD pgrep -f autoar-bot || exit 1

@@ -18,13 +18,6 @@ run_wp_confusion_scan() {
   local scan_type="${2:-plugins}"
   local output_dir="$3"
   
-  local wp_tool="$ROOT_DIR/python/wp_update_confusion.py"
-  
-  if [[ ! -f "$wp_tool" ]]; then
-    log_error "WordPress confusion tool not found: $wp_tool"
-    return 1
-  fi
-  
   # Generate output filename
   local timestamp=$(date +"%Y%m%d_%H%M%S")
   local target_name=$(echo "$target" | sed 's|https\?://||' | sed 's|/|_|g')
@@ -32,8 +25,8 @@ run_wp_confusion_scan() {
   
   log_info "Running WordPress Plugin Confusion scan for: $target"
   
-  # Build command
-  local cmd=("python3" "$wp_tool")
+  # Build command using Go binary
+  local cmd=("wp-confusion")
   
   if [[ "$target" =~ ^https?:// ]]; then
     cmd+=("-u" "$target")
@@ -49,7 +42,10 @@ run_wp_confusion_scan() {
     cmd+=("-p" "-t")  # Both plugins and themes
   fi
   
-  cmd+=("-o" "$output_file" "--discord")
+  cmd+=("-o" "$output_file")
+  if [[ -n "${DISCORD_WEBHOOK:-}" ]] || [[ -n "${DISCORD_WEBHOOK_URL:-}" ]]; then
+    cmd+=("--discord")
+  fi
   
   log_info "Command: ${cmd[*]}"
   
@@ -113,20 +109,27 @@ wp_plugin_confusion_scan() {
     local output_file="$base/wp-confusion-all-hosts-${timestamp}.txt"
     
     # Run the Python script with the live hosts file
-    local wp_tool="$ROOT_DIR/python/wp_update_confusion.py"
-    
-    if [[ ! -f "$wp_tool" ]]; then
-      log_error "WordPress confusion tool not found: $wp_tool"
+    # Use Go binary wp-confusion (built in Docker)
+    if ! command -v wp-confusion >/dev/null 2>&1; then
+      log_error "WordPress confusion tool not found: wp-confusion"
+      log_error "Make sure wp-confusion is installed and in PATH"
       return 1
     fi
     
     log_info "Running WordPress Plugin Confusion scan for all hosts"
-    log_info "Command: python3 $wp_tool -l $live_hosts_file -p -o $output_file --discord"
+    
+    # Build command using Go binary
+    local cmd=("wp-confusion" "-l" "$live_hosts_file" "-p" "-o" "$output_file")
+    if [[ -n "${DISCORD_WEBHOOK:-}" ]] || [[ -n "${DISCORD_WEBHOOK_URL:-}" ]]; then
+      cmd+=("--discord")
+    fi
+    
+    log_info "Command: ${cmd[*]}"
     
     # Run the scan with timeout
     local start_time=$(date +%s)
     
-    if timeout 300 python3 "$wp_tool" -l "$live_hosts_file" -p -o "$output_file" --discord 2>"$output_file.log"; then
+    if timeout 300 "${cmd[@]}" 2>"$output_file.log"; then
       local end_time=$(date +%s)
       local duration=$((end_time - start_time))
       
