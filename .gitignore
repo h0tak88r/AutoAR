@@ -79,5 +79,8 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 # Allow gomodules README files
 !gomodules/**/README.md
 
-# Compiled binaries
-autoar
+# Compiled binaries (but allow source files)
+/autoar
+autoar.exe
+!cmd/
+!cmd/**
