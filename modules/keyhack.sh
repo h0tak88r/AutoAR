@@ -4,7 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/utils.sh"
-source "$ROOT_DIR/lib/db.sh"
+
+# Load database functions (prefer Go wrapper, fallback to bash)
+if [[ -f "$ROOT_DIR/gomodules/db/wrapper.sh" ]]; then
+  source "$ROOT_DIR/gomodules/db/wrapper.sh"
+elif [[ -f "$ROOT_DIR/lib/db.sh" ]]; then
+  source "$ROOT_DIR/lib/db.sh"
+fi
 
 usage() {
     echo "Usage: keyhack list | keyhack search <query> | keyhack validate <provider> <api_key> | keyhack add <keyname> <command> <description> [notes]"
