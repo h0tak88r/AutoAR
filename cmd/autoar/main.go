@@ -936,6 +936,13 @@ func handleMonitorCommand(args []string) error {
 	case "start":
 		for i := 0; i < len(subArgs); i++ {
 			switch subArgs[i] {
+			case "--id":
+				if i+1 < len(subArgs) {
+					if id, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.ID = id
+					}
+					i++
+				}
 			case "--all", "-a":
 				opts.All = true
 			case "-u", "--url":
@@ -959,6 +966,13 @@ func handleMonitorCommand(args []string) error {
 	case "stop":
 		for i := 0; i < len(subArgs); i++ {
 			switch subArgs[i] {
+			case "--id":
+				if i+1 < len(subArgs) {
+					if id, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.ID = id
+					}
+					i++
+				}
 			case "--all", "-a":
 				opts.All = true
 			case "-u", "--url":
