@@ -173,91 +173,66 @@ func handleMisconfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	go runScanBackground(scanID, "misconfig", target, command, s, i)
 }
 
-func handleLiveDepconfusionScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("live_depconfusion_%d", time.Now().Unix())
-	command := []string{autoarScript, "depconfusion", "scan", "-d", domain}
-
-	embed := createScanEmbed("Live DepConfusion", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "live_depconfusion", domain, command, s, i)
-}
-
 func handleWebDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var urls []string
+	var domain string
+	full := false
 
 	for _, opt := range options {
-		if opt.Name == "url" {
+		switch opt.Name {
+		case "url":
 			urls = append(urls, opt.StringValue())
-		}
-	}
-
-	if len(urls) == 0 {
-		respond(s, i, "❌ At least one URL is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("webdepconf_%d", time.Now().Unix())
-	command := []string{autoarScript, "depconfusion", "web"}
-	command = append(command, urls...)
-
-	target := strings.Join(urls, ", ")
-	embed := createScanEmbed("Web DepConfusion", target, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "webdepconf", target, command, s, i)
-}
-
-func handleWPDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
+		case "domain":
 			domain = opt.StringValue()
+		case "full":
+			full = opt.BoolValue()
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
+	if full {
+		if domain == "" {
+			respond(s, i, "❌ Domain is required for full scan", false)
+			return
+		}
+		scanID := fmt.Sprintf("webdepconf_full_%d", time.Now().Unix())
+		command := []string{autoarScript, "depconfusion", "web", "--full", "-d", domain}
+		embed := createScanEmbed("Web DepConfusion (Full)", domain, "running")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			},
+		})
+		go runScanBackground(scanID, "webdepconf", domain, command, s, i)
+	} else {
+		if len(urls) == 0 && domain == "" {
+			respond(s, i, "❌ At least one URL or domain is required", false)
+			return
+		}
+		scanID := fmt.Sprintf("webdepconf_%d", time.Now().Unix())
+		command := []string{autoarScript, "depconfusion", "web"}
+		if domain != "" {
+			// If domain provided, convert to URL
+			if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+				command = append(command, "https://"+domain)
+			} else {
+				command = append(command, domain)
+			}
+		} else {
+			command = append(command, urls...)
+		}
+		target := domain
+		if target == "" {
+			target = strings.Join(urls, ", ")
+		}
+		embed := createScanEmbed("Web DepConfusion", target, "running")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			},
+		})
+		go runScanBackground(scanID, "webdepconf", target, command, s, i)
 	}
-
-	scanID := fmt.Sprintf("wp_depconf_%d", time.Now().Unix())
-	command := []string{autoarScript, "wpDepConf", "scan", "-d", domain}
-
-	embed := createScanEmbed("WordPress DepConfusion", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "wp_depconf", domain, command, s, i)
 }

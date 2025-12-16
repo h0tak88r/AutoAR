@@ -373,22 +373,35 @@ func handleGitHubWordlist(s *discordgo.Session, i *discordgo.InteractionCreate) 
 func handleGitHubDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	repo := ""
+	org := ""
 
 	for _, opt := range options {
-		if opt.Name == "repo" {
+		switch opt.Name {
+		case "repo":
 			repo = opt.StringValue()
+		case "org":
+			org = opt.StringValue()
 		}
 	}
 
-	if repo == "" {
-		respond(s, i, "❌ Repository (owner/repo) is required", false)
+	if repo == "" && org == "" {
+		respond(s, i, "❌ Either repository (owner/repo) or organization is required", false)
 		return
 	}
 
 	scanID := fmt.Sprintf("githubdepconf_%d", time.Now().Unix())
-	command := []string{autoarScript, "depconfusion", "github", "repo", repo}
+	var command []string
+	var target string
 
-	embed := createScanEmbed("GitHub DepConfusion", repo, "running")
+	if repo != "" {
+		command = []string{autoarScript, "depconfusion", "github", "repo", repo}
+		target = repo
+	} else {
+		command = []string{autoarScript, "depconfusion", "github", "org", org}
+		target = org
+	}
+
+	embed := createScanEmbed("GitHub DepConfusion", target, "running")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -396,7 +409,7 @@ func handleGitHubDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		},
 	})
 
-	go runScanBackground(scanID, "githubdepconf", repo, command, s, i)
+	go runScanBackground(scanID, "githubdepconf", target, command, s, i)
 }
 
 // Database Commands
