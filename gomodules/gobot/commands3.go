@@ -3,6 +3,7 @@ package gobot
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -407,10 +408,14 @@ func handleMonitorUpdatesRemove(s *discordgo.Session, i *discordgo.InteractionCr
 func handleMonitorUpdatesStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var url *string
+	var id *int
 	interval := 86400
 
 	for _, opt := range options {
 		switch opt.Name {
+		case "id":
+			val := int(opt.IntValue())
+			id = &val
 		case "url":
 			val := opt.StringValue()
 			url = &val
@@ -422,7 +427,10 @@ func handleMonitorUpdatesStart(s *discordgo.Session, i *discordgo.InteractionCre
 	var cmd []string
 	var targetDesc string
 
-	if url != nil && *url != "" {
+	if id != nil && *id > 0 {
+		cmd = []string{autoarScript, "monitor", "updates", "start", "--id", strconv.Itoa(*id), "--interval", fmt.Sprintf("%d", interval), "--daemon"}
+		targetDesc = fmt.Sprintf("ID %d", *id)
+	} else if url != nil && *url != "" {
 		cmd = []string{autoarScript, "monitor", "updates", "start", "-u", *url, "--interval", fmt.Sprintf("%d", interval), "--daemon"}
 		targetDesc = *url
 	} else {
@@ -445,9 +453,11 @@ func handleMonitorUpdatesStart(s *discordgo.Session, i *discordgo.InteractionCre
 		color = 0xff0000
 	}
 
-	modeText := fmt.Sprintf("Single target: `%s`", *url)
-	if url == nil || *url == "" {
-		modeText = "All targets"
+	modeText := "All targets"
+	if id != nil && *id > 0 {
+		modeText = fmt.Sprintf("Target ID: %d", *id)
+	} else if url != nil && *url != "" {
+		modeText = fmt.Sprintf("Single target: `%s`", *url)
 	}
 
 	embed = &discordgo.MessageEmbed{
@@ -486,9 +496,14 @@ func handleMonitorUpdatesStart(s *discordgo.Session, i *discordgo.InteractionCre
 func handleMonitorUpdatesStop(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var url *string
+	var id *int
 
 	for _, opt := range options {
-		if opt.Name == "url" {
+		switch opt.Name {
+		case "id":
+			val := int(opt.IntValue())
+			id = &val
+		case "url":
 			val := opt.StringValue()
 			url = &val
 		}
@@ -497,7 +512,10 @@ func handleMonitorUpdatesStop(s *discordgo.Session, i *discordgo.InteractionCrea
 	var cmd []string
 	var targetDesc string
 
-	if url != nil && *url != "" {
+	if id != nil && *id > 0 {
+		cmd = []string{autoarScript, "monitor", "updates", "stop", "--id", strconv.Itoa(*id)}
+		targetDesc = fmt.Sprintf("ID %d", *id)
+	} else if url != nil && *url != "" {
 		cmd = []string{autoarScript, "monitor", "updates", "stop", "-u", *url}
 		targetDesc = *url
 	} else {
@@ -520,9 +538,11 @@ func handleMonitorUpdatesStop(s *discordgo.Session, i *discordgo.InteractionCrea
 		color = 0xff0000
 	}
 
-	modeText := fmt.Sprintf("Single target: `%s`", *url)
-	if url == nil || *url == "" {
-		modeText = "All targets"
+	modeText := "All targets"
+	if id != nil && *id > 0 {
+		modeText = fmt.Sprintf("Target ID: %d", *id)
+	} else if url != nil && *url != "" {
+		modeText = fmt.Sprintf("Single target: `%s`", *url)
 	}
 
 	embed = &discordgo.MessageEmbed{
