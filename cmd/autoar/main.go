@@ -17,6 +17,7 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/fastlook"
 	"github.com/h0tak88r/AutoAR/gomodules/gf"
 	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
+	"github.com/h0tak88r/AutoAR/gomodules/githubscan"
 	"github.com/h0tak88r/AutoAR/gomodules/gobot"
 	jwtmod "github.com/h0tak88r/AutoAR/gomodules/jwt"
 	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
@@ -614,6 +615,60 @@ func handleJWTCommand(args []string) error {
 	return nil
 }
 
+// handleGitHubCommand parses:
+//
+//	autoar github scan -r <owner/repo> [-v]
+//	autoar github org -o <org> [-v]
+//	autoar github experimental -r <owner/repo> [-v]
+func handleGitHubCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: github <scan|org|experimental> [options]")
+	}
+
+	modeStr := args[0]
+	subArgs := args[1:]
+
+	opts := githubscan.Options{}
+	switch modeStr {
+	case "scan":
+		opts.Mode = githubscan.ModeRepo
+	case "org":
+		opts.Mode = githubscan.ModeOrg
+	case "experimental":
+		opts.Mode = githubscan.ModeExperimental
+	default:
+		return fmt.Errorf("unknown github action: %s", modeStr)
+	}
+
+	for i := 0; i < len(subArgs); i++ {
+		switch subArgs[i] {
+		case "-r", "--repo":
+			if i+1 < len(subArgs) {
+				opts.Repo = subArgs[i+1]
+				i++
+			}
+		case "-o", "--org":
+			if i+1 < len(subArgs) {
+				opts.Org = subArgs[i+1]
+				i++
+			}
+		case "-v", "--verbose":
+			opts.Verbose = true
+		}
+	}
+
+	res, err := githubscan.Run(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "github scan error: %v\n", err)
+	}
+	if res != nil {
+		fmt.Printf("[INFO] GitHub scan results directory: %s\n", res.BaseDir)
+		fmt.Printf("[INFO] TruffleHog JSON output: %s\n", res.JSONPath)
+		fmt.Printf("[INFO] TruffleHog log: %s\n", res.LogPath)
+	}
+	return err
+}
+
 func handleSubdomainsGo(args []string) error {
 	var domain string
 	threads := 100
@@ -1106,7 +1161,7 @@ func main() {
 
 	switch cmd {
 	// Commands not yet migrated to Go (return error for now)
-	case "js", "s3", "github",
+	case "js", "s3",
 		"depconfusion", "misconfig", "keyhack", "monitor":
 		err = fmt.Errorf("command '%s' is not yet implemented in Go. All bash modules have been removed.", cmd)
 
@@ -1185,6 +1240,9 @@ func main() {
 	case "wpDepConf":
 		// WordPress dependency confusion scan via Go module
 		err = handleWPConfusion(args)
+
+	case "github":
+		err = handleGitHubCommand(args)
 
 	// Bot/API commands
 	case "bot":
