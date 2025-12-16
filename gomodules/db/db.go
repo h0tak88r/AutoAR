@@ -20,15 +20,15 @@ var (
 // Init initializes the database connection pool
 func Init() error {
 	dbType := getEnv("DB_TYPE", "postgresql")
-	
+
 	if dbType != "postgresql" {
 		return fmt.Errorf("only PostgreSQL is supported")
 	}
-	
+
 	// Parse PostgreSQL connection string if provided
 	dbHostEnv := os.Getenv("DB_HOST")
 	var connStr string
-	
+
 	if strings.HasPrefix(dbHostEnv, "postgresql://") || strings.HasPrefix(dbHostEnv, "postgres://") {
 		// Use connection string directly
 		connStr = dbHostEnv
@@ -39,32 +39,32 @@ func Init() error {
 		dbUser := getEnv("DB_USER", "autoar")
 		dbPass := os.Getenv("DB_PASSWORD")
 		dbName := getEnv("DB_NAME", "autoar")
-		
+
 		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 			dbHost, dbPort, dbUser, dbPass, dbName)
 	}
-	
+
 	config, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse connection string: %v", err)
 	}
-	
+
 	// Configure pool settings
 	config.MaxConns = 25
 	config.MinConns = 2
 	config.MaxConnLifetime = time.Hour
 	config.MaxConnIdleTime = time.Minute * 30
-	
+
 	dbPool, err = pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return fmt.Errorf("failed to create connection pool: %v", err)
 	}
-	
+
 	// Test connection
 	if err := dbPool.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %v", err)
 	}
-	
+
 	log.Printf("[INFO] Connected to PostgreSQL database")
 	return nil
 }
@@ -76,7 +76,7 @@ func InitSchema() error {
 			return err
 		}
 	}
-	
+
 	schema := `
 	-- Create domains table with proper constraints
 	CREATE TABLE IF NOT EXISTS domains (
@@ -226,7 +226,7 @@ func InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
 	`
-	
+
 	_, err := dbPool.Exec(ctx, schema)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %v", err)
@@ -242,30 +242,30 @@ func InsertOrGetDomain(domain string) (int, error) {
 			return 0, err
 		}
 	}
-	
+
 	// First, try to get existing domain
 	var domainID int
 	err := dbPool.QueryRow(ctx, `
 		SELECT id FROM domains WHERE domain = $1 LIMIT 1;
 	`, domain).Scan(&domainID)
-	
+
 	if err == nil {
 		// Domain exists, return its ID
 		return domainID, nil
 	}
-	
+
 	if err != pgx.ErrNoRows {
 		// Unexpected error
 		return 0, fmt.Errorf("failed to query domain: %v", err)
 	}
-	
+
 	// Domain doesn't exist, insert it
 	err = dbPool.QueryRow(ctx, `
 		INSERT INTO domains (domain) 
 		VALUES ($1) 
 		RETURNING id;
 	`, domain).Scan(&domainID)
-	
+
 	if err != nil {
 		// If insert failed due to race condition (another goroutine inserted it), try to get it again
 		if err := dbPool.QueryRow(ctx, `
@@ -274,7 +274,7 @@ func InsertOrGetDomain(domain string) (int, error) {
 			return 0, fmt.Errorf("failed to insert/get domain: %v", err)
 		}
 	}
-	
+
 	return domainID, nil
 }
 
@@ -285,21 +285,21 @@ func BatchInsertSubdomains(domain string, subdomains []string, isLive bool) erro
 			return err
 		}
 	}
-	
+
 	domainID, err := InsertOrGetDomain(domain)
 	if err != nil {
 		return fmt.Errorf("failed to get domain ID: %v", err)
 	}
-	
+
 	log.Printf("[INFO] Batch inserting %d subdomains for %s (domain_id: %d)", len(subdomains), domain, domainID)
-	
+
 	// Use transaction for better performance
 	tx, err := dbPool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback(ctx)
-	
+
 	// Prepare statement for batch insert
 	_, err = tx.Prepare(ctx, "batch_insert_subdomains", `
 		INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status)
@@ -311,14 +311,14 @@ func BatchInsertSubdomains(domain string, subdomains []string, isLive bool) erro
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %v", err)
 	}
-	
+
 	count := 0
 	for _, subdomain := range subdomains {
 		subdomain = strings.TrimSpace(subdomain)
 		if subdomain == "" {
 			continue
 		}
-		
+
 		_, err := tx.Exec(ctx, "batch_insert_subdomains", domainID, subdomain, isLive, time.Now())
 		if err != nil {
 			log.Printf("[WARN] Failed to insert subdomain %s: %v", subdomain, err)
@@ -326,11 +326,11 @@ func BatchInsertSubdomains(domain string, subdomains []string, isLive bool) erro
 		}
 		count++
 	}
-	
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %v", err)
 	}
-	
+
 	log.Printf("[OK] Inserted %d subdomains for %s", count, domain)
 	return nil
 }
@@ -342,18 +342,18 @@ func InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL st
 			return err
 		}
 	}
-	
+
 	domainID, err := InsertOrGetDomain(domain)
 	if err != nil {
 		return fmt.Errorf("failed to get domain ID: %v", err)
 	}
-	
+
 	// Check if subdomain already exists
 	var existingID int
 	err = dbPool.QueryRow(ctx, `
 		SELECT id FROM subdomains WHERE domain_id = $1 AND subdomain = $2 LIMIT 1;
 	`, domainID, subdomain).Scan(&existingID)
-	
+
 	if err == pgx.ErrNoRows {
 		// Insert new subdomain
 		_, err = dbPool.Exec(ctx, `
@@ -373,11 +373,11 @@ func InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL st
 			WHERE id = $6;
 		`, isLive, httpURL, httpsURL, httpStatus, httpsStatus, existingID)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to insert/update subdomain: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -389,7 +389,7 @@ func InsertJSFile(domain, jsURL, contentHash string) error {
 			return err
 		}
 	}
-	
+
 	// Extract subdomain from URL (e.g., https://sub.example.com/path.js -> sub.example.com)
 	subdomain := jsURL
 	if strings.HasPrefix(jsURL, "http://") {
@@ -401,18 +401,18 @@ func InsertJSFile(domain, jsURL, contentHash string) error {
 	if idx := strings.Index(subdomain, "/"); idx != -1 {
 		subdomain = subdomain[:idx]
 	}
-	
+
 	domainID, err := InsertOrGetDomain(domain)
 	if err != nil {
 		return fmt.Errorf("failed to get domain ID: %v", err)
 	}
-	
+
 	// Get or create subdomain
 	var subdomainID int
 	err = dbPool.QueryRow(ctx, `
 		SELECT id FROM subdomains WHERE domain_id = $1 AND subdomain = $2 LIMIT 1;
 	`, domainID, subdomain).Scan(&subdomainID)
-	
+
 	if err == pgx.ErrNoRows {
 		// Create subdomain first
 		err = dbPool.QueryRow(ctx, `
@@ -421,11 +421,11 @@ func InsertJSFile(domain, jsURL, contentHash string) error {
 			RETURNING id;
 		`, domainID, subdomain).Scan(&subdomainID)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to get/create subdomain: %v", err)
 	}
-	
+
 	// Insert or update JS file
 	_, err = dbPool.Exec(ctx, `
 		INSERT INTO js_files (subdomain_id, js_url, content_hash, last_scanned)
@@ -435,11 +435,11 @@ func InsertJSFile(domain, jsURL, contentHash string) error {
 			last_scanned = NOW(),
 			updated_at = NOW();
 	`, subdomainID, jsURL, contentHash)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to insert/update JS file: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -450,7 +450,7 @@ func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, 
 			return err
 		}
 	}
-	
+
 	_, err := dbPool.Exec(ctx, `
 		INSERT INTO keyhack_templates (keyname, command_template, method, url, header, body, description, notes)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -464,11 +464,91 @@ func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, 
 			notes = EXCLUDED.notes,
 			updated_at = NOW();
 	`, keyname, commandTemplate, method, url, header, body, description, notes)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to insert/update keyhack template: %v", err)
 	}
-	
+
+	return nil
+}
+
+// ListDomains returns all distinct domains stored in the database.
+func ListDomains() ([]string, error) {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := dbPool.Query(ctx, `SELECT DISTINCT domain FROM domains ORDER BY domain;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query domains: %v", err)
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, fmt.Errorf("failed to scan domain: %v", err)
+		}
+		domains = append(domains, d)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate domains: %v", rows.Err())
+	}
+	return domains, nil
+}
+
+// ListSubdomains returns all subdomains for a given domain.
+func ListSubdomains(domain string) ([]string, error) {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := dbPool.Query(ctx, `
+		SELECT s.subdomain
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE d.domain = $1
+		ORDER BY s.subdomain;
+	`, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query subdomains: %v", err)
+	}
+	defer rows.Close()
+
+	var subs []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, fmt.Errorf("failed to scan subdomain: %v", err)
+		}
+		subs = append(subs, s)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate subdomains: %v", rows.Err())
+	}
+	return subs, nil
+}
+
+// DeleteDomain deletes a domain and all its related data using ON DELETE CASCADE.
+func DeleteDomain(domain string) error {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+
+	cmdTag, err := dbPool.Exec(ctx, `DELETE FROM domains WHERE domain = $1;`, domain)
+	if err != nil {
+		return fmt.Errorf("failed to delete domain %s: %v", domain, err)
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return fmt.Errorf("domain not found: %s", domain)
+	}
 	return nil
 }
 
