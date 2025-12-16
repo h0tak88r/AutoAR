@@ -377,14 +377,6 @@ func registerAllCommands(s *discordgo.Session) {
 			Description: "Check if all required tools are installed",
 		},
 		{
-			Name:        "cleanup",
-			Description: "Cleanup results for a domain",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to cleanup", Required: true},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "keep", Description: "Keep results (do nothing)", Required: false},
-			},
-		},
-		{
 			Name:        "misconfig",
 			Description: "Scan for misconfigurations",
 			Options: []*discordgo.ApplicationCommandOption{

@@ -481,43 +481,6 @@ func handleDBDeleteDomain(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	go runScanBackground(scanID, "db_delete_domain", domain, command, s, i)
 }
 
-// Cleanup
-func handleCleanup(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-	keep := false
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			domain = opt.StringValue()
-		case "keep":
-			keep = opt.BoolValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("cleanup_%d", time.Now().Unix())
-	command := []string{autoarScript, "cleanup", "run", "--domain", domain}
-	if keep {
-		command = append(command, "--keep")
-	}
-
-	embed := createScanEmbed("Cleanup", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "cleanup", domain, command, s, i)
-}
-
 // Helper function to run command and get output synchronously
 func runCommandSync(command []string) (string, string, error) {
 	cmd := exec.Command(command[0], command[1:]...)
