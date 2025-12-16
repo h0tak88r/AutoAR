@@ -253,8 +253,6 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleWebDepConf(s, i)
 	case "wp_depconf":
 		handleWPDepConf(s, i)
-	case "help_autoar":
-		handleHelp(s, i)
 	case "scan_status":
 		handleScanStatus(s, i)
 	case "scan_from_file":
