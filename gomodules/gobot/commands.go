@@ -52,7 +52,7 @@ func getChannelID(scanID string) string {
 func runScanBackground(scanID, scanType, target string, command []string, s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Store channel ID for file notifications from modules
 	storeChannelID(scanID, i.ChannelID)
-	
+
 	scansMutex.Lock()
 	now := time.Now()
 	activeScans[scanID] = &ScanInfo{
@@ -129,10 +129,10 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 // This works like livehosts and doesn't require an HTTP API
 func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanType, target string) {
 	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
-	
+
 	// Map scan types to their expected result file paths
 	var resultFiles []string
-	
+
 	switch scanType {
 	case "cnames":
 		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "cname-records.txt")}
@@ -151,13 +151,19 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 		resultFiles = []string{filepath.Join(resultsDir, target, "vulnerabilities", "sqli", "sqlmap-results.txt")}
 	case "dalfox":
 		resultFiles = []string{filepath.Join(resultsDir, target, "dalfox-results.txt")}
+	case "backup_scan":
+		// Fuzzuli backup scan results
+		resultFiles = []string{
+			filepath.Join(resultsDir, target, "backup", "fuzzuli-results.txt"),
+			filepath.Join(resultsDir, target, "backup", "fuzzuli-output.log"),
+		}
 	case "subdomains":
 		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "all-subs.txt")}
 	case "jwt":
 		// JWT scan results - find the most recent file with retry logic
 		jwtDir := filepath.Join(resultsDir, "jwt-scan", "vulnerabilities", "jwt")
 		log.Printf("[DEBUG] Looking for JWT result files in: %s", jwtDir)
-		
+
 		// Retry up to 3 times with delays (file might still be writing)
 		var latestFile string
 		for attempt := 0; attempt < 3; attempt++ {
@@ -208,9 +214,9 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
 			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
 		)
-	// Add more scan types as needed
+		// Add more scan types as needed
 	}
-	
+
 	// Send each result file that exists
 	for _, filePath := range resultFiles {
 		// Handle glob patterns (e.g., *.txt)
@@ -273,7 +279,7 @@ func createScanEmbed(scanType, target, status string) *discordgo.MessageEmbed {
 		Title:       fmt.Sprintf("🔍 %s Scan", scanType),
 		Description: fmt.Sprintf("**Target:** `%s`\n**Status:** %s %s", target, statusEmoji, status),
 		Color:       0x3498db,
-		Fields:     []*discordgo.MessageEmbedField{},
+		Fields:      []*discordgo.MessageEmbedField{},
 	}
 }
 
@@ -759,10 +765,10 @@ func handleNuclei(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	command = append(command, "-t", strconv.Itoa(threads))
 
 	modeDesc := map[string]string{
-		"full":          "Full (All Templates)",
-		"cves":          "CVEs Only",
-		"panels":        "Panels Discovery",
-		"default-logins": "Default Logins Only",
+		"full":            "Full (All Templates)",
+		"cves":            "CVEs Only",
+		"panels":          "Panels Discovery",
+		"default-logins":  "Default Logins Only",
 		"vulnerabilities": "Generic Vulnerabilities",
 	}[modeVal]
 
