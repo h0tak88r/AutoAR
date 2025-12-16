@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
 	"github.com/h0tak88r/AutoAR/gomodules/utils"
+	"github.com/projectdiscovery/dnsx/libs/dnsx"
 )
 
 // Result holds summary information for a cnames run
@@ -49,37 +50,64 @@ func CollectCNAMEs(domain string) (*Result, error) {
 
 	out := filepath.Join(subsDir, "cname-records.txt")
 
-	// If dnsx is present, run it; otherwise create empty file
-	if _, err := exec.LookPath("dnsx"); err == nil {
-		log.Printf("[INFO] Collecting CNAME records for %s via dnsx", domain)
-		inFile, err := os.Open(allSubs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open %s: %w", allSubs, err)
-		}
-		defer inFile.Close()
+	// Read subdomains from file
+	file, err := os.Open(allSubs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", allSubs, err)
+	}
+	defer file.Close()
 
-		if err := os.MkdirAll(filepath.Dir(out), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create output dir: %w", err)
+	var targets []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			targets = append(targets, line)
 		}
-		outFile, err := os.Create(out)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create %s: %w", out)
-		}
-		defer outFile.Close()
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read subdomains file: %w", err)
+	}
 
-		cmd := exec.Command("dnsx", "-cname", "-silent", "-resp", "-nc")
-		cmd.Stdin = inFile
-		cmd.Stdout = outFile
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			log.Printf("[WARN] dnsx CNAME collection failed: %v", err)
-		}
-	} else {
-		log.Printf("[WARN] dnsx not found in PATH; creating empty CNAME file for %s", domain)
+	if len(targets) == 0 {
+		log.Printf("[WARN] No subdomains found; creating empty CNAME file for %s", domain)
 		if err := writeLines(out, nil); err != nil {
 			return nil, fmt.Errorf("failed to initialise %s: %w", out, err)
 		}
+		return &Result{
+			Domain:     domain,
+			Records:    0,
+			OutputFile: out,
+		}, nil
+	}
+
+	log.Printf("[INFO] Collecting CNAME records for %s via dnsx library", domain)
+
+	// Initialize dnsx client
+	dnsClient, err := dnsx.New(dnsx.DefaultOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dnsx client: %w", err)
+	}
+
+	// Collect CNAME records
+	var cnameRecords []string
+	for _, target := range targets {
+		// Query CNAME record
+		results, err := dnsClient.QueryOne(target)
+		if err != nil {
+			continue
+		}
+		// Extract CNAME from response
+		if results != nil && len(results.CNAME) > 0 {
+			for _, cname := range results.CNAME {
+				cnameRecords = append(cnameRecords, fmt.Sprintf("%s CNAME %s", target, cname))
+			}
+		}
+	}
+
+	// Write results to file
+	if err := writeLines(out, cnameRecords); err != nil {
+		return nil, fmt.Errorf("failed to write CNAME records: %w", err)
 	}
 
 	count, _ := countLines(out)

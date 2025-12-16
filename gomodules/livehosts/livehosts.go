@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/h0tak88r/AutoAR/gomodules/db"
 	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
 	"github.com/h0tak88r/AutoAR/gomodules/utils"
+	"github.com/projectdiscovery/httpx/runner"
 )
 
 // Result holds summary information for a livehosts run
@@ -134,9 +134,27 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error
 		return 0, fmt.Errorf("subdomains file not found: %s", subsFile)
 	}
 
-	if _, err := exec.LookPath("httpx"); err != nil {
-		log.Printf("[WARN] httpx not found in PATH, creating empty live hosts file")
-		// Create empty file
+	// Read subdomains from file
+	file, err := os.Open(subsFile)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open subdomains file: %v", err)
+	}
+	defer file.Close()
+
+	var targets []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			targets = append(targets, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("failed to read subdomains file: %v", err)
+	}
+
+	if len(targets) == 0 {
+		log.Printf("[WARN] No subdomains found in file")
 		if err := writeLines(liveFile, nil); err != nil {
 			return 0, fmt.Errorf("failed to create empty live hosts file: %v", err)
 		}
@@ -145,29 +163,61 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error
 
 	log.Printf("[INFO] Filtering live hosts via httpx with %d threads", threads)
 
-	// Open subs file as stdin
-	subs, err := os.Open(subsFile)
+	// Collect live hosts
+	var liveHosts []string
+	var mu sync.Mutex
+
+	// Configure httpx options with callback
+	options := runner.Options{
+		InputTargetHost: targets,
+		Threads:        threads,
+		Silent:         true,
+		NoColor:        true,
+		FollowRedirects: true,
+		FollowHostRedirects: true,
+		HTTPProxy:      os.Getenv("HTTP_PROXY"),
+		SocksProxy:     os.Getenv("SOCKS_PROXY"),
+		OnResult: func(result runner.Result) {
+			if result.URL != "" {
+				mu.Lock()
+				liveHosts = append(liveHosts, result.URL)
+				mu.Unlock()
+			}
+		},
+	}
+
+	// Validate options
+	if err := options.ValidateOptions(); err != nil {
+		return 0, fmt.Errorf("failed to validate httpx options: %v", err)
+	}
+
+	// Create httpx runner
+	httpxRunner, err := runner.New(&options)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open subdomains file: %v", err)
+		return 0, fmt.Errorf("failed to create httpx runner: %v", err)
 	}
-	defer subs.Close()
+	defer httpxRunner.Close()
 
-	cmd := exec.Command("httpx", "-silent", "-nc", "-threads", strconv.Itoa(threads), "-o", liveFile)
-	cmd.Stdin = subs
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Run enumeration
+	httpxRunner.RunEnumeration()
 
-	if err := cmd.Run(); err != nil {
-		// httpx may exit non-zero for some URLs; treat as warning but continue
-		log.Printf("[WARN] httpx finished with error: %v", err)
-	}
-
-	liveCount, err := countLines(liveFile)
+	// Write results to file
+	outFile, err := os.Create(liveFile)
 	if err != nil {
-		return 0, fmt.Errorf("failed to count live hosts: %v", err)
+		return 0, fmt.Errorf("failed to create output file: %v", err)
+	}
+	defer outFile.Close()
+
+	if len(liveHosts) > 0 {
+		writer := bufio.NewWriter(outFile)
+		for _, host := range liveHosts {
+			writer.WriteString(host + "\n")
+		}
+		writer.Flush()
 	}
 
-	return liveCount, nil
+	log.Printf("[OK] Found %d live hosts", len(liveHosts))
+	return len(liveHosts), nil
 }
 
 // updateDatabase marks live hosts in the subdomains table using InsertSubdomain.
