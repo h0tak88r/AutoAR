@@ -225,10 +225,6 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleKeyhackList(s, i)
 	case "keyhack_search":
 		handleKeyhackSearch(s, i)
-	case "keyhack_add":
-		handleKeyhackAdd(s, i)
-	case "keyhack_validate":
-		handleKeyhackValidate(s, i)
 	case "monitor_updates":
 		handleMonitorUpdates(s, i)
 	case "monitor_updates_manage":

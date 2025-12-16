@@ -296,24 +296,6 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionString, Name: "query", Description: "Search query (provider name or partial match)", Required: true},
 			},
 		},
-		{
-			Name:        "keyhack_add",
-			Description: "Add a new API key validation template",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "keyname", Description: "Template name (e.g., Slack, Bing Maps)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "command", Description: "Validation command (curl or shell command with $API_KEY placeholder)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "description", Description: "Description of the template", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "notes", Description: "Optional notes or additional information", Required: false},
-			},
-		},
-		{
-			Name:        "keyhack_validate",
-			Description: "Generate API key validation command",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "provider", Description: "Provider name (e.g., Stripe, AWS, GitHub)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "api_key", Description: "API key to validate", Required: true},
-			},
-		},
 		// Monitoring commands
 		{
 			Name:        "monitor_updates",

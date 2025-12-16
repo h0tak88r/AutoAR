@@ -2,9 +2,9 @@ package gobot
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -32,15 +32,45 @@ func handleKeyhackList(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if errorMsg == "" {
 			errorMsg = "Failed to list templates"
 		}
+		if len(errorMsg) > 1000 {
+			errorMsg = errorMsg[:1000] + "..."
+		}
 		embed.Fields = []*discordgo.MessageEmbedField{
 			{Name: "Error", Value: fmt.Sprintf("```\n%s\n```", errorMsg), Inline: false},
 		}
 	} else {
-		if len(output) > 1900 {
-			output = output[:1900] + "\n... (truncated - use search for specific templates)"
+		// Parse output to count templates and show first few examples
+		lines := strings.Split(output, "\n")
+		templateCount := 0
+		var examples []string
+		
+		for _, line := range lines {
+			if strings.HasPrefix(line, "Provider: ") {
+				templateCount++
+				if len(examples) < 5 {
+					provider := strings.TrimPrefix(line, "Provider: ")
+					examples = append(examples, fmt.Sprintf("• **%s**", provider))
+				}
+			}
 		}
+		
+		description := fmt.Sprintf("**Total Templates:** `%d`\n\n", templateCount)
+		if len(examples) > 0 {
+			description += "**Sample Providers:**\n" + strings.Join(examples, "\n")
+			if templateCount > 5 {
+				description += fmt.Sprintf("\n\n*Showing first 5 of %d templates. Use `/keyhack_search` to find specific providers.*", templateCount)
+			}
+		} else {
+			description += "*No templates found.*"
+		}
+		
+		embed.Description = description
 		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Templates", Value: fmt.Sprintf("```\n%s\n```", output), Inline: false},
+			{
+				Name:   "💡 Tip",
+				Value:  "Use `/keyhack_search <provider>` to get detailed information about a specific provider.",
+				Inline: false,
+			},
 		}
 	}
 
@@ -78,182 +108,173 @@ func handleKeyhackSearch(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
-	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 KeyHack Search Results",
-		Description: fmt.Sprintf("**Query:** `%s`", query),
-		Color:       0x3498db,
-	}
-
 	if err != nil {
-		embed.Title = "❌ KeyHack Search Failed"
-		embed.Color = 0xff0000
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ KeyHack Search Failed",
+			Description: fmt.Sprintf("**Query:** `%s`", query),
+			Color:       0xff0000,
+		}
 		errorMsg := stderr
 		if errorMsg == "" {
 			errorMsg = "Search failed"
 		}
+		if len(errorMsg) > 1000 {
+			errorMsg = errorMsg[:1000] + "..."
+		}
 		embed.Fields = []*discordgo.MessageEmbedField{
 			{Name: "Error", Value: fmt.Sprintf("```\n%s\n```", errorMsg), Inline: false},
 		}
-	} else {
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	// Parse the output to extract template information
+	// Format: Provider: <name>\nDescription: <desc>\nMethod: <method>\nCommand:\n<command>\n\n
+	lines := strings.Split(output, "\n")
+	var templates []map[string]string
+	currentTemplate := make(map[string]string)
+	currentCommand := ""
+	inCommand := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if len(currentTemplate) > 0 {
+				if currentCommand != "" {
+					currentTemplate["command"] = strings.TrimSpace(currentCommand)
+				}
+				templates = append(templates, currentTemplate)
+				currentTemplate = make(map[string]string)
+				currentCommand = ""
+				inCommand = false
+			}
+			continue
+		}
+
+		if strings.HasPrefix(line, "Provider: ") {
+			if len(currentTemplate) > 0 {
+				if currentCommand != "" {
+					currentTemplate["command"] = strings.TrimSpace(currentCommand)
+				}
+				templates = append(templates, currentTemplate)
+			}
+			currentTemplate = make(map[string]string)
+			currentTemplate["provider"] = strings.TrimPrefix(line, "Provider: ")
+			currentCommand = ""
+			inCommand = false
+		} else if strings.HasPrefix(line, "Description: ") {
+			currentTemplate["description"] = strings.TrimPrefix(line, "Description: ")
+			inCommand = false
+		} else if strings.HasPrefix(line, "Method: ") {
+			currentTemplate["method"] = strings.TrimPrefix(line, "Method: ")
+			inCommand = false
+		} else if strings.HasPrefix(line, "Command:") {
+			inCommand = true
+			currentCommand = ""
+		} else if strings.HasPrefix(line, "Notes: ") {
+			currentTemplate["notes"] = strings.TrimPrefix(line, "Notes: ")
+			inCommand = false
+		} else if inCommand {
+			currentCommand += line + "\n"
+		}
+	}
+
+	// Add last template if exists
+	if len(currentTemplate) > 0 {
+		if currentCommand != "" {
+			currentTemplate["command"] = strings.TrimSpace(currentCommand)
+		}
+		templates = append(templates, currentTemplate)
+	}
+
+	// Create beautiful embeds for each template (Discord allows up to 10 embeds per message)
+	maxEmbeds := 10
+	if len(templates) > maxEmbeds {
+		templates = templates[:maxEmbeds]
+	}
+
+	var embeds []*discordgo.MessageEmbed
+	for idx, t := range templates {
+		provider := t["provider"]
+		if provider == "" {
+			continue
+		}
+
+		description := t["description"]
+		if description == "" {
+			description = "*No description available*"
+		}
+
+		method := t["method"]
+		if method == "" {
+			method = "GET"
+		}
+
+		command := t["command"]
+		if command == "" {
+			command = "*No command template available*"
+		}
+
+		// Truncate command if too long
+		if len(command) > 1000 {
+			command = command[:1000] + "\n... (truncated)"
+		}
+
+		embed := &discordgo.MessageEmbed{
+			Title:       fmt.Sprintf("🔑 %s", provider),
+			Description: description,
+			Color:       0x3498db,
+			Fields: []*discordgo.MessageEmbedField{
+				{
+					Name:   "📋 Method",
+					Value:  fmt.Sprintf("`%s`", method),
+					Inline: true,
+				},
+				{
+					Name:   "💻 Command",
+					Value:  fmt.Sprintf("```bash\n%s\n```", command),
+					Inline: false,
+				},
+			},
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: fmt.Sprintf("Template %d of %d", idx+1, len(templates)),
+			},
+			Timestamp: time.Now().Format(time.RFC3339),
+		}
+
+		if notes := t["notes"]; notes != "" {
+			if len(notes) > 500 {
+				notes = notes[:500] + "..."
+			}
+			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+				Name:   "📝 Notes",
+				Value:  notes,
+				Inline: false,
+			})
+		}
+
+		embeds = append(embeds, embed)
+	}
+
+	if len(embeds) == 0 {
+		// Fallback if parsing failed
 		if len(output) > 1900 {
 			output = output[:1900] + "\n... (truncated)"
 		}
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Results", Value: fmt.Sprintf("```\n%s\n```", output), Inline: false},
-		}
+		embeds = []*discordgo.MessageEmbed{{
+			Title:       "🔍 KeyHack Search Results",
+			Description: fmt.Sprintf("**Query:** `%s`", query),
+			Color:       0x3498db,
+			Fields: []*discordgo.MessageEmbedField{
+				{Name: "Results", Value: fmt.Sprintf("```\n%s\n```", output), Inline: false},
+			},
+		}}
 	}
 
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-}
-
-func handleKeyhackAdd(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	keyname := ""
-	commandStr := ""
-	description := ""
-	notes := ""
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "keyname":
-			keyname = opt.StringValue()
-		case "command":
-			commandStr = opt.StringValue()
-		case "description":
-			description = opt.StringValue()
-		case "notes":
-			notes = opt.StringValue()
-		}
-	}
-
-	if keyname == "" || commandStr == "" || description == "" {
-		respond(s, i, "❌ keyname, command, and description are required", false)
-		return
-	}
-
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	})
-
-	cmd := []string{autoarScript, "keyhack", "add", keyname, commandStr, description}
-	if notes != "" {
-		cmd = append(cmd, notes)
-	}
-
-	output, stderr, err := runCommandSync(cmd)
-
-	embed := &discordgo.MessageEmbed{
-		Title:       "✅ Template Added Successfully",
-		Description: fmt.Sprintf("**Template:** `%s`", keyname),
-		Color:       0x00ff00,
-	}
-
-	if err != nil {
-		embed.Title = "❌ Failed to Add Template"
-		embed.Color = 0xff0000
-		errorMsg := stderr
-		if errorMsg == "" {
-			errorMsg = output
-		}
-		if errorMsg == "" {
-			errorMsg = "Failed to add template"
-		}
-		if len(errorMsg) > 1000 {
-			errorMsg = errorMsg[:1000]
-		}
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Error", Value: fmt.Sprintf("```\n%s\n```", errorMsg), Inline: false},
-		}
-	} else {
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Description", Value: description, Inline: false},
-		}
-		if notes != "" {
-			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-				Name:  "Notes",
-				Value: notes,
-			})
-		}
-		cmdDisplay := commandStr
-		if len(cmdDisplay) > 500 {
-			cmdDisplay = cmdDisplay[:500]
-		}
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:  "Command",
-			Value: fmt.Sprintf("```bash\n%s\n```", cmdDisplay),
-		})
-	}
-
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-}
-
-func handleKeyhackValidate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	provider := ""
-	apiKey := ""
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "provider":
-			provider = opt.StringValue()
-		case "api_key":
-			apiKey = opt.StringValue()
-		}
-	}
-
-	if provider == "" || apiKey == "" {
-		respond(s, i, "❌ Provider and API key are required", false)
-		return
-	}
-
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	})
-
-	command := []string{autoarScript, "keyhack", "validate", provider, apiKey}
-
-	output, stderr, err := runCommandSync(command)
-
-	embed := &discordgo.MessageEmbed{
-		Title:       "🔐 API Key Validation Command",
-		Description: fmt.Sprintf("**Provider:** `%s`", provider),
-		Color:       0x00ff00,
-	}
-
-	if err != nil {
-		embed.Title = "❌ API Key Validation Failed"
-		embed.Color = 0xff0000
-		errorMsg := stderr
-		if errorMsg == "" {
-			errorMsg = "Validation failed"
-		}
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Error", Value: fmt.Sprintf("```\n%s\n```", errorMsg), Inline: false},
-		}
-	} else {
-		// Extract curl command from output
-		re := regexp.MustCompile(`curl[^\n]+`)
-		commandMatch := re.FindString(output)
-		if commandMatch != "" {
-			embed.Fields = []*discordgo.MessageEmbedField{
-				{Name: "Validation Command", Value: fmt.Sprintf("```bash\n%s\n```", commandMatch), Inline: false},
-			}
-		} else {
-			if len(output) > 1900 {
-				output = output[:1900] + "\n... (truncated)"
-			}
-			embed.Fields = []*discordgo.MessageEmbedField{
-				{Name: "Output", Value: fmt.Sprintf("```\n%s\n```", output), Inline: false},
-			}
-		}
-	}
-
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
+		Embeds: &embeds,
 	})
 }
 
