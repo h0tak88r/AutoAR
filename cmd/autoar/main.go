@@ -645,8 +645,11 @@ func handleBackupCommand(args []string) error {
 // handleJWTCommand parses:
 //
 //	autoar jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]
+//	autoar jwt scan <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]
 //
-// All flags after "scan" are passed directly to jwt-hack.
+// Internally this is normalized to:
+//
+//	jwt-hack scan <JWT_TOKEN> [flags...]
 func handleJWTCommand(args []string) error {
 	if len(args) == 0 || args[0] != "scan" {
 		return fmt.Errorf("usage: jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]")
@@ -656,7 +659,59 @@ func handleJWTCommand(args []string) error {
 		return fmt.Errorf("JWT token and options are required; see: jwt scan --token <JWT>")
 	}
 
-	outPath, err := jwtmod.RunScan(raw)
+	// Normalize CLI flags/positionals so jwt-hack always sees:
+	//   jwt-hack scan <TOKEN> [flags...]
+	var (
+		token      string
+		jwtArgs    []string
+		skipNext   bool
+	)
+
+	for i := 0; i < len(raw); i++ {
+		if skipNext {
+			// Previous iteration already consumed this as a value
+			skipNext = false
+			continue
+		}
+
+		arg := raw[i]
+
+		switch arg {
+		case "--token", "-t":
+			// Explicit token flag
+			if i+1 < len(raw) {
+				token = raw[i+1]
+				skipNext = true
+			}
+		case "-w", "--wordlist", "--max-crack-attempts":
+			// Flags that expect a value – keep them (and their value) as-is
+			if i+1 < len(raw) {
+				jwtArgs = append(jwtArgs, arg, raw[i+1])
+				skipNext = true
+			} else {
+				jwtArgs = append(jwtArgs, arg)
+			}
+		default:
+			if strings.HasPrefix(arg, "-") {
+				// Boolean-style flags (e.g. --skip-crack, --skip-payloads)
+				jwtArgs = append(jwtArgs, arg)
+			} else if token == "" {
+				// First non-flag positional is treated as the token
+				token = arg
+			} else {
+				// Any extra positionals are passed through as-is
+				jwtArgs = append(jwtArgs, arg)
+			}
+		}
+	}
+
+	if token == "" {
+		return fmt.Errorf("JWT token is required; pass it positionally or via --token <JWT>")
+	}
+
+	finalArgs := append([]string{token}, jwtArgs...)
+
+	outPath, err := jwtmod.RunScan(finalArgs)
 	if err != nil {
 		return err
 	}
