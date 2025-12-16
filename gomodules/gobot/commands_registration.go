@@ -316,41 +316,26 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		// Monitoring commands
 		{
-			Name:        "monitor_updates_add",
-			Description: "Monitor Updates: add a URL target",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "URL to monitor", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "strategy", Description: "hash|size|headers|regex (default: hash)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "pattern", Description: "Regex pattern if strategy=regex", Required: false},
-			},
+			Name:        "monitor_updates",
+			Description: "Monitor Updates: list all targets with running status",
 		},
 		{
-			Name:        "monitor_updates_remove",
-			Description: "Monitor Updates: remove a URL target",
+			Name:        "monitor_updates_manage",
+			Description: "Monitor Updates: manage targets (add/remove/start/stop)",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "URL to remove", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "action", Description: "Action: add, remove, start, or stop", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "add", Value: "add"},
+					{Name: "remove", Value: "remove"},
+					{Name: "start", Value: "start"},
+					{Name: "stop", Value: "stop"},
+				}},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Target ID (for remove/start/stop)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "URL (for add/start/stop by URL)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "strategy", Description: "Strategy: hash|size|headers|regex (for add, default: hash)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "pattern", Description: "Regex pattern if strategy=regex (for add)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "interval", Description: "Interval in seconds (for start, default: 86400)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "all", Description: "Apply to all targets (for start/stop)", Required: false},
 			},
-		},
-		{
-			Name:        "monitor_updates_start",
-			Description: "Monitor Updates: start monitoring target(s)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Target ID from /monitor_updates_list", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Specific URL to monitor (leave empty for all targets)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "interval", Description: "Interval in seconds between checks (default: 86400 = 1 day)", Required: false},
-			},
-		},
-		{
-			Name:        "monitor_updates_stop",
-			Description: "Monitor Updates: stop monitoring target(s)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Target ID from /monitor_updates_list", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Specific URL to stop monitoring (leave empty for all targets)", Required: false},
-			},
-		},
-		{
-			Name:        "monitor_updates_list",
-			Description: "Monitor Updates: list DB targets and running monitors",
 		},
 		// JWT commands
 		{
