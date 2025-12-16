@@ -19,6 +19,7 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
 	"github.com/h0tak88r/AutoAR/gomodules/githubscan"
 	"github.com/h0tak88r/AutoAR/gomodules/gobot"
+	"github.com/h0tak88r/AutoAR/gomodules/jsscan"
 	jwtmod "github.com/h0tak88r/AutoAR/gomodules/jwt"
 	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
 	"github.com/h0tak88r/AutoAR/gomodules/nuclei"
@@ -522,6 +523,54 @@ func handlePortsCommand(args []string) error {
 	}
 	_, err := ports.ScanPorts(domain, threads)
 	return err
+}
+
+// handleJSCommand parses:
+//
+//	autoar js scan -d <domain> [-s <subdomain>] [-t <threads>]
+func handleJSCommand(args []string) error {
+	if len(args) == 0 || args[0] != "scan" {
+		return fmt.Errorf("usage: js scan -d <domain> [-s <subdomain>] [-t <threads>]")
+	}
+	args = args[1:]
+
+	opts := jsscan.Options{Threads: 100}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				opts.Domain = args[i+1]
+				i++
+			}
+		case "-s", "--subdomain":
+			if i+1 < len(args) {
+				opts.Subdomain = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Threads = t
+				}
+				i++
+			}
+		}
+	}
+
+	if opts.Domain == "" {
+		return fmt.Errorf("domain (-d) is required")
+	}
+
+	res, err := jsscan.Run(opts)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[OK] JS scan completed for %s; found %d JS URLs\n", res.Domain, res.TotalJS)
+	fmt.Printf("[INFO] All URLs: %s\n", res.URLsFile)
+	fmt.Printf("[INFO] JS URLs (vulnerabilities): %s\n", res.VulnJSFile)
+	return nil
 }
 
 // handleBackupCommand parses:
@@ -1161,7 +1210,7 @@ func main() {
 
 	switch cmd {
 	// Commands not yet migrated to Go (return error for now)
-	case "js", "s3",
+	case "s3",
 		"depconfusion", "misconfig", "keyhack", "monitor":
 		err = fmt.Errorf("command '%s' is not yet implemented in Go. All bash modules have been removed.", cmd)
 
@@ -1223,6 +1272,9 @@ func main() {
 
 	case "ports":
 		err = handlePortsCommand(args)
+
+	case "js":
+		err = handleJSCommand(args)
 
 	case "backup":
 		err = handleBackupCommand(args)
