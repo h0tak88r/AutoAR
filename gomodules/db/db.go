@@ -476,6 +476,11 @@ func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, 
 type KeyhackTemplate struct {
 	Keyname         string
 	CommandTemplate string
+	Method          string
+	URL             string
+	Header          string
+	Body            string
+	Notes           string
 	Description     string
 }
 
@@ -488,7 +493,7 @@ func ListKeyhackTemplates() ([]KeyhackTemplate, error) {
 	}
 
 	rows, err := dbPool.Query(ctx, `
-		SELECT keyname, command_template, description
+		SELECT keyname, command_template, method, url, header, body, notes, description
 		FROM keyhack_templates
 		ORDER BY keyname;
 	`)
@@ -500,7 +505,7 @@ func ListKeyhackTemplates() ([]KeyhackTemplate, error) {
 	var out []KeyhackTemplate
 	for rows.Next() {
 		var t KeyhackTemplate
-		if err := rows.Scan(&t.Keyname, &t.CommandTemplate, &t.Description); err != nil {
+		if err := rows.Scan(&t.Keyname, &t.CommandTemplate, &t.Method, &t.URL, &t.Header, &t.Body, &t.Notes, &t.Description); err != nil {
 			return nil, fmt.Errorf("failed to scan keyhack template: %v", err)
 		}
 		out = append(out, t)
@@ -521,7 +526,7 @@ func SearchKeyhackTemplates(query string) ([]KeyhackTemplate, error) {
 
 	q := "%" + query + "%"
 	rows, err := dbPool.Query(ctx, `
-		SELECT keyname, command_template, description
+		SELECT keyname, command_template, method, url, header, body, notes, description
 		FROM keyhack_templates
 		WHERE keyname ILIKE $1 OR description ILIKE $1
 		ORDER BY keyname;
@@ -534,7 +539,7 @@ func SearchKeyhackTemplates(query string) ([]KeyhackTemplate, error) {
 	var out []KeyhackTemplate
 	for rows.Next() {
 		var t KeyhackTemplate
-		if err := rows.Scan(&t.Keyname, &t.CommandTemplate, &t.Description); err != nil {
+		if err := rows.Scan(&t.Keyname, &t.CommandTemplate, &t.Method, &t.URL, &t.Header, &t.Body, &t.Notes, &t.Description); err != nil {
 			return nil, fmt.Errorf("failed to scan keyhack template: %v", err)
 		}
 		out = append(out, t)

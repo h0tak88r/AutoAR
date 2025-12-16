@@ -3,6 +3,7 @@ package gobot
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -62,13 +63,19 @@ func handleKeyhackSearch(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	})
-
 	command := []string{autoarScript, "keyhack", "search", query}
 
 	output, stderr, err := runCommandSync(command)
+
+	// Check if output indicates "not found" before deferring response
+	if err == nil && (strings.Contains(output, "No matching KeyHack templates found") || strings.TrimSpace(output) == "") {
+		respond(s, i, fmt.Sprintf("❌ **No KeyHack templates found** for query: `%s`", query), false)
+		return
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
 
 	embed := &discordgo.MessageEmbed{
 		Title:       "🔍 KeyHack Search Results",
