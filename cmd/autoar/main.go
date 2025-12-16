@@ -22,6 +22,8 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/jsscan"
 	jwtmod "github.com/h0tak88r/AutoAR/gomodules/jwt"
 	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
+	"github.com/h0tak88r/AutoAR/gomodules/misconfig"
+	"github.com/h0tak88r/AutoAR/gomodules/monitor"
 	"github.com/h0tak88r/AutoAR/gomodules/nuclei"
 	"github.com/h0tak88r/AutoAR/gomodules/ports"
 	"github.com/h0tak88r/AutoAR/gomodules/reflection"
@@ -809,6 +811,170 @@ func generateKeyhackCommand(t db.KeyhackTemplate, apiKey string) string {
 	return strings.Join(curlParts, " ")
 }
 
+// handleMisconfigCommand routes misconfig subcommands
+//
+//	autoar misconfig scan <target> [service] [delay]
+//	autoar misconfig service <target> <service-id>
+//	autoar misconfig list
+//	autoar misconfig update
+func handleMisconfigCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: misconfig <scan|service|list|update> [options]")
+	}
+
+	action := args[0]
+	subArgs := args[1:]
+
+	opts := misconfig.Options{
+		Action: action,
+		Delay:  0,
+	}
+
+	switch action {
+	case "list":
+		return misconfig.Run(opts)
+
+	case "update":
+		return misconfig.Run(opts)
+
+	case "scan":
+		if len(subArgs) < 1 {
+			return fmt.Errorf("usage: misconfig scan <target> [--service <service-id>] [--delay <ms>]")
+		}
+		opts.Target = subArgs[0]
+		
+		for i := 1; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--service", "-s":
+				if i+1 < len(subArgs) {
+					opts.ServiceID = subArgs[i+1]
+					i++
+				}
+			case "--delay", "-d":
+				if i+1 < len(subArgs) {
+					if d, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.Delay = d
+					}
+					i++
+				}
+			}
+		}
+		return misconfig.Run(opts)
+
+	case "service":
+		if len(subArgs) < 2 {
+			return fmt.Errorf("usage: misconfig service <target> <service-id>")
+		}
+		opts.Target = subArgs[0]
+		opts.ServiceID = subArgs[1]
+		return misconfig.Run(opts)
+
+	default:
+		return fmt.Errorf("unknown misconfig action: %s", action)
+	}
+}
+
+// handleMonitorCommand routes monitor updates subcommands
+//
+//	autoar monitor updates list
+//	autoar monitor updates add -u <url> [--strategy <strategy>] [--pattern <pattern>]
+//	autoar monitor updates remove -u <url>
+//	autoar monitor updates start [--all] [-u <url>] [--interval <sec>]
+//	autoar monitor updates stop [--all] [-u <url>]
+func handleMonitorCommand(args []string) error {
+	if len(args) < 2 || args[0] != "updates" {
+		return fmt.Errorf("usage: monitor updates <list|add|remove|start|stop> [options]")
+	}
+
+	action := args[1]
+	subArgs := args[2:]
+
+	opts := monitor.Options{
+		Action:   action,
+		Strategy: "hash",
+		Interval: 86400,
+	}
+
+	switch action {
+	case "list":
+		return monitor.Run(opts)
+
+	case "add":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "-u", "--url":
+				if i+1 < len(subArgs) {
+					opts.URL = subArgs[i+1]
+					i++
+				}
+			case "--strategy", "-s":
+				if i+1 < len(subArgs) {
+					opts.Strategy = subArgs[i+1]
+					i++
+				}
+			case "--pattern", "-p":
+				if i+1 < len(subArgs) {
+					opts.Pattern = subArgs[i+1]
+					i++
+				}
+			}
+		}
+		return monitor.Run(opts)
+
+	case "remove":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "-u", "--url":
+				if i+1 < len(subArgs) {
+					opts.URL = subArgs[i+1]
+					i++
+				}
+			}
+		}
+		return monitor.Run(opts)
+
+	case "start":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--all", "-a":
+				opts.All = true
+			case "-u", "--url":
+				if i+1 < len(subArgs) {
+					opts.URL = subArgs[i+1]
+					i++
+				}
+			case "--interval", "-i":
+				if i+1 < len(subArgs) {
+					if interval, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.Interval = interval
+					}
+					i++
+				}
+			case "--daemon":
+				// Ignored, handled by the module
+			}
+		}
+		return monitor.Run(opts)
+
+	case "stop":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--all", "-a":
+				opts.All = true
+			case "-u", "--url":
+				if i+1 < len(subArgs) {
+					opts.URL = subArgs[i+1]
+					i++
+				}
+			}
+		}
+		return monitor.Run(opts)
+
+	default:
+		return fmt.Errorf("unknown monitor updates action: %s", action)
+	}
+}
+
 // handleKeyhackCommand routes keyhack subcommands to the DB-backed implementation:
 //
 //	autoar keyhack list
@@ -1465,7 +1631,7 @@ func main() {
 	switch cmd {
 	// Commands not yet migrated to Go (return error for now)
 	case "s3",
-		"depconfusion", "misconfig", "monitor":
+		"depconfusion":
 		err = fmt.Errorf("command '%s' is not yet implemented in Go. All bash modules have been removed.", cmd)
 
 	// Go modules - direct calls
@@ -1552,6 +1718,12 @@ func main() {
 
 	case "keyhack":
 		err = handleKeyhackCommand(args)
+
+	case "misconfig":
+		err = handleMisconfigCommand(args)
+
+	case "monitor":
+		err = handleMonitorCommand(args)
 
 	// Bot/API commands
 	case "bot":
