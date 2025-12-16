@@ -214,6 +214,72 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
 			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
 		)
+	case "dns_takeover":
+		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
+		resultFiles = []string{
+			filepath.Join(domainDir, "dns-takeover-summary.txt"),
+			filepath.Join(domainDir, "nuclei-takeover-public.txt"),
+			filepath.Join(domainDir, "nuclei-takeover-custom.txt"),
+			filepath.Join(domainDir, "dnsreaper-results.txt"),
+			filepath.Join(domainDir, "azure-takeover.txt"),
+			filepath.Join(domainDir, "aws-takeover.txt"),
+			filepath.Join(domainDir, "azure-aws-takeover.txt"),
+			filepath.Join(domainDir, "ns-takeover-raw.txt"),
+			filepath.Join(domainDir, "ns-takeover-vuln.txt"),
+			filepath.Join(domainDir, "ns-servers.txt"),
+			filepath.Join(domainDir, "ns-servers-vuln.txt"),
+		}
+	case "dns_cname":
+		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
+		resultFiles = []string{
+			filepath.Join(domainDir, "nuclei-takeover-public.txt"),
+			filepath.Join(domainDir, "nuclei-takeover-custom.txt"),
+			filepath.Join(domainDir, "dnsreaper-results.txt"),
+			filepath.Join(domainDir, "azure-takeover.txt"),
+			filepath.Join(domainDir, "aws-takeover.txt"),
+			filepath.Join(domainDir, "azure-aws-takeover.txt"),
+		}
+	case "dns_ns":
+		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
+		resultFiles = []string{
+			filepath.Join(domainDir, "ns-servers.txt"),
+			filepath.Join(domainDir, "ns-takeover-raw.txt"),
+			filepath.Join(domainDir, "ns-servers-vuln.txt"),
+			filepath.Join(domainDir, "ns-takeover-vuln.txt"),
+		}
+	case "dns_azure_aws":
+		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
+		resultFiles = []string{
+			filepath.Join(domainDir, "azure-takeover.txt"),
+			filepath.Join(domainDir, "aws-takeover.txt"),
+			filepath.Join(domainDir, "azure-aws-takeover.txt"),
+		}
+	case "dns_dnsreaper":
+		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
+		resultFiles = []string{
+			filepath.Join(domainDir, "dnsreaper-results.txt"),
+		}
+	case "github":
+		base := filepath.Join(resultsDir, "github", "repos", target)
+		resultFiles = []string{
+			filepath.Join(base, "secrets.json"),
+			filepath.Join(base, "secrets_table.txt"),
+			filepath.Join(base, "trufflehog.log"),
+		}
+	case "github_org":
+		base := filepath.Join(resultsDir, "github", "orgs", target)
+		resultFiles = []string{
+			filepath.Join(base, "secrets.json"),
+			filepath.Join(base, "secrets_table.txt"),
+			filepath.Join(base, "trufflehog.log"),
+		}
+	case "github_experimental":
+		base := filepath.Join(resultsDir, "github", "experimental", target)
+		resultFiles = []string{
+			filepath.Join(base, "secrets.json"),
+			filepath.Join(base, "secrets_table.txt"),
+			filepath.Join(base, "trufflehog.log"),
+		}
 	case "db_domains":
 		resultFiles = []string{
 			filepath.Join(resultsDir, "db", "domains.txt"),
