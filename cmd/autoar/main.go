@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/h0tak88r/AutoAR/gomodules/backup"
+	"github.com/h0tak88r/AutoAR/gomodules/checktools"
 	"github.com/h0tak88r/AutoAR/gomodules/cnames"
 	"github.com/h0tak88r/AutoAR/gomodules/dalfox"
 	"github.com/h0tak88r/AutoAR/gomodules/db"
@@ -16,6 +18,7 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/gf"
 	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
 	"github.com/h0tak88r/AutoAR/gomodules/gobot"
+	jwtmod "github.com/h0tak88r/AutoAR/gomodules/jwt"
 	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
 	"github.com/h0tak88r/AutoAR/gomodules/nuclei"
 	"github.com/h0tak88r/AutoAR/gomodules/ports"
@@ -139,7 +142,6 @@ Database:
   db js list          -d <domain>
 
 Utilities:
-  cleanup run         --domain <domain> [--keep]
   check-tools
   help
 
@@ -521,6 +523,97 @@ func handlePortsCommand(args []string) error {
 	return err
 }
 
+// handleBackupCommand parses:
+//
+//	autoar backup scan -d <domain> [-t <threads>] [--delay <ms>]
+//	autoar backup scan -l <live_hosts_file> [-t <threads>] [--delay <ms>]
+func handleBackupCommand(args []string) error {
+	if len(args) == 0 || args[0] != "scan" {
+		return fmt.Errorf("usage: backup scan -d <domain> | -l <live_hosts_file> [-t <threads>] [--delay <ms>]")
+	}
+	args = args[1:]
+
+	opts := backup.Options{Threads: 100}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				opts.Domain = args[i+1]
+				i++
+			}
+		case "-l", "--live-hosts":
+			if i+1 < len(args) {
+				opts.LiveHostsFile = args[i+1]
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				opts.OutputDir = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Threads = t
+				}
+				i++
+			}
+		case "--delay":
+			if i+1 < len(args) {
+				if d, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.DelayMS = d
+				}
+				i++
+			}
+		}
+	}
+
+	if opts.Domain == "" && opts.LiveHostsFile == "" {
+		return fmt.Errorf("either -d <domain> or -l <live_hosts_file> must be provided")
+	}
+	if opts.Domain != "" && opts.LiveHostsFile != "" {
+		return fmt.Errorf("cannot use both -d and -l together")
+	}
+
+	res, err := backup.Run(opts)
+	if err != nil {
+		return err
+	}
+
+	if opts.Domain != "" {
+		fmt.Printf("[OK] Backup scan completed for %s; found ~%d potential backup files\n", opts.Domain, res.FoundCount)
+	} else {
+		fmt.Printf("[OK] Backup scan completed for %d live hosts; found ~%d potential backup files\n", res.LiveHostsCount, res.FoundCount)
+	}
+	fmt.Printf("[INFO] Results saved to %s\n", res.ResultsFile)
+	fmt.Printf("[INFO] Log saved to %s\n", res.LogFile)
+
+	return nil
+}
+
+// handleJWTCommand parses:
+//
+//	autoar jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]
+//
+// All flags after "scan" are passed directly to jwt-hack.
+func handleJWTCommand(args []string) error {
+	if len(args) == 0 || args[0] != "scan" {
+		return fmt.Errorf("usage: jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]")
+	}
+	raw := args[1:]
+	if len(raw) == 0 {
+		return fmt.Errorf("JWT token and options are required; see: jwt scan --token <JWT>")
+	}
+
+	outPath, err := jwtmod.RunScan(raw)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("[OK] JWT scan completed; results saved to %s\n", outPath)
+	return nil
+}
+
 func handleSubdomainsGo(args []string) error {
 	var domain string
 	threads := 100
@@ -592,7 +685,7 @@ func handleSubdomainsGo(args []string) error {
 }
 
 // handleLivehostsGo runs live host discovery for a given domain using the Go livehosts module.
-	// Live host filtering implemented in Go.
+// Live host filtering implemented in Go.
 func handleLivehostsGo(args []string) error {
 	var domain string
 	threads := 100
@@ -636,7 +729,7 @@ func handleLivehostsGo(args []string) error {
 }
 
 // handleURLsGo runs URL collection for a given domain using the Go urls module.
-	// URL collection implemented in Go.
+// URL collection implemented in Go.
 func handleURLsGo(args []string) error {
 	var domain string
 	threads := 100
@@ -873,8 +966,8 @@ func main() {
 
 	switch cmd {
 	// Commands not yet migrated to Go (return error for now)
-	case "js", "s3", "cleanup", "check-tools", "github", "backup",
-		"depconfusion", "misconfig", "keyhack", "jwt", "monitor":
+	case "js", "s3", "github",
+		"depconfusion", "misconfig", "keyhack", "monitor":
 		err = fmt.Errorf("command '%s' is not yet implemented in Go. All bash modules have been removed.", cmd)
 
 	// Go modules - direct calls
@@ -935,6 +1028,15 @@ func main() {
 
 	case "ports":
 		err = handlePortsCommand(args)
+
+	case "backup":
+		err = handleBackupCommand(args)
+
+	case "check-tools":
+		err = checktools.Run()
+
+	case "jwt":
+		err = handleJWTCommand(args)
 
 	case "db":
 		// Database operations via Go module
