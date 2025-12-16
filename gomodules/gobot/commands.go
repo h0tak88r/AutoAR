@@ -214,6 +214,14 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
 			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
 		)
+	case "db_domains":
+		resultFiles = []string{
+			filepath.Join(resultsDir, "db", "domains.txt"),
+		}
+	case "db_subdomains":
+		resultFiles = []string{
+			filepath.Join(resultsDir, "db", "subdomains", fmt.Sprintf("%s.txt", target)),
+		}
 		// Add more scan types as needed
 	}
 
