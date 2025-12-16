@@ -258,7 +258,203 @@ func handleKeyhackValidate(s *discordgo.Session, i *discordgo.InteractionCreate)
 }
 
 // Monitoring Commands
-func handleMonitorUpdatesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func handleMonitorUpdates(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	embed := createScanEmbed("Monitor Updates: List", "monitors", "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	cmd := []string{autoarScript, "monitor", "updates", "list"}
+
+	output, _, err := runCommandSync(cmd)
+
+	color := 0x00ff00
+	if err != nil {
+		color = 0xff0000
+	}
+
+	desc := output
+	if desc == "" {
+		desc = "No targets configured"
+	}
+	if len(desc) > 1900 {
+		desc = desc[:1900]
+	}
+
+	embed = &discordgo.MessageEmbed{
+		Title:       "📡 Updates Monitors",
+		Description: fmt.Sprintf("```\n%s\n```", desc),
+		Color:       color,
+	}
+
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+}
+
+func handleMonitorUpdatesManage(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	action := ""
+	var id *int
+	var url *string
+	strategy := "hash"
+	pattern := ""
+	interval := 86400
+	all := false
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "action":
+			action = opt.StringValue()
+		case "id":
+			val := int(opt.IntValue())
+			id = &val
+		case "url":
+			val := opt.StringValue()
+			url = &val
+		case "strategy":
+			strategy = opt.StringValue()
+		case "pattern":
+			pattern = opt.StringValue()
+		case "interval":
+			interval = int(opt.IntValue())
+		case "all":
+			all = opt.BoolValue()
+		}
+	}
+
+	if action == "" {
+		respond(s, i, "❌ Action is required", false)
+		return
+	}
+
+	var cmd []string
+	var targetDesc string
+	var title string
+	color := 0x00ff00
+
+	switch action {
+	case "add":
+		if url == nil || *url == "" {
+			respond(s, i, "❌ URL is required for add action", false)
+			return
+		}
+		cmd = []string{autoarScript, "monitor", "updates", "add", "-u", *url, "--strategy", strategy}
+		if pattern != "" {
+			cmd = append(cmd, "--pattern", pattern)
+		}
+		targetDesc = *url
+		title = "✅ Target Added"
+
+	case "remove":
+		if id != nil && *id > 0 {
+			cmd = []string{autoarScript, "monitor", "updates", "remove", "--id", strconv.Itoa(*id)}
+			targetDesc = fmt.Sprintf("ID %d", *id)
+		} else if url != nil && *url != "" {
+			cmd = []string{autoarScript, "monitor", "updates", "remove", "-u", *url}
+			targetDesc = *url
+		} else {
+			respond(s, i, "❌ ID or URL is required for remove action", false)
+			return
+		}
+		title = "🗑️ Target Removed"
+
+	case "start":
+		if id != nil && *id > 0 {
+			cmd = []string{autoarScript, "monitor", "updates", "start", "--id", strconv.Itoa(*id), "--interval", fmt.Sprintf("%d", interval)}
+			targetDesc = fmt.Sprintf("ID %d", *id)
+		} else if all {
+			cmd = []string{autoarScript, "monitor", "updates", "start", "--all", "--interval", fmt.Sprintf("%d", interval)}
+			targetDesc = "all targets"
+		} else if url != nil && *url != "" {
+			cmd = []string{autoarScript, "monitor", "updates", "start", "-u", *url, "--interval", fmt.Sprintf("%d", interval)}
+			targetDesc = *url
+		} else {
+			respond(s, i, "❌ ID, URL, or 'all' is required for start action", false)
+			return
+		}
+		title = "📡 Monitor Started"
+
+	case "stop":
+		if id != nil && *id > 0 {
+			cmd = []string{autoarScript, "monitor", "updates", "stop", "--id", strconv.Itoa(*id)}
+			targetDesc = fmt.Sprintf("ID %d", *id)
+		} else if all {
+			cmd = []string{autoarScript, "monitor", "updates", "stop", "--all"}
+			targetDesc = "all targets"
+		} else if url != nil && *url != "" {
+			cmd = []string{autoarScript, "monitor", "updates", "stop", "-u", *url}
+			targetDesc = *url
+		} else {
+			respond(s, i, "❌ ID, URL, or 'all' is required for stop action", false)
+			return
+		}
+		title = "🛑 Monitor Stopped"
+
+	default:
+		respond(s, i, fmt.Sprintf("❌ Unknown action: %s", action), false)
+		return
+	}
+
+	embed := createScanEmbed(title, targetDesc, "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	output, stderr, err := runCommandSync(cmd)
+	if err != nil {
+		color = 0xff0000
+	}
+
+	desc := fmt.Sprintf("**Action:** %s\n**Target:** %s", action, targetDesc)
+	if action == "add" && pattern != "" {
+		desc += fmt.Sprintf("\n**Pattern:** %s", pattern)
+	}
+	if action == "start" {
+		desc += fmt.Sprintf("\n**Interval:** %ds (%dh)", interval, interval/3600)
+	}
+
+	embed = &discordgo.MessageEmbed{
+		Title:       title,
+		Description: desc,
+		Color:       color,
+	}
+
+	if output != "" {
+		outputDisplay := output
+		if len(outputDisplay) > 1000 {
+			outputDisplay = outputDisplay[:1000]
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Output",
+			Value: fmt.Sprintf("```%s```", outputDisplay),
+		})
+	}
+
+	if stderr != "" && err != nil {
+		stderrDisplay := stderr
+		if len(stderrDisplay) > 1000 {
+			stderrDisplay = stderrDisplay[:1000]
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Error",
+			Value: fmt.Sprintf("```%s```", stderrDisplay),
+		})
+	}
+
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+}
+
+// Old handlers - kept for reference but not used
+func handleMonitorUpdatesAdd_OLD(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	url := ""
 	strategy := "hash"
@@ -578,42 +774,6 @@ func handleMonitorUpdatesStop(s *discordgo.Session, i *discordgo.InteractionCrea
 	})
 }
 
-func handleMonitorUpdatesList(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	embed := createScanEmbed("Monitor Updates: List", "monitors", "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	cmd := []string{autoarScript, "monitor", "updates", "list"}
-
-	output, _, err := runCommandSync(cmd)
-
-	color := 0x00ff00
-	if err != nil {
-		color = 0xff0000
-	}
-
-	desc := output
-	if desc == "" {
-		desc = "No targets configured"
-	}
-	if len(desc) > 1900 {
-		desc = desc[:1900]
-	}
-
-	embed = &discordgo.MessageEmbed{
-		Title:       "📡 Updates Monitors",
-		Description: fmt.Sprintf("```\n%s\n```", desc),
-		Color:       color,
-	}
-
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-}
 
 // Help
 func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
