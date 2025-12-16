@@ -948,6 +948,110 @@ func handleDBCommand(args []string) error {
 		}
 		return nil
 
+	case "domains":
+		if len(subArgs) < 1 {
+			return fmt.Errorf("usage: autoar db domains <list|delete> [options]")
+		}
+		action := subArgs[0]
+		args := subArgs[1:]
+
+		switch action {
+		case "list":
+			domains, err := db.ListDomains()
+			if err != nil {
+				return err
+			}
+			for _, d := range domains {
+				fmt.Println(d)
+			}
+			return nil
+
+		case "delete":
+			var domain string
+			for i := 0; i < len(args); i++ {
+				switch args[i] {
+				case "-d", "--domain":
+					if i+1 < len(args) {
+						domain = args[i+1]
+						i++
+					}
+				}
+			}
+			if domain == "" {
+				return fmt.Errorf("usage: autoar db domains delete -d <domain>")
+			}
+			if err := db.DeleteDomain(domain); err != nil {
+				return err
+			}
+			fmt.Printf("[OK] Deleted domain and related data: %s\n", domain)
+			return nil
+
+		default:
+			return fmt.Errorf("unknown db domains action: %s", action)
+		}
+
+	case "subdomains":
+		if len(subArgs) < 1 {
+			return fmt.Errorf("usage: autoar db subdomains <list|export> -d <domain> [-o file]")
+		}
+		action := subArgs[0]
+		args := subArgs[1:]
+
+		var domain, outFile string
+		for i := 0; i < len(args); i++ {
+			switch args[i] {
+			case "-d", "--domain":
+				if i+1 < len(args) {
+					domain = args[i+1]
+					i++
+				}
+			case "-o", "--output":
+				if i+1 < len(args) {
+					outFile = args[i+1]
+					i++
+				}
+			}
+		}
+		if domain == "" {
+			return fmt.Errorf("domain (-d) is required")
+		}
+
+		subs, err := db.ListSubdomains(domain)
+		if err != nil {
+			return err
+		}
+
+		switch action {
+		case "list":
+			for _, s := range subs {
+				fmt.Println(s)
+			}
+			return nil
+
+		case "export":
+			if outFile == "" {
+				outFile = fmt.Sprintf("%s_subdomains.txt", domain)
+			}
+			f, err := os.Create(outFile)
+			if err != nil {
+				return fmt.Errorf("failed to create export file: %v", err)
+			}
+			defer f.Close()
+
+			w := bufio.NewWriter(f)
+			for _, s := range subs {
+				fmt.Fprintln(w, s)
+			}
+			if err := w.Flush(); err != nil {
+				return fmt.Errorf("failed to write export file: %v", err)
+			}
+			fmt.Printf("[OK] Exported %d subdomains for %s to %s\n", len(subs), domain, outFile)
+			return nil
+
+		default:
+			return fmt.Errorf("unknown db subdomains action: %s", action)
+		}
+
 	default:
 		return fmt.Errorf("unknown db command: %s", command)
 	}

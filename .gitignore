@@ -84,3 +84,4 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 autoar.exe
 !cmd/
 !cmd/**
+all-roots.txt
