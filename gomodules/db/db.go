@@ -221,10 +221,21 @@ func InitSchema() error {
 		END IF;
 	END $$;
 	
+	-- Create updates_targets table for monitoring
+	CREATE TABLE IF NOT EXISTS updates_targets (
+		id SERIAL PRIMARY KEY,
+		url TEXT NOT NULL UNIQUE,
+		strategy TEXT NOT NULL,
+		pattern TEXT,
+		created_at TIMESTAMP DEFAULT NOW(),
+		updated_at TIMESTAMP DEFAULT NOW()
+	);
+	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
+	CREATE INDEX IF NOT EXISTS idx_updates_targets_url ON updates_targets(url);
 	`
 
 	_, err := dbPool.Exec(ctx, schema)
@@ -626,6 +637,89 @@ func DeleteDomain(domain string) error {
 	}
 	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("domain not found: %s", domain)
+	}
+	return nil
+}
+
+// MonitorTarget represents a monitoring target
+type MonitorTarget struct {
+	ID       int
+	URL      string
+	Strategy string
+	Pattern  string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ListMonitorTargets returns all monitoring targets
+func ListMonitorTargets() ([]MonitorTarget, error) {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := dbPool.Query(ctx, `
+		SELECT id, url, strategy, pattern, created_at, updated_at
+		FROM updates_targets
+		ORDER BY created_at DESC;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query monitor targets: %v", err)
+	}
+	defer rows.Close()
+
+	var targets []MonitorTarget
+	for rows.Next() {
+		var t MonitorTarget
+		if err := rows.Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan monitor target: %v", err)
+		}
+		targets = append(targets, t)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate monitor targets: %v", rows.Err())
+	}
+	return targets, nil
+}
+
+// AddMonitorTarget adds a new monitoring target
+func AddMonitorTarget(url, strategy, pattern string) error {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+
+	_, err := dbPool.Exec(ctx, `
+		INSERT INTO updates_targets (url, strategy, pattern)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (url) DO UPDATE SET
+			strategy = EXCLUDED.strategy,
+			pattern = EXCLUDED.pattern,
+			updated_at = NOW();
+	`, url, strategy, pattern)
+
+	if err != nil {
+		return fmt.Errorf("failed to add monitor target: %v", err)
+	}
+	return nil
+}
+
+// RemoveMonitorTarget removes a monitoring target by URL
+func RemoveMonitorTarget(url string) error {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+
+	cmdTag, err := dbPool.Exec(ctx, `DELETE FROM updates_targets WHERE url = $1;`, url)
+	if err != nil {
+		return fmt.Errorf("failed to remove monitor target: %v", err)
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return fmt.Errorf("monitor target not found: %s", url)
 	}
 	return nil
 }
