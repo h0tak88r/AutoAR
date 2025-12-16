@@ -719,6 +719,96 @@ func handleJWTCommand(args []string) error {
 	return nil
 }
 
+// generateKeyhackCommand generates a CLI POC command from a KeyhackTemplate.
+// It handles HTTP methods (GET, POST, etc.) by generating curl commands,
+// and SHELL methods by returning the command_template directly.
+func generateKeyhackCommand(t db.KeyhackTemplate, apiKey string) string {
+	method := strings.ToUpper(t.Method)
+	if method == "" {
+		method = "GET"
+	}
+
+	// For SHELL methods, use the command_template directly and substitute API key
+	if method == "SHELL" {
+		cmd := t.CommandTemplate
+		if apiKey != "" {
+			cmd = strings.ReplaceAll(cmd, "$API_KEY", apiKey)
+			cmd = strings.ReplaceAll(cmd, "${API_KEY}", apiKey)
+			cmd = strings.ReplaceAll(cmd, "YOUR_API_KEY", apiKey)
+		}
+		return cmd
+	}
+
+	// For HTTP methods, generate curl command
+	url := t.URL
+	if url == "" && t.CommandTemplate != "" {
+		// Try to extract URL from command_template JSON if URL is empty
+		// This handles cases where URL might be in the JSON
+		if strings.Contains(t.CommandTemplate, `"url"`) {
+			// Simple extraction - look for "url": "value"
+			urlStart := strings.Index(t.CommandTemplate, `"url":`)
+			if urlStart != -1 {
+				urlValueStart := strings.Index(t.CommandTemplate[urlStart:], `"`)
+				if urlValueStart != -1 {
+					urlValueStart += urlStart + 1
+					urlValueEnd := strings.Index(t.CommandTemplate[urlValueStart:], `"`)
+					if urlValueEnd != -1 {
+						url = t.CommandTemplate[urlValueStart : urlValueStart+urlValueEnd]
+					}
+				}
+			}
+		}
+	}
+
+	if url == "" {
+		url = "https://api.example.com"
+	}
+
+	// Build curl command
+	curlParts := []string{"curl", "-X", method}
+
+	// Add headers
+	if t.Header != "" {
+		header := t.Header
+		if apiKey != "" {
+			header = strings.ReplaceAll(header, "$API_KEY", apiKey)
+			header = strings.ReplaceAll(header, "${API_KEY}", apiKey)
+			header = strings.ReplaceAll(header, "YOUR_API_KEY", apiKey)
+		}
+		curlParts = append(curlParts, "-H", fmt.Sprintf(`"%s"`, header))
+	} else if apiKey != "" {
+		// Default Authorization header if no header specified
+		curlParts = append(curlParts, "-H", fmt.Sprintf(`"Authorization: Bearer %s"`, apiKey))
+	}
+
+	// Add body for POST/PUT/PATCH
+	if (method == "POST" || method == "PUT" || method == "PATCH") && t.Body != "" {
+		body := t.Body
+		if apiKey != "" {
+			body = strings.ReplaceAll(body, "$API_KEY", apiKey)
+			body = strings.ReplaceAll(body, "${API_KEY}", apiKey)
+			body = strings.ReplaceAll(body, "YOUR_API_KEY", apiKey)
+		}
+		curlParts = append(curlParts, "-d", fmt.Sprintf(`'%s'`, body))
+	}
+
+	// Add URL (with API key substitution if needed)
+	if apiKey != "" {
+		url = strings.ReplaceAll(url, "$API_KEY", apiKey)
+		url = strings.ReplaceAll(url, "${API_KEY}", apiKey)
+		url = strings.ReplaceAll(url, "YOUR_API_KEY", apiKey)
+		url = strings.ReplaceAll(url, "{API_KEY}", apiKey)
+		// Handle common query parameter patterns
+		url = strings.ReplaceAll(url, "?key=", fmt.Sprintf("?key=%s", apiKey))
+		url = strings.ReplaceAll(url, "&key=", fmt.Sprintf("&key=%s", apiKey))
+		url = strings.ReplaceAll(url, "?api_key=", fmt.Sprintf("?api_key=%s", apiKey))
+		url = strings.ReplaceAll(url, "&api_key=", fmt.Sprintf("&api_key=%s", apiKey))
+	}
+	curlParts = append(curlParts, url)
+
+	return strings.Join(curlParts, " ")
+}
+
 // handleKeyhackCommand routes keyhack subcommands to the DB-backed implementation:
 //
 //	autoar keyhack list
@@ -744,7 +834,12 @@ func handleKeyhackCommand(args []string) error {
 			return nil
 		}
 		for _, t := range templates {
-			fmt.Printf("Provider: %s\nDescription: %s\nCommand:\n%s\n\n", t.Keyname, t.Description, t.CommandTemplate)
+			cmd := generateKeyhackCommand(t, "")
+			fmt.Printf("Provider: %s\nDescription: %s\nMethod: %s\nCommand:\n%s\n", t.Keyname, t.Description, t.Method, cmd)
+			if t.Notes != "" {
+				fmt.Printf("Notes: %s\n", t.Notes)
+			}
+			fmt.Println()
 		}
 		return nil
 
@@ -762,7 +857,12 @@ func handleKeyhackCommand(args []string) error {
 			return nil
 		}
 		for _, t := range results {
-			fmt.Printf("Provider: %s\nDescription: %s\nCommand:\n%s\n\n", t.Keyname, t.Description, t.CommandTemplate)
+			cmd := generateKeyhackCommand(t, "")
+			fmt.Printf("Provider: %s\nDescription: %s\nMethod: %s\nCommand:\n%s\n", t.Keyname, t.Description, t.Method, cmd)
+			if t.Notes != "" {
+				fmt.Printf("Notes: %s\n", t.Notes)
+			}
+			fmt.Println()
 		}
 		return nil
 
@@ -782,13 +882,9 @@ func handleKeyhackCommand(args []string) error {
 			return fmt.Errorf("no KeyHack template found for provider: %s", provider)
 		}
 
-		// Use the first matching template and substitute API key into the command.
+		// Generate command with API key substituted
 		t := results[0]
-		cmd := t.CommandTemplate
-		// Replace common placeholders with the provided API key.
-		cmd = strings.ReplaceAll(cmd, "$API_KEY", apiKey)
-		cmd = strings.ReplaceAll(cmd, "${API_KEY}", apiKey)
-
+		cmd := generateKeyhackCommand(t, apiKey)
 		fmt.Println(cmd)
 		return nil
 
