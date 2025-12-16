@@ -743,8 +743,8 @@ func handleKeyhackCommand(args []string) error {
 			fmt.Println("No KeyHack templates found. Use 'autoar db insert-keyhack-template' or 'keyhack add' to add templates.")
 			return nil
 		}
-		for _, line := range templates {
-			fmt.Println(line)
+		for _, t := range templates {
+			fmt.Printf("Provider: %s\nDescription: %s\nCommand:\n%s\n\n", t.Keyname, t.Description, t.CommandTemplate)
 		}
 		return nil
 
@@ -761,8 +761,8 @@ func handleKeyhackCommand(args []string) error {
 			fmt.Println("No matching KeyHack templates found.")
 			return nil
 		}
-		for _, line := range results {
-			fmt.Println(line)
+		for _, t := range results {
+			fmt.Printf("Provider: %s\nDescription: %s\nCommand:\n%s\n\n", t.Keyname, t.Description, t.CommandTemplate)
 		}
 		return nil
 
@@ -773,7 +773,7 @@ func handleKeyhackCommand(args []string) error {
 		provider := sub[0]
 		apiKey := sub[1]
 
-		// Fetch matching template (we only need to know that at least one exists)
+		// Fetch matching template
 		results, err := db.SearchKeyhackTemplates(provider)
 		if err != nil {
 			return err
@@ -782,8 +782,14 @@ func handleKeyhackCommand(args []string) error {
 			return fmt.Errorf("no KeyHack template found for provider: %s", provider)
 		}
 
-		// For now, just output a generic validation command using the API key.
-		fmt.Printf("curl -H \"Authorization: Bearer %s\" https://api.example.com\n", apiKey)
+		// Use the first matching template and substitute API key into the command.
+		t := results[0]
+		cmd := t.CommandTemplate
+		// Replace common placeholders with the provided API key.
+		cmd = strings.ReplaceAll(cmd, "$API_KEY", apiKey)
+		cmd = strings.ReplaceAll(cmd, "${API_KEY}", apiKey)
+
+		fmt.Println(cmd)
 		return nil
 
 	case "add":

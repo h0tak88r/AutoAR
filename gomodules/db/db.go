@@ -472,8 +472,15 @@ func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, 
 	return nil
 }
 
-// ListKeyhackTemplates returns all keyhack templates as a formatted slice of strings.
-func ListKeyhackTemplates() ([]string, error) {
+// KeyhackTemplate represents a stored key validation template.
+type KeyhackTemplate struct {
+	Keyname         string
+	CommandTemplate string
+	Description     string
+}
+
+// ListKeyhackTemplates returns all keyhack templates.
+func ListKeyhackTemplates() ([]KeyhackTemplate, error) {
 	if dbPool == nil {
 		if err := Init(); err != nil {
 			return nil, err
@@ -481,7 +488,7 @@ func ListKeyhackTemplates() ([]string, error) {
 	}
 
 	rows, err := dbPool.Query(ctx, `
-		SELECT keyname, description
+		SELECT keyname, command_template, description
 		FROM keyhack_templates
 		ORDER BY keyname;
 	`)
@@ -490,15 +497,13 @@ func ListKeyhackTemplates() ([]string, error) {
 	}
 	defer rows.Close()
 
-	var out []string
+	var out []KeyhackTemplate
 	for rows.Next() {
-		var (
-			name, desc string
-		)
-		if err := rows.Scan(&name, &desc); err != nil {
+		var t KeyhackTemplate
+		if err := rows.Scan(&t.Keyname, &t.CommandTemplate, &t.Description); err != nil {
 			return nil, fmt.Errorf("failed to scan keyhack template: %v", err)
 		}
-		out = append(out, fmt.Sprintf("%s - %s", name, desc))
+		out = append(out, t)
 	}
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("failed to iterate keyhack templates: %v", rows.Err())
@@ -507,7 +512,7 @@ func ListKeyhackTemplates() ([]string, error) {
 }
 
 // SearchKeyhackTemplates searches keyhack templates by keyname or description.
-func SearchKeyhackTemplates(query string) ([]string, error) {
+func SearchKeyhackTemplates(query string) ([]KeyhackTemplate, error) {
 	if dbPool == nil {
 		if err := Init(); err != nil {
 			return nil, err
@@ -516,7 +521,7 @@ func SearchKeyhackTemplates(query string) ([]string, error) {
 
 	q := "%" + query + "%"
 	rows, err := dbPool.Query(ctx, `
-		SELECT keyname, description
+		SELECT keyname, command_template, description
 		FROM keyhack_templates
 		WHERE keyname ILIKE $1 OR description ILIKE $1
 		ORDER BY keyname;
@@ -526,15 +531,13 @@ func SearchKeyhackTemplates(query string) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var out []string
+	var out []KeyhackTemplate
 	for rows.Next() {
-		var (
-			name, desc string
-		)
-		if err := rows.Scan(&name, &desc); err != nil {
+		var t KeyhackTemplate
+		if err := rows.Scan(&t.Keyname, &t.CommandTemplate, &t.Description); err != nil {
 			return nil, fmt.Errorf("failed to scan keyhack template: %v", err)
 		}
-		out = append(out, fmt.Sprintf("%s - %s", name, desc))
+		out = append(out, t)
 	}
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("failed to iterate keyhack templates: %v", rows.Err())
