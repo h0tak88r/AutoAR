@@ -304,6 +304,18 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(base, "github-patterns.txt"),
 			filepath.Join(base, "github-wordlist.txt"),
 		}
+	case "s3_enum":
+		// S3 enumeration results
+		resultFiles = []string{
+			filepath.Join(resultsDir, "s3", target, "buckets.txt"),
+			filepath.Join(resultsDir, "s3", target, "enum.log"),
+		}
+	case "s3":
+		// S3 scan results
+		resultFiles = []string{
+			filepath.Join(resultsDir, "s3", target, "scan-results.txt"),
+			filepath.Join(resultsDir, "s3", target, "scan.log"),
+		}
 		// Add more scan types as needed
 	}
 
