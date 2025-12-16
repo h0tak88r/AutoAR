@@ -407,10 +407,6 @@ func registerAllCommands(s *discordgo.Session) {
 			},
 		},
 		{
-			Name:        "help_autoar",
-			Description: "Show AutoAR help information",
-		},
-		{
 			Name:        "scan_status",
 			Description: "List all active and recent completed scans",
 		},

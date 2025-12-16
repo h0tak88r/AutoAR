@@ -639,7 +639,7 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			},
 			{
 				Name:   "Database & Misc",
-				Value:  "• `/db_domains` - List DB domains (file + output)\n• `/db_subdomains` - List DB subdomains (file + output)\n• `/db_delete_domain` - Delete domain from DB\n• `/check_tools` - Check required tools\n• `/scan_status` - Show scans\n• `/help_autoar` - Show this help",
+				Value:  "• `/db_domains` - List DB domains (file + output)\n• `/db_subdomains` - List DB subdomains (file + output)\n• `/db_delete_domain` - Delete domain from DB\n• `/check_tools` - Check required tools\n• `/scan_status` - Show scans",
 				Inline: false,
 			},
 		}
