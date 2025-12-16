@@ -472,6 +472,76 @@ func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, 
 	return nil
 }
 
+// ListKeyhackTemplates returns all keyhack templates as a formatted slice of strings.
+func ListKeyhackTemplates() ([]string, error) {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := dbPool.Query(ctx, `
+		SELECT keyname, description
+		FROM keyhack_templates
+		ORDER BY keyname;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query keyhack templates: %v", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var (
+			name, desc string
+		)
+		if err := rows.Scan(&name, &desc); err != nil {
+			return nil, fmt.Errorf("failed to scan keyhack template: %v", err)
+		}
+		out = append(out, fmt.Sprintf("%s - %s", name, desc))
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate keyhack templates: %v", rows.Err())
+	}
+	return out, nil
+}
+
+// SearchKeyhackTemplates searches keyhack templates by keyname or description.
+func SearchKeyhackTemplates(query string) ([]string, error) {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	q := "%" + query + "%"
+	rows, err := dbPool.Query(ctx, `
+		SELECT keyname, description
+		FROM keyhack_templates
+		WHERE keyname ILIKE $1 OR description ILIKE $1
+		ORDER BY keyname;
+	`, q)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search keyhack templates: %v", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var (
+			name, desc string
+		)
+		if err := rows.Scan(&name, &desc); err != nil {
+			return nil, fmt.Errorf("failed to scan keyhack template: %v", err)
+		}
+		out = append(out, fmt.Sprintf("%s - %s", name, desc))
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate keyhack templates: %v", rows.Err())
+	}
+	return out, nil
+}
+
 // ListDomains returns all distinct domains stored in the database.
 func ListDomains() ([]string, error) {
 	if dbPool == nil {

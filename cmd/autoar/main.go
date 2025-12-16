@@ -719,6 +719,103 @@ func handleJWTCommand(args []string) error {
 	return nil
 }
 
+// handleKeyhackCommand routes keyhack subcommands to the DB-backed implementation:
+//
+//	autoar keyhack list
+//	autoar keyhack search <query>
+//	autoar keyhack validate <provider> <api_key>
+//	autoar keyhack add <keyname> <command> <description> [notes]
+func handleKeyhackCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: keyhack <list|search|validate|add> [options]")
+	}
+
+	action := args[0]
+	sub := args[1:]
+
+	switch action {
+	case "list":
+		templates, err := db.ListKeyhackTemplates()
+		if err != nil {
+			return err
+		}
+		if len(templates) == 0 {
+			fmt.Println("No KeyHack templates found. Use 'autoar db insert-keyhack-template' or 'keyhack add' to add templates.")
+			return nil
+		}
+		for _, line := range templates {
+			fmt.Println(line)
+		}
+		return nil
+
+	case "search":
+		if len(sub) < 1 {
+			return fmt.Errorf("usage: keyhack search <query>")
+		}
+		query := strings.Join(sub, " ")
+		results, err := db.SearchKeyhackTemplates(query)
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			fmt.Println("No matching KeyHack templates found.")
+			return nil
+		}
+		for _, line := range results {
+			fmt.Println(line)
+		}
+		return nil
+
+	case "validate":
+		if len(sub) < 2 {
+			return fmt.Errorf("usage: keyhack validate <provider> <api_key>")
+		}
+		provider := sub[0]
+		apiKey := sub[1]
+
+		// Fetch matching template (we only need to know that at least one exists)
+		results, err := db.SearchKeyhackTemplates(provider)
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			return fmt.Errorf("no KeyHack template found for provider: %s", provider)
+		}
+
+		// For now, just output a generic validation command using the API key.
+		fmt.Printf("curl -H \"Authorization: Bearer %s\" https://api.example.com\n", apiKey)
+		return nil
+
+	case "add":
+		if len(sub) < 3 {
+			return fmt.Errorf("usage: keyhack add <keyname> <command> <description> [notes]")
+		}
+		keyname := sub[0]
+		commandTemplate := sub[1]
+		description := sub[2]
+		notes := ""
+		if len(sub) > 3 {
+			notes = strings.Join(sub[3:], " ")
+		}
+
+		// Minimal implementation: store essential fields; others left empty.
+		method := "GET"
+		url := ""
+		header := ""
+		body := ""
+
+		if err := db.InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description); err != nil {
+			return err
+		}
+
+		fmt.Printf("[OK] KeyHack template '%s' saved.\n", keyname)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown keyhack action: %s", action)
+	}
+}
+
 // handleGitHubCommand parses:
 //
 //	autoar github scan -r <owner/repo> [-v]
@@ -1266,7 +1363,7 @@ func main() {
 	switch cmd {
 	// Commands not yet migrated to Go (return error for now)
 	case "s3",
-		"depconfusion", "misconfig", "keyhack", "monitor":
+		"depconfusion", "misconfig", "monitor":
 		err = fmt.Errorf("command '%s' is not yet implemented in Go. All bash modules have been removed.", cmd)
 
 	// Go modules - direct calls
@@ -1350,6 +1447,9 @@ func main() {
 
 	case "github":
 		err = handleGitHubCommand(args)
+
+	case "keyhack":
+		err = handleKeyhackCommand(args)
 
 	// Bot/API commands
 	case "bot":
