@@ -27,6 +27,7 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/nuclei"
 	"github.com/h0tak88r/AutoAR/gomodules/ports"
 	"github.com/h0tak88r/AutoAR/gomodules/reflection"
+	s3mod "github.com/h0tak88r/AutoAR/gomodules/s3"
 	"github.com/h0tak88r/AutoAR/gomodules/sqlmap"
 	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
 	"github.com/h0tak88r/AutoAR/gomodules/tech"
@@ -924,6 +925,13 @@ func handleMonitorCommand(args []string) error {
 	case "remove":
 		for i := 0; i < len(subArgs); i++ {
 			switch subArgs[i] {
+			case "--id":
+				if i+1 < len(subArgs) {
+					if id, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.ID = id
+					}
+					i++
+				}
 			case "-u", "--url":
 				if i+1 < len(subArgs) {
 					opts.URL = subArgs[i+1]
@@ -986,6 +994,67 @@ func handleMonitorCommand(args []string) error {
 
 	default:
 		return fmt.Errorf("unknown monitor updates action: %s", action)
+	}
+}
+
+// handleS3Command routes s3 subcommands
+//
+//	autoar s3 enum -b <root_domain>
+//	autoar s3 scan -b <bucket> [-r <region>] [-v]
+func handleS3Command(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: s3 <enum|scan> [options]")
+	}
+
+	action := args[0]
+	subArgs := args[1:]
+
+	opts := s3mod.Options{
+		Action: action,
+	}
+
+	switch action {
+	case "enum":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "-b", "--root":
+				if i+1 < len(subArgs) {
+					opts.Root = subArgs[i+1]
+					i++
+				}
+			case "-v", "--verbose":
+				opts.Verbose = true
+			}
+		}
+		if opts.Root == "" {
+			return fmt.Errorf("root domain (-b) is required for enum action")
+		}
+		return s3mod.Run(opts)
+
+	case "scan":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "-b", "--bucket":
+				if i+1 < len(subArgs) {
+					opts.Bucket = subArgs[i+1]
+					i++
+				}
+			case "-r", "--region":
+				if i+1 < len(subArgs) {
+					opts.Region = subArgs[i+1]
+					i++
+				}
+			case "-v", "--verbose":
+				opts.Verbose = true
+			}
+		}
+		if opts.Bucket == "" {
+			return fmt.Errorf("bucket name (-b) is required for scan action")
+		}
+		return s3mod.Run(opts)
+
+	default:
+		return fmt.Errorf("unknown s3 action: %s", action)
 	}
 }
 
@@ -1644,8 +1713,7 @@ func main() {
 
 	switch cmd {
 	// Commands not yet migrated to Go (return error for now)
-	case "s3",
-		"depconfusion":
+	case "depconfusion":
 		err = fmt.Errorf("command '%s' is not yet implemented in Go. All bash modules have been removed.", cmd)
 
 	// Go modules - direct calls
@@ -1738,6 +1806,9 @@ func main() {
 
 	case "monitor":
 		err = handleMonitorCommand(args)
+
+	case "s3":
+		err = handleS3Command(args)
 
 	// Bot/API commands
 	case "bot":
