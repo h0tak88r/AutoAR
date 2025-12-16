@@ -12,6 +12,7 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/checktools"
 	"github.com/h0tak88r/AutoAR/gomodules/cnames"
 	"github.com/h0tak88r/AutoAR/gomodules/dalfox"
+	"github.com/h0tak88r/AutoAR/gomodules/depconfusion"
 	"github.com/h0tak88r/AutoAR/gomodules/db"
 	"github.com/h0tak88r/AutoAR/gomodules/dns"
 	"github.com/h0tak88r/AutoAR/gomodules/fastlook"
@@ -1058,6 +1059,113 @@ func handleS3Command(args []string) error {
 	}
 }
 
+func handleDepconfusionCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: depconfusion <web|github> [options]")
+	}
+
+	mode := args[0]
+	subArgs := args[1:]
+
+	opts := depconfusion.Options{
+		Mode:    mode,
+		Workers: 10,
+	}
+
+	switch mode {
+	case "web":
+		// Parse web options: web [--full] [-d domain] [url1] [url2] ... [--target-file file]
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--full", "-f":
+				opts.Full = true
+			case "-d", "--domain":
+				if i+1 < len(subArgs) {
+					opts.Target = subArgs[i+1]
+					i++
+				}
+			case "--target-file", "-tf":
+				if i+1 < len(subArgs) {
+					opts.TargetFile = subArgs[i+1]
+					i++
+				}
+			case "-w", "--workers":
+				if i+1 < len(subArgs) {
+					if w, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.Workers = w
+					}
+					i++
+				}
+			case "-v", "--verbose":
+				opts.Verbose = true
+			case "-o", "--output":
+				if i+1 < len(subArgs) {
+					opts.OutputDir = subArgs[i+1]
+					i++
+				}
+			default:
+				// Treat as URL if it starts with http:// or https://
+				if strings.HasPrefix(subArgs[i], "http://") || strings.HasPrefix(subArgs[i], "https://") {
+					opts.Targets = append(opts.Targets, subArgs[i])
+				}
+			}
+		}
+
+		if opts.Full {
+			if opts.Target == "" {
+				return fmt.Errorf("domain (-d) is required for full scan")
+			}
+		} else if opts.TargetFile == "" && len(opts.Targets) == 0 {
+			return fmt.Errorf("either URLs, target file (--target-file), or full scan (--full -d <domain>) is required")
+		}
+
+	case "github":
+		// Parse github options: github [repo <owner/repo> | org <org>]
+		if len(subArgs) < 2 {
+			return fmt.Errorf("usage: depconfusion github <repo <owner/repo> | org <org>>")
+		}
+
+		subMode := subArgs[0]
+		switch subMode {
+		case "repo":
+			if len(subArgs) < 2 {
+				return fmt.Errorf("usage: depconfusion github repo <owner/repo>")
+			}
+			opts.GitHubRepo = subArgs[1]
+		case "org":
+			if len(subArgs) < 2 {
+				return fmt.Errorf("usage: depconfusion github org <org>")
+			}
+			opts.GitHubOrg = subArgs[1]
+		default:
+			return fmt.Errorf("unknown github subcommand: %s. Use 'repo' or 'org'", subMode)
+		}
+
+		// Parse additional options
+		for i := 2; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "-t", "--token":
+				if i+1 < len(subArgs) {
+					opts.GitHubToken = subArgs[i+1]
+					i++
+				}
+			case "-o", "--output":
+				if i+1 < len(subArgs) {
+					opts.OutputDir = subArgs[i+1]
+					i++
+				}
+			case "-v", "--verbose":
+				opts.Verbose = true
+			}
+		}
+
+	default:
+		return fmt.Errorf("unknown mode: %s. Use 'web' or 'github'", mode)
+	}
+
+	return depconfusion.Run(opts)
+}
+
 // handleKeyhackCommand routes keyhack subcommands to the DB-backed implementation:
 //
 //	autoar keyhack list
@@ -1712,11 +1820,9 @@ func main() {
 	var err error
 
 	switch cmd {
-	// Commands not yet migrated to Go (return error for now)
-	case "depconfusion":
-		err = fmt.Errorf("command '%s' is not yet implemented in Go. All bash modules have been removed.", cmd)
-
 	// Go modules - direct calls
+	case "depconfusion":
+		err = handleDepconfusionCommand(args)
 	case "github-wordlist":
 		err = handleGitHubWordlist(args)
 
