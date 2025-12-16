@@ -521,7 +521,15 @@ func ListKeyhackTemplates() ([]KeyhackTemplate, error) {
 	}
 
 	rows, err := dbPool.Query(ctx, `
-		SELECT keyname, command_template, method, url, header, body, notes, description
+		SELECT 
+			keyname, 
+			command_template, 
+			COALESCE(method, 'GET') as method, 
+			COALESCE(url, '') as url, 
+			COALESCE(header, '') as header, 
+			COALESCE(body, '') as body, 
+			COALESCE(notes, '') as notes, 
+			COALESCE(description, '') as description
 		FROM keyhack_templates
 		ORDER BY keyname;
 	`)
@@ -554,7 +562,15 @@ func SearchKeyhackTemplates(query string) ([]KeyhackTemplate, error) {
 
 	q := "%" + query + "%"
 	rows, err := dbPool.Query(ctx, `
-		SELECT keyname, command_template, method, url, header, body, notes, description
+		SELECT 
+			keyname, 
+			command_template, 
+			COALESCE(method, 'GET') as method, 
+			COALESCE(url, '') as url, 
+			COALESCE(header, '') as header, 
+			COALESCE(body, '') as body, 
+			COALESCE(notes, '') as notes, 
+			COALESCE(description, '') as description
 		FROM keyhack_templates
 		WHERE keyname ILIKE $1 OR description ILIKE $1
 		ORDER BY keyname;
@@ -678,7 +694,7 @@ func ListMonitorTargets() ([]MonitorTarget, error) {
 	}
 
 	rows, err := dbPool.Query(ctx, `
-		SELECT id, url, strategy, pattern, is_running, created_at, updated_at
+		SELECT id, url, strategy, COALESCE(pattern, '') as pattern, is_running, created_at, updated_at
 		FROM updates_targets
 		ORDER BY created_at DESC;
 	`)
@@ -771,7 +787,7 @@ func GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 
 	var t MonitorTarget
 	err := dbPool.QueryRow(ctx, `
-		SELECT id, url, strategy, pattern, is_running, created_at, updated_at
+		SELECT id, url, strategy, COALESCE(pattern, '') as pattern, is_running, created_at, updated_at
 		FROM updates_targets
 		WHERE id = $1;
 	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt)
