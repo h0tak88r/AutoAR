@@ -43,8 +43,14 @@ func Run(opts Options) error {
 		}
 		return handleAdd(opts.URL, opts.Strategy, opts.Pattern)
 	case "remove":
-		if opts.URL == "" {
-			return fmt.Errorf("URL is required for remove action")
+		if opts.ID > 0 {
+			target, err := db.GetMonitorTargetByID(opts.ID)
+			if err != nil {
+				return err
+			}
+			return handleRemove(target.URL)
+		} else if opts.URL == "" {
+			return fmt.Errorf("URL or ID is required for remove action")
 		}
 		return handleRemove(opts.URL)
 	case "start":
@@ -74,7 +80,11 @@ func handleList() error {
 		if t.Pattern != "" {
 			patternStr = t.Pattern
 		}
-		fmt.Printf("ID: %d | URL: %s | Strategy: %s | Pattern: %s\n", t.ID, t.URL, t.Strategy, patternStr)
+		status := "❌ Not Running"
+		if t.IsRunning {
+			status = "✅ Running"
+		}
+		fmt.Printf("ID: %d | URL: %s | Strategy: %s | Pattern: %s | Status: %s\n", t.ID, t.URL, t.Strategy, patternStr, status)
 	}
 	return nil
 }
@@ -101,7 +111,13 @@ func handleStart(opts Options) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("[INFO] Starting monitoring for ID %d: %s (strategy: %s)\n", target.ID, target.URL, target.Strategy)
+		if err := db.SetMonitorRunningStatus(opts.ID, true); err != nil {
+			return err
+		}
+		fmt.Printf("[OK] Started monitoring for ID %d: %s (strategy: %s)\n", target.ID, target.URL, target.Strategy)
+		if opts.Interval > 0 {
+			fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
+		}
 	} else if opts.All {
 		targets, err := db.ListMonitorTargets()
 		if err != nil {
@@ -110,18 +126,40 @@ func handleStart(opts Options) error {
 		if len(targets) == 0 {
 			return fmt.Errorf("no targets configured")
 		}
-		fmt.Printf("[INFO] Starting monitoring for %d target(s)\n", len(targets))
 		for _, t := range targets {
-			fmt.Printf("[INFO] Monitoring: %s (strategy: %s)\n", t.URL, t.Strategy)
+			if err := db.SetMonitorRunningStatus(t.ID, true); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("[OK] Started monitoring for %d target(s)\n", len(targets))
+		if opts.Interval > 0 {
+			fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
 		}
 	} else if opts.URL != "" {
-		fmt.Printf("[INFO] Starting monitoring for: %s\n", opts.URL)
+		// Find target by URL and start it
+		targets, err := db.ListMonitorTargets()
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, t := range targets {
+			if t.URL == opts.URL {
+				if err := db.SetMonitorRunningStatus(t.ID, true); err != nil {
+					return err
+				}
+				fmt.Printf("[OK] Started monitoring for: %s\n", opts.URL)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("target not found: %s", opts.URL)
+		}
+		if opts.Interval > 0 {
+			fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
+		}
 	} else {
-		return fmt.Errorf("either --all or -u <url> must be specified")
-	}
-	
-	if opts.Interval > 0 {
-		fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
+		return fmt.Errorf("either --all, --id <id>, or -u <url> must be specified")
 	}
 	return nil
 }
@@ -132,13 +170,42 @@ func handleStop(opts Options) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("[INFO] Stopping monitor for ID %d: %s\n", target.ID, target.URL)
+		if err := db.SetMonitorRunningStatus(opts.ID, false); err != nil {
+			return err
+		}
+		fmt.Printf("[OK] Stopped monitor for ID %d: %s\n", target.ID, target.URL)
 	} else if opts.All {
-		fmt.Println("[INFO] Stopping all monitors")
+		targets, err := db.ListMonitorTargets()
+		if err != nil {
+			return err
+		}
+		for _, t := range targets {
+			if err := db.SetMonitorRunningStatus(t.ID, false); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("[OK] Stopped all monitors (%d target(s))\n", len(targets))
 	} else if opts.URL != "" {
-		fmt.Printf("[INFO] Stopping monitor for: %s\n", opts.URL)
+		targets, err := db.ListMonitorTargets()
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, t := range targets {
+			if t.URL == opts.URL {
+				if err := db.SetMonitorRunningStatus(t.ID, false); err != nil {
+					return err
+				}
+				fmt.Printf("[OK] Stopped monitor for: %s\n", opts.URL)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("target not found: %s", opts.URL)
+		}
 	} else {
-		return fmt.Errorf("either --all or -u <url> must be specified")
+		return fmt.Errorf("either --all, --id <id>, or -u <url> must be specified")
 	}
 	return nil
 }

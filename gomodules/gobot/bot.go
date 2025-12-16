@@ -229,16 +229,10 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleKeyhackAdd(s, i)
 	case "keyhack_validate":
 		handleKeyhackValidate(s, i)
-	case "monitor_updates_add":
-		handleMonitorUpdatesAdd(s, i)
-	case "monitor_updates_remove":
-		handleMonitorUpdatesRemove(s, i)
-	case "monitor_updates_start":
-		handleMonitorUpdatesStart(s, i)
-	case "monitor_updates_stop":
-		handleMonitorUpdatesStop(s, i)
-	case "monitor_updates_list":
-		handleMonitorUpdatesList(s, i)
+	case "monitor_updates":
+		handleMonitorUpdates(s, i)
+	case "monitor_updates_manage":
+		handleMonitorUpdatesManage(s, i)
 	case "jwt_scan":
 		handleJWTScan(s, i)
 	case "backup_scan":

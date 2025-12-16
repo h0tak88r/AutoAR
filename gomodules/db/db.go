@@ -235,9 +235,18 @@ func InitSchema() error {
 		url TEXT NOT NULL UNIQUE,
 		strategy TEXT NOT NULL,
 		pattern TEXT,
+		is_running BOOLEAN DEFAULT FALSE,
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
+	
+	-- Ensure is_running column exists (for backward compatibility)
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='updates_targets' AND column_name='is_running') THEN
+			ALTER TABLE updates_targets ADD COLUMN is_running BOOLEAN DEFAULT FALSE;
+		END IF;
+	END $$;
 	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
@@ -651,10 +660,11 @@ func DeleteDomain(domain string) error {
 
 // MonitorTarget represents a monitoring target
 type MonitorTarget struct {
-	ID       int
-	URL      string
-	Strategy string
-	Pattern  string
+	ID        int
+	URL       string
+	Strategy  string
+	Pattern   string
+	IsRunning bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -668,7 +678,7 @@ func ListMonitorTargets() ([]MonitorTarget, error) {
 	}
 
 	rows, err := dbPool.Query(ctx, `
-		SELECT id, url, strategy, pattern, created_at, updated_at
+		SELECT id, url, strategy, pattern, is_running, created_at, updated_at
 		FROM updates_targets
 		ORDER BY created_at DESC;
 	`)
@@ -680,7 +690,7 @@ func ListMonitorTargets() ([]MonitorTarget, error) {
 	var targets []MonitorTarget
 	for rows.Next() {
 		var t MonitorTarget
-		if err := rows.Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan monitor target: %v", err)
 		}
 		targets = append(targets, t)
@@ -732,6 +742,25 @@ func RemoveMonitorTarget(url string) error {
 	return nil
 }
 
+// SetMonitorRunningStatus updates the running status of a monitor target
+func SetMonitorRunningStatus(id int, isRunning bool) error {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+
+	_, err := dbPool.Exec(ctx, `
+		UPDATE updates_targets 
+		SET is_running = $1, updated_at = NOW()
+		WHERE id = $2;
+	`, isRunning, id)
+	if err != nil {
+		return fmt.Errorf("failed to update monitor running status: %v", err)
+	}
+	return nil
+}
+
 // GetMonitorTargetByID returns a single monitor target by ID.
 func GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 	if dbPool == nil {
@@ -742,10 +771,10 @@ func GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 
 	var t MonitorTarget
 	err := dbPool.QueryRow(ctx, `
-		SELECT id, url, strategy, pattern, created_at, updated_at
+		SELECT id, url, strategy, pattern, is_running, created_at, updated_at
 		FROM updates_targets
 		WHERE id = $1;
-	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("monitor target not found with id: %d", id)
