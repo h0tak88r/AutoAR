@@ -261,7 +261,17 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "githubdepconf",
 			Description: "GitHub dependency confusion scan",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "repo", Description: "GitHub repository (owner/repo)", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "repo", Description: "GitHub repository (owner/repo)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "org", Description: "GitHub organization name", Required: false},
+			},
+		},
+		{
+			Name:        "webdepconf",
+			Description: "Web dependency confusion scan (use --full for subdomain enum + live hosts)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Target URL(s)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain for full scan (with --full flag)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "full", Description: "Enable full scan (subdomain enum + live hosts)", Required: false},
 			},
 		},
 		// Database commands
@@ -355,27 +365,6 @@ func registerAllCommands(s *discordgo.Session) {
 			},
 		},
 		{
-			Name:        "live_depconfusion_scan",
-			Description: "Live dependency confusion scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-			},
-		},
-		{
-			Name:        "webdepconf",
-			Description: "Web dependency confusion scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Target URL(s)", Required: true},
-			},
-		},
-		{
-			Name:        "wp_depconf",
-			Description: "WordPress dependency confusion scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-			},
-		},
-		{
 			Name:        "scan_status",
 			Description: "List all active and recent completed scans",
 		},
@@ -406,6 +395,8 @@ func registerAllCommands(s *discordgo.Session) {
 		"help_autoar",
 		"cleanup",
 		"jwt_query",
+		"live_depconfusion_scan",
+		"wp_depconf",
 	}
 
 	// Fetch all existing commands from Discord
