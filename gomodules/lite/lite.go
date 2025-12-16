@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
 	"github.com/h0tak88r/AutoAR/gomodules/nuclei"
 	"github.com/h0tak88r/AutoAR/gomodules/reflection"
-	"github.com/h0tak88r/AutoAR/gomodules/utils"
 )
 
 // Options holds lite scan options
@@ -106,11 +104,6 @@ func RunLite(opts Options) (*Result, error) {
 }
 
 func runPhase(phaseKey string, step, total int, description, domain string, timeoutSeconds int, fn func() error) error {
-	timeoutLabel := ""
-	if timeoutSeconds > 0 {
-		timeoutLabel = fmt.Sprintf(" (timeout: %s)", formatTimeout(timeoutSeconds))
-	}
-
 	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
 
 	var err error
