@@ -1,11 +1,15 @@
 package depconfusion
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/projectdiscovery/httpx/runner"
 )
 
 type Options struct {
@@ -207,24 +211,80 @@ func runWebFull(confusedBin string, opts Options, resultsDir string) error {
 
 	// Step 2: Live host detection
 	fmt.Println("[INFO] Step 2: Detecting live hosts...")
-	httpxBin := findHttpx()
-	if httpxBin == "" {
-		return fmt.Errorf("httpx not found. Please install it with: go install github.com/projectdiscovery/httpx/cmd/httpx@latest")
+
+	// Read subdomains from file
+	subsFileHandle, err := os.Open(subsFile)
+	if err != nil {
+		return fmt.Errorf("failed to open subdomains file: %v", err)
+	}
+	defer subsFileHandle.Close()
+
+	var targets []string
+	scanner := bufio.NewScanner(subsFileHandle)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			targets = append(targets, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read subdomains file: %v", err)
+	}
+
+	if len(targets) == 0 {
+		return fmt.Errorf("no subdomains found for %s", domain)
 	}
 
 	liveFile := filepath.Join(subsDir, "live-subs.txt")
-	cmd = exec.Command(httpxBin, "-l", subsFile, "-silent")
 	f, err = os.Create(liveFile)
 	if err != nil {
 		return fmt.Errorf("failed to create live file: %v", err)
 	}
-	cmd.Stdout = f
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		f.Close()
-		return fmt.Errorf("live host detection failed: %v", err)
+	defer f.Close()
+
+	writer := bufio.NewWriter(f)
+	defer writer.Flush()
+
+	var liveHosts []string
+	var mu sync.Mutex
+
+	// Configure httpx options with callback
+	httpxOptions := runner.Options{
+		InputTargetHost: targets,
+		Threads:        100,
+		Silent:         true,
+		NoColor:        true,
+		FollowRedirects: true,
+		FollowHostRedirects: true,
+		OnResult: func(result runner.Result) {
+			if result.URL != "" {
+				mu.Lock()
+				liveHosts = append(liveHosts, result.URL)
+				mu.Unlock()
+			}
+		},
 	}
-	f.Close()
+
+	// Validate options
+	if err := httpxOptions.ValidateOptions(); err != nil {
+		return fmt.Errorf("failed to validate httpx options: %v", err)
+	}
+
+	// Create httpx runner
+	httpxRunner, err := runner.New(&httpxOptions)
+	if err != nil {
+		return fmt.Errorf("failed to create httpx runner: %v", err)
+	}
+	defer httpxRunner.Close()
+
+	// Run enumeration
+	httpxRunner.RunEnumeration()
+
+	// Write results to file
+	for _, host := range liveHosts {
+		writer.WriteString(host + "\n")
+	}
+	writer.Flush()
 
 	// Check if we have live hosts
 	data, _ = os.ReadFile(liveFile)
@@ -354,23 +414,3 @@ func findSubfinder() string {
 	return ""
 }
 
-func findHttpx() string {
-	locations := []string{
-		"httpx",
-		"/home/sallam/go/bin/httpx",
-		"/usr/local/bin/httpx",
-		"/app/bin/httpx",
-	}
-
-	for _, loc := range locations {
-		if _, err := exec.LookPath(loc); err == nil {
-			return loc
-		}
-	}
-
-	if path, err := exec.LookPath("httpx"); err == nil {
-		return path
-	}
-
-	return ""
-}

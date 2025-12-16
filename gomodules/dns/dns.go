@@ -13,6 +13,7 @@ import (
 
 	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
 	"github.com/h0tak88r/AutoAR/gomodules/utils"
+	"github.com/projectdiscovery/dnsx/libs/dnsx"
 )
 
 // Paths and filenames used by the legacy bash dns_takeover.sh script.
@@ -366,29 +367,87 @@ func checkAzureAWS(domainDir, findingsDir, subsFile string) error {
 }
 
 func runNSTakeover(domainDir, findingsDir, subsFile string) error {
-	if _, err := exec.LookPath("dnsx"); err != nil {
-		log.Printf("[WARN] dnsx not found, skipping NS takeover")
+	// Read subdomains from file
+	file, err := os.Open(subsFile)
+	if err != nil {
+		return fmt.Errorf("failed to open subdomains file: %w", err)
+	}
+	defer file.Close()
+
+	var targets []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			targets = append(targets, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read subdomains file: %w", err)
+	}
+
+	if len(targets) == 0 {
+		log.Printf("[WARN] No subdomains found, skipping NS takeover")
 		return nil
+	}
+
+	// Initialize dnsx client
+	dnsClient, err := dnsx.New(dnsx.DefaultOptions)
+	if err != nil {
+		return fmt.Errorf("failed to create dnsx client: %w", err)
 	}
 
 	nsServers := filepath.Join(findingsDir, "ns-servers.txt")
 	log.Printf("[INFO] Extracting NS records with dnsx")
-	cmd := exec.Command("dnsx", "-l", subsFile, "-ns", "-silent", "-ro")
-	cmd.Stdout, _ = os.Create(nsServers)
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
+	var nsRecords []string
+	for _, target := range targets {
+		result, err := dnsClient.QueryOne(target)
+		if err != nil {
+			continue
+		}
+		if result != nil && len(result.NS) > 0 {
+			for _, ns := range result.NS {
+				nsRecords = append(nsRecords, ns)
+			}
+		}
+	}
+	if err := writeLinesToFile(nsServers, nsRecords); err != nil {
+		log.Printf("[WARN] Failed to write NS servers: %v", err)
+	}
 
 	nsRaw := filepath.Join(findingsDir, "ns-takeover-raw.txt")
-	cmd = exec.Command("dnsx", "-l", subsFile, "-rcode", "servfail,refused", "-silent")
-	cmd.Stdout, _ = os.Create(nsRaw)
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
+	var servfailTargets []string
+	for _, target := range targets {
+		result, err := dnsClient.QueryOne(target)
+		// Check for SERVFAIL or REFUSED errors
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "servfail") || strings.Contains(errStr, "refused") {
+				servfailTargets = append(servfailTargets, target)
+			}
+		} else if result != nil && len(result.A) == 0 && len(result.AAAA) == 0 {
+			// Empty result might indicate DNS issues
+			servfailTargets = append(servfailTargets, target)
+		}
+	}
+	if err := writeLinesToFile(nsRaw, servfailTargets); err != nil {
+		log.Printf("[WARN] Failed to write NS raw: %v", err)
+	}
 
 	nsVulnServers := filepath.Join(findingsDir, "ns-servers-vuln.txt")
-	cmd = exec.Command("dnsx", "-l", nsServers, "-rcode", "servfail,refused", "-silent")
-	cmd.Stdout, _ = os.Create(nsVulnServers)
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
+	var vulnServers []string
+	for _, ns := range nsRecords {
+		_, err := dnsClient.QueryOne(ns)
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "servfail") || strings.Contains(errStr, "refused") {
+				vulnServers = append(vulnServers, ns)
+			}
+		}
+	}
+	if err := writeLinesToFile(nsVulnServers, vulnServers); err != nil {
+		log.Printf("[WARN] Failed to write NS vuln servers: %v", err)
+	}
 
 	nsRawCount, _ := countLines(nsRaw)
 	nsSrvCount, _ := countLines(nsVulnServers)
@@ -464,6 +523,24 @@ func mustCount(path string) int {
 		return 0
 	}
 	return c
+}
+
+func writeLinesToFile(path string, lines []string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	for _, line := range lines {
+		if _, err := w.WriteString(line + "\n"); err != nil {
+			return err
+		}
+	}
+	return w.Flush()
 }
 
 func writeLines(path string, lines []string) error {

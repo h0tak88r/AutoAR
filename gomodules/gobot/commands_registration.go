@@ -469,11 +469,11 @@ func registerAllCommands(s *discordgo.Session) {
 			}
 		} else {
 			// Create new command
-			_, err := s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
-			if err != nil {
-				log.Printf("Cannot create command %v: %v", cmd.Name, err)
-			} else {
-				log.Printf("Registered command: %s", cmd.Name)
+		_, err := s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
+		if err != nil {
+			log.Printf("Cannot create command %v: %v", cmd.Name, err)
+		} else {
+			log.Printf("Registered command: %s", cmd.Name)
 			}
 		}
 	}
