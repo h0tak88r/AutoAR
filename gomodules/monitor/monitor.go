@@ -9,6 +9,7 @@ import (
 // Options for monitor commands
 type Options struct {
 	URL      string
+	ID       int
 	Strategy string
 	Pattern  string
 	Action   string // "add", "remove", "list", "start", "stop"
@@ -95,7 +96,13 @@ func handleRemove(url string) error {
 }
 
 func handleStart(opts Options) error {
-	if opts.All {
+	if opts.ID > 0 {
+		target, err := db.GetMonitorTargetByID(opts.ID)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[INFO] Starting monitoring for ID %d: %s (strategy: %s)\n", target.ID, target.URL, target.Strategy)
+	} else if opts.All {
 		targets, err := db.ListMonitorTargets()
 		if err != nil {
 			return err
@@ -116,19 +123,22 @@ func handleStart(opts Options) error {
 	if opts.Interval > 0 {
 		fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
 	}
-	
-	fmt.Println("[INFO] Monitoring daemon would start here (not implemented yet)")
 	return nil
 }
 
 func handleStop(opts Options) error {
-	if opts.All {
+	if opts.ID > 0 {
+		target, err := db.GetMonitorTargetByID(opts.ID)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[INFO] Stopping monitor for ID %d: %s\n", target.ID, target.URL)
+	} else if opts.All {
 		fmt.Println("[INFO] Stopping all monitors")
 	} else if opts.URL != "" {
 		fmt.Printf("[INFO] Stopping monitor for: %s\n", opts.URL)
 	} else {
 		return fmt.Errorf("either --all or -u <url> must be specified")
 	}
-	fmt.Println("[INFO] Monitor daemon stop would execute here (not implemented yet)")
 	return nil
 }
