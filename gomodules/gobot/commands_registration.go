@@ -394,12 +394,96 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 	}
 
+	// List of commands to remove (old/obsolete commands)
+	commandsToRemove := []string{
+		"keyhack_add",
+		"keyhack_validate",
+		"monitor_updates_add",
+		"monitor_updates_remove",
+		"monitor_updates_start",
+		"monitor_updates_stop",
+		"monitor_updates_list",
+		"help_autoar",
+		"cleanup",
+		"jwt_query",
+	}
+
+	// Fetch all existing commands from Discord
+	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
+	if err != nil {
+		log.Printf("Failed to fetch existing commands: %v", err)
+	} else {
+		// Delete old commands that are not in our new list
+		for _, existingCmd := range existingCommands {
+			shouldRemove := false
+			for _, removeName := range commandsToRemove {
+				if existingCmd.Name == removeName {
+					shouldRemove = true
+					break
+				}
+			}
+			
+			// Also check if command exists in our new commands list
+			if !shouldRemove {
+				found := false
+				for _, newCmd := range commands {
+					if existingCmd.Name == newCmd.Name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					// Command exists in Discord but not in our new list - remove it
+					shouldRemove = true
+				}
+			}
+
+			if shouldRemove {
+				err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)
+				if err != nil {
+					log.Printf("Failed to delete command %s: %v", existingCmd.Name, err)
+				} else {
+					log.Printf("Deleted old command: %s", existingCmd.Name)
+				}
+			}
+		}
+	}
+
+	// Create a map of command names for quick lookup
+	commandMap := make(map[string]*discordgo.ApplicationCommand)
 	for _, cmd := range commands {
-		_, err := s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
-		if err != nil {
-			log.Printf("Cannot create command %v: %v", cmd.Name, err)
+		commandMap[cmd.Name] = cmd
+	}
+
+	// Update or create commands
+	for _, cmd := range commands {
+		// Check if command already exists
+		var existingCmd *discordgo.ApplicationCommand
+		if existingCommands != nil {
+			for _, ec := range existingCommands {
+				if ec.Name == cmd.Name {
+					existingCmd = ec
+					break
+				}
+			}
+		}
+
+		if existingCmd != nil {
+			// Update existing command
+			_, err := s.ApplicationCommandEdit(s.State.User.ID, "", existingCmd.ID, cmd)
+			if err != nil {
+				log.Printf("Cannot update command %v: %v", cmd.Name, err)
+			} else {
+				log.Printf("Updated command: %s", cmd.Name)
+			}
 		} else {
-			log.Printf("Registered command: %s", cmd.Name)
+			// Create new command
+			_, err := s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
+			if err != nil {
+				log.Printf("Cannot create command %v: %v", cmd.Name, err)
+			} else {
+				log.Printf("Registered command: %s", cmd.Name)
+			}
 		}
 	}
 	log.Printf("Total commands registered: %d", len(commands))
