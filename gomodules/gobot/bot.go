@@ -14,15 +14,15 @@ import (
 )
 
 var (
-	botToken     = os.Getenv("DISCORD_BOT_TOKEN")
-	autoarMode   = getEnv("AUTOAR_MODE", "discord")
-	apiHost      = getEnv("API_HOST", "0.0.0.0")
-	apiPort      = getEnv("API_PORT", "8000")
-	
+	botToken   = os.Getenv("DISCORD_BOT_TOKEN")
+	autoarMode = getEnv("AUTOAR_MODE", "discord")
+	apiHost    = getEnv("API_HOST", "0.0.0.0")
+	apiPort    = getEnv("API_PORT", "8000")
+
 	// Global Discord session for file sending from modules
 	globalDiscordSession *discordgo.Session
 	discordSessionMutex  sync.RWMutex
-	
+
 	// Channel ID storage for file notifications
 	activeChannels = make(map[string]string) // scanID -> channelID
 	channelsMutex  sync.RWMutex
@@ -70,12 +70,12 @@ func StartBot() error {
 	registerAllCommands(dg)
 
 	fmt.Println("AutoAR Discord Bot is running.")
-	
+
 	// Keep running
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
-	
+
 	fmt.Println("\nShutting down Discord bot...")
 	dg.Close()
 	return nil
@@ -86,16 +86,16 @@ func StartAPI() error {
 	router := setupAPI()
 	addr := fmt.Sprintf("%s:%s", apiHost, apiPort)
 	fmt.Printf("AutoAR API Server starting on %s\n", addr)
-	
+
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	
+
 	go func() {
 		if err := http.ListenAndServe(addr, router); err != nil {
 			log.Fatalf("API server failed: %v", err)
 		}
 	}()
-	
+
 	<-sc
 	fmt.Println("\nShutting down API server...")
 	return nil
@@ -148,9 +148,9 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleModalSubmit(s, i)
 		return
 	}
-	
+
 	cmdName := i.ApplicationCommandData().Name
-	
+
 	// Route to appropriate handler (handlers are in commands*.go files)
 	switch cmdName {
 	case "react2shell_scan":
@@ -245,8 +245,6 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleBackupScan(s, i)
 	case "check_tools":
 		handleCheckTools(s, i)
-	case "cleanup":
-		handleCleanup(s, i)
 	case "misconfig":
 		handleMisconfig(s, i)
 	case "live_depconfusion_scan":
