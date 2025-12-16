@@ -141,6 +141,16 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
 			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
 		}
+	case "js":
+		// JS scan results: vulnerabilities/js plus URL/JS lists
+		jsDir := filepath.Join(resultsDir, target, "vulnerabilities", "js")
+		if matches, err := filepath.Glob(filepath.Join(jsDir, "*.txt")); err == nil {
+			resultFiles = append(resultFiles, matches...)
+		}
+		resultFiles = append(resultFiles,
+			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
+			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
+		)
 	case "reflection":
 		resultFiles = []string{filepath.Join(resultsDir, target, "vulnerabilities", "kxss-results.txt")}
 	case "tech":
@@ -287,6 +297,12 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 	case "db_subdomains":
 		resultFiles = []string{
 			filepath.Join(resultsDir, "db", "subdomains", fmt.Sprintf("%s.txt", target)),
+		}
+	case "github_wordlist":
+		base := filepath.Join(resultsDir, fmt.Sprintf("github-%s", target), "wordlists")
+		resultFiles = []string{
+			filepath.Join(base, "github-patterns.txt"),
+			filepath.Join(base, "github-wordlist.txt"),
 		}
 		// Add more scan types as needed
 	}
