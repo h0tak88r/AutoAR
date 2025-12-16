@@ -961,8 +961,26 @@ func handleDBCommand(args []string) error {
 			if err != nil {
 				return err
 			}
+			// Always print to stdout
 			for _, d := range domains {
 				fmt.Println(d)
+			}
+			// Also write to results file for Discord bot
+			resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+			if resultsDir == "" {
+				resultsDir = "new-results"
+			}
+			dbDir := filepath.Join(resultsDir, "db")
+			if err := os.MkdirAll(dbDir, 0o755); err == nil {
+				path := filepath.Join(dbDir, "domains.txt")
+				if f, err := os.Create(path); err == nil {
+					w := bufio.NewWriter(f)
+					for _, d := range domains {
+						fmt.Fprintln(w, d)
+					}
+					_ = w.Flush()
+					_ = f.Close()
+				}
 			}
 			return nil
 
@@ -1023,8 +1041,26 @@ func handleDBCommand(args []string) error {
 
 		switch action {
 		case "list":
+			// Print to stdout
 			for _, s := range subs {
 				fmt.Println(s)
+			}
+			// Also write to a standard results file for Discord bot
+			resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+			if resultsDir == "" {
+				resultsDir = "new-results"
+			}
+			subDir := filepath.Join(resultsDir, "db", "subdomains")
+			if err := os.MkdirAll(subDir, 0o755); err == nil {
+				path := filepath.Join(subDir, fmt.Sprintf("%s.txt", domain))
+				if f, err := os.Create(path); err == nil {
+					w := bufio.NewWriter(f)
+					for _, s := range subs {
+						fmt.Fprintln(w, s)
+					}
+					_ = w.Flush()
+					_ = f.Close()
+				}
 			}
 			return nil
 
