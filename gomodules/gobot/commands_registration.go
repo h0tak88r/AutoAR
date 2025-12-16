@@ -335,6 +335,7 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "monitor_updates_start",
 			Description: "Monitor Updates: start monitoring target(s)",
 			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Target ID from /monitor_updates_list", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Specific URL to monitor (leave empty for all targets)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "interval", Description: "Interval in seconds between checks (default: 86400 = 1 day)", Required: false},
 			},
@@ -343,6 +344,7 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "monitor_updates_stop",
 			Description: "Monitor Updates: stop monitoring target(s)",
 			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Target ID from /monitor_updates_list", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Specific URL to stop monitoring (leave empty for all targets)", Required: false},
 			},
 		},

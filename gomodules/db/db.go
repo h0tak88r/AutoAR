@@ -199,6 +199,14 @@ func InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
+	-- Ensure notes column exists (for backward compatibility)
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='keyhack_templates' AND column_name='notes') THEN
+			ALTER TABLE keyhack_templates ADD COLUMN notes TEXT;
+		END IF;
+	END $$;
+	
 	-- Create unique index if it doesn't exist, handling duplicates
 	DO $$ 
 	BEGIN
@@ -722,6 +730,29 @@ func RemoveMonitorTarget(url string) error {
 		return fmt.Errorf("monitor target not found: %s", url)
 	}
 	return nil
+}
+
+// GetMonitorTargetByID returns a single monitor target by ID.
+func GetMonitorTargetByID(id int) (*MonitorTarget, error) {
+	if dbPool == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	var t MonitorTarget
+	err := dbPool.QueryRow(ctx, `
+		SELECT id, url, strategy, pattern, created_at, updated_at
+		FROM updates_targets
+		WHERE id = $1;
+	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("monitor target not found with id: %d", id)
+		}
+		return nil, fmt.Errorf("failed to get monitor target by id: %v", err)
+	}
+	return &t, nil
 }
 
 // GetPool returns the database connection pool (for advanced use)
