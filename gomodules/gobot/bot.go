@@ -237,12 +237,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleCheckTools(s, i)
 	case "misconfig":
 		handleMisconfig(s, i)
-	case "live_depconfusion_scan":
-		handleLiveDepconfusionScan(s, i)
 	case "webdepconf":
 		handleWebDepConf(s, i)
-	case "wp_depconf":
-		handleWPDepConf(s, i)
 	case "scan_status":
 		handleScanStatus(s, i)
 	case "scan_from_file":
