@@ -618,18 +618,28 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		// Fallback to manual command list
 		embed.Fields = []*discordgo.MessageEmbedField{
 			{
-				Name: "Core Commands",
-				Value: "• `/lite_scan` - Quick scan\n• `/fast_look` - Fast lookup\n• `/scan_domain` - Full scan\n• `/js_scan` - JavaScript scan\n• `/gf_scan` - GF pattern scans\n• `/sqlmap` - SQLMap scan\n• `/dalfox` - Dalfox XSS scan",
+				Name:   "Core Workflows",
+				Value:  "• `/scan_domain` - Full domain workflow\n• `/lite_scan` - Lite scan (livehosts → reflection → JS → nuclei)\n• `/fast_look` - Fast recon (subs + livehosts + URLs)\n• `/react2shell_scan` - React2Shell smart scan",
 				Inline: false,
 			},
 			{
-				Name: "Database Commands",
-				Value: "• `/db_domains` - List domains\n• `/db_subdomains` - List subdomains\n• `/db_delete_domain` - Delete domain",
+				Name:   "Recon & Vuln Scans",
+				Value:  "• `/subdomains` - Enumerate subdomains\n• `/livehosts` - Filter live hosts\n• `/urls` - Collect URLs & JS URLs\n• `/js_scan` - JavaScript scan (JS URLs)\n• `/reflection` - Reflection (kxss)\n• `/nuclei` - Nuclei templates\n• `/gf_scan` - GF patterns\n• `/sqlmap` - SQLMap on GF results\n• `/dalfox` - Dalfox XSS\n• `/ports` - Naabu port scan\n• `/tech` - Tech detection",
 				Inline: false,
 			},
 			{
-				Name: "Other Commands",
-				Value: "• `/nuclei` - Nuclei scan\n• `/ports` - Port scan\n• `/tech` - Tech detection\n• `/s3_scan` - S3 bucket scan\n• `/github_scan` - GitHub secrets scan",
+				Name:   "DNS & Cloud",
+				Value:  "• `/dns_takeover` - Full DNS takeover workflow\n• `/dns_cname` - CNAME takeover\n• `/dns_ns` - NS takeover\n• `/dns_azure_aws` - Azure/AWS takeover\n• `/dns_dnsreaper` - DNSReaper only",
+				Inline: false,
+			},
+			{
+				Name:   "GitHub & JWT",
+				Value:  "• `/github_scan` - Repo secrets (TruffleHog)\n• `/github_org_scan` - Org secrets\n• `/github_experimental_scan` - Experimental mode\n• `/github_wordlist` - GitHub-based wordlist\n• `/jwt_scan` - JWT token scan (jwt-hack)",
+				Inline: false,
+			},
+			{
+				Name:   "Database & Misc",
+				Value:  "• `/db_domains` - List DB domains (file + output)\n• `/db_subdomains` - List DB subdomains (file + output)\n• `/db_delete_domain` - Delete domain from DB\n• `/check_tools` - Check required tools\n• `/scan_status` - Show scans\n• `/help_autoar` - Show this help",
 				Inline: false,
 			},
 		}
@@ -661,7 +671,7 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Title:       "📊 All Scan Status",
 		Description: fmt.Sprintf("**Active Scans:** %d\n**Recent Completed Scans:** %d", activeCount, len(completedList)),
 		Color:       0x3498db,
-		Fields:     []*discordgo.MessageEmbedField{},
+		Fields:      []*discordgo.MessageEmbedField{},
 	}
 
 	// Add active scans
@@ -704,11 +714,11 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				statusEmoji = "❌"
 			}
 			// Use ScanID as target identifier
-		target := result.ScanID
-		if result.ScanType != "" {
-			target = result.ScanType
-		}
-		completedText += fmt.Sprintf("%s **%s** - `%s` (%s)\n", statusEmoji, result.ScanType, target, result.Status)
+			target := result.ScanID
+			if result.ScanType != "" {
+				target = result.ScanType
+			}
+			completedText += fmt.Sprintf("%s **%s** - `%s` (%s)\n", statusEmoji, result.ScanType, target, result.Status)
 		}
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:  fmt.Sprintf("Recent Completed Scans (%d)", len(completedList)),
