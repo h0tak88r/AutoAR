@@ -1,24 +1,54 @@
 package jwt
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
+
+	jwthack "github.com/h0tak88r/AutoAR/internal/tools/jwthack"
 )
 
-// RunScan executes `jwt-hack scan` with the provided arguments
-// and writes the output to a timestamped file under:
+// RunScan performs a JWT security scan using the embedded jwthack engine
+// and writes a JSON report to:
 //
-//	$AUTOAR_RESULTS_DIR/jwt-scan/vulnerabilities/jwt/jwt_hack_<ts>.txt
+//	$AUTOAR_RESULTS_DIR/jwt-scan/vulnerabilities/jwt/jwt_scan_<ts>.json
 func RunScan(args []string) (string, error) {
 	if len(args) == 0 {
-		return "", fmt.Errorf("no arguments provided to jwt-hack scan")
+		return "", fmt.Errorf("no arguments provided to jwt scan")
 	}
 
-	if _, err := exec.LookPath("jwt-hack"); err != nil {
-		return "", fmt.Errorf("jwt-hack binary not found in PATH; ensure it is installed in the image")
+	token := args[0]
+	var (
+		wordlist         string
+		maxCrackAttempts int
+		skipCrack        bool
+		skipPayloads     bool
+	)
+
+	// Parse remaining flags in a minimal, jwt-hack-compatible way.
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--skip-crack":
+			skipCrack = true
+		case "--skip-payloads":
+			skipPayloads = true
+		case "-w", "--wordlist":
+			if i+1 < len(args) {
+				wordlist = args[i+1]
+				i++
+			}
+		case "--max-crack-attempts":
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+					maxCrackAttempts = n
+				}
+				i++
+			}
+		}
 	}
 
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
@@ -31,22 +61,32 @@ func RunScan(args []string) (string, error) {
 		return "", fmt.Errorf("failed to create JWT results directory: %w", err)
 	}
 
-	filename := fmt.Sprintf("jwt_hack_%d.txt", time.Now().Unix())
+	filename := fmt.Sprintf("jwt_scan_%d.json", time.Now().Unix())
 	outPath := filepath.Join(jwtDir, filename)
 
-	outFile, err := os.Create(outPath)
+	opts := jwthack.ScanOptions{
+		Token:            token,
+		WordlistPath:     wordlist,
+		MaxCrackAttempts: maxCrackAttempts,
+		SkipCrack:        skipCrack,
+		SkipPayloads:     skipPayloads,
+	}
+
+	res, err := jwthack.Scan(opts)
+	if err != nil {
+		return "", err
+	}
+
+	f, err := os.Create(outPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create JWT results file: %w", err)
 	}
-	defer outFile.Close()
+	defer f.Close()
 
-	cmdArgs := append([]string{"scan"}, args...)
-	cmd := exec.Command("jwt-hack", cmdArgs...)
-	cmd.Stdout = outFile
-	cmd.Stderr = outFile
-
-	if err := cmd.Run(); err != nil {
-		return outPath, fmt.Errorf("jwt-hack scan failed: %w", err)
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(res); err != nil {
+		return "", fmt.Errorf("failed to write JWT results: %w", err)
 	}
 
 	return outPath, nil
