@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,7 +104,9 @@ func NewFromEnv() (*Client, error) {
 // from the environment if necessary.
 func (c *Client) ensureAccount(ctx context.Context) (appstore.Account, error) {
 	// First try to load an existing account from keychain.
+	// If successful, we can use the stored session without requiring 2FA again.
 	if info, err := c.store.AccountInfo(); err == nil {
+		log.Printf("[ipatool] Using existing authenticated session from keychain")
 		return info.Account, nil
 	}
 
@@ -115,6 +118,31 @@ func (c *Client) ensureAccount(ctx context.Context) (appstore.Account, error) {
 		return appstore.Account{}, fmt.Errorf("IPATOOL_EMAIL and IPATOOL_PASSWORD are required to login to the App Store")
 	}
 
+	// Check if auth code is needed
+	if authCode == "" {
+		// Try login without auth code first (in case 2FA is not required or session exists)
+		out, err := c.store.Login(appstore.LoginInput{
+			Email:    email,
+			Password: password,
+			AuthCode: "",
+		})
+		if err == nil {
+			log.Printf("[ipatool] Successfully authenticated without 2FA code")
+			return out.Account, nil
+		}
+		
+		// If login failed, check if it's a 2FA error
+		errStr := err.Error()
+		if strings.Contains(strings.ToLower(errStr), "auth code") || 
+		   strings.Contains(strings.ToLower(errStr), "verification code") ||
+		   strings.Contains(strings.ToLower(errStr), "two-factor") ||
+		   strings.Contains(strings.ToLower(errStr), "2fa") {
+			return appstore.Account{}, fmt.Errorf("2FA code required! Here's how to get it:\n\n1. Check your iPhone/iPad/Mac (trusted device) - Apple just sent a 6-digit code\n2. Look for a notification or popup saying 'Apple ID sign-in request'\n3. The code will appear on your device screen (or in Settings > [Your Name] > Sign-In & Security > Get Verification Code)\n4. Copy that 6-digit code\n5. Set IPATOOL_AUTH_CODE in Dokploy with that code\n6. Retry the command - the session will be saved after successful login\n\nNote: The code is sent WHEN you run the command, not before. After first successful login, you won't need 2FA again until the session expires.\n\nOriginal error: %w", err)
+		}
+		return appstore.Account{}, fmt.Errorf("ipatool login failed: %w", err)
+	}
+
+	// Login with auth code
 	out, err := c.store.Login(appstore.LoginInput{
 		Email:    email,
 		Password: password,
@@ -124,6 +152,7 @@ func (c *Client) ensureAccount(ctx context.Context) (appstore.Account, error) {
 		return appstore.Account{}, fmt.Errorf("ipatool login failed: %w", err)
 	}
 
+	log.Printf("[ipatool] Successfully authenticated with 2FA. Session saved to keychain - 2FA won't be required again until session expires.")
 	return out.Account, nil
 }
 
@@ -178,16 +207,31 @@ func (c *Client) DownloadIPAByBundleID(ctx context.Context, bundleID, outputDir 
 	if err != nil {
 		// Password token expired: try to re-login and download again.
 		if errors.Is(err, appstore.ErrPasswordTokenExpired) {
+			log.Printf("[ipatool] Session expired, attempting re-login...")
 			// Re-login using stored email/password on the account.
+			// Try without auth code first (session might still be valid)
 			loginOut, lErr := c.store.Login(appstore.LoginInput{
 				Email:    acc.Email,
 				Password: acc.Password,
 				AuthCode: "",
 			})
 			if lErr != nil {
-				return "", fmt.Errorf("re-login after token expiry failed: %w", lErr)
+				// If that fails, try with auth code from environment
+				authCode := strings.ReplaceAll(os.Getenv("IPATOOL_AUTH_CODE"), " ", "")
+				if authCode != "" {
+					log.Printf("[ipatool] Re-login without auth code failed, trying with 2FA code...")
+					loginOut, lErr = c.store.Login(appstore.LoginInput{
+						Email:    acc.Email,
+						Password: acc.Password,
+						AuthCode: authCode,
+					})
+				}
+				if lErr != nil {
+					return "", fmt.Errorf("re-login after token expiry failed. If 2FA is required, set IPATOOL_AUTH_CODE with a fresh 6-digit code: %w", lErr)
+				}
 			}
 			acc = loginOut.Account
+			log.Printf("[ipatool] Re-login successful, retrying download...")
 			out, err = tryDownload(acc)
 		}
 	}
