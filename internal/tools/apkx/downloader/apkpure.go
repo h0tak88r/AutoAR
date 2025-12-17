@@ -6,41 +6,48 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
-	"time"
-
-	"github.com/PuerkitoBio/goquery"
 )
 
-// ApkPureClient implements a minimal subset of the original Python ApkPure
-// helper: search by package name, resolve the detail page, and follow the
-// fast-download link to obtain the final APK download URL.
+// ApkPureClient implements APK download from ApkPure using their API endpoint
+// (same approach as apkeep Rust tool) instead of scraping HTML.
 type ApkPureClient struct {
-	baseURL    string
+	apiURL     string
 	httpClient *http.Client
+	// Regex to extract download URL from API response: (X?APKJ)..(https://...)
+	downloadURLRegex *regexp.Regexp
 }
 
-// NewApkPureClient creates a new client with sane defaults.
+// NewApkPureClient creates a new client using the ApkPure API endpoint
+// (same as apkeep Rust tool) to avoid HTML scraping and 403 errors.
 func NewApkPureClient() (*ApkPureClient, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cookie jar: %w", err)
 	}
 	
+	// Regex pattern from apkeep: matches (X?APKJ)..(https://...)
+	// In Rust, ".." means exactly two characters, in Go we use ".{2}"
+	downloadRegex, err := regexp.Compile(`(X?APKJ).{2}(https?://(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*))`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile download URL regex: %w", err)
+	}
+	
 	return &ApkPureClient{
-		baseURL: "https://apkpure.com",
+		apiURL: "https://api.pureapk.com/m/v3/cms/app_version?hl=en-US&package_name=",
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 			Jar:     jar,
 		},
+		downloadURLRegex: downloadRegex,
 	}, nil
 }
 
-// DownloadAPKByPackage searches ApkPure for the given package name,
-// resolves the download URL, and saves the APK into destDir.
+// DownloadAPKByPackage uses the ApkPure API to get the download URL for the given
+// package name, then downloads and saves the APK into destDir.
 // It returns the absolute path to the downloaded APK.
 func (c *ApkPureClient) DownloadAPKByPackage(ctx context.Context, packageName, destDir string) (string, error) {
 	if strings.TrimSpace(packageName) == "" {
@@ -54,66 +61,70 @@ func (c *ApkPureClient) DownloadAPKByPackage(ctx context.Context, packageName, d
 		return "", fmt.Errorf("failed to create dest dir: %w", err)
 	}
 
-	// Visit homepage first to get initial cookies and establish session
-	_, err := c.fetchDocument(ctx, c.baseURL+"/")
+	// Call the API endpoint (same as apkeep)
+	apiURL := c.apiURL + packageName
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
-		// Log but don't fail - some sites work without this
+		return "", fmt.Errorf("failed to create API request: %w", err)
 	}
-	
-	// Small delay to mimic human behavior
-	time.Sleep(500 * time.Millisecond)
 
-	detailPath, err := c.findDetailPath(ctx, packageName)
-	if err != nil {
-		return "", err
-	}
-	
-	// Small delay before next request
-	time.Sleep(300 * time.Millisecond)
+	// Set API headers (same as apkeep)
+	req.Header.Set("x-cv", "3172501")
+	req.Header.Set("x-sv", "29")
+	req.Header.Set("x-abis", "arm64-v8a,armeabi-v7a,armeabi,x86,x86_64")
+	req.Header.Set("x-gp", "1")
 
-	downloadURL, ext, err := c.resolveDownloadURL(ctx, detailPath)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("API request failed: %w", err)
 	}
-	
-	// Small delay before download
-	time.Sleep(300 * time.Millisecond)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected API status %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read API response: %w", err)
+	}
+
+	// Extract download URL using regex (same pattern as apkeep)
+	matches := c.downloadURLRegex.FindStringSubmatch(string(body))
+	if len(matches) < 3 {
+		return "", fmt.Errorf("could not find download URL in API response for package %q", packageName)
+	}
+
+	apkType := matches[1] // "APK" or "XAPKJ"
+	downloadURL := matches[2]
+
+	// Determine file extension
+	ext := "apk"
+	if apkType == "XAPKJ" {
+		ext = "xapk"
+	}
 
 	// Build a safe filename based on package name.
 	base := strings.ReplaceAll(packageName, ".", "_")
 	if base == "" {
 		base = "app"
 	}
-	if ext == "" {
-		ext = "apk"
-	}
-
 	outPath := filepath.Join(destDir, base+"."+ext)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	// Download the APK
+	dlReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create download request: %w", err)
 	}
-	
-	// Set realistic browser headers for APK download
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Referer", c.baseURL+"/")
-	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("Sec-Fetch-Dest", "empty")
-	req.Header.Set("Sec-Fetch-Mode", "cors")
-	req.Header.Set("Sec-Fetch-Site", "same-site")
 
-	resp, err := c.httpClient.Do(req)
+	dlResp, err := c.httpClient.Do(dlReq)
 	if err != nil {
 		return "", fmt.Errorf("download request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer dlResp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("unexpected status downloading APK: %s", resp.Status)
+	if dlResp.StatusCode < 200 || dlResp.StatusCode >= 300 {
+		return "", fmt.Errorf("unexpected status downloading APK: %s", dlResp.Status)
 	}
 
 	f, err := os.Create(outPath)
@@ -122,158 +133,11 @@ func (c *ApkPureClient) DownloadAPKByPackage(ctx context.Context, packageName, d
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if _, err := io.Copy(f, dlResp.Body); err != nil {
 		return "", fmt.Errorf("failed to write APK: %w", err)
 	}
 
 	return outPath, nil
 }
 
-// findDetailPath performs a search on ApkPure and returns the first
-// detail page URL that looks like it matches the given package name.
-func (c *ApkPureClient) findDetailPath(ctx context.Context, pkg string) (string, error) {
-	searchURL := c.baseURL + "/search?q=" + url.QueryEscape(pkg)
-
-	doc, err := c.fetchDocument(ctx, searchURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch search results: %w", err)
-	}
-
-	var candidate string
-
-	doc.Find("div#search-res dl.search-dl").EachWithBreak(func(i int, s *goquery.Selection) bool {
-		a := s.Find("dt a").First()
-		if a.Length() == 0 {
-			return true // continue
-		}
-		href, ok := a.Attr("href")
-		if !ok {
-			return true
-		}
-
-		// Prefer results where the href contains the package name.
-		if strings.Contains(strings.ToLower(href), strings.ToLower(pkg)) {
-			candidate = href
-			return false // break
-		}
-
-		// Fallback: remember the first result if nothing else matches.
-		if candidate == "" {
-			candidate = href
-		}
-
-		return true
-	})
-
-	if candidate == "" {
-		return "", fmt.Errorf("no search results found on ApkPure for %q", pkg)
-	}
-
-	return candidate, nil
-}
-
-// resolveDownloadURL follows the ApkPure detail page and fast-download page
-// to obtain the final download URL and file extension.
-func (c *ApkPureClient) resolveDownloadURL(ctx context.Context, detailPath string) (string, string, error) {
-	detailURL := detailPath
-	if !strings.HasPrefix(detailURL, "http://") && !strings.HasPrefix(detailURL, "https://") {
-		detailURL = c.baseURL + detailPath
-	}
-
-	doc, err := c.fetchDocument(ctx, detailURL)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to fetch detail page: %w", err)
-	}
-
-	box := doc.Find("div.box").First()
-	if box.Length() == 0 {
-		return "", "", fmt.Errorf("could not find app detail box on page")
-	}
-
-	nyDown := box.Find("div.ny-down").First()
-	if nyDown.Length() == 0 {
-		return "", "", fmt.Errorf("could not find download button on detail page")
-	}
-
-	a := nyDown.Find("a.da").First()
-	href, ok := a.Attr("href")
-	if !ok || href == "" {
-		return "", "", fmt.Errorf("download link missing href")
-	}
-
-	dlPageURL := href
-	if !strings.HasPrefix(dlPageURL, "http://") && !strings.HasPrefix(dlPageURL, "https://") {
-		dlPageURL = c.baseURL + href
-	}
-
-	// Fetch the fast-download page and extract the final link.
-	doc2, err := c.fetchDocument(ctx, dlPageURL)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to fetch fast-download page: %w", err)
-	}
-
-	fast := doc2.Find("div.fast-download-box").First()
-	if fast.Length() == 0 {
-		return "", "", fmt.Errorf("could not find fast-download box")
-	}
-
-	link := fast.Find("a#download_link").First()
-	finalURL, ok := link.Attr("href")
-	if !ok || finalURL == "" {
-		return "", "", fmt.Errorf("download_link anchor missing href")
-	}
-
-	title, _ := link.Attr("title")
-	ext := ""
-	if title != "" {
-		parts := strings.Fields(title)
-		if len(parts) > 0 {
-			last := parts[len(parts)-1]
-			ext = strings.TrimPrefix(last, ".")
-		}
-	}
-
-	if !strings.HasPrefix(finalURL, "http://") && !strings.HasPrefix(finalURL, "https://") {
-		finalURL = c.baseURL + finalURL
-	}
-
-	return finalURL, ext, nil
-}
-
-func (c *ApkPureClient) fetchDocument(ctx context.Context, urlStr string) (*goquery.Document, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
-	if err != nil {
-		return nil, err
-	}
-	
-	// Set realistic browser headers to avoid 403 Forbidden
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
-	req.Header.Set("Sec-Fetch-Dest", "document")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", "none")
-	req.Header.Set("Sec-Fetch-User", "?1")
-	req.Header.Set("Cache-Control", "max-age=0")
-	
-	// Set Referer for subsequent requests (not for initial search)
-	if !strings.Contains(urlStr, "/search?q=") {
-		req.Header.Set("Referer", c.baseURL+"/")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("unexpected status %s fetching %s", resp.Status, urlStr)
-	}
-
-	return goquery.NewDocumentFromReader(resp.Body)
-}
 
