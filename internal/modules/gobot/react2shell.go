@@ -362,15 +362,7 @@ func parseNext88Results(resultsFile string) ([]string, error) {
 }
 
 // Helper functions
-func findNext88() string {
-	paths := []string{"next88", "react2shell"}
-	for _, path := range paths {
-		if _, err := exec.LookPath(path); err == nil {
-			return path
-		}
-	}
-	return ""
-}
+// findNext88 removed - we now use the library directly via runNext88ScanLib
 
 func getLiveHosts(domain string, threads int) (string, error) {
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
@@ -623,12 +615,15 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
-	// Find next88 binary
-	next88Bin := findNext88()
-	if next88Bin == "" {
+	// Use the library-based implementation instead of binary
+	log.Printf("[DEBUG] Running next88 library scan for single URL: %s", target)
+
+	// Run smart scan using the library
+	results, err := runNext88ScanLib([]string{target}, []string{"-smart-scan"}, "")
+	if err != nil {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ React2Shell Test Failed",
-			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** next88 binary not found. Please install: go install github.com/h0tak88r/next88@latest", target),
+			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** %v", target, err),
 			Color:       0xff0000,
 		}
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
@@ -637,97 +632,66 @@ func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, 
 		return
 	}
 
-	// Create temp file for JSON output
-	resultsFile, err := os.CreateTemp("", "next88-single-*.json")
-	if err != nil {
-		embed := &discordgo.MessageEmbed{
-			Title:       "❌ React2Shell Test Failed",
-			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** Failed to create temp file: %v", target, err),
-			Color:       0xff0000,
-		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-		return
-	}
-	resultsFile.Close()
-	defer os.Remove(resultsFile.Name())
+	// Check if vulnerable (if any results returned, it's vulnerable)
+	isVulnerable := len(results) > 0
 
-	// Build next88 command
-	command := []string{
-		next88Bin,
-		"-u", target,
-		"-k", // Insecure (skip SSL verification)
-		"-o", resultsFile.Name(),
-		"-all-results", // Get all results in JSON
-	}
-
-	// Don't pass webhook URL - we handle Discord messages directly via bot
-	// webhookURL := getDiscordWebhook()
-	// if webhookURL != "" {
-	// 	command = append(command, "--discord-webhook", webhookURL)
-	// }
-
-	log.Printf("[DEBUG] next88 single URL command: %s", strings.Join(command, " "))
-
-	// Run next88
-	cmd := exec.Command(command[0], command[1:]...)
-	output, err := cmd.CombinedOutput()
-
-	stdoutStr := string(output)
-	stderrStr := ""
-	if err != nil {
-		stderrStr = err.Error()
-	}
-
-	// Parse JSON results
-	isVulnerable := false
+	// Get detailed results from the library
 	var vulnerabilityDetails map[string]interface{}
 	var pocData map[string]interface{}
 
-	if fileInfo, err := os.Stat(resultsFile.Name()); err == nil && fileInfo.Size() > 0 {
-		data, err := os.ReadFile(resultsFile.Name())
-		if err == nil {
-			var jsonData map[string]interface{}
-			if err := json.Unmarshal(data, &jsonData); err == nil {
-				results, ok := jsonData["results"].([]interface{})
-				if ok {
-					for _, result := range results {
-						resultMap, ok := result.(map[string]interface{})
-						if !ok {
-							continue
-						}
+	if isVulnerable {
+		// Run the scan again with detailed options to get full results
+		opts := next88.ScanOptions{
+			Timeout:         10 * time.Second,
+			VerifySSL:       false,
+			FollowRedirects: true,
+			SafeCheck:       false,
+			Windows:         false,
+			WAFBypass:       false,
+			WAFBypassSizeKB: 128,
+			VercelWAFBypass: false,
+			Paths:           nil,
+			DoubleEncode:    false,
+			SemicolonBypass: false,
+			CheckSourceExp:  false,
+			CustomHeaders:   make(map[string]string),
+			Threads:         1,
+			Quiet:           true,
+			Verbose:         verbose,
+			NoColor:         true,
+			AllResults:      true,
+			DiscordWebhook:  "",
+			DOSTest:         false,
+			DOSRequests:     100,
+			SmartScan:       true,
+		}
 
-						// Check if vulnerable
-						if v, ok := resultMap["vulnerable"].(bool); ok && v {
-							isVulnerable = true
-
-							// Extract vulnerability details
-							vulnerabilityDetails = map[string]interface{}{
-								"method":      getStringValue(resultMap, "method", "test_method", "Unknown"),
-								"phase":       getStringValue(resultMap, "phase", "waf_bypass", "bypass_type", "normal"),
-								"path":        getStringValue(resultMap, "path", "url", ""),
-								"status_code": getStringValue(resultMap, "status_code", "status", ""),
-							}
-
-							// Extract PoC data
-							pocData = map[string]interface{}{
-								"request":  getStringValue(resultMap, "request", "request_body", "payload", "request_data", ""),
-								"response": getStringValue(resultMap, "response", "response_body", "response_data", ""),
-								"headers":  resultMap["headers"],
-							}
-							break
-						}
+		scanResults, err := next88.Run([]string{target}, opts)
+		if err == nil && len(scanResults) > 0 {
+			for _, res := range scanResults {
+				if res.Vulnerable != nil && *res.Vulnerable {
+					statusCode := ""
+					if res.StatusCode != nil {
+						statusCode = fmt.Sprintf("%d", *res.StatusCode)
 					}
+					vulnerabilityDetails = map[string]interface{}{
+						"method":      "Smart Scan",
+						"phase":       "Smart Scan (sequential)",
+						"path":        res.TestedURL,
+						"status_code": statusCode,
+					}
+
+					pocData = map[string]interface{}{
+						"request":      res.Request,
+						"response":     res.Response,
+						"request_body": res.RequestBody,
+						"response_body": res.ResponseBody,
+						"final_url":    res.FinalURL,
+					}
+					break
 				}
 			}
 		}
-	}
-
-	// Fallback to stdout check if JSON parsing failed
-	if !isVulnerable {
-		isVulnerable = strings.Contains(strings.ToLower(stdoutStr), "vulnerable") ||
-			strings.Contains(strings.ToLower(stderrStr), "vulnerable")
 	}
 
 	// Create result embed
