@@ -1,11 +1,16 @@
 package s3
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // Options for s3 commands
@@ -51,8 +56,7 @@ func handleEnum(opts Options, resultsDir string) error {
 	outputFile := filepath.Join(outputDir, "buckets.txt")
 	logFile := filepath.Join(outputDir, "enum.log")
 
-	// Use aws cli or s3scanner for enumeration
-	// Try s3scanner first, fallback to aws cli
+	// Use s3scanner if available, otherwise fallback to AWS SDK enumeration
 	var cmd *exec.Cmd
 	s3scannerPath, err := exec.LookPath("s3scanner")
 	if err == nil {
@@ -64,10 +68,9 @@ func handleEnum(opts Options, resultsDir string) error {
 		args = append(args, opts.Root)
 		cmd = exec.Command(s3scannerPath, args...)
 	} else {
-		// Fallback: Use aws cli with common bucket name patterns
-		// Generate potential bucket names based on root domain
+		// Fallback: use AWS SDK with common bucket name patterns
 		bucketPatterns := generateBucketNames(opts.Root)
-		
+
 		outFile, err := os.Create(outputFile)
 		if err != nil {
 			return fmt.Errorf("failed to create output file: %v", err)
@@ -80,18 +83,23 @@ func handleEnum(opts Options, resultsDir string) error {
 		}
 		defer logFileHandle.Close()
 
-		// Check each potential bucket name
-		awsPath, err := exec.LookPath("aws")
+		ctx := context.Background()
+		s3Client, err := newS3Client(ctx, opts.Region)
 		if err != nil {
-			return fmt.Errorf("neither s3scanner nor aws cli found in PATH")
+			return fmt.Errorf("failed to create S3 client: %v", err)
 		}
 
 		for _, bucketName := range bucketPatterns {
-			checkCmd := exec.Command(awsPath, "s3", "ls", fmt.Sprintf("s3://%s", bucketName))
-			checkCmd.Stdout = outFile
-			checkCmd.Stderr = logFileHandle
-			if err := checkCmd.Run(); err == nil {
-				fmt.Fprintf(outFile, "%s\n", bucketName)
+			_, err := s3Client.HeadBucket(ctx, &s3.HeadBucketInput{
+				Bucket: aws.String(bucketName),
+			})
+			if err == nil {
+				// Bucket exists and is reachable with current credentials
+				if _, werr := fmt.Fprintf(outFile, "%s\n", bucketName); werr != nil {
+					return fmt.Errorf("failed to write bucket name: %v", werr)
+				}
+			} else if opts.Verbose {
+				fmt.Fprintf(logFileHandle, "bucket %s: %v\n", bucketName, err)
 			}
 		}
 
@@ -140,18 +148,6 @@ func handleScan(opts Options, resultsDir string) error {
 	outputFile := filepath.Join(outputDir, "scan-results.txt")
 	logFile := filepath.Join(outputDir, "scan.log")
 
-	awsPath, err := exec.LookPath("aws")
-	if err != nil {
-		return fmt.Errorf("aws cli not found in PATH")
-	}
-
-	args := []string{"s3", "ls", fmt.Sprintf("s3://%s", opts.Bucket), "--recursive"}
-	if opts.Region != "" {
-		args = append(args, "--region", opts.Region)
-	}
-
-	cmd := exec.Command(awsPath, args...)
-
 	outFile, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %v", err)
@@ -164,17 +160,48 @@ func handleScan(opts Options, resultsDir string) error {
 	}
 	defer logFileHandle.Close()
 
-	cmd.Stdout = outFile
-	cmd.Stderr = logFileHandle
+	ctx := context.Background()
+	s3Client, err := newS3Client(ctx, opts.Region)
+	if err != nil {
+		return fmt.Errorf("failed to create S3 client: %v", err)
+	}
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("aws s3 ls failed: %v", err)
+	paginator := s3.NewListObjectsV2Paginator(s3Client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(opts.Bucket),
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			fmt.Fprintf(logFileHandle, "error listing objects: %v\n", err)
+			return fmt.Errorf("failed to list objects: %w", err)
+		}
+		for _, obj := range page.Contents {
+			t := aws.ToTime(obj.LastModified)
+			line := fmt.Sprintf("%s %12d %s\n", t.Format("2006-01-02 15:04:05"), obj.Size, aws.ToString(obj.Key))
+			if _, err := outFile.WriteString(line); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
+			}
+		}
 	}
 
 	fmt.Printf("[OK] S3 scan completed for bucket: %s\n", opts.Bucket)
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
 	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
 	return nil
+}
+
+// newS3Client creates an S3 client using default AWS configuration and
+// optionally overrides the region if provided.
+func newS3Client(ctx context.Context, region string) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if region != "" {
+		cfg.Region = region
+	}
+	return s3.NewFromConfig(cfg), nil
 }
 
 // generateBucketNames generates potential S3 bucket names from a root domain

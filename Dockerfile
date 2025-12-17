@@ -44,7 +44,7 @@ WORKDIR /app
 # System deps for runtime and common tools (including Java + unzip for jadx)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
-    postgresql-client awscli docker.io \
+    postgresql-client docker.io \
     openjdk-17-jre-headless unzip \
     && rm -rf /var/lib/apt/lists/*
 
