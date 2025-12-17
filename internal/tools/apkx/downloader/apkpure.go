@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,13 +24,19 @@ type ApkPureClient struct {
 }
 
 // NewApkPureClient creates a new client with sane defaults.
-func NewApkPureClient() *ApkPureClient {
+func NewApkPureClient() (*ApkPureClient, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cookie jar: %w", err)
+	}
+	
 	return &ApkPureClient{
 		baseURL: "https://apkpure.com",
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
+			Jar:     jar,
 		},
-	}
+	}, nil
 }
 
 // DownloadAPKByPackage searches ApkPure for the given package name,
@@ -47,15 +54,30 @@ func (c *ApkPureClient) DownloadAPKByPackage(ctx context.Context, packageName, d
 		return "", fmt.Errorf("failed to create dest dir: %w", err)
 	}
 
+	// Visit homepage first to get initial cookies and establish session
+	_, err := c.fetchDocument(ctx, c.baseURL+"/")
+	if err != nil {
+		// Log but don't fail - some sites work without this
+	}
+	
+	// Small delay to mimic human behavior
+	time.Sleep(500 * time.Millisecond)
+
 	detailPath, err := c.findDetailPath(ctx, packageName)
 	if err != nil {
 		return "", err
 	}
+	
+	// Small delay before next request
+	time.Sleep(300 * time.Millisecond)
 
 	downloadURL, ext, err := c.resolveDownloadURL(ctx, detailPath)
 	if err != nil {
 		return "", err
 	}
+	
+	// Small delay before download
+	time.Sleep(300 * time.Millisecond)
 
 	// Build a safe filename based on package name.
 	base := strings.ReplaceAll(packageName, ".", "_")
@@ -72,7 +94,17 @@ func (c *ApkPureClient) DownloadAPKByPackage(ctx context.Context, packageName, d
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "AutoAR-apkx/1.0 (+https://github.com/h0tak88r/AutoAR)")
+	
+	// Set realistic browser headers for APK download
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Referer", c.baseURL+"/")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -213,7 +245,24 @@ func (c *ApkPureClient) fetchDocument(ctx context.Context, urlStr string) (*goqu
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "AutoAR-apkx/1.0 (+https://github.com/h0tak88r/AutoAR)")
+	
+	// Set realistic browser headers to avoid 403 Forbidden
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Site", "none")
+	req.Header.Set("Sec-Fetch-User", "?1")
+	req.Header.Set("Cache-Control", "max-age=0")
+	
+	// Set Referer for subsequent requests (not for initial search)
+	if !strings.Contains(urlStr, "/search?q=") {
+		req.Header.Set("Referer", c.baseURL+"/")
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

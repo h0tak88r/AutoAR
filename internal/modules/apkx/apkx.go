@@ -164,7 +164,10 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 	switch platform {
 	case "android":
 		// Use pure-Go ApkPure client (no Rust/binary dependency) to fetch the APK.
-		client := downloader.NewApkPureClient()
+		client, err := downloader.NewApkPureClient()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ApkPure client: %w", err)
+		}
 		inputPath, err = client.DownloadAPKByPackage(context.Background(), pkg, tmpDir)
 		if err != nil {
 			return nil, err
