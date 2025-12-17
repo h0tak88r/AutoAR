@@ -64,6 +64,12 @@ COPY templates/ ./templates/
 COPY autoar.sample.yaml ./
 COPY env.example ./
 
+# Clone submodules directly
+RUN cd /app && \
+    rm -rf nuclei_templates Wordlists && \
+    git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
+    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
+
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
 # Copy main autoar binary
