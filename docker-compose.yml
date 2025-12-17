@@ -15,7 +15,7 @@ services:
 
             # Core Configuration
             - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-            - AUTOAR_SCRIPT_PATH=/app/main.sh
+            - AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar
             - AUTOAR_CONFIG_FILE=/app/autoar.yaml
             - AUTOAR_RESULTS_DIR=/app/new-results
 
@@ -96,8 +96,7 @@ services:
             - results-data:/app/new-results
             - ./regexes:/app/regexes:ro
         healthcheck:
-            test:
-                ["CMD-SHELL", "pgrep -f autoar-bot || exit 1"]
+            test: ["CMD-SHELL", "pgrep -f 'autoar bot' || pgrep -f 'autoar both' || exit 1"]
             interval: 30s
             timeout: 5s
             retries: 3
@@ -124,7 +123,7 @@ services:
             - API_PORT=8000
 
             # Core Configuration
-            - AUTOAR_SCRIPT_PATH=/app/main.sh
+            - AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar
             - AUTOAR_CONFIG_FILE=/app/autoar.yaml
             - AUTOAR_RESULTS_DIR=/app/new-results
 
@@ -225,7 +224,7 @@ services:
             - API_PORT=8000
 
             # Core Configuration
-            - AUTOAR_SCRIPT_PATH=/app/main.sh
+            - AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar
             - AUTOAR_CONFIG_FILE=/app/autoar.yaml
             - AUTOAR_RESULTS_DIR=/app/new-results
 
