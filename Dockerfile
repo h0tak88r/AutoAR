@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install external Go-based CLI tools used by AutoAR (nuclei, trufflehog)
+RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    GOBIN=/go/bin go install -v github.com/trufflesecurity/trufflehog/v3@latest
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
 

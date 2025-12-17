@@ -193,6 +193,14 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleDalfox(s, i)
 	case "apkx_scan":
 		handleApkXScan(s, i)
+	case "apkx_scan_package":
+		// Backwards-compatible alias; prefer /apkx_scan with package argument.
+		handleApkXScanPackage(s, i)
+	case "apkx_scan_ios":
+		// Backwards-compatible alias; prefer /apkx_ios.
+		handleApkXScanIOS(s, i)
+	case "apkx_ios":
+		handleApkXScanIOS(s, i)
 	case "dns_takeover":
 		handleDNSTakeover(s, i)
 	case "dns_cname":
