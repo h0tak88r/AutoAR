@@ -55,7 +55,22 @@ func NewFromEnv() (*Client, error) {
 
 	passphrase := os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE")
 	if strings.TrimSpace(passphrase) == "" {
-		return nil, fmt.Errorf("IPATOOL_KEYCHAIN_PASSPHRASE is required to use ipatool integration")
+		// Debug: Check if the variable exists but is empty
+		if _, exists := os.LookupEnv("IPATOOL_KEYCHAIN_PASSPHRASE"); exists {
+			return nil, fmt.Errorf("IPATOOL_KEYCHAIN_PASSPHRASE is set but empty (check for whitespace or empty value in Dokploy)")
+		}
+		// List available IPATOOL_* env vars for debugging
+		var foundVars []string
+		for _, env := range os.Environ() {
+			if strings.HasPrefix(env, "IPATOOL_") {
+				key := strings.Split(env, "=")[0]
+				foundVars = append(foundVars, key)
+			}
+		}
+		if len(foundVars) > 0 {
+			return nil, fmt.Errorf("IPATOOL_KEYCHAIN_PASSPHRASE is required but not found. Found IPATOOL_* vars: %v. Please ensure IPATOOL_KEYCHAIN_PASSPHRASE is set in Dokploy environment variables and the container has been restarted", foundVars)
+		}
+		return nil, fmt.Errorf("IPATOOL_KEYCHAIN_PASSPHRASE is required but not found. Please set it in Dokploy environment variables and restart the container")
 	}
 
 	ring, err := keyring.Open(keyring.Config{
