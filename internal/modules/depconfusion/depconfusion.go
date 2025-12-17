@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	confused2 "github.com/h0tak88r/AutoAR/internal/tools/confused2"
+	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/projectdiscovery/httpx/runner"
 )
 
@@ -137,31 +137,19 @@ func runWebFull(opts Options, resultsDir string) error {
 		return fmt.Errorf("failed to create subs directory: %v", err)
 	}
 
-	// Step 1: Subdomain enumeration
+	// Step 1: Subdomain enumeration (using library-based subdomains module)
 	fmt.Println("[INFO] Step 1: Enumerating subdomains...")
-	subfinderBin := findSubfinder()
-	if subfinderBin == "" {
-		return fmt.Errorf("subfinder not found. Please install it with: go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest")
+	subdomainsList, err := subdomains.EnumerateSubdomains(domain, opts.Workers)
+	if err != nil {
+		return fmt.Errorf("subdomain enumeration failed: %v", err)
+	}
+	if len(subdomainsList) == 0 {
+		return fmt.Errorf("no subdomains found for %s", domain)
 	}
 
 	subsFile := filepath.Join(subsDir, "all-subs.txt")
-	cmd := exec.Command(subfinderBin, "-d", domain, "-silent")
-	f, err := os.Create(subsFile)
-	if err != nil {
-		return fmt.Errorf("failed to create subs file: %v", err)
-	}
-	cmd.Stdout = f
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		f.Close()
-		return fmt.Errorf("subdomain enumeration failed: %v", err)
-	}
-	f.Close()
-
-	// Check if we have subdomains
-	data, _ := os.ReadFile(subsFile)
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return fmt.Errorf("no subdomains found for %s", domain)
+	if err := os.WriteFile(subsFile, []byte(strings.Join(subdomainsList, "\n")+"\n"), 0o644); err != nil {
+		return fmt.Errorf("failed to write subs file: %v", err)
 	}
 
 	// Step 2: Live host detection
@@ -191,7 +179,7 @@ func runWebFull(opts Options, resultsDir string) error {
 	}
 
 	liveFile := filepath.Join(subsDir, "live-subs.txt")
-	f, err = os.Create(liveFile)
+	f, err := os.Create(liveFile)
 	if err != nil {
 		return fmt.Errorf("failed to create live file: %v", err)
 	}
@@ -242,7 +230,7 @@ func runWebFull(opts Options, resultsDir string) error {
 	writer.Flush()
 
 	// Check if we have live hosts
-	data, _ = os.ReadFile(liveFile)
+	data, _ := os.ReadFile(liveFile)
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return fmt.Errorf("no live hosts found for %s", domain)
 	}
@@ -320,26 +308,5 @@ func runGitHubOrg(opts Options, resultsDir string) error {
 
 	fmt.Printf("[OK] GitHub organization dependency confusion scan completed. Findings: %d. Results saved to %s\n", res.Findings, res.OutputFile)
 	return nil
-}
-
-func findSubfinder() string {
-	locations := []string{
-		"subfinder",
-		"/home/sallam/go/bin/subfinder",
-		"/usr/local/bin/subfinder",
-		"/app/bin/subfinder",
-	}
-
-	for _, loc := range locations {
-		if _, err := exec.LookPath(loc); err == nil {
-			return loc
-		}
-	}
-
-	if path, err := exec.LookPath("subfinder"); err == nil {
-		return path
-	}
-
-	return ""
 }
 
