@@ -8,32 +8,33 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/h0tak88r/AutoAR/gomodules/backup"
-	"github.com/h0tak88r/AutoAR/gomodules/checktools"
-	"github.com/h0tak88r/AutoAR/gomodules/cnames"
-	"github.com/h0tak88r/AutoAR/gomodules/dalfox"
-	"github.com/h0tak88r/AutoAR/gomodules/depconfusion"
-	"github.com/h0tak88r/AutoAR/gomodules/db"
-	"github.com/h0tak88r/AutoAR/gomodules/dns"
-	"github.com/h0tak88r/AutoAR/gomodules/fastlook"
-	"github.com/h0tak88r/AutoAR/gomodules/gf"
-	"github.com/h0tak88r/AutoAR/gomodules/github-wordlist"
-	"github.com/h0tak88r/AutoAR/gomodules/githubscan"
-	"github.com/h0tak88r/AutoAR/gomodules/gobot"
-	"github.com/h0tak88r/AutoAR/gomodules/jsscan"
-	jwtmod "github.com/h0tak88r/AutoAR/gomodules/jwt"
-	"github.com/h0tak88r/AutoAR/gomodules/livehosts"
-	"github.com/h0tak88r/AutoAR/gomodules/misconfig"
-	"github.com/h0tak88r/AutoAR/gomodules/monitor"
-	"github.com/h0tak88r/AutoAR/gomodules/nuclei"
-	"github.com/h0tak88r/AutoAR/gomodules/ports"
-	"github.com/h0tak88r/AutoAR/gomodules/reflection"
-	s3mod "github.com/h0tak88r/AutoAR/gomodules/s3"
-	"github.com/h0tak88r/AutoAR/gomodules/sqlmap"
-	"github.com/h0tak88r/AutoAR/gomodules/subdomains"
-	"github.com/h0tak88r/AutoAR/gomodules/tech"
-	"github.com/h0tak88r/AutoAR/gomodules/urls"
-	"github.com/h0tak88r/AutoAR/gomodules/wp-confusion"
+	"github.com/h0tak88r/AutoAR/internal/modules/backup"
+	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
+	"github.com/h0tak88r/AutoAR/internal/modules/checktools"
+	"github.com/h0tak88r/AutoAR/internal/modules/cnames"
+	"github.com/h0tak88r/AutoAR/internal/modules/dalfox"
+	"github.com/h0tak88r/AutoAR/internal/modules/depconfusion"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/dns"
+	"github.com/h0tak88r/AutoAR/internal/modules/fastlook"
+	"github.com/h0tak88r/AutoAR/internal/modules/gf"
+	"github.com/h0tak88r/AutoAR/internal/modules/github-wordlist"
+	"github.com/h0tak88r/AutoAR/internal/modules/githubscan"
+	"github.com/h0tak88r/AutoAR/internal/modules/gobot"
+	"github.com/h0tak88r/AutoAR/internal/modules/jsscan"
+	jwtmod "github.com/h0tak88r/AutoAR/internal/modules/jwt"
+	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/internal/modules/misconfig"
+	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
+	"github.com/h0tak88r/AutoAR/internal/modules/nuclei"
+	"github.com/h0tak88r/AutoAR/internal/modules/ports"
+	"github.com/h0tak88r/AutoAR/internal/modules/reflection"
+	s3mod "github.com/h0tak88r/AutoAR/internal/modules/s3"
+	"github.com/h0tak88r/AutoAR/internal/modules/sqlmap"
+	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
+	"github.com/h0tak88r/AutoAR/internal/modules/tech"
+	"github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/internal/modules/wp-confusion"
 )
 
 var (
@@ -120,6 +121,7 @@ Commands:
   github-wordlist scan -o <github_org> [-t <github_token>]
   backup scan            -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
   backup scan            -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [-d <delay>]
+  apkx scan              -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]
   depconfusion scan <file>                    Scan local dependency file
   depconfusion github repo <owner/repo>       Scan GitHub repository
   depconfusion github org <org>               Scan GitHub organization
@@ -643,6 +645,48 @@ func handleBackupCommand(args []string) error {
 	fmt.Printf("[INFO] Results saved to %s\n", res.ResultsFile)
 	fmt.Printf("[INFO] Log saved to %s\n", res.LogFile)
 
+	return nil
+}
+
+// handleApkXCommand parses:
+//
+//	autoar apkx scan -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]
+func handleApkXCommand(args []string) error {
+	if len(args) == 0 || args[0] != "scan" {
+		return fmt.Errorf("usage: apkx scan -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]")
+	}
+	args = args[1:]
+
+	opts := apkxmod.Options{}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-i", "--input":
+			if i+1 < len(args) {
+				opts.InputPath = args[i+1]
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				opts.OutputDir = args[i+1]
+				i++
+			}
+		case "--mitm":
+			opts.MITM = true
+		}
+	}
+
+	if opts.InputPath == "" {
+		return fmt.Errorf("input path (-i) is required")
+	}
+
+	res, err := apkxmod.Run(opts)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[OK] apkX scan completed. Reports in: %s\n", res.ReportDir)
+	fmt.Printf("[INFO] Log: %s\n", res.LogFile)
 	return nil
 }
 
@@ -1886,6 +1930,9 @@ func main() {
 
 	case "backup":
 		err = handleBackupCommand(args)
+
+	case "apkx":
+		err = handleApkXCommand(args)
 
 	case "check-tools":
 		err = checktools.Run()
