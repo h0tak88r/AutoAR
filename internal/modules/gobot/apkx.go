@@ -116,9 +116,14 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if err != nil {
 			color = 0xff0000
 			status = "❌ Failed"
+			errMsg := fmt.Sprintf("%v", err)
+			// Format 2FA errors more nicely for Discord
+			if strings.Contains(errMsg, "2FA code required") {
+				errMsg = strings.ReplaceAll(errMsg, "\\n", "\n")
+			}
 			fields = append(fields, &discordgo.MessageEmbedField{
 				Name:  "Error",
-				Value: fmt.Sprintf("```%v```", err),
+				Value: fmt.Sprintf("```%s```", errMsg),
 			})
 		}
 
@@ -411,9 +416,14 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if err != nil {
 			color = 0xff0000
 			status = "❌ Failed"
+			errMsg := fmt.Sprintf("%v", err)
+			// Format 2FA errors more nicely for Discord
+			if strings.Contains(errMsg, "2FA code required") {
+				errMsg = strings.ReplaceAll(errMsg, "\\n", "\n")
+			}
 			fields = append(fields, &discordgo.MessageEmbedField{
 				Name:  "Error",
-				Value: fmt.Sprintf("```%v```", err),
+				Value: fmt.Sprintf("```%s```", errMsg),
 			})
 		}
 
