@@ -24,7 +24,6 @@ func Run() error {
 		{"jq", "jq"},
 		{"curl", "curl"},
 		{"git", "git"},
-		{"aws", "aws"},
 		// Library-integrated tools:
 		// - next88 (React2Shell) is now embedded as a Go package and
 		//   does not require an external binary.
