@@ -24,12 +24,12 @@ RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
-# Build main autoar binary from cmd/autoar
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar ./cmd/autoar
+# Build main autoar binary from cmd/autoar (CGO enabled for naabu/libpcap)
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/autoar ./cmd/autoar
 
 # Build entrypoint binary (replaces docker-entrypoint.sh)
 WORKDIR /app/internal/modules/entrypoint
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar-entrypoint .
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/autoar-entrypoint .
 WORKDIR /app
 
 # --- Runtime stage: minimal Debian image ---
@@ -63,12 +63,6 @@ COPY regexes/ ./regexes/
 COPY templates/ ./templates/
 COPY autoar.sample.yaml ./
 COPY env.example ./
-
-# Clone submodules directly
-RUN cd /app && \
-    rm -rf nuclei_templates Wordlists && \
-    git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
-    git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
 
 # Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
