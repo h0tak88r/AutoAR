@@ -18,12 +18,6 @@ func Run() error {
 	tools := []Tool{
 		// Core external scanners AutoAR still calls as CLIs
 		{"nuclei", "nuclei"},
-		{"naabu", "naabu"},
-		{"dalfox", "dalfox"},
-		{"urlfinder", "urlfinder"},
-		{"jsfinder", "jsfinder"},
-		{"kxss", "kxss"},
-		{"gf", "gf"},
 		{"misconfig-mapper", "misconfig-mapper"},
 		{"trufflehog", "trufflehog"},
 		{"jwt-hack", "jwt-hack"},
