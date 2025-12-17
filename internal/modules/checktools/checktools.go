@@ -18,9 +18,7 @@ func Run() error {
 	tools := []Tool{
 		// Core external scanners AutoAR still calls as CLIs
 		{"nuclei", "nuclei"},
-		{"misconfig-mapper", "misconfig-mapper"},
 		{"trufflehog", "trufflehog"},
-		{"jwt-hack", "jwt-hack"},
 
 		// General utilities used by modules and docker-compose examples
 		{"jq", "jq"},
