@@ -3,14 +3,13 @@ package urls
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
+	jsfindertool "github.com/h0tak88r/AutoAR/internal/tools/jsfinder"
+	urlfindertool "github.com/h0tak88r/AutoAR/internal/tools/urlfinder"
 	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
@@ -64,42 +63,31 @@ func CollectURLs(domain string, threads int) (*Result, error) {
 	_ = writeLines(allFile, nil)
 	_ = writeLines(jsFile, nil)
 
-	// 1) Collect URLs with urlfinder (if available)
-	if _, err := exec.LookPath("urlfinder"); err == nil {
-		log.Printf("[INFO] Collecting URLs with urlfinder for %s", domain)
-		cmdArgs := []string{"-d", domain, "-all", "-silent"}
-		if cfg := os.Getenv("AUTOAR_CONFIG_FILE"); cfg != "" {
-			cmdArgs = append(cmdArgs, "-pc", cfg)
-		}
-		cmd := exec.Command("urlfinder", cmdArgs...)
-		out, err := os.Create(allFile)
-		if err == nil {
-			defer out.Close()
-			cmd.Stdout = out
-			cmd.Stderr = io.Discard
-			if err := cmd.Run(); err != nil {
-				log.Printf("[WARN] urlfinder failed for %s: %v", domain, err)
-			}
-		} else {
-			log.Printf("[WARN] Failed to create %s: %v", allFile, err)
-		}
-	} else {
-		log.Printf("[WARN] urlfinder not found; skipping URL collection for %s", domain)
+	// 1) Collect URLs with embedded urlfinder library
+	log.Printf("[INFO] Collecting URLs with embedded urlfinder for %s", domain)
+	if _, err := urlfindertool.FindURLsToFile(domain, allFile, urlfindertool.Options{AllSources: true}); err != nil {
+		log.Printf("[WARN] urlfinder library failed for %s: %v", domain, err)
 	}
 
-	// 2) Collect JS URLs with jsfinder over live hosts (if available)
-	if _, err := exec.LookPath("jsfinder"); err == nil {
-		if fi, err := os.Stat(liveFile); err == nil && fi.Size() > 0 {
-			log.Printf("[INFO] Running jsfinder on live hosts for %s", domain)
-			cmd := exec.Command("jsfinder", "-l", liveFile, "-c", strconv.Itoa(threads), "-s", "-o", jsFile)
-			cmd.Stdout = io.Discard
-			cmd.Stderr = io.Discard
-			if err := cmd.Run(); err != nil {
-				log.Printf("[WARN] jsfinder failed for %s: %v", domain, err)
+	// 2) Collect JS URLs with embedded jsfinder over live hosts
+	if fi, err := os.Stat(liveFile); err == nil && fi.Size() > 0 {
+		log.Printf("[INFO] Running embedded jsfinder on live hosts for %s", domain)
+		liveURLs, err := readLines(liveFile)
+		if err != nil {
+			log.Printf("[WARN] Failed to read live hosts file for jsfinder: %v", err)
+		} else {
+			jsMatches, err := jsfindertool.Extract(liveURLs, jsfindertool.ExtractOptions{
+				Concurrency: threads,
+				Silent:      true,
+			})
+			if err != nil {
+				log.Printf("[WARN] jsfinder library failed for %s: %v", domain, err)
+			} else if len(jsMatches) > 0 {
+				if err := writeLines(jsFile, jsMatches); err != nil {
+					log.Printf("[WARN] Failed to write jsfinder results: %v", err)
+				}
 			}
 		}
-	} else {
-		log.Printf("[WARN] jsfinder not found; skipping JSFinder step for %s", domain)
 	}
 
 	// 3) Merge JS URLs from all-urls.txt into js-urls.txt and deduplicate
