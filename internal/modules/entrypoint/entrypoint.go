@@ -24,6 +24,29 @@ func main() {
 	os.Setenv("AUTOAR_CONFIG_FILE", "/app/autoar.yaml")
 	os.Setenv("AUTOAR_ENV", "docker")
 	fmt.Println("[entrypoint] Configuration loaded successfully")
+	
+	// Debug: Print IPATOOL environment variables (masked for security)
+	fmt.Println("[entrypoint] Checking IPATOOL environment variables...")
+	if val := os.Getenv("IPATOOL_EMAIL"); val != "" {
+		fmt.Printf("[entrypoint] IPATOOL_EMAIL is set (length: %d)\n", len(val))
+	} else {
+		fmt.Println("[entrypoint] IPATOOL_EMAIL is NOT set")
+	}
+	if val := os.Getenv("IPATOOL_PASSWORD"); val != "" {
+		fmt.Printf("[entrypoint] IPATOOL_PASSWORD is set (length: %d)\n", len(val))
+	} else {
+		fmt.Println("[entrypoint] IPATOOL_PASSWORD is NOT set")
+	}
+	if val := os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE"); val != "" {
+		fmt.Printf("[entrypoint] IPATOOL_KEYCHAIN_PASSPHRASE is set (length: %d)\n", len(val))
+	} else {
+		fmt.Println("[entrypoint] ⚠️  IPATOOL_KEYCHAIN_PASSPHRASE is NOT set - iOS downloads will fail!")
+	}
+	if val := os.Getenv("IPATOOL_AUTH_CODE"); val != "" {
+		fmt.Printf("[entrypoint] IPATOOL_AUTH_CODE is set (length: %d)\n", len(val))
+	} else {
+		fmt.Println("[entrypoint] IPATOOL_AUTH_CODE is not set (optional)")
+	}
 
 	// Initialize database schema (only if database is configured)
 	if os.Getenv("DB_HOST") != "" && os.Getenv("DB_USER") != "" {
