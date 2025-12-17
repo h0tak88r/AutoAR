@@ -173,19 +173,37 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		{
 			Name:        "apkx_scan",
-			Description: "Analyze an APK or IPA file with apkX",
+			Description: "Analyze an APK/IPA file or Android package with apkX",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionAttachment,
 					Name:        "file",
-					Description: "APK or IPA file to analyze",
-					Required:    true,
+					Description: "APK or IPA file to analyze (optional if package is provided)",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "package",
+					Description: "Android package name (download from ApkPure and analyze)",
+					Required:    false,
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionBoolean,
 					Name:        "mitm",
 					Description: "Enable MITM patching (apkX -mitm)",
 					Required:    false,
+				},
+			},
+		},
+		{
+			Name:        "apkx_ios",
+			Description: "Download and analyze an iOS app by bundle identifier using apkX",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "bundle",
+					Description: "iOS bundle identifier, e.g. com.example.app",
+					Required:    true,
 				},
 			},
 		},
