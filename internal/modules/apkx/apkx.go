@@ -1,8 +1,10 @@
 package apkx
 
 import (
+	"archive/zip"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -66,6 +68,90 @@ type PackageOptions struct {
 	MITM bool
 }
 
+// extractXAPK extracts a XAPK file (which is a ZIP archive) and returns
+// the path to the main APK file. The main APK is typically the largest APK
+// that is not a split APK (split APKs often have names like "split_config.xxx.apk").
+func extractXAPK(xapkPath, extractDir string) (string, error) {
+	// Open the XAPK file as a ZIP archive
+	r, err := zip.OpenReader(xapkPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open XAPK as ZIP: %w", err)
+	}
+	defer r.Close()
+
+	// Find all APK files in the archive
+	type apkInfo struct {
+		path     string
+		size     int64
+		isSplit  bool
+	}
+	var apkFiles []apkInfo
+
+	for _, f := range r.File {
+		if strings.HasSuffix(strings.ToLower(f.Name), ".apk") {
+			isSplit := strings.Contains(f.Name, "split_") || strings.Contains(f.Name, "config.")
+			apkFiles = append(apkFiles, apkInfo{
+				path:    f.Name,
+				size:    int64(f.UncompressedSize64),
+				isSplit: isSplit,
+			})
+		}
+	}
+
+	if len(apkFiles) == 0 {
+		return "", fmt.Errorf("no APK files found in XAPK archive")
+	}
+
+	// Find the main APK: prefer non-split APKs, then largest by size
+	var mainAPK apkInfo
+	for _, apk := range apkFiles {
+		if mainAPK.path == "" {
+			mainAPK = apk
+			continue
+		}
+		// Prefer non-split APKs
+		if !apk.isSplit && mainAPK.isSplit {
+			mainAPK = apk
+		} else if apk.isSplit == mainAPK.isSplit {
+			// If both are split or both are not split, prefer larger
+			if apk.size > mainAPK.size {
+				mainAPK = apk
+			}
+		}
+	}
+
+	// Extract the main APK
+	mainAPKPath := filepath.Join(extractDir, filepath.Base(mainAPK.path))
+	
+	for _, f := range r.File {
+		if f.Name == mainAPK.path {
+			rc, err := f.Open()
+			if err != nil {
+				return "", fmt.Errorf("failed to open %s in XAPK: %w", f.Name, err)
+			}
+			defer rc.Close()
+
+			outFile, err := os.Create(mainAPKPath)
+			if err != nil {
+				return "", fmt.Errorf("failed to create output file %s: %w", mainAPKPath, err)
+			}
+			defer outFile.Close()
+
+			if _, err := io.Copy(outFile, rc); err != nil {
+				return "", fmt.Errorf("failed to extract %s: %w", f.Name, err)
+			}
+			
+			if err := outFile.Close(); err != nil {
+				return "", fmt.Errorf("failed to close output file: %w", err)
+			}
+			rc.Close()
+			break
+		}
+	}
+
+	return mainAPKPath, nil
+}
+
 // Run executes an apkX scan for the given options using the embedded
 // apkX analysis engine instead of spawning the apkx binary.
 func Run(opts Options) (*Result, error) {
@@ -112,6 +198,36 @@ func Run(opts Options) (*Result, error) {
 				Duration:  time.Since(start),
 			}, fmt.Errorf("apk analysis failed: %w", err)
 		}
+	case ".xapk":
+		// Extract XAPK and find the main APK file
+		extractDir, err := os.MkdirTemp("", "autoar-xapk-extract-*")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp directory for XAPK extraction: %w", err)
+		}
+		defer os.RemoveAll(extractDir) // Clean up extraction directory
+
+		mainAPKPath, err := extractXAPK(opts.InputPath, extractDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract XAPK: %w", err)
+		}
+
+		// Process the extracted main APK
+		cfg := &apkxanalyzer.Config{
+			APKPath:      mainAPKPath,
+			OutputDir:    outDir,
+			PatternsPath: "",
+			Workers:      runtime.NumCPU(),
+			HTMLOutput:   true,
+			JanusScan:    true,
+		}
+		scanner := apkxanalyzer.NewAPKScanner(cfg)
+		if err := scanner.Run(); err != nil {
+			return &Result{
+				ReportDir: outDir,
+				LogFile:   filepath.Join(outDir, "results.json"),
+				Duration:  time.Since(start),
+			}, fmt.Errorf("apk analysis failed: %w", err)
+		}
 	case ".ipa":
 		cfg := &apkxanalyzer.Config{
 			OutputDir:    outDir,
@@ -128,7 +244,7 @@ func Run(opts Options) (*Result, error) {
 			}, fmt.Errorf("ipa analysis failed: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("unsupported file extension %q (only .apk and .ipa are supported)", ext)
+		return nil, fmt.Errorf("unsupported file extension %q (only .apk, .xapk, and .ipa are supported)", ext)
 	}
 
 	return &Result{
