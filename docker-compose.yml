@@ -89,6 +89,12 @@ services:
             - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
             - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
 
+            # iOS App Store (ipatool) Configuration
+            - IPATOOL_EMAIL=${IPATOOL_EMAIL:-}
+            - IPATOOL_PASSWORD=${IPATOOL_PASSWORD:-}
+            - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
+            - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
+
             # General Settings
             - VERBOSE=${VERBOSE:-true}
 
@@ -184,6 +190,12 @@ services:
             - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
             - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
             - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+
+            # iOS App Store (ipatool) Configuration
+            - IPATOOL_EMAIL=${IPATOOL_EMAIL:-}
+            - IPATOOL_PASSWORD=${IPATOOL_PASSWORD:-}
+            - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
+            - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
 
             - VERBOSE=${VERBOSE:-true}
 
@@ -295,6 +307,12 @@ services:
             - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
             - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
             - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+
+            # iOS App Store (ipatool) Configuration
+            - IPATOOL_EMAIL=${IPATOOL_EMAIL:-}
+            - IPATOOL_PASSWORD=${IPATOOL_PASSWORD:-}
+            - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
+            - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
 
             - VERBOSE=${VERBOSE:-true}
 
