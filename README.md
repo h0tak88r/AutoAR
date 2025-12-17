@@ -128,17 +128,12 @@ sudo apt install golang-go  # Ubuntu/Debian
 2. **Install security tools**  
 Only required if you run AutoAR **directly on your host**.  
 The official Docker images install these automatically.  
-Most scanners are still invoked as external binaries; a few tools like `next88` and `apkX`
-are embedded as Go libraries and do **not** need separate installation.
+Most scanners are still invoked as external binaries; several tools like `next88`, `apkX`,
+`confused2`, `fuzzuli`, `dalfox`, and `gf` are embedded as Go libraries and do **not**
+need separate installation.
 ```bash
 # Go-based tools (external binaries AutoAR still calls via CLI)
 go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
-go install -v github.com/hahwul/dalfox/v2@latest
-go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
-go install -v github.com/kacakb/jsfinder@latest
-go install -v github.com/Emoe/kxss@latest
-go install -v github.com/tomnomnom/gf@latest
 go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
 # Rust-based tools

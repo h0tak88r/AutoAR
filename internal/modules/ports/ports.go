@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	naabutool "github.com/h0tak88r/AutoAR/internal/tools/naabu"
 	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
@@ -51,18 +51,11 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		return nil, fmt.Errorf("live hosts file not found: %s", subsFile)
 	}
 
-	if _, err := exec.LookPath("naabu"); err != nil {
-		return nil, fmt.Errorf("naabu not found in PATH")
-	}
-
-	log.Printf("[INFO] Running naabu port scan with %d threads", threads)
-	cmd := exec.Command("naabu", "-l", subsFile, "-tp", fmt.Sprintf("%d", threads), "-ec", "-c", "500", "-Pn", "--silent", "-rate", fmt.Sprintf("%d", threads), "-o", outFile)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	log.Printf("[INFO] Running naabu port scan with %d threads (library mode)", threads)
+	count, err := naabutool.ScanFromFile(subsFile, threads, outFile)
+	if err != nil {
 		log.Printf("[WARN] Naabu scan failed: %v", err)
 	}
-
-	count, _ := countLines(outFile)
 	log.Printf("[OK] Port scan completed, found %d open ports", count)
 
 	return &Result{
