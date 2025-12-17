@@ -277,7 +277,8 @@ Once the bot is running, use these slash commands in Discord:
 - `/dalfox domain:example.com [threads:100]` - XSS detection
 - `/sqlmap domain:example.com [threads:100]` - SQL injection testing
 - `/backup_scan domain:example.com [threads:100] [full:false]` - Backup file discovery
-- `/apkx_scan file:<APK_OR_IPA_ATTACHMENT> [mitm:false]` - Analyze Android APK or iOS IPA with embedded apkX engine and return structured report
+- `/apkx_scan file:<APK_OR_IPA_ATTACHMENT> [package:<ANDROID_PACKAGE>] [mitm:false]` - Analyze Android APK/IPA by upload or Android package name (downloaded from ApkPure) with embedded apkX engine
+- `/apkx_ios bundle:<IOS_BUNDLE_IDENTIFIER>` - Download and analyze an iOS app via App Store using embedded ipatool client and apkX engine
 
 #### Specialized Scans
 - `/js domain:example.com` - JavaScript analysis
