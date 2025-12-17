@@ -1543,8 +1543,8 @@ func (a *IOSAnalyzer) loadPatterns() error {
 
 	if a.config.PatternsPath != "" {
 		content, err = os.ReadFile(a.config.PatternsPath)
-		if err != nil {
-			return err
+	if err != nil {
+		return err
 		}
 	} else {
 		content, err = patternsFS.ReadFile("regexes.yaml")
