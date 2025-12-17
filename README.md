@@ -17,7 +17,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods, source code exposure checks, and DoS testing
 - **WordPress Plugin Confusion**: Automated WP plugin/theme confusion attack detection
 - **Dependency Confusion**: GitHub repository dependency confusion scanning
-- **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis
+- **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis (pure Go via AWS SDK v2, no aws CLI required)
 - **SQL Injection Testing**: SQLMap integration for automated SQLi testing
 - **XSS Detection**: Dalfox integration for cross-site scripting detection
 - **Backup File Discovery**: Automated backup file and sensitive file discovery
@@ -129,14 +129,14 @@ sudo apt install golang-go  # Ubuntu/Debian
 Only required if you run AutoAR **directly on your host**.  
 The official Docker images install these automatically.  
 Most scanners are still invoked as external binaries; several tools like `next88`, `apkX`,
-`confused2`, `fuzzuli`, `dalfox`, `gf`, `urlfinder`, `jsfinder`, `kxss`, `naabu`, and `misconfig-mapper`
-are embedded as Go libraries and do **not** need separate installation.
+`confused2`, `fuzzuli`, `dalfox`, `gf`, `urlfinder`, `jsfinder`, `kxss`, `naabu`, `misconfig-mapper`,
+and the JWT engine (`jwthack`) are embedded as Go libraries and do **not** need separate installation.
 ```bash
 # Go-based tools (external binaries AutoAR still calls via CLI)
 go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
-# Rust-based tools
-cargo install jwt-hack  # JWT vulnerability scanner
+# System packages (for Naabu/pcap when building locally on Linux)
+sudo apt-get update && sudo apt-get install -y libpcap-dev
 
 # Decompiler used by embedded apkX engine
 curl -L "https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip" -o /tmp/jadx.zip
@@ -145,6 +145,11 @@ sudo unzip -q /tmp/jadx.zip -d /opt/jadx
 sudo ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx
 rm /tmp/jadx.zip
 ```
+
+**Note on AWS integration**
+
+- S3 enumeration and scanning are implemented in pure Go using **AWS SDK for Go v2**.  
+- You **do not** need the `aws` CLI; just configure standard AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or IAM role / shared config).
 
 3. **Build AutoAR**:
 ```bash
@@ -607,11 +612,19 @@ AutoAR/
 │   │   ├── entrypoint/    # Docker entrypoint (Go binary)
 │   │   ├── config/        # Configuration management
 │   │   └── utils/         # Utility functions
-│   └── tools/             # Tool integrations/wrappers
-│       ├── confused2/     # Dependency confusion scanner helper
-│       ├── next88/        # React2Shell/Next.js RCE scanner (embedded Go library)
-│       ├── fuzzuli/       # Backup file discovery wrapper (CLI helper)
-│       └── apkx/          # Embedded apkX Android/iOS analysis engine
+│   └── tools/             # Tool integrations / vendored engines (pure Go)
+│       ├── confused2/         # Dependency confusion scanner (Go library)
+│       ├── next88/            # React2Shell/Next.js RCE scanner (Go library)
+│       ├── fuzzuli/           # Backup file discovery (Go library)
+│       ├── dalfox/            # XSS detection (Go library integration)
+│       ├── naabu/             # Port scanning (Go library integration)
+│       ├── urlfinder/         # Passive URL collection (native Go)
+│       ├── jsfinder/          # JS URL extraction (native Go)
+│       ├── kxss/              # Reflection/XSS helper (native Go)
+│       ├── gf/                # Pattern matching engine (native Go)
+│       ├── jwthack/           # JWT vulnerability engine (native Go)
+│       ├── misconfigmapper/   # Cloud misconfiguration engine (vendored)
+│       └── apkx/              # Embedded apkX Android/iOS analysis engine
 ├── go.mod                 # Go module definition
 ├── go.sum                 # Go module checksums
 ├── nuclei_templates/      # Nuclei vulnerability templates (cloned)
