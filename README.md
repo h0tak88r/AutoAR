@@ -80,7 +80,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 1. **Clone the repository**:
 ```bash
-git clone https://github.com/yourusername/AutoAR.git
+git clone https://github.com/h0tak88r/AutoAR.git
 cd AutoAR
 ```
 
@@ -125,24 +125,31 @@ docker logs autoar-discord
 sudo apt install golang-go  # Ubuntu/Debian
 ```
 
-2. **Install security tools** (required for scanning):
+2. **Install security tools**  
+Only required if you run AutoAR **directly on your host**.  
+The official Docker images install these automatically.  
+Most scanners are still invoked as external binaries; a few tools like `next88` and `apkX`
+are embedded as Go libraries and do **not** need separate installation.
 ```bash
-# Go-based tools (automatically installed in Docker)
-go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+# Go-based tools (external binaries AutoAR still calls via CLI)
 go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
 go install -v github.com/hahwul/dalfox/v2@latest
-go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
 go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
 go install -v github.com/kacakb/jsfinder@latest
 go install -v github.com/Emoe/kxss@latest
 go install -v github.com/tomnomnom/gf@latest
-go install -v github.com/channyein1337/jsleak@latest
-go install -v github.com/h0tak88r/next88@latest  # React2Shell scanner
+go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
 # Rust-based tools
 cargo install jwt-hack  # JWT vulnerability scanner
+
+# Decompiler used by embedded apkX engine
+curl -L "https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip" -o /tmp/jadx.zip
+sudo mkdir -p /opt/jadx
+sudo unzip -q /tmp/jadx.zip -d /opt/jadx
+sudo ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx
+rm /tmp/jadx.zip
 ```
 
 3. **Build AutoAR**:
@@ -197,6 +204,7 @@ autoar ports scan -d example.com
 autoar tech detect -d example.com
 autoar gf scan -d example.com
 autoar github-wordlist scan -o orgname
+autoar apkx scan -i /path/to/app.apk    # Analyze APK/IPA with embedded apkX engine
 autoar bot    # Start Discord bot
 autoar api    # Start REST API server
 autoar both   # Start both bot and API
@@ -270,6 +278,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/dalfox domain:example.com [threads:100]` - XSS detection
 - `/sqlmap domain:example.com [threads:100]` - SQL injection testing
 - `/backup_scan domain:example.com [threads:100] [full:false]` - Backup file discovery
+- `/apkx_scan file:<APK_OR_IPA_ATTACHMENT> [mitm:false]` - Analyze Android APK or iOS IPA with embedded apkX engine and return structured report
 
 #### Specialized Scans
 - `/js domain:example.com` - JavaScript analysis
@@ -580,37 +589,35 @@ AutoAR/
 ├── cmd/
 │   └── autoar/
 │       └── main.go        # Main CLI entry point (pure Go)
-├── gomodules/             # Internal Go modules (business logic)
-│   ├── gobot/             # Discord bot + API server
-│   │   ├── bot.go         # Bot startup and handlers
-│   │   ├── api.go         # REST API implementation
-│   │   ├── react2shell.go # React2Shell scanning
-│   │   └── commands*.go   # Discord command handlers
-│   ├── db/                # Database operations (PostgreSQL)
-│   │   └── db.go          # Database functions using pgx/v5
-│   ├── scanner/           # Scanning modules (all pure Go)
+├── internal/
+│   ├── modules/           # Internal Go modules (business logic)
+│   │   ├── gobot/         # Discord bot + API server
+│   │   ├── db/            # Database operations (PostgreSQL/SQLite)
 │   │   ├── subdomains/    # Subdomain enumeration
 │   │   ├── livehosts/     # Live host detection
 │   │   ├── urls/          # URL collection
 │   │   ├── cnames/        # CNAME analysis
-│   │   ├── nuclei/        # Nuclei integration
-│   │   ├── dalfox/        # XSS detection
-│   │   ├── sqlmap/        # SQL injection testing
+│   │   ├── nuclei/        # Nuclei integration (CLI-wrapper)
+│   │   ├── dalfox/        # XSS detection (CLI-wrapper)
+│   │   ├── sqlmap/        # SQL injection testing (CLI-wrapper)
 │   │   ├── ports/         # Port scanning
 │   │   ├── tech/          # Technology detection
 │   │   ├── gf/            # Pattern matching
 │   │   ├── reflection/    # Reflection testing
-│   │   └── dns/           # DNS takeover detection
-│   ├── workflow/          # Workflow orchestrators
+│   │   ├── dns/           # DNS takeover detection
 │   │   ├── lite/          # Lite scan workflow
 │   │   ├── fastlook/      # Fast look workflow
-│   │   └── domain/        # Full domain scan workflow
-│   ├── entrypoint/        # Docker entrypoint (Go binary)
-│   │   └── entrypoint.go
-│   ├── github-wordlist/   # GitHub wordlist generator
-│   ├── wp-confusion/      # WordPress confusion scanner
-│   ├── config/            # Configuration management
-│   └── utils/             # Utility functions
+│   │   ├── domain/        # Full domain scan workflow
+│   │   ├── github-wordlist/ # GitHub wordlist generator
+│   │   ├── wp-confusion/  # WordPress confusion scanner
+│   │   ├── entrypoint/    # Docker entrypoint (Go binary)
+│   │   ├── config/        # Configuration management
+│   │   └── utils/         # Utility functions
+│   └── tools/             # Tool integrations/wrappers
+│       ├── confused2/     # Dependency confusion scanner helper
+│       ├── next88/        # React2Shell/Next.js RCE scanner (embedded Go library)
+│       ├── fuzzuli/       # Backup file discovery wrapper (CLI helper)
+│       └── apkx/          # Embedded apkX Android/iOS analysis engine
 ├── go.mod                 # Go module definition
 ├── go.sum                 # Go module checksums
 ├── nuclei_templates/      # Nuclei vulnerability templates (cloned)
@@ -740,6 +747,11 @@ curl -X POST "http://localhost:8000/scan/nuclei" \
 curl -X POST "http://localhost:8000/scan/dns-takeover" \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com"}'
+
+# APK/IPA Static Analysis (apkX engine)
+curl -X POST "http://localhost:8000/scan/apkx" \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/absolute/path/to/app.apk"}'
 
 # Reflection Vulnerabilities
 curl -X POST "http://localhost:8000/scan/reflection" \
@@ -1015,8 +1027,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/AutoAR/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/AutoAR/discussions)
+- **Issues**: [GitHub Issues](https://github.com/h0tak88r/AutoAR/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/h0tak88r/AutoAR/discussions)
 - **Discord**: Join our Discord server for real-time support
 
 ---
