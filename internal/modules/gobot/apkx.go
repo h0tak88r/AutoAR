@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -19,10 +20,16 @@ import (
 func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 
-	var mitm bool
+	var (
+		mitm       bool
+		packageStr string
+	)
 	for _, opt := range data.Options {
-		if opt.Name == "mitm" {
+		switch opt.Name {
+		case "mitm":
 			mitm = opt.BoolValue()
+		case "package":
+			packageStr = opt.StringValue()
 		}
 	}
 
@@ -37,7 +44,13 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	// Locate the attachment
+	// If a package name was provided, prefer package-based scan (download + analyze).
+	if strings.TrimSpace(packageStr) != "" {
+		go handleApkXScanFromPackage(s, i, packageStr, mitm)
+		return
+	}
+
+	// Otherwise fall back to attachment-based scan.
 	var att *discordgo.MessageAttachment
 	if data.Resolved != nil && data.Resolved.Attachments != nil {
 		for _, opt := range data.Options {
@@ -51,7 +64,7 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	if att == nil || att.URL == "" {
-		msg := "❌ No file attachment found. Please attach an APK or IPA file."
+		msg := "❌ Provide either an APK/IPA attachment (`file`) or an Android package name (`package`)."
 		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{Content: msg})
 		return
 	}
@@ -71,7 +84,6 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{Content: msg})
 		return
 	}
-	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
 
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
@@ -85,6 +97,8 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Run analysis in background so we don't block the handler
 	go func(filename, path string, mitm bool) {
+		// Ensure temp file is cleaned up after analysis
+		defer os.Remove(path)
 		opts := apkxmod.Options{
 			InputPath: path,
 			MITM:      mitm,
@@ -161,4 +175,299 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			})
 		}
 	}(att.Filename, tmpFile.Name(), mitm)
+}
+
+// handleApkXScanFromPackage performs the Android package-based workflow used by
+// /apkx_scan when the "package" argument is supplied.
+func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCreate, pkg string, mitm bool) {
+	start := time.Now()
+	res, err := apkxmod.RunFromPackage(apkxmod.PackageOptions{
+		Package:  pkg,
+		Platform: "android",
+		MITM:     mitm,
+	})
+
+	title := "📱 apkX Analysis (Android Package)"
+	desc := fmt.Sprintf("Package: `%s`", pkg)
+	color := 0x00ff00
+	status := "✅ Completed"
+	fields := []*discordgo.MessageEmbedField{}
+
+	if err != nil {
+		color = 0xff0000
+		status = "❌ Failed"
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  "Error",
+			Value: fmt.Sprintf("```%v```", err),
+		})
+	}
+
+	if res != nil {
+		fields = append(fields,
+			&discordgo.MessageEmbedField{
+				Name:  "Report Directory",
+				Value: fmt.Sprintf("`%s`", res.ReportDir),
+			},
+			&discordgo.MessageEmbedField{
+				Name:  "Duration",
+				Value: res.Duration.String(),
+			},
+		)
+	} else {
+		fields = append(fields,
+			&discordgo.MessageEmbedField{
+				Name:  "Duration",
+				Value: time.Since(start).String(),
+			},
+		)
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       title,
+		Description: desc,
+		Color:       color,
+		Fields: append([]*discordgo.MessageEmbedField{
+			{Name: "Status", Value: status, Inline: false},
+		}, fields...),
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	files := []*discordgo.File{}
+	if res != nil && res.LogFile != "" {
+		if f, err := os.Open(res.LogFile); err == nil {
+			defer f.Close()
+			files = append(files, &discordgo.File{
+				Name:        filepath.Base(res.LogFile),
+				ContentType: "text/plain",
+				Reader:      f,
+			})
+		}
+	}
+
+	if len(files) > 0 {
+		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Files:  files,
+		})
+	} else {
+		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+	}
+}
+
+// handleApkXScanPackage handles /apkx_scan_package:
+// it takes an Android package name, delegates the actual download to an
+// external helper (configured via APKX_ANDROID_DOWNLOAD_CMD) and then runs
+// the embedded apkX analysis.
+func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+
+	var pkg string
+	var mitm bool
+	for _, opt := range data.Options {
+		switch opt.Name {
+		case "package":
+			pkg = opt.StringValue()
+		case "mitm":
+			mitm = opt.BoolValue()
+		}
+	}
+
+	if pkg == "" {
+		respond(s, i, "❌ Package name is required", false)
+		return
+	}
+
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("📱 Starting apkX analysis for Android package `%s`...", pkg),
+		},
+	}); err != nil {
+		log.Printf("[ERROR] failed to respond to apkx_scan_package: %v", err)
+		return
+	}
+
+	go func(packageName string, mitm bool) {
+		start := time.Now()
+		res, err := apkxmod.RunFromPackage(apkxmod.PackageOptions{
+			Package:  packageName,
+			Platform: "android",
+			MITM:     mitm,
+		})
+
+		title := "📱 apkX Analysis (Android Package)"
+		desc := fmt.Sprintf("Package: `%s`", packageName)
+		color := 0x00ff00
+		status := "✅ Completed"
+		fields := []*discordgo.MessageEmbedField{}
+
+		if err != nil {
+			color = 0xff0000
+			status = "❌ Failed"
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "Error",
+				Value: fmt.Sprintf("```%v```", err),
+			})
+		}
+
+		if res != nil {
+			fields = append(fields,
+				&discordgo.MessageEmbedField{
+					Name:  "Report Directory",
+					Value: fmt.Sprintf("`%s`", res.ReportDir),
+				},
+				&discordgo.MessageEmbedField{
+					Name:  "Duration",
+					Value: res.Duration.String(),
+				},
+			)
+		} else {
+			fields = append(fields,
+				&discordgo.MessageEmbedField{
+					Name:  "Duration",
+					Value: time.Since(start).String(),
+				},
+			)
+		}
+
+		embed := &discordgo.MessageEmbed{
+			Title:       title,
+			Description: desc,
+			Color:       color,
+			Fields: append([]*discordgo.MessageEmbedField{
+				{Name: "Status", Value: status, Inline: false},
+			}, fields...),
+			Timestamp: time.Now().Format(time.RFC3339),
+		}
+
+		files := []*discordgo.File{}
+		if res != nil && res.LogFile != "" {
+			if f, err := os.Open(res.LogFile); err == nil {
+				defer f.Close()
+				files = append(files, &discordgo.File{
+					Name:        filepath.Base(res.LogFile),
+					ContentType: "text/plain",
+					Reader:      f,
+				})
+			}
+		}
+
+		if len(files) > 0 {
+			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+				Files:  files,
+			})
+		} else {
+			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			})
+		}
+	}(pkg, mitm)
+}
+
+// handleApkXScanIOS handles /apkx_scan_ios for iOS bundle identifiers.
+// As with Android, the actual download is delegated to an external helper
+// configured via APKX_IOS_DOWNLOAD_CMD.
+func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+
+	var bundle string
+	for _, opt := range data.Options {
+		if opt.Name == "bundle" {
+			bundle = opt.StringValue()
+		}
+	}
+
+	if bundle == "" {
+		respond(s, i, "❌ iOS bundle identifier is required", false)
+		return
+	}
+
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("📱 Starting apkX analysis for iOS bundle `%s`...", bundle),
+		},
+	}); err != nil {
+		log.Printf("[ERROR] failed to respond to apkx_scan_ios: %v", err)
+		return
+	}
+
+	go func(bundleID string) {
+		start := time.Now()
+		res, err := apkxmod.RunFromPackage(apkxmod.PackageOptions{
+			Package:  bundleID,
+			Platform: "ios",
+		})
+
+		title := "📱 apkX Analysis (iOS App)"
+		desc := fmt.Sprintf("Bundle: `%s`", bundleID)
+		color := 0x00ff00
+		status := "✅ Completed"
+		fields := []*discordgo.MessageEmbedField{}
+
+		if err != nil {
+			color = 0xff0000
+			status = "❌ Failed"
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "Error",
+				Value: fmt.Sprintf("```%v```", err),
+			})
+		}
+
+		if res != nil {
+			fields = append(fields,
+				&discordgo.MessageEmbedField{
+					Name:  "Report Directory",
+					Value: fmt.Sprintf("`%s`", res.ReportDir),
+				},
+				&discordgo.MessageEmbedField{
+					Name:  "Duration",
+					Value: res.Duration.String(),
+				},
+			)
+		} else {
+			fields = append(fields,
+				&discordgo.MessageEmbedField{
+					Name:  "Duration",
+					Value: time.Since(start).String(),
+				},
+			)
+		}
+
+		embed := &discordgo.MessageEmbed{
+			Title:       title,
+			Description: desc,
+			Color:       color,
+			Fields: append([]*discordgo.MessageEmbedField{
+				{Name: "Status", Value: status, Inline: false},
+			}, fields...),
+			Timestamp: time.Now().Format(time.RFC3339),
+		}
+
+		files := []*discordgo.File{}
+		if res != nil && res.LogFile != "" {
+			if f, err := os.Open(res.LogFile); err == nil {
+				defer f.Close()
+				files = append(files, &discordgo.File{
+					Name:        filepath.Base(res.LogFile),
+					ContentType: "text/plain",
+					Reader:      f,
+				})
+			}
+		}
+
+		if len(files) > 0 {
+			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+				Files:  files,
+			})
+		} else {
+			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			})
+		}
+	}(bundle)
 }
