@@ -18,32 +18,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     rustc --version && \
     cargo --version
 
-# Install next88 (React2Shell scanner) from GitHub
-RUN go install github.com/h0tak88r/next88@latest && \
-    chmod +x /go/bin/next88
-
 WORKDIR /app
 
-# Install Go-based security tools directly
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
-    go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
-    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
-    go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    go install -v github.com/ffuf/ffuf@latest && \
-    go install -v github.com/Emoe/kxss@latest && \
-    go install -v github.com/tomnomnom/qsreplace@latest && \
-    go install -v github.com/tomnomnom/gf@latest && \
-    go install -v github.com/hakluke/hakrawler@latest && \
-    go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest && \
-    go install -v github.com/hahwul/dalfox/v2@latest && \
-    go install -v github.com/channyein1337/jsleak@latest && \
-    go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
-    go install -v github.com/tomnomnom/anew@latest && \
-    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
-    go install -v github.com/mikefarah/yq/v4@latest && \
-    go install -v github.com/kacakb/jsfinder@latest && \
-    go install -v github.com/musana/fuzzuli@latest && \
-    go install -v github.com/h0tak88r/confused2/cmd/confused2@latest && \
+# Install Go-based security tools that are still used as external binaries
+RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
     go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
 # Install TruffleHog using the official install script
@@ -67,41 +45,58 @@ RUN set -e && \
     /usr/local/bin/jwt-hack --version && \
     echo "jwt-hack installed successfully"
 
-# Build AutoAR main CLI and modules
+# Build AutoAR main CLI and entrypoint
 WORKDIR /app
 
 # Copy go.mod and go.sum first
 COPY go.mod go.sum ./
 
-# Copy gomodules directory (needed for go mod download with replace directives)
-COPY gomodules/ ./gomodules/
-
-# Download dependencies
+# Download dependencies (module graph only)
 RUN go mod download
 
-# Copy main.go
-COPY main.go ./
+# Copy application source
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
 
-# Build main autoar binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar .
+# Build main autoar binary from cmd/autoar
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar ./cmd/autoar
+
+# Build entrypoint binary (replaces docker-entrypoint.sh)
+WORKDIR /app/internal/modules/entrypoint
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/autoar-entrypoint .
+WORKDIR /app
 
 # --- Runtime stage: minimal Debian image ---
 FROM debian:bullseye-slim
 
-ENV AUTOAR_SCRIPT_PATH=/app/main.sh \
+ENV AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar \
     AUTOAR_CONFIG_FILE=/app/autoar.yaml \
     AUTOAR_RESULTS_DIR=/app/new-results
 
 WORKDIR /app
 
-# System deps for runtime and common tools
+# System deps for runtime and common tools (including Java + unzip for jadx)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
     postgresql-client awscli docker.io \
+    openjdk-17-jre-headless unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy application code
-COPY . /app
+# Install jadx decompiler for apkX analysis
+RUN set -eux; \
+    JADX_VERSION="1.4.7"; \
+    curl -L "https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip" -o /tmp/jadx.zip; \
+    mkdir -p /opt/jadx; \
+    unzip -q /tmp/jadx.zip -d /opt/jadx; \
+    ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx; \
+    ln -sf /opt/jadx/bin/jadx-gui /usr/local/bin/jadx-gui || true; \
+    rm /tmp/jadx.zip
+
+# Copy minimal application configuration and assets (source not required at runtime)
+COPY regexes/ ./regexes/
+COPY templates/ ./templates/
+COPY autoar.sample.yaml ./
+COPY env.example ./
 
 # Clone submodules directly
 RUN cd /app && \
@@ -109,17 +104,17 @@ RUN cd /app && \
     git clone --depth 1 https://github.com/h0tak88r/nuclei_templates.git nuclei_templates && \
     git clone --depth 1 https://github.com/h0tak88r/Wordlists.git Wordlists
 
-# Copy Go tools from builder stage (including next88)
+# Copy Go tools from builder stage
 COPY --from=builder /go/bin/ /usr/local/bin/
 # Copy main autoar binary
 COPY --from=builder /app/autoar /usr/local/bin/autoar
+# Copy entrypoint binary
+COPY --from=builder /app/autoar-entrypoint /usr/local/bin/autoar-entrypoint
 # Copy jwt-hack from builder stage (installed to /usr/local/bin)
 COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
-# Create react2shell symlink for backward compatibility
-# Also create main.sh symlink to autoar for backward compatibility
-RUN ln -sf /usr/local/bin/next88 /usr/local/bin/react2shell && \
-    ln -sf /usr/local/bin/autoar /app/main.sh && \
-    chmod +x /usr/local/bin/next88 /usr/local/bin/react2shell /usr/local/bin/autoar /usr/local/bin/jwt-hack 2>/dev/null || true
+# Create main.sh symlink to autoar for backward compatibility
+RUN ln -sf /usr/local/bin/autoar /app/main.sh && \
+    chmod +x /usr/local/bin/autoar /usr/local/bin/jwt-hack 2>/dev/null || true
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
@@ -130,24 +125,20 @@ RUN misconfig-mapper -update-templates || true
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
 
-# Permissions and executables
-RUN chmod +x /app/generate_config.sh || true \
-    && chmod +x /app/main.sh || true \
-    && chmod +x /app/python/db_handler.py || true \
-    && chmod +x /app/lib/db_wrapper.sh || true \
-    && find /app/modules -type f -name '*.sh' -exec chmod +x {} + || true \
-    && find /app/lib -type f -name '*.sh' -exec chmod +x {} + || true
+# Permissions
+RUN chmod +x /app/generate_config.sh 2>/dev/null || true \
+    && chmod +x /app/main.sh 2>/dev/null || true \
+    && chmod +x /usr/local/bin/autoar-entrypoint \
+    && echo "All modules are now Go-based - pure Go implementation" || true
 
 # Add a non-root user
-RUN useradd -m -u 10001 autoar && chown -R autoar:autoar /app
+RUN useradd -m -u 10001 autoar && \
+    chown -R autoar:autoar /app && \
+    chown autoar:autoar /usr/local/bin/autoar-entrypoint
 USER autoar
 
-# Entrypoint script that generates config and starts the bot
-COPY --chown=autoar:autoar docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
-
 # Use tini as init for proper signal handling
-ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/autoar-entrypoint"]
 
 # Basic healthcheck: ensure process is running
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
