@@ -1,13 +1,14 @@
 package reflection
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	kxsstool "github.com/h0tak88r/AutoAR/internal/tools/kxss"
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
@@ -49,38 +50,33 @@ func ScanReflection(domain string) (*Result, error) {
 		return nil, fmt.Errorf("URLs file not found: %s", urlsFile)
 	}
 
-	// Run kxss if available
-	if _, err := exec.LookPath("kxss"); err == nil {
-		log.Printf("[INFO] Running kxss reflection scan for %s", domain)
-		inFile, err := os.Open(urlsFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open URLs file: %w", err)
-		}
-		defer inFile.Close()
+	// Run embedded kxss engine
+	log.Printf("[INFO] Running embedded kxss reflection scan for %s", domain)
+	// Read URLs from file
+	urlLines, err := readLines(urlsFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read URLs file: %w", err)
+	}
 
-		outFileHandle, err := os.Create(outFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create output file: %w", err)
-		}
-		defer outFileHandle.Close()
-
-		cmd := exec.Command("kxss")
-		cmd.Stdin = inFile
-		cmd.Stdout = outFileHandle
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			log.Printf("[WARN] kxss scan failed: %v", err)
-		}
-
-		// Filter out empty results
-		if err := filterEmptyLines(outFile); err != nil {
-			log.Printf("[WARN] Failed to filter empty lines: %v", err)
+	kxssResults, err := kxsstool.ScanURLs(urlLines)
+	if err != nil {
+		log.Printf("[WARN] kxss scan failed: %v", err)
+		// Create empty file to keep downstream logic consistent
+		if err := os.WriteFile(outFile, []byte(""), 0o644); err != nil {
+			return nil, fmt.Errorf("failed to create empty output file: %w", err)
 		}
 	} else {
-		log.Printf("[WARN] kxss not found, creating empty results file")
-		if err := os.WriteFile(outFile, []byte(""), 0644); err != nil {
-			return nil, fmt.Errorf("failed to create empty output file: %w", err)
+		// Write results in the same text format as original kxss
+		var lines []string
+		for _, r := range kxssResults {
+			lines = append(lines, fmt.Sprintf("URL: %s Param: %s Unfiltered: %v ", r.URL, r.Param, r.Chars))
+		}
+		if err := os.WriteFile(outFile, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+			return nil, fmt.Errorf("failed to write kxss results: %w", err)
+		}
+		// Filter out empty results as before
+		if err := filterEmptyLines(outFile); err != nil {
+			log.Printf("[WARN] Failed to filter empty lines: %v", err)
 		}
 	}
 
@@ -114,6 +110,28 @@ func filterEmptyLines(filePath string) error {
 	}
 
 	return os.WriteFile(filePath, []byte(strings.Join(filtered, "\n")), 0644)
+}
+
+// readLines is a small helper to read non-empty lines from a file.
+func readLines(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var lines []string
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
 }
 
 func countLines(path string) (int, error) {

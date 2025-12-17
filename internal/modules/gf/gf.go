@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	gflib "github.com/h0tak88r/AutoAR/internal/tools/gf"
 	"github.com/h0tak88r/AutoAR/internal/modules/fastlook"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
@@ -45,8 +45,9 @@ func ScanGF(domain string) (*Result, error) {
 	// Validate URLs file
 	if err := validateURLsFile(urlsFile); err != nil {
 		log.Printf("[WARN] URLs file appears corrupted, regenerating: %v", err)
-		if err := regenerateURLs(domain, urlsFile); err != nil {
-			log.Printf("[WARN] Failed to regenerate URLs: %v", err)
+		log.Printf("[INFO] Regenerating URLs for %s via fastlook", domain)
+		if _, err := fastlook.RunFastlook(domain); err != nil {
+			log.Printf("[WARN] Failed to regenerate URLs via fastlook: %v", err)
 		}
 	}
 
@@ -54,15 +55,11 @@ func ScanGF(domain string) (*Result, error) {
 		return nil, fmt.Errorf("URLs file not found: %s", urlsFile)
 	}
 
-	if _, err := exec.LookPath("gf"); err != nil {
-		return nil, fmt.Errorf("gf tool not found in PATH")
-	}
-
 	patterns := []string{"debug_logic", "idor", "iext", "img-traversal", "iparams", "isubs", "jsvar", "lfi", "rce", "redirect", "sqli", "ssrf", "ssti", "xss"}
 	var resultFiles []string
 	totalMatches := 0
 
-	log.Printf("[INFO] Running GF patterns on %s", urlsFile)
+	log.Printf("[INFO] Running built-in GF patterns on %s", urlsFile)
 	for _, pattern := range patterns {
 		outDir := filepath.Join(baseDir, pattern)
 		if err := utils.EnsureDir(outDir); err != nil {
@@ -110,36 +107,23 @@ func validateURLsFile(path string) error {
 	return nil
 }
 
-func regenerateURLs(domain, outFile string) error {
-	if _, err := exec.LookPath("urlfinder"); err != nil {
-		return fmt.Errorf("urlfinder not found")
-	}
-	cmd := exec.Command("urlfinder", "-d", domain, "-all", "-silent")
-	out, err := cmd.Output()
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(outFile, out, 0644)
-}
-
 func runGFPattern(urlsFile, pattern, outFile string) error {
-	inFile, err := os.Open(urlsFile)
+	matches, err := gflib.ScanFile(urlsFile, pattern)
 	if err != nil {
 		return err
 	}
-	defer inFile.Close()
 
-	outFileHandle, err := os.Create(outFile)
-	if err != nil {
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
 		return err
 	}
-	defer outFileHandle.Close()
 
-	cmd := exec.Command("gf", pattern)
-	cmd.Stdin = inFile
-	cmd.Stdout = outFileHandle
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if len(matches) == 0 {
+		return os.WriteFile(outFile, []byte(""), 0o644)
+	}
+
+	data := strings.Join(matches, "\n") + "\n"
+	return os.WriteFile(outFile, []byte(data), 0o644)
 }
 
 func countLines(path string) (int, error) {

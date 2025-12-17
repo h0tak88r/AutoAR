@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
@@ -47,19 +47,34 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 		return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 	}
 
-	if _, err := exec.LookPath("dalfox"); err != nil {
-		return nil, fmt.Errorf("dalfox not found in PATH")
+	log.Printf("[INFO] Running dalfox (library mode) with %d threads", threads)
+	results, err := dalfoxtool.ScanFile(inFile, dalfoxtool.Options{Threads: threads})
+	if err != nil {
+		return nil, fmt.Errorf("dalfox scan failed: %w", err)
 	}
 
-	log.Printf("[INFO] Running dalfox with %d threads", threads)
-	cmd := exec.Command("dalfox", "file", inFile, "--no-spinner", "--only-poc", "r", "--ignore-return", "302,404,403", "--skip-bav", "-b", "0x88.xss.cl", "-w", fmt.Sprintf("%d", threads), "-o", outFile)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Printf("[WARN] dalfox scan failed: %v", err)
+	// Persist results as JSONL for compatibility with file-based workflows.
+	f, err := os.Create(outFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer f.Close()
+
+	for _, r := range results {
+		if len(r.Raw) == 0 {
+			continue
+		}
+		if _, err := f.Write(r.Raw); err != nil {
+			log.Printf("[WARN] Failed to write dalfox result for %s: %v", r.Target, err)
+			continue
+		}
+		if _, err := f.WriteString("\n"); err != nil {
+			log.Printf("[WARN] Failed to write newline for %s: %v", r.Target, err)
+		}
 	}
 
-	count, _ := countLines(outFile)
-	log.Printf("[OK] Dalfox scan completed, found %d findings", count)
+	count := len(results)
+	log.Printf("[OK] Dalfox scan completed, processed %d targets", count)
 
 	return &Result{
 		Domain:     domain,

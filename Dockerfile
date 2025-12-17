@@ -22,12 +22,6 @@ WORKDIR /app
 
 # Install Go-based security tools that are still used as external binaries
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
-    go install -v github.com/hahwul/dalfox/v2@latest && \
-    go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest && \
-    go install -v github.com/kacakb/jsfinder@latest && \
-    go install -v github.com/Emoe/kxss@latest && \
-    go install -v github.com/tomnomnom/gf@latest && \
     go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
 
 # Install TruffleHog using the official install script
