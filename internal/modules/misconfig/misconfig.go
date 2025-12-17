@@ -3,8 +3,9 @@ package misconfig
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+
+	mmapi "github.com/h0tak88r/AutoAR/internal/tools/misconfigmapper"
 )
 
 // Options for misconfig scan
@@ -28,9 +29,9 @@ func Run(opts Options) error {
 
 	switch opts.Action {
 	case "list":
-		return handleList()
+		return handleList(resultsDir)
 	case "update":
-		return handleUpdate()
+		return handleUpdate(resultsDir)
 	case "scan":
 		if opts.Target == "" {
 			return fmt.Errorf("target is required for scan action")
@@ -46,120 +47,83 @@ func Run(opts Options) error {
 	}
 }
 
-func handleList() error {
-	// List available services from misconfig-mapper
-	mapperPath, err := exec.LookPath("misconfig-mapper")
-	if err != nil {
-		return fmt.Errorf("misconfig-mapper not found in PATH: %v", err)
-	}
-
-	cmd := exec.Command(mapperPath, "list")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+func templatesDir(root string) string {
+	return filepath.Join(root, "templates")
 }
 
-func handleUpdate() error {
-	// Update templates
-	mapperPath, err := exec.LookPath("misconfig-mapper")
+func handleList(root string) error {
+	tplDir := templatesDir(root)
+	infos, err := mmapi.ListServices(tplDir)
 	if err != nil {
-		return fmt.Errorf("misconfig-mapper not found in PATH: %v", err)
+		return fmt.Errorf("failed to list misconfig services: %w", err)
 	}
+	fmt.Println("ID\tService\tName")
+	for _, s := range infos {
+		fmt.Printf("%d\t%s\t%s\n", s.ID, s.Service, s.ServiceName)
+	}
+	return nil
+}
 
-	cmd := exec.Command(mapperPath, "update")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+func handleUpdate(root string) error {
+	tplDir := templatesDir(root)
+	if err := mmapi.UpdateTemplates(tplDir); err != nil {
+		return fmt.Errorf("failed to update misconfig-mapper templates: %w", err)
+	}
+	fmt.Printf("[OK] Misconfig-mapper templates updated in %s\n", tplDir)
+	return nil
 }
 
 func handleScan(opts Options, resultsDir string) error {
-	mapperPath, err := exec.LookPath("misconfig-mapper")
-	if err != nil {
-		return fmt.Errorf("misconfig-mapper not found in PATH: %v", err)
-	}
-
 	outputDir := filepath.Join(resultsDir, "misconfig", opts.Target)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
 	}
 
 	outputFile := filepath.Join(outputDir, "scan-results.txt")
-	logFile := filepath.Join(outputDir, "scan.log")
 
-	// Build command
-	args := []string{"scan", opts.Target}
-	if opts.Delay > 0 {
-		args = append(args, "--delay", fmt.Sprintf("%d", opts.Delay))
+	root := os.Getenv("AUTOAR_ROOT")
+	if root == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			root = cwd
+		} else {
+			root = "/app"
+		}
 	}
-	if opts.ServiceID != "" {
-		args = append(args, "--service", opts.ServiceID)
-	}
+	tplDir := templatesDir(root)
 
-	cmd := exec.Command(mapperPath, args...)
-	
-	// Open output files
-	outFile, err := os.Create(outputFile)
+	results, err := mmapi.Scan(mmapi.ScanOptions{
+		Target:        opts.Target,
+		ServiceID:     opts.ServiceID,
+		Delay:         opts.Delay,
+		TemplatesPath: tplDir,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create output file: %v", err)
+		return fmt.Errorf("misconfig-mapper scan failed: %w", err)
 	}
-	defer outFile.Close()
 
-	logFileHandle, err := os.Create(logFile)
+	f, err := os.Create(outputFile)
 	if err != nil {
-		return fmt.Errorf("failed to create log file: %v", err)
+		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer logFileHandle.Close()
+	defer f.Close()
 
-	cmd.Stdout = outFile
-	cmd.Stderr = logFileHandle
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("misconfig-mapper scan failed: %v", err)
+	for _, r := range results {
+		status := "EXISTS"
+		if r.Vulnerable {
+			status = "VULNERABLE"
+		}
+		line := fmt.Sprintf("[%s] %s (%s - %s)\n", status, r.URL, r.ServiceID, r.ServiceName)
+		if _, err := f.WriteString(line); err != nil {
+			return fmt.Errorf("failed to write result: %w", err)
+		}
 	}
 
-	fmt.Printf("[OK] Misconfig scan completed for %s\n", opts.Target)
+	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings)\n", opts.Target, len(results))
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
-	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
 	return nil
 }
 
 func handleService(opts Options, resultsDir string) error {
-	mapperPath, err := exec.LookPath("misconfig-mapper")
-	if err != nil {
-		return fmt.Errorf("misconfig-mapper not found in PATH: %v", err)
-	}
-
-	outputDir := filepath.Join(resultsDir, "misconfig", opts.Target)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %v", err)
-	}
-
-	outputFile := filepath.Join(outputDir, fmt.Sprintf("service-%s-results.txt", opts.ServiceID))
-	logFile := filepath.Join(outputDir, fmt.Sprintf("service-%s.log", opts.ServiceID))
-
-	cmd := exec.Command(mapperPath, "service", opts.Target, opts.ServiceID)
-	
-	outFile, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %v", err)
-	}
-	defer outFile.Close()
-
-	logFileHandle, err := os.Create(logFile)
-	if err != nil {
-		return fmt.Errorf("failed to create log file: %v", err)
-	}
-	defer logFileHandle.Close()
-
-	cmd.Stdout = outFile
-	cmd.Stderr = logFileHandle
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("misconfig-mapper service scan failed: %v", err)
-	}
-
-	fmt.Printf("[OK] Misconfig service scan completed for %s (service: %s)\n", opts.Target, opts.ServiceID)
-	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
-	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
-	return nil
+	// Service-specific scan is just a filtered scan with ServiceID set.
+	return handleScan(opts, resultsDir)
 }

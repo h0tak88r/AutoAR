@@ -11,40 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust using rustup (newer version required for jwt-hack)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-    export PATH="$HOME/.cargo/bin:$PATH" && \
-    rustup default stable && \
-    rustc --version && \
-    cargo --version
-
-WORKDIR /app
-
-# Install Go-based security tools that are still used as external binaries
-RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    go install -v github.com/intigriti/misconfig-mapper/cmd/misconfig-mapper@latest
-
-# Install TruffleHog using the official install script
-RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /go/bin || \
-    (echo "TruffleHog installation failed, continuing without it..." && echo "#!/bin/sh" > /go/bin/trufflehog && chmod +x /go/bin/trufflehog)
-
-# Install jwt-hack (Rust-based JWT toolkit)
-# Use rustup-installed Rust (ensure PATH is set)
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN set -e && \
-    echo "Installing jwt-hack..." && \
-    rustc --version && \
-    cargo --version && \
-    cargo install jwt-hack --locked --root /usr/local --verbose 2>&1 | tee /tmp/jwt-hack-install.log && \
-    if [ ! -f /usr/local/bin/jwt-hack ] || [ ! -s /usr/local/bin/jwt-hack ]; then \
-        echo "[ERROR] jwt-hack binary not found or empty after installation" && \
-        cat /tmp/jwt-hack-install.log && \
-        exit 1; \
-    fi && \
-    chmod +x /usr/local/bin/jwt-hack && \
-    /usr/local/bin/jwt-hack --version && \
-    echo "jwt-hack installed successfully"
-
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
 
@@ -110,11 +76,9 @@ COPY --from=builder /go/bin/ /usr/local/bin/
 COPY --from=builder /app/autoar /usr/local/bin/autoar
 # Copy entrypoint binary
 COPY --from=builder /app/autoar-entrypoint /usr/local/bin/autoar-entrypoint
-# Copy jwt-hack from builder stage (installed to /usr/local/bin)
-COPY --from=builder /usr/local/bin/jwt-hack /usr/local/bin/jwt-hack
 # Create main.sh symlink to autoar for backward compatibility
 RUN ln -sf /usr/local/bin/autoar /app/main.sh && \
-    chmod +x /usr/local/bin/autoar /usr/local/bin/jwt-hack 2>/dev/null || true
+    chmod +x /usr/local/bin/autoar 2>/dev/null || true
 
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true

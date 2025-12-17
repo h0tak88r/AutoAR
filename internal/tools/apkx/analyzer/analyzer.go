@@ -189,7 +189,7 @@ func (s *APKScanner) loadPatterns() (map[string][]string, error) {
 
 	if s.config.PatternsPath != "" {
 		data, err = os.ReadFile(s.config.PatternsPath)
-		if err != nil {
+	if err != nil {
 			return nil, fmt.Errorf("failed to read patterns file %s: %v", s.config.PatternsPath, err)
 		}
 	} else {
