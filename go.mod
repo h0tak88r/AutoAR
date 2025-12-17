@@ -6,10 +6,16 @@ require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/fatih/color v1.18.0
 	github.com/gin-gonic/gin v1.10.0
+	github.com/h0tak88r/confused2 v0.0.0-20251024120607-be290e443862
+	github.com/hahwul/dalfox/v2 v2.12.0
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/projectdiscovery/dnsx v1.2.2
+	github.com/projectdiscovery/goflags v0.1.74
 	github.com/projectdiscovery/httpx v1.7.4
+	github.com/projectdiscovery/naabu/v2 v2.3.7
 	github.com/projectdiscovery/subfinder/v2 v2.6.7
+	golang.org/x/time v0.14.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -89,8 +95,6 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/gosimple/slug v1.15.0 // indirect
 	github.com/gosimple/unidecode v1.0.1 // indirect
-	github.com/h0tak88r/confused2 v0.0.0-20251024120607-be290e443862 // indirect
-	github.com/hahwul/dalfox/v2 v2.12.0 // indirect
 	github.com/hahwul/volt v1.0.7 // indirect
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
@@ -148,14 +152,12 @@ require (
 	github.com/projectdiscovery/fdmax v0.0.4 // indirect
 	github.com/projectdiscovery/freeport v0.0.7 // indirect
 	github.com/projectdiscovery/goconfig v0.0.1 // indirect
-	github.com/projectdiscovery/goflags v0.1.74 // indirect
 	github.com/projectdiscovery/gologger v1.1.64 // indirect
 	github.com/projectdiscovery/gostruct v0.0.2 // indirect
 	github.com/projectdiscovery/hmap v0.0.98 // indirect
 	github.com/projectdiscovery/ipranger v0.0.53 // indirect
 	github.com/projectdiscovery/machineid v0.0.0-20240226150047-2e2c51e35983 // indirect
 	github.com/projectdiscovery/mapcidr v1.1.97 // indirect
-	github.com/projectdiscovery/naabu/v2 v2.3.7 // indirect
 	github.com/projectdiscovery/networkpolicy v0.1.32 // indirect
 	github.com/projectdiscovery/ratelimit v0.0.82 // indirect
 	github.com/projectdiscovery/rawhttp v0.1.90 // indirect
@@ -163,7 +165,6 @@ require (
 	github.com/projectdiscovery/retryablehttp-go v1.1.1 // indirect
 	github.com/projectdiscovery/tlsx v1.2.2 // indirect
 	github.com/projectdiscovery/uncover v1.1.0 // indirect
-	github.com/projectdiscovery/urlfinder v0.0.3 // indirect
 	github.com/projectdiscovery/useragent v0.0.105 // indirect
 	github.com/projectdiscovery/utils v0.7.3 // indirect
 	github.com/projectdiscovery/wappalyzergo v0.2.59 // indirect
@@ -232,10 +233,8 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
-	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/djherbis/times.v1 v1.3.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
