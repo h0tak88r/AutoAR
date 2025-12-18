@@ -23,8 +23,6 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **Backup File Discovery**: Automated backup file and sensitive file discovery
 
 ### 🎯 **Specialized Scanners**
-- **APK/IPA Analysis**: Embedded apkX engine for Android/iOS app security analysis (secrets detection, hardcoded credentials, API keys, etc.)
-- **MITM Patching**: Pure Go implementation for patching Android APKs to bypass certificate pinning (requires `apktool` and `uber-apk-signer`). Automatically modifies network security config and disables certificate pinning libraries (OkHttp, TrustKit, etc.)
 - **JavaScript Analysis**: JS file collection and secret extraction
 - **JavaScript Monitoring**: Continuous monitoring of JavaScript files for changes
 - **GitHub Reconnaissance**: Organization and repository scanning with secrets detection
@@ -140,21 +138,24 @@ go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 # System packages (for Naabu/pcap when building locally on Linux)
 sudo apt-get update && sudo apt-get install -y libpcap-dev
 
-# Decompiler used by embedded apkX engine
+# Java runtime (required for jadx and apktool)
+sudo apt-get install -y openjdk-17-jre-headless
+
+# Decompiler used by embedded apkX engine (required for APK analysis)
 curl -L "https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip" -o /tmp/jadx.zip
 sudo mkdir -p /opt/jadx
 sudo unzip -q /tmp/jadx.zip -d /opt/jadx
 sudo ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx
 rm /tmp/jadx.zip
 
-# apktool and uber-apk-signer for MITM patching (APK certificate pinning bypass)
-# Note: Java 8+ is required for these tools
-sudo apt-get install -y openjdk-17-jre-headless  # Or your preferred Java version
-curl -L "https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar" -o /tmp/apktool.jar
+# APK tool for MITM patching (required for apkX MITM patching feature)
+APKTOOL_VERSION="2.9.3"
+curl -L "https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_${APKTOOL_VERSION}.jar" -o /tmp/apktool.jar
 sudo mv /tmp/apktool.jar /usr/local/bin/apktool.jar
 echo '#!/bin/sh\njava -jar /usr/local/bin/apktool.jar "$@"' | sudo tee /usr/local/bin/apktool
 sudo chmod +x /usr/local/bin/apktool
 
+# Optional: APK signer for MITM patched APKs (recommended)
 curl -L "https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar" -o /tmp/uber-apk-signer.jar
 sudo mv /tmp/uber-apk-signer.jar /usr/local/bin/uber-apk-signer.jar
 echo '#!/bin/sh\njava -jar /usr/local/bin/uber-apk-signer.jar "$@"' | sudo tee /usr/local/bin/uber-apk-signer
@@ -166,16 +167,6 @@ sudo chmod +x /usr/local/bin/uber-apk-signer
 - S3 enumeration and scanning are implemented in pure Go using **AWS SDK for Go v2**.  
 - You **do not** need the `aws` CLI; just configure standard AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or IAM role / shared config).
 - **Unauthenticated Testing**: If AWS credentials are not provided, AutoAR automatically falls back to unauthenticated HTTP testing to discover publicly accessible S3 buckets. This allows you to test for public bucket exposure without requiring AWS credentials.
-
-**Note on APK Analysis and MITM Patching**
-
-- **apkX Engine**: The APK analysis engine is embedded as a pure Go package. It uses `jadx` for decompilation (Java-based tool) to convert DEX bytecode to readable Java source for pattern matching.
-- **MITM Patching**: The MITM patching functionality is implemented in pure Go (`internal/tools/apkx/mitm`). It uses `apktool` (Java-based) for APK decode/encode operations, but all patching logic (manifest modification, network security config, certificate pinning removal) is pure Go. The patched APK is automatically signed using `uber-apk-signer` (Java-based).
-- **Dependencies**: For MITM patching to work, you need:
-  - Java 8+ (JRE) - required for `apktool` and `uber-apk-signer`
-  - `apktool` - for APK decode/encode
-  - `uber-apk-signer` - for signing patched APKs (optional but recommended)
-  - `jadx` - for APK decompilation (already required for apkX analysis)
 
 3. **Build AutoAR**:
 ```bash
@@ -303,7 +294,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/dalfox domain:example.com [threads:100]` - XSS detection
 - `/sqlmap domain:example.com [threads:100]` - SQL injection testing
 - `/backup_scan domain:example.com [threads:100] [full:false]` - Backup file discovery
-- `/apkx_scan file:<APK_OR_IPA_ATTACHMENT> [package:<ANDROID_PACKAGE>] [mitm:false]` - Analyze Android APK/IPA by upload or Android package name (downloaded from ApkPure) with embedded apkX engine. Set `mitm:true` to generate a MITM-patched APK (disables certificate pinning, allows user certificates) - requires `apktool` and `uber-apk-signer` installed
+- `/apkx_scan file:<APK_OR_IPA_ATTACHMENT> [package:<ANDROID_PACKAGE>] [mitm:false]` - Analyze Android APK/IPA by upload or Android package name (downloaded from ApkPure) with embedded apkX engine. **Requires jadx** for decompilation. **Requires apktool and Java** for MITM patching (when `mitm:true`).
 - `/apkx_ios bundle:<IOS_BUNDLE_IDENTIFIER>` - Download and analyze an iOS app via App Store using embedded ipatool client and apkX engine
 
 #### Specialized Scans
@@ -783,6 +774,7 @@ curl -X POST "http://localhost:8000/scan/dns-takeover" \
   -d '{"domain": "example.com"}'
 
 # APK/IPA Static Analysis (apkX engine)
+# Note: Requires jadx for decompilation and apktool for MITM patching (if mitm=true)
 curl -X POST "http://localhost:8000/scan/apkx" \
   -H "Content-Type: application/json" \
   -d '{"file_path": "/absolute/path/to/app.apk"}'
