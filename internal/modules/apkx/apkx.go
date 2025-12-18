@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,9 +30,10 @@ type Options struct {
 
 // Result describes where apkX wrote its output.
 type Result struct {
-	ReportDir string
-	LogFile   string
-	Duration  time.Duration
+	ReportDir    string
+	LogFile      string
+	Duration     time.Duration
+	MITMPatchedAPK string // Path to MITM patched APK if MITM was enabled
 }
 
 // PackageOptions controls apkX scans where AutoAR first downloads the
@@ -180,13 +182,30 @@ func Run(opts Options) (*Result, error) {
 	ext := strings.ToLower(filepath.Ext(opts.InputPath))
 	start := time.Now()
 
+	var mitmPatchedAPK string
 	switch ext {
 	case ".apk":
+		// Use adaptive worker count: fewer workers for better memory management
+		// Default to 4 workers (conservative) to prevent server overload
+		workers := 4
+		if runtime.NumCPU() <= 2 {
+			workers = 2 // Very conservative for small VPS
+		} else if runtime.NumCPU() <= 4 {
+			workers = 3
+		}
+		
+		// Allow override via environment variable
+		if envWorkers := os.Getenv("APKX_WORKERS"); envWorkers != "" {
+			if w, err := strconv.Atoi(envWorkers); err == nil && w > 0 {
+				workers = w
+			}
+		}
+		
 		cfg := &apkxanalyzer.Config{
 			APKPath:      opts.InputPath,
 			OutputDir:    outDir,
 			PatternsPath: "",
-			Workers:      runtime.NumCPU(),
+			Workers:      workers, // Conservative default to prevent OOM
 			HTMLOutput:   true,
 			JanusScan:    true,
 		}
@@ -197,6 +216,11 @@ func Run(opts Options) (*Result, error) {
 				LogFile:   filepath.Join(outDir, "results.json"),
 				Duration:  time.Since(start),
 			}, fmt.Errorf("apk analysis failed: %w", err)
+		}
+		
+		// If MITM patching was requested, look for patched APK in output directory
+		if opts.MITM {
+			mitmPatchedAPK = findMITMPatchedAPK(outDir, opts.InputPath)
 		}
 	case ".xapk":
 		// Extract XAPK and find the main APK file
@@ -248,10 +272,52 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	return &Result{
-		ReportDir: outDir,
-		LogFile:   filepath.Join(outDir, "results.json"),
-		Duration:  time.Since(start),
+		ReportDir:     outDir,
+		LogFile:       filepath.Join(outDir, "results.json"),
+		Duration:      time.Since(start),
+		MITMPatchedAPK: mitmPatchedAPK,
 	}, nil
+}
+
+// findMITMPatchedAPK searches for MITM patched APK files in the output directory.
+// Common naming patterns: *-patched.apk, *-mitm.apk, *-mitm-patched.apk, or patched-*.apk
+func findMITMPatchedAPK(outDir, originalAPK string) string {
+	baseName := strings.TrimSuffix(filepath.Base(originalAPK), filepath.Ext(originalAPK))
+	
+	// Common patterns for MITM patched APKs
+	patterns := []string{
+		filepath.Join(outDir, baseName+"-patched.apk"),
+		filepath.Join(outDir, baseName+"-mitm.apk"),
+		filepath.Join(outDir, baseName+"-mitm-patched.apk"),
+		filepath.Join(outDir, "patched-"+filepath.Base(originalAPK)),
+		filepath.Join(outDir, "mitm-"+filepath.Base(originalAPK)),
+		filepath.Join(outDir, "mitm-patched-"+filepath.Base(originalAPK)),
+	}
+	
+	// Also search for any .apk files in the output directory that contain "patched" or "mitm"
+	entries, err := os.ReadDir(outDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".apk") {
+				name := strings.ToLower(entry.Name())
+				if strings.Contains(name, "patched") || strings.Contains(name, "mitm") {
+					fullPath := filepath.Join(outDir, entry.Name())
+					if info, err := os.Stat(fullPath); err == nil && info.Size() > 0 {
+						return fullPath
+					}
+				}
+			}
+		}
+	}
+	
+	// Check specific patterns
+	for _, pattern := range patterns {
+		if info, err := os.Stat(pattern); err == nil && info.Size() > 0 {
+			return pattern
+		}
+	}
+	
+	return ""
 }
 
 // RunFromPackage downloads an APK/IPA for the given package identifier using
