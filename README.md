@@ -17,7 +17,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods, source code exposure checks, and DoS testing
 - **WordPress Plugin Confusion**: Automated WP plugin/theme confusion attack detection
 - **Dependency Confusion**: GitHub repository dependency confusion scanning
-- **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis (pure Go via AWS SDK v2, no aws CLI required)
+- **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis (pure Go via AWS SDK v2, no aws CLI required). Supports both authenticated and unauthenticated testing - automatically falls back to HTTP-based public access testing when credentials are missing
 - **SQL Injection Testing**: SQLMap integration for automated SQLi testing
 - **XSS Detection**: Dalfox integration for cross-site scripting detection
 - **Backup File Discovery**: Automated backup file and sensitive file discovery
@@ -150,6 +150,7 @@ rm /tmp/jadx.zip
 
 - S3 enumeration and scanning are implemented in pure Go using **AWS SDK for Go v2**.  
 - You **do not** need the `aws` CLI; just configure standard AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or IAM role / shared config).
+- **Unauthenticated Testing**: If AWS credentials are not provided, AutoAR automatically falls back to unauthenticated HTTP testing to discover publicly accessible S3 buckets. This allows you to test for public bucket exposure without requiring AWS credentials.
 
 3. **Build AutoAR**:
 ```bash
@@ -285,7 +286,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/github scan repo:owner/repo` - GitHub repository secrets scanning
 - `/github org:company` - GitHub organization reconnaissance
 - `/github-wordlist org:company` - Generate wordlists from GitHub org
-- `/s3 bucket:example-bucket` - S3 bucket scanning
+- `/s3 bucket:example-bucket` - S3 bucket scanning (works with or without AWS credentials - automatically tests for public access if credentials are missing)
 - `/dns domain:example.com` - DNS takeover detection
 - `/ports domain:example.com [threads:100]` - Port scanning
 

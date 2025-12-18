@@ -183,7 +183,7 @@ func corsMiddleware() gin.HandlerFunc {
 func rootHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "AutoAR API Server",
-		"version": "1.0.0",
+		"version": "3.2.0",
 		"docs":    "/docs",
 		"status":  "operational",
 	})
