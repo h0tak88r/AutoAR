@@ -73,7 +73,7 @@ func handleEnum(opts Options, resultsDir string) error {
 	} else {
 		// Fallback: use AWS SDK or unauthenticated HTTP testing
 		bucketPatterns := generateBucketNames(opts.Root)
-
+		
 		outFile, err := os.Create(outputFile)
 		if err != nil {
 			return fmt.Errorf("failed to create output file: %v", err)
@@ -123,9 +123,9 @@ func handleEnum(opts Options, resultsDir string) error {
 			regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"}
 			if opts.Region != "" {
 				regions = []string{opts.Region}
-			}
-			
-			for _, bucketName := range bucketPatterns {
+		}
+
+		for _, bucketName := range bucketPatterns {
 				found := false
 				for _, region := range regions {
 					// Test different S3 endpoint formats
