@@ -248,6 +248,22 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 			})
 		}
 	}
+	
+	// Add MITM patched APK if it exists
+	if mitm && res != nil && res.MITMPatchedAPK != "" {
+		if f, err := os.Open(res.MITMPatchedAPK); err == nil {
+			defer f.Close()
+			files = append(files, &discordgo.File{
+				Name:        filepath.Base(res.MITMPatchedAPK),
+				ContentType: "application/vnd.android.package-archive",
+				Reader:      f,
+			})
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "MITM Patched APK",
+				Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
+			})
+		}
+	}
 
 	if len(files) > 0 {
 		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -337,39 +353,55 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 			)
 		}
 
-		embed := &discordgo.MessageEmbed{
-			Title:       title,
-			Description: desc,
-			Color:       color,
-			Fields: append([]*discordgo.MessageEmbedField{
-				{Name: "Status", Value: status, Inline: false},
-			}, fields...),
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
+	embed := &discordgo.MessageEmbed{
+		Title:       title,
+		Description: desc,
+		Color:       color,
+		Fields: append([]*discordgo.MessageEmbedField{
+			{Name: "Status", Value: status, Inline: false},
+		}, fields...),
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
 
-		files := []*discordgo.File{}
-		if res != nil && res.LogFile != "" {
-			if f, err := os.Open(res.LogFile); err == nil {
-				defer f.Close()
-				files = append(files, &discordgo.File{
-					Name:        filepath.Base(res.LogFile),
-					ContentType: "text/plain",
-					Reader:      f,
-				})
-			}
-		}
-
-		if len(files) > 0 {
-			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Embeds: []*discordgo.MessageEmbed{embed},
-				Files:  files,
-			})
-		} else {
-			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Embeds: []*discordgo.MessageEmbed{embed},
+	files := []*discordgo.File{}
+	if res != nil && res.LogFile != "" {
+		if f, err := os.Open(res.LogFile); err == nil {
+			defer f.Close()
+			files = append(files, &discordgo.File{
+				Name:        filepath.Base(res.LogFile),
+				ContentType: "text/plain",
+				Reader:      f,
 			})
 		}
-	}(pkg, mitm)
+	}
+	
+	// Add MITM patched APK if it exists
+	if mitm && res != nil && res.MITMPatchedAPK != "" {
+		if f, err := os.Open(res.MITMPatchedAPK); err == nil {
+			defer f.Close()
+			files = append(files, &discordgo.File{
+				Name:        filepath.Base(res.MITMPatchedAPK),
+				ContentType: "application/vnd.android.package-archive",
+				Reader:      f,
+			})
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "MITM Patched APK",
+				Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
+			})
+		}
+	}
+
+	if len(files) > 0 {
+		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Files:  files,
+		})
+	} else {
+		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+	}
+}(pkg, mitm)
 }
 
 // handleApkXScanIOS handles /apkx_scan_ios for iOS bundle identifiers.
@@ -447,37 +479,54 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			)
 		}
 
-		embed := &discordgo.MessageEmbed{
-			Title:       title,
-			Description: desc,
-			Color:       color,
-			Fields: append([]*discordgo.MessageEmbedField{
-				{Name: "Status", Value: status, Inline: false},
-			}, fields...),
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
+	embed := &discordgo.MessageEmbed{
+		Title:       title,
+		Description: desc,
+		Color:       color,
+		Fields: append([]*discordgo.MessageEmbedField{
+			{Name: "Status", Value: status, Inline: false},
+		}, fields...),
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
 
-		files := []*discordgo.File{}
-		if res != nil && res.LogFile != "" {
-			if f, err := os.Open(res.LogFile); err == nil {
-				defer f.Close()
-				files = append(files, &discordgo.File{
-					Name:        filepath.Base(res.LogFile),
-					ContentType: "text/plain",
-					Reader:      f,
-				})
-			}
-		}
-
-		if len(files) > 0 {
-			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Embeds: []*discordgo.MessageEmbed{embed},
-				Files:  files,
-			})
-		} else {
-			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Embeds: []*discordgo.MessageEmbed{embed},
+	files := []*discordgo.File{}
+	if res != nil && res.LogFile != "" {
+		if f, err := os.Open(res.LogFile); err == nil {
+			defer f.Close()
+			files = append(files, &discordgo.File{
+				Name:        filepath.Base(res.LogFile),
+				ContentType: "text/plain",
+				Reader:      f,
 			})
 		}
-	}(bundle)
+	}
+	
+	// Note: MITM patching is typically only for Android APKs, not iOS IPAs
+	// But we check anyway in case it's implemented in the future
+	if res != nil && res.MITMPatchedAPK != "" {
+		if f, err := os.Open(res.MITMPatchedAPK); err == nil {
+			defer f.Close()
+			files = append(files, &discordgo.File{
+				Name:        filepath.Base(res.MITMPatchedAPK),
+				ContentType: "application/vnd.android.package-archive",
+				Reader:      f,
+			})
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "MITM Patched File",
+				Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
+			})
+		}
+	}
+
+	if len(files) > 0 {
+		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Files:  files,
+		})
+	} else {
+		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+	}
+}(bundle)
 }
