@@ -97,6 +97,10 @@ services:
 
             # General Settings
             - VERBOSE=${VERBOSE:-true}
+            
+            # APKX Performance Settings (optimized for 4-core, 8GB RAM VPS with no swap)
+            - APKX_WORKERS=${APKX_WORKERS:-2}
+            - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
 
         volumes:
             - results-data:/app/new-results
@@ -197,7 +201,12 @@ services:
             - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
             - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
 
+            # General Settings
             - VERBOSE=${VERBOSE:-true}
+            
+            # APKX Performance Settings (optimized for 4-core, 8GB RAM VPS with no swap)
+            - APKX_WORKERS=${APKX_WORKERS:-2}
+            - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
 
         ports:
             - "8000:8000" # Expose API port
@@ -314,7 +323,12 @@ services:
             - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
             - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
 
+            # General Settings
             - VERBOSE=${VERBOSE:-true}
+            
+            # APKX Performance Settings (optimized for 4-core, 8GB RAM VPS with no swap)
+            - APKX_WORKERS=${APKX_WORKERS:-2}
+            - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
 
         ports:
             - "8000:8000" # Expose API port
