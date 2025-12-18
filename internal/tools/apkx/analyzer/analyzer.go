@@ -714,19 +714,22 @@ func (s *APKScanner) generateHTMLReport(results map[string][]string, jsonPath st
 	// Copy important decompiled files to report directory
 	s.copyDecompiledFiles()
 
-	// Generate HTML report
-	htmlContent, err := reporter.GenerateHTMLReport(reportData)
-	if err != nil {
-		return fmt.Errorf("failed to generate HTML report: %v", err)
-	}
+	// Generate HTML report (optional, kept for backward compatibility)
+	// Note: The Discord bot now generates a markdown table instead
+	if s.config.HTMLOutput {
+		htmlContent, err := reporter.GenerateHTMLReport(reportData)
+		if err != nil {
+			return fmt.Errorf("failed to generate HTML report: %v", err)
+		}
 
-	htmlPath := filepath.Join(s.config.OutputDir, "security-report.html")
-	if err := ioutil.WriteFile(htmlPath, []byte(htmlContent), 0644); err != nil {
-		return fmt.Errorf("failed to write HTML report: %v", err)
-	}
+		htmlPath := filepath.Join(s.config.OutputDir, "security-report.html")
+		if err := ioutil.WriteFile(htmlPath, []byte(htmlContent), 0644); err != nil {
+			return fmt.Errorf("failed to write HTML report: %v", err)
+		}
 
-	fmt.Printf("%sHTML report generated: %s%s%s\n",
-		utils.ColorBlue, utils.ColorGreen, htmlPath, utils.ColorEnd)
+		fmt.Printf("%sHTML report generated: %s%s%s\n",
+			utils.ColorBlue, utils.ColorGreen, htmlPath, utils.ColorEnd)
+	}
 	return nil
 }
 
