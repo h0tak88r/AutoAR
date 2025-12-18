@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
+	"github.com/h0tak88r/AutoAR/internal/modules/gf"
+	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
@@ -18,7 +20,10 @@ type Result struct {
 	OutputFile string
 }
 
-// RunDalfox runs dalfox XSS scanner
+// RunDalfox runs dalfox XSS scanner with automatic workflow:
+// 1. Run urlfinder to collect URLs (if not already done)
+// 2. Run gf to find XSS patterns (if not already done)
+// 3. Run dalfox on the gf results
 func RunDalfox(domain string, threads int) (*Result, error) {
 	if domain == "" {
 		return nil, fmt.Errorf("domain is required")
@@ -29,6 +34,7 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 
 	resultsDir := utils.GetResultsDir()
 	domainDir := filepath.Join(resultsDir, domain)
+	urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
 	inFile := filepath.Join(domainDir, "vulnerabilities", "xss", "gf-results.txt")
 	outFile := filepath.Join(domainDir, "dalfox-results.txt")
 
@@ -36,12 +42,42 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 		return nil, fmt.Errorf("failed to create output dir: %w", err)
 	}
 
-	// Ensure GF results exist (run GF scan first if needed)
-	if _, err := os.Stat(inFile); err != nil {
-		log.Printf("[INFO] No XSS candidates found, GF scan should be run first")
-		return nil, fmt.Errorf("GF results file not found: %s (run GF scan first)", inFile)
+	// Step 1: Ensure URLs exist (run urlfinder if needed)
+	if info, err := os.Stat(urlsFile); err != nil || info.Size() == 0 {
+		log.Printf("[INFO] No URLs found for %s, running urlfinder to collect URLs...", domain)
+		urlRes, err := urls.CollectURLs(domain, threads)
+		if err != nil {
+			return nil, fmt.Errorf("failed to collect URLs: %w", err)
+		}
+		if urlRes == nil || urlRes.TotalURLs == 0 {
+			return nil, fmt.Errorf("no URLs found for domain %s after urlfinder scan", domain)
+		}
+		log.Printf("[OK] Collected %d URLs for %s", urlRes.TotalURLs, domain)
+	} else {
+		log.Printf("[INFO] Found existing URLs file with %d bytes", info.Size())
 	}
 
+	// Step 2: Ensure GF results exist (run GF scan if needed)
+	if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
+		log.Printf("[INFO] No XSS candidates found, running GF scan to find XSS patterns...")
+		gfRes, err := gf.ScanGF(domain)
+		if err != nil {
+			return nil, fmt.Errorf("failed to run GF scan: %w", err)
+		}
+		if gfRes == nil {
+			return nil, fmt.Errorf("GF scan returned no results for domain %s", domain)
+		}
+		// Check if XSS pattern file was created
+		if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
+			log.Printf("[WARN] GF scan completed but no XSS patterns found for %s", domain)
+			return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
+		}
+		log.Printf("[OK] GF scan found XSS candidates, proceeding with dalfox...")
+	} else {
+		log.Printf("[INFO] Found existing GF results file with %d bytes", info.Size())
+	}
+
+	// Validate GF results file exists and has content
 	if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
 		log.Printf("[WARN] No XSS candidate file at %s", inFile)
 		return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
