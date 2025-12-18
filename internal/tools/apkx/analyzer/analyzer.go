@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -99,15 +100,19 @@ func (s *APKScanner) Run() error {
 	resultsMu := sync.Mutex{}
 	var wg sync.WaitGroup
 
-	// Collect all files first
+	// Collect all files first, with size filtering to prevent processing huge files
 	var filesToProcess []string
+	const maxFileSize = 10 * 1024 * 1024 // 10MB limit
 	err = filepath.Walk(s.tempDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if !info.IsDir() && isRelevantFile(path) {
-			filesToProcess = append(filesToProcess, path)
+			// Skip files larger than 10MB (likely binary, not useful for pattern matching)
+			if info.Size() <= maxFileSize {
+				filesToProcess = append(filesToProcess, path)
+			}
 		}
 		return nil
 	})
@@ -116,10 +121,51 @@ func (s *APKScanner) Run() error {
 		return fmt.Errorf("failed to collect files: %v", err)
 	}
 
+	// Limit total files processed to prevent runaway scans (configurable via env)
+	maxFiles := 20000 // Default limit
+	if envMaxFiles := os.Getenv("APKX_MAX_FILES"); envMaxFiles != "" {
+		if m, err := strconv.Atoi(envMaxFiles); err == nil && m > 0 {
+			maxFiles = m
+		}
+	}
+	
+	if len(filesToProcess) > maxFiles {
+		fmt.Printf("%sWarning: Found %d files, limiting to %d to prevent resource exhaustion%s\n", 
+			utils.ColorWarning, len(filesToProcess), maxFiles, utils.ColorEnd)
+		filesToProcess = filesToProcess[:maxFiles]
+	}
+
 	fmt.Printf("%sAnalyzing %d files...%s\n", utils.ColorBlue, len(filesToProcess), utils.ColorEnd)
 
+	// Use config.Workers if set, otherwise use a conservative default based on file count
+	maxWorkers := s.config.Workers
+	if maxWorkers <= 0 {
+		// Adaptive concurrency: fewer workers for large file sets to prevent OOM
+		if len(filesToProcess) > 10000 {
+			maxWorkers = 4 // Very conservative for huge APKs
+		} else if len(filesToProcess) > 5000 {
+			maxWorkers = 6
+		} else if len(filesToProcess) > 1000 {
+			maxWorkers = 8
+		} else {
+			maxWorkers = 10 // Original default for smaller APKs
+		}
+	}
+	
+	// Cap at reasonable maximum to prevent resource exhaustion
+	if maxWorkers > 20 {
+		maxWorkers = 20
+	}
+
 	// Process files in batches to control concurrency
-	semaphore := make(chan struct{}, 10) // Limit concurrent goroutines
+	semaphore := make(chan struct{}, maxWorkers)
+	
+	// Progress tracking with throttling (log every 100 files or 5 seconds)
+	processedCount := 0
+	lastLogTime := time.Now()
+	progressMu := sync.Mutex{}
+	
+	fmt.Printf("%sUsing %d concurrent workers for processing...%s\n", utils.ColorBlue, maxWorkers, utils.ColorEnd)
 
 	for _, path := range filesToProcess {
 		wg.Add(1)
@@ -138,11 +184,26 @@ func (s *APKScanner) Run() error {
 				}
 				resultsMu.Unlock()
 			}
+			
+			// Throttled progress logging
+			progressMu.Lock()
+			processedCount++
+			now := time.Now()
+			if processedCount%100 == 0 || now.Sub(lastLogTime) >= 5*time.Second {
+				fmt.Printf("%sProgress: %d of %d (%.0f%%)%s\n", 
+					utils.ColorBlue, processedCount, len(filesToProcess), 
+					float64(processedCount)/float64(len(filesToProcess))*100, utils.ColorEnd)
+				lastLogTime = now
+			}
+			progressMu.Unlock()
 		}(path)
 	}
 
 	// Wait for all goroutines to complete
 	wg.Wait()
+	
+	// Final progress message
+	fmt.Printf("%sCompleted analysis of %d files%s\n", utils.ColorGreen, len(filesToProcess), utils.ColorEnd)
 
 	// Special handling for AndroidManifest.xml - detect exported components
 	manifestPath := filepath.Join(s.tempDir, "AndroidManifest.xml")
@@ -247,6 +308,18 @@ func (s *APKScanner) loadPatterns() (map[string][]string, error) {
 }
 
 func (s *APKScanner) processFile(path string, patterns map[string][]string) map[string][]string {
+	// Check file size before reading - skip files larger than 10MB to prevent OOM
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	
+	// Skip files larger than 10MB (they're likely binary and not useful for pattern matching)
+	const maxFileSize = 10 * 1024 * 1024 // 10MB
+	if info.Size() > maxFileSize {
+		return nil
+	}
+	
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil

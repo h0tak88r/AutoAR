@@ -1,6 +1,7 @@
 package githubscan
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -109,6 +110,12 @@ func Run(opts Options) (*Result, error) {
 		}, fmt.Errorf("trufflehog command failed: %w", err)
 	}
 
+	// Generate secrets table from JSON
+	if err := generateSecretsTable(jsonPath, tablePath); err != nil {
+		// Log error but don't fail the scan
+		fmt.Printf("[WARN] Failed to generate secrets table: %v\n", err)
+	}
+
 	return &Result{
 		BaseDir:    baseDir,
 		JSONPath:   jsonPath,
@@ -187,4 +194,97 @@ func ensureRepoURL(repo string) string {
 		return repo
 	}
 	return "https://github.com/" + repo
+}
+
+// TruffleHogSecret represents a secret found by TruffleHog
+type TruffleHogSecret struct {
+	DetectorName string `json:"DetectorName"`
+	Raw          string `json:"Raw"`
+	Redacted     string `json:"Redacted"`
+	Verified     bool   `json:"Verified"`
+	SourceMetadata struct {
+		Data struct {
+			File string `json:"File"`
+			Line int    `json:"Line"`
+			Link string `json:"Link"`
+		} `json:"Data"`
+	} `json:"SourceMetadata"`
+}
+
+// generateSecretsTable parses the TruffleHog JSON output and generates a table
+// with columns: secretname, secret, url
+func generateSecretsTable(jsonPath, tablePath string) error {
+	// Read JSON file
+	jsonData, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return fmt.Errorf("failed to read JSON file: %w", err)
+	}
+
+	// Parse JSON (TruffleHog outputs one JSON object per line)
+	lines := strings.Split(strings.TrimSpace(string(jsonData)), "\n")
+	if len(lines) == 0 || (len(lines) == 1 && strings.TrimSpace(lines[0]) == "") {
+		// No secrets found, create empty table
+		return os.WriteFile(tablePath, []byte("No secrets found.\n"), 0644)
+	}
+
+	var secrets []TruffleHogSecret
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var secret TruffleHogSecret
+		if err := json.Unmarshal([]byte(line), &secret); err != nil {
+			// Skip invalid JSON lines
+			continue
+		}
+		secrets = append(secrets, secret)
+	}
+
+	if len(secrets) == 0 {
+		return os.WriteFile(tablePath, []byte("No secrets found.\n"), 0644)
+	}
+
+	// Generate table
+	var table strings.Builder
+	table.WriteString("Secret Name | Secret | URL\n")
+	table.WriteString("------------|--------|-----\n")
+
+	for _, secret := range secrets {
+		secretName := secret.DetectorName
+		if secretName == "" {
+			secretName = "Unknown"
+		}
+
+		// Use Redacted if available, otherwise use Raw (truncated if too long)
+		secretValue := secret.Redacted
+		if secretValue == "" {
+			secretValue = secret.Raw
+			// Truncate long secrets for table display
+			if len(secretValue) > 50 {
+				secretValue = secretValue[:47] + "..."
+			}
+		}
+
+		// Get URL from SourceMetadata
+		url := secret.SourceMetadata.Data.Link
+		if url == "" {
+			// Construct GitHub URL from file path if available
+			if secret.SourceMetadata.Data.File != "" {
+				// Try to extract repo from file path or use a placeholder
+				url = fmt.Sprintf("File: %s (Line %d)", secret.SourceMetadata.Data.File, secret.SourceMetadata.Data.Line)
+			} else {
+				url = "N/A"
+			}
+		}
+
+		// Escape pipe characters in values
+		secretName = strings.ReplaceAll(secretName, "|", "\\|")
+		secretValue = strings.ReplaceAll(secretValue, "|", "\\|")
+		url = strings.ReplaceAll(url, "|", "\\|")
+
+		table.WriteString(fmt.Sprintf("%s | %s | %s\n", secretName, secretValue, url))
+	}
+
+	return os.WriteFile(tablePath, []byte(table.String()), 0644)
 }
