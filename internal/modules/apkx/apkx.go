@@ -14,6 +14,7 @@ import (
 
 	apkxanalyzer "github.com/h0tak88r/AutoAR/internal/tools/apkx/analyzer"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
 	iosstore "github.com/h0tak88r/AutoAR/internal/tools/ipatool"
 )
 
@@ -218,9 +219,20 @@ func Run(opts Options) (*Result, error) {
 			}, fmt.Errorf("apk analysis failed: %w", err)
 		}
 		
-		// If MITM patching was requested, look for patched APK in output directory
+		// If MITM patching was requested, patch the APK using pure Go implementation
 		if opts.MITM {
-			mitmPatchedAPK = findMITMPatchedAPK(outDir, opts.InputPath)
+			patcher, err := mitm.NewPatcher()
+			if err != nil {
+				fmt.Printf("[WARN] MITM patcher initialization failed: %v\n", err)
+			} else {
+				patchedPath, err := patcher.PatchAPK(opts.InputPath, outDir)
+				if err != nil {
+					fmt.Printf("[WARN] MITM patching failed: %v\n", err)
+				} else if patchedPath != "" {
+					mitmPatchedAPK = patchedPath
+					fmt.Printf("[OK] MITM patched APK created: %s\n", patchedPath)
+				}
+			}
 		}
 	case ".xapk":
 		// Extract XAPK and find the main APK file
@@ -279,46 +291,6 @@ func Run(opts Options) (*Result, error) {
 	}, nil
 }
 
-// findMITMPatchedAPK searches for MITM patched APK files in the output directory.
-// Common naming patterns: *-patched.apk, *-mitm.apk, *-mitm-patched.apk, or patched-*.apk
-func findMITMPatchedAPK(outDir, originalAPK string) string {
-	baseName := strings.TrimSuffix(filepath.Base(originalAPK), filepath.Ext(originalAPK))
-	
-	// Common patterns for MITM patched APKs
-	patterns := []string{
-		filepath.Join(outDir, baseName+"-patched.apk"),
-		filepath.Join(outDir, baseName+"-mitm.apk"),
-		filepath.Join(outDir, baseName+"-mitm-patched.apk"),
-		filepath.Join(outDir, "patched-"+filepath.Base(originalAPK)),
-		filepath.Join(outDir, "mitm-"+filepath.Base(originalAPK)),
-		filepath.Join(outDir, "mitm-patched-"+filepath.Base(originalAPK)),
-	}
-	
-	// Also search for any .apk files in the output directory that contain "patched" or "mitm"
-	entries, err := os.ReadDir(outDir)
-	if err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".apk") {
-				name := strings.ToLower(entry.Name())
-				if strings.Contains(name, "patched") || strings.Contains(name, "mitm") {
-					fullPath := filepath.Join(outDir, entry.Name())
-					if info, err := os.Stat(fullPath); err == nil && info.Size() > 0 {
-						return fullPath
-					}
-				}
-			}
-		}
-	}
-	
-	// Check specific patterns
-	for _, pattern := range patterns {
-		if info, err := os.Stat(pattern); err == nil && info.Size() > 0 {
-			return pattern
-		}
-	}
-	
-	return ""
-}
 
 // RunFromPackage downloads an APK/IPA for the given package identifier using
 // an external helper command (configured via environment variables) and then
