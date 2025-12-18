@@ -221,16 +221,29 @@ func Run(opts Options) (*Result, error) {
 		
 		// If MITM patching was requested, patch the APK using pure Go implementation
 		if opts.MITM {
+			fmt.Printf("[MITM] Starting APK patching for MITM inspection...\n")
 			patcher, err := mitm.NewPatcher()
 			if err != nil {
-				fmt.Printf("[WARN] MITM patcher initialization failed: %v\n", err)
+				fmt.Printf("[ERROR] MITM patcher initialization failed: %v\n", err)
 			} else {
 				patchedPath, err := patcher.PatchAPK(opts.InputPath, outDir)
 				if err != nil {
-					fmt.Printf("[WARN] MITM patching failed: %v\n", err)
+					fmt.Printf("[ERROR] MITM patching failed: %v\n", err)
 				} else if patchedPath != "" {
-					mitmPatchedAPK = patchedPath
-					fmt.Printf("[OK] MITM patched APK created: %s\n", patchedPath)
+					// Verify the file exists
+					if _, statErr := os.Stat(patchedPath); statErr == nil {
+						mitmPatchedAPK = patchedPath
+						fmt.Printf("[OK] MITM patched APK created: %s (size: %d bytes)\n", patchedPath, func() int64 {
+							if info, err := os.Stat(patchedPath); err == nil {
+								return info.Size()
+							}
+							return 0
+						}())
+					} else {
+						fmt.Printf("[ERROR] MITM patched APK file not found at: %s\n", patchedPath)
+					}
+				} else {
+					fmt.Printf("[WARN] MITM patching returned empty path\n")
 				}
 			}
 		}

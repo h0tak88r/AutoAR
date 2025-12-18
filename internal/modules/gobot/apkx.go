@@ -167,33 +167,7 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
 
-		files := []*discordgo.File{}
-		if res != nil && res.LogFile != "" {
-			if f, err := os.Open(res.LogFile); err == nil {
-				defer f.Close()
-				files = append(files, &discordgo.File{
-					Name:        filepath.Base(res.LogFile),
-					ContentType: "text/plain",
-					Reader:      f,
-				})
-			}
-		}
-		
-		// Add MITM patched APK if it exists
-		if mitm && res != nil && res.MITMPatchedAPK != "" {
-			if f, err := os.Open(res.MITMPatchedAPK); err == nil {
-				defer f.Close()
-				files = append(files, &discordgo.File{
-					Name:        filepath.Base(res.MITMPatchedAPK),
-					ContentType: "application/vnd.android.package-archive",
-					Reader:      f,
-				})
-				fields = append(fields, &discordgo.MessageEmbedField{
-					Name:  "MITM Patched APK",
-					Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
-				})
-			}
-		}
+		files := prepareAPKFiles(res, mitm, &fields)
 
 		if len(files) > 0 {
 			_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -272,33 +246,7 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
-	files := []*discordgo.File{}
-	if res != nil && res.LogFile != "" {
-		if f, err := os.Open(res.LogFile); err == nil {
-			defer f.Close()
-			files = append(files, &discordgo.File{
-				Name:        filepath.Base(res.LogFile),
-				ContentType: "text/plain",
-				Reader:      f,
-			})
-		}
-	}
-	
-	// Add MITM patched APK if it exists
-	if mitm && res != nil && res.MITMPatchedAPK != "" {
-		if f, err := os.Open(res.MITMPatchedAPK); err == nil {
-			defer f.Close()
-			files = append(files, &discordgo.File{
-				Name:        filepath.Base(res.MITMPatchedAPK),
-				ContentType: "application/vnd.android.package-archive",
-				Reader:      f,
-			})
-			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "MITM Patched APK",
-				Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
-			})
-		}
-	}
+	files := prepareAPKFiles(res, mitm, &fields)
 
 	if len(files) > 0 {
 		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -407,33 +355,7 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
-	files := []*discordgo.File{}
-	if res != nil && res.LogFile != "" {
-		if f, err := os.Open(res.LogFile); err == nil {
-			defer f.Close()
-			files = append(files, &discordgo.File{
-				Name:        filepath.Base(res.LogFile),
-				ContentType: "text/plain",
-				Reader:      f,
-			})
-		}
-	}
-	
-	// Add MITM patched APK if it exists
-	if mitm && res != nil && res.MITMPatchedAPK != "" {
-		if f, err := os.Open(res.MITMPatchedAPK); err == nil {
-			defer f.Close()
-			files = append(files, &discordgo.File{
-				Name:        filepath.Base(res.MITMPatchedAPK),
-				ContentType: "application/vnd.android.package-archive",
-				Reader:      f,
-			})
-			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "MITM Patched APK",
-				Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
-			})
-		}
-	}
+	files := prepareAPKFiles(res, mitm, &fields)
 
 	if len(files) > 0 {
 		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -542,34 +464,9 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
-	files := []*discordgo.File{}
-	if res != nil && res.LogFile != "" {
-		if f, err := os.Open(res.LogFile); err == nil {
-			defer f.Close()
-			files = append(files, &discordgo.File{
-				Name:        filepath.Base(res.LogFile),
-				ContentType: "text/plain",
-				Reader:      f,
-			})
-		}
-	}
-	
 	// Note: MITM patching is typically only for Android APKs, not iOS IPAs
 	// But we check anyway in case it's implemented in the future
-	if res != nil && res.MITMPatchedAPK != "" {
-		if f, err := os.Open(res.MITMPatchedAPK); err == nil {
-			defer f.Close()
-			files = append(files, &discordgo.File{
-				Name:        filepath.Base(res.MITMPatchedAPK),
-				ContentType: "application/vnd.android.package-archive",
-				Reader:      f,
-			})
-			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "MITM Patched File",
-				Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
-			})
-		}
-	}
+	files := prepareAPKFiles(res, false, &fields)
 
 	if len(files) > 0 {
 		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -584,7 +481,66 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}(bundle)
 }
 
-// parseAPKResultsSummary parses the results.json file and creates a formatted summary
+// prepareAPKFiles prepares file attachments for Discord (table, JSON, and MITM patched APK)
+func prepareAPKFiles(res *apkxmod.Result, mitm bool, fields *[]*discordgo.MessageEmbedField) []*discordgo.File {
+	files := []*discordgo.File{}
+	
+	if res == nil {
+		return files
+	}
+	
+	// Generate and add table file if results exist
+	if res.LogFile != "" {
+		tablePath := filepath.Join(res.ReportDir, "findings-table.md")
+		if err := generateAPKResultsTable(res.LogFile, tablePath); err == nil {
+			if f, err := os.Open(tablePath); err == nil {
+				defer f.Close()
+				files = append(files, &discordgo.File{
+					Name:        "findings-table.md",
+					ContentType: "text/markdown",
+					Reader:      f,
+				})
+			}
+		}
+		
+		// Also include results.json
+		if f, err := os.Open(res.LogFile); err == nil {
+			defer f.Close()
+			files = append(files, &discordgo.File{
+				Name:        filepath.Base(res.LogFile),
+				ContentType: "application/json",
+				Reader:      f,
+			})
+		}
+	}
+	
+	// Add MITM patched APK if it exists
+	if mitm && res.MITMPatchedAPK != "" {
+		// Verify file exists before trying to send
+		if _, statErr := os.Stat(res.MITMPatchedAPK); statErr == nil {
+			if f, err := os.Open(res.MITMPatchedAPK); err == nil {
+				defer f.Close()
+				files = append(files, &discordgo.File{
+					Name:        filepath.Base(res.MITMPatchedAPK),
+					ContentType: "application/vnd.android.package-archive",
+					Reader:      f,
+				})
+				*fields = append(*fields, &discordgo.MessageEmbedField{
+					Name:  "🔒 MITM Patched APK",
+					Value: fmt.Sprintf("`%s`", filepath.Base(res.MITMPatchedAPK)),
+				})
+			} else {
+				log.Printf("[WARN] Failed to open MITM patched APK: %v", err)
+			}
+		} else {
+			log.Printf("[WARN] MITM patched APK file not found: %s (stat error: %v)", res.MITMPatchedAPK, statErr)
+		}
+	}
+	
+	return files
+}
+
+// parseAPKResultsSummary parses the results.json file and creates a markdown table
 // showing secret name, secret value, and file location
 func parseAPKResultsSummary(jsonPath string) string {
 	if jsonPath == "" {
@@ -607,44 +563,36 @@ func parseAPKResultsSummary(jsonPath string) string {
 		return "No secrets found."
 	}
 	
-	// Build summary - limit to top 20 findings to avoid Discord embed limits
-	var summary strings.Builder
-	totalFindings := 0
-	displayedFindings := 0
-	maxDisplay := 20
-	
 	// Count total findings
+	totalFindings := 0
 	for _, findings := range results {
 		totalFindings += len(findings)
 	}
 	
+	// Build summary with total count
+	var summary strings.Builder
 	summary.WriteString(fmt.Sprintf("**Total: %d findings in %d categories**\n\n", totalFindings, len(results)))
 	
-	// Display findings by category
+	// Discord embed field value limit is 1024 characters, so we'll show a summary
+	// The full table will be sent as a file attachment
+	maxDisplay := 10
+	displayedFindings := 0
+	
+	// Display findings by category (limited for embed)
 	for category, findings := range results {
 		if len(findings) == 0 || displayedFindings >= maxDisplay {
 			continue
 		}
 		
-		// Category header
-		summary.WriteString(fmt.Sprintf("**%s** (%d):\n", category, len(findings)))
-		
-		// Show up to 3 findings per category
-		for i, finding := range findings {
+		// Show first finding from each category
+		for _, finding := range findings {
 			if displayedFindings >= maxDisplay {
-				break
-			}
-			if i >= 3 {
-				remaining := len(findings) - 3
-				summary.WriteString(fmt.Sprintf("  ... and %d more\n", remaining))
 				break
 			}
 			
 			// Parse finding: "file: match (Context: ...)" or "file:line: match (Context: ...)"
-			// The format is: "file: match" or "file:line: match (Context: ...)"
 			var file, match string
 			
-			// Try to find the first ": " which separates file from the rest
 			firstColonSpace := strings.Index(finding, ": ")
 			if firstColonSpace == -1 {
 				continue
@@ -657,48 +605,121 @@ func parseAPKResultsSummary(jsonPath string) string {
 			if strings.Contains(file, ":") {
 				fileParts := strings.SplitN(file, ":", 2)
 				if len(fileParts) == 2 {
-					file = fileParts[0] // Just the file path
+					file = fileParts[0]
 				}
 			}
 			
-			// Extract match (secret value) - everything before " (Context:"
+			// Extract match (secret value)
 			if ctxIdx := strings.Index(rest, " (Context: "); ctxIdx != -1 {
 				match = strings.TrimSpace(rest[:ctxIdx])
 			} else {
 				match = strings.TrimSpace(rest)
 			}
 			
-			// Clean up match - remove any trailing context markers
-			match = strings.TrimSuffix(match, " (Context:")
-			match = strings.TrimSpace(match)
-			
-			// Truncate match if too long (Discord embed limits)
-			if len(match) > 60 {
-				match = match[:57] + "..."
+			// Truncate for embed display
+			if len(match) > 50 {
+				match = match[:47] + "..."
 			}
 			
-			// Get just the filename
 			fileName := filepath.Base(file)
-			if len(fileName) > 40 {
-				fileName = fileName[:37] + "..."
+			if len(fileName) > 30 {
+				fileName = fileName[:27] + "..."
 			}
 			
-			// Format: Secret Name | Secret Value | File
-			summary.WriteString(fmt.Sprintf("  • **%s** | `%s` | `%s`\n", category, match, fileName))
+			summary.WriteString(fmt.Sprintf("• **%s** | `%s` | `%s`\n", category, match, fileName))
 			displayedFindings++
+			break // Only show first from each category in embed
 		}
-		summary.WriteString("\n")
 	}
 	
-	if displayedFindings >= maxDisplay {
-		summary.WriteString(fmt.Sprintf("\n*Showing first %d findings. Check results.json for complete details.*", maxDisplay))
+	if totalFindings > maxDisplay {
+		summary.WriteString(fmt.Sprintf("\n*Showing first %d findings. See table file for complete details.*", maxDisplay))
 	}
 	
 	result := summary.String()
-	// Discord embed field value limit is 1024 characters
 	if len(result) > 1024 {
 		result = result[:1021] + "..."
 	}
 	
 	return result
+}
+
+// generateAPKResultsTable creates a markdown table file with all findings
+func generateAPKResultsTable(jsonPath, outputPath string) error {
+	if jsonPath == "" {
+		return fmt.Errorf("json path is empty")
+	}
+	
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return fmt.Errorf("failed to read results.json: %w", err)
+	}
+	
+	var results map[string][]string
+	if err := json.Unmarshal(data, &results); err != nil {
+		return fmt.Errorf("failed to parse results.json: %w", err)
+	}
+	
+	if len(results) == 0 {
+		return fmt.Errorf("no results to generate table")
+	}
+	
+	// Create markdown table
+	var table strings.Builder
+	table.WriteString("# APK Analysis Results\n\n")
+	table.WriteString("| Secret Name | Secret Value | File |\n")
+	table.WriteString("|-------------|-------------|------|\n")
+	
+	// Process all findings
+	for category, findings := range results {
+		for _, finding := range findings {
+			// Parse finding: "file: match (Context: ...)" or "file:line: match"
+			var file, match string
+			
+			firstColonSpace := strings.Index(finding, ": ")
+			if firstColonSpace == -1 {
+				continue
+			}
+			
+			file = finding[:firstColonSpace]
+			rest := finding[firstColonSpace+2:]
+			
+			// Check if there's a line number
+			if strings.Contains(file, ":") {
+				fileParts := strings.SplitN(file, ":", 2)
+				if len(fileParts) == 2 {
+					file = fileParts[0]
+				}
+			}
+			
+			// Extract match (secret value)
+			if ctxIdx := strings.Index(rest, " (Context: "); ctxIdx != -1 {
+				match = strings.TrimSpace(rest[:ctxIdx])
+			} else {
+				match = strings.TrimSpace(rest)
+			}
+			
+			// Escape pipe characters in markdown table
+			categoryEscaped := strings.ReplaceAll(category, "|", "\\|")
+			matchEscaped := strings.ReplaceAll(match, "|", "\\|")
+			fileEscaped := strings.ReplaceAll(file, "|", "\\|")
+			
+			// Truncate very long values to keep table readable
+			if len(matchEscaped) > 200 {
+				matchEscaped = matchEscaped[:197] + "..."
+			}
+			if len(fileEscaped) > 150 {
+				fileEscaped = fileEscaped[:147] + "..."
+			}
+			
+			table.WriteString(fmt.Sprintf("| %s | `%s` | `%s` |\n", categoryEscaped, matchEscaped, fileEscaped))
+		}
+	}
+	
+	// Write table to file
+	if err := os.WriteFile(outputPath, []byte(table.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write table file: %w", err)
+	}
+	
+	return nil
 }
