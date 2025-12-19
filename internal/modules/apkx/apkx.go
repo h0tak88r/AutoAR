@@ -166,8 +166,51 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	resultsRoot := os.Getenv("AUTOAR_RESULTS_DIR")
+	
+	// Check if we're running in Docker by checking if /app exists and is writable
+	isDocker := false
+	if _, err := os.Stat("/app"); err == nil {
+		// /app exists, check if we can write to it
+		if err := os.MkdirAll("/app", 0755); err == nil {
+			testPath := "/app/.test-write"
+			if f, err := os.Create(testPath); err == nil {
+				f.Close()
+				os.Remove(testPath)
+				isDocker = true
+			}
+		}
+	}
+	
 	if resultsRoot == "" {
-		resultsRoot = "new-results"
+		// No env var set - use relative path for native, Docker path for Docker
+		if isDocker {
+			resultsRoot = "/app/new-results"
+		} else {
+			if cwd, err := os.Getwd(); err == nil {
+				resultsRoot = filepath.Join(cwd, "new-results")
+			} else {
+				resultsRoot = "new-results"
+			}
+		}
+	} else {
+		// Env var is set - validate it
+		// If we're not in Docker and the path is absolute but not /app/..., convert to relative
+		if !isDocker && filepath.IsAbs(resultsRoot) && !strings.HasPrefix(resultsRoot, "/app") {
+			// Absolute path like /new-results but not in Docker - convert to relative
+			// This handles cases where AUTOAR_RESULTS_DIR=/new-results but we're running natively
+			if cwd, err := os.Getwd(); err == nil {
+				resultsRoot = filepath.Join(cwd, "new-results")
+			} else {
+				resultsRoot = "new-results"
+			}
+		} else if strings.HasPrefix(resultsRoot, "/app") && !isDocker {
+			// Docker path but not in Docker - use relative
+			if cwd, err := os.Getwd(); err == nil {
+				resultsRoot = filepath.Join(cwd, "new-results")
+			} else {
+				resultsRoot = "new-results"
+			}
+		}
 	}
 
 	outDir := opts.OutputDir
@@ -221,31 +264,45 @@ func Run(opts Options) (*Result, error) {
 		
 		// If MITM patching was requested, patch the APK using pure Go implementation
 		if opts.MITM {
+			fmt.Printf("[MITM] ========================================\n")
 			fmt.Printf("[MITM] Starting APK patching for MITM inspection...\n")
+			fmt.Printf("[MITM] Input APK: %s\n", opts.InputPath)
+			fmt.Printf("[MITM] Output directory: %s\n", outDir)
+			
 			patcher, err := mitm.NewPatcher()
 			if err != nil {
 				fmt.Printf("[ERROR] MITM patcher initialization failed: %v\n", err)
+				fmt.Printf("[ERROR] This usually means apktool or Java is not installed/available\n")
+				fmt.Printf("[ERROR] Install apktool: https://ibotpeaches.github.io/Apktool/\n")
+				fmt.Printf("[ERROR] Install Java: sudo apt install openjdk-17-jre-headless\n")
 			} else {
+				fmt.Printf("[MITM] Patcher initialized successfully\n")
+				fmt.Printf("[MITM] apktool path: %s\n", patcher.GetApktoolPath())
+				fmt.Printf("[MITM] java path: %s\n", patcher.GetJavaPath())
+				
 				patchedPath, err := patcher.PatchAPK(opts.InputPath, outDir)
 				if err != nil {
 					fmt.Printf("[ERROR] MITM patching failed: %v\n", err)
+					fmt.Printf("[ERROR] Check logs above for apktool decode/encode errors\n")
 				} else if patchedPath != "" {
+					fmt.Printf("[MITM] Patcher returned path: %s\n", patchedPath)
 					// Verify the file exists
-					if _, statErr := os.Stat(patchedPath); statErr == nil {
+					if info, statErr := os.Stat(patchedPath); statErr == nil {
 						mitmPatchedAPK = patchedPath
-						fmt.Printf("[OK] MITM patched APK created: %s (size: %d bytes)\n", patchedPath, func() int64 {
-							if info, err := os.Stat(patchedPath); err == nil {
-								return info.Size()
-							}
-							return 0
-						}())
+						fmt.Printf("[OK] MITM patched APK created: %s (size: %d bytes, %.2f MB)\n", 
+							patchedPath, info.Size(), float64(info.Size())/1024/1024)
+						fmt.Printf("[MITM] ========================================\n")
 					} else {
-						fmt.Printf("[ERROR] MITM patched APK file not found at: %s\n", patchedPath)
+						fmt.Printf("[ERROR] MITM patched APK file not found at: %s (stat error: %v)\n", patchedPath, statErr)
+						fmt.Printf("[MITM] ========================================\n")
 					}
 				} else {
-					fmt.Printf("[WARN] MITM patching returned empty path\n")
+					fmt.Printf("[WARN] MITM patching returned empty path (no error, but no file)\n")
+					fmt.Printf("[MITM] ========================================\n")
 				}
 			}
+		} else {
+			fmt.Printf("[DEBUG] MITM patching not requested (opts.MITM = false)\n")
 		}
 	case ".xapk":
 		// Extract XAPK and find the main APK file

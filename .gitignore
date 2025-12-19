@@ -85,3 +85,4 @@ autoar.exe
 !cmd/
 !cmd/**
 all-roots.txt
+.evn.example
