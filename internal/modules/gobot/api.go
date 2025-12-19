@@ -149,7 +149,7 @@ func scanApkX(c *gin.Context) {
 
 	scanID := generateScanID()
 	command := []string{
-		getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"),
+		getAutoarScriptPath(),
 		"apkx", "scan",
 		"-i", *req.FilePath,
 	}
@@ -210,7 +210,7 @@ func scanSubdomains(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "subdomains", "get", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "subdomains", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "subdomains")
 

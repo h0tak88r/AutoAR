@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 )
 
 var (
@@ -30,6 +32,25 @@ var (
 
 // StartBot starts the Discord bot and initializes database
 func StartBot() error {
+	fmt.Println("🚀 Starting AutoAR Discord Bot...")
+	
+	// Load .env file if it exists
+	if err := envloader.LoadEnv(); err != nil {
+		log.Printf("[WARN] Failed to load .env file: %v", err)
+	} else {
+		fmt.Println("✅ Loaded environment variables from .env file")
+	}
+
+	// Re-read bot token after loading .env
+	botToken = os.Getenv("DISCORD_BOT_TOKEN")
+	
+	// Initialize directories
+	if err := initializeDirectories(); err != nil {
+		log.Printf("[WARN] Failed to initialize directories: %v", err)
+	} else {
+		fmt.Println("✅ Initialized directories")
+	}
+	
 	// Initialize database if configured
 	if os.Getenv("DB_HOST") != "" {
 		log.Println("[INFO] Initializing database...")
@@ -69,7 +90,8 @@ func StartBot() error {
 	// Register slash commands
 	registerAllCommands(dg)
 
-	fmt.Println("AutoAR Discord Bot is running.")
+	fmt.Println("✅ AutoAR Discord Bot is running and connected!")
+	fmt.Println("   Bot is ready to receive commands.")
 
 	// Keep running
 	sc := make(chan os.Signal, 1)
@@ -266,4 +288,50 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getResultsDir returns the results directory path
+// Tries: AUTOAR_RESULTS_DIR env var -> ./new-results -> /app/new-results (Docker fallback)
+func getResultsDir() string {
+	if dir := os.Getenv("AUTOAR_RESULTS_DIR"); dir != "" {
+		return dir
+	}
+	// Try current directory first (for native runs)
+	if cwd, err := os.Getwd(); err == nil {
+		localDir := filepath.Join(cwd, "new-results")
+		return localDir
+	}
+	// Docker fallback
+	return "/app/new-results"
+}
+
+// initializeDirectories creates necessary directories for AutoAR
+func initializeDirectories() error {
+	root := getRootDir()
+	dirs := []string{
+		filepath.Join(root, "new-results"),
+		filepath.Join(root, "Wordlists"),
+		filepath.Join(root, "nuclei_templates"),
+		filepath.Join(root, "regexes"),
+	}
+	
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// getRootDir returns the AutoAR root directory
+func getRootDir() string {
+	if root := os.Getenv("AUTOAR_ROOT"); root != "" {
+		return root
+	}
+	// Try current working directory
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+	// Docker fallback
+	return "/app"
 }
