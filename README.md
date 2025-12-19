@@ -23,6 +23,8 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **Backup File Discovery**: Automated backup file and sensitive file discovery
 
 ### 🎯 **Specialized Scanners**
+- **APK/IPA Analysis**: Embedded apkX engine for Android/iOS static analysis with secret extraction, certificate pinning detection, and MITM patching (pure Go implementation, no external binaries required)
+- **MITM APK Patching**: Automated APK patching for HTTPS traffic inspection - modifies network security config, disables certificate pinning, and signs APKs (requires apktool and Java)
 - **JavaScript Analysis**: JS file collection and secret extraction
 - **JavaScript Monitoring**: Continuous monitoring of JavaScript files for changes
 - **GitHub Reconnaissance**: Organization and repository scanning with secrets detection
@@ -116,7 +118,22 @@ docker compose up -d
 docker logs autoar-discord
 ```
 
-### Manual Installation
+### Manual Installation (Native - No Docker)
+
+**Quick Start:**
+```bash
+# 1. Install dependencies
+autoar setup
+
+# 2. Configure environment
+cp env.example .env
+# Edit .env and set DISCORD_BOT_TOKEN
+
+# 3. Start the bot
+./start-bot.sh
+```
+
+**Detailed Steps:**
 
 1. **Install Go** (1.23 or later):
 ```bash
@@ -138,12 +155,28 @@ go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 # System packages (for Naabu/pcap when building locally on Linux)
 sudo apt-get update && sudo apt-get install -y libpcap-dev
 
-# Decompiler used by embedded apkX engine
+# Java runtime (required for jadx and apktool)
+sudo apt-get install -y openjdk-17-jre-headless
+
+# Decompiler used by embedded apkX engine (required for APK analysis)
 curl -L "https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip" -o /tmp/jadx.zip
 sudo mkdir -p /opt/jadx
 sudo unzip -q /tmp/jadx.zip -d /opt/jadx
 sudo ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx
 rm /tmp/jadx.zip
+
+# APK tool for MITM patching (required for apkX MITM patching feature)
+APKTOOL_VERSION="2.9.3"
+curl -L "https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_${APKTOOL_VERSION}.jar" -o /tmp/apktool.jar
+sudo mv /tmp/apktool.jar /usr/local/bin/apktool.jar
+echo '#!/bin/sh\njava -jar /usr/local/bin/apktool.jar "$@"' | sudo tee /usr/local/bin/apktool
+sudo chmod +x /usr/local/bin/apktool
+
+# Optional: APK signer for MITM patched APKs (recommended)
+curl -L "https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar" -o /tmp/uber-apk-signer.jar
+sudo mv /tmp/uber-apk-signer.jar /usr/local/bin/uber-apk-signer.jar
+echo '#!/bin/sh\njava -jar /usr/local/bin/uber-apk-signer.jar "$@"' | sudo tee /usr/local/bin/uber-apk-signer
+sudo chmod +x /usr/local/bin/uber-apk-signer
 ```
 
 **Note on AWS integration**
@@ -169,17 +202,56 @@ go install ./cmd/autoar
 ```bash
 # Set up environment
 cp env.example .env
-# Edit .env with your configuration
+# Edit .env with your configuration (at minimum, set DISCORD_BOT_TOKEN)
 
-# Run AutoAR
-export AUTOAR_MODE=discord
-export DISCORD_BOT_TOKEN=your_token_here
+# The bot automatically loads .env file - no need to source it manually!
 ./autoar bot  # Start Discord bot
 # or
 ./autoar api  # Start REST API
 # or
 ./autoar both # Start both
+
+# Run in tmux (for background execution)
+tmux new-session -d -s autoar './autoar bot'
+# Attach to session: tmux attach -t autoar
+# Detach: Ctrl+B then D
+
+# Check if bot is running
+tmux ls
+# View logs
+tmux attach -t autoar
+
+# Test MITM patching standalone
+./autoar apkx mitm -i /path/to/app.apk -o /path/to/output
+# Or download and patch by package name
+./autoar apkx mitm -p com.example.app -o /path/to/output
 ```
+
+**Running in tmux (Recommended for Production):**
+```bash
+# Create .env file (bot automatically loads it)
+cp env.example .env
+# Edit .env and set DISCORD_BOT_TOKEN
+
+# Start bot in detached tmux session
+tmux new-session -d -s autoar './autoar bot'
+
+# Check if session is running
+tmux ls
+
+# Attach to see logs and interact
+tmux attach -t autoar
+
+# Detach (keeps running in background): Press Ctrl+B, then D
+
+# View logs without attaching
+tmux capture-pane -t autoar -p
+
+# Kill session
+tmux kill-session -t autoar
+```
+
+**Note:** The bot automatically loads `.env` file from the current directory or project root. You don't need to manually `source .env` or `export` variables - just create the `.env` file and run the bot!
 
 ## 📖 Usage
 
@@ -205,6 +277,8 @@ autoar tech detect -d example.com
 autoar gf scan -d example.com
 autoar github-wordlist scan -o orgname
 autoar apkx scan -i /path/to/app.apk    # Analyze APK/IPA with embedded apkX engine
+autoar apkx mitm -i /path/to/app.apk    # Patch APK for MITM inspection (standalone command)
+autoar apkx mitm -p com.example.app     # Download and patch APK by package name
 autoar bot    # Start Discord bot
 autoar api    # Start REST API server
 autoar both   # Start both bot and API
@@ -278,7 +352,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/dalfox domain:example.com [threads:100]` - XSS detection
 - `/sqlmap domain:example.com [threads:100]` - SQL injection testing
 - `/backup_scan domain:example.com [threads:100] [full:false]` - Backup file discovery
-- `/apkx_scan file:<APK_OR_IPA_ATTACHMENT> [package:<ANDROID_PACKAGE>] [mitm:false]` - Analyze Android APK/IPA by upload or Android package name (downloaded from ApkPure) with embedded apkX engine
+- `/apkx_scan file:<APK_OR_IPA_ATTACHMENT> [package:<ANDROID_PACKAGE>] [mitm:false]` - Analyze Android APK/IPA by upload or Android package name (downloaded from ApkPure) with embedded apkX engine. **Requires jadx** for decompilation. **Requires apktool and Java** for MITM patching (when `mitm:true`). MITM patching automatically modifies the APK to allow HTTPS traffic inspection by disabling certificate pinning and adding network security config.
 - `/apkx_ios bundle:<IOS_BUNDLE_IDENTIFIER>` - Download and analyze an iOS app via App Store using embedded ipatool client and apkX engine
 
 #### Specialized Scans
@@ -758,6 +832,7 @@ curl -X POST "http://localhost:8000/scan/dns-takeover" \
   -d '{"domain": "example.com"}'
 
 # APK/IPA Static Analysis (apkX engine)
+# Note: Requires jadx for decompilation and apktool for MITM patching (if mitm=true)
 curl -X POST "http://localhost:8000/scan/apkx" \
   -H "Content-Type: application/json" \
   -d '{"file_path": "/absolute/path/to/app.apk"}'
