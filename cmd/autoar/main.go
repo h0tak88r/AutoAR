@@ -30,12 +30,14 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/nuclei"
 	"github.com/h0tak88r/AutoAR/internal/modules/ports"
 	"github.com/h0tak88r/AutoAR/internal/modules/reflection"
-	s3mod "github.com/h0tak88r/AutoAR/internal/modules/s3"
+	s3mod 	"github.com/h0tak88r/AutoAR/internal/modules/s3"
+	"github.com/h0tak88r/AutoAR/internal/modules/setup"
 	"github.com/h0tak88r/AutoAR/internal/modules/sqlmap"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/wp-confusion"
+	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
 )
@@ -154,7 +156,8 @@ Database:
   db js list          -d <domain>
 
 Utilities:
-  check-tools
+  check-tools         Check if all required tools are installed
+  setup               Install all AutoAR dependencies
   help
 
 Special:
@@ -1960,6 +1963,11 @@ func handleDBCommand(args []string) error {
 }
 
 func main() {
+	// Load .env file if it exists (before processing commands)
+	if err := envloader.LoadEnv(); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] Failed to load .env file: %v\n", err)
+	}
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -2043,6 +2051,9 @@ func main() {
 
 	case "check-tools":
 		err = checktools.Run()
+
+	case "setup":
+		err = setup.Run()
 
 	case "jwt":
 		err = handleJWTCommand(args)
