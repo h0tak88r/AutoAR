@@ -185,7 +185,7 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	// Process each target
-	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
+	resultsDir := getResultsDir()
 	successCount := 0
 	failCount := 0
 	var resultFiles []string
@@ -499,7 +499,7 @@ func processFileScan(s *discordgo.Session, i *discordgo.InteractionCreate, messa
 	}
 
 	// Process each target (same as handleScanFromFile)
-	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
+	resultsDir := getResultsDir()
 	successCount := 0
 	failCount := 0
 	var resultFiles []string
