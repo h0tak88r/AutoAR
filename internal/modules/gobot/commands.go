@@ -15,10 +15,24 @@ import (
 )
 
 var (
-	autoarScript = getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar")
+	autoarScript = getAutoarScriptPath()
 	activeScans  = make(map[string]*ScanInfo)
 	scansMutex   sync.RWMutex
 )
+
+// getAutoarScriptPath returns the path to the autoar binary
+// Tries: AUTOAR_SCRIPT_PATH env var -> executable path -> /usr/local/bin/autoar
+func getAutoarScriptPath() string {
+	if path := os.Getenv("AUTOAR_SCRIPT_PATH"); path != "" {
+		return path
+	}
+	// Try to find the executable
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	// Fallback to default
+	return "autoar" // Will use PATH lookup
+}
 
 type ScanInfo struct {
 	ScanID      string
@@ -128,7 +142,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 // sendResultFiles sends result files directly from the bot using FollowupMessageCreate
 // This works like livehosts and doesn't require an HTTP API
 func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanType, target string) {
-	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
+	resultsDir := getResultsDir()
 
 	// Map scan types to their expected result file paths
 	var resultFiles []string

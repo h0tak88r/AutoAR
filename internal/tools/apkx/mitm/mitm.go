@@ -15,6 +15,16 @@ type Patcher struct {
 	javaPath    string
 }
 
+// GetApktoolPath returns the apktool path (for debugging)
+func (p *Patcher) GetApktoolPath() string {
+	return p.apktoolPath
+}
+
+// GetJavaPath returns the java path (for debugging)
+func (p *Patcher) GetJavaPath() string {
+	return p.javaPath
+}
+
 // NewPatcher creates a new MITM patcher
 func NewPatcher() (*Patcher, error) {
 	// Find apktool JAR (we'll need it for decode/encode)
@@ -22,24 +32,41 @@ func NewPatcher() (*Patcher, error) {
 	apktoolPaths := []string{
 		"/usr/local/bin/apktool.jar",
 		"/opt/apktool/apktool.jar",
+		filepath.Join(os.Getenv("HOME"), ".local/share/apktool/apktool.jar"),
 		"apktool.jar", // In PATH
 	}
 	
 	var apktoolPath string
-	for _, path := range apktoolPaths {
-		if _, err := os.Stat(path); err == nil {
-			apktoolPath = path
-			break
-		}
-		// Also check if it's in PATH as a script that wraps the JAR
-		if path == "apktool.jar" {
-			if found, err := exec.LookPath("apktool"); err == nil {
-				// apktool script exists, extract JAR path from it or use default
-				apktoolPath = "/usr/local/bin/apktool.jar"
-				if _, err := os.Stat(apktoolPath); err != nil {
-					// Try to find the JAR by reading the script
-					apktoolPath = found
+	
+	// First, check if apktool script exists in PATH
+	if found, err := exec.LookPath("apktool"); err == nil {
+		// apktool script exists, try to find the JAR it uses
+		// Read the script to find JAR path, or use common locations
+		scriptData, err := os.ReadFile(found)
+		if err == nil {
+			// Look for JAR path in script (common pattern: java -jar /path/to/apktool.jar)
+			jarRegex := regexp.MustCompile(`-jar\s+([^\s]+apktool[^\s]*\.jar)`)
+			if matches := jarRegex.FindStringSubmatch(string(scriptData)); len(matches) > 1 {
+				if _, err := os.Stat(matches[1]); err == nil {
+					apktoolPath = matches[1]
 				}
+			}
+		}
+		// If not found in script, try default locations
+		if apktoolPath == "" {
+			for _, path := range apktoolPaths {
+				if _, err := os.Stat(path); err == nil {
+					apktoolPath = path
+					break
+				}
+			}
+		}
+	} else {
+		// No apktool script, check JAR locations directly
+		for _, path := range apktoolPaths {
+			if _, err := os.Stat(path); err == nil {
+				apktoolPath = path
+				break
 			}
 		}
 	}
@@ -100,16 +127,29 @@ func (p *Patcher) PatchAPK(apkPath, outputDir string) (string, error) {
 
 	// Step 5: Re-encode APK using apktool
 	fmt.Printf("[MITM] Encoding patched APK...\n")
-	encodedAPK := filepath.Join(outputDir, strings.TrimSuffix(filepath.Base(apkPath), ".apk")+"-patched.apk")
+	// Use a more descriptive name for the patched APK
+	apkBaseName := strings.TrimSuffix(filepath.Base(apkPath), filepath.Ext(apkPath))
+	encodedAPK := filepath.Join(outputDir, apkBaseName+"-mitm-patched.apk")
 	if err := p.encodeAPK(tempDir, encodedAPK); err != nil {
 		return "", fmt.Errorf("failed to encode APK: %w", err)
 	}
+	fmt.Printf("[MITM] Encoded APK saved to: %s\n", encodedAPK)
 
 	// Step 6: Sign APK (using uber-apk-signer or apksigner)
 	fmt.Printf("[MITM] Signing patched APK...\n")
 	if err := p.signAPK(encodedAPK); err != nil {
 		// Signing failure is not critical, warn but continue
 		fmt.Printf("[WARN] Failed to sign APK: %v (APK may need manual signing)\n", err)
+	} else {
+		fmt.Printf("[MITM] APK signed successfully\n")
+	}
+
+	// Verify the patched APK exists before returning
+	if info, err := os.Stat(encodedAPK); err != nil {
+		return "", fmt.Errorf("patched APK file not found after encoding: %w", err)
+	} else {
+		fmt.Printf("[MITM] Patched APK verified: %s (size: %d bytes, %.2f MB)\n", 
+			encodedAPK, info.Size(), float64(info.Size())/1024/1024)
 	}
 
 	return encodedAPK, nil
@@ -126,10 +166,12 @@ func (p *Patcher) decodeAPK(apkPath, outputDir string) error {
 		// It's a script, call it directly
 		cmd = exec.Command(p.apktoolPath, "d", apkPath, "-o", outputDir, "-f")
 	}
+	fmt.Printf("[MITM] Running decode: %s\n", strings.Join(cmd.Args, " "))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("apktool decode failed: %w, output: %s", err, string(output))
 	}
+	fmt.Printf("[MITM] Decode completed successfully\n")
 	return nil
 }
 
@@ -137,22 +179,26 @@ func (p *Patcher) decodeAPK(apkPath, outputDir string) error {
 func (p *Patcher) encodeAPK(decodedDir, outputAPK string) error {
 	// Ensure output directory exists
 	if err := os.MkdirAll(filepath.Dir(outputAPK), 0755); err != nil {
-		return err
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	// Check if apktool is a script or JAR
 	var cmd *exec.Cmd
 	if strings.HasSuffix(p.apktoolPath, ".jar") {
 		// It's a JAR file, use java -jar
+		// apktool b command syntax: apktool b <decoded_dir> -o <output_apk> -f (force overwrite)
 		cmd = exec.Command(p.javaPath, "-jar", p.apktoolPath, "b", decodedDir, "-o", outputAPK, "-f")
 	} else {
 		// It's a script, call it directly
 		cmd = exec.Command(p.apktoolPath, "b", decodedDir, "-o", outputAPK, "-f")
 	}
+	
+	fmt.Printf("[MITM] Running encode: %s\n", strings.Join(cmd.Args, " "))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("apktool encode failed: %w, output: %s", err, string(output))
 	}
+	fmt.Printf("[MITM] Encode completed successfully\n")
 	return nil
 }
 
@@ -344,6 +390,7 @@ func (p *Patcher) signAPK(apkPath string) error {
 	// Try uber-apk-signer first
 	if signerPath, err := exec.LookPath("uber-apk-signer"); err == nil {
 		cmd := exec.Command(signerPath, "--apks", apkPath)
+		fmt.Printf("[MITM] Using uber-apk-signer: %s\n", signerPath)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("uber-apk-signer failed: %w, output: %s", err, string(output))
@@ -375,6 +422,7 @@ func (p *Patcher) signAPK(apkPath string) error {
 		}
 
 		// Sign with apksigner
+		fmt.Printf("[MITM] Using apksigner: %s\n", signerPath)
 		cmd := exec.Command(signerPath, "sign",
 			"--ks", keystorePath,
 			"--ks-pass", "pass:android",
