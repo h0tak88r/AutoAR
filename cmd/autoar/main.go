@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,12 +30,16 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/nuclei"
 	"github.com/h0tak88r/AutoAR/internal/modules/ports"
 	"github.com/h0tak88r/AutoAR/internal/modules/reflection"
-	s3mod "github.com/h0tak88r/AutoAR/internal/modules/s3"
+	s3mod 	"github.com/h0tak88r/AutoAR/internal/modules/s3"
+	"github.com/h0tak88r/AutoAR/internal/modules/setup"
 	"github.com/h0tak88r/AutoAR/internal/modules/sqlmap"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/wp-confusion"
+	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
 )
 
 var (
@@ -122,6 +127,7 @@ Commands:
   backup scan            -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
   backup scan            -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [-d <delay>]
   apkx scan              -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]
+  apkx mitm              -i <apk_path> [-o <output_dir>] | -p <package_name> [-o <output_dir>]
   depconfusion scan <file>                    Scan local dependency file
   depconfusion github repo <owner/repo>       Scan GitHub repository
   depconfusion github org <org>               Scan GitHub organization
@@ -150,7 +156,8 @@ Database:
   db js list          -d <domain>
 
 Utilities:
-  check-tools
+  check-tools         Check if all required tools are installed
+  setup               Install all AutoAR dependencies
   help
 
 Special:
@@ -651,12 +658,26 @@ func handleBackupCommand(args []string) error {
 // handleApkXCommand parses:
 //
 //	autoar apkx scan -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]
+//	autoar apkx mitm -i <apk_path> [-o <output_dir>] | -p <package_name> [-o <output_dir>]
 func handleApkXCommand(args []string) error {
-	if len(args) == 0 || args[0] != "scan" {
-		return fmt.Errorf("usage: apkx scan -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]")
+	if len(args) == 0 {
+		return fmt.Errorf("usage: apkx <scan|mitm> [options]")
 	}
+
+	subcommand := args[0]
 	args = args[1:]
 
+	switch subcommand {
+	case "scan":
+		return handleApkXScan(args)
+	case "mitm":
+		return handleApkXMitm(args)
+	default:
+		return fmt.Errorf("unknown apkx subcommand: %s (use 'scan' or 'mitm')", subcommand)
+	}
+}
+
+func handleApkXScan(args []string) error {
 	opts := apkxmod.Options{}
 
 	for i := 0; i < len(args); i++ {
@@ -687,6 +708,95 @@ func handleApkXCommand(args []string) error {
 
 	fmt.Printf("[OK] apkX scan completed. Reports in: %s\n", res.ReportDir)
 	fmt.Printf("[INFO] Log: %s\n", res.LogFile)
+	if res.MITMPatchedAPK != "" {
+		fmt.Printf("[OK] MITM patched APK: %s\n", res.MITMPatchedAPK)
+	}
+	return nil
+}
+
+func handleApkXMitm(args []string) error {
+	var inputPath, outputDir, packageName string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-i", "--input":
+			if i+1 < len(args) {
+				inputPath = args[i+1]
+				i++
+			}
+		case "-p", "--package":
+			if i+1 < len(args) {
+				packageName = args[i+1]
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				outputDir = args[i+1]
+				i++
+			}
+		}
+	}
+
+	// If package name provided, download APK first
+	if packageName != "" {
+		fmt.Printf("[INFO] Downloading APK for package: %s\n", packageName)
+		tmpDir, err := os.MkdirTemp("", "autoar-mitm-dl-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp directory: %w", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		client, err := downloader.NewApkPureClient()
+		if err != nil {
+			return fmt.Errorf("failed to create ApkPure client: %w", err)
+		}
+
+		downloadedPath, err := client.DownloadAPKByPackage(context.Background(), packageName, tmpDir)
+		if err != nil {
+			return fmt.Errorf("failed to download APK: %w", err)
+		}
+		inputPath = downloadedPath
+		fmt.Printf("[OK] Downloaded APK: %s\n", inputPath)
+	}
+
+	if inputPath == "" {
+		return fmt.Errorf("either input path (-i) or package name (-p) is required")
+	}
+
+	// Set default output directory if not provided
+	if outputDir == "" {
+		outputDir = filepath.Join(filepath.Dir(inputPath), "mitm-patched")
+		os.MkdirAll(outputDir, 0755)
+	}
+
+	fmt.Printf("[INFO] Starting MITM patching for: %s\n", inputPath)
+	fmt.Printf("[INFO] Output directory: %s\n", outputDir)
+
+	// Initialize patcher
+	patcher, err := mitm.NewPatcher()
+	if err != nil {
+		return fmt.Errorf("failed to initialize MITM patcher: %w", err)
+	}
+
+	// Patch the APK
+	patchedPath, err := patcher.PatchAPK(inputPath, outputDir)
+	if err != nil {
+		return fmt.Errorf("MITM patching failed: %w", err)
+	}
+
+	if patchedPath == "" {
+		return fmt.Errorf("MITM patching returned empty path")
+	}
+
+	// Verify file exists
+	if info, err := os.Stat(patchedPath); err != nil {
+		return fmt.Errorf("patched APK file not found: %w", err)
+	} else {
+		fmt.Printf("[OK] MITM patched APK created successfully!\n")
+		fmt.Printf("[OK] Path: %s\n", patchedPath)
+		fmt.Printf("[OK] Size: %d bytes (%.2f MB)\n", info.Size(), float64(info.Size())/1024/1024)
+	}
+
 	return nil
 }
 
@@ -1853,6 +1963,11 @@ func handleDBCommand(args []string) error {
 }
 
 func main() {
+	// Load .env file if it exists (before processing commands)
+	if err := envloader.LoadEnv(); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] Failed to load .env file: %v\n", err)
+	}
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -1936,6 +2051,9 @@ func main() {
 
 	case "check-tools":
 		err = checktools.Run()
+
+	case "setup":
+		err = setup.Run()
 
 	case "jwt":
 		err = handleJWTCommand(args)

@@ -365,10 +365,7 @@ func parseNext88Results(resultsFile string) ([]string, error) {
 // findNext88 removed - we now use the library directly via runNext88ScanLib
 
 func getLiveHosts(domain string, threads int) (string, error) {
-	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
-	if resultsDir == "" {
-		resultsDir = "/app/new-results"
-	}
+	resultsDir := getResultsDir()
 
 	subsDir := filepath.Join(resultsDir, domain, "subs")
 
@@ -918,7 +915,7 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 	}
 
 	// Get results file
-	resultsDir := getEnv("AUTOAR_RESULTS_DIR", "/app/new-results")
+	resultsDir := getResultsDir()
 	liveHostsFile := filepath.Join(resultsDir, domain, "subs", "live-subs.txt")
 
 	var totalHosts, liveHosts int
