@@ -46,7 +46,7 @@ ENV AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar \
 
 WORKDIR /app
 
-# System deps for runtime and common tools (including Java + unzip for jadx)
+# System deps for runtime and common tools (including Java + unzip for jadx and apktool)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
     postgresql-client docker.io \
@@ -62,6 +62,19 @@ RUN set -eux; \
     ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx; \
     ln -sf /opt/jadx/bin/jadx-gui /usr/local/bin/jadx-gui || true; \
     rm /tmp/jadx.zip
+
+# Install apktool for MITM patching (decode/encode APKs)
+RUN set -eux; \
+    APKTOOL_VERSION="2.9.3"; \
+    curl -L "https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_${APKTOOL_VERSION}.jar" -o /usr/local/bin/apktool.jar; \
+    echo '#!/bin/sh\njava -jar /usr/local/bin/apktool.jar "$@"' > /usr/local/bin/apktool; \
+    chmod +x /usr/local/bin/apktool
+
+# Install uber-apk-signer for signing patched APKs (optional, but recommended)
+RUN set -eux; \
+    curl -L "https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar" -o /usr/local/bin/uber-apk-signer.jar; \
+    echo '#!/bin/sh\njava -jar /usr/local/bin/uber-apk-signer.jar "$@"' > /usr/local/bin/uber-apk-signer; \
+    chmod +x /usr/local/bin/uber-apk-signer || true
 
 # Copy minimal application configuration and assets (source not required at runtime)
 COPY regexes/ ./regexes/
