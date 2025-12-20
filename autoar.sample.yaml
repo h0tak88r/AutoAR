@@ -39,9 +39,19 @@ openrouter_api: ""
 # Database Configuration
 SAVE_TO_DB: true
 VERBOSE: false
+# Database Type: "postgresql" or "sqlite"
 DB_TYPE: "postgresql"
+# For PostgreSQL: use connection string or individual variables
 DB_HOST: "postgresql://user:password@host:port/database"
-DB_NAME: "autoar"
+# For PostgreSQL: individual variables (alternative to connection string)
+# DB_HOST: "localhost"
+# DB_PORT: 5432
+# DB_USER: "autoar"
+# DB_PASSWORD: "password"
+DB_NAME: "bughunt"
+# For SQLite: DB_HOST should be the file path (e.g., "./bughunt.db" or "/path/to/bughunt.db")
+# DB_TYPE: "sqlite"
+# DB_HOST: "./bughunt.db"
 DOMAINS_COLLECTION: "domains"
 SUBDOMAINS_COLLECTION: "subdomains"
 

@@ -40,6 +40,20 @@ var defaultMimeTypes = []string{
 	"application/x-msdos-program",
 }
 
+// Method defines the wordlist generation method
+type Method string
+
+const (
+	MethodRegular      Method = "regular"
+	MethodWithoutDots  Method = "withoutdots"
+	MethodWithoutVowels Method = "withoutvowels"
+	MethodReverse      Method = "reverse"
+	MethodMixed        Method = "mixed"
+	MethodWithoutDV    Method = "withoutdv"
+	MethodShuffle      Method = "shuffle"
+	MethodAll          Method = "all"
+)
+
 // Options controls how the embedded fuzzuli engine runs.
 type Options struct {
 	Workers          int
@@ -49,6 +63,7 @@ type Options struct {
 	Paths            []string
 	Timeout          time.Duration
 	UserAgent        string
+	Method           Method // Wordlist generation method
 }
 
 // DefaultOptions returns sane defaults similar to the upstream fuzzuli CLI.
@@ -61,6 +76,7 @@ func DefaultOptions() Options {
 		Paths:            []string{"/"},
 		Timeout:          time.Second * defaultTimeoutSeconds,
 		UserAgent:        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0",
+		Method:           MethodRegular, // Default to regular method
 	}
 }
 
@@ -171,7 +187,7 @@ func scanBases(bases []string, opts Options) ([]string, error) {
 	}
 
 	for _, base := range bases {
-		words := generateWordlist(base)
+		words := generateWordlist(base, opts.Method)
 		for _, w := range words {
 			tasks <- task{Base: base, Word: w}
 		}
@@ -274,31 +290,127 @@ func checkURL(client *http.Client, target string, opts Options) (bool, error) {
 }
 
 // generateWordlist builds candidate words from the domain similar to fuzzuli.
-func generateWordlist(domain string) []string {
+func generateWordlist(domain string, method Method) []string {
 	var words []string
-
-	// Regular domain (without scheme)
 	justDomain := strings.Split(domain, "://")[1]
-	generatePossibilities(justDomain, &words)
 
-	// Without dots
-	withoutDot := strings.ReplaceAll(justDomain, ".", "")
-	generatePossibilities(withoutDot, &words)
+	// Determine which methods to use
+	methods := []Method{}
+	if method == MethodAll {
+		methods = []Method{MethodRegular, MethodWithoutDots, MethodWithoutVowels, MethodReverse, MethodMixed, MethodWithoutDV, MethodShuffle}
+	} else {
+		methods = []Method{method}
+	}
 
-	// Without vowels
-	clearVowel := strings.NewReplacer("a", "", "e", "", "i", "", "u", "", "o", "")
-	withoutVowel := clearVowel.Replace(justDomain)
-	generatePossibilities(withoutVowel, &words)
-
-	// Reverse domain
-	split := strings.Split(justDomain, ".")
-	reversed := reverseSlice(split)
-	reverseDomain := strings.Join(reversed, ".")
-	generatePossibilities(reverseDomain, &words)
-	generatePossibilities(strings.ReplaceAll(reverseDomain, ".", ""), &words)
-	generatePossibilities(clearVowel.Replace(reverseDomain), &words)
+	for _, m := range methods {
+		switch m {
+		case MethodRegular:
+			regularDomain(justDomain, &words)
+		case MethodWithoutDots:
+			withoutDots(justDomain, &words)
+		case MethodWithoutVowels:
+			withoutVowels(justDomain, &words)
+		case MethodReverse:
+			reverseDomain(justDomain, &words)
+		case MethodMixed:
+			mixedSubdomain(domain, &words)
+		case MethodWithoutDV:
+			withoutVowelsAndDots(justDomain, &words)
+		case MethodShuffle:
+			shuffle(domain, &words)
+		default:
+			regularDomain(justDomain, &words)
+		}
+	}
 
 	return unique(words)
+}
+
+func regularDomain(domain string, wordlist *[]string) {
+	generatePossibilities(domain, wordlist)
+}
+
+func withoutDots(domain string, wordlist *[]string) {
+	withoutDot := strings.ReplaceAll(domain, ".", "")
+	generatePossibilities(withoutDot, wordlist)
+}
+
+func withoutVowels(domain string, wordlist *[]string) {
+	clearVowel := strings.NewReplacer("a", "", "e", "", "i", "", "u", "", "o", "")
+	withoutVowel := clearVowel.Replace(domain)
+	generatePossibilities(withoutVowel, wordlist)
+}
+
+func withoutVowelsAndDots(domain string, wordlist *[]string) {
+	clearVowel := strings.NewReplacer("a", "", "e", "", "i", "", "u", "", "o", "", ".", "")
+	withoutVowelDot := clearVowel.Replace(domain)
+	generatePossibilities(withoutVowelDot, wordlist)
+}
+
+func reverseDomain(domain string, wordlist *[]string) {
+	split := strings.Split(domain, ".")
+	reversed := reverseSlice(split)
+	reverseDomain := strings.Join(reversed, ".")
+	generatePossibilities(reverseDomain, wordlist)
+	withoutDots(reverseDomain, wordlist)
+	withoutVowels(reverseDomain, wordlist)
+	withoutVowelsAndDots(reverseDomain, wordlist)
+}
+
+func mixedSubdomain(domain string, wordlist *[]string) {
+	clearDomain := strings.Split(domain, "://")[1]
+	split := strings.Split(clearDomain, ".")
+	for sindex := range split {
+		for eindex := range split {
+			generatePossibilities(split[sindex]+"."+split[eindex], wordlist)
+		}
+	}
+}
+
+func shuffle(domain string, wordlist *[]string) {
+	clearDomain := strings.Split(domain, "://")[1]
+	split := strings.Split(clearDomain, ".")
+	splitReverse := reverseSlice(split)
+	reverseDomain := strings.Join(splitReverse, ".")
+	shuffleSubdomain(clearDomain, wordlist)
+	shuffleSubdomain(reverseDomain, wordlist)
+}
+
+func shuffleSubdomain(domain string, wordlist *[]string) {
+	split := strings.Split(domain, ".")
+	for id1 := range split {
+		for id2 := range split[id1:] {
+			p := strings.Join(split[id1:id1+id2+1], ".")
+			addShuffleSubdomain(p, wordlist)
+			if id2 >= 2 {
+				p = split[id1] + "." + split[id1+id2]
+				addShuffleSubdomain(p, wordlist)
+			}
+		}
+	}
+}
+
+func addShuffleSubdomain(domain string, wordlist *[]string) {
+	if !contains(*wordlist, domain) {
+		*wordlist = append(*wordlist, domain)
+	}
+
+	clearVowel := strings.NewReplacer("a", "", "e", "", "i", "", "u", "", "o", "")
+	domainWithoutVowel := clearVowel.Replace(domain)
+	if !contains(*wordlist, domainWithoutVowel) {
+		*wordlist = append(*wordlist, domainWithoutVowel)
+	}
+
+	withoutDot := strings.ReplaceAll(domain, ".", "")
+	if !contains(*wordlist, withoutDot) {
+		*wordlist = append(*wordlist, withoutDot)
+	}
+
+	clearVowelDot := strings.NewReplacer("a", "", "e", "", "i", "", "u", "", "o", "", ".", "")
+	withoutVowelDot := clearVowelDot.Replace(domain)
+	if !contains(*wordlist, withoutVowelDot) {
+		*wordlist = append(*wordlist, withoutVowelDot)
+	}
 }
 
 func generatePossibilities(domain string, possibilities *[]string) {
