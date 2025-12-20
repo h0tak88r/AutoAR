@@ -124,8 +124,11 @@ Commands:
   github depconfusion -r <owner/repo>
   github experimental -r <owner/repo>
   github-wordlist scan -o <github_org> [-t <github_token>]
-  backup scan            -d <domain> [-o <output_dir>] [-t <threads>] [-d <delay>]
-  backup scan            -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [-d <delay>]
+  backup scan            -d <domain> [-m <method>] [-ex <extensions>] [-o <output_dir>] [-t <threads>] [--delay <ms>]
+  backup scan            -l <live_hosts_file> [-m <method>] [-ex <extensions>] [-o <output_dir>] [-t <threads>] [--delay <ms>]
+  backup scan            -f <domains_file> [-m <method>] [-ex <extensions>] [-o <output_dir>] [-t <threads>] [--delay <ms>]
+                         Methods: regular, withoutdots, withoutvowels, reverse, mixed, withoutdv, shuffle, all
+                         Extensions: comma-separated (e.g., .rar,.zip,.tar.gz) - default: all (uses all common backup extensions)
   apkx scan              -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]
   apkx mitm              -i <apk_path> [-o <output_dir>] | -p <package_name> [-o <output_dir>]
   depconfusion scan <file>                    Scan local dependency file
@@ -588,15 +591,16 @@ func handleJSCommand(args []string) error {
 
 // handleBackupCommand parses:
 //
-//	autoar backup scan -d <domain> [-t <threads>] [--delay <ms>]
-//	autoar backup scan -l <live_hosts_file> [-t <threads>] [--delay <ms>]
+//	autoar backup scan -d <domain> [-m <method>] [-ex <extensions>] [-t <threads>] [--delay <ms>]
+//	autoar backup scan -l <live_hosts_file> [-m <method>] [-ex <extensions>] [-t <threads>] [--delay <ms>]
+//	autoar backup scan -f <domains_file> [-m <method>] [-ex <extensions>] [-t <threads>] [--delay <ms>]
 func handleBackupCommand(args []string) error {
 	if len(args) == 0 || args[0] != "scan" {
-		return fmt.Errorf("usage: backup scan -d <domain> | -l <live_hosts_file> [-t <threads>] [--delay <ms>]")
+		return fmt.Errorf("usage: backup scan -d <domain> | -l <live_hosts_file> | -f <domains_file> [-m <method>] [-ex <extensions>] [-t <threads>] [--delay <ms>]")
 	}
 	args = args[1:]
 
-	opts := backup.Options{Threads: 100}
+	opts := backup.Options{Threads: 100, Method: "regular"}
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -605,9 +609,31 @@ func handleBackupCommand(args []string) error {
 				opts.Domain = args[i+1]
 				i++
 			}
-		case "-l", "--live-hosts":
+		case "-l", "--live-hosts", "-f", "--file":
 			if i+1 < len(args) {
 				opts.LiveHostsFile = args[i+1]
+				i++
+			}
+		case "-m", "--method":
+			if i+1 < len(args) {
+				opts.Method = args[i+1]
+				i++
+			}
+		case "-ex", "--extensions":
+			if i+1 < len(args) {
+				// Parse comma-separated extensions
+				extStr := args[i+1]
+				extensions := strings.Split(extStr, ",")
+				for j := range extensions {
+					ext := strings.TrimSpace(extensions[j])
+					// Ensure extension starts with dot
+					if ext != "" && !strings.HasPrefix(ext, ".") {
+						ext = "." + ext
+					}
+					if ext != "" {
+						opts.Extensions = append(opts.Extensions, ext)
+					}
+				}
 				i++
 			}
 		case "-o", "--output":

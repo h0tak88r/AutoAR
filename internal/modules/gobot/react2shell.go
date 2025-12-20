@@ -15,36 +15,81 @@ import (
 	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
 )
 
-// handleReact2ShellScan handles the /react2shell_scan command
-func handleReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+// handleReact2Shell handles both /react2shell_scan (domain) and /react2shell (URL) commands
+func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	domain := ""
+	url := ""
 	threads := 100
 	enableSourceExposure := false
 	dosTest := false
+	verbose := false
 
 	for _, opt := range options {
 		switch opt.Name {
 		case "domain":
 			domain = opt.StringValue()
+		case "url":
+			url = opt.StringValue()
 		case "threads":
 			threads = int(opt.IntValue())
 		case "enable_source_exposure":
 			enableSourceExposure = opt.BoolValue()
 		case "dos_test":
 			dosTest = opt.BoolValue()
+		case "verbose":
+			verbose = opt.BoolValue()
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	// Validate: exactly one of domain or url must be provided
+	if domain == "" && url == "" {
+		respond(s, i, "❌ Either domain or URL is required", false)
 		return
+	}
+	if domain != "" && url != "" {
+		respond(s, i, "❌ Please provide either domain OR url, not both", false)
+		return
+	}
+
+	// Handle domain scan
+	if domain != "" {
+		// Send initial response
+		embed := &discordgo.MessageEmbed{
+			Title:       "React2Shell Host Scan",
+			Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", domain, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
+			Color:       0x3498db, // Blue
+			Fields: []*discordgo.MessageEmbedField{
+				{Name: "Status", Value: "🟡 Running", Inline: false},
+			},
+		}
+
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			},
+		})
+		if err != nil {
+			log.Printf("Error responding to interaction: %v", err)
+			return
+		}
+
+		// Run scan in background
+		go runReact2ShellScan(s, i, domain, threads, enableSourceExposure, dosTest)
+		return
+	}
+
+	// Handle single URL test
+	// Normalize URL
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
 	}
 
 	// Send initial response
 	embed := &discordgo.MessageEmbed{
-		Title:       "React2Shell Host Scan",
-		Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", domain, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
+		Title:       "🔍 React2Shell RCE Test",
+		Description: fmt.Sprintf("**Target:** `%s`\n**Method:** next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)", url),
 		Color:       0x3498db, // Blue
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "Status", Value: "🟡 Running", Inline: false},
@@ -63,7 +108,7 @@ func handleReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate)
 	}
 
 	// Run scan in background
-	go runReact2ShellScan(s, i, domain, threads, enableSourceExposure, dosTest)
+	go runReact2ShellSingle(s, i, url, verbose)
 }
 
 // runReact2ShellScan runs the actual scan
@@ -562,54 +607,6 @@ func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate
 	return nil
 }
 
-func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	url := ""
-	verbose := false
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "url":
-			url = opt.StringValue()
-		case "verbose":
-			verbose = opt.BoolValue()
-		}
-	}
-
-	if url == "" {
-		respond(s, i, "❌ URL is required", false)
-		return
-	}
-
-	// Normalize URL
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = "https://" + url
-	}
-
-	// Send initial response
-	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 React2Shell RCE Test",
-		Description: fmt.Sprintf("**Target:** `%s`\n**Method:** next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)", url),
-		Color:       0x3498db, // Blue
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Status", Value: "🟡 Running", Inline: false},
-		},
-	}
-
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-	if err != nil {
-		log.Printf("Error responding to interaction: %v", err)
-		return
-	}
-
-	// Run scan in background
-	go runReact2ShellSingle(s, i, url, verbose)
-}
 
 func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
 	// Use the library-based implementation instead of binary

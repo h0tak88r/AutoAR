@@ -19,6 +19,8 @@ type Options struct {
 	OutputDir     string
 	Threads       int
 	DelayMS       int
+	Method        string   // Fuzzuli method: regular, withoutdots, withoutvowels, reverse, mixed, withoutdv, shuffle, all
+	Extensions    []string // Custom file extensions (e.g., [".rar", ".zip"])
 }
 
 type Result struct {
@@ -42,6 +44,31 @@ func Run(opts Options) (*Result, error) {
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if resultsDir == "" {
 		resultsDir = "new-results"
+	}
+
+	// Normalize results directory path - if absolute path at root and not in Docker, convert to relative
+	if filepath.IsAbs(resultsDir) && !strings.HasPrefix(resultsDir, "/app") {
+		// Check if we're in Docker
+		isDocker := false
+		if _, err := os.Stat("/app"); err == nil {
+			if err := os.MkdirAll("/app", 0755); err == nil {
+				testPath := "/app/.test-write"
+				if f, err := os.Create(testPath); err == nil {
+					f.Close()
+					os.Remove(testPath)
+					isDocker = true
+				}
+			}
+		}
+		
+		// If not in Docker and path is absolute (like /new-results), convert to relative
+		if !isDocker {
+			if cwd, err := os.Getwd(); err == nil {
+				resultsDir = filepath.Join(cwd, "new-results")
+			} else {
+				resultsDir = "new-results"
+			}
+		}
 	}
 
 	// Determine output directory
@@ -85,6 +112,16 @@ func Run(opts Options) (*Result, error) {
 
 	fuzzOpts := fuzzulitool.DefaultOptions()
 	fuzzOpts.Workers = threads
+	
+	// Set method if provided
+	if opts.Method != "" {
+		fuzzOpts.Method = fuzzulitool.Method(opts.Method)
+	}
+	
+	// Set custom extensions if provided
+	if len(opts.Extensions) > 0 {
+		fuzzOpts.Extensions = opts.Extensions
+	}
 
 	start := time.Now()
 
