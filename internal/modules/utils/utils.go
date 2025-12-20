@@ -7,11 +7,38 @@ import (
 )
 
 // GetResultsDir returns the results directory path
+// Normalizes absolute paths at root (like /new-results) to relative paths when not in Docker
 func GetResultsDir() string {
-	if dir := os.Getenv("AUTOAR_RESULTS_DIR"); dir != "" {
-		return dir
+	dir := os.Getenv("AUTOAR_RESULTS_DIR")
+	if dir == "" {
+		return "new-results"
 	}
-	return "new-results"
+
+	// Normalize absolute paths at root when not in Docker
+	if filepath.IsAbs(dir) && !strings.HasPrefix(dir, "/app") {
+		// Check if we're in Docker
+		isDocker := false
+		if _, err := os.Stat("/app"); err == nil {
+			if err := os.MkdirAll("/app", 0755); err == nil {
+				testPath := "/app/.test-write"
+				if f, err := os.Create(testPath); err == nil {
+					f.Close()
+					os.Remove(testPath)
+					isDocker = true
+				}
+			}
+		}
+		
+		// If not in Docker and path is absolute (like /new-results), convert to relative
+		if !isDocker {
+			if cwd, err := os.Getwd(); err == nil {
+				return filepath.Join(cwd, "new-results")
+			}
+			return "new-results"
+		}
+	}
+
+	return dir
 }
 
 // ResultsDir returns the results directory for a specific domain

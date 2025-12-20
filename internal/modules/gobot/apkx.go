@@ -188,8 +188,19 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to send Discord message with files: %v", err)
-		} else {
+			// Try sending to channel as fallback if interaction expired
+			if i.ChannelID != "" {
+				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+				if channelErr != nil {
+					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
+				} else {
+					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
+				}
+			}
+		} else if msg != nil {
 			log.Printf("[DEBUG] Successfully sent Discord message with files (message ID: %s)", msg.ID)
+		} else {
+			log.Printf("[WARN] FollowupMessageCreate returned nil message without error")
 		}
 	} else {
 		msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -197,8 +208,19 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to send Discord message: %v", err)
-		} else {
+			// Try sending to channel as fallback if interaction expired
+			if i.ChannelID != "" {
+				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+				if channelErr != nil {
+					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
+				} else {
+					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
+				}
+			}
+		} else if msg != nil {
 			log.Printf("[DEBUG] Successfully sent Discord message (message ID: %s)", msg.ID)
+		} else {
+			log.Printf("[WARN] FollowupMessageCreate returned nil message without error")
 		}
 	}
 }(att.Filename, tmpFile.Name(), mitm)
@@ -285,8 +307,19 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to send Discord message with files: %v", err)
-		} else {
+			// Try sending to channel as fallback if interaction expired
+			if i.ChannelID != "" {
+				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+				if channelErr != nil {
+					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
+				} else {
+					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
+				}
+			}
+		} else if msg != nil {
 			log.Printf("[DEBUG] Successfully sent Discord message with files (message ID: %s)", msg.ID)
+		} else {
+			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
 		}
 	} else {
 		msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -294,8 +327,19 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to send Discord message: %v", err)
-		} else {
+			// Try sending to channel as fallback if interaction expired
+			if i.ChannelID != "" {
+				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+				if channelErr != nil {
+					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
+				} else {
+					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
+				}
+			}
+		} else if msg != nil {
 			log.Printf("[DEBUG] Successfully sent Discord message (message ID: %s)", msg.ID)
+		} else {
+			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
 		}
 	}
 }
@@ -413,8 +457,19 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to send Discord message with files: %v", err)
-		} else {
+			// Try sending to channel as fallback if interaction expired
+			if i.ChannelID != "" {
+				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+				if channelErr != nil {
+					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
+				} else {
+					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
+				}
+			}
+		} else if msg != nil {
 			log.Printf("[DEBUG] Successfully sent Discord message with files (message ID: %s)", msg.ID)
+		} else {
+			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
 		}
 	} else {
 		msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -422,8 +477,19 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to send Discord message: %v", err)
-		} else {
+			// Try sending to channel as fallback if interaction expired
+			if i.ChannelID != "" {
+				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+				if channelErr != nil {
+					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
+				} else {
+					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
+				}
+			}
+		} else if msg != nil {
 			log.Printf("[DEBUG] Successfully sent Discord message (message ID: %s)", msg.ID)
+		} else {
+			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
 		}
 	}
 }(pkg, mitm)
