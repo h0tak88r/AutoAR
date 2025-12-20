@@ -86,3 +86,8 @@ autoar.exe
 !cmd/**
 all-roots.txt
 .evn.example
+.env
+.sql.gz
+autoar
+.db-shm
+.db-wal

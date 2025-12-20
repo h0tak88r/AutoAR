@@ -2,6 +2,9 @@ package gobot
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -77,12 +80,49 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // Other Commands
 func handleBackupScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
 	domain := ""
 	threads := 100
 	delay := 0
+	method := "regular" // Default method
+	extensions := ""
+	var filePath string
 
-	for _, opt := range options {
+	// Check for file attachment first
+	if data.Resolved != nil && data.Resolved.Attachments != nil {
+		for _, opt := range data.Options {
+			if opt.Type == discordgo.ApplicationCommandOptionAttachment {
+				if attID, ok := opt.Value.(string); ok {
+					if att, ok := data.Resolved.Attachments[attID]; ok && att != nil {
+						// Download attachment to temp file
+						tmpFile, err := os.CreateTemp("", "backup-domains-*.txt")
+						if err != nil {
+							respond(s, i, fmt.Sprintf("❌ Failed to create temp file: %v", err), true)
+							return
+						}
+						defer tmpFile.Close()
+
+						resp, err := http.Get(att.URL)
+						if err != nil {
+							respond(s, i, fmt.Sprintf("❌ Failed to download file: %v", err), true)
+							return
+						}
+						defer resp.Body.Close()
+
+						if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+							respond(s, i, fmt.Sprintf("❌ Failed to save file: %v", err), true)
+							return
+						}
+						tmpFile.Close()
+						filePath = tmpFile.Name()
+					}
+				}
+			}
+		}
+	}
+
+	// Parse other options
+	for _, opt := range data.Options {
 		switch opt.Name {
 		case "domain":
 			domain = opt.StringValue()
@@ -90,18 +130,39 @@ func handleBackupScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			threads = int(opt.IntValue())
 		case "delay":
 			delay = int(opt.IntValue())
+		case "method":
+			method = opt.StringValue()
+		case "extensions":
+			extensions = opt.StringValue()
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && filePath == "" {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	
+	if domain != "" && filePath != "" {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
 		return
 	}
 
 	scanID := fmt.Sprintf("backup_%d", time.Now().Unix())
-	command := []string{autoarScript, "backup", "scan", "-d", domain, "-t", fmt.Sprintf("%d", threads)}
+	var command []string
+	if filePath != "" {
+		command = []string{autoarScript, "backup", "scan", "-f", filePath, "-t", fmt.Sprintf("%d", threads)}
+	} else {
+		command = []string{autoarScript, "backup", "scan", "-d", domain, "-t", fmt.Sprintf("%d", threads)}
+	}
+	
+	if method != "" && method != "regular" {
+		command = append(command, "-m", method)
+	}
+	if extensions != "" {
+		command = append(command, "-ex", extensions)
+	}
 	if delay > 0 {
-		command = append(command, "-d", fmt.Sprintf("%d", delay))
+		command = append(command, "--delay", fmt.Sprintf("%d", delay))
 	}
 
 	embed := createScanEmbed("Backup Scan", domain, "running")
@@ -236,3 +297,4 @@ func handleWebDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		go runScanBackground(scanID, "webdepconf", target, command, s, i)
 	}
 }
+

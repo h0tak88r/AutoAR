@@ -58,6 +58,9 @@ services:
             - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
 
             # Database Configuration
+            # Database Type: "postgresql" or "sqlite"
+            # For PostgreSQL: Set DB_HOST to connection string or use individual variables
+            # For SQLite: Set DB_TYPE=sqlite and DB_HOST to file path (e.g., ./bughunt.db)
             - SAVE_TO_DB=${SAVE_TO_DB:-true}
             - DB_TYPE=${DB_TYPE:-postgresql}
             - DB_HOST=${DB_HOST:-}
@@ -173,6 +176,9 @@ services:
             - INTEGRITI_API_KEY=${INTEGRITI_API_KEY:-}
 
             # Database Configuration
+            # Database Type: "postgresql" or "sqlite"
+            # For PostgreSQL: Set DB_HOST to connection string or use individual variables
+            # For SQLite: Set DB_TYPE=sqlite and DB_HOST to file path (e.g., ./bughunt.db)
             - SAVE_TO_DB=${SAVE_TO_DB:-true}
             - DB_TYPE=${DB_TYPE:-postgresql}
             - DB_HOST=${DB_HOST:-}
@@ -286,6 +292,9 @@ services:
             - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
 
             # Database Configuration
+            # Database Type: "postgresql" or "sqlite"
+            # For PostgreSQL: Set DB_HOST to connection string or use individual variables
+            # For SQLite: Set DB_TYPE=sqlite and DB_HOST to file path (e.g., ./bughunt.db)
             - SAVE_TO_DB=${SAVE_TO_DB:-true}
             - DB_TYPE=${DB_TYPE:-postgresql}
             - DB_HOST=${DB_HOST:-}

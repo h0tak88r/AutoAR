@@ -11,21 +11,15 @@ func registerAllCommands(s *discordgo.Session) {
 	commands := []*discordgo.ApplicationCommand{
 		// React2Shell commands
 		{
-			Name:        "react2shell_scan",
-			Description: "Scan domain hosts for React Server Components RCE using next88 smart scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to scan", Required: true},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "enable_source_exposure", Description: "Enable source code exposure check (default: false)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "dos_test", Description: "Enable DoS test (default: false)", Required: false},
-			},
-		},
-		{
 			Name:        "react2shell",
-			Description: "Test single URL for React Server Components RCE using next88 smart scan",
+			Description: "React Server Components RCE scan (domain hosts or single URL)",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Target URL to test", Required: true},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "verbose", Description: "Enable verbose output", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan (for host scanning)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Single URL to test (for single URL testing)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (for domain scan, default: 100)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "enable_source_exposure", Description: "Enable source code exposure check (for domain scan)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "dos_test", Description: "Enable DoS test (for domain scan)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "verbose", Description: "Enable verbose output (for URL test)", Required: false},
 			},
 		},
 		// Scan commands
@@ -209,38 +203,17 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		// DNS commands
 		{
-			Name:        "dns_takeover",
-			Description: "Run comprehensive DNS takeover scan",
+			Name:        "dns",
+			Description: "Run DNS takeover scan",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-			},
-		},
-		{
-			Name:        "dns_cname",
-			Description: "Run CNAME takeover scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-			},
-		},
-		{
-			Name:        "dns_ns",
-			Description: "Run NS takeover scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-			},
-		},
-		{
-			Name:        "dns_azure_aws",
-			Description: "Run Azure & AWS takeover scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-			},
-		},
-		{
-			Name:        "dns_dnsreaper",
-			Description: "Run DNSReaper takeover scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "type", Description: "Scan type: takeover (all), cname, ns, azure-aws, dnsreaper", Required: false, Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "Takeover (All)", Value: "takeover"},
+					{Name: "CNAME", Value: "cname"},
+					{Name: "NS", Value: "ns"},
+					{Name: "Azure/AWS", Value: "azure-aws"},
+					{Name: "DNSReaper", Value: "dnsreaper"},
+				}},
 			},
 		},
 		// S3 commands
@@ -262,43 +235,21 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		// GitHub commands
 		{
-			Name:        "github_scan",
-			Description: "Scan GitHub repository for secrets",
+			Name:        "github",
+			Description: "GitHub scanning and analysis",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "repo", Description: "GitHub repository (owner/repo)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "verbose", Description: "Enable verbose output", Required: false},
-			},
-		},
-		{
-			Name:        "github_org_scan",
-			Description: "Scan GitHub organization for secrets",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "org", Description: "GitHub organization name", Required: true},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "max_repos", Description: "Maximum number of repositories to scan", Required: false},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "verbose", Description: "Enable verbose output", Required: false},
-			},
-		},
-		{
-			Name:        "github_experimental_scan",
-			Description: "Run experimental GitHub scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "repo", Description: "GitHub repository (owner/repo)", Required: true},
-			},
-		},
-		{
-			Name:        "github_wordlist",
-			Description: "Generate wordlist from GitHub organization",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "org", Description: "GitHub organization name", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "token", Description: "GitHub token (optional)", Required: false},
-			},
-		},
-		{
-			Name:        "githubdepconf",
-			Description: "GitHub dependency confusion scan",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "repo", Description: "GitHub repository (owner/repo)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "org", Description: "GitHub organization name", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "mode", Description: "Scan mode: scan (repo), org, experimental, wordlist, depconf", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "Repo Scan", Value: "scan"},
+					{Name: "Org Scan", Value: "org"},
+					{Name: "Experimental", Value: "experimental"},
+					{Name: "Wordlist", Value: "wordlist"},
+					{Name: "Dependency Confusion", Value: "depconf"},
+				}},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "repo", Description: "GitHub repository (owner/repo) - for scan, experimental, depconf", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "org", Description: "GitHub organization name - for org, wordlist, depconf", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "max_repos", Description: "Maximum number of repositories to scan (for org mode)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "token", Description: "GitHub token (for wordlist mode)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "verbose", Description: "Enable verbose output (for scan, org, experimental)", Required: false},
 			},
 		},
 		{
@@ -312,34 +263,28 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		// Database commands
 		{
-			Name:        "db_domains",
-			Description: "List distinct domains stored in PostgreSQL database",
-		},
-		{
-			Name:        "db_subdomains",
-			Description: "List subdomains for a domain from PostgreSQL database",
+			Name:        "db",
+			Description: "Database operations",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to list subdomains for", Required: true},
-			},
-		},
-		{
-			Name:        "db_delete_domain",
-			Description: "Delete domain and all related data from database",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to delete", Required: true},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "force", Description: "Skip confirmation prompt", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "action", Description: "Action: list-domains, list-subdomains, delete-domain", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "List Domains", Value: "list-domains"},
+					{Name: "List Subdomains", Value: "list-subdomains"},
+					{Name: "Delete Domain", Value: "delete-domain"},
+				}},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain (required for list-subdomains and delete-domain)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "force", Description: "Skip confirmation (for delete-domain)", Required: false},
 			},
 		},
 		// KeyHack commands
 		{
-			Name:        "keyhack_list",
-			Description: "List all API key validation templates",
-		},
-		{
-			Name:        "keyhack_search",
-			Description: "Search for API key validation templates",
+			Name:        "keyhack",
+			Description: "API key validation templates",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "query", Description: "Search query (provider name or partial match)", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "action", Description: "Action: list all templates or search", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "List All", Value: "list"},
+					{Name: "Search", Value: "search"},
+				}},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "query", Description: "Search query (required for search action)", Required: false},
 			},
 		},
 		// Monitoring commands
@@ -382,7 +327,10 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "backup_scan",
 			Description: "Discover backup files using Fuzzuli",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain (or use file option for multiple domains)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File containing domains (one per line)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "method", Description: "Fuzzuli method: regular, withoutdots, withoutvowels, reverse, mixed, withoutdv, shuffle, all (default: regular)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "extensions", Description: "File extensions (comma-separated, e.g., .rar,.zip) - default: all (uses all common backup extensions)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "delay", Description: "Delay between requests (default: 0)", Required: false},
 			},
@@ -403,19 +351,6 @@ func registerAllCommands(s *discordgo.Session) {
 		{
 			Name:        "scan_status",
 			Description: "List all active and recent completed scans",
-		},
-		{
-			Name:        "scan_from_file",
-			Description: "Scan targets from a file. Attach file or use message_id",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_type", Description: "Type of scan (subdomains, livehosts, nuclei, etc.)", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "message_id", Description: "Message ID with file (optional)", Required: false},
-			},
-		},
-		// Message context command - right-click on message with file
-		{
-			Name: "Scan File",
-			Type: discordgo.MessageApplicationCommand,
 		},
 	}
 
