@@ -10,13 +10,17 @@ import (
 )
 
 // DNS Commands
-func handleDNSTakeover(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func handleDNS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	domain := ""
+	scanType := "takeover" // Default to takeover
 
 	for _, opt := range options {
-		if opt.Name == "domain" {
+		switch opt.Name {
+		case "domain":
 			domain = opt.StringValue()
+		case "type":
+			scanType = opt.StringValue()
 		}
 	}
 
@@ -25,10 +29,29 @@ func handleDNSTakeover(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	scanID := fmt.Sprintf("dnstko_%d", time.Now().Unix())
-	command := []string{autoarScript, "dns", "takeover", "-d", domain}
+	// Map scan type to CLI command
+	var command []string
+	var scanName string
+	switch scanType {
+	case "cname":
+		command = []string{autoarScript, "dns", "cname", "-d", domain}
+		scanName = "DNS CNAME"
+	case "ns":
+		command = []string{autoarScript, "dns", "ns", "-d", domain}
+		scanName = "DNS NS"
+	case "azure-aws":
+		command = []string{autoarScript, "dns", "azure-aws", "-d", domain}
+		scanName = "DNS Azure/AWS"
+	case "dnsreaper":
+		command = []string{autoarScript, "dns", "dnsreaper", "-d", domain}
+		scanName = "DNSReaper"
+	default: // takeover
+		command = []string{autoarScript, "dns", "takeover", "-d", domain}
+		scanName = "DNS Takeover"
+	}
 
-	embed := createScanEmbed("DNS Takeover", domain, "running")
+	scanID := fmt.Sprintf("dns_%s_%d", scanType, time.Now().Unix())
+	embed := createScanEmbed(scanName, domain, "running")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -36,123 +59,7 @@ func handleDNSTakeover(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		},
 	})
 
-	go runScanBackground(scanID, "dns_takeover", domain, command, s, i)
-}
-
-func handleDNSCname(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("dnscname_%d", time.Now().Unix())
-	command := []string{autoarScript, "dns", "cname", "-d", domain}
-
-	embed := createScanEmbed("DNS CNAME", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "dns_cname", domain, command, s, i)
-}
-
-func handleDNSNs(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("dnsns_%d", time.Now().Unix())
-	command := []string{autoarScript, "dns", "ns", "-d", domain}
-
-	embed := createScanEmbed("DNS NS", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "dns_ns", domain, command, s, i)
-}
-
-func handleDNSAzureAws(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("dnscloud_%d", time.Now().Unix())
-	command := []string{autoarScript, "dns", "azure-aws", "-d", domain}
-
-	embed := createScanEmbed("DNS Azure/AWS", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "dns_azure_aws", domain, command, s, i)
-}
-
-func handleDNSDNSReaper(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("dnsreaper_%d", time.Now().Unix())
-	command := []string{autoarScript, "dns", "dnsreaper", "-d", domain}
-
-	embed := createScanEmbed("DNSReaper", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "dns_dnsreaper", domain, command, s, i)
+	go runScanBackground(scanID, fmt.Sprintf("dns_%s", scanType), domain, command, s, i)
 }
 
 // S3 Commands
@@ -229,179 +136,114 @@ func handleS3Enum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 // GitHub Commands
-func handleGitHubScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+// GitHub Commands
+func handleGitHub(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
+	mode := ""
 	repo := ""
-	verbose := false
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "repo":
-			repo = opt.StringValue()
-		case "verbose":
-			verbose = opt.BoolValue()
-		}
-	}
-
-	if repo == "" {
-		respond(s, i, "❌ Repository (owner/repo) is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("github_%d", time.Now().Unix())
-	command := []string{autoarScript, "github", "scan", "-r", repo}
-	if verbose {
-		command = append(command, "-v")
-	}
-
-	embed := createScanEmbed("GitHub Scan", repo, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "github", repo, command, s, i)
-}
-
-func handleGitHubOrgScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
 	org := ""
 	maxRepos := 50
+	token := ""
 	verbose := false
 
 	for _, opt := range options {
 		switch opt.Name {
+		case "mode":
+			mode = opt.StringValue()
+		case "repo":
+			repo = opt.StringValue()
 		case "org":
 			org = opt.StringValue()
 		case "max_repos":
 			maxRepos = int(opt.IntValue())
+		case "token":
+			token = opt.StringValue()
 		case "verbose":
 			verbose = opt.BoolValue()
 		}
 	}
 
-	if org == "" {
-		respond(s, i, "❌ Organization name is required", false)
+	if mode == "" {
+		respond(s, i, "❌ Mode is required", false)
 		return
 	}
 
-	scanID := fmt.Sprintf("github_org_%d", time.Now().Unix())
-	command := []string{autoarScript, "github", "org", "-o", org, "-m", strconv.Itoa(maxRepos)}
-	if verbose {
-		command = append(command, "-v")
-	}
-
-	embed := createScanEmbed("GitHub Org Scan", org, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "github_org", org, command, s, i)
-}
-
-func handleGitHubExperimentalScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	repo := ""
-
-	for _, opt := range options {
-		if opt.Name == "repo" {
-			repo = opt.StringValue()
-		}
-	}
-
-	if repo == "" {
-		respond(s, i, "❌ Repository (owner/repo) is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("github_exp_%d", time.Now().Unix())
-	command := []string{autoarScript, "github", "experimental", "-r", repo}
-
-	embed := createScanEmbed("GitHub Experimental", repo, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "github_experimental", repo, command, s, i)
-}
-
-func handleGitHubWordlist(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	org := ""
-	var token *string
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "org":
-			org = opt.StringValue()
-		case "token":
-			val := opt.StringValue()
-			token = &val
-		}
-	}
-
-	if org == "" {
-		respond(s, i, "❌ Organization name is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("github_wordlist_%d", time.Now().Unix())
-	command := []string{autoarScript, "github-wordlist", "scan", "-o", org}
-	if token != nil && *token != "" {
-		command = append(command, "-t", *token)
-	}
-
-	embed := createScanEmbed("GitHub Wordlist", org, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "github_wordlist", org, command, s, i)
-}
-
-func handleGitHubDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	repo := ""
-	org := ""
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "repo":
-			repo = opt.StringValue()
-		case "org":
-			org = opt.StringValue()
-		}
-	}
-
-	if repo == "" && org == "" {
-		respond(s, i, "❌ Either repository (owner/repo) or organization is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("githubdepconf_%d", time.Now().Unix())
 	var command []string
+	var scanName string
 	var target string
+	var scanID string
 
-	if repo != "" {
-		command = []string{autoarScript, "depconfusion", "github", "repo", repo}
+	switch mode {
+	case "scan":
+		if repo == "" {
+			respond(s, i, "❌ Repository (owner/repo) is required for scan mode", false)
+			return
+		}
+		scanID = fmt.Sprintf("github_scan_%d", time.Now().Unix())
+		command = []string{autoarScript, "github", "scan", "-r", repo}
+		if verbose {
+			command = append(command, "-v")
+		}
+		scanName = "GitHub Scan"
 		target = repo
-	} else {
-		command = []string{autoarScript, "depconfusion", "github", "org", org}
+
+	case "org":
+		if org == "" {
+			respond(s, i, "❌ Organization name is required for org mode", false)
+			return
+		}
+		scanID = fmt.Sprintf("github_org_%d", time.Now().Unix())
+		command = []string{autoarScript, "github", "org", "-o", org, "-m", strconv.Itoa(maxRepos)}
+		if verbose {
+			command = append(command, "-v")
+		}
+		scanName = "GitHub Org Scan"
 		target = org
+
+	case "experimental":
+		if repo == "" {
+			respond(s, i, "❌ Repository (owner/repo) is required for experimental mode", false)
+			return
+		}
+		scanID = fmt.Sprintf("github_exp_%d", time.Now().Unix())
+		command = []string{autoarScript, "github", "experimental", "-r", repo}
+		scanName = "GitHub Experimental"
+		target = repo
+
+	case "wordlist":
+		if org == "" {
+			respond(s, i, "❌ Organization name is required for wordlist mode", false)
+			return
+		}
+		scanID = fmt.Sprintf("github_wordlist_%d", time.Now().Unix())
+		command = []string{autoarScript, "github-wordlist", "scan", "-o", org}
+		if token != "" {
+			command = append(command, "-t", token)
+		}
+		scanName = "GitHub Wordlist"
+		target = org
+
+	case "depconf":
+		if repo == "" && org == "" {
+			respond(s, i, "❌ Either repository (owner/repo) or organization is required for depconf mode", false)
+			return
+		}
+		scanID = fmt.Sprintf("githubdepconf_%d", time.Now().Unix())
+		if repo != "" {
+			command = []string{autoarScript, "depconfusion", "github", "repo", repo}
+			target = repo
+		} else {
+			command = []string{autoarScript, "depconfusion", "github", "org", org}
+			target = org
+		}
+		scanName = "GitHub DepConfusion"
+
+	default:
+		respond(s, i, fmt.Sprintf("❌ Unknown mode: %s", mode), false)
+		return
 	}
 
-	embed := createScanEmbed("GitHub DepConfusion", target, "running")
+	embed := createScanEmbed(scanName, target, "running")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -409,62 +251,20 @@ func handleGitHubDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		},
 	})
 
-	go runScanBackground(scanID, "githubdepconf", target, command, s, i)
+	go runScanBackground(scanID, fmt.Sprintf("github_%s", mode), target, command, s, i)
 }
 
 // Database Commands
-func handleDBDomains(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	scanID := fmt.Sprintf("dbdomains_%d", time.Now().Unix())
-	command := []string{autoarScript, "db", "domains", "list"}
-
-	dbName := getEnv("DB_NAME", "autoar")
-	embed := createScanEmbed("DB Domains", fmt.Sprintf("%s (PostgreSQL)", dbName), "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "db_domains", "db", command, s, i)
-}
-
-func handleDBSubdomains(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func handleDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("dbsubs_%d", time.Now().Unix())
-	command := []string{autoarScript, "db", "subdomains", "list", "-d", domain}
-
-	embed := createScanEmbed("DB Subdomains", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "db_subdomains", domain, command, s, i)
-}
-
-func handleDBDeleteDomain(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	action := ""
 	domain := ""
 	force := false
 
 	for _, opt := range options {
 		switch opt.Name {
+		case "action":
+			action = opt.StringValue()
 		case "domain":
 			domain = opt.StringValue()
 		case "force":
@@ -472,18 +272,53 @@ func handleDBDeleteDomain(s *discordgo.Session, i *discordgo.InteractionCreate) 
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if action == "" {
+		respond(s, i, "❌ Action is required", false)
 		return
 	}
 
-	scanID := fmt.Sprintf("dbdel_%d", time.Now().Unix())
-	command := []string{autoarScript, "db", "domains", "delete", "-d", domain}
-	if force {
-		command = append(command, "-f")
+	var command []string
+	var scanName string
+	var target string
+	var scanID string
+
+	switch action {
+	case "list-domains":
+		scanID = fmt.Sprintf("dbdomains_%d", time.Now().Unix())
+		command = []string{autoarScript, "db", "domains", "list"}
+		dbName := getEnv("DB_NAME", "autoar")
+		scanName = "DB Domains"
+		target = fmt.Sprintf("%s (PostgreSQL)", dbName)
+
+	case "list-subdomains":
+		if domain == "" {
+			respond(s, i, "❌ Domain is required for list-subdomains action", false)
+			return
+		}
+		scanID = fmt.Sprintf("dbsubs_%d", time.Now().Unix())
+		command = []string{autoarScript, "db", "subdomains", "list", "-d", domain}
+		scanName = "DB Subdomains"
+		target = domain
+
+	case "delete-domain":
+		if domain == "" {
+			respond(s, i, "❌ Domain is required for delete-domain action", false)
+			return
+		}
+		scanID = fmt.Sprintf("dbdel_%d", time.Now().Unix())
+		command = []string{autoarScript, "db", "domains", "delete", "-d", domain}
+		if force {
+			command = append(command, "-f")
+		}
+		scanName = "DB Delete Domain"
+		target = domain
+
+	default:
+		respond(s, i, fmt.Sprintf("❌ Unknown action: %s", action), false)
+		return
 	}
 
-	embed := createScanEmbed("DB Delete Domain", domain, "running")
+	embed := createScanEmbed(scanName, target, "running")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -491,7 +326,7 @@ func handleDBDeleteDomain(s *discordgo.Session, i *discordgo.InteractionCreate) 
 		},
 	})
 
-	go runScanBackground(scanID, "db_delete_domain", domain, command, s, i)
+	go runScanBackground(scanID, fmt.Sprintf("db_%s", action), target, command, s, i)
 }
 
 // Helper function to run command and get output synchronously
