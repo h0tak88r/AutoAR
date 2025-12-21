@@ -315,12 +315,12 @@ func getEnv(key, defaultValue string) string {
 func getResultsDir() string {
 	dir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if dir == "" {
-		// Try current directory first (for native runs)
-		if cwd, err := os.Getwd(); err == nil {
+	// Try current directory first (for native runs)
+	if cwd, err := os.Getwd(); err == nil {
 			return filepath.Join(cwd, "new-results")
-		}
-		// Docker fallback
-		return "/app/new-results"
+	}
+	// Docker fallback
+	return "/app/new-results"
 	}
 
 	// Normalize absolute paths at root when not in Docker
@@ -348,6 +348,24 @@ func getResultsDir() string {
 	}
 
 	return dir
+}
+
+// cleanupDomainDirectory removes the domain's result directory
+func cleanupDomainDirectory(domain string) error {
+	resultsDir := getResultsDir()
+	domainDir := filepath.Join(resultsDir, domain)
+	
+	if _, err := os.Stat(domainDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean
+	}
+	
+	log.Printf("[INFO] Cleaning up domain directory: %s", domainDir)
+	if err := os.RemoveAll(domainDir); err != nil {
+		log.Printf("[WARN] Failed to cleanup domain directory %s: %v", domainDir, err)
+		return err
+	}
+	log.Printf("[OK] Cleaned up domain directory: %s", domainDir)
+	return nil
 }
 
 // initializeDirectories creates necessary directories for AutoAR

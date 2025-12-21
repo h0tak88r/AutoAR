@@ -193,7 +193,7 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
 				if channelErr != nil {
 					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-				} else {
+		} else {
 					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
 				}
 			}
@@ -213,7 +213,7 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
 				if channelErr != nil {
 					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-				} else {
+		} else {
 					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
 				}
 			}
@@ -312,7 +312,7 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
 				if channelErr != nil {
 					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-				} else {
+		} else {
 					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
 				}
 			}
@@ -332,7 +332,7 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
 				if channelErr != nil {
 					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-				} else {
+		} else {
 					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
 				}
 			}
@@ -462,7 +462,7 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
 				if channelErr != nil {
 					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-				} else {
+		} else {
 					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
 				}
 			}
@@ -482,7 +482,7 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
 				if channelErr != nil {
 					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-				} else {
+		} else {
 					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
 				}
 			}

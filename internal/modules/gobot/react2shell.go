@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
 )
 
@@ -58,8 +59,8 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to respond to interaction: %v", err)
-			return
-		}
+		return
+	}
 
 		// Download and process file
 		targets, err := downloadAndProcessFile(attachment)
@@ -150,29 +151,29 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Handle domain scan
 	if domain != "" {
-		// Send initial response
-		embed := &discordgo.MessageEmbed{
-			Title:       "React2Shell Host Scan",
-			Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", domain, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
-			Color:       0x3498db, // Blue
-			Fields: []*discordgo.MessageEmbedField{
-				{Name: "Status", Value: "🟡 Running", Inline: false},
-			},
-		}
+	// Send initial response
+	embed := &discordgo.MessageEmbed{
+		Title:       "React2Shell Host Scan",
+		Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", domain, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
+		Color:       0x3498db, // Blue
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "🟡 Running", Inline: false},
+		},
+	}
 
-		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Embeds: []*discordgo.MessageEmbed{embed},
-			},
-		})
-		if err != nil {
-			log.Printf("Error responding to interaction: %v", err)
-			return
-		}
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+	if err != nil {
+		log.Printf("Error responding to interaction: %v", err)
+		return
+	}
 
-		// Run scan in background
-		go runReact2ShellScan(s, i, domain, threads, enableSourceExposure, dosTest)
+	// Run scan in background
+	go runReact2ShellScan(s, i, domain, threads, enableSourceExposure, dosTest)
 		return
 	}
 
@@ -318,6 +319,11 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 	}
 
 	log.Printf("[DEBUG] Domain scan completed for: %s", domain)
+	
+	// Cleanup domain directory after scan
+	if err := cleanupDomainDirectory(domain); err != nil {
+		log.Printf("[WARN] Failed to cleanup domain directory: %v", err)
+	}
 }
 
 // runNext88Scan runs the next88 library with given flags and returns vulnerable hosts.
@@ -505,15 +511,56 @@ func parseNext88Results(resultsFile string) ([]string, error) {
 // Helper functions
 // findNext88 removed - we now use the library directly via runNext88ScanLib
 
+// writeLinesToFile writes lines to a file
+func writeLinesToFile(path string, lines []string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(file, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func getLiveHosts(domain string, threads int) (string, error) {
 	resultsDir := getResultsDir()
 
 	subsDir := filepath.Join(resultsDir, domain, "subs")
 
+	// Check if subdomains exist in database first
+	shouldCollect := true
+	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
+		if err := db.Init(); err == nil {
+			_ = db.InitSchema()
+			count, err := db.CountSubdomains(domain)
+			if err == nil && count > 0 {
+				log.Printf("[INFO] Found %d subdomains in database for %s, skipping collection", count, domain)
+				shouldCollect = false
+				// Load subdomains from DB and write to file for compatibility
+				subs, err := db.ListSubdomains(domain)
+				if err == nil && len(subs) > 0 {
+					allSubsFile := filepath.Join(subsDir, "all-subs.txt")
+					os.MkdirAll(subsDir, 0755)
+					if err := writeLinesToFile(allSubsFile, subs); err != nil {
+						log.Printf("[WARN] Failed to write subdomains from DB to file: %v", err)
+					}
+				}
+			}
+		}
+	}
+
+	// Only collect subdomains if not in database
+	if shouldCollect {
 	// Ensure subdomains exist first (this will enumerate if needed) using Go-backed CLI
 	subCmd := exec.Command(autoarScript, "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
 	if err := subCmd.Run(); err != nil {
 		log.Printf("[WARN] Subdomain enumeration via autoar failed: %v, continuing anyway", err)
+		}
 	}
 
 	// Now run livehosts via Go-backed CLI to filter live hosts

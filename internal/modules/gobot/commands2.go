@@ -181,9 +181,9 @@ func handleGitHub(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		scanID = fmt.Sprintf("github_scan_%d", time.Now().Unix())
 		command = []string{autoarScript, "github", "scan", "-r", repo}
-		if verbose {
-			command = append(command, "-v")
-		}
+	if verbose {
+		command = append(command, "-v")
+	}
 		scanName = "GitHub Scan"
 		target = repo
 
@@ -201,41 +201,41 @@ func handleGitHub(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		target = org
 
 	case "experimental":
-		if repo == "" {
+	if repo == "" {
 			respond(s, i, "❌ Repository (owner/repo) is required for experimental mode", false)
-			return
-		}
+		return
+	}
 		scanID = fmt.Sprintf("github_exp_%d", time.Now().Unix())
 		command = []string{autoarScript, "github", "experimental", "-r", repo}
 		scanName = "GitHub Experimental"
 		target = repo
 
 	case "wordlist":
-		if org == "" {
+	if org == "" {
 			respond(s, i, "❌ Organization name is required for wordlist mode", false)
-			return
-		}
+		return
+	}
 		scanID = fmt.Sprintf("github_wordlist_%d", time.Now().Unix())
 		command = []string{autoarScript, "github-wordlist", "scan", "-o", org}
 		if token != "" {
 			command = append(command, "-t", token)
-		}
+	}
 		scanName = "GitHub Wordlist"
 		target = org
 
 	case "depconf":
-		if repo == "" && org == "" {
+	if repo == "" && org == "" {
 			respond(s, i, "❌ Either repository (owner/repo) or organization is required for depconf mode", false)
-			return
-		}
+		return
+	}
 		scanID = fmt.Sprintf("githubdepconf_%d", time.Now().Unix())
-		if repo != "" {
-			command = []string{autoarScript, "depconfusion", "github", "repo", repo}
-			target = repo
-		} else {
-			command = []string{autoarScript, "depconfusion", "github", "org", org}
-			target = org
-		}
+	if repo != "" {
+		command = []string{autoarScript, "depconfusion", "github", "repo", repo}
+		target = repo
+	} else {
+		command = []string{autoarScript, "depconfusion", "github", "org", org}
+		target = org
+	}
 		scanName = "GitHub DepConfusion"
 
 	default:
@@ -307,9 +307,9 @@ func handleDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		scanID = fmt.Sprintf("dbdel_%d", time.Now().Unix())
 		command = []string{autoarScript, "db", "domains", "delete", "-d", domain}
-		if force {
-			command = append(command, "-f")
-		}
+	if force {
+		command = append(command, "-f")
+	}
 		scanName = "DB Delete Domain"
 		target = domain
 

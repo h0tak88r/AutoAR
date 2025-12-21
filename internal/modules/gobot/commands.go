@@ -1,8 +1,12 @@
 package gobot
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +65,160 @@ func getChannelID(scanID string) string {
 	channelsMutex.RLock()
 	defer channelsMutex.RUnlock()
 	return activeChannels[scanID]
+}
+
+// downloadAndProcessFile downloads a file attachment and returns targets as a slice
+func downloadAndProcessFile(attachment *discordgo.MessageAttachment) ([]string, error) {
+	log.Printf("[INFO] Downloading file from: %s", attachment.URL)
+	resp, err := http.Get(attachment.URL)
+	if err != nil {
+		return nil, fmt.Errorf("error downloading file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Create temp file
+	tmpFile, err := os.CreateTemp("", "autoar-upload-*.txt")
+	if err != nil {
+		return nil, fmt.Errorf("error creating temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// Copy file content
+	_, err = io.Copy(tmpFile, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error saving file: %v", err)
+	}
+	tmpFile.Close()
+
+	// Read targets from file
+	return readTargetsFromFile(tmpFile.Name())
+}
+
+// getAttachmentFromOptions extracts file attachment from command options
+func getAttachmentFromOptions(data *discordgo.ApplicationCommandInteractionData) *discordgo.MessageAttachment {
+	if data.Resolved != nil && data.Resolved.Attachments != nil {
+		for _, opt := range data.Options {
+			if opt.Type == discordgo.ApplicationCommandOptionAttachment {
+				if attID, ok := opt.Value.(string); ok {
+					if att, ok := data.Resolved.Attachments[attID]; ok && att != nil {
+						return att
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// readTargetsFromFile reads targets from a file (one per line)
+func readTargetsFromFile(filePath string) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var targets []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip empty lines and comments
+		if line != "" && !strings.HasPrefix(line, "#") {
+			targets = append(targets, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return targets, nil
+}
+
+// handleFileBasedScan processes a file attachment and runs scan for each target
+func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, scanType string, attachment *discordgo.MessageAttachment, buildCommand func(string) []string, threads int) {
+	// Respond immediately
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "📥 Downloading file and processing targets...",
+		},
+	})
+	if err != nil {
+		log.Printf("[ERROR] Failed to respond to interaction: %v", err)
+		return
+	}
+
+	// Download and process file
+	targets, err := downloadAndProcessFile(attachment)
+	if err != nil {
+		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("❌ Error processing file: %v", err),
+		})
+		return
+	}
+
+	if len(targets) == 0 {
+		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "❌ No valid targets found in file",
+		})
+		return
+	}
+
+	// Update initial response
+	content := fmt.Sprintf("📋 Found %d targets in file. Starting %s scan...", len(targets), scanType)
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+	})
+	if err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
+
+	// Process each target
+	successCount := 0
+	failCount := 0
+
+	for idx, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+
+		log.Printf("[INFO] Processing target %d/%d: %s", idx+1, len(targets), target)
+
+		command := buildCommand(target)
+		scanID := fmt.Sprintf("%s_%s_%d_%d", scanType, strings.ReplaceAll(target, ".", "_"), time.Now().Unix(), idx)
+
+		embed := createScanEmbed(scanType, target, "running")
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		if err != nil {
+			log.Printf("[ERROR] Failed to create followup message: %v", err)
+			continue
+		}
+
+		// Create a new interaction create for this target
+		targetInteraction := &discordgo.InteractionCreate{
+			Interaction: &discordgo.Interaction{
+				ID:        i.Interaction.ID + fmt.Sprintf("_%d", idx),
+				ChannelID: i.ChannelID,
+			},
+		}
+
+		go runScanBackground(scanID, scanType, target, command, s, targetInteraction)
+
+		// Small delay between scans
+		time.Sleep(1 * time.Second)
+	}
+
+	// Send summary
+	summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Scans Started:** %d",
+		scanType, len(targets), successCount+failCount)
+	s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: summary,
+	})
 }
 
 func runScanBackground(scanID, scanType, target string, command []string, s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -131,6 +289,13 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 
+	// Cleanup domain directory after scan completes
+	if err == nil {
+		if err := cleanupDomainDirectory(target); err != nil {
+			log.Printf("[WARN] Failed to cleanup domain directory for %s: %v", target, err)
+		}
+	}
+
 	// Send result files directly from bot (like livehosts does)
 	if err == nil {
 		// Small delay to ensure files are written to disk
@@ -188,13 +353,14 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 		jwtDir := filepath.Join(resultsDir, "jwt-scan", "vulnerabilities", "jwt")
 		log.Printf("[DEBUG] Looking for JWT result files in: %s", jwtDir)
 
-		// Retry up to 3 times with delays (file might still be writing)
+		// Retry up to 5 times with delays (file might still be writing, JSON encoding can take time)
 		var latestFile string
-		for attempt := 0; attempt < 3; attempt++ {
+		for attempt := 0; attempt < 5; attempt++ {
 			if attempt > 0 {
-				time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+				time.Sleep(time.Duration(attempt) * 1 * time.Second)
 			}
-			if matches, err := filepath.Glob(filepath.Join(jwtDir, "jwt_hack_*.txt")); err == nil && len(matches) > 0 {
+			// Look for jwt_scan_*.json files (the actual pattern used by the JWT module)
+			if matches, err := filepath.Glob(filepath.Join(jwtDir, "jwt_scan_*.json")); err == nil && len(matches) > 0 {
 				log.Printf("[DEBUG] Found %d JWT result file(s) on attempt %d", len(matches), attempt+1)
 				// Get the most recent file
 				var latestTime time.Time
@@ -211,6 +377,8 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 					if info, err := os.Stat(latestFile); err == nil && info.Size() > 0 {
 						log.Printf("[DEBUG] Selected most recent JWT file: %s (size: %d bytes)", latestFile, info.Size())
 						resultFiles = []string{latestFile}
+						// Parse and send JWT results with attack tokens summary
+						sendJWTResultsSummary(s, i, latestFile)
 						break
 					}
 				}
@@ -349,6 +517,119 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 	}
 }
 
+// sendJWTResultsSummary parses JWT scan results and sends a summary embed with attack tokens
+func sendJWTResultsSummary(s *discordgo.Session, i *discordgo.InteractionCreate, jsonPath string) {
+	fileData, err := os.ReadFile(jsonPath)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read JWT results file: %v", err)
+		return
+	}
+
+	var result struct {
+		TokenType     string `json:"token_type"`
+		Algorithm     string `json:"algorithm"`
+		Issues        []struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+		} `json:"issues"`
+		CrackedSecret string `json:"cracked_secret,omitempty"`
+		AttackTokens []struct {
+			AttackType  string `json:"attack_type"`
+			Description string `json:"description"`
+			Token       string `json:"token"`
+			Vulnerable  bool   `json:"vulnerable,omitempty"`
+		} `json:"attack_tokens,omitempty"`
+	}
+
+	if err := json.Unmarshal(fileData, &result); err != nil {
+		log.Printf("[ERROR] Failed to parse JWT results JSON: %v", err)
+		return
+	}
+
+	// Build summary embed
+	embed := &discordgo.MessageEmbed{
+		Title:       "🔐 JWT Scan Results",
+		Description: fmt.Sprintf("**Algorithm:** `%s`\n**Token Type:** %s", result.Algorithm, result.TokenType),
+		Color:       0x3498db,
+		Fields:      []*discordgo.MessageEmbedField{},
+	}
+
+	// Add issues summary
+	if len(result.Issues) > 0 {
+		issuesText := ""
+		for _, issue := range result.Issues {
+			emoji := "⚠️"
+			if issue.Type == "weak_secret" || issue.Type == "alg_none" {
+				emoji = "🔴"
+			}
+			issuesText += fmt.Sprintf("%s **%s**: %s\n", emoji, issue.Type, issue.Description)
+		}
+		if len(issuesText) > 1024 {
+			issuesText = issuesText[:1020] + "..."
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "🔍 Issues Found",
+			Value:  issuesText,
+			Inline: false,
+		})
+	}
+
+	// Add cracked secret if found
+	if result.CrackedSecret != "" {
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "🔑 Cracked Secret",
+			Value:  fmt.Sprintf("```%s```", result.CrackedSecret),
+			Inline: false,
+		})
+		embed.Color = 0xff0000 // Red for vulnerable
+	} else {
+		// Check if cracking was attempted but secret not found
+		for _, issue := range result.Issues {
+			if issue.Type == "crack_attempted" {
+				embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+					Name:   "🔍 Cracking Status",
+					Value:  issue.Description,
+					Inline: false,
+				})
+				break
+			}
+		}
+	}
+
+	// Add attack tokens if available
+	if len(result.AttackTokens) > 0 {
+		attackText := ""
+		for _, attack := range result.AttackTokens {
+			vulnMark := ""
+			if attack.Vulnerable {
+				vulnMark = " 🔴 **VULNERABLE**"
+				embed.Color = 0xff0000 // Red for confirmed vulnerability
+			}
+			attackText += fmt.Sprintf("**%s**%s\n", attack.AttackType, vulnMark)
+			attackText += fmt.Sprintf("`%s`\n", attack.Token)
+			if len(attack.Description) > 0 {
+				attackText += fmt.Sprintf("_%s_\n\n", attack.Description)
+			}
+		}
+		if len(attackText) > 1024 {
+			attackText = attackText[:1020] + "..."
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "🎯 Attack Tokens",
+			Value:  attackText,
+			Inline: false,
+		})
+	}
+
+	// Send embed
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("[WARN] Failed to send JWT results summary: %v", err)
+	}
+}
+
 // sendSingleFile sends a single file via FollowupMessageCreate
 func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePath string) {
 	log.Printf("[DEBUG] Attempting to send file: %s", filePath)
@@ -364,11 +645,15 @@ func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePa
 			return
 		}
 		fileName := filepath.Base(filePath)
+		contentType := "text/plain"
+		if strings.HasSuffix(strings.ToLower(fileName), ".json") {
+			contentType = "application/json"
+		}
 		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Files: []*discordgo.File{
 				{
 					Name:        fileName,
-					ContentType: "text/plain",
+					ContentType: contentType,
 					Reader:      strings.NewReader(string(fileData)),
 				},
 			},
@@ -631,9 +916,14 @@ func handleDomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // Subdomains
 func handleSubdomains(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
 	threads := 100
+	var attachment *discordgo.MessageAttachment
+
+	// Check for file attachment
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -644,11 +934,25 @@ func handleSubdomains(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	// Validate: exactly one of domain or file must be provided
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
 		return
 	}
 
+	// Handle file attachment
+	if attachment != nil {
+		handleFileBasedScan(s, i, "subdomains", attachment, func(target string) []string {
+			return []string{autoarScript, "subdomains", "get", "-d", target, "-t", strconv.Itoa(threads)}
+		}, threads)
+		return
+	}
+
+	// Handle single domain
 	scanID := fmt.Sprintf("subdomains_%d", time.Now().Unix())
 	command := []string{autoarScript, "subdomains", "get", "-d", domain, "-t", strconv.Itoa(threads)}
 
@@ -695,9 +999,13 @@ func handleCnames(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // URLs
 func handleURLs(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
 	threads := 100
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -708,8 +1016,19 @@ func handleURLs(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	if attachment != nil {
+		handleFileBasedScan(s, i, "urls", attachment, func(target string) []string {
+			return []string{autoarScript, "urls", "collect", "-d", target, "-t", strconv.Itoa(threads)}
+		}, threads)
 		return
 	}
 
@@ -729,8 +1048,12 @@ func handleURLs(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // Reflection
 func handleReflection(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		if opt.Name == "domain" {
@@ -738,8 +1061,19 @@ func handleReflection(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	if attachment != nil {
+		handleFileBasedScan(s, i, "reflection", attachment, func(target string) []string {
+			return []string{autoarScript, "reflection", "scan", "-d", target}
+		}, 0)
 		return
 	}
 
@@ -759,9 +1093,13 @@ func handleReflection(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // Tech Detection
 func handleTech(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
 	threads := 100
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -772,8 +1110,19 @@ func handleTech(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	if attachment != nil {
+		handleFileBasedScan(s, i, "tech", attachment, func(target string) []string {
+			return []string{autoarScript, "tech", "detect", "-d", target, "-t", strconv.Itoa(threads)}
+		}, threads)
 		return
 	}
 
@@ -793,8 +1142,12 @@ func handleTech(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // Ports
 func handlePorts(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		if opt.Name == "domain" {
@@ -802,8 +1155,19 @@ func handlePorts(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	if attachment != nil {
+		handleFileBasedScan(s, i, "ports", attachment, func(target string) []string {
+			return []string{autoarScript, "ports", "scan", "-d", target}
+		}, 0)
 		return
 	}
 
@@ -823,10 +1187,14 @@ func handlePorts(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // Nuclei
 func handleNuclei(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	var domain, url, mode *string
 	enum := false
 	threads := 100
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -846,13 +1214,41 @@ func handleNuclei(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == nil && url == nil {
-		respond(s, i, "❌ Either domain or url must be provided", true)
+	// Validate: exactly one of domain, url, or file must be provided
+	if domain == nil && url == nil && attachment == nil {
+		respond(s, i, "❌ Either domain, url, or file attachment must be provided", true)
 		return
 	}
 
-	if domain != nil && url != nil {
-		respond(s, i, "❌ Cannot use both domain and url together", true)
+	// Count how many are provided
+	count := 0
+	if domain != nil {
+		count++
+	}
+	if url != nil {
+		count++
+	}
+	if attachment != nil {
+		count++
+	}
+	if count > 1 {
+		respond(s, i, "❌ Cannot use domain, url, and file together. Use only one.", true)
+		return
+	}
+
+	// Handle file attachment
+	if attachment != nil {
+		modeVal := "full"
+		if mode != nil {
+			modeVal = *mode
+		}
+		handleFileBasedScan(s, i, "nuclei", attachment, func(target string) []string {
+			cmd := []string{autoarScript, "nuclei", "run", "-d", target, "-m", modeVal, "-t", strconv.Itoa(threads)}
+			if enum {
+				cmd = append(cmd, "-e")
+			}
+			return cmd
+		}, threads)
 		return
 	}
 
@@ -944,8 +1340,12 @@ func handleJSScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // GF Scan
 func handleGFScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		if opt.Name == "domain" {
@@ -953,8 +1353,19 @@ func handleGFScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	if attachment != nil {
+		handleFileBasedScan(s, i, "gf", attachment, func(target string) []string {
+			return []string{autoarScript, "gf", "scan", "-d", target}
+		}, 0)
 		return
 	}
 
@@ -974,8 +1385,12 @@ func handleGFScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // SQLMap
 func handleSQLMap(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		if opt.Name == "domain" {
@@ -983,8 +1398,19 @@ func handleSQLMap(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	if attachment != nil {
+		handleFileBasedScan(s, i, "sqlmap", attachment, func(target string) []string {
+			return []string{autoarScript, "sqlmap", "run", "-d", target}
+		}, 0)
 		return
 	}
 
@@ -1004,8 +1430,12 @@ func handleSQLMap(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // Dalfox
 func handleDalfox(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		if opt.Name == "domain" {
@@ -1013,8 +1443,19 @@ func handleDalfox(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	if attachment != nil {
+		handleFileBasedScan(s, i, "dalfox", attachment, func(target string) []string {
+			return []string{autoarScript, "dalfox", "run", "-d", target}
+		}, 0)
 		return
 	}
 

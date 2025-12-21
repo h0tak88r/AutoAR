@@ -33,8 +33,8 @@ func GetResultsDir() string {
 		if !isDocker {
 			if cwd, err := os.Getwd(); err == nil {
 				return filepath.Join(cwd, "new-results")
-			}
-			return "new-results"
+	}
+	return "new-results"
 		}
 	}
 
