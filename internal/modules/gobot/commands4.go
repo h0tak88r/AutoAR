@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,7 +18,8 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	token := ""
 	skipCrack := false
 	skipPayloads := false
-	var wordlist *string
+	testAttacks := false
+	var wordlistChoice *string
 	var maxCrackAttempts *int
 
 	for _, opt := range options {
@@ -28,9 +30,11 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			skipCrack = opt.BoolValue()
 		case "skip_payloads":
 			skipPayloads = opt.BoolValue()
+		case "test_attacks":
+			testAttacks = opt.BoolValue()
 		case "wordlist":
 			val := opt.StringValue()
-			wordlist = &val
+			wordlistChoice = &val
 		case "max_crack_attempts":
 			val := int(opt.IntValue())
 			maxCrackAttempts = &val
@@ -42,6 +46,21 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	// Map wordlist choice to actual file path
+	var wordlistPath string
+	if wordlistChoice != nil && *wordlistChoice != "" {
+		root := getRootDir()
+		switch *wordlistChoice {
+		case "fast":
+			wordlistPath = filepath.Join(root, "Wordlists", "jwt-common.txt")
+		case "heavy":
+			wordlistPath = filepath.Join(root, "Wordlists", "scraped-JWT-secrets.txt")
+		default:
+			// If it's a custom path, use it as-is
+			wordlistPath = *wordlistChoice
+		}
+	}
+
 	// Build command
 	command := []string{autoarScript, "jwt", "scan", "--token", token}
 	
@@ -51,16 +70,34 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if skipPayloads {
 		command = append(command, "--skip-payloads")
 	}
-	if wordlist != nil && *wordlist != "" {
-		command = append(command, "-w", *wordlist)
+	if testAttacks {
+		command = append(command, "--test-attacks")
+	}
+	if wordlistPath != "" {
+		command = append(command, "-w", wordlistPath)
 	}
 	if maxCrackAttempts != nil && *maxCrackAttempts > 0 {
 		command = append(command, "--max-crack-attempts", fmt.Sprintf("%d", *maxCrackAttempts))
 	}
 
+	// Build embed description with wordlist info
+	desc := fmt.Sprintf("**Token:** `%s...`\n**Tool:** jwt-hack", token[:min(20, len(token))])
+	if wordlistPath != "" {
+		wordlistName := "Custom"
+		if *wordlistChoice == "fast" {
+			wordlistName = "Fast (jwt-common.txt)"
+		} else if *wordlistChoice == "heavy" {
+			wordlistName = "Heavy (scraped-JWT-secrets.txt)"
+		}
+		desc += fmt.Sprintf("\n**Wordlist:** %s", wordlistName)
+	}
+	if skipCrack {
+		desc += "\n**Cracking:** Skipped"
+	}
+
 	embed := &discordgo.MessageEmbed{
 		Title:       "🔐 JWT Security Scan",
-		Description: fmt.Sprintf("**Token:** `%s...`\n**Tool:** jwt-hack", token[:min(20, len(token))]),
+		Description: desc,
 		Color:       0x3498db,
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "Status", Value: "🟡 Running", Inline: false},

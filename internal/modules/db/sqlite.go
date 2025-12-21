@@ -50,7 +50,9 @@ func (s *SQLiteDB) Init() error {
 	}
 
 	s.db = db
-	log.Printf("[INFO] Connected to SQLite database at %s", dbPath)
+	if os.Getenv("AUTOAR_SILENT") != "true" {
+		log.Printf("[INFO] Connected to SQLite database at %s", dbPath)
+	}
 	return nil
 }
 
@@ -146,7 +148,9 @@ func (s *SQLiteDB) InitSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %v", err)
 	}
-	log.Printf("[OK] Database schema initialized")
+	if os.Getenv("AUTOAR_SILENT") != "true" {
+		log.Printf("[OK] Database schema initialized")
+	}
 	return nil
 }
 
@@ -485,6 +489,21 @@ func (s *SQLiteDB) ListSubdomains(domain string) ([]string, error) {
 		return nil, fmt.Errorf("failed to iterate subdomains: %v", rows.Err())
 	}
 	return subs, nil
+}
+
+// CountSubdomains returns the count of subdomains for a given domain.
+func (s *SQLiteDB) CountSubdomains(domain string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(s.id)
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE d.domain = ?;
+	`, domain).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count subdomains: %v", err)
+	}
+	return count, nil
 }
 
 // DeleteDomain deletes a domain and all its related data using ON DELETE CASCADE.
