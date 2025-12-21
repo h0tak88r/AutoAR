@@ -36,6 +36,8 @@ type DB interface {
 
 	// ListSubdomains returns all subdomains for a given domain
 	ListSubdomains(domain string) ([]string, error)
+	// CountSubdomains returns the count of subdomains for a given domain
+	CountSubdomains(domain string) (int, error)
 
 	// DeleteDomain deletes a domain and all its related data
 	DeleteDomain(domain string) error

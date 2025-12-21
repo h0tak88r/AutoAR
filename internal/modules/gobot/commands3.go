@@ -31,95 +31,95 @@ func handleKeyhack(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	switch action {
 	case "list":
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		})
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
 
-		command := []string{autoarScript, "keyhack", "list"}
+	command := []string{autoarScript, "keyhack", "list"}
 
-		output, stderr, err := runCommandSync(command)
+	output, stderr, err := runCommandSync(command)
 
-		embed := &discordgo.MessageEmbed{
-			Title:       "📋 KeyHack Templates List",
-			Description: "All available API key validation templates",
-			Color:       0x3498db,
+	embed := &discordgo.MessageEmbed{
+		Title:       "📋 KeyHack Templates List",
+		Description: "All available API key validation templates",
+		Color:       0x3498db,
+	}
+
+	if err != nil {
+		embed.Title = "❌ KeyHack List Failed"
+		embed.Color = 0xff0000
+		errorMsg := stderr
+		if errorMsg == "" {
+			errorMsg = "Failed to list templates"
 		}
-
-		if err != nil {
-			embed.Title = "❌ KeyHack List Failed"
-			embed.Color = 0xff0000
-			errorMsg := stderr
-			if errorMsg == "" {
-				errorMsg = "Failed to list templates"
+		if len(errorMsg) > 1000 {
+			errorMsg = errorMsg[:1000] + "..."
+		}
+		embed.Fields = []*discordgo.MessageEmbedField{
+			{Name: "Error", Value: fmt.Sprintf("```\n%s\n```", errorMsg), Inline: false},
+		}
+	} else {
+		// Parse output to count templates and show first few examples
+		lines := strings.Split(output, "\n")
+		templateCount := 0
+		var examples []string
+		
+		for _, line := range lines {
+			if strings.HasPrefix(line, "Provider: ") {
+				templateCount++
+				if len(examples) < 5 {
+					provider := strings.TrimPrefix(line, "Provider: ")
+					examples = append(examples, fmt.Sprintf("• **%s**", provider))
+				}
 			}
-			if len(errorMsg) > 1000 {
-				errorMsg = errorMsg[:1000] + "..."
-			}
-			embed.Fields = []*discordgo.MessageEmbedField{
-				{Name: "Error", Value: fmt.Sprintf("```\n%s\n```", errorMsg), Inline: false},
+		}
+		
+		description := fmt.Sprintf("**Total Templates:** `%d`\n\n", templateCount)
+		if len(examples) > 0 {
+			description += "**Sample Providers:**\n" + strings.Join(examples, "\n")
+			if templateCount > 5 {
+					description += fmt.Sprintf("\n\n*Showing first 5 of %d templates. Use `/keyhack search` to find specific providers.*", templateCount)
 			}
 		} else {
-			// Parse output to count templates and show first few examples
-			lines := strings.Split(output, "\n")
-			templateCount := 0
-			var examples []string
-			
-			for _, line := range lines {
-				if strings.HasPrefix(line, "Provider: ") {
-					templateCount++
-					if len(examples) < 5 {
-						provider := strings.TrimPrefix(line, "Provider: ")
-						examples = append(examples, fmt.Sprintf("• **%s**", provider))
-					}
-				}
-			}
-			
-			description := fmt.Sprintf("**Total Templates:** `%d`\n\n", templateCount)
-			if len(examples) > 0 {
-				description += "**Sample Providers:**\n" + strings.Join(examples, "\n")
-				if templateCount > 5 {
-					description += fmt.Sprintf("\n\n*Showing first 5 of %d templates. Use `/keyhack search` to find specific providers.*", templateCount)
-				}
-			} else {
-				description += "*No templates found.*"
-			}
-			
-			embed.Description = description
-			embed.Fields = []*discordgo.MessageEmbedField{
-				{
-					Name:   "💡 Tip",
-					Value:  "Use `/keyhack search <provider>` to get detailed information about a specific provider.",
-					Inline: false,
-				},
-			}
+			description += "*No templates found.*"
 		}
+		
+		embed.Description = description
+		embed.Fields = []*discordgo.MessageEmbedField{
+			{
+				Name:   "💡 Tip",
+					Value:  "Use `/keyhack search <provider>` to get detailed information about a specific provider.",
+				Inline: false,
+			},
+		}
+	}
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
 
 	case "search":
-		if query == "" {
+	if query == "" {
 			respond(s, i, "❌ Search query is required for search action", false)
-			return
-		}
+		return
+	}
 
-		command := []string{autoarScript, "keyhack", "search", query}
+	command := []string{autoarScript, "keyhack", "search", query}
 
-		output, stderr, err := runCommandSync(command)
+	output, stderr, err := runCommandSync(command)
 
-		// Check if output indicates "not found" before deferring response
-		if err == nil && (strings.Contains(output, "No matching KeyHack templates found") || strings.TrimSpace(output) == "") {
-			respond(s, i, fmt.Sprintf("❌ **No KeyHack templates found** for query: `%s`", query), false)
-			return
-		}
+	// Check if output indicates "not found" before deferring response
+	if err == nil && (strings.Contains(output, "No matching KeyHack templates found") || strings.TrimSpace(output) == "") {
+		respond(s, i, fmt.Sprintf("❌ **No KeyHack templates found** for query: `%s`", query), false)
+		return
+	}
 
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		})
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
 
-		if err != nil {
-			embed := &discordgo.MessageEmbed{
+	if err != nil {
+		embed := &discordgo.MessageEmbed{
 			Title:       "❌ KeyHack Search Failed",
 			Description: fmt.Sprintf("**Query:** `%s`", query),
 			Color:       0xff0000,
@@ -283,9 +283,9 @@ func handleKeyhack(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}}
 	}
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &embeds,
-		})
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &embeds,
+	})
 
 	default:
 		respond(s, i, fmt.Sprintf("❌ Unknown action: %s", action), false)
