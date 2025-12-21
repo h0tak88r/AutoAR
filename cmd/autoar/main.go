@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/backup"
 	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
@@ -40,6 +42,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
+	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
 )
 
 var (
@@ -145,6 +148,10 @@ Commands:
   keyhack validate <provider> <api_key>       Generate validation command for API key
   keyhack add <keyname> <command> <desc> [notes] Add a new template
   jwt scan             --token <JWT_TOKEN> [OPTIONS]                Scan JWT token for vulnerabilities using jwt-hack
+                                                                    Options: --skip-crack, --skip-payloads, --test-attacks, -w wordlist, --max-crack-attempts N
+  react2shell scan     -d <domain> [-t <threads>] [--dos-test] [--enable-source-exposure]
+  react2shell scan     -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure]
+                                                                    For each domain: collects live hosts, then runs smart scan
 
 Workflows:
   lite run            -d <domain>
@@ -828,15 +835,15 @@ func handleApkXMitm(args []string) error {
 
 // handleJWTCommand parses:
 //
-//	autoar jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]
-//	autoar jwt scan <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]
+//	autoar jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [--test-attacks] [-w wordlist] [--max-crack-attempts N]
+//	autoar jwt scan <JWT_TOKEN> [--skip-crack] [--skip-payloads] [--test-attacks] [-w wordlist] [--max-crack-attempts N]
 //
 // Internally this is normalized to:
 //
 //	jwt-hack scan <JWT_TOKEN> [flags...]
 func handleJWTCommand(args []string) error {
 	if len(args) == 0 || args[0] != "scan" {
-		return fmt.Errorf("usage: jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [-w wordlist] [--max-crack-attempts N]")
+		return fmt.Errorf("usage: jwt scan --token <JWT_TOKEN> [--skip-crack] [--skip-payloads] [--test-attacks] [-w wordlist] [--max-crack-attempts N]")
 	}
 	raw := args[1:]
 	if len(raw) == 0 {
@@ -991,6 +998,306 @@ func generateKeyhackCommand(t db.KeyhackTemplate, apiKey string) string {
 	curlParts = append(curlParts, url)
 
 	return strings.Join(curlParts, " ")
+}
+
+// handleReact2ShellCommand handles CLI react2shell scan
+// Usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure]
+func handleReact2ShellCommand(args []string) error {
+	if len(args) == 0 || args[0] != "scan" {
+		return fmt.Errorf("usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure]")
+	}
+	args = args[1:]
+
+	var domain, domainsFile string
+	threads := 100
+	dosTest := false
+	enableSourceExposure := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain = args[i+1]
+				i++
+			}
+		case "-f", "--file":
+			if i+1 < len(args) {
+				domainsFile = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					threads = t
+				}
+				i++
+			}
+		case "--dos-test":
+			dosTest = true
+		case "--enable-source-exposure":
+			enableSourceExposure = true
+		}
+	}
+
+	if domain == "" && domainsFile == "" {
+		return fmt.Errorf("either -d <domain> or -f <domains_file> must be provided")
+	}
+	if domain != "" && domainsFile != "" {
+		return fmt.Errorf("cannot use both -d and -f together")
+	}
+
+	var domains []string
+	if domain != "" {
+		domains = []string{domain}
+	} else {
+		// Read domains from file
+		file, err := os.Open(domainsFile)
+		if err != nil {
+			return fmt.Errorf("failed to open domains file: %w", err)
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" && !strings.HasPrefix(line, "#") {
+				domains = append(domains, line)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("error reading domains file: %w", err)
+		}
+		if len(domains) == 0 {
+			return fmt.Errorf("no valid domains found in file")
+		}
+	}
+
+	// Process each domain
+	for idx, targetDomain := range domains {
+		// Step 1: Get live hosts
+		liveHostsFile, err := getLiveHostsForCLI(targetDomain, threads)
+		if err != nil {
+			fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			continue
+		}
+
+		// Step 2: Normalize hosts
+		hosts, err := normalizeHostsForCLI(liveHostsFile)
+		if err != nil {
+			fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			continue
+		}
+
+		if len(hosts) == 0 {
+			fmt.Printf("[%d/%d] %s: 0 hosts scanned\n", idx+1, len(domains), targetDomain)
+			continue
+		}
+
+		// Step 3: Run smart scan
+		smartScanResults, err := runNext88ScanForCLI(hosts, []string{"-smart-scan"})
+		if err != nil {
+			fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			continue
+		}
+
+		// Collect all vulnerable hosts
+		allVulnerable := make(map[string]bool)
+		for _, h := range smartScanResults {
+			allVulnerable[h] = true
+		}
+
+		// Step 4: DoS test (if enabled)
+		if dosTest {
+			dosResults, err := runNext88ScanForCLI(hosts, []string{"-dos-test", "-dos-requests", "100"})
+			if err == nil {
+				for _, h := range dosResults {
+					allVulnerable[h] = true
+				}
+			}
+		}
+
+		// Step 5: Source exposure check (if enabled)
+		if enableSourceExposure {
+			sourceResults, err := runNext88ScanForCLI(hosts, []string{"-check-source-exposure"})
+			if err == nil {
+				for _, h := range sourceResults {
+					allVulnerable[h] = true
+				}
+			}
+		}
+
+		// Print concise output
+		vulnerableList := make([]string, 0, len(allVulnerable))
+		for h := range allVulnerable {
+			vulnerableList = append(vulnerableList, h)
+		}
+
+		if len(vulnerableList) > 0 {
+			fmt.Printf("[%d/%d] %s: %d hosts scanned, %d vulnerable:\n", idx+1, len(domains), targetDomain, len(hosts), len(vulnerableList))
+			for _, host := range vulnerableList {
+				fmt.Printf("  - %s\n", host)
+			}
+		} else {
+			fmt.Printf("[%d/%d] %s: %d hosts scanned\n", idx+1, len(domains), targetDomain, len(hosts))
+		}
+	}
+
+	return nil
+}
+
+// Helper functions for CLI
+func getLiveHostsForCLI(domain string, threads int) (string, error) {
+	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+	if resultsDir == "" {
+		resultsDir = "new-results"
+	}
+
+	subsDir := filepath.Join(resultsDir, domain, "subs")
+
+	// Ensure subdomains exist first
+	subCmd := exec.Command(os.Args[0], "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
+	if err := subCmd.Run(); err != nil {
+		return "", fmt.Errorf("subdomain enumeration failed: %w", err)
+	}
+
+	// Run livehosts
+	cmd := exec.Command(os.Args[0], "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("livehosts failed: %w", err)
+	}
+
+	// Check for live hosts file
+	liveHostsFile := filepath.Join(subsDir, "live-subs.txt")
+	if fileInfo, err := os.Stat(liveHostsFile); err == nil && fileInfo.Size() > 0 {
+		return liveHostsFile, nil
+	}
+
+	// Fallback to all-subs.txt
+	allSubsFile := filepath.Join(subsDir, "all-subs.txt")
+	if fileInfo, err := os.Stat(allSubsFile); err == nil && fileInfo.Size() > 0 {
+		return allSubsFile, nil
+	}
+
+	return "", fmt.Errorf("no live hosts file found")
+}
+
+func normalizeHostsForCLI(hostsFile string) ([]string, error) {
+	data, err := os.ReadFile(hostsFile)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	normalized := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		host := strings.TrimSpace(line)
+		if host == "" {
+			continue
+		}
+		host = strings.TrimSuffix(host, "/")
+		if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+			host = "https://" + host
+		}
+		normalized = append(normalized, host)
+	}
+
+	return normalized, nil
+}
+
+func runNext88ScanForCLI(hosts []string, extraFlags []string) ([]string, error) {
+	if len(hosts) == 0 {
+		return []string{}, nil
+	}
+
+	opts := next88.ScanOptions{
+		Timeout:         10 * time.Second,
+		VerifySSL:       false,
+		FollowRedirects: true,
+		SafeCheck:       false,
+		Windows:         false,
+		WAFBypass:       false,
+		WAFBypassSizeKB: 128,
+		VercelWAFBypass: false,
+		Paths:           nil,
+		DoubleEncode:    false,
+		SemicolonBypass: false,
+		CheckSourceExp:  false,
+		CustomHeaders:   make(map[string]string),
+		Threads:         10,
+		Quiet:           true,
+		Verbose:         false,
+		NoColor:         true,
+		AllResults:      true,
+		DiscordWebhook:  "",
+		DOSTest:         false,
+		DOSRequests:     100,
+		SmartScan:       false,
+	}
+
+	if len(hosts) < opts.Threads {
+		opts.Threads = len(hosts)
+		if opts.Threads == 0 {
+			opts.Threads = 1
+		}
+	}
+
+	for i := 0; i < len(extraFlags); i++ {
+		flag := extraFlags[i]
+		switch flag {
+		case "-smart-scan":
+			opts.SmartScan = true
+		case "-dos-test":
+			opts.DOSTest = true
+		case "-dos-requests":
+			if i+1 < len(extraFlags) {
+				if v, err := strconv.Atoi(extraFlags[i+1]); err == nil && v > 0 {
+					opts.DOSRequests = v
+				}
+				i++
+			}
+		case "-check-source-exposure":
+			opts.CheckSourceExp = true
+		}
+	}
+
+	results, err := next88.Run(hosts, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	vulnerableHosts := make(map[string]bool)
+	for _, res := range results {
+		if res.Vulnerable != nil && *res.Vulnerable {
+			host := res.Host
+			if host == "" {
+				host = res.TestedURL
+			}
+			if host == "" {
+				continue
+			}
+			hostname := extractHostnameForCLI(host)
+			if hostname != "" {
+				vulnerableHosts[hostname] = true
+			}
+		}
+	}
+
+	out := make([]string, 0, len(vulnerableHosts))
+	for h := range vulnerableHosts {
+		out = append(out, h)
+	}
+
+	return out, nil
+}
+
+func extractHostnameForCLI(url string) string {
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	parts := strings.Split(url, "/")
+	host := parts[0]
+	parts = strings.Split(host, ":")
+	return parts[0]
 }
 
 // handleMisconfigCommand routes misconfig subcommands
@@ -2100,6 +2407,9 @@ func main() {
 
 	case "misconfig":
 		err = handleMisconfigCommand(args)
+
+	case "react2shell":
+		err = handleReact2ShellCommand(args)
 
 	case "monitor":
 		err = handleMonitorCommand(args)
