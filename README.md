@@ -14,7 +14,7 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 🛡️ **Vulnerability Scanning**
 - **Nuclei Integration**: 1000+ vulnerability templates with custom rate limiting
-- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods, source code exposure checks, and DoS testing
+- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods, source code exposure checks, DoS testing, and batch domain processing with automatic live hosts collection
 - **WordPress Plugin Confusion**: Automated WP plugin/theme confusion attack detection
 - **Dependency Confusion**: GitHub repository dependency confusion scanning
 - **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis (pure Go via AWS SDK v2, no aws CLI required). Supports both authenticated and unauthenticated testing - automatically falls back to HTTP-based public access testing when credentials are missing
@@ -279,6 +279,8 @@ autoar github-wordlist scan -o orgname
 autoar apkx scan -i /path/to/app.apk    # Analyze APK/IPA with embedded apkX engine
 autoar apkx mitm -i /path/to/app.apk    # Patch APK for MITM inspection (standalone command)
 autoar apkx mitm -p com.example.app     # Download and patch APK by package name
+autoar react2shell scan -d example.com [-t 100] [--dos-test] [--enable-source-exposure]  # Scan single domain (collects live hosts, then smart scan)
+autoar react2shell scan -f domains.txt [-t 100] [--dos-test] [--enable-source-exposure]  # Scan multiple domains from file
 autoar bot    # Start Discord bot
 autoar api    # Start REST API server
 autoar both   # Start both bot and API
@@ -345,7 +347,8 @@ Once the bot is running, use these slash commands in Discord:
 
 #### Vulnerability Scanning
 - `/nuclei domain:example.com [threads:100]` - Run Nuclei scans
-- `/react2shell_scan domain:example.com [threads:100] [enable_source_exposure:false] [dos_test:false]` - Scan domain hosts for React Server Components RCE (CVE-2025-55182) using next88 smart scan (sequential: normal → WAF bypass → Vercel WAF → paths)
+- `/react2shell domain:example.com [threads:100] [enable_source_exposure:false] [dos_test:false]` - Scan domain hosts for React Server Components RCE (CVE-2025-55182) using next88 smart scan (sequential: normal → WAF bypass → Vercel WAF → paths). Automatically collects live hosts first, then runs smart scan.
+- `/react2shell file:<domains.txt> [threads:100] [enable_source_exposure:false] [dos_test:false]` - Process multiple domains from file. For each domain: collects live hosts, then runs smart scan. Perfect for batch scanning.
 - `/react2shell url:https://example.com [verbose:false]` - Test single URL for React Server Components RCE using next88 smart scan
 - `/jwt_scan token:<JWT_TOKEN> [skip_crack:false] [skip_payloads:false] [wordlist:] [max_crack_attempts:]` - JWT token vulnerability scanning using jwt-hack
 - `/wpdepconf domain:example.com` - WordPress plugin confusion
