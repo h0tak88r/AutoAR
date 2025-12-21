@@ -22,7 +22,9 @@ func Init() error {
 			return err
 		}
 		dbInstance = pgDB
-		log.Printf("[INFO] Using PostgreSQL database")
+		if os.Getenv("AUTOAR_SILENT") != "true" {
+			log.Printf("[INFO] Using PostgreSQL database")
+		}
 		return nil
 
 	case "sqlite", "sqlite3":
@@ -31,7 +33,9 @@ func Init() error {
 			return err
 		}
 		dbInstance = sqliteDB
-		log.Printf("[INFO] Using SQLite database")
+		if os.Getenv("AUTOAR_SILENT") != "true" {
+			log.Printf("[INFO] Using SQLite database")
+	}
 		return nil
 
 	default:
@@ -138,6 +142,16 @@ func ListSubdomains(domain string) ([]string, error) {
 		}
 	}
 	return dbInstance.ListSubdomains(domain)
+}
+
+// CountSubdomains returns the count of subdomains for a given domain.
+func CountSubdomains(domain string) (int, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return 0, err
+		}
+	}
+	return dbInstance.CountSubdomains(domain)
 }
 
 // DeleteDomain deletes a domain and all its related data using ON DELETE CASCADE.

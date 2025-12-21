@@ -61,7 +61,9 @@ func (p *PostgresDB) Init() error {
 		return fmt.Errorf("failed to ping database: %v", err)
 	}
 
-	log.Printf("[INFO] Connected to PostgreSQL database")
+	if os.Getenv("AUTOAR_SILENT") != "true" {
+		log.Printf("[INFO] Connected to PostgreSQL database")
+	}
 	return nil
 }
 
@@ -255,7 +257,9 @@ func (p *PostgresDB) InitSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %v", err)
 	}
-	log.Printf("[OK] Database schema initialized")
+	if os.Getenv("AUTOAR_SILENT") != "true" {
+		log.Printf("[OK] Database schema initialized")
+	}
 	return nil
 }
 
@@ -584,6 +588,21 @@ func (p *PostgresDB) ListSubdomains(domain string) ([]string, error) {
 		return nil, fmt.Errorf("failed to iterate subdomains: %v", rows.Err())
 	}
 	return subs, nil
+}
+
+// CountSubdomains returns the count of subdomains for a given domain.
+func (p *PostgresDB) CountSubdomains(domain string) (int, error) {
+	var count int
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT COUNT(s.id)
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE d.domain = $1;
+	`, domain).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count subdomains: %v", err)
+	}
+	return count, nil
 }
 
 // DeleteDomain deletes a domain and all its related data using ON DELETE CASCADE.

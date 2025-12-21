@@ -83,8 +83,29 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 
 // ensureSubdomains loads or re-generates subdomains for a domain.
 // It returns the total number of subdomains.
+// First checks database, then file, then collects if needed.
 func ensureSubdomains(domain string, threads int, subsFile string) (int, error) {
-	// If file exists and has enough subdomains, reuse it
+	// Step 1: Check database first
+	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
+		if err := db.Init(); err == nil {
+			_ = db.InitSchema()
+			count, err := db.CountSubdomains(domain)
+			if err == nil && count > 0 {
+				log.Printf("[INFO] Found %d subdomains in database for %s, using them", count, domain)
+				// Load subdomains from database and write to file
+				subs, err := db.ListSubdomains(domain)
+				if err == nil && len(subs) > 0 {
+					// Write to file for compatibility
+					if err := writeLines(subsFile, subs); err != nil {
+						log.Printf("[WARN] Failed to write subdomains from DB to file: %v", err)
+					}
+					return len(subs), nil
+				}
+			}
+		}
+	}
+
+	// Step 2: If file exists and has enough subdomains, reuse it
 	if info, err := os.Stat(subsFile); err == nil && info.Size() > 0 {
 		count, err := countLines(subsFile)
 		if err == nil {
@@ -97,6 +118,7 @@ func ensureSubdomains(domain string, threads int, subsFile string) (int, error) 
 		}
 	}
 
+	// Step 3: Collect subdomains (not in database and no valid file)
 	log.Printf("[INFO] Collecting subdomains for %s", domain)
 	results, err := subdomains.EnumerateSubdomains(domain, threads)
 	if err != nil {
@@ -111,10 +133,9 @@ func ensureSubdomains(domain string, threads int, subsFile string) (int, error) 
 	total := len(results)
 	log.Printf("[OK] Found %d unique subdomains for %s", total, domain)
 
-	// Save to database if configured
+	// Save to database if configured (EnumerateSubdomains already does this, but keep for compatibility)
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err == nil {
-			// Ignore InitSchema errors here; it is already handled at startup
 			_ = db.InitSchema()
 			if err := db.BatchInsertSubdomains(domain, results, false); err != nil {
 				log.Printf("[WARN] Failed to save subdomains to database: %v", err)

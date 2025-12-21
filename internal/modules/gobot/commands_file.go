@@ -1,7 +1,6 @@
 package gobot
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -297,30 +296,7 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
-// readTargetsFromFile reads targets from a file (one per line)
-func readTargetsFromFile(filePath string) ([]string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var targets []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip empty lines and comments
-		if line != "" && !strings.HasPrefix(line, "#") {
-			targets = append(targets, line)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	return targets, nil
-}
+// readTargetsFromFile is now in commands.go to avoid duplication
 
 // handleScanFromFileContext handles message context command (right-click on message)
 // This shows a modal to get scan type, then processes the file
