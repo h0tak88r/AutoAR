@@ -26,6 +26,7 @@ func RunScan(args []string) (string, error) {
 		maxCrackAttempts int
 		skipCrack        bool
 		skipPayloads     bool
+		testAttacks      bool
 	)
 
 	// Parse remaining flags in a minimal, jwt-hack-compatible way.
@@ -36,6 +37,8 @@ func RunScan(args []string) (string, error) {
 			skipCrack = true
 		case "--skip-payloads":
 			skipPayloads = true
+		case "--test-attacks", "-t":
+			testAttacks = true
 		case "-w", "--wordlist":
 			if i+1 < len(args) {
 				wordlist = args[i+1]
@@ -70,6 +73,7 @@ func RunScan(args []string) (string, error) {
 		MaxCrackAttempts: maxCrackAttempts,
 		SkipCrack:        skipCrack,
 		SkipPayloads:     skipPayloads,
+		TestAttacks:      testAttacks,
 	}
 
 	res, err := jwthack.Scan(opts)

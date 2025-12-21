@@ -1072,6 +1072,10 @@ func handleReact2ShellCommand(args []string) error {
 		}
 	}
 
+	// Set silent mode for file scanning
+	os.Setenv("AUTOAR_SILENT", "true")
+	defer os.Unsetenv("AUTOAR_SILENT")
+
 	// Process each domain
 	for idx, targetDomain := range domains {
 		// Step 1: Get live hosts
@@ -1140,8 +1144,32 @@ func handleReact2ShellCommand(args []string) error {
 		} else {
 			fmt.Printf("[%d/%d] %s: %d hosts scanned\n", idx+1, len(domains), targetDomain, len(hosts))
 		}
+		
+		// Cleanup domain directory after each domain scan
+		if err := cleanupDomainDirectoryForCLI(targetDomain); err != nil {
+			fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", targetDomain, err)
+		}
 	}
 
+	return nil
+}
+
+// cleanupDomainDirectoryForCLI removes the domain's result directory
+func cleanupDomainDirectoryForCLI(domain string) error {
+	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+	if resultsDir == "" {
+		resultsDir = "new-results"
+	}
+	
+	domainDir := filepath.Join(resultsDir, domain)
+	
+	if _, err := os.Stat(domainDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean
+	}
+	
+	if err := os.RemoveAll(domainDir); err != nil {
+		return fmt.Errorf("failed to cleanup domain directory: %w", err)
+	}
 	return nil
 }
 
@@ -1154,10 +1182,40 @@ func getLiveHostsForCLI(domain string, threads int) (string, error) {
 
 	subsDir := filepath.Join(resultsDir, domain, "subs")
 
-	// Ensure subdomains exist first
-	subCmd := exec.Command(os.Args[0], "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
-	if err := subCmd.Run(); err != nil {
-		return "", fmt.Errorf("subdomain enumeration failed: %w", err)
+	// Check if subdomains exist in database first
+	shouldCollect := true
+	silent := os.Getenv("AUTOAR_SILENT") == "true"
+	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
+		if err := db.Init(); err == nil {
+			_ = db.InitSchema()
+			count, err := db.CountSubdomains(domain)
+			if err == nil && count > 0 {
+				if !silent {
+					fmt.Printf("[INFO] Found %d subdomains in database for %s, skipping collection\n", count, domain)
+				}
+				shouldCollect = false
+				// Load subdomains from DB and write to file for compatibility
+				subs, err := db.ListSubdomains(domain)
+				if err == nil && len(subs) > 0 {
+					allSubsFile := filepath.Join(subsDir, "all-subs.txt")
+					os.MkdirAll(subsDir, 0755)
+					if err := writeLinesToFileForCLI(allSubsFile, subs); err != nil {
+						if !silent {
+							fmt.Printf("[WARN] Failed to write subdomains from DB to file: %v\n", err)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Only collect subdomains if not in database
+	if shouldCollect {
+		// Ensure subdomains exist first
+		subCmd := exec.Command(os.Args[0], "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
+		if err := subCmd.Run(); err != nil {
+			return "", fmt.Errorf("subdomain enumeration failed: %w", err)
+		}
 	}
 
 	// Run livehosts
@@ -1298,6 +1356,22 @@ func extractHostnameForCLI(url string) string {
 	host := parts[0]
 	parts = strings.Split(host, ":")
 	return parts[0]
+}
+
+// writeLinesToFileForCLI writes lines to a file
+func writeLinesToFileForCLI(path string, lines []string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(file, line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // handleMisconfigCommand routes misconfig subcommands

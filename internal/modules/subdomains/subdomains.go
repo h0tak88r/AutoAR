@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 )
 
 // EnumerateSubdomains enumerates subdomains for a given domain using subfinder and API sources
@@ -55,6 +56,21 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	}
 
 	log.Printf("[OK] Found %d unique subdomains for %s", len(results), domain)
+	
+	// Save to database if configured
+	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
+		if err := db.Init(); err == nil {
+			_ = db.InitSchema()
+			if err := db.BatchInsertSubdomains(domain, results, false); err != nil {
+				log.Printf("[WARN] Failed to save subdomains to database: %v", err)
+			} else {
+				log.Printf("[OK] Saved %d subdomains to database for %s", len(results), domain)
+			}
+		} else {
+			log.Printf("[WARN] Database initialization failed, skipping subdomains save: %v", err)
+		}
+	}
+	
 	return results, nil
 }
 
