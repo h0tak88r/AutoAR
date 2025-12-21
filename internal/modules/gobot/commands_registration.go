@@ -16,6 +16,7 @@ func registerAllCommands(s *discordgo.Session) {
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan (for host scanning)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Single URL to test (for single URL testing)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File containing domains (one per line) - will do live hosts + smart scan for each", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (for domain scan, default: 100)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "enable_source_exposure", Description: "Enable source code exposure check (for domain scan)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "dos_test", Description: "Enable DoS test (for domain scan)", Required: false},
@@ -74,7 +75,8 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "subdomains",
 			Description: "Enumerate subdomains",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to enumerate", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to enumerate", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
 			},
 		},
@@ -89,7 +91,8 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "livehosts",
 			Description: "Filter live hosts from subdomains",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
 			},
 		},
@@ -97,7 +100,8 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "urls",
 			Description: "Collect URLs and JS URLs",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
 			},
 		},
@@ -105,14 +109,16 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "reflection",
 			Description: "Run reflection scan (kxss)",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 			},
 		},
 		{
 			Name:        "tech",
 			Description: "Detect technologies on live hosts",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
 			},
 		},
@@ -120,7 +126,8 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "ports",
 			Description: "Scan ports for a domain",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 			},
 		},
 		// Vulnerability scanning
@@ -128,8 +135,9 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "nuclei",
 			Description: "Run nuclei templates on domain/URL",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to scan (use either domain or url)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Single URL to scan (use either domain or url)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to scan (use either domain, url, or file)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Single URL to scan (use either domain, url, or file)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains/URLs (one per line)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "mode", Description: "Scan mode: full, cves, panels, default-logins, or vulnerabilities (default: full)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "enum", Description: "Enable enumeration (only valid with domain)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
@@ -148,21 +156,24 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "gf_scan",
 			Description: "Run GF pattern scans",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 			},
 		},
 		{
 			Name:        "sqlmap",
 			Description: "Run SQLMap on GF SQLi results",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 			},
 		},
 		{
 			Name:        "dalfox",
 			Description: "Run Dalfox XSS scan",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 			},
 		},
 		{
@@ -318,7 +329,17 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionString, Name: "token", Description: "JWT token to scan", Required: true},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_crack", Description: "Skip secret cracking for faster results", Required: false},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_payloads", Description: "Skip payload generation", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "wordlist", Description: "Custom wordlist for weak secret detection", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "test_attacks", Description: "Generate test tokens for attacks (alg:none, null sig, alg confusion, weak secrets)", Required: false},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "wordlist",
+					Description: "Wordlist for dictionary attack (fast or heavy)",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "Fast (jwt-common.txt)", Value: "fast"},
+						{Name: "Heavy (scraped-JWT-secrets.txt)", Value: "heavy"},
+					},
+				},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "max_crack_attempts", Description: "Limit secret testing attempts", Required: false},
 			},
 		},
@@ -329,8 +350,8 @@ func registerAllCommands(s *discordgo.Session) {
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain (or use file option for multiple domains)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File containing domains (one per line)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "method", Description: "Fuzzuli method: regular, withoutdots, withoutvowels, reverse, mixed, withoutdv, shuffle, all (default: regular)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "extensions", Description: "File extensions (comma-separated, e.g., .rar,.zip) - default: all (uses all common backup extensions)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "method", Description: "Fuzzuli method: regular, withoutdots, reverse, mixed, shuffle, all (default: regular)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "extensions", Description: "File extensions (comma-separated, e.g., .rar,.zip) - default: all", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "delay", Description: "Delay between requests (default: 0)", Required: false},
 			},

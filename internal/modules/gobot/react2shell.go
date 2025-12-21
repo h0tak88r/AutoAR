@@ -17,13 +17,18 @@ import (
 
 // handleReact2Shell handles both /react2shell_scan (domain) and /react2shell (URL) commands
 func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
 	url := ""
 	threads := 100
 	enableSourceExposure := false
 	dosTest := false
 	verbose := false
+	var attachment *discordgo.MessageAttachment
+
+	// Check for file attachment
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -42,13 +47,104 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
+	// Handle file attachment (list of domains)
+	if attachment != nil {
+		// Respond immediately
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "📥 Downloading file and processing domains...",
+			},
+		})
+		if err != nil {
+			log.Printf("[ERROR] Failed to respond to interaction: %v", err)
+			return
+		}
+
+		// Download and process file
+		targets, err := downloadAndProcessFile(attachment)
+		if err != nil {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("❌ Error processing file: %v", err),
+			})
+			return
+		}
+
+		if len(targets) == 0 {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: "❌ No valid domains found in file",
+			})
+			return
+		}
+
+		// Update initial response
+		content := fmt.Sprintf("📋 Found %d domains in file. Starting react2shell scan (live hosts + smart scan) for each...", len(targets))
+		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: &content,
+		})
+		if err != nil {
+			log.Printf("[WARN] Failed to update interaction: %v", err)
+		}
+
+		// Process each domain: get live hosts, then run smart scan
+		for idx, target := range targets {
+			target = strings.TrimSpace(target)
+			if target == "" {
+				continue
+			}
+
+			log.Printf("[INFO] Processing domain %d/%d: %s", idx+1, len(targets), target)
+
+			embed := &discordgo.MessageEmbed{
+				Title:       "React2Shell Host Scan",
+				Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", target, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
+				Color:       0x3498db,
+				Fields: []*discordgo.MessageEmbedField{
+					{Name: "Status", Value: "🟡 Running", Inline: false},
+				},
+			}
+
+			_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			})
+			if err != nil {
+				log.Printf("[ERROR] Failed to create followup message: %v", err)
+				continue
+			}
+
+			// Create a new interaction create for this target
+			targetInteraction := &discordgo.InteractionCreate{
+				Interaction: &discordgo.Interaction{
+					ID:        i.Interaction.ID + fmt.Sprintf("_%d", idx),
+					ChannelID: i.ChannelID,
+				},
+			}
+
+			go runReact2ShellScan(s, targetInteraction, target, threads, enableSourceExposure, dosTest)
+
+			// Small delay between scans
+			time.Sleep(1 * time.Second)
+		}
+
+		// Send summary
+		summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** react2shell (live hosts + smart scan)\n**Total Domains:** %d", len(targets))
+		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: summary,
+		})
+		return
+	}
+
 	// Validate: exactly one of domain or url must be provided
 	if domain == "" && url == "" {
-		respond(s, i, "❌ Either domain or URL is required", false)
+		respond(s, i, "❌ Either domain, URL, or file attachment is required", false)
 		return
 	}
 	if domain != "" && url != "" {
 		respond(s, i, "❌ Please provide either domain OR url, not both", false)
+		return
+	}
+	if (domain != "" || url != "") && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain/url and file. Use either domain/url or file attachment.", false)
 		return
 	}
 
@@ -836,9 +932,13 @@ func getStringFromMap(m map[string]interface{}, key, defaultValue string) string
 }
 
 func handleLivehosts(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
+	data := i.ApplicationCommandData()
+	options := data.Options
 	domain := ""
 	threads := 100
+	var attachment *discordgo.MessageAttachment
+
+	attachment = getAttachmentFromOptions(&data)
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -849,8 +949,99 @@ func handleLivehosts(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+	if domain == "" && attachment == nil {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+	if domain != "" && attachment != nil {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	// Handle file attachment
+	if attachment != nil {
+		// Respond immediately
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "📥 Downloading file and processing targets...",
+			},
+		})
+		if err != nil {
+			log.Printf("[ERROR] Failed to respond to interaction: %v", err)
+			return
+		}
+
+		// Download and process file
+		targets, err := downloadAndProcessFile(attachment)
+		if err != nil {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("❌ Error processing file: %v", err),
+			})
+			return
+		}
+
+		if len(targets) == 0 {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: "❌ No valid targets found in file",
+			})
+			return
+		}
+
+		// Update initial response
+		content := fmt.Sprintf("📋 Found %d targets in file. Starting livehosts scan...", len(targets))
+		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: &content,
+		})
+		if err != nil {
+			log.Printf("[WARN] Failed to update interaction: %v", err)
+		}
+
+		// Process each target
+		for idx, target := range targets {
+			target = strings.TrimSpace(target)
+			if target == "" {
+				continue
+			}
+
+			log.Printf("[INFO] Processing target %d/%d: %s", idx+1, len(targets), target)
+
+			embed := &discordgo.MessageEmbed{
+				Title:       "🔍 Livehosts Scan",
+				Description: fmt.Sprintf("**Target:** `%s`\n**Threads:** %d", target, threads),
+				Color:       0x3498db,
+				Fields: []*discordgo.MessageEmbedField{
+					{Name: "Status", Value: "🟡 Running", Inline: false},
+				},
+			}
+
+			_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			})
+			if err != nil {
+				log.Printf("[ERROR] Failed to create followup message: %v", err)
+				continue
+			}
+
+			// Create a new interaction create for this target
+			targetInteraction := &discordgo.InteractionCreate{
+				Interaction: &discordgo.Interaction{
+					ID:        i.Interaction.ID + fmt.Sprintf("_%d", idx),
+					ChannelID: i.ChannelID,
+				},
+			}
+
+			go runLivehostsScan(s, targetInteraction, target, threads)
+
+			// Small delay between scans
+			time.Sleep(1 * time.Second)
+		}
+
+		// Send summary
+		summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** livehosts\n**Total Targets:** %d", len(targets))
+		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: summary,
+		})
 		return
 	}
 
