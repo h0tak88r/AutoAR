@@ -144,6 +144,16 @@ func ListSubdomains(domain string) ([]string, error) {
 	return dbInstance.ListSubdomains(domain)
 }
 
+// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain.
+func ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListSubdomainsWithStatus(domain)
+}
+
 // CountSubdomains returns the count of subdomains for a given domain.
 func CountSubdomains(domain string) (int, error) {
 	if dbInstance == nil {
@@ -212,6 +222,56 @@ func GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 		}
 	}
 	return dbInstance.GetMonitorTargetByID(id)
+}
+
+// ListSubdomainMonitorTargets returns all subdomain monitoring targets
+func ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListSubdomainMonitorTargets()
+}
+
+// AddSubdomainMonitorTarget adds a new subdomain monitoring target
+func AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew bool) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.AddSubdomainMonitorTarget(domain, interval, threads, checkNew)
+}
+
+// RemoveSubdomainMonitorTarget removes a subdomain monitoring target by domain
+func RemoveSubdomainMonitorTarget(domain string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.RemoveSubdomainMonitorTarget(domain)
+}
+
+// SetSubdomainMonitorRunningStatus updates the running status of a subdomain monitor target
+func SetSubdomainMonitorRunningStatus(id int, isRunning bool) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.SetSubdomainMonitorRunningStatus(id, isRunning)
+}
+
+// GetSubdomainMonitorTargetByID returns a single subdomain monitor target by ID
+func GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.GetSubdomainMonitorTargetByID(id)
 }
 
 // Close closes the database connection pool

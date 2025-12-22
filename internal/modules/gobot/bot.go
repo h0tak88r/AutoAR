@@ -280,8 +280,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleDB(s, i)
 	case "keyhack":
 		handleKeyhack(s, i)
-	case "monitor_updates":
-		handleMonitorUpdates(s, i)
+	case "monitor_subdomains_manage":
+		handleMonitorSubdomainsManage(s, i)
 	case "monitor_updates_manage":
 		handleMonitorUpdatesManage(s, i)
 	case "jwt_scan":
@@ -296,6 +296,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleWebDepConf(s, i)
 	case "scan_status":
 		handleScanStatus(s, i)
+	case "scope":
+		handleScope(s, i)
 	default:
 		log.Printf("Unknown command: %s", cmdName)
 		respond(s, i, fmt.Sprintf("❌ Unknown command: %s", cmdName), false)

@@ -294,43 +294,6 @@ func handleKeyhack(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 // Monitoring Commands
-func handleMonitorUpdates(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	embed := createScanEmbed("Monitor Updates: List", "monitors", "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	cmd := []string{autoarScript, "monitor", "updates", "list"}
-
-	output, _, err := runCommandSync(cmd)
-
-	color := 0x00ff00
-	if err != nil {
-		color = 0xff0000
-	}
-
-	desc := output
-	if desc == "" {
-		desc = "No targets configured"
-	}
-	if len(desc) > 1900 {
-		desc = desc[:1900]
-	}
-
-	embed = &discordgo.MessageEmbed{
-		Title:       "📡 Updates Monitors",
-		Description: fmt.Sprintf("```\n%s\n```", desc),
-		Color:       color,
-	}
-
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-}
-
 func handleMonitorUpdatesManage(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	action := ""
