@@ -246,11 +246,25 @@ func (p *PostgresDB) InitSchema() error {
 		END IF;
 	END $$;
 	
+	-- Create subdomain_monitor_targets table for subdomain monitoring
+	CREATE TABLE IF NOT EXISTS subdomain_monitor_targets (
+		id SERIAL PRIMARY KEY,
+		domain VARCHAR(255) NOT NULL UNIQUE,
+		interval_seconds INTEGER DEFAULT 3600,
+		threads INTEGER DEFAULT 100,
+		check_new BOOLEAN DEFAULT TRUE,
+		is_running BOOLEAN DEFAULT FALSE,
+		created_at TIMESTAMP DEFAULT NOW(),
+		updated_at TIMESTAMP DEFAULT NOW()
+	);
+	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
 	CREATE INDEX IF NOT EXISTS idx_updates_targets_url ON updates_targets(url);
+	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_domain ON subdomain_monitor_targets(domain);
+	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_is_running ON subdomain_monitor_targets(is_running);
 	`
 
 	_, err := p.pool.Exec(p.ctx, schema)
@@ -590,6 +604,39 @@ func (p *PostgresDB) ListSubdomains(domain string) ([]string, error) {
 	return subs, nil
 }
 
+// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain.
+func (p *PostgresDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT s.subdomain, 
+		       COALESCE(s.http_url, ''), 
+		       COALESCE(s.https_url, ''), 
+		       COALESCE(s.http_status, 0), 
+		       COALESCE(s.https_status, 0),
+		       COALESCE(s.is_live, false)
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE d.domain = $1
+		ORDER BY s.subdomain;
+	`, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query subdomains with status: %v", err)
+	}
+	defer rows.Close()
+
+	var subs []SubdomainStatus
+	for rows.Next() {
+		var s SubdomainStatus
+		if err := rows.Scan(&s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &s.IsLive); err != nil {
+			return nil, fmt.Errorf("failed to scan subdomain status: %v", err)
+		}
+		subs = append(subs, s)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate subdomains: %v", rows.Err())
+	}
+	return subs, nil
+}
+
 // CountSubdomains returns the count of subdomains for a given domain.
 func (p *PostgresDB) CountSubdomains(domain string) (int, error) {
 	var count int
@@ -698,6 +745,99 @@ func (p *PostgresDB) GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 			return nil, fmt.Errorf("monitor target not found with id: %d", id)
 		}
 		return nil, fmt.Errorf("failed to get monitor target by id: %v", err)
+	}
+	return &t, nil
+}
+
+// ListSubdomainMonitorTargets returns all subdomain monitoring targets
+func (p *PostgresDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, domain, interval_seconds, threads, check_new, is_running, created_at, updated_at
+		FROM subdomain_monitor_targets
+		ORDER BY domain;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query subdomain monitor targets: %v", err)
+	}
+	defer rows.Close()
+
+	var targets []SubdomainMonitorTarget
+	for rows.Next() {
+		var t SubdomainMonitorTarget
+		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan subdomain monitor target: %v", err)
+		}
+		targets = append(targets, t)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate subdomain monitor targets: %v", rows.Err())
+	}
+	return targets, nil
+}
+
+// AddSubdomainMonitorTarget adds a new subdomain monitoring target
+func (p *PostgresDB) AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew bool) error {
+	if interval <= 0 {
+		interval = 3600 // Default 1 hour
+	}
+	if threads <= 0 {
+		threads = 100
+	}
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO subdomain_monitor_targets (domain, interval_seconds, threads, check_new)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (domain) DO UPDATE SET
+			interval_seconds = EXCLUDED.interval_seconds,
+			threads = EXCLUDED.threads,
+			check_new = EXCLUDED.check_new,
+			updated_at = NOW();
+	`, domain, interval, threads, checkNew)
+
+	if err != nil {
+		return fmt.Errorf("failed to add subdomain monitor target: %v", err)
+	}
+	return nil
+}
+
+// RemoveSubdomainMonitorTarget removes a subdomain monitoring target by domain
+func (p *PostgresDB) RemoveSubdomainMonitorTarget(domain string) error {
+	cmdTag, err := p.pool.Exec(p.ctx, `DELETE FROM subdomain_monitor_targets WHERE domain = $1;`, domain)
+	if err != nil {
+		return fmt.Errorf("failed to remove subdomain monitor target: %v", err)
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return fmt.Errorf("subdomain monitor target not found: %s", domain)
+	}
+	return nil
+}
+
+// SetSubdomainMonitorRunningStatus updates the running status of a subdomain monitor target
+func (p *PostgresDB) SetSubdomainMonitorRunningStatus(id int, isRunning bool) error {
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE subdomain_monitor_targets 
+		SET is_running = $1, updated_at = NOW()
+		WHERE id = $2;
+	`, isRunning, id)
+	if err != nil {
+		return fmt.Errorf("failed to update subdomain monitor running status: %v", err)
+	}
+	return nil
+}
+
+// GetSubdomainMonitorTargetByID returns a single subdomain monitor target by ID
+func (p *PostgresDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error) {
+	var t SubdomainMonitorTarget
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT id, domain, interval_seconds, threads, check_new, is_running, created_at, updated_at
+		FROM subdomain_monitor_targets
+		WHERE id = $1;
+	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt)
+
+	if err == pgx.ErrNoRows {
+		return nil, fmt.Errorf("subdomain monitor target not found with id: %d", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subdomain monitor target by id: %v", err)
 	}
 	return &t, nil
 }
