@@ -3,8 +3,10 @@ package gobot
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -335,3 +337,229 @@ func handleWebDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
+func handleScope(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	platform := ""
+	username := ""
+	token := ""
+	email := ""
+	password := ""
+	categories := "all"
+	bbpOnly := false
+	pvtOnly := false
+	includeOOS := false
+	publicOnly := false
+	activeOnly := false
+	extractRoots := true // Default to true
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "platform":
+			platform = opt.StringValue()
+		case "username":
+			username = opt.StringValue()
+		case "token":
+			token = opt.StringValue()
+		case "email":
+			email = opt.StringValue()
+		case "password":
+			password = opt.StringValue()
+		case "categories":
+			categories = opt.StringValue()
+		case "bbp_only":
+			bbpOnly = opt.BoolValue()
+		case "pvt_only":
+			pvtOnly = opt.BoolValue()
+		case "include_oos":
+			includeOOS = opt.BoolValue()
+		case "public_only":
+			publicOnly = opt.BoolValue()
+		case "active_only":
+			activeOnly = opt.BoolValue()
+		case "extract_roots":
+			extractRoots = opt.BoolValue()
+		}
+	}
+
+	if platform == "" {
+		respond(s, i, "❌ Platform is required", false)
+		return
+	}
+
+	// Build command
+	command := []string{autoarScript, "scope", "-p", platform}
+	
+	if username != "" {
+		command = append(command, "-u", username)
+	}
+	if token != "" {
+		command = append(command, "-t", token)
+	}
+	if email != "" {
+		command = append(command, "-e", email)
+	}
+	if password != "" {
+		command = append(command, "-P", password)
+	}
+	if categories != "" && categories != "all" {
+		command = append(command, "-c", categories)
+	}
+	if bbpOnly {
+		command = append(command, "--bbp-only")
+	}
+	if pvtOnly {
+		command = append(command, "--pvt-only")
+	}
+	if includeOOS {
+		command = append(command, "--include-oos")
+	}
+	if publicOnly {
+		command = append(command, "--public-only")
+	}
+	if activeOnly {
+		command = append(command, "--active-only")
+	}
+	if extractRoots {
+		command = append(command, "--extract-roots")
+	} else {
+		command = append(command, "--no-extract-roots")
+	}
+
+	// Create output file in results directory
+	resultsDir := getResultsDir()
+	os.MkdirAll(resultsDir, 0755)
+	outputFile := filepath.Join(resultsDir, fmt.Sprintf("scope_%s_%d.txt", platform, time.Now().Unix()))
+	command = append(command, "-o", outputFile)
+
+	// Build embed description
+	desc := fmt.Sprintf("**Platform:** %s\n", platform)
+	if username != "" {
+		desc += fmt.Sprintf("**Username:** %s\n", username)
+	}
+	if token != "" {
+		desc += fmt.Sprintf("**Token:** `%s...`\n", token[:min(10, len(token))])
+	}
+	if categories != "" && categories != "all" {
+		desc += fmt.Sprintf("**Categories:** %s\n", categories)
+	}
+	if bbpOnly {
+		desc += "**BBP Only:** Yes\n"
+	}
+	if pvtOnly {
+		desc += "**Private Only:** Yes\n"
+	}
+	if extractRoots {
+		desc += "**Extract Roots:** Yes\n"
+	} else {
+		desc += "**Extract Roots:** No (raw targets)\n"
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🎯 Bug Bounty Scope Fetch",
+		Description: desc,
+		Color:       0x00ff00,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "Fetching scope...", Inline: false},
+		},
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScopeBackground(platform, command, outputFile, s, i)
+}
+
+func runScopeBackground(platform string, command []string, outputFile string, s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Run the command
+	cmd := exec.Command(command[0], command[1:]...)
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		log.Printf("[ERROR] Scope fetch failed: %v\nOutput: %s", err, string(output))
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Scope Fetch Failed",
+			Description: fmt.Sprintf("**Platform:** %s\n**Error:** %v", platform, err),
+			Color:       0xff0000,
+		}
+		s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	// Check if output file exists and has content
+	fileInfo, err := os.Stat(outputFile)
+	if err != nil || fileInfo.Size() == 0 {
+		embed := &discordgo.MessageEmbed{
+			Title:       "⚠️ No Root Domains Found",
+			Description: fmt.Sprintf("**Platform:** %s\nNo root domains were extracted from the scope.", platform),
+			Color:       0xffaa00,
+		}
+		s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	// Read the file to count domains
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read output file: %v", err)
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	domainCount := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			domainCount++
+		}
+	}
+
+	// Determine result type based on file content or command
+	resultType := "Root Domains"
+	if strings.Contains(outputFile, "raw") || !strings.Contains(string(data), ".") {
+		// Try to detect if it's raw targets (contains URLs, wildcards, etc.)
+		hasURLs := strings.Contains(string(data), "http://") || strings.Contains(string(data), "https://")
+		hasWildcards := strings.Contains(string(data), "*.")
+		if hasURLs || hasWildcards {
+			resultType = "Targets"
+		}
+	}
+
+	// Create embed with results
+	embed := &discordgo.MessageEmbed{
+		Title:       "✅ Scope Fetch Complete",
+		Description: fmt.Sprintf("**Platform:** %s\n**%s Found:** %d", platform, resultType, domainCount),
+		Color:       0x00ff00,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Output File", Value: fmt.Sprintf("`%s`", outputFile), Inline: false},
+		},
+	}
+
+	// Send the file as attachment
+	file, err := os.Open(outputFile)
+	if err != nil {
+		log.Printf("[ERROR] Failed to open output file: %v", err)
+		s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+	defer file.Close()
+
+	// Send followup with file
+	s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{embed},
+		Files: []*discordgo.File{
+			{
+				Name:   fmt.Sprintf("scope_%s_%d.txt", platform, time.Now().Unix()),
+				Reader: file,
+			},
+		},
+	})
+}

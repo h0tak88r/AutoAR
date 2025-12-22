@@ -36,6 +36,8 @@ type DB interface {
 
 	// ListSubdomains returns all subdomains for a given domain
 	ListSubdomains(domain string) ([]string, error)
+	// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain
+	ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error)
 	// CountSubdomains returns the count of subdomains for a given domain
 	CountSubdomains(domain string) (int, error)
 
@@ -56,6 +58,22 @@ type DB interface {
 
 	// GetMonitorTargetByID returns a single monitor target by ID
 	GetMonitorTargetByID(id int) (*MonitorTarget, error)
+
+	// Subdomain monitoring targets
+	// ListSubdomainMonitorTargets returns all subdomain monitoring targets
+	ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error)
+
+	// AddSubdomainMonitorTarget adds a new subdomain monitoring target
+	AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew bool) error
+
+	// RemoveSubdomainMonitorTarget removes a subdomain monitoring target by domain
+	RemoveSubdomainMonitorTarget(domain string) error
+
+	// SetSubdomainMonitorRunningStatus updates the running status of a subdomain monitor target
+	SetSubdomainMonitorRunningStatus(id int, isRunning bool) error
+
+	// GetSubdomainMonitorTargetByID returns a single subdomain monitor target by ID
+	GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error)
 
 	// Close closes the database connection
 	Close()
@@ -82,5 +100,27 @@ type MonitorTarget struct {
 	IsRunning bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// SubdomainMonitorTarget represents a subdomain monitoring target
+type SubdomainMonitorTarget struct {
+	ID        int
+	Domain    string
+	Interval  int // Check interval in seconds
+	Threads   int // Threads for httpx
+	CheckNew  bool // Check for new subdomains
+	IsRunning bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// SubdomainStatus represents a subdomain with its status information
+type SubdomainStatus struct {
+	Subdomain   string
+	HTTPURL     string
+	HTTPSURL    string
+	HTTPStatus  int
+	HTTPSStatus int
+	IsLive      bool
 }
 

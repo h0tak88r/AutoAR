@@ -300,8 +300,23 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		// Monitoring commands
 		{
-			Name:        "monitor_updates",
-			Description: "Monitor Updates: list all targets with running status",
+			Name:        "monitor_subdomains_manage",
+			Description: "Manage automatic subdomain monitoring targets (add/remove/list/start/stop)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "action", Description: "Action: add, remove, list, start, or stop", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "list", Value: "list"},
+					{Name: "add", Value: "add"},
+					{Name: "remove", Value: "remove"},
+					{Name: "start", Value: "start"},
+					{Name: "stop", Value: "stop"},
+				}},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain (for add/remove/start/stop)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Target ID (for remove/start/stop)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "interval", Description: "Check interval in seconds (for add, default: 3600)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Threads for httpx (for add, default: 100)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "check_new", Description: "Check for new subdomains (for add, default: true)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "all", Description: "Apply to all targets (for start/stop)", Required: false},
+			},
 		},
 		{
 			Name:        "monitor_updates_manage",
@@ -359,6 +374,36 @@ func registerAllCommands(s *discordgo.Session) {
 		{
 			Name:        "check_tools",
 			Description: "Check if all required tools are installed",
+		},
+		{
+			Name:        "scope",
+			Description: "Fetch scope from bug bounty platforms and extract root domains",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "platform",
+					Description: "Platform: h1, bc, it, ywh, immunefi",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "HackerOne", Value: "h1"},
+						{Name: "Bugcrowd", Value: "bc"},
+						{Name: "Intigriti", Value: "it"},
+						{Name: "YesWeHack", Value: "ywh"},
+						{Name: "Immunefi", Value: "immunefi"},
+					},
+				},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "username", Description: "Username (for HackerOne)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "token", Description: "API token (required for most platforms)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "email", Description: "Email (for Bugcrowd/YesWeHack login)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "password", Description: "Password (for Bugcrowd/YesWeHack login)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "categories", Description: "Categories filter (default: all)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "bbp_only", Description: "Only fetch programs offering monetary rewards", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "pvt_only", Description: "Only fetch private programs", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "include_oos", Description: "Include out-of-scope items", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "public_only", Description: "Only fetch public programs (HackerOne)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "active_only", Description: "Only fetch active programs (HackerOne)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "extract_roots", Description: "Extract root domains (default: true). Set false for raw targets", Required: false},
+			},
 		},
 		{
 			Name:        "misconfig",

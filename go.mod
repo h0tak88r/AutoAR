@@ -126,6 +126,8 @@ require (
 	github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c // indirect
 	github.com/hahwul/volt v1.0.7 // indirect
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b // indirect
+	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
+	github.com/hashicorp/go-retryablehttp v0.7.5 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
@@ -135,6 +137,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/joeguo/tldextract v0.0.0-20220507100122-d83daa6adef8 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/juju/go4 v0.0.0-20160222163258-40d72ab9641a // indirect
 	github.com/kataras/jwt v0.1.10 // indirect
@@ -224,6 +227,7 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/spf13/viper v1.18.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/sw33tLie/bbscope v0.0.0-20251113222800-c453973e83dd // indirect
 	github.com/syndtr/goleveldb v1.0.0 // indirect
 	github.com/tidwall/btree v1.7.0 // indirect
 	github.com/tidwall/buntdb v1.3.1 // indirect
@@ -280,3 +284,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/sw33tLie/bbscope => ./bbscope
