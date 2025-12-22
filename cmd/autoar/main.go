@@ -36,10 +36,12 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/setup"
 	"github.com/h0tak88r/AutoAR/internal/modules/sqlmap"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
+	subdomainmonitor "github.com/h0tak88r/AutoAR/internal/modules/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/wp-confusion"
 	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
+	scopemod "github.com/h0tak88r/AutoAR/internal/modules/scope"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
 	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
@@ -141,6 +143,23 @@ Commands:
   depconfusion web-file <file>                Scan targets from file
   misconfig scan <target> [service] [delay]   Scan for misconfigurations
   misconfig service <target> <service-id>     Scan specific service
+  scope -p <platform> [options]              Fetch scope from bug bounty platforms
+                         Platforms: h1 (HackerOne), bc (Bugcrowd), it (Intigriti), ywh (YesWeHack), immunefi
+                         Options:
+                           -u, --username     Username (for HackerOne)
+                           -t, --token        API token (required for most platforms)
+                           -e, --email        Email (for Bugcrowd/YesWeHack login)
+                           -P, --password     Password (for Bugcrowd/YesWeHack login)
+                           -c, --categories   Categories filter (default: all)
+                           -o, --output       Output file path (default: stdout)
+                           --bbp-only         Only fetch programs offering monetary rewards
+                           --pvt-only         Only fetch private programs
+                           --include-oos      Include out-of-scope items
+                           --public-only      Only fetch public programs (HackerOne)
+                           --active-only      Only fetch active programs (HackerOne)
+                           --extract-roots    Extract root domains (default: true)
+                           --no-extract-roots Output raw targets instead of root domains
+                           --concurrency      Concurrency level (default: 3)
   misconfig list                              List available services
   misconfig update                            Update templates
   keyhack list                                List all API key validation templates
@@ -152,6 +171,12 @@ Commands:
   react2shell scan     -d <domain> [-t <threads>] [--dos-test] [--enable-source-exposure]
   react2shell scan     -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure]
                                                                     For each domain: collects live hosts, then runs smart scan
+  monitor subdomains   -d <domain> [-t <threads>] [--check-new]   Monitor subdomain status changes (one-time check)
+                                                                    Detects: new subdomains, status changes, live/dead changes
+  monitor subdomains manage <action> [options]                     Manage automatic subdomain monitoring targets
+                                                                    Actions: list, add, remove, start, stop
+                                                                    Options for add: -d <domain> -i <interval> -t <threads> [--check-new]
+                                                                    Options for start/stop: --id <id> | -d <domain> | --all
 
 Workflows:
   lite run            -d <domain>
@@ -1173,6 +1198,144 @@ func cleanupDomainDirectoryForCLI(domain string) error {
 	return nil
 }
 
+// handleScopeCommand handles CLI scope fetching from bug bounty platforms
+// Usage: scope -p <platform> [options]
+func handleScopeCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: scope -p <platform> [options]\nPlatforms: h1, bc, it, ywh, immunefi")
+	}
+
+	opts := scopemod.Options{
+		Categories:   "all",
+		Concurrency:  3,
+		ActiveOnly:   false,
+		PublicOnly:   false,
+		ExtractRoots: true, // Default to true for backward compatibility
+	}
+
+	var platform string
+	var outputFile string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-p", "--platform":
+			if i+1 < len(args) {
+				platform = args[i+1]
+				i++
+			}
+		case "-u", "--username":
+			if i+1 < len(args) {
+				opts.Username = args[i+1]
+				i++
+			}
+		case "-t", "--token":
+			if i+1 < len(args) {
+				opts.Token = args[i+1]
+				i++
+			}
+		case "-e", "--email":
+			if i+1 < len(args) {
+				opts.Email = args[i+1]
+				i++
+			}
+		case "-P", "--password":
+			if i+1 < len(args) {
+				opts.Password = args[i+1]
+				i++
+			}
+		case "-c", "--categories":
+			if i+1 < len(args) {
+				opts.Categories = args[i+1]
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				outputFile = args[i+1]
+				i++
+			}
+		case "--bbp-only":
+			opts.BBPOnly = true
+		case "--pvt-only":
+			opts.PvtOnly = true
+		case "--include-oos":
+			opts.IncludeOOS = true
+		case "--public-only":
+			opts.PublicOnly = true
+		case "--active-only":
+			opts.ActiveOnly = true
+		case "--extract-roots":
+			opts.ExtractRoots = true
+		case "--no-extract-roots":
+			opts.ExtractRoots = false
+		case "--concurrency":
+			if i+1 < len(args) {
+				if c, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Concurrency = c
+				}
+				i++
+			}
+		}
+	}
+
+	if platform == "" {
+		return fmt.Errorf("platform (-p) is required")
+	}
+
+	// Map platform string to Platform type
+	switch platform {
+	case "h1", "hackerone":
+		opts.Platform = scopemod.PlatformHackerOne
+	case "bc", "bugcrowd":
+		opts.Platform = scopemod.PlatformBugcrowd
+	case "it", "intigriti":
+		opts.Platform = scopemod.PlatformIntigriti
+	case "ywh", "yeswehack":
+		opts.Platform = scopemod.PlatformYesWeHack
+	case "immunefi":
+		opts.Platform = scopemod.PlatformImmunefi
+	default:
+		return fmt.Errorf("unsupported platform: %s (supported: h1, bc, it, ywh, immunefi)", platform)
+	}
+
+	// Fetch scope
+	fmt.Fprintf(os.Stderr, "Fetching scope from %s...\n", platform)
+	programs, err := scopemod.FetchScope(opts)
+	if err != nil {
+		return fmt.Errorf("failed to fetch scope: %w", err)
+	}
+
+	var results []string
+	var resultType string
+
+	if opts.ExtractRoots {
+		// Extract root domains
+		fmt.Fprintf(os.Stderr, "Extracting root domains...\n")
+		results, err = scopemod.ExtractRootDomains(programs)
+		if err != nil {
+			return fmt.Errorf("failed to extract root domains: %w", err)
+		}
+		resultType = "root domains"
+	} else {
+		// Extract raw targets
+		fmt.Fprintf(os.Stderr, "Extracting raw targets...\n")
+		results = scopemod.ExtractRawTargets(programs)
+		resultType = "targets"
+	}
+
+	// Write output
+	if err := scopemod.WriteRootDomains(results, outputFile); err != nil {
+		return fmt.Errorf("failed to write %s: %w", resultType, err)
+	}
+
+	if outputFile != "" {
+		fmt.Fprintf(os.Stderr, "Found %d %s, written to %s\n", len(results), resultType, outputFile)
+	} else {
+		fmt.Fprintf(os.Stderr, "Found %d %s\n", len(results), resultType)
+	}
+
+	return nil
+}
+
 // Helper functions for CLI
 func getLiveHostsForCLI(domain string, threads int) (string, error) {
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
@@ -1437,6 +1600,173 @@ func handleMisconfigCommand(args []string) error {
 	}
 }
 
+// handleSubdomainMonitorManageCommand handles subdomain monitoring target management
+// Usage: monitor subdomains manage <action> [options]
+func handleSubdomainMonitorManageCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: monitor subdomains manage <action> [options]\nActions: list, add, remove, start, stop")
+	}
+
+	action := args[0]
+	subArgs := args[1:]
+
+	opts := subdomainmonitor.ManagerOptions{
+		Action:   action,
+		Interval: 3600, // Default 1 hour
+		Threads:  100,
+		CheckNew: true,
+	}
+
+	switch action {
+	case "list":
+		return subdomainmonitor.ManageTargets(opts)
+
+	case "add":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "-d", "--domain":
+				if i+1 < len(subArgs) {
+					opts.Domain = subArgs[i+1]
+					i++
+				}
+			case "-i", "--interval":
+				if i+1 < len(subArgs) {
+					interval, err := strconv.Atoi(subArgs[i+1])
+					if err == nil {
+						opts.Interval = interval
+					}
+					i++
+				}
+			case "-t", "--threads":
+				if i+1 < len(subArgs) {
+					threads, err := strconv.Atoi(subArgs[i+1])
+					if err == nil {
+						opts.Threads = threads
+					}
+					i++
+				}
+			case "--check-new":
+				opts.CheckNew = true
+			case "--no-check-new":
+				opts.CheckNew = false
+			}
+		}
+		return subdomainmonitor.ManageTargets(opts)
+
+	case "remove":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--id":
+				if i+1 < len(subArgs) {
+					if id, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.ID = id
+					}
+					i++
+				}
+			case "-d", "--domain":
+				if i+1 < len(subArgs) {
+					opts.Domain = subArgs[i+1]
+					i++
+				}
+			}
+		}
+		return subdomainmonitor.ManageTargets(opts)
+
+	case "start":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--id":
+				if i+1 < len(subArgs) {
+					if id, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.ID = id
+					}
+					i++
+				}
+			case "--all", "-a":
+				opts.All = true
+			case "-d", "--domain":
+				if i+1 < len(subArgs) {
+					opts.Domain = subArgs[i+1]
+					i++
+				}
+			}
+		}
+		return subdomainmonitor.ManageTargets(opts)
+
+	case "stop":
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--id":
+				if i+1 < len(subArgs) {
+					if id, err := strconv.Atoi(subArgs[i+1]); err == nil {
+						opts.ID = id
+					}
+					i++
+				}
+			case "--all", "-a":
+				opts.All = true
+			case "-d", "--domain":
+				if i+1 < len(subArgs) {
+					opts.Domain = subArgs[i+1]
+					i++
+				}
+			}
+		}
+		return subdomainmonitor.ManageTargets(opts)
+
+	default:
+		return fmt.Errorf("unknown action: %s", action)
+	}
+}
+
+// handleSubdomainMonitorCommand handles subdomain status monitoring
+// Usage: monitor subdomains -d <domain> [options]
+func handleSubdomainMonitorCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: monitor subdomains -d <domain> [options]\nOptions:\n  -d, --domain    Domain to monitor (required)\n  -t, --threads   Threads for httpx (default: 100)\n  --check-new     Check for new subdomains (404 -> 200)")
+	}
+
+	opts := subdomainmonitor.MonitorOptions{
+		Threads:  100,
+		CheckNew: true,
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				opts.Domain = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				threads, err := strconv.Atoi(args[i+1])
+				if err == nil {
+					opts.Threads = threads
+				}
+				i++
+			}
+		case "--check-new":
+			opts.CheckNew = true
+		case "--no-check-new":
+			opts.CheckNew = false
+		}
+	}
+
+	if opts.Domain == "" {
+		return fmt.Errorf("domain (-d) is required")
+	}
+
+	result, err := subdomainmonitor.MonitorSubdomains(opts)
+	if err != nil {
+		return fmt.Errorf("failed to monitor subdomains: %w", err)
+	}
+
+	subdomainmonitor.PrintResults(result)
+
+	return nil
+}
+
 // handleMonitorCommand routes monitor updates subcommands
 //
 //	autoar monitor updates list
@@ -1444,8 +1774,26 @@ func handleMisconfigCommand(args []string) error {
 //	autoar monitor updates remove -u <url>
 //	autoar monitor updates start [--all] [-u <url>] [--interval <sec>]
 //	autoar monitor updates stop [--all] [-u <url>]
+//	autoar monitor subdomains -d <domain> [options]
 func handleMonitorCommand(args []string) error {
-	if len(args) < 2 || args[0] != "updates" {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: monitor <updates|subdomains> [options]")
+	}
+
+	subcommand := args[0]
+	
+	if subcommand == "subdomains" {
+		if len(args) > 1 && args[1] == "manage" {
+			return handleSubdomainMonitorManageCommand(args[2:])
+		}
+		return handleSubdomainMonitorCommand(args[1:])
+	}
+	
+	if subcommand != "updates" {
+		return fmt.Errorf("unknown monitor subcommand: %s (use 'updates' or 'subdomains')", subcommand)
+	}
+	
+	if len(args) < 2 {
 		return fmt.Errorf("usage: monitor updates <list|add|remove|start|stop> [options]")
 	}
 
@@ -2490,6 +2838,9 @@ func main() {
 
 	case "s3":
 		err = handleS3Command(args)
+
+	case "scope":
+		err = handleScopeCommand(args)
 
 	// Bot/API commands
 	case "bot":
