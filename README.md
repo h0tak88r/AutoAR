@@ -36,6 +36,12 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 📊 **Monitoring & Tracking**
 - **Target Monitoring**: Database-backed continuous monitoring of web targets
+- **Subdomain Status Monitoring**: Automatic monitoring of subdomain status codes and changes
+  - **New Subdomain Detection**: Automatically detects when subdomains change from 404 to 200 (new deployments)
+  - **Status Code Tracking**: Tracks HTTP/HTTPS status codes for all subdomains
+  - **Change Detection**: Detects status code changes, subdomains becoming live/dead
+  - **Database Integration**: Stores status codes in database for comparison
+  - **Automatic Monitoring**: Background daemon checks subdomains at configurable intervals
 - **JavaScript Monitoring**: Track changes in JavaScript files and detect new secrets
 - **Multi-Strategy Detection**: Support for hash, size, headers, and regex-based change detection
 - **Update Notifications**: Real-time Discord webhooks for detected changes
@@ -383,13 +389,30 @@ Once the bot is running, use these slash commands in Discord:
 - `/fastlook domain:example.com` - Quick scan
 - `/domain domain:example.com` - Full domain analysis
 
-#### Updates Monitoring
-- New simplified commands (database-backed):
-  - `/monitor_updates_add url:<URL> [strategy:hash|size|headers|regex] [pattern:<regex>]`
-  - `/monitor_updates_remove url:<URL>`
-  - `/monitor_updates_start [interval:900]` (starts monitors for all targets from DB)
-  - `/monitor_updates_stop`
-  - `/monitor_updates_list`
+#### Monitoring Commands
+
+**Updates Monitoring:**
+- `/monitor_updates_manage action:list` - List all update monitoring targets
+- `/monitor_updates_manage action:add url:<URL> [strategy:hash|size|headers|regex] [pattern:<regex>]` - Add a monitoring target
+- `/monitor_updates_manage action:remove url:<URL>` - Remove a monitoring target
+- `/monitor_updates_manage action:start [interval:900] [--all]` - Start monitoring (starts daemon if needed)
+- `/monitor_updates_manage action:stop [--all]` - Stop monitoring
+
+**Subdomain Status Monitoring:**
+- `/monitor_subdomains_manage action:list` - List all subdomain monitoring targets
+- `/monitor_subdomains_manage action:add domain:<domain> [interval:3600] [threads:100] [check_new:true]` - Add a domain to monitor
+  - `interval`: Check interval in seconds (default: 3600 = 1 hour)
+  - `threads`: Threads for httpx (default: 100)
+  - `check_new`: Check for new subdomains (404 -> 200, default: true)
+- `/monitor_subdomains_manage action:remove domain:<domain>` - Remove a monitoring target
+- `/monitor_subdomains_manage action:start domain:<domain> [--all]` - Start monitoring for a domain (auto-starts daemon)
+- `/monitor_subdomains_manage action:stop domain:<domain> [--all]` - Stop monitoring for a domain
+
+**Features:**
+- 🔍 **Automatic Detection**: Detects new subdomains (404 -> 200), status changes, and live/dead changes
+- 📊 **Status Tracking**: Stores HTTP/HTTPS status codes in database
+- ⏰ **Scheduled Checks**: Background daemon automatically checks at configured intervals
+- 🔔 **Change Alerts**: Logs all detected changes (Discord webhook integration can be added)
 
 ### CLI Usage
 
