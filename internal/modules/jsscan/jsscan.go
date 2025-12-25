@@ -38,7 +38,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// Collect URLs and JS URLs (writes new-results/<domain>/urls/*)
-	urlRes, err := urls.CollectURLs(opts.Domain, opts.Threads)
+	urlRes, err := urls.CollectURLs(opts.Domain, opts.Threads, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect URLs: %w", err)
 	}

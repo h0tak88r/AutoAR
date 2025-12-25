@@ -21,7 +21,8 @@ var (
 	autoarMode = getEnv("AUTOAR_MODE", "discord")
 	apiHost    = getEnv("API_HOST", "0.0.0.0")
 	apiPort    = getEnv("API_PORT", "8000")
-	allowedGuild = getEnv("DISCORD_ALLOWED_GUILD", "Zhunterz") // Restrict bot to specific guild
+	allowedGuildID = getEnv("DISCORD_ALLOWED_GUILD_ID", "") // Restrict bot to specific guild by ID (GUID)
+	allowedGuildName = getEnv("DISCORD_ALLOWED_GUILD", "")  // Legacy: Restrict bot to specific guild by name (deprecated, use GUID)
 
 	// Global Discord session for file sending from modules
 	globalDiscordSession *discordgo.Session
@@ -94,8 +95,10 @@ func StartBot() error {
 		fmt.Println("✅ Loaded environment variables from .env file")
 	}
 
-	// Re-read bot token after loading .env
+	// Re-read bot token and guild settings after loading .env
 	botToken = os.Getenv("DISCORD_BOT_TOKEN")
+	allowedGuildID = getEnv("DISCORD_ALLOWED_GUILD_ID", "")
+	allowedGuildName = getEnv("DISCORD_ALLOWED_GUILD", "")
 	
 	// Initialize directories
 	if err := initializeDirectories(); err != nil {
@@ -279,12 +282,26 @@ func Ready(s *discordgo.Session, event *discordgo.Ready) {
 
 // InteractionCreate handles Discord slash command interactions
 func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Check if command is from allowed guild (if restriction is enabled)
-	if allowedGuild != "" {
+	// Check guild restriction by ID (GUID) - preferred method
+	if allowedGuildID != "" {
 		// Reject DMs (commands must be in a server)
 		if i.GuildID == "" {
 			log.Printf("[INFO] Rejected command from DM (not in a server)")
-			respond(s, i, fmt.Sprintf("❌ This bot only works in the **%s** server. Please use commands in that server.", allowedGuild), true)
+			respond(s, i, fmt.Sprintf("❌ This bot is restricted to a specific server (Guild ID: %s). Please use commands in that server.", allowedGuildID), true)
+			return
+		}
+		if i.GuildID != allowedGuildID {
+			log.Printf("[INFO] Rejected command from unauthorized guild ID: %s (expected: %s)", i.GuildID, allowedGuildID)
+			respond(s, i, fmt.Sprintf("❌ This bot is restricted to a specific server (Guild ID: %s). Your server ID: %s", allowedGuildID, i.GuildID), true)
+			return
+		}
+		log.Printf("[DEBUG] Command allowed from guild ID: %s", i.GuildID)
+	} else if allowedGuildName != "" {
+		// Legacy: Check by guild name (deprecated, but kept for backward compatibility)
+		// Reject DMs (commands must be in a server)
+		if i.GuildID == "" {
+			log.Printf("[INFO] Rejected command from DM (not in a server)")
+			respond(s, i, fmt.Sprintf("❌ This bot only works in the **%s** server. Please use commands in that server.", allowedGuildName), true)
 			return
 		}
 
@@ -297,9 +314,9 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		
 		// Check if guild name matches allowed guild
-		if guild.Name != allowedGuild {
-			log.Printf("[INFO] Rejected command from unauthorized guild: %s (expected: %s)", guild.Name, allowedGuild)
-			respond(s, i, fmt.Sprintf("❌ This bot is restricted to the **%s** server only. Your server: **%s**", allowedGuild, guild.Name), true)
+		if guild.Name != allowedGuildName {
+			log.Printf("[INFO] Rejected command from unauthorized guild: %s (expected: %s)", guild.Name, allowedGuildName)
+			respond(s, i, fmt.Sprintf("❌ This bot is restricted to the **%s** server only. Your server: **%s**", allowedGuildName, guild.Name), true)
 			return
 		}
 		

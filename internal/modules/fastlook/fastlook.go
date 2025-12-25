@@ -48,7 +48,7 @@ func RunFastlook(domain string) (*Result, error) {
 
 	// Step 3: URL/JS collection
 	log.Printf("[INFO] [3/3] Collecting URLs and JS URLs for %s", domain)
-	urlRes, err := urls.CollectURLs(domain, 100)
+	urlRes, err := urls.CollectURLs(domain, 100, false)
 	if err != nil {
 		log.Printf("[WARN] URL collection failed for %s: %v", domain, err)
 	}
