@@ -131,24 +131,29 @@ func RunNuclei(opts Options) (*Result, error) {
 		}
 	}
 
-	// Ensure live hosts via Go module
+	// Use live hosts file from Step 1 (livehosts phase) if it exists
+	// This avoids re-running livehosts collection which is already done in lite scan Step 1
 	liveSubsFile := filepath.Join(subsDir, "live-subs.txt")
-	if _, err := os.Stat(liveSubsFile); err != nil {
-		log.Printf("[INFO] Filtering live hosts for %s", opts.Domain)
+	if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
+		// File doesn't exist or is empty, need to create it
+		log.Printf("[INFO] Live hosts file not found or empty, filtering live hosts for %s", opts.Domain)
 		_, err := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, true)
 		if err != nil {
 			log.Printf("[WARN] Live host detection failed: %v", err)
 		}
-	}
-
-	// Check if live hosts file exists and has content
-	if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
-		return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
+		// Re-check after creation
+		if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
+			return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
+		}
+		log.Printf("[INFO] Created live hosts file for %s", opts.Domain)
+	} else {
+		// File exists from Step 1, use it directly
+		log.Printf("[INFO] Using existing live hosts file from Step 1 (size: %d bytes)", info.Size())
 	}
 
 	targetFile = liveSubsFile
 	targetCount, _ := countLines(targetFile)
-	log.Printf("[INFO] Running Nuclei in %s mode on %d targets", opts.Mode, targetCount)
+	log.Printf("[INFO] Running Nuclei in %s mode on %d live targets from %s", opts.Mode, targetCount, liveSubsFile)
 
 	resultFiles, err := runNucleiScan(targetFile, outputDir, opts.Mode, opts.Threads, targetName, root)
 	if err != nil {

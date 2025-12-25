@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
@@ -85,6 +86,8 @@ func Takeover(domain string) error {
 		"dns-takeover-summary.txt",
 		"dnsreaper-results.txt",
 		"filtered-ns-takeover-vuln.txt",
+		"dangling-ip.txt",
+		"dangling-ip-summary.txt",
 	}
 	for _, name := range files {
 		p := filepath.Join(findingsDir, name)
@@ -106,6 +109,9 @@ func Takeover(domain string) error {
 	}
 	if err := runNSTakeover(domainDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] NS takeover step failed: %v", err)
+	}
+	if err := checkDanglingIPs(domainDir, findingsDir, subsFile); err != nil {
+		log.Printf("[WARN] Dangling IP check failed: %v", err)
 	}
 
 	if err := writeSummary(domain, findingsDir, subsFile); err != nil {
@@ -175,6 +181,19 @@ func DNSReaper(domain string) error {
 		return fmt.Errorf("failed to create findings dir: %w", err)
 	}
 	return runDNSReaper(domainDir, findingsDir, subsFile)
+}
+
+// DanglingIP runs only the dangling IP detection workflow.
+func DanglingIP(domain string) error {
+	domainDir, subsFile, err := ensureSubdomains(domain)
+	if err != nil {
+		return err
+	}
+	findingsDir := filepath.Join(domainDir, findingsDirName)
+	if err := utils.EnsureDir(findingsDir); err != nil {
+		return fmt.Errorf("failed to create findings dir: %w", err)
+	}
+	return checkDanglingIPs(domainDir, findingsDir, subsFile)
 }
 
 // ---- Implementation helpers (ported from modules/dns_takeover.sh) ----
@@ -398,52 +417,130 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	}
 
 	nsServers := filepath.Join(findingsDir, "ns-servers.txt")
-	log.Printf("[INFO] Extracting NS records with dnsx")
+	log.Printf("[INFO] Extracting NS records with dnsx (concurrent)")
 	var nsRecords []string
-	for _, target := range targets {
-		result, err := dnsClient.QueryOne(target)
-		if err != nil {
-			continue
-		}
-		if result != nil && len(result.NS) > 0 {
-			for _, ns := range result.NS {
-				nsRecords = append(nsRecords, ns)
-			}
-		}
+	var nsMutex sync.Mutex
+
+	// Use worker pool for concurrent DNS queries
+	threads := 100
+	if threads > len(targets) {
+		threads = len(targets)
 	}
+
+	jobs := make(chan string, len(targets))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < threads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for target := range jobs {
+				result, err := dnsClient.QueryOne(target)
+				if err != nil {
+					continue
+				}
+				if result != nil && len(result.NS) > 0 {
+					nsMutex.Lock()
+					for _, ns := range result.NS {
+						nsRecords = append(nsRecords, ns)
+					}
+					nsMutex.Unlock()
+				}
+			}
+		}()
+	}
+
+	// Send jobs
+	go func() {
+		defer close(jobs)
+		for _, target := range targets {
+			jobs <- target
+		}
+	}()
+
+	wg.Wait()
 	if err := writeLinesToFile(nsServers, nsRecords); err != nil {
 		log.Printf("[WARN] Failed to write NS servers: %v", err)
 	}
 
 	nsRaw := filepath.Join(findingsDir, "ns-takeover-raw.txt")
 	var servfailTargets []string
-	for _, target := range targets {
-		result, err := dnsClient.QueryOne(target)
-		// Check for SERVFAIL or REFUSED errors
-		if err != nil {
-			errStr := strings.ToLower(err.Error())
-			if strings.Contains(errStr, "servfail") || strings.Contains(errStr, "refused") {
-				servfailTargets = append(servfailTargets, target)
+	var servfailMutex sync.Mutex
+
+	// Concurrent check for SERVFAIL targets
+	jobs2 := make(chan string, len(targets))
+	var wg2 sync.WaitGroup
+	for i := 0; i < threads; i++ {
+		wg2.Add(1)
+		go func() {
+			defer wg2.Done()
+			for target := range jobs2 {
+				result, err := dnsClient.QueryOne(target)
+				// Check for SERVFAIL or REFUSED errors
+				if err != nil {
+					errStr := strings.ToLower(err.Error())
+					if strings.Contains(errStr, "servfail") || strings.Contains(errStr, "refused") {
+						servfailMutex.Lock()
+						servfailTargets = append(servfailTargets, target)
+						servfailMutex.Unlock()
+					}
+				} else if result != nil && len(result.A) == 0 && len(result.AAAA) == 0 {
+					// Empty result might indicate DNS issues
+					servfailMutex.Lock()
+					servfailTargets = append(servfailTargets, target)
+					servfailMutex.Unlock()
+				}
 			}
-		} else if result != nil && len(result.A) == 0 && len(result.AAAA) == 0 {
-			// Empty result might indicate DNS issues
-			servfailTargets = append(servfailTargets, target)
-		}
+		}()
 	}
+	go func() {
+		defer close(jobs2)
+		for _, target := range targets {
+			jobs2 <- target
+		}
+	}()
+	wg2.Wait()
 	if err := writeLinesToFile(nsRaw, servfailTargets); err != nil {
 		log.Printf("[WARN] Failed to write NS raw: %v", err)
 	}
 
 	nsVulnServers := filepath.Join(findingsDir, "ns-servers-vuln.txt")
 	var vulnServers []string
-	for _, ns := range nsRecords {
-		_, err := dnsClient.QueryOne(ns)
-		if err != nil {
-			errStr := strings.ToLower(err.Error())
-			if strings.Contains(errStr, "servfail") || strings.Contains(errStr, "refused") {
-				vulnServers = append(vulnServers, ns)
-			}
+	var vulnMutex sync.Mutex
+
+	// Concurrent check for vulnerable NS servers
+	if len(nsRecords) > 0 {
+		jobs3 := make(chan string, len(nsRecords))
+		var wg3 sync.WaitGroup
+		nsThreads := threads
+		if nsThreads > len(nsRecords) {
+			nsThreads = len(nsRecords)
 		}
+		for i := 0; i < nsThreads; i++ {
+			wg3.Add(1)
+			go func() {
+				defer wg3.Done()
+				for ns := range jobs3 {
+					_, err := dnsClient.QueryOne(ns)
+					if err != nil {
+						errStr := strings.ToLower(err.Error())
+						if strings.Contains(errStr, "servfail") || strings.Contains(errStr, "refused") {
+							vulnMutex.Lock()
+							vulnServers = append(vulnServers, ns)
+							vulnMutex.Unlock()
+						}
+					}
+				}
+			}()
+		}
+		go func() {
+			defer close(jobs3)
+			for _, ns := range nsRecords {
+				jobs3 <- ns
+			}
+		}()
+		wg3.Wait()
 	}
 	if err := writeLinesToFile(nsVulnServers, vulnServers); err != nil {
 		log.Printf("[WARN] Failed to write NS vuln servers: %v", err)
@@ -463,6 +560,233 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	return nil
 }
 
+func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
+	danglingOut := filepath.Join(findingsDir, "dangling-ip.txt")
+	summaryOut := filepath.Join(findingsDir, "dangling-ip-summary.txt")
+	
+	if err := writeLines(danglingOut, nil); err != nil {
+		return err
+	}
+	if err := writeLines(summaryOut, nil); err != nil {
+		return err
+	}
+
+	// Read subdomains from file
+	file, err := os.Open(subsFile)
+	if err != nil {
+		return fmt.Errorf("failed to open subdomains file: %w", err)
+	}
+	defer file.Close()
+
+	var targets []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			targets = append(targets, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read subdomains file: %w", err)
+	}
+
+	if len(targets) == 0 {
+		log.Printf("[WARN] No subdomains found, skipping dangling IP check")
+		return nil
+	}
+
+	// Initialize dnsx client
+	dnsClient, err := dnsx.New(dnsx.DefaultOptions)
+	if err != nil {
+		return fmt.Errorf("failed to create dnsx client: %w", err)
+	}
+
+	log.Printf("[INFO] Checking for dangling IPs across %d subdomains", len(targets))
+
+	// Track IPs and their associated subdomains
+	ipToSubdomains := make(map[string][]string)
+	ipStatus := make(map[string]string) // "active", "inactive", "unknown"
+	
+	var danglingCandidates []string
+	totalIPs := 0
+	checkedIPs := 0
+
+	// Step 1: Collect all A and AAAA records
+	for _, target := range targets {
+		result, err := dnsClient.QueryOne(target)
+		if err != nil {
+			continue
+		}
+
+		// Collect IPv4 addresses
+		if result != nil && len(result.A) > 0 {
+			for _, ip := range result.A {
+				ipToSubdomains[ip] = append(ipToSubdomains[ip], target)
+				totalIPs++
+			}
+		}
+
+		// Collect IPv6 addresses
+		if result != nil && len(result.AAAA) > 0 {
+			for _, ip := range result.AAAA {
+				ipToSubdomains[ip] = append(ipToSubdomains[ip], target)
+				totalIPs++
+			}
+		}
+	}
+
+	if totalIPs == 0 {
+		log.Printf("[INFO] No IP addresses found in DNS records")
+		return nil
+	}
+
+	log.Printf("[INFO] Found %d unique IP addresses, checking if they're active...", len(ipToSubdomains))
+
+	// Step 2: Check if IPs are still active using httpx (if available)
+	// We'll check a sample of subdomains pointing to each IP
+	hasHttpx := false
+	if _, err := exec.LookPath("httpx"); err == nil {
+		hasHttpx = true
+	}
+
+	// Create a temporary file with IPs to check
+	tempIPFile := filepath.Join(findingsDir, "dangling-ip-temp.txt")
+	var ipList []string
+	for ip := range ipToSubdomains {
+		ipList = append(ipList, ip)
+	}
+	if err := writeLinesToFile(tempIPFile, ipList); err != nil {
+		log.Printf("[WARN] Failed to create temp IP file: %v", err)
+	} else {
+		defer os.Remove(tempIPFile) // Clean up temp file
+	}
+
+	// Step 3: For each IP, check if it responds
+	for ip, subdomains := range ipToSubdomains {
+		checkedIPs++
+		isActive := false
+		status := "unknown"
+
+		// Try to check if IP responds via HTTP/HTTPS
+		if hasHttpx {
+			// Check one of the subdomains pointing to this IP
+			if len(subdomains) > 0 {
+				testSubdomain := subdomains[0]
+				// Use httpx to check if the subdomain responds
+				cmd := exec.Command("httpx", "-u", fmt.Sprintf("http://%s", testSubdomain), "-silent", "-status-code", "-timeout", "5", "-no-color")
+				output, err := cmd.CombinedOutput()
+				if err == nil && len(output) > 0 {
+					// If we get a status code, the IP is likely active
+					outputStr := strings.TrimSpace(string(output))
+					if strings.Contains(outputStr, "http://") || strings.Contains(outputStr, "https://") {
+						isActive = true
+						status = "active"
+					}
+				}
+			}
+		}
+
+		// Also try direct IP check (some IPs might respond directly)
+		if !isActive && hasHttpx {
+			cmd := exec.Command("httpx", "-u", fmt.Sprintf("http://%s", ip), "-silent", "-status-code", "-timeout", "3", "-no-color")
+			output, err := cmd.CombinedOutput()
+			if err == nil && len(output) > 0 {
+				outputStr := strings.TrimSpace(string(output))
+				if strings.Contains(outputStr, "http://") || strings.Contains(outputStr, "https://") {
+					isActive = true
+					status = "active"
+				}
+			}
+		}
+
+		// If we couldn't verify with httpx, try a simple DNS reverse lookup
+		if !isActive {
+			// Check if IP has reverse DNS (PTR record)
+			cmd := exec.Command("dig", "+short", "-x", ip)
+			output, err := cmd.CombinedOutput()
+			if err == nil {
+				ptrRecord := strings.TrimSpace(string(output))
+				if ptrRecord != "" && !strings.Contains(ptrRecord, "NXDOMAIN") {
+					// Has PTR record, likely still in use
+					status = "active"
+					isActive = true
+				} else {
+					// No PTR record, might be dangling
+					status = "inactive"
+				}
+			} else {
+				status = "unknown"
+			}
+		}
+
+		ipStatus[ip] = status
+
+		// If IP appears inactive or unknown, it's a potential dangling IP candidate
+		if status == "inactive" || (status == "unknown" && !isActive) {
+			// Additional check: see if multiple subdomains point to this IP
+			// If many subdomains point to an inactive IP, it's more likely dangling
+			if len(subdomains) > 0 {
+				line := fmt.Sprintf("[CANDIDATE] [IP:%s] [STATUS:%s] [SUBDOMAINS:%d] [EXAMPLES:%s]", 
+					ip, status, len(subdomains), strings.Join(subdomains[:min(3, len(subdomains))], ","))
+				if len(subdomains) > 3 {
+					line += fmt.Sprintf(" (and %d more)", len(subdomains)-3)
+				}
+				appendLine(danglingOut, line)
+				danglingCandidates = append(danglingCandidates, ip)
+				log.Printf("[CANDIDATE] Potential dangling IP: %s (status: %s, %d subdomains)", ip, status, len(subdomains))
+			}
+		}
+	}
+
+	// Write summary
+	summary := []string{
+		"=== DANGLING IP DETECTION SUMMARY ===",
+		"Scan Date: " + timeNowString(),
+		fmt.Sprintf("Total Subdomains Checked: %d", len(targets)),
+		fmt.Sprintf("Total Unique IPs Found: %d", len(ipToSubdomains)),
+		fmt.Sprintf("IPs Checked: %d", checkedIPs),
+		fmt.Sprintf("Active IPs: %d", countStatus(ipStatus, "active")),
+		fmt.Sprintf("Inactive IPs: %d", countStatus(ipStatus, "inactive")),
+		fmt.Sprintf("Unknown Status IPs: %d", countStatus(ipStatus, "unknown")),
+		fmt.Sprintf("Dangling IP Candidates: %d", len(danglingCandidates)),
+		"",
+		"=== METHODOLOGY ===",
+		"1. Collected A and AAAA records for all subdomains",
+		"2. Checked IP activity using httpx (HTTP/HTTPS responses)",
+		"3. Performed reverse DNS (PTR) lookups for verification",
+		"4. Identified IPs with inactive/unknown status as candidates",
+		"",
+		"=== NOTES ===",
+		"- Dangling IP detection identifies IPs that may no longer be assigned to services",
+		"- Manual verification is required to confirm if IPs can be claimed",
+		"- Inactive IPs with multiple subdomains pointing to them are higher priority",
+		"- Always validate takeover conditions before reporting",
+	}
+	if err := writeLines(summaryOut, summary); err != nil {
+		log.Printf("[WARN] Failed to write dangling IP summary: %v", err)
+	}
+
+	log.Printf("[OK] Dangling IP check completed: %d candidates found out of %d IPs", len(danglingCandidates), len(ipToSubdomains))
+	return nil
+}
+
+func countStatus(statusMap map[string]string, status string) int {
+	count := 0
+	for _, s := range statusMap {
+		if s == status {
+			count++
+		}
+	}
+	return count
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func writeSummary(domain, findingsDir, subsFile string) error {
 	summary := filepath.Join(findingsDir, "dns-takeover-summary.txt")
 	nPublic, _ := countLines(filepath.Join(findingsDir, "nuclei-takeover-public.txt"))
@@ -473,13 +797,14 @@ func writeSummary(domain, findingsDir, subsFile string) error {
 	nNSRaw, _ := countLines(filepath.Join(findingsDir, "ns-takeover-raw.txt"))
 	nNSSrv, _ := countLines(filepath.Join(findingsDir, "ns-servers-vuln.txt"))
 	nNSVuln, _ := countLines(filepath.Join(findingsDir, "ns-takeover-vuln.txt"))
+	nDanglingIP, _ := countLines(filepath.Join(findingsDir, "dangling-ip.txt"))
 
 	lines := []string{
 		"=== COMPREHENSIVE DNS TAKEOVER SCAN SUMMARY ===",
 		"Scan Date: " + timeNowString(),
 		"Target Domain: " + domain,
 		fmt.Sprintf("Total Subdomains Scanned: %d", mustCount(subsFile)),
-		"Tools Used: dnsx, nuclei, dnsreaper, dig",
+		"Tools Used: dnsx, nuclei, dnsreaper, dig, httpx",
 		"",
 		"=== FINDINGS SUMMARY ===",
 		fmt.Sprintf("CNAME Takeover (Nuclei public): %d", nPublic),
@@ -490,10 +815,12 @@ func writeSummary(domain, findingsDir, subsFile string) error {
 		fmt.Sprintf("NS Takeover (Subdomain DNS Errors): %d", nNSRaw),
 		fmt.Sprintf("NS Takeover (NS Server DNS Errors): %d", nNSSrv),
 		fmt.Sprintf("NS Takeover (Vulnerable Providers): %d", nNSVuln),
+		fmt.Sprintf("Dangling IP Candidates: %d", nDanglingIP),
 		"",
 		"=== NOTES ===",
 		"- Review individual result files in the dns-takeover directory for details.",
 		"- Always manually validate takeover conditions before reporting.",
+		"- Dangling IP detection checks for IPs that may no longer be assigned to services.",
 	}
 	return writeLines(summary, lines)
 }

@@ -2,6 +2,7 @@ package gobot
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -879,6 +880,8 @@ func executeScan(scanID string, command []string, scanType string) {
 
 // sendFileToDiscord handles file uploads from modules
 func sendFileToDiscord(c *gin.Context) {
+	log.Printf("[API] [sendFileToDiscord] Received file send request")
+	
 	var req struct {
 		ScanID      string `json:"scan_id"`
 		FilePath    string `json:"file_path" binding:"required"`
@@ -887,55 +890,80 @@ func sendFileToDiscord(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to bind JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	
+	log.Printf("[API] [sendFileToDiscord] Request details - FilePath: %s, ChannelID: %s, ScanID: %s, Description: %s", 
+		req.FilePath, req.ChannelID, req.ScanID, req.Description)
 
 	// Get channel ID - priority: request > scan_id lookup > environment > default
 	var channelID string
 	if req.ChannelID != "" {
 		channelID = req.ChannelID
+		log.Printf("[API] [sendFileToDiscord] Using channel ID from request: %s", channelID)
 	} else if req.ScanID != "" {
 		channelID = getChannelID(req.ScanID)
+		log.Printf("[API] [sendFileToDiscord] Looked up channel ID from scan ID %s: %s", req.ScanID, channelID)
 	}
 	
 	if channelID == "" {
 		// Try to get from environment (set by modules)
 		channelID = os.Getenv("AUTOAR_CURRENT_CHANNEL_ID")
+		log.Printf("[API] [sendFileToDiscord] Tried environment variable AUTOAR_CURRENT_CHANNEL_ID: %s", channelID)
 	}
 	
 	if channelID == "" {
 		// Try default channel from environment
 		channelID = os.Getenv("DISCORD_DEFAULT_CHANNEL_ID")
+		log.Printf("[API] [sendFileToDiscord] Tried environment variable DISCORD_DEFAULT_CHANNEL_ID: %s", channelID)
 	}
 	
 	if channelID == "" {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] No channel ID found")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no channel ID found. Provide channel_id, scan_id, or set AUTOAR_CURRENT_CHANNEL_ID"})
 		return
 	}
+	
+	log.Printf("[API] [sendFileToDiscord] Using channel ID: %s", channelID)
 
 	// Check if file exists
-	if _, err := os.Stat(req.FilePath); os.IsNotExist(err) {
+	log.Printf("[API] [sendFileToDiscord] Checking if file exists: %s", req.FilePath)
+	if info, err := os.Stat(req.FilePath); os.IsNotExist(err) {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] File not found: %s", req.FilePath)
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
+	} else if err != nil {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
+		return
+	} else {
+		log.Printf("[API] [sendFileToDiscord] File found: %s (size: %d bytes)", req.FilePath, info.Size())
 	}
 
 	// Read file
+	log.Printf("[API] [sendFileToDiscord] Reading file: %s", req.FilePath)
 	fileData, err := os.ReadFile(req.FilePath)
 	if err != nil {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to read file: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
 		return
 	}
+	log.Printf("[API] [sendFileToDiscord] Read %d bytes from file", len(fileData))
 
 	// Get Discord session
+	log.Printf("[API] [sendFileToDiscord] Getting Discord session...")
 	discordSessionMutex.RLock()
 	session := globalDiscordSession
 	discordSessionMutex.RUnlock()
 
 	if session == nil {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
 		return
 	}
+	log.Printf("[API] [sendFileToDiscord] Discord session obtained")
 
 	// Send file to Discord channel
 	fileName := filepath.Base(req.FilePath)
@@ -944,6 +972,7 @@ func sendFileToDiscord(c *gin.Context) {
 		description = fmt.Sprintf("📁 %s", fileName)
 	}
 
+	log.Printf("[API] [sendFileToDiscord] Sending file to Discord channel %s: %s (description: %s)", channelID, fileName, description)
 	_, err = session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: description,
 		Files: []*discordgo.File{
@@ -956,10 +985,12 @@ func sendFileToDiscord(c *gin.Context) {
 	})
 
 	if err != nil {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send file to Discord: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file: %v", err)})
 		return
 	}
 
+	log.Printf("[API] [sendFileToDiscord] [SUCCESS] File sent successfully to Discord channel %s", channelID)
 	c.JSON(http.StatusOK, gin.H{"message": "file sent successfully"})
 }
 
