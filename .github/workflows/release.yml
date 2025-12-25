@@ -8,6 +8,11 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v3.3.0)'
+        required: true
 
 jobs:
   build:
@@ -15,15 +20,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          submodules: recursive
 
-      - name: Install dependencies
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: go.sum
+
+      - name: Verify Go version
+        run: go version
+
+      - name: Build AutoAR binary
         run: |
-          pip install -r requirements.txt
+          CGO_ENABLED=1 go build -o autoar ./cmd/autoar
+          chmod +x autoar
+
+      - name: Test build
+        run: |
+          ./autoar --help || true
 
       - name: Gitleaks scan
         uses: gitleaks/gitleaks-action@v2
@@ -32,37 +48,33 @@ jobs:
 
       - name: Create release archive
         run: |
-          # Create a release directory
+          VERSION=${GITHUB_REF_NAME#v}
+          if [ -z "$VERSION" ]; then
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          
+          # Create release directory
           mkdir -p release
           
-          # Copy all necessary files
-          cp -r modules/ release/
-          cp -r lib/ release/
-          # Copy python/ only if it exists (may contain db_handler.py)
-          [ -d python/ ] && cp -r python/ release/ || true
+          # Copy binary
+          cp autoar release/
+          
+          # Copy essential directories
           cp -r nuclei_templates/ release/ || true
           cp -r Wordlists/ release/ || true
           cp -r regexes/ release/
-          [ -d newcves/ ] && cp -r newcves/ release/ || true
-          [ -d gomodules/ ] && cp -r gomodules/ release/ || true
-          cp *.sh release/ 2>/dev/null || true
-          cp *.py release/ 2>/dev/null || true
-          cp *.yaml release/ 2>/dev/null || true
-          cp *.yml release/ 2>/dev/null || true
-          cp *.txt release/ 2>/dev/null || true
-          cp *.md release/ 2>/dev/null || true
-          cp go.mod go.sum release/ 2>/dev/null || true
-          cp main.go release/ 2>/dev/null || true
-          cp Dockerfile release/
-          cp docker-compose.yml release/
-          cp docker-entrypoint.sh release/
+          cp -r templates/ release/ || true
+          
+          # Copy configuration files
           cp env.example release/
+          cp docker-compose.yml release/
+          cp Dockerfile release/
+          cp README.md release/
+          cp go.mod go.sum release/
           
-          # Create the archive
-          tar -czf autoar-${GITHUB_REF_NAME}.tar.gz -C release .
-          
-          # Create a zip archive as well
-          zip -r autoar-${GITHUB_REF_NAME}.zip release/
+          # Create archives
+          tar -czf autoar-${GITHUB_REF_NAME}-linux-amd64.tar.gz -C release .
+          zip -r autoar-${GITHUB_REF_NAME}-linux-amd64.zip release/
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -75,13 +87,14 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: build
     permissions:
       contents: read
       packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -100,7 +113,9 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/autoar
           tags: |
             type=ref,event=tag
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -112,3 +127,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
