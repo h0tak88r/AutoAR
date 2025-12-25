@@ -218,12 +218,13 @@ func registerAllCommands(s *discordgo.Session) {
 			Description: "Run DNS takeover scan",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "type", Description: "Scan type: takeover (all), cname, ns, azure-aws, dnsreaper", Required: false, Choices: []*discordgo.ApplicationCommandOptionChoice{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "type", Description: "Scan type: takeover (all), cname, ns, azure-aws, dnsreaper, dangling-ip", Required: false, Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "Takeover (All)", Value: "takeover"},
 					{Name: "CNAME", Value: "cname"},
 					{Name: "NS", Value: "ns"},
 					{Name: "Azure/AWS", Value: "azure-aws"},
 					{Name: "DNSReaper", Value: "dnsreaper"},
+					{Name: "Dangling IP", Value: "dangling-ip"},
 				}},
 			},
 		},

@@ -2,6 +2,7 @@ package gobot
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -176,8 +178,8 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 	}
 
 	// Process each target
-	successCount := 0
-	failCount := 0
+	var successCount int64 // Use atomic for thread-safe counting
+	var wg sync.WaitGroup
 
 	for idx, target := range targets {
 		target = strings.TrimSpace(target)
@@ -199,23 +201,31 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 			continue
 		}
 
-		// Create a new interaction create for this target
-		targetInteraction := &discordgo.InteractionCreate{
-			Interaction: &discordgo.Interaction{
-				ID:        i.Interaction.ID + fmt.Sprintf("_%d", idx),
-				ChannelID: i.ChannelID,
-			},
-		}
+		// Pass channel ID directly instead of creating fake interaction
+		// Store channel ID for this scan
+		storeChannelID(scanID, i.ChannelID)
 
-		go runScanBackground(scanID, scanType, target, command, s, targetInteraction)
+		wg.Add(1)
+		go func(target, scanID string, cmd []string) {
+			defer wg.Done()
+			// Create a minimal interaction-like struct just for channel ID
+			// We'll pass channel ID directly to runScanBackground
+			runScanBackground(scanID, scanType, target, cmd, s, i)
+			atomic.AddInt64(&successCount, 1)
+		}(target, scanID, command)
 
 		// Small delay between scans
 		time.Sleep(1 * time.Second)
 	}
 
-	// Send summary
+	// Wait for all scans to start (they run in background)
+	// Note: We wait a bit to ensure all goroutines have started
+	time.Sleep(2 * time.Second)
+
+	// Send summary with actual started count
+	startedCount := int(atomic.LoadInt64(&successCount))
 	summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Scans Started:** %d",
-		scanType, len(targets), successCount+failCount)
+		scanType, len(targets), startedCount)
 	s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: summary,
 	})
@@ -223,7 +233,15 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 
 func runScanBackground(scanID, scanType, target string, command []string, s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Store channel ID for file notifications from modules
+	// If i is nil or doesn't have ChannelID, try to get it from stored channel IDs
+	if i != nil && i.ChannelID != "" {
 	storeChannelID(scanID, i.ChannelID)
+	} else {
+		// Fallback: try to get from stored channel IDs
+		if chID := getChannelID(scanID); chID == "" {
+			log.Printf("[WARN] No channel ID available for scan %s", scanID)
+		}
+	}
 
 	scansMutex.Lock()
 	now := time.Now()
@@ -239,11 +257,23 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	}
 	scansMutex.Unlock()
 
+	// Create context with timeout for long-running scans (30 minutes max)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	// Get channel ID (from interaction or stored)
+	channelID := ""
+	if i != nil && i.ChannelID != "" {
+		channelID = i.ChannelID
+	} else {
+		channelID = getChannelID(scanID)
+	}
+
 	// Execute command with environment variables for modules
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
-		fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", i.ChannelID),
+		fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", channelID),
 	)
 	output, err := cmd.CombinedOutput()
 
@@ -289,18 +319,40 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 
-	// Cleanup domain directory after scan completes
+	// Send result files directly from bot (like livehosts does)
+	// IMPORTANT: Send files BEFORE cleanup, otherwise files will be deleted
+	if err == nil {
+		// Wait for files to be written to disk with retry logic
+		// Some commands (like subdomains) may take longer to write files
+		maxRetries := 5
+		retryDelay := 500 * time.Millisecond
+		for retry := 0; retry < maxRetries; retry++ {
+			time.Sleep(retryDelay)
+			// Check if at least one expected file exists before sending
+			if scanType == "subdomains" {
+				resultsDir := getResultsDir()
+				expectedFile := filepath.Join(resultsDir, target, "subs", "all-subs.txt")
+				if fileInfo, err := os.Stat(expectedFile); err == nil && fileInfo.Size() > 0 {
+					log.Printf("[DEBUG] Subdomains file ready after %d retries: %s (size: %d)", retry+1, expectedFile, fileInfo.Size())
+					break
+				} else if retry == maxRetries-1 {
+					log.Printf("[WARN] Subdomains file not found after %d retries: %s", maxRetries, expectedFile)
+				}
+			} else {
+				break // For other scan types, proceed immediately
+			}
+		}
+		sendResultFiles(s, i, scanType, target)
+		
+		// Small delay to ensure files are sent before cleanup
+		time.Sleep(1 * time.Second)
+	}
+
+	// Cleanup domain directory after scan completes AND files are sent
 	if err == nil {
 		if err := cleanupDomainDirectory(target); err != nil {
 			log.Printf("[WARN] Failed to cleanup domain directory for %s: %v", target, err)
 		}
-	}
-
-	// Send result files directly from bot (like livehosts does)
-	if err == nil {
-		// Small delay to ensure files are written to disk
-		time.Sleep(500 * time.Millisecond)
-		sendResultFiles(s, i, scanType, target)
 	}
 }
 
@@ -396,16 +448,50 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
 		}
 	case "lite":
-		// Lite scan can send multiple result files - use glob pattern
+		// Lite scan sends multiple result files from all phases
+		// Subdomains
+		resultFiles = append(resultFiles,
+			filepath.Join(resultsDir, target, "subs", "all-subs.txt"),
+			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
+		)
+		// CNAME records
+		resultFiles = append(resultFiles,
+			filepath.Join(resultsDir, target, "subs", "cname-records.txt"),
+		)
+		// URLs
+		resultFiles = append(resultFiles,
+			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
+			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
+		)
+		// JS vulnerabilities
 		jsDir := filepath.Join(resultsDir, target, "vulnerabilities", "js")
 		if matches, err := filepath.Glob(filepath.Join(jsDir, "*.txt")); err == nil {
 			resultFiles = append(resultFiles, matches...)
 		}
+		// Reflection/KXSS
 		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, target, "subs", "all-subs.txt"),
-			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
-			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
+			filepath.Join(resultsDir, target, "vulnerabilities", "kxss-results.txt"),
 		)
+		// Backup scan results
+		resultFiles = append(resultFiles,
+			filepath.Join(resultsDir, target, "backup", "fuzzuli-results.txt"),
+		)
+		// DNS takeover results
+		dnsDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
+		resultFiles = append(resultFiles,
+			filepath.Join(dnsDir, "dns-takeover-summary.txt"),
+		)
+		// Misconfiguration scan results
+		resultFiles = append(resultFiles,
+			filepath.Join(resultsDir, "misconfig", target, "scan-results.txt"),
+		)
+		// Nuclei results (if any)
+		// Nuclei writes files directly to vulnerabilities/ directory (not vulnerabilities/nuclei/)
+		// Files are named: nuclei-custom-others.txt, nuclei-public-http.txt, nuclei-custom-cves.txt, etc.
+		vulnDir := filepath.Join(resultsDir, target, "vulnerabilities")
+		if matches, err := filepath.Glob(filepath.Join(vulnDir, "nuclei-*.txt")); err == nil {
+			resultFiles = append(resultFiles, matches...)
+		}
 	case "dns_takeover":
 		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
 		resultFiles = []string{
@@ -420,6 +506,8 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(domainDir, "ns-takeover-vuln.txt"),
 			filepath.Join(domainDir, "ns-servers.txt"),
 			filepath.Join(domainDir, "ns-servers-vuln.txt"),
+			filepath.Join(domainDir, "dangling-ip.txt"),
+			filepath.Join(domainDir, "dangling-ip-summary.txt"),
 		}
 	case "dns_cname":
 		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
@@ -450,6 +538,12 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
 		resultFiles = []string{
 			filepath.Join(domainDir, "dnsreaper-results.txt"),
+		}
+	case "dns_dangling_ip":
+		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
+		resultFiles = []string{
+			filepath.Join(domainDir, "dangling-ip.txt"),
+			filepath.Join(domainDir, "dangling-ip-summary.txt"),
 		}
 	case "github":
 		base := filepath.Join(resultsDir, "github", "repos", target)
@@ -633,38 +727,67 @@ func sendJWTResultsSummary(s *discordgo.Session, i *discordgo.InteractionCreate,
 // sendSingleFile sends a single file via FollowupMessageCreate
 func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePath string) {
 	log.Printf("[DEBUG] Attempting to send file: %s", filePath)
-	if fileInfo, err := os.Stat(filePath); err == nil {
+	
+	// Retry logic for file reading (in case file is still being written)
+	maxRetries := 3
+	var fileData []byte
+	var err error
+	for retry := 0; retry < maxRetries; retry++ {
+		if fileInfo, statErr := os.Stat(filePath); statErr == nil {
 		if fileInfo.Size() == 0 {
+				if retry < maxRetries-1 {
+					log.Printf("[DEBUG] File %s is empty, retrying in 200ms (attempt %d/%d)", filePath, retry+1, maxRetries)
+					time.Sleep(200 * time.Millisecond)
+					continue
+				}
 			log.Printf("[WARN] File %s exists but is empty (size: 0)", filePath)
 			return
 		}
 		log.Printf("[DEBUG] File found: %s (size: %d bytes)", filePath, fileInfo.Size())
-		fileData, err := os.ReadFile(filePath)
-		if err != nil {
-			log.Printf("[ERROR] Failed to read file %s: %v", filePath, err)
+			fileData, err = os.ReadFile(filePath)
+			if err == nil {
+				break
+			}
+			if retry < maxRetries-1 {
+				log.Printf("[DEBUG] Failed to read file %s, retrying in 200ms (attempt %d/%d): %v", filePath, retry+1, maxRetries, err)
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+		} else {
+			if retry < maxRetries-1 {
+				log.Printf("[DEBUG] File %s not found, retrying in 200ms (attempt %d/%d): %v", filePath, retry+1, maxRetries, statErr)
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			log.Printf("[WARN] File not found or cannot access: %s (err: %v)", filePath, statErr)
 			return
 		}
-		fileName := filepath.Base(filePath)
-		contentType := "text/plain"
-		if strings.HasSuffix(strings.ToLower(fileName), ".json") {
-			contentType = "application/json"
+	}
+	
+		if err != nil {
+		log.Printf("[ERROR] Failed to read file %s after %d retries: %v", filePath, maxRetries, err)
+			return
 		}
+	
+		fileName := filepath.Base(filePath)
+	contentType := "text/plain"
+	if strings.HasSuffix(strings.ToLower(fileName), ".json") {
+		contentType = "application/json"
+	}
+	
 		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Files: []*discordgo.File{
 				{
 					Name:        fileName,
-					ContentType: contentType,
+				ContentType: contentType,
 					Reader:      strings.NewReader(string(fileData)),
 				},
 			},
 		})
 		if err != nil {
-			log.Printf("[WARN] Failed to send result file %s: %v", fileName, err)
+		log.Printf("[ERROR] Failed to send result file %s: %v", fileName, err)
 		} else {
-			log.Printf("[INFO] Successfully sent result file via bot: %s", fileName)
-		}
-	} else {
-		log.Printf("[WARN] File not found or cannot access: %s (err: %v)", filePath, err)
+		log.Printf("[INFO] Successfully sent result file via bot: %s (size: %d bytes)", fileName, len(fileData))
 	}
 }
 
