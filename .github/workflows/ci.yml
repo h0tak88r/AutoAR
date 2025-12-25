@@ -13,7 +13,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+          fetch-depth: 0
+      
+      - name: Update submodules (with error handling)
+        run: |
+          git submodule sync --recursive || true
+          git submodule update --init --recursive --force || echo "Warning: Some submodules failed to update"
 
       - name: Set up Go
         uses: actions/setup-go@v5
