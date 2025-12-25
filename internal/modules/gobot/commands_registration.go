@@ -43,7 +43,7 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		{
 			Name:        "lite_scan",
-			Description: "Comprehensive automated scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei",
+			Description: "Full scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to scan", Required: true},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "verbose", Description: "Enable verbose output", Required: false},
