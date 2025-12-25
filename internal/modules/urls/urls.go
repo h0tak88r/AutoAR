@@ -30,7 +30,9 @@ type Result struct {
 
 // CollectURLs ensures live hosts exist for a domain and then collects URLs and JS URLs
 // using external tools (urlfinder and jsfinder), mirroring modules/urls.sh behaviour.
-func CollectURLs(domain string, threads int) (*Result, error) {
+// If skipSubdomainEnum is true, it treats the input as a single subdomain and skips
+// subdomain enumeration (no livehosts filtering, no wildcard API queries).
+func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, error) {
 	if domain == "" {
 		return nil, fmt.Errorf("domain is required")
 	}
@@ -50,15 +52,23 @@ func CollectURLs(domain string, threads int) (*Result, error) {
 		return nil, fmt.Errorf("failed to ensure urls dir: %v", err)
 	}
 
-	// Ensure live hosts exist using Go livehosts module (silent to avoid duplicate Discord output)
-	liveRes, err := livehosts.FilterLiveHosts(domain, threads, true)
-	if err != nil {
-		log.Printf("[WARN] livehosts filtering failed for %s: %v", domain, err)
-	}
+	var liveFile string
+	if skipSubdomainEnum {
+		// For subdomain mode, create a live file with just the subdomain
+		liveFile = filepath.Join(subsDir, "live-subs.txt")
+		_ = writeLines(liveFile, []string{domain})
+		log.Printf("[INFO] Subdomain mode: scanning %s directly (no subdomain enumeration)", domain)
+	} else {
+		// Ensure live hosts exist using Go livehosts module (silent to avoid duplicate Discord output)
+		liveRes, err := livehosts.FilterLiveHosts(domain, threads, true)
+		if err != nil {
+			log.Printf("[WARN] livehosts filtering failed for %s: %v", domain, err)
+		}
 
-	liveFile := filepath.Join(subsDir, "live-subs.txt")
-	if liveRes != nil && liveRes.LiveSubsFile != "" {
-		liveFile = liveRes.LiveSubsFile
+		liveFile = filepath.Join(subsDir, "live-subs.txt")
+		if liveRes != nil && liveRes.LiveSubsFile != "" {
+			liveFile = liveRes.LiveSubsFile
+		}
 	}
 
 	// Prepare output files
@@ -69,13 +79,16 @@ func CollectURLs(domain string, threads int) (*Result, error) {
 
 	// 1) Collect URLs with embedded urlfinder library
 	log.Printf("[INFO] Collecting URLs with embedded urlfinder for %s", domain)
-	if _, err := urlfindertool.FindURLsToFile(domain, allFile, urlfindertool.Options{AllSources: true}); err != nil {
+	if _, err := urlfindertool.FindURLsToFile(domain, allFile, urlfindertool.Options{
+		AllSources:      true,
+		SkipSubdomainEnum: skipSubdomainEnum,
+	}); err != nil {
 		log.Printf("[WARN] urlfinder library failed for %s: %v", domain, err)
 	}
 
 	// 2) Collect URLs from external APIs (VirusTotal, Wayback, URLScan, OTX, Common Crawl)
 	log.Printf("[INFO] Collecting URLs from external APIs for %s", domain)
-	externalURLs := collectExternalURLs(domain)
+	externalURLs := collectExternalURLs(domain, skipSubdomainEnum)
 	if len(externalURLs) > 0 {
 		log.Printf("[OK] Found %d URLs from external APIs", len(externalURLs))
 		// Merge external URLs with existing URLs
@@ -203,32 +216,33 @@ func uniqueStrings(in []string) []string {
 }
 
 // collectExternalURLs collects URLs from external APIs (VirusTotal, Wayback, URLScan, OTX, Common Crawl)
-func collectExternalURLs(domain string) []string {
+// If skipSubdomainEnum is true, queries are made for the specific subdomain instead of *.domain patterns
+func collectExternalURLs(domain string, skipSubdomainEnum bool) []string {
 	var allURLs []string
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	// VirusTotal
-	if urls := collectVirusTotalURLs(client, domain); len(urls) > 0 {
+	if urls := collectVirusTotalURLs(client, domain, skipSubdomainEnum); len(urls) > 0 {
 		allURLs = append(allURLs, urls...)
 	}
 
 	// Wayback Machine
-	if urls := collectWaybackURLs(client, domain); len(urls) > 0 {
+	if urls := collectWaybackURLs(client, domain, skipSubdomainEnum); len(urls) > 0 {
 		allURLs = append(allURLs, urls...)
 	}
 
 	// URLScan.io
-	if urls := collectURLScanURLs(client, domain); len(urls) > 0 {
+	if urls := collectURLScanURLs(client, domain, skipSubdomainEnum); len(urls) > 0 {
 		allURLs = append(allURLs, urls...)
 	}
 
 	// AlienVault OTX
-	if urls := collectOTXURLs(client, domain); len(urls) > 0 {
+	if urls := collectOTXURLs(client, domain, skipSubdomainEnum); len(urls) > 0 {
 		allURLs = append(allURLs, urls...)
 	}
 
 	// Common Crawl
-	if urls := collectCommonCrawlURLs(client, domain); len(urls) > 0 {
+	if urls := collectCommonCrawlURLs(client, domain, skipSubdomainEnum); len(urls) > 0 {
 		allURLs = append(allURLs, urls...)
 	}
 
@@ -236,7 +250,7 @@ func collectExternalURLs(domain string) []string {
 }
 
 // collectVirusTotalURLs fetches URLs from VirusTotal API
-func collectVirusTotalURLs(client *http.Client, domain string) []string {
+func collectVirusTotalURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
 	apiKey := os.Getenv("VIRUSTOTAL_API_KEY")
 	if apiKey == "" {
 		log.Printf("[INFO] VIRUSTOTAL_API_KEY not set, skipping VirusTotal")
@@ -297,8 +311,15 @@ func collectVirusTotalURLs(client *http.Client, domain string) []string {
 }
 
 // collectWaybackURLs fetches URLs from Wayback Machine CDX API
-func collectWaybackURLs(client *http.Client, domain string) []string {
-	url := fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", domain)
+func collectWaybackURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
+	var url string
+	if skipSubdomainEnum {
+		// For subdomain mode, query the specific subdomain directly
+		url = fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=%s/*&output=text&fl=original&collapse=urlkey", domain)
+	} else {
+		// For domain mode, use wildcard pattern
+		url = fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", domain)
+	}
 	log.Printf("[INFO] Fetching URLs from Wayback Machine for %s", domain)
 
 	resp, err := client.Get(url)
@@ -333,9 +354,16 @@ func collectWaybackURLs(client *http.Client, domain string) []string {
 }
 
 // collectURLScanURLs fetches URLs from URLScan.io API
-func collectURLScanURLs(client *http.Client, domain string) []string {
+func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
 	apiKey := os.Getenv("URLSCAN_API_KEY")
-	url := fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=10000", domain)
+	var url string
+	if skipSubdomainEnum {
+		// For subdomain mode, query the specific subdomain
+		url = fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=10000", domain)
+	} else {
+		// For domain mode, use domain pattern
+		url = fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=10000", domain)
+	}
 	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -392,7 +420,8 @@ func collectURLScanURLs(client *http.Client, domain string) []string {
 }
 
 // collectOTXURLs fetches URLs from AlienVault OTX API
-func collectOTXURLs(client *http.Client, domain string) []string {
+func collectOTXURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
+	// OTX API works with both domains and subdomains
 	url := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/url_list?limit=500", domain)
 	log.Printf("[INFO] Fetching URLs from AlienVault OTX for %s", domain)
 
@@ -437,9 +466,16 @@ func collectOTXURLs(client *http.Client, domain string) []string {
 }
 
 // collectCommonCrawlURLs fetches URLs from Common Crawl API
-func collectCommonCrawlURLs(client *http.Client, domain string) []string {
+func collectCommonCrawlURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
 	// Use a recent Common Crawl index (update this periodically)
-	url := fmt.Sprintf("https://index.commoncrawl.org/CC-MAIN-2023-06-index?url=*.%s/*&output=json&fl=timestamp,url,mime,status,digest", domain)
+	var url string
+	if skipSubdomainEnum {
+		// For subdomain mode, query the specific subdomain directly
+		url = fmt.Sprintf("https://index.commoncrawl.org/CC-MAIN-2023-06-index?url=%s/*&output=json&fl=timestamp,url,mime,status,digest", domain)
+	} else {
+		// For domain mode, use wildcard pattern
+		url = fmt.Sprintf("https://index.commoncrawl.org/CC-MAIN-2023-06-index?url=*.%s/*&output=json&fl=timestamp,url,mime,status,digest", domain)
+	}
 	log.Printf("[INFO] Fetching URLs from Common Crawl for %s", domain)
 
 	resp, err := client.Get(url)

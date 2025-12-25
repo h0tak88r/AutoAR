@@ -16,7 +16,8 @@ import (
 // For now this is a lightweight, passive-only implementation inspired by
 // urlfinder but implemented natively inside AutoAR (no external binary).
 type Options struct {
-	AllSources bool
+	AllSources         bool
+	SkipSubdomainEnum  bool
 }
 
 // FindURLsForDomain passively discovers URLs for a given domain using a small
@@ -32,7 +33,7 @@ func FindURLsForDomain(domain string, opts Options) ([]string, error) {
 	seen := make(map[string]struct{})
 
 	// Wayback Machine CDX API
-	waybackURLs, err := fetchWayback(domain)
+	waybackURLs, err := fetchWayback(domain, opts.SkipSubdomainEnum)
 	if err != nil {
 		// Don't fail the whole scan on a single source error
 	} else {
@@ -97,10 +98,17 @@ func FindURLsToFile(domain, outFile string, opts Options) (int, error) {
 }
 
 // fetchWayback queries the Wayback Machine CDX API for archived URLs.
-func fetchWayback(domain string) ([]string, error) {
+func fetchWayback(domain string, skipSubdomainEnum bool) ([]string, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	q := fmt.Sprintf("*.%s/*", domain)
+	var q string
+	if skipSubdomainEnum {
+		// For subdomain mode, query the specific subdomain directly
+		q = fmt.Sprintf("%s/*", domain)
+	} else {
+		// For domain mode, use wildcard pattern
+		q = fmt.Sprintf("*.%s/*", domain)
+	}
 	apiURL := fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=%s&output=text&fl=original&collapse=urlkey",
 		url.QueryEscape(q))
 
