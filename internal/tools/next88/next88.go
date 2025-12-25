@@ -36,6 +36,7 @@ type ScanResult struct {
 	ExposedCode    bool     `json:"exposed_code,omitempty"`
 	RequestBody    string   `json:"request_body,omitempty"`
 	ResponseBody   string   `json:"response_body,omitempty"`
+	VulnType       string   `json:"vuln_type,omitempty"` // Type of vulnerability: "normal", "waf-bypass", "vercel-waf-bypass", "dos-test", "source-exposure"
 }
 
 // ScanOptions controls how a scan is executed. It is intentionally very
@@ -225,7 +226,7 @@ func isVulnerableSafeCheck(resp *http.Response) bool {
 	}
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	defer resp.Body.Close()
 	body := string(bodyBytes)
 
 	if !strings.Contains(body, `E{"digest"`) {
@@ -276,7 +277,7 @@ func isSourceCodeExposed(resp *http.Response) bool {
 	}
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	defer resp.Body.Close()
 	body := string(bodyBytes)
 
 	indicators := []string{
@@ -456,6 +457,7 @@ func checkActionIDExposure(host string, opts ScanOptions) ScanResult {
 			vuln := true
 			result.Vulnerable = &vuln
 			result.ExposedCode = true
+			result.VulnType = "source-exposure"
 			result.StatusCode = &postResp.StatusCode
 			return result
 		}
@@ -549,7 +551,7 @@ func checkVulnerability(host string, opts ScanOptions) ScanResult {
 
 		// Read response body for storage
 		respBodyBytes, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		defer resp.Body.Close()
 		respBody := string(respBodyBytes)
 
 		// Store request/response for notifications
@@ -613,6 +615,7 @@ func checkVulnerabilitySmart(host string, opts ScanOptions) ScanResult {
 	headers["Content-Type"] = contentType
 	result := tryVulnerabilityTest(host, testPaths, headers, body, opts)
 	if result.Vulnerable != nil && *result.Vulnerable {
+		result.VulnType = "normal"
 		return result
 	}
 
@@ -624,6 +627,7 @@ func checkVulnerabilitySmart(host string, opts ScanOptions) ScanResult {
 	headers["Content-Type"] = contentType
 	result = tryVulnerabilityTest(host, testPaths, headers, body, opts)
 	if result.Vulnerable != nil && *result.Vulnerable {
+		result.VulnType = "waf-bypass"
 		return result
 	}
 
@@ -635,6 +639,7 @@ func checkVulnerabilitySmart(host string, opts ScanOptions) ScanResult {
 	headers["Content-Type"] = contentType
 	result = tryVulnerabilityTest(host, testPaths, headers, body, opts)
 	if result.Vulnerable != nil && *result.Vulnerable {
+		result.VulnType = "vercel-waf-bypass"
 		return result
 	}
 
@@ -650,6 +655,7 @@ func checkVulnerabilitySmart(host string, opts ScanOptions) ScanResult {
 			headers["Content-Type"] = contentType
 			result = tryVulnerabilityTest(host, commonPaths, headers, body, opts)
 			if result.Vulnerable != nil && *result.Vulnerable {
+				result.VulnType = "waf-bypass" // Common paths use WAF bypass payload
 				return result
 			}
 		}
@@ -692,7 +698,7 @@ func tryVulnerabilityTest(host string, testPaths []string, headers map[string]st
 
 		// Read response body for storage
 		respBodyBytes, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		defer resp.Body.Close()
 		respBody := string(respBodyBytes)
 
 		// Store request/response for notifications
@@ -940,6 +946,9 @@ func checkDOS(host string, opts ScanOptions) ScanResult {
 	// (DoS test is about testing if the server can be overwhelmed)
 	vuln := successCount > 0
 	result.Vulnerable = &vuln
+	if vuln {
+		result.VulnType = "dos-test"
+	}
 
 	// Store statistics in the response field
 	parsedURL, _ := url.Parse(host)

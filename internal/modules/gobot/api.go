@@ -33,28 +33,53 @@ type ScanResult struct {
 }
 
 type ScanRequest struct {
-	Domain            *string `json:"domain"`
-	Subdomain         *string `json:"subdomain"`
-	URL               *string `json:"url"`
-	Bucket            *string `json:"bucket"`
-	Region            *string `json:"region"`
-	Repo              *string `json:"repo"`
-	FilePath          *string `json:"file_path"`
-	Strategy          *string `json:"strategy"`
-	Pattern           *string `json:"pattern"`
-	Interval          *int    `json:"interval"`
-	All               *bool   `json:"all"`
-	Daemon            *bool   `json:"daemon"`
-	Mode              *string `json:"mode"`
-	SkipJS            *bool   `json:"skip_js"`
-	PhaseTimeout      *int    `json:"phase_timeout"`
-	TimeoutLivehosts  *int    `json:"timeout_livehosts"`
-	TimeoutReflection *int    `json:"timeout_reflection"`
-	TimeoutJS         *int    `json:"timeout_js"`
-	TimeoutNuclei      *int    `json:"timeout_nuclei"`
-	Query             *string `json:"query"`
-	Provider          *string `json:"provider"`
-	APIKey            *string `json:"api_key"`
+	Domain            *string   `json:"domain"`
+	Subdomain         *string   `json:"subdomain"`
+	URL               *string   `json:"url"`
+	Bucket            *string   `json:"bucket"`
+	Region            *string   `json:"region"`
+	Repo              *string   `json:"repo"`
+	FilePath          *string   `json:"file_path"`
+	Strategy          *string   `json:"strategy"`
+	Pattern           *string   `json:"pattern"`
+	Interval          *int      `json:"interval"`
+	All               *bool     `json:"all"`
+	Daemon            *bool     `json:"daemon"`
+	Mode              *string   `json:"mode"`
+	SkipJS            *bool     `json:"skip_js"`
+	PhaseTimeout      *int      `json:"phase_timeout"`
+	TimeoutLivehosts  *int      `json:"timeout_livehosts"`
+	TimeoutReflection *int      `json:"timeout_reflection"`
+	TimeoutJS         *int      `json:"timeout_js"`
+	TimeoutNuclei      *int      `json:"timeout_nuclei"`
+	Query             *string   `json:"query"`
+	Provider          *string   `json:"provider"`
+	APIKey            *string   `json:"api_key"`
+	// FFuf options
+	Target            *string   `json:"target"`            // FFuf target URL
+	Wordlist          *string   `json:"wordlist"`         // FFuf wordlist path
+	Threads           *int      `json:"threads"`          // FFuf threads
+	Recursion         *bool     `json:"recursion"`        // FFuf recursion
+	RecursionDepth    *int      `json:"recursion_depth"`  // FFuf recursion depth
+	Bypass403         *bool     `json:"bypass_403"`       // FFuf 403 bypass
+	Extensions        *[]string `json:"extensions"`       // FFuf extensions
+	CustomHeaders     *map[string]string `json:"custom_headers"` // FFuf custom headers
+	// React2Shell options
+	DomainsFile       *string   `json:"domains_file"`     // React2Shell domains file
+	DOSTest           *bool     `json:"dos_test"`         // React2Shell DoS test
+	EnableSourceExposure *bool  `json:"enable_source_exposure"` // React2Shell source exposure
+	Silent            *bool     `json:"silent"`            // React2Shell silent mode
+	// JWT options
+	Token             *string   `json:"token"`            // JWT token
+	SkipCrack         *bool     `json:"skip_crack"`       // JWT skip crack
+	SkipPayloads      *bool     `json:"skip_payloads"`    // JWT skip payloads
+	WordlistPath      *string   `json:"wordlist_path"`    // JWT wordlist
+	MaxCrackAttempts  *int      `json:"max_crack_attempts"` // JWT max crack attempts
+	// Misconfig options
+	ServiceID         *string   `json:"service_id"`        // Misconfig service ID
+	Delay             *int      `json:"delay"`            // Misconfig delay (ms)
+	// DNS options
+	DNSType           *string   `json:"dns_type"`         // DNS scan type: takeover, dangling-ip
 }
 
 type ScanResponse struct {
@@ -104,11 +129,17 @@ func setupAPI() *gin.Engine {
 		api.POST("/ports", scanPorts)
 		api.POST("/gf", scanGF)
 		api.POST("/dns-takeover", scanDNSTakeover)
+		api.POST("/dns", scanDNS) // New unified DNS endpoint (supports takeover and dangling-ip)
 		api.POST("/s3", scanS3)
 		api.POST("/github", scanGitHub)
 		api.POST("/github_org", scanGitHubOrg)
 		api.POST("/lite", scanLite)
 		api.POST("/apkx", scanApkX)
+		api.POST("/ffuf", scanFFuf) // FFuf fuzzing
+		api.POST("/backup", scanBackup) // Backup file discovery
+		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
+		api.POST("/react2shell", scanReact2Shell) // React2Shell RCE scan
+		api.POST("/jwt", scanJWT) // JWT vulnerability scan
 		api.GET("/:scan_id/status", getScanStatus)
 		api.GET("/:scan_id/results", getScanResults)
 		api.GET("/:scan_id/download", downloadScanResults)
@@ -184,7 +215,7 @@ func corsMiddleware() gin.HandlerFunc {
 func rootHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "AutoAR API Server",
-		"version": "3.2.0",
+		"version": "3.3.0",
 		"docs":    "/docs",
 		"status":  "operational",
 	})
@@ -497,6 +528,248 @@ func scanDNSTakeover(c *gin.Context) {
 		ScanID:  scanID,
 		Status:  "started",
 		Message: fmt.Sprintf("DNS takeover scan started for %s", *req.Domain),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanDNS handles DNS scans (takeover or dangling-ip)
+func scanDNS(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Domain == nil || *req.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Domain is required"})
+		return
+	}
+
+	scanID := generateScanID()
+	dnsType := "takeover"
+	if req.DNSType != nil && *req.DNSType != "" {
+		dnsType = *req.DNSType
+		if dnsType != "takeover" && dnsType != "dangling-ip" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "dns_type must be 'takeover' or 'dangling-ip'"})
+			return
+		}
+	}
+
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "dns", dnsType, "-d", *req.Domain}
+
+	go executeScan(scanID, command, fmt.Sprintf("dns-%s", dnsType))
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("DNS %s scan started for %s", dnsType, *req.Domain),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanFFuf handles FFuf fuzzing requests
+func scanFFuf(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Target == nil || *req.Target == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target URL is required"})
+		return
+	}
+
+	scanID := generateScanID()
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "ffuf", "fuzz", "-u", *req.Target}
+
+	if req.Wordlist != nil && *req.Wordlist != "" {
+		command = append(command, "-w", *req.Wordlist)
+	}
+	if req.Threads != nil && *req.Threads > 0 {
+		command = append(command, "-t", fmt.Sprintf("%d", *req.Threads))
+	}
+	if req.Recursion != nil && *req.Recursion {
+		command = append(command, "--recursion")
+		if req.RecursionDepth != nil && *req.RecursionDepth > 0 {
+			command = append(command, "--recursion-depth", fmt.Sprintf("%d", *req.RecursionDepth))
+		}
+	}
+	if req.Bypass403 != nil && *req.Bypass403 {
+		command = append(command, "--bypass-403")
+	}
+	if req.Extensions != nil && len(*req.Extensions) > 0 {
+		command = append(command, "-e", strings.Join(*req.Extensions, ","))
+	}
+	if req.CustomHeaders != nil && len(*req.CustomHeaders) > 0 {
+		for k, v := range *req.CustomHeaders {
+			command = append(command, "--header", fmt.Sprintf("%s:%s", k, v))
+		}
+	}
+
+	go executeScan(scanID, command, "ffuf")
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("FFuf fuzzing started for %s", *req.Target),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanBackup handles backup file discovery requests
+func scanBackup(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Domain == nil || *req.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Domain is required"})
+		return
+	}
+
+	scanID := generateScanID()
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "backup", "scan", "-d", *req.Domain}
+
+	if req.Threads != nil && *req.Threads > 0 {
+		command = append(command, "-t", fmt.Sprintf("%d", *req.Threads))
+	}
+
+	go executeScan(scanID, command, "backup")
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("Backup file discovery started for %s", *req.Domain),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanMisconfig handles cloud misconfiguration scan requests
+func scanMisconfig(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Domain == nil || *req.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Domain is required"})
+		return
+	}
+
+	scanID := generateScanID()
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "misconfig", "scan", *req.Domain}
+
+	if req.ServiceID != nil && *req.ServiceID != "" {
+		command = append(command, "--service", *req.ServiceID)
+	}
+	if req.Delay != nil && *req.Delay > 0 {
+		command = append(command, "--delay", fmt.Sprintf("%d", *req.Delay))
+	}
+
+	go executeScan(scanID, command, "misconfig")
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("Misconfiguration scan started for %s", *req.Domain),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanReact2Shell handles React2Shell RCE scan requests
+func scanReact2Shell(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if (req.Domain == nil || *req.Domain == "") && (req.DomainsFile == nil || *req.DomainsFile == "") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Either domain or domains_file is required"})
+		return
+	}
+
+	if req.Domain != nil && req.DomainsFile != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot use both domain and domains_file together"})
+		return
+	}
+
+	scanID := generateScanID()
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "react2shell", "scan"}
+
+	if req.Domain != nil {
+		command = append(command, "-d", *req.Domain)
+	} else {
+		command = append(command, "-f", *req.DomainsFile)
+	}
+
+	if req.Threads != nil && *req.Threads > 0 {
+		command = append(command, "-t", fmt.Sprintf("%d", *req.Threads))
+	}
+	if req.DOSTest != nil && *req.DOSTest {
+		command = append(command, "--dos-test")
+	}
+	if req.EnableSourceExposure != nil && *req.EnableSourceExposure {
+		command = append(command, "--enable-source-exposure")
+	}
+	if req.Silent != nil && *req.Silent {
+		command = append(command, "--silent")
+	}
+
+	go executeScan(scanID, command, "react2shell")
+
+	target := *req.Domain
+	if req.DomainsFile != nil {
+		target = *req.DomainsFile
+	}
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("React2Shell scan started for %s", target),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanJWT handles JWT vulnerability scan requests
+func scanJWT(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Token == nil || *req.Token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "JWT token is required"})
+		return
+	}
+
+	scanID := generateScanID()
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "jwt", "scan", "-t", *req.Token}
+
+	if req.SkipCrack != nil && *req.SkipCrack {
+		command = append(command, "--skip-crack")
+	}
+	if req.SkipPayloads != nil && *req.SkipPayloads {
+		command = append(command, "--skip-payloads")
+	}
+	if req.WordlistPath != nil && *req.WordlistPath != "" {
+		command = append(command, "--wordlist", *req.WordlistPath)
+	}
+	if req.MaxCrackAttempts != nil && *req.MaxCrackAttempts > 0 {
+		command = append(command, "--max-crack-attempts", fmt.Sprintf("%d", *req.MaxCrackAttempts))
+	}
+
+	go executeScan(scanID, command, "jwt")
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: "JWT vulnerability scan started",
 		Command: strings.Join(command, " "),
 	})
 }
