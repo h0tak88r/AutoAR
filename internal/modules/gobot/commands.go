@@ -1126,6 +1126,7 @@ func handleURLs(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := data.Options
 	domain := ""
 	threads := 100
+	skipSubdomainEnum := false
 	var attachment *discordgo.MessageAttachment
 
 	attachment = getAttachmentFromOptions(&data)
@@ -1136,6 +1137,8 @@ func handleURLs(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			domain = opt.StringValue()
 		case "threads":
 			threads = int(opt.IntValue())
+		case "subdomain":
+			skipSubdomainEnum = opt.BoolValue()
 		}
 	}
 
@@ -1150,13 +1153,20 @@ func handleURLs(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	if attachment != nil {
 		handleFileBasedScan(s, i, "urls", attachment, func(target string) []string {
-			return []string{autoarScript, "urls", "collect", "-d", target, "-t", strconv.Itoa(threads)}
+			cmd := []string{autoarScript, "urls", "collect", "-d", target, "-t", strconv.Itoa(threads)}
+			if skipSubdomainEnum {
+				cmd = append(cmd, "--subdomain")
+			}
+			return cmd
 		}, threads)
 		return
 	}
 
 	scanID := fmt.Sprintf("urls_%d", time.Now().Unix())
 	command := []string{autoarScript, "urls", "collect", "-d", domain, "-t", strconv.Itoa(threads)}
+	if skipSubdomainEnum {
+		command = append(command, "--subdomain")
+	}
 
 	embed := createScanEmbed("URLs", domain, "running")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{

@@ -80,6 +80,8 @@ type ScanRequest struct {
 	Delay             *int      `json:"delay"`            // Misconfig delay (ms)
 	// DNS options
 	DNSType           *string   `json:"dns_type"`         // DNS scan type: takeover, dangling-ip
+	// URLs options
+	SkipSubdomainEnum *bool     `json:"skip_subdomain_enum"` // URLs: skip subdomain enumeration (treat as single subdomain)
 }
 
 type ScanResponse struct {
@@ -114,6 +116,7 @@ func setupAPI() *gin.Engine {
 	// Root
 	r.GET("/", rootHandler)
 	r.GET("/health", healthHandler)
+	r.GET("/docs", docsHandler)
 
 	// Scan endpoints
 	api := r.Group("/scan")
@@ -228,6 +231,314 @@ func healthHandler(c *gin.Context) {
 	})
 }
 
+func docsHandler(c *gin.Context) {
+	html := `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoAR API Documentation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            color: #58a6ff;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        .version {
+            color: #8b949e;
+            font-size: 1.1em;
+        }
+        .endpoint {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .method {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }
+        .method.post { background: #238636; color: white; }
+        .method.get { background: #1f6feb; color: white; }
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            font-size: 1.1em;
+            color: #58a6ff;
+            margin-bottom: 10px;
+        }
+        .description {
+            color: #8b949e;
+            margin-bottom: 15px;
+        }
+        .example {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+            overflow-x: auto;
+        }
+        .example code {
+            color: #c9d1d9;
+            font-family: 'Courier New', monospace;
+        }
+        .section {
+            margin-top: 40px;
+        }
+        .section-title {
+            color: #58a6ff;
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 10px;
+        }
+        a {
+            color: #58a6ff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AutoAR API Documentation</h1>
+            <div class="version">Version 3.3.0</div>
+        </header>
+
+        <div class="section">
+            <h2 class="section-title">Base Information</h2>
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method get">GET</span> /</div>
+                <div class="description">API root endpoint - returns API information</div>
+            </div>
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method get">GET</span> /health</div>
+                <div class="description">Health check endpoint</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Scan Endpoints</h2>
+            
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/subdomains</div>
+                <div class="description">Enumerate subdomains for a domain</div>
+                <div class="example">
+                    <code>curl -X POST http://localhost:8000/scan/subdomains \<br>
+&nbsp;&nbsp;-H "Content-Type: application/json" \<br>
+&nbsp;&nbsp;-d '{"domain": "example.com"}'</code>
+                </div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/livehosts</div>
+                <div class="description">Filter live hosts from subdomains</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/cnames</div>
+                <div class="description">Collect CNAME records for domain subdomains</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/urls</div>
+                <div class="description">Collect URLs and JS URLs</div>
+                <div class="example">
+                    <code>curl -X POST http://localhost:8000/scan/urls \<br>
+&nbsp;&nbsp;-H "Content-Type: application/json" \<br>
+&nbsp;&nbsp;-d '{"domain": "example.com", "skip_subdomain_enum": false}'</code>
+                </div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/js</div>
+                <div class="description">JavaScript scan (JS URLs)</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/reflection</div>
+                <div class="description">Reflection scan (kxss)</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/nuclei</div>
+                <div class="description">Run Nuclei templates</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/tech</div>
+                <div class="description">Technology detection</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/ports</div>
+                <div class="description">Port scanning with Naabu</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/gf</div>
+                <div class="description">GF patterns scan</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/dns</div>
+                <div class="description">DNS scan (takeover or dangling-ip detection)</div>
+                <div class="example">
+                    <code>curl -X POST http://localhost:8000/scan/dns \<br>
+&nbsp;&nbsp;-H "Content-Type: application/json" \<br>
+&nbsp;&nbsp;-d '{"domain": "example.com", "dns_type": "takeover"}'</code>
+                </div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/s3</div>
+                <div class="description">S3 bucket scanning</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/github</div>
+                <div class="description">GitHub repository scanning</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/github_org</div>
+                <div class="description">GitHub organization scanning</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/lite</div>
+                <div class="description">Lite scan (comprehensive automated scan)</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/apkx</div>
+                <div class="description">APK/IPA static analysis</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/ffuf</div>
+                <div class="description">FFuf web fuzzing</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/backup</div>
+                <div class="description">Backup file discovery</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/misconfig</div>
+                <div class="description">Cloud misconfiguration scanning</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/react2shell</div>
+                <div class="description">React2Shell RCE vulnerability scan</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/jwt</div>
+                <div class="description">JWT vulnerability scan</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method get">GET</span> /scan/:scan_id/status</div>
+                <div class="description">Get scan status by scan ID</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method get">GET</span> /scan/:scan_id/results</div>
+                <div class="description">Get scan results by scan ID</div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method get">GET</span> /scan/:scan_id/download</div>
+                <div class="description">Download scan results as archive</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">KeyHack Endpoints</h2>
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /keyhack/search</div>
+                <div class="description">Search for API keys</div>
+            </div>
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /keyhack/validate</div>
+                <div class="description">Validate API keys</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Utility Endpoints</h2>
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method get">GET</span> /scans</div>
+                <div class="description">List all scans (active and completed)</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Request Format</h2>
+            <div class="endpoint">
+                <div class="description">
+                    All POST endpoints accept JSON in the following format:
+                </div>
+                <div class="example">
+                    <code>{<br>
+&nbsp;&nbsp;"domain": "example.com",<br>
+&nbsp;&nbsp;"threads": 100,<br>
+&nbsp;&nbsp;"skip_subdomain_enum": false<br>
+}</code>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Response Format</h2>
+            <div class="endpoint">
+                <div class="description">
+                    Successful scan initiation returns:
+                </div>
+                <div class="example">
+                    <code>{<br>
+&nbsp;&nbsp;"scan_id": "abc123...",<br>
+&nbsp;&nbsp;"status": "started",<br>
+&nbsp;&nbsp;"message": "Scan started for example.com",<br>
+&nbsp;&nbsp;"command": "autoar scan ..."<br>
+}</code>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
+}
+
 // Scan handlers
 func scanSubdomains(c *gin.Context) {
 	var req ScanRequest
@@ -318,6 +629,11 @@ func scanURLs(c *gin.Context) {
 
 	scanID := generateScanID()
 	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "urls", "collect", "-d", *req.Domain}
+	
+	// Add --subdomain flag if SkipSubdomainEnum is set and true
+	if req.SkipSubdomainEnum != nil && *req.SkipSubdomainEnum {
+		command = append(command, "--subdomain")
+	}
 
 	go executeScan(scanID, command, "urls")
 

@@ -100,9 +100,10 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "urls",
 			Description: "Collect URLs and JS URLs",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain or subdomain", Required: false},
 				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File with domains (one per line)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 100)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "subdomain", Description: "Treat input as a single subdomain (skip subdomain enumeration)", Required: false},
 			},
 		},
 		{
