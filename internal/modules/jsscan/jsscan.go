@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/urls"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Options controls JS scan behaviour.

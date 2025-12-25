@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/h0tak88r/AutoAR/internal/modules/db"
-	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
+	next88 "github.com/h0tak88r/AutoAR/v3/internal/tools/next88"
 )
 
 // handleReact2Shell handles both /react2shell_scan (domain) and /react2shell (URL) commands

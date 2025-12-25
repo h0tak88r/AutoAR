@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	mmapi "github.com/h0tak88r/AutoAR/internal/tools/misconfigmapper"
-	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
+	mmapi "github.com/h0tak88r/AutoAR/v3/internal/tools/misconfigmapper"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
 )
 
 // Options for misconfig scan

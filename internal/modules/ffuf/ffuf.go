@@ -14,7 +14,7 @@ import (
 	"github.com/ffuf/ffuf/v2/pkg/input"
 	"github.com/ffuf/ffuf/v2/pkg/output"
 	"github.com/ffuf/ffuf/v2/pkg/runner"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Options holds ffuf scan options
