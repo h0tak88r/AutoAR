@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 )
 
 var (
