@@ -186,6 +186,19 @@ func StartBot() error {
 
 // StartAPI starts the REST API server
 func StartAPI() error {
+	fmt.Println("🚀 Starting AutoAR API Server...")
+	
+	// Load .env file if it exists
+	if err := envloader.LoadEnv(); err != nil {
+		log.Printf("[WARN] Failed to load .env file: %v", err)
+	} else {
+		fmt.Println("✅ Loaded environment variables from .env file")
+	}
+
+	// Re-read API host and port after loading .env
+	apiHostEnv := getEnv("API_HOST", "0.0.0.0")
+	apiPortEnv := getEnv("API_PORT", "8000")
+	
 	// Initialize database if configured
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err != nil {
@@ -205,7 +218,7 @@ func StartAPI() error {
 	}()
 
 	router := setupAPI()
-	addr := fmt.Sprintf("%s:%s", apiHost, apiPort)
+	addr := fmt.Sprintf("%s:%s", apiHostEnv, apiPortEnv)
 	fmt.Printf("AutoAR API Server starting on %s\n", addr)
 
 	sc := make(chan os.Signal, 1)
@@ -224,6 +237,19 @@ func StartAPI() error {
 
 // StartBoth starts both Discord bot and API server
 func StartBoth() error {
+	fmt.Println("🚀 Starting AutoAR (Discord Bot + API Server)...")
+	
+	// Load .env file if it exists
+	if err := envloader.LoadEnv(); err != nil {
+		log.Printf("[WARN] Failed to load .env file: %v", err)
+	} else {
+		fmt.Println("✅ Loaded environment variables from .env file")
+	}
+
+	// Re-read configuration after loading .env
+	botTokenEnv := os.Getenv("DISCORD_BOT_TOKEN")
+	autoarModeEnv := getEnv("AUTOAR_MODE", "both")
+	
 	// Initialize database if configured (only once for both services)
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err != nil {
@@ -244,27 +270,31 @@ func StartBoth() error {
 
 	var wg sync.WaitGroup
 
-	if botToken == "" {
+	if botTokenEnv == "" {
 		return fmt.Errorf("DISCORD_BOT_TOKEN environment variable is required")
 	}
 
-	// Start Discord bot
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := StartBot(); err != nil {
-			log.Printf("Discord bot error: %v", err)
-		}
-	}()
+	// Start Discord bot if mode allows
+	if autoarModeEnv == "discord" || autoarModeEnv == "both" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := StartBot(); err != nil {
+				log.Printf("Discord bot error: %v", err)
+			}
+		}()
+	}
 
-	// Start API server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := StartAPI(); err != nil {
-			log.Printf("API server error: %v", err)
-		}
-	}()
+	// Start API server if mode allows
+	if autoarModeEnv == "api" || autoarModeEnv == "both" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := StartAPI(); err != nil {
+				log.Printf("API server error: %v", err)
+			}
+		}()
+	}
 
 	// Wait for interrupt signal
 	sc := make(chan os.Signal, 1)
@@ -282,26 +312,31 @@ func Ready(s *discordgo.Session, event *discordgo.Ready) {
 
 // InteractionCreate handles Discord slash command interactions
 func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Read guild restriction from environment variables dynamically (supports .env file)
+	// This ensures values are read after .env is loaded, not from package-level initialization
+	allowedGuildIDEnv := getEnv("DISCORD_ALLOWED_GUILD_ID", "")
+	allowedGuildNameEnv := getEnv("DISCORD_ALLOWED_GUILD", "")
+	
 	// Check guild restriction by ID (GUID) - preferred method
-	if allowedGuildID != "" {
+	if allowedGuildIDEnv != "" {
 		// Reject DMs (commands must be in a server)
 		if i.GuildID == "" {
 			log.Printf("[INFO] Rejected command from DM (not in a server)")
-			respond(s, i, fmt.Sprintf("❌ This bot is restricted to a specific server (Guild ID: %s). Please use commands in that server.", allowedGuildID), true)
+			respond(s, i, fmt.Sprintf("❌ This bot is restricted to a specific server (Guild ID: %s). Please use commands in that server.", allowedGuildIDEnv), true)
 			return
 		}
-		if i.GuildID != allowedGuildID {
-			log.Printf("[INFO] Rejected command from unauthorized guild ID: %s (expected: %s)", i.GuildID, allowedGuildID)
-			respond(s, i, fmt.Sprintf("❌ This bot is restricted to a specific server (Guild ID: %s). Your server ID: %s", allowedGuildID, i.GuildID), true)
+		if i.GuildID != allowedGuildIDEnv {
+			log.Printf("[INFO] Rejected command from unauthorized guild ID: %s (expected: %s)", i.GuildID, allowedGuildIDEnv)
+			respond(s, i, fmt.Sprintf("❌ This bot is restricted to a specific server (Guild ID: %s). Your server ID: %s", allowedGuildIDEnv, i.GuildID), true)
 			return
 		}
 		log.Printf("[DEBUG] Command allowed from guild ID: %s", i.GuildID)
-	} else if allowedGuildName != "" {
+	} else if allowedGuildNameEnv != "" {
 		// Legacy: Check by guild name (deprecated, but kept for backward compatibility)
 		// Reject DMs (commands must be in a server)
 		if i.GuildID == "" {
 			log.Printf("[INFO] Rejected command from DM (not in a server)")
-			respond(s, i, fmt.Sprintf("❌ This bot only works in the **%s** server. Please use commands in that server.", allowedGuildName), true)
+			respond(s, i, fmt.Sprintf("❌ This bot only works in the **%s** server. Please use commands in that server.", allowedGuildNameEnv), true)
 			return
 		}
 
@@ -314,9 +349,9 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		
 		// Check if guild name matches allowed guild
-		if guild.Name != allowedGuildName {
-			log.Printf("[INFO] Rejected command from unauthorized guild: %s (expected: %s)", guild.Name, allowedGuildName)
-			respond(s, i, fmt.Sprintf("❌ This bot is restricted to the **%s** server only. Your server: **%s**", allowedGuildName, guild.Name), true)
+		if guild.Name != allowedGuildNameEnv {
+			log.Printf("[INFO] Rejected command from unauthorized guild: %s (expected: %s)", guild.Name, allowedGuildNameEnv)
+			respond(s, i, fmt.Sprintf("❌ This bot is restricted to the **%s** server only. Your server: **%s**", allowedGuildNameEnv, guild.Name), true)
 			return
 		}
 		

@@ -393,8 +393,8 @@ Once the bot is running, use these slash commands in Discord:
 - `/github-wordlist org:microsoft` - Generate wordlists from organization files
 
 #### Workflows
-- `/lite_scan domain:example.com [skip_js:false] [verbose:false] [phase_timeout:3600]` - Comprehensive automated scan workflow with real-time progress and file sending
-- `/fastlook domain:example.com` - Quick scan
+- `/lite_scan domain:example.com [skip_js:false] [verbose:false] [phase_timeout:3600]` - Comprehensive automated scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei (with real-time progress and file sending)
+- `/fast_look domain:example.com` - Quick reconnaissance: subdomain enumeration → live host filtering → URL/JS collection
 - `/domain domain:example.com` - Full domain analysis
 
 #### Monitoring Commands
@@ -450,8 +450,8 @@ autoar gf scan -d example.com
 autoar wpDepConf scan -d example.com
 
 # Workflows
-autoar fastlook run -d example.com
-autoar lite run -d example.com --skip-js
+autoar fastlook run -d example.com  # Quick reconnaissance: subdomains → live hosts → URLs/JS
+autoar lite run -d example.com --skip-js  # Comprehensive scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei
 autoar domain run -d example.com
 
 # Database operations
@@ -931,7 +931,7 @@ curl -X POST "http://localhost:8000/scan/github_org" \
   -H "Content-Type: application/json" \
   -d '{"org": "organization", "max_repos": 50}'
 
-# Lite Scan Workflow (comprehensive automated scan)
+# Lite Scan Workflow (comprehensive automated scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei)
 curl -X POST "http://localhost:8000/scan/lite" \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com", "skip_js": false, "phase_timeout": 3600}'
