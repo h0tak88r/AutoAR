@@ -104,13 +104,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: false
           fetch-depth: 0
       
-      - name: Update submodules (with error handling)
+      - name: Initialize submodules (optional)
+        continue-on-error: true
         run: |
           git submodule sync --recursive || true
-          git submodule update --init --recursive --force || echo "Warning: Some submodules failed to update"
+          git submodule update --init --recursive --force || echo "Warning: Submodules are optional, continuing without them"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
