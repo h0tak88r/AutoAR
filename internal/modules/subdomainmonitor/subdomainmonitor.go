@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 	"github.com/projectdiscovery/httpx/runner"
 )
 

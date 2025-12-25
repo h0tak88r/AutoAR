@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/internal/tools/apkx/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/utils"
 )
 
 // ApkeepDownloader wraps the apkeep CLI to download Android APKs by package.

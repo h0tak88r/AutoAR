@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
-	"github.com/h0tak88r/AutoAR/internal/modules/urls"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/subdomains"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Result holds a simple summary of a fastlook run.

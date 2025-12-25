@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
+	apkxmod "github.com/h0tak88r/AutoAR/v3/internal/modules/apkx"
 )
 
 // handleApkXScan handles the /apkx_scan command.

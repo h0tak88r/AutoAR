@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	jwthack "github.com/h0tak88r/AutoAR/internal/tools/jwthack"
+	jwthack "github.com/h0tak88r/AutoAR/v3/internal/tools/jwthack"
 )
 
 // RunScan performs a JWT security scan using the embedded jwthack engine

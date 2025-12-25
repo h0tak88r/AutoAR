@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	gflib "github.com/h0tak88r/AutoAR/internal/tools/gf"
-	"github.com/h0tak88r/AutoAR/internal/modules/fastlook"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	gflib "github.com/h0tak88r/AutoAR/v3/internal/tools/gf"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/fastlook"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Result holds GF scan results

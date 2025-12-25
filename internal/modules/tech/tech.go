@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 	"github.com/projectdiscovery/httpx/runner"
 )
 

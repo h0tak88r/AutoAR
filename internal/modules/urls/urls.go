@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	jsfindertool "github.com/h0tak88r/AutoAR/internal/tools/jsfinder"
-	urlfindertool "github.com/h0tak88r/AutoAR/internal/tools/urlfinder"
-	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	jsfindertool "github.com/h0tak88r/AutoAR/v3/internal/tools/jsfinder"
+	urlfindertool "github.com/h0tak88r/AutoAR/v3/internal/tools/urlfinder"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Result summarizes URL collection for a domain.
