@@ -65,29 +65,33 @@ jobs:
           # Copy binary
           cp autoar release/
           
-          # Copy essential directories
-          cp -r nuclei_templates/ release/ || true
-          cp -r Wordlists/ release/ || true
-          cp -r regexes/ release/
-          cp -r templates/ release/ || true
+          # Copy essential directories (submodules are optional)
+          [ -d nuclei_templates ] && cp -r nuclei_templates/ release/ || echo "nuclei_templates not found, skipping"
+          [ -d Wordlists ] && cp -r Wordlists/ release/ || echo "Wordlists not found, skipping"
+          [ -d regexes ] && cp -r regexes/ release/ || echo "regexes not found, skipping"
+          [ -d templates ] && cp -r templates/ release/ || echo "templates not found, skipping"
           
           # Copy configuration files
-          cp env.example release/
-          cp docker-compose.yml release/
-          cp Dockerfile release/
-          cp README.md release/
-          cp go.mod go.sum release/
+          [ -f env.example ] && cp env.example release/ || true
+          [ -f docker-compose.yml ] && cp docker-compose.yml release/ || true
+          [ -f Dockerfile ] && cp Dockerfile release/ || true
+          [ -f README.md ] && cp README.md release/ || true
+          [ -f go.mod ] && cp go.mod release/ || true
+          [ -f go.sum ] && cp go.sum release/ || true
           
           # Create archives
           tar -czf autoar-${GITHUB_REF_NAME}-linux-amd64.tar.gz -C release .
           zip -r autoar-${GITHUB_REF_NAME}-linux-amd64.zip release/
 
-      - name: Upload release assets
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             autoar-*.tar.gz
             autoar-*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
