@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	naabutool "github.com/h0tak88r/AutoAR/internal/tools/naabu"
-	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	naabutool "github.com/h0tak88r/AutoAR/v3/internal/tools/naabu"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Result holds port scan results

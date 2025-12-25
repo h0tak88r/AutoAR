@@ -1,4 +1,4 @@
-module github.com/h0tak88r/AutoAR
+module github.com/h0tak88r/AutoAR/v3
 
 go 1.24.2
 
@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.94.0
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/fatih/color v1.18.0
+	github.com/ffuf/ffuf/v2 v2.1.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/h0tak88r/confused2 v0.0.0-20251024120607-be290e443862
 	github.com/hahwul/dalfox/v2 v2.12.0
@@ -96,7 +97,6 @@ require (
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/dvsekhvalnov/jose2go v1.6.0 // indirect
-	github.com/ffuf/ffuf/v2 v2.1.0 // indirect
 	github.com/ffuf/pencode v0.0.0-20230421231718-2cea7e60a693 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect

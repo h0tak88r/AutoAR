@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/h0tak88r/AutoAR/internal/tools/apkx/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/utils"
 )
 
 type Jadx struct {
