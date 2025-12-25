@@ -53,7 +53,7 @@ func RunDomain(domain string) (*Result, error) {
 			return err
 		}},
 		{"urls", func() error {
-			_, err := urls.CollectURLs(domain, 100)
+			_, err := urls.CollectURLs(domain, 100, false)
 			return err
 		}},
 		{"js_scan", func() error {

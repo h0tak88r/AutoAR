@@ -102,7 +102,7 @@ Commands:
   subdomains get      -d <domain>
   livehosts get       -d <domain>
   cnames get          -d <domain>
-  urls collect        -d <domain>
+  urls collect        -d <domain> [--subdomain]
   js scan             -d <domain> [-s <subdomain>]
   reflection scan     -d <domain>
   nuclei run          -d <domain>
@@ -2772,8 +2772,9 @@ func handleLivehostsGo(args []string) error {
 func handleURLsGo(args []string) error {
 	var domain string
 	threads := 100
+	skipSubdomainEnum := false
 
-	// Parse arguments: collect -d <domain> [-t <threads>]
+	// Parse arguments: collect -d <domain> [-t <threads>] [--subdomain]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-d", "--domain":
@@ -2788,20 +2789,27 @@ func handleURLsGo(args []string) error {
 				}
 				i++
 			}
+		case "--subdomain":
+			skipSubdomainEnum = true
 		}
 	}
 
 	if domain == "" {
-		fmt.Println("Usage: urls collect -d <domain> [-t <threads>]")
+		fmt.Println("Usage: urls collect -d <domain> [-t <threads>] [--subdomain]")
+		fmt.Println("  --subdomain: Treat input as a single subdomain (skip subdomain enumeration)")
 		return fmt.Errorf("domain is required")
 	}
 
-	res, err := urls.CollectURLs(domain, threads)
+	res, err := urls.CollectURLs(domain, threads, skipSubdomainEnum)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("[OK] Found %d total URLs; %d JavaScript URLs for %s\n", res.TotalURLs, res.JSURLs, res.Domain)
+	mode := "domain"
+	if skipSubdomainEnum {
+		mode = "subdomain"
+	}
+	fmt.Printf("[OK] Found %d total URLs; %d JavaScript URLs for %s (mode: %s)\n", res.TotalURLs, res.JSURLs, res.Domain, mode)
 	fmt.Printf("[INFO] All URLs saved to %s\n", res.AllFile)
 	if res.JSURLs > 0 {
 		fmt.Printf("[INFO] JS URLs saved to %s\n", res.JSFile)
@@ -3178,7 +3186,7 @@ func main() {
 		if len(args) > 0 && args[0] == "collect" {
 			err = handleURLsGo(args[1:])
 		} else {
-			err = fmt.Errorf("unsupported urls action; use: autoar urls collect -d <domain> [-t <threads>]")
+			err = fmt.Errorf("unsupported urls action; use: autoar urls collect -d <domain> [-t <threads>] [--subdomain]")
 		}
 
 	case "dns":

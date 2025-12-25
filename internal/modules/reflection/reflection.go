@@ -80,7 +80,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		// Run URL collection in goroutine with context
 		urlErrChan := make(chan error, 1)
 		go func() {
-			_, err := urls.CollectURLs(opts.Domain, opts.URLThreads)
+			_, err := urls.CollectURLs(opts.Domain, opts.URLThreads, false)
 			urlErrChan <- err
 		}()
 		

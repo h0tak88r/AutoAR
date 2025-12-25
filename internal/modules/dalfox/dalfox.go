@@ -45,7 +45,7 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 	// Step 1: Ensure URLs exist (run urlfinder if needed)
 	if info, err := os.Stat(urlsFile); err != nil || info.Size() == 0 {
 		log.Printf("[INFO] No URLs found for %s, running urlfinder to collect URLs...", domain)
-		urlRes, err := urls.CollectURLs(domain, threads)
+		urlRes, err := urls.CollectURLs(domain, threads, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect URLs: %w", err)
 		}
