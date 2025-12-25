@@ -7,10 +7,20 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 ### 🔍 **Reconnaissance & Discovery**
 - **Subdomain Enumeration**: Multiple engines (Subfinder, Amass, Assetfinder, etc.)
 - **Live Host Detection**: Fast HTTP/HTTPS validation with custom timeouts
-- **CNAME Analysis**: CNAME record extraction and analysis
-- **URL Collection**: Comprehensive URL gathering from multiple sources
+- **CNAME Analysis**: CNAME record extraction and analysis with concurrent processing
+- **URL Collection**: Comprehensive URL gathering from multiple sources including:
+  - **VirusTotal API**: Historical URLs and detected/undetected URLs
+  - **Wayback Machine**: Historical URL snapshots via CDX API
+  - **URLScan.io**: URLs from scan results (optional API key)
+  - **AlienVault OTX**: URLs from threat intelligence feeds
+  - **Common Crawl**: URLs from web crawl archives
 - **Technology Detection**: Web technology stack identification
-- **DNS Takeover Detection**: Comprehensive DNS takeover vulnerability scanning
+- **DNS Takeover Detection**: Comprehensive DNS takeover vulnerability scanning with dangling IP detection
+- **Lite Scan Workflow**: Comprehensive automated scanning workflow with:
+  - Real-time progress tracking via Discord webhooks
+  - Optimized concurrency across all phases (200-500 threads)
+  - Automatic live host reuse across phases
+  - Real-time file sending after each phase completion
 
 ### 🛡️ **Vulnerability Scanning**
 - **Nuclei Integration**: 1000+ vulnerability templates with custom rate limiting
@@ -21,6 +31,8 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 - **SQL Injection Testing**: SQLMap integration for automated SQLi testing
 - **XSS Detection**: Dalfox integration for cross-site scripting detection
 - **Backup File Discovery**: Automated backup file and sensitive file discovery
+- **Cloud Misconfiguration Scanning**: Automated cloud service misconfiguration detection with high concurrency
+- **FFuf Fuzzing**: Web path fuzzing with 403 bypass techniques, real-time filtering, and custom wordlists
 
 ### 🎯 **Specialized Scanners**
 - **APK/IPA Analysis**: Embedded apkX engine for Android/iOS static analysis with secret extraction, certificate pinning detection, and MITM patching (pure Go implementation, no external binaries required)
@@ -295,10 +307,6 @@ autoar both   # Start both bot and API
 autoar help
 ```
 
-### Operational Modes
-
-AutoAR supports three operational modes to fit your workflow:
-
 ### 🎯 Operational Modes
 
 #### 1. Discord Bot Mode (Default)
@@ -348,7 +356,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/subdomains domain:example.com [threads:100]` - Enumerate subdomains
 - `/livehosts domain:example.com [threads:100]` - Find live hosts
 - `/cnames domain:example.com` - Extract CNAME records
-- `/urls domain:example.com [threads:100]` - Collect URLs
+- `/urls domain:example.com [threads:100]` - Collect URLs (includes VirusTotal, Wayback, URLScan, OTX, Common Crawl)
 - `/tech domain:example.com [threads:100]` - Detect technologies
 
 #### Vulnerability Scanning
@@ -370,7 +378,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/github org:company` - GitHub organization reconnaissance
 - `/github-wordlist org:company` - Generate wordlists from GitHub org
 - `/s3 bucket:example-bucket` - S3 bucket scanning (works with or without AWS credentials - automatically tests for public access if credentials are missing)
-- `/dns domain:example.com` - DNS takeover detection
+- `/dns domain:example.com type:takeover|dangling-ip` - DNS takeover detection and dangling IP detection
 - `/ports domain:example.com [threads:100]` - Port scanning
 
 #### KeyHack API Key Validation
@@ -385,7 +393,7 @@ Once the bot is running, use these slash commands in Discord:
 - `/github-wordlist org:microsoft` - Generate wordlists from organization files
 
 #### Workflows
-- `/lite domain:example.com` - Light reconnaissance
+- `/lite_scan domain:example.com [skip_js:false] [verbose:false] [phase_timeout:3600]` - Comprehensive automated scan workflow with real-time progress and file sending
 - `/fastlook domain:example.com` - Quick scan
 - `/domain domain:example.com` - Full domain analysis
 
@@ -671,7 +679,8 @@ Configure these for enhanced functionality:
 
 - **SecurityTrails**: `SECURITYTRAILS_API_KEY`
 - **Shodan**: `SHODAN_API_KEY`
-- **VirusTotal**: `VIRUSTOTAL_API_KEY`
+- **VirusTotal**: `VIRUSTOTAL_API_KEY` (for URL collection)
+- **URLScan.io**: `URLSCAN_API_KEY` (optional, for enhanced URL collection)
 - **GitHub**: `GITHUB_TOKEN`
 - **AWS**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 - **And 20+ more** (see docker-compose.yml)
@@ -696,7 +705,8 @@ AutoAR/
 │   │   ├── db/            # Database operations (PostgreSQL/SQLite)
 │   │   ├── subdomains/    # Subdomain enumeration
 │   │   ├── livehosts/     # Live host detection
-│   │   ├── urls/          # URL collection
+│   │   ├── urls/          # URL collection (with external API integration)
+│   │   ├── ffuf/          # FFuf fuzzing module
 │   │   ├── cnames/        # CNAME analysis
 │   │   ├── nuclei/        # Nuclei integration (CLI-wrapper)
 │   │   ├── dalfox/        # XSS detection (CLI-wrapper)
@@ -789,7 +799,7 @@ done < domains.txt
 
 - **API Keys**: Store sensitive API keys in environment variables
 - **Rate Limiting**: Respect API rate limits to avoid service disruption
-- **Rate Limiting**: Configure rate limits for external APIs to avoid blocking
+- **Rate Limiting**: Configure rate limits for external APIs (VirusTotal, URLScan, etc.) to avoid blocking
 - **Legal Compliance**: Ensure you have permission to scan target domains
 - **Data Privacy**: Be mindful of sensitive data in scan results
 
@@ -850,12 +860,42 @@ curl -X POST "http://localhost:8000/scan/ports" \
 # Nuclei Vulnerability Scanner
 curl -X POST "http://localhost:8000/scan/nuclei" \
   -H "Content-Type: application/json" \
-  -d '{"domain": "example.com"}'
+  -d '{"domain": "example.com", "mode": "full"}'
 
 # DNS Takeover Check
 curl -X POST "http://localhost:8000/scan/dns-takeover" \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com"}'
+
+# DNS Dangling IP Detection
+curl -X POST "http://localhost:8000/scan/dns" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com", "dns_type": "dangling-ip"}'
+
+# React2Shell RCE Scan (CVE-2025-55182)
+curl -X POST "http://localhost:8000/scan/react2shell" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com", "dos_test": true, "enable_source_exposure": true}'
+
+# Cloud Misconfiguration Scan
+curl -X POST "http://localhost:8000/scan/misconfig" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com"}'
+
+# FFuf Web Path Fuzzing
+curl -X POST "http://localhost:8000/scan/ffuf" \
+  -H "Content-Type: application/json" \
+  -d '{"target": "https://example.com/FUZZ", "bypass_403": true, "threads": 50}'
+
+# Backup File Discovery
+curl -X POST "http://localhost:8000/scan/backup" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com", "threads": 200}'
+
+# JWT Vulnerability Scan
+curl -X POST "http://localhost:8000/scan/jwt" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}'
 
 # APK/IPA Static Analysis (apkX engine)
 # Note: Requires jadx for decompilation and apktool for MITM patching (if mitm=true)
@@ -890,6 +930,11 @@ curl -X POST "http://localhost:8000/scan/github" \
 curl -X POST "http://localhost:8000/scan/github_org" \
   -H "Content-Type: application/json" \
   -d '{"org": "organization", "max_repos": 50}'
+
+# Lite Scan Workflow (comprehensive automated scan)
+curl -X POST "http://localhost:8000/scan/lite" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com", "skip_js": false, "phase_timeout": 3600}'
 ```
 
 #### KeyHack API Key Validation
@@ -1013,39 +1058,19 @@ jobs:
           curl -o results.txt "${{ secrets.AUTOAR_API }}/scan/$SCAN_ID/download"
 ```
 
-### Available Modes
+## 📦 Installation via Go Install
 
-AutoAR supports three operational modes:
+You can install AutoAR directly using Go:
 
-#### 1. Discord Bot Only (Default)
 ```bash
-docker-compose up autoar-discord
-# or
-export AUTOAR_MODE=discord
-export DISCORD_BOT_TOKEN=your_token_here
-./autoar bot
+# Install latest version from GitHub
+go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
+
+# Or install specific version
+go install github.com/h0tak88r/AutoAR/cmd/autoar@v3.2.0
 ```
 
-#### 2. REST API Only
-```bash
-docker-compose --profile api up autoar-api
-# or
-export AUTOAR_MODE=api
-export API_HOST=0.0.0.0
-export API_PORT=8000
-./autoar api
-```
-
-#### 3. Hybrid Mode (Both Discord + API)
-```bash
-docker-compose --profile full up autoar-full
-# or
-export AUTOAR_MODE=both
-export DISCORD_BOT_TOKEN=your_token_here
-export API_HOST=0.0.0.0
-export API_PORT=8000
-./autoar both
-```
+After installation, ensure `$GOPATH/bin` or `$HOME/go/bin` is in your PATH.
 
 ### API Response Format
 
