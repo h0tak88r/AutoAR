@@ -218,7 +218,7 @@ func corsMiddleware() gin.HandlerFunc {
 func rootHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "AutoAR API Server",
-		"version": "3.3.0",
+		"version": "3.3.1",
 		"docs":    "/docs",
 		"status":  "operational",
 	})
@@ -327,7 +327,7 @@ func docsHandler(c *gin.Context) {
     <div class="container">
         <header>
             <h1>AutoAR API Documentation</h1>
-            <div class="version">Version 3.3.0</div>
+            <div class="version">Version 3.3.1</div>
         </header>
 
         <div class="section">
@@ -432,7 +432,7 @@ func docsHandler(c *gin.Context) {
 
             <div class="endpoint">
                 <div class="endpoint-path"><span class="method post">POST</span> /scan/lite</div>
-                <div class="description">Lite scan (comprehensive automated scan)</div>
+                <div class="description">Lite scan: Comprehensive automated scan workflow. Runs livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei phases sequentially with real-time progress updates.</div>
             </div>
 
             <div class="endpoint">

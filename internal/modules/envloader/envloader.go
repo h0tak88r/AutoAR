@@ -53,10 +53,9 @@ func LoadEnv() error {
 			}
 		}
 
-		// Only set if not already set in environment
-		if os.Getenv(key) == "" {
-			os.Setenv(key, value)
-		}
+		// Always set from .env file (override any existing environment variables)
+		// This ensures .env file is the source of truth
+		os.Setenv(key, value)
 	}
 
 	if err := scanner.Err(); err != nil {
