@@ -1,11 +1,18 @@
 package misconfig
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	mmapi "github.com/h0tak88r/AutoAR/internal/tools/misconfigmapper"
+	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 )
 
 // Options for misconfig scan
@@ -14,6 +21,8 @@ type Options struct {
 	ServiceID string
 	Delay     int
 	Action    string // "scan", "list", "update", "service"
+	Threads   int    // Concurrency for scanning subdomains
+	Timeout   int    // Timeout in seconds
 }
 
 // Run executes misconfig command based on action
@@ -91,23 +100,163 @@ func handleScan(opts Options, resultsDir string) error {
 	}
 	tplDir := templatesDir(root)
 
-	results, err := mmapi.Scan(mmapi.ScanOptions{
-		Target:        opts.Target,
-		ServiceID:     opts.ServiceID,
-		Delay:         opts.Delay,
-		TemplatesPath: tplDir,
-	})
+	// Step 1: Get live subdomains using livehosts module
+	// This will check DB first, enumerate if needed, and filter for live hosts
+	log.Printf("[INFO] Getting live subdomains for %s...", opts.Target)
+	liveResult, err := livehosts.FilterLiveHosts(opts.Target, 100, true)
 	if err != nil {
-		return fmt.Errorf("misconfig-mapper scan failed: %w", err)
+		return fmt.Errorf("failed to get live subdomains: %w", err)
 	}
 
+	if liveResult.LiveSubs == 0 {
+		return fmt.Errorf("no live subdomains found for %s", opts.Target)
+	}
+
+	log.Printf("[OK] Found %d live subdomains out of %d total for %s", liveResult.LiveSubs, liveResult.TotalSubs, opts.Target)
+
+	// Step 2: Read live subdomains from file
+	var subdomainsList []string
+	if liveResult.LiveSubsFile != "" {
+		file, err := os.Open(liveResult.LiveSubsFile)
+		if err != nil {
+			return fmt.Errorf("failed to open live subdomains file: %w", err)
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			// Extract hostname from URL (httpx outputs full URLs)
+			host := line
+			if strings.HasPrefix(host, "http://") {
+				host = strings.TrimPrefix(host, "http://")
+			} else if strings.HasPrefix(host, "https://") {
+				host = strings.TrimPrefix(host, "https://")
+			}
+			// Remove path if present
+			if idx := strings.Index(host, "/"); idx != -1 {
+				host = host[:idx]
+			}
+			if host != "" {
+				subdomainsList = append(subdomainsList, host)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("failed to read live subdomains file: %w", err)
+		}
+	}
+
+	if len(subdomainsList) == 0 {
+		return fmt.Errorf("no live subdomains to scan for %s", opts.Target)
+	}
+
+	// Step 3: Scan each live subdomain for misconfigurations with concurrency
+	threads := opts.Threads
+	if threads <= 0 {
+		threads = 200 // Default 200 concurrent scans (increased from 50)
+	}
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = 300 // 5 minutes default timeout
+	}
+
+	log.Printf("[INFO] Scanning %d live subdomains for misconfigurations (threads: %d, timeout: %ds)...", len(subdomainsList), threads, timeout)
+	
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	var allResults []mmapi.ScanResult
+	var resultsMutex sync.Mutex
+	totalScanned := int64(0)
+	var scannedMutex sync.Mutex
+
+	// Worker pool for concurrent scanning
+	jobs := make(chan string, len(subdomainsList))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < threads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for subdomain := range jobs {
+				// Check context cancellation
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				subdomain = strings.TrimSpace(subdomain)
+				if subdomain == "" {
+					continue
+				}
+
+				// Scan this subdomain
+				subResults, err := mmapi.Scan(mmapi.ScanOptions{
+					Target:        subdomain,
+					ServiceID:     opts.ServiceID,
+					Delay:         opts.Delay,
+					TemplatesPath: tplDir,
+					AsDomain:      true, // Treat as domain to scan the subdomain directly
+				})
+				if err != nil {
+					log.Printf("[WARN] Failed to scan %s: %v", subdomain, err)
+					continue
+				}
+
+				// Thread-safe append
+				if len(subResults) > 0 {
+					resultsMutex.Lock()
+					allResults = append(allResults, subResults...)
+					resultsMutex.Unlock()
+				}
+
+				scannedMutex.Lock()
+				totalScanned++
+				scannedMutex.Unlock()
+			}
+		}()
+	}
+
+	// Send jobs
+	go func() {
+		defer close(jobs)
+		for _, subdomain := range subdomainsList {
+			select {
+			case jobs <- subdomain:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Wait for completion or timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Printf("[OK] Completed scanning %d subdomains", totalScanned)
+	case <-ctx.Done():
+		log.Printf("[WARN] Misconfig scan timed out after %ds (scanned %d/%d subdomains)", timeout, totalScanned, len(subdomainsList))
+	}
+
+	// Step 4: Write results to file
 	f, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer f.Close()
 
-	for _, r := range results {
+	for _, r := range allResults {
 		status := "EXISTS"
 		if r.Vulnerable {
 			status = "VULNERABLE"
@@ -118,7 +267,7 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 	}
 
-	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings)\n", opts.Target, len(results))
+	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings across %d live subdomains)\n", opts.Target, len(allResults), totalScanned)
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
 	return nil
 }

@@ -152,7 +152,7 @@ func ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
 		}
 	}
 	return dbInstance.ListSubdomainsWithStatus(domain)
-}
+	}
 
 // CountSubdomains returns the count of subdomains for a given domain.
 func CountSubdomains(domain string) (int, error) {

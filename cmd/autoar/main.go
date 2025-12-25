@@ -20,12 +20,14 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/dns"
 	"github.com/h0tak88r/AutoAR/internal/modules/fastlook"
+	"github.com/h0tak88r/AutoAR/internal/modules/ffuf"
 	"github.com/h0tak88r/AutoAR/internal/modules/gf"
 	"github.com/h0tak88r/AutoAR/internal/modules/github-wordlist"
 	"github.com/h0tak88r/AutoAR/internal/modules/githubscan"
 	"github.com/h0tak88r/AutoAR/internal/modules/gobot"
 	"github.com/h0tak88r/AutoAR/internal/modules/jsscan"
 	jwtmod "github.com/h0tak88r/AutoAR/internal/modules/jwt"
+	"github.com/h0tak88r/AutoAR/internal/modules/lite"
 	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/modules/misconfig"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
@@ -121,6 +123,7 @@ Commands:
   dns ns              -d <domain>     (NS takeover only)
   dns azure-aws       -d <domain>     (Azure/AWS takeover only)
   dns dnsreaper       -d <domain>     (DNSReaper scan only)
+  dns dangling-ip     -d <domain>     (Dangling IP detection only)
   dns all             -d <domain>     (comprehensive scan)
   s3 scan             -b <bucket> [-r <region>]
   s3 enum             -b <root_domain>
@@ -168,9 +171,16 @@ Commands:
   keyhack add <keyname> <command> <desc> [notes] Add a new template
   jwt scan             --token <JWT_TOKEN> [OPTIONS]                Scan JWT token for vulnerabilities using jwt-hack
                                                                     Options: --skip-crack, --skip-payloads, --test-attacks, -w wordlist, --max-crack-attempts N
-  react2shell scan     -d <domain> [-t <threads>] [--dos-test] [--enable-source-exposure]
-  react2shell scan     -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure]
+  react2shell scan     -d <domain> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]
+  react2shell scan     -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]
                                                                     For each domain: collects live hosts, then runs smart scan
+                                                                    --silent: Output only vulnerable hosts (one per line, no progress)
+  ffuf fuzz            -u <url> [-w <wordlist>] [-t <threads>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>]
+                                                                    Fuzz URLs with ffuf, filtering only 200 status codes
+                                                                    Real-time size-based deduplication (skips duplicate response sizes)
+                                                                    --bypass-403: Attempts 403 bypass techniques (headers and path modifications)
+                                                                    Default wordlist: Wordlists/quick_fuzz.txt
+                                                                    URL must contain FUZZ placeholder (e.g., https://target.com/FUZZ)
   monitor subdomains   -d <domain> [-t <threads>] [--check-new]   Monitor subdomain status changes (one-time check)
                                                                     Detects: new subdomains, status changes, live/dead changes
   monitor subdomains manage <action> [options]                     Manage automatic subdomain monitoring targets
@@ -356,6 +366,101 @@ func handleFastlookCommand(args []string) error {
 		return fmt.Errorf("domain (-d) is required; usage: fastlook run -d <domain>")
 	}
 	_, err := fastlook.RunFastlook(domain)
+	return err
+}
+
+// handleLiteCommand parses: autoar lite run -d <domain> [--skip-js] [--phase-timeout <seconds>] [--timeout-* <seconds>]
+func handleLiteCommand(args []string) error {
+	if len(args) == 0 || args[0] != "run" {
+		return fmt.Errorf("usage: lite run -d <domain> [--skip-js] [--phase-timeout <seconds>] [--timeout-livehosts <seconds>] [--timeout-reflection <seconds>] [--timeout-js <seconds>] [--timeout-cnames <seconds>] [--timeout-backup <seconds>] [--timeout-dns <seconds>] [--timeout-misconfig <seconds>] [--timeout-nuclei <seconds>]")
+	}
+	args = args[1:]
+
+	opts := lite.Options{
+		PhaseTimeoutDefault: 3600, // 1 hour default
+		Timeouts:            make(map[string]int),
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				opts.Domain = args[i+1]
+				i++
+			}
+		case "--skip-js":
+			opts.SkipJS = true
+		case "--phase-timeout":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.PhaseTimeoutDefault = t
+				}
+				i++
+			}
+		case "--timeout-livehosts":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["livehosts"] = t
+				}
+				i++
+			}
+		case "--timeout-reflection":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["reflection"] = t
+				}
+				i++
+			}
+		case "--timeout-js":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["js"] = t
+				}
+				i++
+			}
+		case "--timeout-cnames":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["cnames"] = t
+				}
+				i++
+			}
+		case "--timeout-backup":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["backup"] = t
+				}
+				i++
+			}
+		case "--timeout-dns":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["dns"] = t
+				}
+				i++
+			}
+		case "--timeout-misconfig":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["misconfig"] = t
+				}
+				i++
+			}
+		case "--timeout-nuclei":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Timeouts["nuclei"] = t
+				}
+				i++
+			}
+		}
+	}
+
+	if opts.Domain == "" {
+		return fmt.Errorf("domain (-d) is required; usage: lite run -d <domain>")
+	}
+
+	_, err := lite.RunLite(opts)
 	return err
 }
 
@@ -618,6 +723,104 @@ func handleJSCommand(args []string) error {
 	fmt.Printf("[OK] JS scan completed for %s; found %d JS URLs\n", res.Domain, res.TotalJS)
 	fmt.Printf("[INFO] All URLs: %s\n", res.URLsFile)
 	fmt.Printf("[INFO] JS URLs (vulnerabilities): %s\n", res.VulnJSFile)
+	return nil
+}
+
+// handleFFufCommand parses: autoar ffuf fuzz -u <url> [-w <wordlist>] [-t <threads>] [--recursion] [--bypass-403] [-e <extensions>]
+func handleFFufCommand(args []string) error {
+	if len(args) == 0 || args[0] != "fuzz" {
+		return fmt.Errorf("usage: ffuf fuzz -u <url> [-w <wordlist>] [-t <threads>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>]")
+	}
+	args = args[1:]
+
+	opts := ffuf.Options{
+		Threads:         40,
+		FollowRedirects: true,
+		CustomHeaders:    make(map[string]string),
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-u", "--url", "--target":
+			if i+1 < len(args) {
+				opts.Target = args[i+1]
+				i++
+			}
+		case "-w", "--wordlist":
+			if i+1 < len(args) {
+				opts.Wordlist = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Threads = t
+				}
+				i++
+			}
+		case "--recursion", "-r":
+			opts.Recursion = true
+		case "--recursion-depth":
+			if i+1 < len(args) {
+				if d, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.RecursionDepth = d
+				}
+				i++
+			}
+		case "--bypass-403", "--bypass403":
+			opts.Bypass403 = true
+		case "-e", "--extensions":
+			if i+1 < len(args) {
+				exts := strings.Split(args[i+1], ",")
+				for _, ext := range exts {
+					ext = strings.TrimSpace(ext)
+					if ext != "" {
+						if !strings.HasPrefix(ext, ".") {
+							ext = "." + ext
+						}
+						opts.Extensions = append(opts.Extensions, ext)
+					}
+				}
+				i++
+			}
+		case "--header", "-H":
+			if i+1 < len(args) {
+				header := args[i+1]
+				if idx := strings.Index(header, ":"); idx != -1 {
+					key := strings.TrimSpace(header[:idx])
+					value := strings.TrimSpace(header[idx+1:])
+					opts.CustomHeaders[key] = value
+				}
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				opts.OutputFile = args[i+1]
+				i++
+			}
+		}
+	}
+
+	if opts.Target == "" {
+		return fmt.Errorf("target URL (-u) is required")
+	}
+
+	// Ensure URL has FUZZ placeholder or add it
+	if !strings.Contains(opts.Target, "FUZZ") {
+		if !strings.HasSuffix(opts.Target, "/") {
+			opts.Target += "/"
+		}
+		opts.Target += "FUZZ"
+	}
+
+	result, err := ffuf.RunFFuf(opts)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[OK] FFuf fuzzing completed for %s\n", opts.Target)
+	fmt.Printf("[INFO] Found %d unique results\n", result.TotalFound)
+	fmt.Printf("[INFO] Results saved to: %s\n", result.OutputFile)
 	return nil
 }
 
@@ -1026,10 +1229,10 @@ func generateKeyhackCommand(t db.KeyhackTemplate, apiKey string) string {
 }
 
 // handleReact2ShellCommand handles CLI react2shell scan
-// Usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure]
+// Usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]
 func handleReact2ShellCommand(args []string) error {
 	if len(args) == 0 || args[0] != "scan" {
-		return fmt.Errorf("usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure]")
+		return fmt.Errorf("usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]")
 	}
 	args = args[1:]
 
@@ -1037,6 +1240,7 @@ func handleReact2ShellCommand(args []string) error {
 	threads := 100
 	dosTest := false
 	enableSourceExposure := false
+	silent := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -1061,6 +1265,8 @@ func handleReact2ShellCommand(args []string) error {
 			dosTest = true
 		case "--enable-source-exposure":
 			enableSourceExposure = true
+		case "-s", "--silent":
+			silent = true
 		}
 	}
 
@@ -1101,78 +1307,135 @@ func handleReact2ShellCommand(args []string) error {
 	os.Setenv("AUTOAR_SILENT", "true")
 	defer os.Unsetenv("AUTOAR_SILENT")
 
+	// Print initial status (only if not silent)
+	if !silent {
+		fmt.Fprintf(os.Stderr, "Starting react2shell scan for %d domains...\n", len(domains))
+		fmt.Fprintf(os.Stderr, "Processing sequentially...\n\n")
+	}
+
 	// Process each domain
 	for idx, targetDomain := range domains {
-		// Step 1: Get live hosts
-		liveHostsFile, err := getLiveHostsForCLI(targetDomain, threads)
+		// Print progress immediately (only if not silent)
+		if !silent {
+			fmt.Fprintf(os.Stderr, "[%d/%d] Processing %s...\n", idx+1, len(domains), targetDomain)
+		}
+		
+		// Step 1: Get live hosts (with timeout context)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		liveHostsFile, err := getLiveHostsForCLIWithContext(ctx, targetDomain, threads)
+		cancel()
 		if err != nil {
-			fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			if !silent {
+				if err == context.DeadlineExceeded {
+					fmt.Printf("[%d/%d] %s: TIMEOUT - Live hosts collection took too long, skipping\n", idx+1, len(domains), targetDomain)
+				} else {
+					fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+				}
+			}
 			continue
 		}
 
 		// Step 2: Normalize hosts
 		hosts, err := normalizeHostsForCLI(liveHostsFile)
 		if err != nil {
-			fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			if !silent {
+				fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			}
 			continue
 		}
 
 		if len(hosts) == 0 {
-			fmt.Printf("[%d/%d] %s: 0 hosts scanned\n", idx+1, len(domains), targetDomain)
+			if !silent {
+				fmt.Printf("[%d/%d] %s: 0 hosts scanned\n", idx+1, len(domains), targetDomain)
+			}
 			continue
 		}
 
 		// Step 3: Run smart scan
-		smartScanResults, err := runNext88ScanForCLI(hosts, []string{"-smart-scan"})
+		smartCtx, smartCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		smartScanResults, err := runNext88ScanForCLIWithTypes(smartCtx, hosts, []string{"-smart-scan"})
+		smartCancel()
 		if err != nil {
-			fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			if !silent {
+				fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+			}
 			continue
 		}
 
-		// Collect all vulnerable hosts
-		allVulnerable := make(map[string]bool)
-		for _, h := range smartScanResults {
-			allVulnerable[h] = true
+		// Collect all vulnerable hosts with their types
+		allVulnerable := make(map[string]string) // host -> comma-separated types
+		for h, vulnType := range smartScanResults {
+			allVulnerable[h] = vulnType
 		}
 
 		// Step 4: DoS test (if enabled)
 		if dosTest {
-			dosResults, err := runNext88ScanForCLI(hosts, []string{"-dos-test", "-dos-requests", "100"})
+			dosCtx, dosCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			dosResults, err := runNext88ScanForCLIWithTypes(dosCtx, hosts, []string{"-dos-test", "-dos-requests", "100"})
+			dosCancel()
 			if err == nil {
-				for _, h := range dosResults {
-					allVulnerable[h] = true
+				for h, vulnType := range dosResults {
+					if existingType, exists := allVulnerable[h]; exists {
+						if !strings.Contains(existingType, vulnType) {
+							allVulnerable[h] = existingType + "," + vulnType
+						}
+					} else {
+						allVulnerable[h] = vulnType
+					}
 				}
 			}
 		}
 
 		// Step 5: Source exposure check (if enabled)
 		if enableSourceExposure {
-			sourceResults, err := runNext88ScanForCLI(hosts, []string{"-check-source-exposure"})
+			sourceCtx, sourceCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			sourceResults, err := runNext88ScanForCLIWithTypes(sourceCtx, hosts, []string{"-check-source-exposure"})
+			sourceCancel()
 			if err == nil {
-				for _, h := range sourceResults {
-					allVulnerable[h] = true
+				for h, vulnType := range sourceResults {
+					if existingType, exists := allVulnerable[h]; exists {
+						if !strings.Contains(existingType, vulnType) {
+							allVulnerable[h] = existingType + "," + vulnType
+						}
+					} else {
+						allVulnerable[h] = vulnType
+					}
 				}
 			}
 		}
 
-		// Print concise output
+		// Print output
 		vulnerableList := make([]string, 0, len(allVulnerable))
 		for h := range allVulnerable {
 			vulnerableList = append(vulnerableList, h)
 		}
 
 		if len(vulnerableList) > 0 {
-			fmt.Printf("[%d/%d] %s: %d hosts scanned, %d vulnerable:\n", idx+1, len(domains), targetDomain, len(hosts), len(vulnerableList))
-			for _, host := range vulnerableList {
-				fmt.Printf("  - %s\n", host)
+			if silent {
+				// Silent mode: output vulnerable hosts with their types
+				for _, host := range vulnerableList {
+					vulnType := allVulnerable[host]
+					fmt.Printf("%s [%s]\n", host, vulnType)
+				}
+			} else {
+				// Verbose mode: show full details
+				fmt.Printf("[%d/%d] %s: %d hosts scanned, %d vulnerable:\n", idx+1, len(domains), targetDomain, len(hosts), len(vulnerableList))
+				for _, host := range vulnerableList {
+					vulnType := allVulnerable[host]
+					fmt.Printf("  - %s [%s]\n", host, vulnType)
+				}
 			}
 		} else {
-			fmt.Printf("[%d/%d] %s: %d hosts scanned\n", idx+1, len(domains), targetDomain, len(hosts))
+			if !silent {
+				fmt.Printf("[%d/%d] %s: %d hosts scanned\n", idx+1, len(domains), targetDomain, len(hosts))
+			}
 		}
 		
 		// Cleanup domain directory after each domain scan
 		if err := cleanupDomainDirectoryForCLI(targetDomain); err != nil {
-			fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", targetDomain, err)
+			if !silent {
+				fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", targetDomain, err)
+			}
 		}
 	}
 
@@ -1338,6 +1601,10 @@ func handleScopeCommand(args []string) error {
 
 // Helper functions for CLI
 func getLiveHostsForCLI(domain string, threads int) (string, error) {
+	return getLiveHostsForCLIWithContext(context.Background(), domain, threads)
+}
+
+func getLiveHostsForCLIWithContext(ctx context.Context, domain string, threads int) (string, error) {
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if resultsDir == "" {
 		resultsDir = "new-results"
@@ -1375,15 +1642,21 @@ func getLiveHostsForCLI(domain string, threads int) (string, error) {
 	// Only collect subdomains if not in database
 	if shouldCollect {
 		// Ensure subdomains exist first
-		subCmd := exec.Command(os.Args[0], "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
+		subCmd := exec.CommandContext(ctx, os.Args[0], "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
 		if err := subCmd.Run(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return "", context.DeadlineExceeded
+			}
 			return "", fmt.Errorf("subdomain enumeration failed: %w", err)
 		}
 	}
 
 	// Run livehosts
-	cmd := exec.Command(os.Args[0], "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
+	cmd := exec.CommandContext(ctx, os.Args[0], "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", context.DeadlineExceeded
+		}
 		return "", fmt.Errorf("livehosts failed: %w", err)
 	}
 
@@ -1427,6 +1700,123 @@ func normalizeHostsForCLI(hostsFile string) ([]string, error) {
 }
 
 func runNext88ScanForCLI(hosts []string, extraFlags []string) ([]string, error) {
+	return runNext88ScanForCLIWithContext(context.Background(), hosts, extraFlags)
+}
+
+// runNext88ScanForCLIWithTypes returns a map of host -> vulnerability type
+func runNext88ScanForCLIWithTypes(ctx context.Context, hosts []string, extraFlags []string) (map[string]string, error) {
+	if len(hosts) == 0 {
+		return make(map[string]string), nil
+	}
+
+	opts := next88.ScanOptions{
+		Timeout:         10 * time.Second,
+		VerifySSL:       false,
+		FollowRedirects: true,
+		SafeCheck:       false,
+		Windows:         false,
+		WAFBypass:       false,
+		WAFBypassSizeKB: 128,
+		VercelWAFBypass: false,
+		Paths:           nil,
+		DoubleEncode:    false,
+		SemicolonBypass: false,
+		CheckSourceExp:  false,
+		CustomHeaders:   make(map[string]string),
+		Threads:         10,
+		Quiet:           true,
+		Verbose:         false,
+		NoColor:         true,
+		AllResults:      true,
+		DiscordWebhook:  "",
+		DOSTest:         false,
+		DOSRequests:     100,
+		SmartScan:       false,
+	}
+
+	if len(hosts) < opts.Threads {
+		opts.Threads = len(hosts)
+		if opts.Threads == 0 {
+			opts.Threads = 1
+		}
+	}
+
+	for i := 0; i < len(extraFlags); i++ {
+		flag := extraFlags[i]
+		switch flag {
+		case "-smart-scan":
+			opts.SmartScan = true
+		case "-dos-test":
+			opts.DOSTest = true
+		case "-dos-requests":
+			if i+1 < len(extraFlags) {
+				if v, err := strconv.Atoi(extraFlags[i+1]); err == nil && v > 0 {
+					opts.DOSRequests = v
+				}
+				i++
+			}
+		case "-check-source-exposure":
+			opts.CheckSourceExp = true
+		}
+	}
+
+	// Check context before running
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	results, err := next88.Run(hosts, opts)
+	if err != nil {
+		// Check if context was cancelled during execution
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			return nil, err
+		}
+	}
+
+	vulnerableHosts := make(map[string]string) // host -> vuln type
+	for _, res := range results {
+		if res.Vulnerable != nil && *res.Vulnerable {
+			host := res.Host
+			if host == "" {
+				host = res.TestedURL
+			}
+			if host == "" {
+				continue
+			}
+			hostname := extractHostnameForCLI(host)
+			if hostname != "" {
+				vulnType := res.VulnType
+				if vulnType == "" {
+					// Default based on scan type
+					if opts.DOSTest {
+						vulnType = "dos-test"
+					} else if opts.CheckSourceExp {
+						vulnType = "source-exposure"
+					} else {
+						vulnType = "normal"
+					}
+				}
+				// If host already exists, combine types (e.g., "normal,source-exposure")
+				if existingType, exists := vulnerableHosts[hostname]; exists {
+					if existingType != vulnType && !strings.Contains(existingType, vulnType) {
+						vulnerableHosts[hostname] = existingType + "," + vulnType
+					}
+				} else {
+					vulnerableHosts[hostname] = vulnType
+				}
+			}
+		}
+	}
+
+	return vulnerableHosts, nil
+}
+
+func runNext88ScanForCLIWithContext(ctx context.Context, hosts []string, extraFlags []string) ([]string, error) {
 	if len(hosts) == 0 {
 		return []string{}, nil
 	}
@@ -1482,12 +1872,25 @@ func runNext88ScanForCLI(hosts []string, extraFlags []string) ([]string, error) 
 		}
 	}
 
-	results, err := next88.Run(hosts, opts)
-	if err != nil {
-		return nil, err
+	// Check context before running
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
 	}
 
-	vulnerableHosts := make(map[string]bool)
+	results, err := next88.Run(hosts, opts)
+	if err != nil {
+		// Check if context was cancelled during execution
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			return nil, err
+		}
+	}
+
+	vulnerableHosts := make(map[string]string) // host -> vuln type
 	for _, res := range results {
 		if res.Vulnerable != nil && *res.Vulnerable {
 			host := res.Host
@@ -1499,7 +1902,19 @@ func runNext88ScanForCLI(hosts []string, extraFlags []string) ([]string, error) 
 			}
 			hostname := extractHostnameForCLI(host)
 			if hostname != "" {
-				vulnerableHosts[hostname] = true
+				vulnType := res.VulnType
+				if vulnType == "" {
+					// Default to "normal" if not set (for backward compatibility)
+					vulnType = "normal"
+				}
+				// If host already exists, combine types (e.g., "normal,source-exposure")
+				if existingType, exists := vulnerableHosts[hostname]; exists {
+					if existingType != vulnType && !strings.Contains(existingType, vulnType) {
+						vulnerableHosts[hostname] = existingType + "," + vulnType
+					}
+				} else {
+					vulnerableHosts[hostname] = vulnType
+				}
 			}
 		}
 	}
@@ -2400,7 +2815,7 @@ func handleURLsGo(args []string) error {
 // while the underlying implementation still uses the existing bash tooling.
 func handleDNSCommand(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: autoar dns <takeover|cname|ns|azure-aws|dnsreaper|all> -d <domain>")
+		return fmt.Errorf("usage: autoar dns <takeover|cname|ns|azure-aws|dnsreaper|dangling-ip|all> -d <domain>")
 	}
 
 	sub := args[0]
@@ -2432,6 +2847,8 @@ func handleDNSCommand(args []string) error {
 		return dns.AzureAWS(domain)
 	case "dnsreaper":
 		return dns.DNSReaper(domain)
+	case "dangling-ip":
+		return dns.DanglingIP(domain)
 	default:
 		return fmt.Errorf("unknown dns action: %s", sub)
 	}
@@ -2774,6 +3191,9 @@ func main() {
 	case "fastlook":
 		err = handleFastlookCommand(args)
 
+	case "lite":
+		err = handleLiteCommand(args)
+
 	case "nuclei":
 		err = handleNucleiCommand(args)
 
@@ -2841,6 +3261,9 @@ func main() {
 
 	case "scope":
 		err = handleScopeCommand(args)
+
+	case "ffuf":
+		err = handleFFufCommand(args)
 
 	// Bot/API commands
 	case "bot":

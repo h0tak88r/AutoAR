@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -181,18 +182,157 @@ func getSubdomainsFromSubfinder(domain string, threads int) ([]string, error) {
 }
 
 // getProviderConfig returns provider configuration from environment variables
+// It generates a temporary config file from environment variables if no config file exists
 func getProviderConfig() string {
-	// Check for subfinder config file
+	// First, check if user explicitly provided a config file path
 	configPath := os.Getenv("SUBFINDER_CONFIG")
-	if configPath == "" {
-		homeDir, _ := os.UserHomeDir()
-		configPath = fmt.Sprintf("%s/.config/subfinder/config.yaml", homeDir)
-	}
-
+	if configPath != "" {
 	if _, err := os.Stat(configPath); err == nil {
 		return configPath
 	}
+	}
 
-	// Return empty string to use default providers
+	// Check default location
+	homeDir, _ := os.UserHomeDir()
+	defaultConfigPath := filepath.Join(homeDir, ".config", "subfinder", "config.yaml")
+	if _, err := os.Stat(defaultConfigPath); err == nil {
+		return defaultConfigPath
+	}
+
+	// Generate config from environment variables
+	generatedConfigPath, err := generateSubfinderConfigFromEnv()
+	if err != nil {
+		log.Printf("[WARN] Failed to generate subfinder config from env vars: %v", err)
 	return ""
+	}
+
+	return generatedConfigPath
+}
+
+// generateSubfinderConfigFromEnv generates a subfinder-compatible YAML config file from environment variables
+func generateSubfinderConfigFromEnv() (string, error) {
+	// Create temp directory for config
+	tempDir := os.TempDir()
+	configDir := filepath.Join(tempDir, "autoar-subfinder-config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create config directory: %v", err)
+	}
+
+	configPath := filepath.Join(configDir, "config.yaml")
+
+	// Map of environment variable names to subfinder provider names
+	providerMap := map[string]string{
+		"GITHUB_TOKEN":              "github",
+		"SECURITYTRAILS_API_KEY":   "securitytrails",
+		"SHODAN_API_KEY":           "shodan",
+		"VIRUSTOTAL_API_KEY":       "virustotal",
+		"WORDPRESS_API_KEY":        "wordpress",
+		"BEVIGIL_API_KEY":          "bevigil",
+		"BINARYEDGE_API_KEY":       "binaryedge",
+		"URLSCAN_API_KEY":           "urlscan",
+		"CENSYS_API_ID":            "censys",
+		"CENSYS_API_SECRET":         "censys",
+		"CERTSPOTTER_API_KEY":      "certspotter",
+		"CHAOS_API_KEY":            "chaos",
+		"FOFA_EMAIL":               "fofa",
+		"FOFA_KEY":                 "fofa",
+		"FULLHUNT_API_KEY":         "fullhunt",
+		"INTELX_API_KEY":           "intelx",
+		"PASSIVETOTAL_USERNAME":     "passivetotal",
+		"PASSIVETOTAL_API_KEY":     "passivetotal",
+		"QUAKE_USERNAME":           "quake",
+		"QUAKE_PASSWORD":           "quake",
+		"THREATBOOK_API_KEY":       "threatbook",
+		"WHOISXMLAPI_API_KEY":      "whoisxmlapi",
+		"ZOOMEYE_USERNAME":         "zoomeye",
+		"ZOOMEYE_PASSWORD":         "zoomeye",
+		"ZOOMEYEAPI_API_KEY":       "zoomeyeapi",
+	}
+
+	var builder strings.Builder
+	builder.WriteString("# Subfinder Configuration\n")
+	builder.WriteString("# Generated automatically from environment variables\n\n")
+
+	// Track which providers we've written
+	writtenProviders := make(map[string]bool)
+
+	// Handle special cases first (multi-value providers)
+	// Censys needs both ID and SECRET
+	if censysID := os.Getenv("CENSYS_API_ID"); censysID != "" {
+		if censysSecret := os.Getenv("CENSYS_API_SECRET"); censysSecret != "" {
+			builder.WriteString(fmt.Sprintf("censys: [\"%s\", \"%s\"]\n", censysID, censysSecret))
+			writtenProviders["censys"] = true
+		}
+	}
+
+	// FOFA needs both EMAIL and KEY
+	if fofaEmail := os.Getenv("FOFA_EMAIL"); fofaEmail != "" {
+		if fofaKey := os.Getenv("FOFA_KEY"); fofaKey != "" {
+			builder.WriteString(fmt.Sprintf("fofa: [\"%s\", \"%s\"]\n", fofaEmail, fofaKey))
+			writtenProviders["fofa"] = true
+		}
+	}
+
+	// Passivetotal needs both USERNAME and API_KEY
+	if ptUsername := os.Getenv("PASSIVETOTAL_USERNAME"); ptUsername != "" {
+		if ptAPIKey := os.Getenv("PASSIVETOTAL_API_KEY"); ptAPIKey != "" {
+			builder.WriteString(fmt.Sprintf("passivetotal: [\"%s\", \"%s\"]\n", ptUsername, ptAPIKey))
+			writtenProviders["passivetotal"] = true
+		}
+	}
+
+	// Quake needs both USERNAME and PASSWORD
+	if quakeUsername := os.Getenv("QUAKE_USERNAME"); quakeUsername != "" {
+		if quakePassword := os.Getenv("QUAKE_PASSWORD"); quakePassword != "" {
+			builder.WriteString(fmt.Sprintf("quake: [\"%s\", \"%s\"]\n", quakeUsername, quakePassword))
+			writtenProviders["quake"] = true
+		}
+	}
+
+	// Zoomeye needs both USERNAME and PASSWORD
+	if zoomeyeUsername := os.Getenv("ZOOMEYE_USERNAME"); zoomeyeUsername != "" {
+		if zoomeyePassword := os.Getenv("ZOOMEYE_PASSWORD"); zoomeyePassword != "" {
+			builder.WriteString(fmt.Sprintf("zoomeye: [\"%s\", \"%s\"]\n", zoomeyeUsername, zoomeyePassword))
+			writtenProviders["zoomeye"] = true
+		}
+	}
+
+	// Handle single-value providers
+	for envVar, providerName := range providerMap {
+		// Skip if already written (multi-value providers)
+		if writtenProviders[providerName] {
+			continue
+		}
+
+		// Skip censys, fofa, passivetotal, quake, zoomeye (already handled)
+		if providerName == "censys" || providerName == "fofa" || providerName == "passivetotal" || providerName == "quake" || providerName == "zoomeye" {
+			continue
+		}
+
+		if value := os.Getenv(envVar); value != "" {
+			if !writtenProviders[providerName] {
+				builder.WriteString(fmt.Sprintf("%s: [\"%s\"]\n", providerName, value))
+				writtenProviders[providerName] = true
+			}
+		}
+	}
+
+	// Check if we have any providers configured
+	configContent := builder.String()
+	trimmedContent := strings.TrimSpace(configContent)
+	
+	// If no providers were configured (only header comments), don't create a file
+	// Count actual provider entries (lines that contain ": [")
+	providerLines := strings.Count(trimmedContent, ": [")
+	if providerLines == 0 {
+		// No providers configured, return empty string to use default providers
+		return "", nil
+	}
+
+	// Write config to file only if we have at least one provider
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		return "", fmt.Errorf("failed to write config file: %v", err)
+	}
+
+	return configPath, nil
 }
