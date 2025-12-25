@@ -2,11 +2,15 @@ package urls
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	jsfindertool "github.com/h0tak88r/AutoAR/internal/tools/jsfinder"
 	urlfindertool "github.com/h0tak88r/AutoAR/internal/tools/urlfinder"
@@ -69,7 +73,18 @@ func CollectURLs(domain string, threads int) (*Result, error) {
 		log.Printf("[WARN] urlfinder library failed for %s: %v", domain, err)
 	}
 
-	// 2) Collect JS URLs with embedded jsfinder over live hosts
+	// 2) Collect URLs from external APIs (VirusTotal, Wayback, URLScan, OTX, Common Crawl)
+	log.Printf("[INFO] Collecting URLs from external APIs for %s", domain)
+	externalURLs := collectExternalURLs(domain)
+	if len(externalURLs) > 0 {
+		log.Printf("[OK] Found %d URLs from external APIs", len(externalURLs))
+		// Merge external URLs with existing URLs
+		existingURLs, _ := readLines(allFile)
+		allURLs := uniqueStrings(append(existingURLs, externalURLs...))
+		_ = writeLines(allFile, allURLs)
+	}
+
+	// 3) Collect JS URLs with embedded jsfinder over live hosts
 	if fi, err := os.Stat(liveFile); err == nil && fi.Size() > 0 {
 		log.Printf("[INFO] Running embedded jsfinder on live hosts for %s", domain)
 		liveURLs, err := readLines(liveFile)
@@ -90,7 +105,7 @@ func CollectURLs(domain string, threads int) (*Result, error) {
 		}
 	}
 
-	// 3) Merge JS URLs from all-urls.txt into js-urls.txt and deduplicate
+	// 4) Merge JS URLs from all-urls.txt into js-urls.txt and deduplicate
 	allURLs, _ := readLines(allFile)
 	jsURLs, _ := readLines(jsFile)
 	for _, u := range allURLs {
@@ -102,7 +117,7 @@ func CollectURLs(domain string, threads int) (*Result, error) {
 	jsURLs = uniqueStrings(jsURLs)
 	_ = writeLines(jsFile, jsURLs)
 
-	// 4) Merge js-urls.txt back into all-urls.txt and deduplicate
+	// 5) Merge js-urls.txt back into all-urls.txt and deduplicate
 	allURLs = uniqueStrings(append(allURLs, jsURLs...))
 	_ = writeLines(allFile, allURLs)
 
@@ -185,4 +200,284 @@ func uniqueStrings(in []string) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// collectExternalURLs collects URLs from external APIs (VirusTotal, Wayback, URLScan, OTX, Common Crawl)
+func collectExternalURLs(domain string) []string {
+	var allURLs []string
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// VirusTotal
+	if urls := collectVirusTotalURLs(client, domain); len(urls) > 0 {
+		allURLs = append(allURLs, urls...)
+	}
+
+	// Wayback Machine
+	if urls := collectWaybackURLs(client, domain); len(urls) > 0 {
+		allURLs = append(allURLs, urls...)
+	}
+
+	// URLScan.io
+	if urls := collectURLScanURLs(client, domain); len(urls) > 0 {
+		allURLs = append(allURLs, urls...)
+	}
+
+	// AlienVault OTX
+	if urls := collectOTXURLs(client, domain); len(urls) > 0 {
+		allURLs = append(allURLs, urls...)
+	}
+
+	// Common Crawl
+	if urls := collectCommonCrawlURLs(client, domain); len(urls) > 0 {
+		allURLs = append(allURLs, urls...)
+	}
+
+	return uniqueStrings(allURLs)
+}
+
+// collectVirusTotalURLs fetches URLs from VirusTotal API
+func collectVirusTotalURLs(client *http.Client, domain string) []string {
+	apiKey := os.Getenv("VIRUSTOTAL_API_KEY")
+	if apiKey == "" {
+		log.Printf("[INFO] VIRUSTOTAL_API_KEY not set, skipping VirusTotal")
+		return nil
+	}
+
+	url := fmt.Sprintf("https://www.virustotal.com/vtapi/v2/domain/report?apikey=%s&domain=%s", apiKey, domain)
+	log.Printf("[INFO] Fetching URLs from VirusTotal for %s", domain)
+
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[WARN] VirusTotal API request failed: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[WARN] VirusTotal API returned status %d", resp.StatusCode)
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[WARN] Failed to read VirusTotal response: %v", err)
+		return nil
+	}
+
+	var result struct {
+		DetectedURLs    [][]interface{} `json:"detected_urls"`
+		UndetectedURLs [][]interface{} `json:"undetected_urls"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[WARN] Failed to parse VirusTotal JSON: %v", err)
+		return nil
+	}
+
+	var urls []string
+	// detected_urls format: [url, scan_id, scan_date, positives, total, permalink]
+	for _, entry := range result.DetectedURLs {
+		if len(entry) > 0 {
+			if urlStr, ok := entry[0].(string); ok {
+				urls = append(urls, urlStr)
+			}
+		}
+	}
+	// undetected_urls format: [url, scan_id, scan_date, positives, total, permalink]
+	for _, entry := range result.UndetectedURLs {
+		if len(entry) > 0 {
+			if urlStr, ok := entry[0].(string); ok {
+				urls = append(urls, urlStr)
+			}
+		}
+	}
+
+	log.Printf("[OK] VirusTotal: Found %d URLs", len(urls))
+	return urls
+}
+
+// collectWaybackURLs fetches URLs from Wayback Machine CDX API
+func collectWaybackURLs(client *http.Client, domain string) []string {
+	url := fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", domain)
+	log.Printf("[INFO] Fetching URLs from Wayback Machine for %s", domain)
+
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[WARN] Wayback Machine API request failed: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[WARN] Wayback Machine API returned status %d", resp.StatusCode)
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[WARN] Failed to read Wayback Machine response: %v", err)
+		return nil
+	}
+
+	lines := strings.Split(string(body), "\n")
+	var urls []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			urls = append(urls, line)
+		}
+	}
+
+	log.Printf("[OK] Wayback Machine: Found %d URLs", len(urls))
+	return urls
+}
+
+// collectURLScanURLs fetches URLs from URLScan.io API
+func collectURLScanURLs(client *http.Client, domain string) []string {
+	apiKey := os.Getenv("URLSCAN_API_KEY")
+	url := fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=10000", domain)
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Printf("[WARN] Failed to create URLScan request: %v", err)
+		return nil
+	}
+
+	if apiKey != "" {
+		req.Header.Set("API-Key", apiKey)
+	}
+
+	log.Printf("[INFO] Fetching URLs from URLScan.io for %s", domain)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[WARN] URLScan.io API request failed: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[WARN] URLScan.io API returned status %d", resp.StatusCode)
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[WARN] Failed to read URLScan.io response: %v", err)
+		return nil
+	}
+
+	var result struct {
+		Results []struct {
+			Page struct {
+				URL string `json:"url"`
+			} `json:"page"`
+		} `json:"results"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[WARN] Failed to parse URLScan.io JSON: %v", err)
+		return nil
+	}
+
+	var urls []string
+	for _, item := range result.Results {
+		if item.Page.URL != "" {
+			urls = append(urls, item.Page.URL)
+		}
+	}
+
+	log.Printf("[OK] URLScan.io: Found %d URLs", len(urls))
+	return urls
+}
+
+// collectOTXURLs fetches URLs from AlienVault OTX API
+func collectOTXURLs(client *http.Client, domain string) []string {
+	url := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/url_list?limit=500", domain)
+	log.Printf("[INFO] Fetching URLs from AlienVault OTX for %s", domain)
+
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[WARN] OTX API request failed: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[WARN] OTX API returned status %d", resp.StatusCode)
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[WARN] Failed to read OTX response: %v", err)
+		return nil
+	}
+
+	var result struct {
+		URLList []struct {
+			URL string `json:"url"`
+		} `json:"url_list"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[WARN] Failed to parse OTX JSON: %v", err)
+		return nil
+	}
+
+	var urls []string
+	for _, item := range result.URLList {
+		if item.URL != "" {
+			urls = append(urls, item.URL)
+		}
+	}
+
+	log.Printf("[OK] OTX: Found %d URLs", len(urls))
+	return urls
+}
+
+// collectCommonCrawlURLs fetches URLs from Common Crawl API
+func collectCommonCrawlURLs(client *http.Client, domain string) []string {
+	// Use a recent Common Crawl index (update this periodically)
+	url := fmt.Sprintf("https://index.commoncrawl.org/CC-MAIN-2023-06-index?url=*.%s/*&output=json&fl=timestamp,url,mime,status,digest", domain)
+	log.Printf("[INFO] Fetching URLs from Common Crawl for %s", domain)
+
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[WARN] Common Crawl API request failed: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[WARN] Common Crawl API returned status %d", resp.StatusCode)
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[WARN] Failed to read Common Crawl response: %v", err)
+		return nil
+	}
+
+	lines := strings.Split(string(body), "\n")
+	var urls []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var entry struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err == nil {
+			if entry.URL != "" {
+				urls = append(urls, entry.URL)
+			}
+		}
+	}
+
+	log.Printf("[OK] Common Crawl: Found %d URLs", len(urls))
+	return urls
 }
