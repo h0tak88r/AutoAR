@@ -14,6 +14,7 @@ var (
 	daemonMutex   sync.Mutex
 	stopDaemon    chan struct{}
 	daemonWg      sync.WaitGroup
+	stopOnce      sync.Once
 )
 
 // StartDaemon starts the subdomain monitoring daemon
@@ -36,6 +37,7 @@ func StartDaemon() error {
 
 	daemonRunning = true
 	stopDaemon = make(chan struct{})
+	stopOnce = sync.Once{} // Reset sync.Once for new daemon instance
 
 	log.Println("[INFO] Starting subdomain monitoring daemon...")
 
@@ -58,7 +60,14 @@ func StopDaemon() error {
 	}
 
 	log.Println("[INFO] Stopping subdomain monitoring daemon...")
-	close(stopDaemon)
+	
+	// Use sync.Once to prevent double close panic
+	stopOnce.Do(func() {
+		if stopDaemon != nil {
+			close(stopDaemon)
+		}
+	})
+	
 	daemonWg.Wait()
 	daemonRunning = false
 

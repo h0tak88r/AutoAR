@@ -45,6 +45,9 @@ func handleDNS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	case "dnsreaper":
 		command = []string{autoarScript, "dns", "dnsreaper", "-d", domain}
 		scanName = "DNSReaper"
+	case "dangling-ip":
+		command = []string{autoarScript, "dns", "dangling-ip", "-d", domain}
+		scanName = "DNS Dangling IP"
 	default: // takeover
 		command = []string{autoarScript, "dns", "takeover", "-d", domain}
 		scanName = "DNS Takeover"

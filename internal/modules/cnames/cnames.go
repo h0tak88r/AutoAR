@@ -2,11 +2,14 @@ package cnames
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
@@ -20,15 +23,36 @@ type Result struct {
 	OutputFile string
 }
 
+// Options for CNAME collection
+type Options struct {
+	Domain  string
+	Threads int
+	Timeout time.Duration
+}
+
 // CollectCNAMEs mirrors the behaviour of modules/cnames.sh using Go.
 // It ensures subdomains, then uses dnsx (if available) to resolve CNAME records.
 func CollectCNAMEs(domain string) (*Result, error) {
-	if domain == "" {
+	return CollectCNAMEsWithOptions(Options{
+		Domain:  domain,
+		Threads: 100,              // Default 100 concurrent DNS queries
+		Timeout: 5 * time.Minute, // 5 minute timeout
+	})
+}
+
+// CollectCNAMEsWithOptions collects CNAME records with custom options
+func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
+	if opts.Domain == "" {
 		return nil, fmt.Errorf("domain is required")
 	}
-
+	if opts.Threads <= 0 {
+		opts.Threads = 100
+	}
+	if opts.Timeout <= 0 {
+		opts.Timeout = 5 * time.Minute
+	}
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, domain)
+	domainDir := filepath.Join(resultsDir, opts.Domain)
 	subsDir := filepath.Join(domainDir, "subs")
 	if err := utils.EnsureDir(subsDir); err != nil {
 		return nil, fmt.Errorf("failed to create subs dir: %w", err)
@@ -38,8 +62,8 @@ func CollectCNAMEs(domain string) (*Result, error) {
 
 	// Ensure we have subdomains – reuse Go subdomains module
 	if _, err := os.Stat(allSubs); err != nil {
-		log.Printf("[INFO] all-subs.txt missing, enumerating subdomains for %s", domain)
-		subs, err := subdomains.EnumerateSubdomains(domain, 100)
+		log.Printf("[INFO] all-subs.txt missing, enumerating subdomains for %s", opts.Domain)
+		subs, err := subdomains.EnumerateSubdomains(opts.Domain, 100)
 		if err != nil {
 			return nil, fmt.Errorf("failed to enumerate subdomains: %w", err)
 		}
@@ -70,18 +94,18 @@ func CollectCNAMEs(domain string) (*Result, error) {
 	}
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No subdomains found; creating empty CNAME file for %s", domain)
+		log.Printf("[WARN] No subdomains found; creating empty CNAME file for %s", opts.Domain)
 		if err := writeLines(out, nil); err != nil {
 			return nil, fmt.Errorf("failed to initialise %s: %w", out, err)
 		}
 		return &Result{
-			Domain:     domain,
+			Domain:     opts.Domain,
 			Records:    0,
 			OutputFile: out,
 		}, nil
 	}
 
-	log.Printf("[INFO] Collecting CNAME records for %s via dnsx library", domain)
+	log.Printf("[INFO] Collecting CNAME records for %s via dnsx library (threads: %d)", opts.Domain, opts.Threads)
 
 	// Initialize dnsx client
 	dnsClient, err := dnsx.New(dnsx.DefaultOptions)
@@ -89,20 +113,72 @@ func CollectCNAMEs(domain string) (*Result, error) {
 		return nil, fmt.Errorf("failed to create dnsx client: %w", err)
 	}
 
-	// Collect CNAME records
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
+	defer cancel()
+
+	// Collect CNAME records with concurrency
 	var cnameRecords []string
-	for _, target := range targets {
-		// Query CNAME record
-		results, err := dnsClient.QueryOne(target)
-		if err != nil {
-			continue
-		}
-		// Extract CNAME from response
-		if results != nil && len(results.CNAME) > 0 {
-			for _, cname := range results.CNAME {
-				cnameRecords = append(cnameRecords, fmt.Sprintf("%s CNAME %s", target, cname))
+	var recordsMutex sync.Mutex
+
+	// Worker pool
+	jobs := make(chan string, len(targets))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < opts.Threads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for target := range jobs {
+				// Check context cancellation
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				// Query CNAME record
+				results, err := dnsClient.QueryOne(target)
+				if err != nil {
+					continue
+				}
+				// Extract CNAME from response
+				if results != nil && len(results.CNAME) > 0 {
+					recordsMutex.Lock()
+					for _, cname := range results.CNAME {
+						cnameRecords = append(cnameRecords, fmt.Sprintf("%s CNAME %s", target, cname))
+					}
+					recordsMutex.Unlock()
+				}
+			}
+		}()
+	}
+
+	// Send jobs
+	go func() {
+		defer close(jobs)
+		for _, target := range targets {
+			select {
+			case jobs <- target:
+			case <-ctx.Done():
+				return
 			}
 		}
+	}()
+
+	// Wait for completion
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Completed
+	case <-ctx.Done():
+		log.Printf("[WARN] CNAME collection timed out after %v", opts.Timeout)
 	}
 
 	// Write results to file
@@ -111,10 +187,10 @@ func CollectCNAMEs(domain string) (*Result, error) {
 	}
 
 	count, _ := countLines(out)
-	log.Printf("[OK] Found %d CNAME records for %s", count, domain)
+	log.Printf("[OK] Found %d CNAME records for %s", count, opts.Domain)
 
 	return &Result{
-		Domain:     domain,
+		Domain:     opts.Domain,
 		Records:    count,
 		OutputFile: out,
 	}, nil

@@ -44,6 +44,13 @@ func (s *SQLiteDB) Init() error {
 		return fmt.Errorf("failed to open SQLite database: %v", err)
 	}
 
+	// Configure connection pool settings for SQLite
+	// SQLite doesn't support multiple writers well, so limit connections
+	db.SetMaxOpenConns(1)              // Only one connection at a time for SQLite
+	db.SetMaxIdleConns(1)              // Keep one idle connection
+	db.SetConnMaxLifetime(time.Hour)   // Close connections after 1 hour
+	db.SetConnMaxIdleTime(time.Minute * 30) // Close idle connections after 30 minutes
+
 	// Test connection
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("failed to ping database: %v", err)

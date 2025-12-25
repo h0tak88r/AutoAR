@@ -32,6 +32,57 @@ var (
 	channelsMutex  sync.RWMutex
 )
 
+// SendFileToChannel sends a file directly to a Discord channel using the global session
+// This is used by modules to send files without requiring the HTTP API
+func SendFileToChannel(channelID, filePath, description string) error {
+	// Get Discord session
+	discordSessionMutex.RLock()
+	session := globalDiscordSession
+	discordSessionMutex.RUnlock()
+
+	if session == nil {
+		return fmt.Errorf("Discord bot session not available")
+	}
+
+	// Check if file exists
+	if info, err := os.Stat(filePath); os.IsNotExist(err) {
+		return fmt.Errorf("file not found: %s", filePath)
+	} else if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	} else if info.Size() == 0 {
+		return fmt.Errorf("file is empty: %s", filePath)
+	}
+
+	// Read file
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Send file to Discord channel
+	fileName := filepath.Base(filePath)
+	if description == "" {
+		description = fmt.Sprintf("📁 %s", fileName)
+	}
+
+	_, err = session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Content: description,
+		Files: []*discordgo.File{
+			{
+				Name:        fileName,
+				ContentType: http.DetectContentType(fileData),
+				Reader:      strings.NewReader(string(fileData)),
+			},
+		},
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to send file to Discord: %w", err)
+	}
+
+	return nil
+}
+
 // StartBot starts the Discord bot and initializes database
 func StartBot() error {
 	fmt.Println("🚀 Starting AutoAR Discord Bot...")
@@ -113,6 +164,13 @@ func StartBot() error {
 	fmt.Println("✅ AutoAR Discord Bot is running and connected!")
 	fmt.Println("   Bot is ready to receive commands.")
 
+	// Ensure database is closed on exit
+	defer func() {
+		if os.Getenv("DB_HOST") != "" {
+			db.Close()
+		}
+	}()
+
 	// Keep running
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
@@ -125,6 +183,24 @@ func StartBot() error {
 
 // StartAPI starts the REST API server
 func StartAPI() error {
+	// Initialize database if configured
+	if os.Getenv("DB_HOST") != "" {
+		if err := db.Init(); err != nil {
+			log.Printf("[WARN] Failed to initialize database: %v", err)
+		} else {
+			if err := db.InitSchema(); err != nil {
+				log.Printf("[WARN] Failed to initialize database schema: %v", err)
+			}
+		}
+	}
+
+	// Ensure database is closed on exit
+	defer func() {
+		if os.Getenv("DB_HOST") != "" {
+			db.Close()
+		}
+	}()
+
 	router := setupAPI()
 	addr := fmt.Sprintf("%s:%s", apiHost, apiPort)
 	fmt.Printf("AutoAR API Server starting on %s\n", addr)
@@ -145,6 +221,24 @@ func StartAPI() error {
 
 // StartBoth starts both Discord bot and API server
 func StartBoth() error {
+	// Initialize database if configured (only once for both services)
+	if os.Getenv("DB_HOST") != "" {
+		if err := db.Init(); err != nil {
+			log.Printf("[WARN] Failed to initialize database: %v", err)
+		} else {
+			if err := db.InitSchema(); err != nil {
+				log.Printf("[WARN] Failed to initialize database schema: %v", err)
+			}
+		}
+	}
+
+	// Ensure database is closed on exit
+	defer func() {
+		if os.Getenv("DB_HOST") != "" {
+			db.Close()
+		}
+	}()
+
 	var wg sync.WaitGroup
 
 	if botToken == "" {
