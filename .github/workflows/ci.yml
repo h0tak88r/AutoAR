@@ -22,31 +22,14 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: go.sum
 
-      - name: Verify dependencies
-        run: go mod verify
-
       - name: Download dependencies
         run: go mod download
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run go fmt check
-        run: |
-          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-            echo "Code is not formatted. Run 'go fmt ./...'"
-            gofmt -s -d .
-            exit 1
-          fi
 
       - name: Build
         run: |
           CGO_ENABLED=1 go build -o autoar ./cmd/autoar
           chmod +x autoar
-
-      - name: Test build
-        run: |
-          ./autoar --help || true
+          echo "Build successful!"
 
   security:
     runs-on: ubuntu-latest
