@@ -15,12 +15,6 @@ jobs:
         with:
           submodules: false
           fetch-depth: 0
-      
-      - name: Initialize submodules (optional)
-        continue-on-error: true
-        run: |
-          git submodule sync --recursive || true
-          git submodule update --init --recursive --force || echo "Warning: Submodules are optional, continuing without them"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -59,6 +53,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: false
 
       - name: Run Gosec Security Scanner
         uses: securego/gosec@master
