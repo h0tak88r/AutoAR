@@ -25,9 +25,11 @@ type Result struct {
 
 // Options for CNAME collection
 type Options struct {
-	Domain  string
-	Threads int
-	Timeout time.Duration
+	Domain    string   // Domain for full enumeration mode
+	Subdomain string   // Single subdomain to check (alternative to Domain)
+	Targets   []string // List of specific targets to check (alternative to Domain/Subdomain)
+	Threads   int
+	Timeout   time.Duration
 }
 
 // CollectCNAMEs mirrors the behaviour of modules/cnames.sh using Go.
@@ -42,70 +44,109 @@ func CollectCNAMEs(domain string) (*Result, error) {
 
 // CollectCNAMEsWithOptions collects CNAME records with custom options
 func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
-	if opts.Domain == "" {
-		return nil, fmt.Errorf("domain is required")
+	// Determine which mode we're in and set targets accordingly
+	var targets []string
+	var domain string
+	
+	if len(opts.Targets) > 0 {
+		// Mode 1: Direct targets provided
+		targets = opts.Targets
+		// Extract domain from first target for output directory
+		if len(targets) > 0 {
+			parts := strings.Split(strings.TrimPrefix(strings.TrimPrefix(targets[0], "http://"), "https://"), ".")
+			if len(parts) >= 2 {
+				domain = strings.Join(parts[len(parts)-2:], ".")
+			} else {
+				domain = targets[0]
+			}
+		}
+	} else if opts.Subdomain != "" {
+		// Mode 2: Single subdomain provided
+		// Remove protocol if present
+		subdomain := strings.TrimPrefix(strings.TrimPrefix(opts.Subdomain, "http://"), "https://")
+		targets = []string{subdomain}
+		// Extract domain from subdomain
+		parts := strings.Split(subdomain, ".")
+		if len(parts) >= 2 {
+			domain = strings.Join(parts[len(parts)-2:], ".")
+		} else {
+			domain = subdomain
+		}
+	} else if opts.Domain != "" {
+		// Mode 3: Domain provided - enumerate subdomains (original behavior)
+		domain = opts.Domain
+		resultsDir := utils.GetResultsDir()
+		domainDir := filepath.Join(resultsDir, domain)
+		subsDir := filepath.Join(domainDir, "subs")
+		if err := utils.EnsureDir(subsDir); err != nil {
+			return nil, fmt.Errorf("failed to create subs dir: %w", err)
+		}
+
+		allSubs := filepath.Join(subsDir, "all-subs.txt")
+
+		// Ensure we have subdomains – reuse Go subdomains module
+		if _, err := os.Stat(allSubs); err != nil {
+			log.Printf("[INFO] all-subs.txt missing, enumerating subdomains for %s", domain)
+			subs, err := subdomains.EnumerateSubdomains(domain, 100)
+			if err != nil {
+				return nil, fmt.Errorf("failed to enumerate subdomains: %w", err)
+			}
+			if err := writeLines(allSubs, subs); err != nil {
+				return nil, fmt.Errorf("failed to write %s: %w", allSubs, err)
+			}
+		}
+
+		// Read subdomains from file
+		file, err := os.Open(allSubs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open %s: %w", allSubs, err)
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" {
+				targets = append(targets, line)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read subdomains file: %w", err)
+		}
+	} else {
+		return nil, fmt.Errorf("either Domain, Subdomain, or Targets must be provided")
 	}
+
 	if opts.Threads <= 0 {
 		opts.Threads = 100
 	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = 5 * time.Minute
 	}
+
+	// Set up output directory
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, opts.Domain)
+	domainDir := filepath.Join(resultsDir, domain)
 	subsDir := filepath.Join(domainDir, "subs")
 	if err := utils.EnsureDir(subsDir); err != nil {
 		return nil, fmt.Errorf("failed to create subs dir: %w", err)
 	}
 
-	allSubs := filepath.Join(subsDir, "all-subs.txt")
-
-	// Ensure we have subdomains – reuse Go subdomains module
-	if _, err := os.Stat(allSubs); err != nil {
-		log.Printf("[INFO] all-subs.txt missing, enumerating subdomains for %s", opts.Domain)
-		subs, err := subdomains.EnumerateSubdomains(opts.Domain, 100)
-		if err != nil {
-			return nil, fmt.Errorf("failed to enumerate subdomains: %w", err)
-		}
-		if err := writeLines(allSubs, subs); err != nil {
-			return nil, fmt.Errorf("failed to write %s: %w", allSubs, err)
-		}
-	}
-
 	out := filepath.Join(subsDir, "cname-records.txt")
 
-	// Read subdomains from file
-	file, err := os.Open(allSubs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open %s: %w", allSubs, err)
-	}
-	defer file.Close()
-
-	var targets []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			targets = append(targets, line)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read subdomains file: %w", err)
-	}
-
 	if len(targets) == 0 {
-		log.Printf("[WARN] No subdomains found; creating empty CNAME file for %s", opts.Domain)
+		log.Printf("[WARN] No targets found; creating empty CNAME file for %s", domain)
 		if err := writeLines(out, nil); err != nil {
 			return nil, fmt.Errorf("failed to initialise %s: %w", out, err)
 		}
 		return &Result{
-			Domain:     opts.Domain,
+			Domain:     domain,
 			Records:    0,
 			OutputFile: out,
 		}, nil
 	}
 
-	log.Printf("[INFO] Collecting CNAME records for %s via dnsx library (threads: %d)", opts.Domain, opts.Threads)
+	log.Printf("[INFO] Collecting CNAME records for %d target(s) via dnsx library (threads: %d)", len(targets), opts.Threads)
 
 	// Initialize dnsx client
 	dnsClient, err := dnsx.New(dnsx.DefaultOptions)
@@ -187,10 +228,10 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	}
 
 	count, _ := countLines(out)
-	log.Printf("[OK] Found %d CNAME records for %s", count, opts.Domain)
+	log.Printf("[OK] Found %d CNAME records for %s", count, domain)
 
 	return &Result{
-		Domain:     opts.Domain,
+		Domain:     domain,
 		Records:    count,
 		OutputFile: out,
 	}, nil

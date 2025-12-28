@@ -61,13 +61,108 @@ func ensureSubdomains(domain string) (domainDir string, subsFile string, err err
 	return domainDir, subsFile, nil
 }
 
+// TakeoverOptions for DNS takeover scan
+type TakeoverOptions struct {
+	Domain        string // Domain name
+	Subdomain     string // Optional: single subdomain to scan (skips enumeration)
+	LiveHostsFile string // Optional: path to live hosts file (skips enumeration)
+}
+
 // Takeover runs the comprehensive DNS takeover workflow (equivalent to `dns takeover` / `dns all`).
 func Takeover(domain string) error {
-	domainDir, subsFile, err := ensureSubdomains(domain)
-	if err != nil {
-		return err
+	return TakeoverWithOptions(TakeoverOptions{Domain: domain})
+}
+
+// TakeoverWithOptions runs DNS takeover with options
+func TakeoverWithOptions(opts TakeoverOptions) error {
+	var domainDir, subsFile, outputDir string
+	var err error
+	
+	// Determine output directory: use subdomain if provided, otherwise use root domain
+	resultsRoot := utils.GetResultsDir()
+	if opts.Subdomain != "" {
+		// Save results under subdomain directory for consistency
+		outputDir = filepath.Join(resultsRoot, opts.Subdomain)
+	} else {
+		// Use root domain directory
+		outputDir = filepath.Join(resultsRoot, opts.Domain)
 	}
-	findingsDir := filepath.Join(domainDir, findingsDirName)
+	
+	// If subdomain or live hosts file provided, use it directly without enumeration
+	// Note: DNS scan processes root domain but saves results under subdomain directory
+	if opts.Subdomain != "" {
+		// Still use root domain directory for temporary files (subs/all-subs.txt)
+		// but save results under subdomain directory
+		tempDomainDir := filepath.Join(resultsRoot, opts.Domain)
+		subsDir := filepath.Join(tempDomainDir, "subs")
+		if err = utils.EnsureDir(subsDir); err != nil {
+			return fmt.Errorf("failed to create subs dir: %w", err)
+		}
+		subsFile = filepath.Join(subsDir, "all-subs.txt")
+		// Write single subdomain to file
+		if err := writeLines(subsFile, []string{opts.Subdomain}); err != nil {
+			return fmt.Errorf("failed to write subdomain file: %w", err)
+		}
+		log.Printf("[INFO] Using provided subdomain: %s (processing domain: %s, saving results to: %s)", opts.Subdomain, opts.Domain, outputDir)
+	} else if opts.LiveHostsFile != "" {
+		// Extract subdomains from live hosts file
+		// Use root domain directory for temporary files
+		tempDomainDir := filepath.Join(resultsRoot, opts.Domain)
+		subsDir := filepath.Join(tempDomainDir, "subs")
+		if err = utils.EnsureDir(subsDir); err != nil {
+			return fmt.Errorf("failed to create subs dir: %w", err)
+		}
+		subsFile = filepath.Join(subsDir, "all-subs.txt")
+		
+		// Read live hosts and extract subdomains
+		file, err := os.Open(opts.LiveHostsFile)
+		if err != nil {
+			return fmt.Errorf("failed to open live hosts file: %w", err)
+		}
+		defer file.Close()
+		
+		var subdomains []string
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			// Extract hostname from URL
+			host := line
+			if strings.HasPrefix(host, "http://") {
+				host = strings.TrimPrefix(host, "http://")
+			} else if strings.HasPrefix(host, "https://") {
+				host = strings.TrimPrefix(host, "https://")
+			}
+			if idx := strings.Index(host, "/"); idx != -1 {
+				host = host[:idx]
+			}
+			if host != "" {
+				subdomains = append(subdomains, host)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("failed to read live hosts file: %w", err)
+		}
+		if len(subdomains) == 0 {
+			return fmt.Errorf("no subdomains found in live hosts file")
+		}
+		if err := writeLines(subsFile, subdomains); err != nil {
+			return fmt.Errorf("failed to write subdomain file: %w", err)
+		}
+		log.Printf("[INFO] Using %d subdomain(s) from live hosts file (processing domain: %s, saving results to: %s)", len(subdomains), opts.Domain, outputDir)
+	} else {
+		// Standard enumeration - use root domain directory
+		domainDir, subsFile, err = ensureSubdomains(opts.Domain)
+		if err != nil {
+			return err
+		}
+		outputDir = domainDir // Use domain directory for standard enumeration
+	}
+	
+	// Use outputDir (subdomain directory if provided, otherwise root domain) for saving results
+	findingsDir := filepath.Join(outputDir, findingsDirName)
 	if err := utils.EnsureDir(findingsDir); err != nil {
 		return fmt.Errorf("failed to create findings dir: %w", err)
 	}
@@ -96,29 +191,40 @@ func Takeover(domain string) error {
 		}
 	}
 
-	log.Printf("[INFO] Starting comprehensive DNS takeover scan for %s", domain)
+	log.Printf("[INFO] Starting comprehensive DNS takeover scan for %s", opts.Domain)
 
-	if err := runNucleiTakeover(domainDir, findingsDir, subsFile); err != nil {
+	// Use root domain directory for processing (temporary files), but save results to outputDir
+	// When subdomain is provided, domainDir might not be set, so use root domain directory
+	var processingDir string
+	if opts.Subdomain != "" || opts.LiveHostsFile != "" {
+		// When subdomain/live hosts file is provided, use root domain directory for processing
+		processingDir = filepath.Join(resultsRoot, opts.Domain)
+	} else {
+		// Standard enumeration - use domainDir
+		processingDir = domainDir
+	}
+	
+	if err := runNucleiTakeover(processingDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] Nuclei takeover step failed: %v", err)
 	}
-	if err := runDNSReaper(domainDir, findingsDir, subsFile); err != nil {
+	if err := runDNSReaper(processingDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] DNSReaper step failed: %v", err)
 	}
-	if err := checkAzureAWS(domainDir, findingsDir, subsFile); err != nil {
+	if err := checkAzureAWS(processingDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] Azure/AWS check failed: %v", err)
 	}
-	if err := runNSTakeover(domainDir, findingsDir, subsFile); err != nil {
+	if err := runNSTakeover(processingDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] NS takeover step failed: %v", err)
 	}
-	if err := checkDanglingIPs(domainDir, findingsDir, subsFile); err != nil {
+	if err := checkDanglingIPs(processingDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] Dangling IP check failed: %v", err)
 	}
 
-	if err := writeSummary(domain, findingsDir, subsFile); err != nil {
+	if err := writeSummary(opts.Domain, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] Failed to write DNS takeover summary: %v", err)
 	}
 
-	log.Printf("[OK] DNS takeover scan completed for %s (results in %s)", domain, findingsDir)
+	log.Printf("[OK] DNS takeover scan completed for %s (results in %s)", opts.Domain, findingsDir)
 	return nil
 }
 

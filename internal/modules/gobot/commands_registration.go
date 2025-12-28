@@ -9,10 +9,10 @@ import (
 // registerAllCommands registers all 54 Discord commands
 func registerAllCommands(s *discordgo.Session) {
 	commands := []*discordgo.ApplicationCommand{
-		// React2Shell commands
+		// Zerodays commands
 		{
-			Name:        "react2shell",
-			Description: "React Server Components RCE scan (domain hosts or single URL)",
+			Name:        "zerodays",
+			Description: "Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB) - domain hosts or single URL",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan (for host scanning)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Single URL to test (for single URL testing)", Required: false},
@@ -68,6 +68,13 @@ func registerAllCommands(s *discordgo.Session) {
 			Description: "Run full domain workflow",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+			},
+		},
+		{
+			Name:        "subdomain_run",
+			Description: "Run full workflow on a single subdomain (checks if live, then runs all scans)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "subdomain", Description: "The subdomain to scan (e.g., subdomain.example.com)", Required: true},
 			},
 		},
 		// Reconnaissance commands

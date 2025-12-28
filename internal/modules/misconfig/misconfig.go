@@ -17,12 +17,13 @@ import (
 
 // Options for misconfig scan
 type Options struct {
-	Target    string
-	ServiceID string
-	Delay     int
-	Action    string // "scan", "list", "update", "service"
-	Threads   int    // Concurrency for scanning subdomains
-	Timeout   int    // Timeout in seconds
+	Target        string
+	ServiceID     string
+	Delay         int
+	Action        string // "scan", "list", "update", "service"
+	Threads       int    // Concurrency for scanning subdomains
+	Timeout       int    // Timeout in seconds
+	LiveHostsFile string // Optional: path to live hosts file (avoids enumeration)
 }
 
 // Run executes misconfig command based on action
@@ -83,7 +84,8 @@ func handleUpdate(root string) error {
 }
 
 func handleScan(opts Options, resultsDir string) error {
-	outputDir := filepath.Join(resultsDir, "misconfig", opts.Target)
+	// Save results under the target directory (which is the subdomain in subdomain mode)
+	outputDir := filepath.Join(resultsDir, opts.Target, "misconfig")
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
 	}
@@ -100,24 +102,55 @@ func handleScan(opts Options, resultsDir string) error {
 	}
 	tplDir := templatesDir(root)
 
-	// Step 1: Get live subdomains using livehosts module
-	// This will check DB first, enumerate if needed, and filter for live hosts
-	log.Printf("[INFO] Getting live subdomains for %s...", opts.Target)
-	liveResult, err := livehosts.FilterLiveHosts(opts.Target, 100, true)
-	if err != nil {
-		return fmt.Errorf("failed to get live subdomains: %w", err)
+	// Step 1: Get live subdomains file (checks provided file first, then existing file, then database)
+	var liveHostsFile string
+	var err error
+	
+	if opts.LiveHostsFile != "" {
+		// Use provided live hosts file (e.g., from subdomain workflow)
+		if _, err := os.Stat(opts.LiveHostsFile); err == nil {
+			liveHostsFile = opts.LiveHostsFile
+			if count, err := countLinesInFile(liveHostsFile); err == nil {
+				log.Printf("[OK] Using %d live subdomains from provided file for %s", count, opts.Target)
+			}
+		} else {
+			// In subdomain mode, if file doesn't exist, return error instead of enumerating
+			return fmt.Errorf("provided live hosts file not found: %s", opts.LiveHostsFile)
+		}
 	}
-
-	if liveResult.LiveSubs == 0 {
-		return fmt.Errorf("no live subdomains found for %s", opts.Target)
+	
+	if liveHostsFile == "" {
+		log.Printf("[INFO] Getting live subdomains for %s...", opts.Target)
+		liveHostsFile, err = livehosts.GetLiveHostsFile(opts.Target)
+		if err != nil {
+			log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", opts.Target, err)
+			// Fallback: try to create it by running livehosts
+			liveResult, err2 := livehosts.FilterLiveHosts(opts.Target, opts.Threads, true)
+			if err2 != nil {
+				// Handle "no live subdomains found" as a soft error
+				if strings.Contains(err2.Error(), "no live subdomains found") {
+					log.Printf("[INFO] Misconfiguration scan skipped: %v", err2)
+					return nil // Continue workflow
+				}
+				return fmt.Errorf("failed to get live subdomains: %w", err2)
+			}
+			if liveResult.LiveSubs == 0 {
+				return fmt.Errorf("no live subdomains found for %s", opts.Target)
+			}
+			liveHostsFile = liveResult.LiveSubsFile
+			log.Printf("[OK] Found %d live subdomains out of %d total for %s", liveResult.LiveSubs, liveResult.TotalSubs, opts.Target)
+		} else {
+			// Count live hosts from file for logging
+			if count, err := countLinesInFile(liveHostsFile); err == nil {
+				log.Printf("[OK] Using %d live subdomains from file/database for %s", count, opts.Target)
+			}
+		}
 	}
-
-	log.Printf("[OK] Found %d live subdomains out of %d total for %s", liveResult.LiveSubs, liveResult.TotalSubs, opts.Target)
 
 	// Step 2: Read live subdomains from file
 	var subdomainsList []string
-	if liveResult.LiveSubsFile != "" {
-		file, err := os.Open(liveResult.LiveSubsFile)
+	if liveHostsFile != "" {
+		file, err := os.Open(liveHostsFile)
 		if err != nil {
 			return fmt.Errorf("failed to open live subdomains file: %w", err)
 		}
@@ -275,4 +308,23 @@ func handleScan(opts Options, resultsDir string) error {
 func handleService(opts Options, resultsDir string) error {
 	// Service-specific scan is just a filtered scan with ServiceID set.
 	return handleScan(opts, resultsDir)
+}
+
+// countLinesInFile counts the number of non-empty lines in a file
+func countLinesInFile(filePath string) (int, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	count := 0
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			count++
+		}
+	}
+	return count, scanner.Err()
 }
