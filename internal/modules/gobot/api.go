@@ -64,11 +64,14 @@ type ScanRequest struct {
 	Bypass403         *bool     `json:"bypass_403"`       // FFuf 403 bypass
 	Extensions        *[]string `json:"extensions"`       // FFuf extensions
 	CustomHeaders     *map[string]string `json:"custom_headers"` // FFuf custom headers
-	// React2Shell options
-	DomainsFile       *string   `json:"domains_file"`     // React2Shell domains file
-	DOSTest           *bool     `json:"dos_test"`         // React2Shell DoS test
-	EnableSourceExposure *bool  `json:"enable_source_exposure"` // React2Shell source exposure
-	Silent            *bool     `json:"silent"`            // React2Shell silent mode
+	// Zerodays options
+	DomainsFile       *string   `json:"domains_file"`     // Zerodays domains file
+	DOSTest           *bool     `json:"dos_test"`         // Zerodays DoS test
+	EnableSourceExposure *bool  `json:"enable_source_exposure"` // Zerodays source exposure
+	Silent            *bool     `json:"silent"`            // Zerodays silent mode
+	CVEs              *[]string `json:"cves"`             // CVEs to check (CVE-2025-55182, CVE-2025-14847)
+	MongoDBHost       *string   `json:"mongodb_host"`     // MongoDB host for CVE-2025-14847
+	MongoDBPort       *int     `json:"mongodb_port"`       // MongoDB port for CVE-2025-14847
 	// JWT options
 	Token             *string   `json:"token"`            // JWT token
 	SkipCrack         *bool     `json:"skip_crack"`       // JWT skip crack
@@ -141,7 +144,7 @@ func setupAPI() *gin.Engine {
 		api.POST("/ffuf", scanFFuf) // FFuf fuzzing
 		api.POST("/backup", scanBackup) // Backup file discovery
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
-		api.POST("/react2shell", scanReact2Shell) // React2Shell RCE scan
+		api.POST("/zerodays", scanZerodays) // Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)
 		api.POST("/jwt", scanJWT) // JWT vulnerability scan
 		api.GET("/:scan_id/status", getScanStatus)
 		api.GET("/:scan_id/results", getScanResults)
@@ -456,8 +459,8 @@ func docsHandler(c *gin.Context) {
             </div>
 
             <div class="endpoint">
-                <div class="endpoint-path"><span class="method post">POST</span> /scan/react2shell</div>
-                <div class="description">React2Shell RCE vulnerability scan</div>
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/zerodays</div>
+                <div class="description">Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)</div>
             </div>
 
             <div class="endpoint">
@@ -996,8 +999,8 @@ func scanMisconfig(c *gin.Context) {
 	})
 }
 
-// scanReact2Shell handles React2Shell RCE scan requests
-func scanReact2Shell(c *gin.Context) {
+// scanZerodays handles Zerodays scan requests
+func scanZerodays(c *gin.Context) {
 	var req ScanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1015,7 +1018,7 @@ func scanReact2Shell(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "react2shell", "scan"}
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "zerodays", "scan"}
 
 	if req.Domain != nil {
 		command = append(command, "-d", *req.Domain)
@@ -1032,11 +1035,22 @@ func scanReact2Shell(c *gin.Context) {
 	if req.EnableSourceExposure != nil && *req.EnableSourceExposure {
 		command = append(command, "--enable-source-exposure")
 	}
+	if req.CVEs != nil && len(*req.CVEs) > 0 {
+		for _, cve := range *req.CVEs {
+			command = append(command, "--cve", cve)
+		}
+	}
+	if req.MongoDBHost != nil && *req.MongoDBHost != "" {
+		command = append(command, "--mongodb-host", *req.MongoDBHost)
+	}
+	if req.MongoDBPort != nil && *req.MongoDBPort > 0 {
+		command = append(command, "--mongodb-port", fmt.Sprintf("%d", *req.MongoDBPort))
+	}
 	if req.Silent != nil && *req.Silent {
 		command = append(command, "--silent")
 	}
 
-	go executeScan(scanID, command, "react2shell")
+	go executeScan(scanID, command, "zerodays")
 
 	target := *req.Domain
 	if req.DomainsFile != nil {
@@ -1046,7 +1060,7 @@ func scanReact2Shell(c *gin.Context) {
 	c.JSON(http.StatusOK, ScanResponse{
 		ScanID:  scanID,
 		Status:  "started",
-		Message: fmt.Sprintf("React2Shell scan started for %s", target),
+		Message: fmt.Sprintf("Zerodays scan started for %s", target),
 		Command: strings.Join(command, " "),
 	})
 }

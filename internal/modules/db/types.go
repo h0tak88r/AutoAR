@@ -38,6 +38,8 @@ type DB interface {
 	ListSubdomains(domain string) ([]string, error)
 	// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain
 	ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error)
+	// ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain
+	ListLiveSubdomains(domain string) ([]SubdomainStatus, error)
 	// CountSubdomains returns the count of subdomains for a given domain
 	CountSubdomains(domain string) (int, error)
 
