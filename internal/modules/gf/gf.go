@@ -19,35 +19,60 @@ type Result struct {
 	ResultFiles  []string
 }
 
+// Options for GF scan
+type Options struct {
+	Domain    string // Domain name (for directory structure)
+	URLsFile  string // Optional: direct path to URLs file (skips fastlook)
+	SkipCheck bool   // Skip URL file validation/regeneration
+}
+
 // ScanGF runs GF pattern scanning
 func ScanGF(domain string) (*Result, error) {
-	if domain == "" {
+	return ScanGFWithOptions(Options{Domain: domain})
+}
+
+// ScanGFWithOptions runs GF pattern scanning with options
+func ScanGFWithOptions(opts Options) (*Result, error) {
+	if opts.Domain == "" {
 		return nil, fmt.Errorf("domain is required")
 	}
 
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, domain)
-	urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
+	domainDir := filepath.Join(resultsDir, opts.Domain)
+	var urlsFile string
+	
+	if opts.URLsFile != "" {
+		// Use provided URLs file directly (e.g., from subdomain workflow)
+		urlsFile = opts.URLsFile
+		log.Printf("[INFO] Using provided URLs file: %s", urlsFile)
+	} else {
+		// Use default location
+		urlsFile = filepath.Join(domainDir, "urls", "all-urls.txt")
+	}
+	
 	baseDir := filepath.Join(domainDir, "vulnerabilities")
 
 	if err := utils.EnsureDir(baseDir); err != nil {
 		return nil, fmt.Errorf("failed to create base dir: %w", err)
 	}
 
-	// Check if URLs file exists and is valid
-	if info, err := os.Stat(urlsFile); err != nil || info.Size() == 0 {
-		log.Printf("[INFO] No URLs found for %s, running fastlook first", domain)
-		if _, err := fastlook.RunFastlook(domain); err != nil {
-			return nil, fmt.Errorf("failed to run fastlook: %w", err)
+	// Only check/regenerate URLs if not skipping check and URLs file not provided
+	if !opts.SkipCheck && opts.URLsFile == "" {
+		// Check if URLs file exists and is valid
+		if info, err := os.Stat(urlsFile); err != nil || info.Size() == 0 {
+			log.Printf("[INFO] No URLs found for %s, running fastlook first", opts.Domain)
+			if _, err := fastlook.RunFastlook(opts.Domain); err != nil {
+				return nil, fmt.Errorf("failed to run fastlook: %w", err)
+			}
 		}
-	}
 
-	// Validate URLs file
-	if err := validateURLsFile(urlsFile); err != nil {
-		log.Printf("[WARN] URLs file appears corrupted, regenerating: %v", err)
-		log.Printf("[INFO] Regenerating URLs for %s via fastlook", domain)
-		if _, err := fastlook.RunFastlook(domain); err != nil {
-			log.Printf("[WARN] Failed to regenerate URLs via fastlook: %v", err)
+		// Validate URLs file
+		if err := validateURLsFile(urlsFile); err != nil {
+			log.Printf("[WARN] URLs file appears corrupted, regenerating: %v", err)
+			log.Printf("[INFO] Regenerating URLs for %s via fastlook", opts.Domain)
+			if _, err := fastlook.RunFastlook(opts.Domain); err != nil {
+				log.Printf("[WARN] Failed to regenerate URLs via fastlook: %v", err)
+			}
 		}
 	}
 
@@ -83,7 +108,7 @@ func ScanGF(domain string) (*Result, error) {
 	}
 
 	log.Printf("[OK] GF scan completed: %d total matches across all patterns", totalMatches)
-	return &Result{Domain: domain, TotalMatches: totalMatches, ResultFiles: resultFiles}, nil
+	return &Result{Domain: opts.Domain, TotalMatches: totalMatches, ResultFiles: resultFiles}, nil
 }
 
 func validateURLsFile(path string) error {

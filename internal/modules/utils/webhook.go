@@ -10,12 +10,34 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
 )
 
-// SendWebhookLog sends a log message to Discord webhook
+var (
+	envLoadedOnce sync.Once
+)
+
+// ensureEnvLoaded ensures .env file is loaded (only once)
+func ensureEnvLoaded() {
+	envLoadedOnce.Do(func() {
+		if err := envloader.LoadEnv(); err != nil {
+			log.Printf("[WEBHOOK] [WARN] Failed to load .env file: %v", err)
+		}
+	})
+}
+
+// getWebhookURL gets the webhook URL from environment, loading .env if needed
+func getWebhookURL() string {
+	ensureEnvLoaded()
+	return os.Getenv("DISCORD_WEBHOOK")
+}
+
+// SendWebhookLog sends a log message to Discord webhook with rate limit handling
 func SendWebhookLog(message string) error {
-	webhookURL := os.Getenv("DISCORD_WEBHOOK")
+	webhookURL := getWebhookURL()
 	if webhookURL == "" {
 		// No webhook configured, skip silently
 		return nil
@@ -31,28 +53,62 @@ func SendWebhookLog(message string) error {
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
-	// Send HTTP request
-	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create webhook request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	// Retry logic for rate limiting
+	maxRetries := 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Send HTTP request
+		req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return fmt.Errorf("failed to create webhook request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[WEBHOOK] Failed to send webhook: %v", err)
-		return fmt.Errorf("failed to send webhook request: %w", err)
-	}
-	defer resp.Body.Close()
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[WEBHOOK] Failed to send webhook: %v", err)
+			return fmt.Errorf("failed to send webhook request: %w", err)
+		}
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		// Handle rate limiting (429)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			var rateLimitResp struct {
+				RetryAfter float64 `json:"retry_after"`
+			}
+			if err := json.Unmarshal(bodyBytes, &rateLimitResp); err == nil && rateLimitResp.RetryAfter > 0 {
+				waitTime := time.Duration(rateLimitResp.RetryAfter*1000) * time.Millisecond
+				if waitTime < 100*time.Millisecond {
+					waitTime = 100 * time.Millisecond // Minimum 100ms
+				}
+				if waitTime > 5*time.Second {
+					waitTime = 5 * time.Second // Maximum 5s
+				}
+				log.Printf("[WEBHOOK] Rate limited, waiting %v before retry (attempt %d/%d)", waitTime, attempt+1, maxRetries)
+				time.Sleep(waitTime)
+				continue // Retry
+			}
+			// If we can't parse retry_after, wait a default amount
+			if attempt < maxRetries-1 {
+				waitTime := time.Duration(attempt+1) * 500 * time.Millisecond
+				log.Printf("[WEBHOOK] Rate limited, waiting %v before retry (attempt %d/%d)", waitTime, attempt+1, maxRetries)
+				time.Sleep(waitTime)
+				continue
+			}
+		}
+
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
+			return nil
+		}
+
+		// For other errors, don't retry
 		log.Printf("[WEBHOOK] Webhook returned status %d: %s", resp.StatusCode, string(bodyBytes))
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 	}
 
-	return nil
+	return fmt.Errorf("webhook rate limited after %d retries", maxRetries)
 }
 
 // SendWebhookLogAsync sends a log message to Discord webhook asynchronously (non-blocking)
@@ -67,7 +123,7 @@ func SendWebhookLogAsync(message string) {
 
 // SendWebhookEmbed sends a formatted embed message to Discord webhook
 func SendWebhookEmbed(title, description string, color int, fields []map[string]interface{}) error {
-	webhookURL := os.Getenv("DISCORD_WEBHOOK")
+	webhookURL := getWebhookURL()
 	if webhookURL == "" {
 		return nil
 	}
@@ -113,9 +169,9 @@ func SendWebhookEmbed(title, description string, color int, fields []map[string]
 	return nil
 }
 
-// SendWebhookFile sends a file to Discord webhook
+// SendWebhookFile sends a file to Discord webhook with rate limit handling
 func SendWebhookFile(filePath, description string) error {
-	webhookURL := os.Getenv("DISCORD_WEBHOOK")
+	webhookURL := getWebhookURL()
 	if webhookURL == "" {
 		// No webhook configured, skip silently
 		return nil
@@ -137,52 +193,90 @@ func SendWebhookFile(filePath, description string) error {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Create multipart form
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	// Add file
 	fileName := filepath.Base(filePath)
-	filePart, err := writer.CreateFormFile("file", fileName)
-	if err != nil {
-		return fmt.Errorf("failed to create form file: %w", err)
-	}
-	if _, err := filePart.Write(fileData); err != nil {
-		return fmt.Errorf("failed to write file data: %w", err)
-	}
+	
+	// Retry logic for rate limiting
+	maxRetries := 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Create multipart form
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
 
-	// Add description/content
-	if description == "" {
-		description = fmt.Sprintf("📁 %s", fileName)
-	}
-	if err := writer.WriteField("content", description); err != nil {
-		return fmt.Errorf("failed to write content field: %w", err)
-	}
+		// Add file
+		filePart, err := writer.CreateFormFile("file", fileName)
+		if err != nil {
+			writer.Close()
+			return fmt.Errorf("failed to create form file: %w", err)
+		}
+		if _, err := filePart.Write(fileData); err != nil {
+			writer.Close()
+			return fmt.Errorf("failed to write file data: %w", err)
+		}
 
-	writer.Close()
+		// Add description/content (simplified to just file name)
+		if description == "" {
+			description = fileName
+		}
+		if err := writer.WriteField("content", description); err != nil {
+			writer.Close()
+			return fmt.Errorf("failed to write content field: %w", err)
+		}
 
-	// Send HTTP request
-	req, err := http.NewRequest("POST", webhookURL, body)
-	if err != nil {
-		return fmt.Errorf("failed to create webhook request: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+		writer.Close()
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[WEBHOOK] Failed to send webhook file: %v", err)
-		return fmt.Errorf("failed to send webhook request: %w", err)
-	}
-	defer resp.Body.Close()
+		// Send HTTP request
+		req, err := http.NewRequest("POST", webhookURL, body)
+		if err != nil {
+			return fmt.Errorf("failed to create webhook request: %w", err)
+		}
+		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[WEBHOOK] Failed to send webhook file: %v", err)
+			return fmt.Errorf("failed to send webhook request: %w", err)
+		}
+
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		// Handle rate limiting (429)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			var rateLimitResp struct {
+				RetryAfter float64 `json:"retry_after"`
+			}
+			if err := json.Unmarshal(bodyBytes, &rateLimitResp); err == nil && rateLimitResp.RetryAfter > 0 {
+				waitTime := time.Duration(rateLimitResp.RetryAfter*1000) * time.Millisecond
+				if waitTime < 100*time.Millisecond {
+					waitTime = 100 * time.Millisecond // Minimum 100ms
+				}
+				if waitTime > 5*time.Second {
+					waitTime = 5 * time.Second // Maximum 5s
+				}
+				log.Printf("[WEBHOOK] Rate limited, waiting %v before retry (attempt %d/%d)", waitTime, attempt+1, maxRetries)
+				time.Sleep(waitTime)
+				continue // Retry
+			}
+			// If we can't parse retry_after, wait a default amount
+			if attempt < maxRetries-1 {
+				waitTime := time.Duration(attempt+1) * 500 * time.Millisecond
+				log.Printf("[WEBHOOK] Rate limited, waiting %v before retry (attempt %d/%d)", waitTime, attempt+1, maxRetries)
+				time.Sleep(waitTime)
+				continue
+			}
+		}
+
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
+			return nil
+		}
+
+		// For other errors, don't retry
 		log.Printf("[WEBHOOK] Webhook file returned status %d: %s", resp.StatusCode, string(bodyBytes))
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 	}
 
-	return nil
+	return fmt.Errorf("webhook rate limited after %d retries", maxRetries)
 }
 
 // SendWebhookFileAsync sends a file to Discord webhook asynchronously (non-blocking)

@@ -19,7 +19,9 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/depconfusion"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/dns"
+	domainmod "github.com/h0tak88r/AutoAR/v3/internal/modules/domain"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/fastlook"
+	subdomainmod "github.com/h0tak88r/AutoAR/v3/internal/modules/subdomain"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/ffuf"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/gf"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/github-wordlist"
@@ -44,6 +46,7 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/wp-confusion"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
 	scopemod "github.com/h0tak88r/AutoAR/v3/internal/modules/scope"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/zerodays"
 	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/mitm"
 	next88 "github.com/h0tak88r/AutoAR/v3/internal/tools/next88"
@@ -171,8 +174,7 @@ Commands:
   keyhack add <keyname> <command> <desc> [notes] Add a new template
   jwt scan             --token <JWT_TOKEN> [OPTIONS]                Scan JWT token for vulnerabilities using jwt-hack
                                                                     Options: --skip-crack, --skip-payloads, --test-attacks, -w wordlist, --max-crack-attempts N
-  react2shell scan     -d <domain> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]
-  react2shell scan     -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]
+  zerodays scan        -d <domain> | -s <subdomain> | -f <domains_file> [-t <threads>] [--cve <cve>] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>] [--silent]
                                                                     For each domain: collects live hosts, then runs smart scan
                                                                     --silent: Output only vulnerable hosts (one per line, no progress)
   ffuf fuzz            -u <url> [-w <wordlist>] [-t <threads>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>]
@@ -367,6 +369,97 @@ func handleFastlookCommand(args []string) error {
 	}
 	_, err := fastlook.RunFastlook(domain)
 	return err
+}
+
+// handleDomainCommand parses: autoar domain run -d <domain>
+func handleDomainCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: domain run -d <domain>")
+	}
+	if args[0] == "run" {
+		args = args[1:]
+	}
+	var domain string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain = args[i+1]
+				i++
+			}
+		}
+	}
+	if domain == "" {
+		return fmt.Errorf("domain (-d) is required; usage: domain run -d <domain>")
+	}
+	_, err := domainmod.RunDomain(domain)
+	
+	// Cleanup domain directory after scan completes (on exit, not before)
+	if cleanupErr := cleanupDomainDirectoryForCLI(domain); cleanupErr != nil {
+		fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", domain, cleanupErr)
+	}
+	
+	return err
+}
+
+// handleSubdomainCommand parses: autoar subdomain run -s <subdomain>
+func handleSubdomainCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: subdomain run -s <subdomain>")
+	}
+	if args[0] == "run" {
+		args = args[1:]
+	}
+	var subdomain string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-s", "--subdomain":
+			if i+1 < len(args) {
+				subdomain = args[i+1]
+				i++
+			}
+		}
+	}
+	if subdomain == "" {
+		return fmt.Errorf("subdomain (-s) is required; usage: subdomain run -s <subdomain>")
+	}
+	
+	// Extract root domain from subdomain for cleanup
+	rootDomain := extractRootDomainFromSubdomain(subdomain)
+	
+	_, err := subdomainmod.RunSubdomain(subdomain)
+	
+	// Cleanup domain directory after scan completes (on exit, not before)
+	if cleanupErr := cleanupDomainDirectoryForCLI(rootDomain); cleanupErr != nil {
+		fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", rootDomain, cleanupErr)
+	}
+	
+	return err
+}
+
+// extractRootDomainFromSubdomain extracts the root domain from a subdomain
+// e.g., "www.example.com" -> "example.com", "sub.sub.example.com" -> "example.com"
+func extractRootDomainFromSubdomain(host string) string {
+	// Remove protocol if present
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimPrefix(host, "https://")
+	
+	// Remove port if present
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	
+	// Remove path if present
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
+	
+	parts := strings.Split(host, ".")
+	if len(parts) >= 2 {
+		// Return last two parts (e.g., example.com)
+		return strings.Join(parts[len(parts)-2:], ".")
+	}
+	return host
 }
 
 // handleLiteCommand parses: autoar lite run -d <domain> [--skip-js] [--phase-timeout <seconds>] [--timeout-* <seconds>]
@@ -1228,25 +1321,36 @@ func generateKeyhackCommand(t db.KeyhackTemplate, apiKey string) string {
 	return strings.Join(curlParts, " ")
 }
 
-// handleReact2ShellCommand handles CLI react2shell scan
-// Usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]
-func handleReact2ShellCommand(args []string) error {
+// handleZerodaysCommand handles CLI zerodays scan
+// Usage: zerodays scan -d <domain> | -s <subdomain> | -f <domains_file> [-t <threads>] [--cve <cve>] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>] [--silent]
+func handleZerodaysCommand(args []string) error {
 	if len(args) == 0 || args[0] != "scan" {
-		return fmt.Errorf("usage: react2shell scan -d <domain> | -f <domains_file> [-t <threads>] [--dos-test] [--enable-source-exposure] [-s|--silent]")
+		return fmt.Errorf("usage: zerodays scan -d <domain> | -s <subdomain> | -f <domains_file> [-t <threads>] [--cve <cve>] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>] [--silent]")
 	}
 	args = args[1:]
 
-	var domain, domainsFile string
+	var domain, subdomain, domainsFile string
 	threads := 100
 	dosTest := false
 	enableSourceExposure := false
 	silent := false
+	var cves []string
+	mongoDBHost := ""
+	mongoDBPort := 27017
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-d", "--domain":
 			if i+1 < len(args) {
 				domain = args[i+1]
+				i++
+			}
+		case "-s", "--subdomain":
+			if i+1 < len(args) {
+				// Clean URL: remove http:// or https:// prefix
+				subdomain = strings.TrimPrefix(strings.TrimPrefix(args[i+1], "https://"), "http://")
+				// Remove trailing slash if present
+				subdomain = strings.TrimSuffix(subdomain, "/")
 				i++
 			}
 		case "-f", "--file":
@@ -1261,25 +1365,62 @@ func handleReact2ShellCommand(args []string) error {
 				}
 				i++
 			}
+		case "--cve":
+			if i+1 < len(args) {
+				cves = append(cves, args[i+1])
+				i++
+			}
 		case "--dos-test":
 			dosTest = true
 		case "--enable-source-exposure":
 			enableSourceExposure = true
-		case "-s", "--silent":
+		case "--mongodb-host":
+			if i+1 < len(args) {
+				mongoDBHost = args[i+1]
+				i++
+			}
+		case "--mongodb-port":
+			if i+1 < len(args) {
+				if p, err := strconv.Atoi(args[i+1]); err == nil {
+					mongoDBPort = p
+				}
+				i++
+			}
+		case "--silent":
 			silent = true
 		}
 	}
 
-	if domain == "" && domainsFile == "" {
-		return fmt.Errorf("either -d <domain> or -f <domains_file> must be provided")
+	// Validate that exactly one input method is provided
+	inputCount := 0
+	if domain != "" {
+		inputCount++
 	}
-	if domain != "" && domainsFile != "" {
-		return fmt.Errorf("cannot use both -d and -f together")
+	if subdomain != "" {
+		inputCount++
+	}
+	if domainsFile != "" {
+		inputCount++
+	}
+
+	if inputCount == 0 {
+		return fmt.Errorf("either -d <domain>, -s <subdomain>, or -f <domains_file> must be provided")
+	}
+	if inputCount > 1 {
+		return fmt.Errorf("cannot use -d, -s, and -f together - use only one")
 	}
 
 	var domains []string
-	if domain != "" {
+	var isSubdomainMode bool
+	
+	if subdomain != "" {
+		// Single subdomain mode
+		domains = []string{subdomain}
+		isSubdomainMode = true
+	} else if domain != "" {
+		// Single domain mode
 		domains = []string{domain}
+		isSubdomainMode = false
 	} else {
 		// Read domains from file
 		file, err := os.Open(domainsFile)
@@ -1301,6 +1442,7 @@ func handleReact2ShellCommand(args []string) error {
 		if len(domains) == 0 {
 			return fmt.Errorf("no valid domains found in file")
 		}
+		isSubdomainMode = false // File mode defaults to domain mode
 	}
 
 	// Set silent mode for file scanning
@@ -1309,52 +1451,54 @@ func handleReact2ShellCommand(args []string) error {
 
 	// Print initial status (only if not silent)
 	if !silent {
-		fmt.Fprintf(os.Stderr, "Starting react2shell scan for %d domains...\n", len(domains))
-		fmt.Fprintf(os.Stderr, "Processing sequentially...\n\n")
+		if isSubdomainMode {
+			fmt.Fprintf(os.Stderr, "Starting zerodays scan for subdomain: %s\n", subdomain)
+		} else {
+			fmt.Fprintf(os.Stderr, "Starting zerodays scan for %d domain(s)...\n", len(domains))
+		}
+		if len(cves) > 0 {
+			fmt.Fprintf(os.Stderr, "CVEs to check: %s\n", strings.Join(cves, ", "))
+		} else {
+			fmt.Fprintf(os.Stderr, "CVEs to check: All (CVE-2025-55182, CVE-2025-14847)\n")
+		}
+		if len(domains) > 1 {
+			fmt.Fprintf(os.Stderr, "Processing sequentially...\n\n")
+		}
 	}
 
 	// Process each domain
 	for idx, targetDomain := range domains {
 		// Print progress immediately (only if not silent)
-		if !silent {
+		if !silent && len(domains) > 1 {
 			fmt.Fprintf(os.Stderr, "[%d/%d] Processing %s...\n", idx+1, len(domains), targetDomain)
 		}
-		
-		// Step 1: Get live hosts (with timeout context)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		liveHostsFile, err := getLiveHostsForCLIWithContext(ctx, targetDomain, threads)
-		cancel()
-		if err != nil {
-			if !silent {
-				if err == context.DeadlineExceeded {
-					fmt.Printf("[%d/%d] %s: TIMEOUT - Live hosts collection took too long, skipping\n", idx+1, len(domains), targetDomain)
-				} else {
-					fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
-				}
-			}
-			continue
+
+		// Prepare zerodays options
+		zerodaysOpts := zerodays.Options{
+			Threads:             threads,
+			DOSTest:             dosTest,
+			EnableSourceExposure: enableSourceExposure,
+			Silent:              silent,
+			CVEs:                cves,
+			MongoDBHost:         mongoDBHost,
+			MongoDBPort:         mongoDBPort,
 		}
 
-		// Step 2: Normalize hosts
-		hosts, err := normalizeHostsForCLI(liveHostsFile)
-		if err != nil {
-			if !silent {
-				fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
+		// Set Domain or Subdomain based on input mode
+		if isSubdomainMode {
+			zerodaysOpts.Subdomain = targetDomain
+		} else {
+			// For file mode, try to detect if it's a subdomain
+			parts := strings.Split(targetDomain, ".")
+			if len(parts) > 2 {
+				zerodaysOpts.Subdomain = targetDomain
+			} else {
+				zerodaysOpts.Domain = targetDomain
 			}
-			continue
 		}
 
-		if len(hosts) == 0 {
-			if !silent {
-				fmt.Printf("[%d/%d] %s: 0 hosts scanned\n", idx+1, len(domains), targetDomain)
-			}
-			continue
-		}
-
-		// Step 3: Run smart scan
-		smartCtx, smartCancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		smartScanResults, err := runNext88ScanForCLIWithTypes(smartCtx, hosts, []string{"-smart-scan"})
-		smartCancel()
+		// Run zerodays scan
+		result, err := zerodays.Run(zerodaysOpts)
 		if err != nil {
 			if !silent {
 				fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
@@ -1362,79 +1506,93 @@ func handleReact2ShellCommand(args []string) error {
 			continue
 		}
 
-		// Collect all vulnerable hosts with their types
-		allVulnerable := make(map[string]string) // host -> comma-separated types
-		for h, vulnType := range smartScanResults {
-			allVulnerable[h] = vulnType
+		// Save results (always save, even in silent mode)
+		resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+		if resultsDir == "" {
+			resultsDir = "new-results"
 		}
-
-		// Step 4: DoS test (if enabled)
-		if dosTest {
-			dosCtx, dosCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			dosResults, err := runNext88ScanForCLIWithTypes(dosCtx, hosts, []string{"-dos-test", "-dos-requests", "100"})
-			dosCancel()
-			if err == nil {
-				for h, vulnType := range dosResults {
-					if existingType, exists := allVulnerable[h]; exists {
-						if !strings.Contains(existingType, vulnType) {
-							allVulnerable[h] = existingType + "," + vulnType
-						}
-					} else {
-						allVulnerable[h] = vulnType
-					}
-				}
+		outputDir := filepath.Join(resultsDir, targetDomain, "zerodays")
+		// Always save results, regardless of silent mode
+		// Log save attempt even in silent mode for debugging
+		if !silent {
+			fmt.Printf("[%d/%d] %s: Saving results to %s...\n", idx+1, len(domains), targetDomain, outputDir)
+		}
+		if err := zerodays.SaveResults(result, outputDir); err != nil {
+			// Always log save errors, even in silent mode (this is critical)
+			fmt.Fprintf(os.Stderr, "[WARN] Failed to save zerodays results to %s: %v\n", outputDir, err)
+		} else {
+			// Verify files were created (even in silent mode)
+			react2ShellFile := filepath.Join(outputDir, "react2shell-cve-2025-55182.txt")
+			mongoFile := filepath.Join(outputDir, "mongodb-cve-2025-14847.txt")
+			jsonFile := filepath.Join(outputDir, "zerodays-results.json")
+			
+			// Check all expected files
+			filesExist := true
+			if _, err := os.Stat(react2ShellFile); err != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] React2Shell results file not found: %s (error: %v)\n", react2ShellFile, err)
+				filesExist = false
 			}
-		}
-
-		// Step 5: Source exposure check (if enabled)
-		if enableSourceExposure {
-			sourceCtx, sourceCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			sourceResults, err := runNext88ScanForCLIWithTypes(sourceCtx, hosts, []string{"-check-source-exposure"})
-			sourceCancel()
-			if err == nil {
-				for h, vulnType := range sourceResults {
-					if existingType, exists := allVulnerable[h]; exists {
-						if !strings.Contains(existingType, vulnType) {
-							allVulnerable[h] = existingType + "," + vulnType
-						}
-					} else {
-						allVulnerable[h] = vulnType
-					}
-				}
+			if _, err := os.Stat(mongoFile); err != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] MongoDB results file not found: %s (error: %v)\n", mongoFile, err)
+				filesExist = false
+			}
+			if _, err := os.Stat(jsonFile); err != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] Zerodays JSON file not found: %s (error: %v)\n", jsonFile, err)
+				filesExist = false
+			}
+			
+			if filesExist && !silent {
+				fmt.Printf("[%d/%d] %s: Results saved to %s\n", idx+1, len(domains), targetDomain, outputDir)
 			}
 		}
 
 		// Print output
-		vulnerableList := make([]string, 0, len(allVulnerable))
-		for h := range allVulnerable {
-			vulnerableList = append(vulnerableList, h)
-		}
-
-		if len(vulnerableList) > 0 {
+		if len(result.React2ShellVulns) > 0 || len(result.MongoDBVulns) > 0 {
 			if silent {
-				// Silent mode: output vulnerable hosts with their types
-				for _, host := range vulnerableList {
-					vulnType := allVulnerable[host]
-					fmt.Printf("%s [%s]\n", host, vulnType)
+				// Silent mode: output vulnerable hosts
+				for _, vuln := range result.React2ShellVulns {
+					fmt.Printf("%s [React2Shell:%s]\n", vuln.URL, vuln.Type)
+				}
+				for _, vuln := range result.MongoDBVulns {
+					if vuln.Vulnerable {
+						fmt.Printf("%s:%d [MongoDB:CVE-2025-14847]\n", vuln.Host, vuln.Port)
+					}
 				}
 			} else {
 				// Verbose mode: show full details
-				fmt.Printf("[%d/%d] %s: %d hosts scanned, %d vulnerable:\n", idx+1, len(domains), targetDomain, len(hosts), len(vulnerableList))
-				for _, host := range vulnerableList {
-					vulnType := allVulnerable[host]
-					fmt.Printf("  - %s [%s]\n", host, vulnType)
+				fmt.Printf("[%d/%d] %s: %d hosts scanned, %d vulnerable:\n", idx+1, len(domains), targetDomain, result.TotalHostsScanned, result.TotalVulnerable)
+				for _, vuln := range result.React2ShellVulns {
+					fmt.Printf("  - %s [React2Shell:%s] - %s\n", vuln.URL, vuln.Type, vuln.Severity)
+				}
+				for _, vuln := range result.MongoDBVulns {
+					if vuln.Vulnerable {
+						fmt.Printf("  - %s:%d [MongoDB:CVE-2025-14847] - Leaked %d bytes\n", vuln.Host, vuln.Port, len(vuln.LeakedData))
+					}
 				}
 			}
 		} else {
 			if !silent {
-				fmt.Printf("[%d/%d] %s: %d hosts scanned\n", idx+1, len(domains), targetDomain, len(hosts))
+				fmt.Printf("[%d/%d] %s: %d hosts scanned\n", idx+1, len(domains), targetDomain, result.TotalHostsScanned)
 			}
 		}
-		
+
 		// Cleanup domain directory after each domain scan
-		if err := cleanupDomainDirectoryForCLI(targetDomain); err != nil {
-			if !silent {
-				fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", targetDomain, err)
+		// BUT: Skip cleanup if running from subdomain/domain workflow (they need the files)
+		// Check if we're being called from another workflow by checking for workflow environment variables
+		isWorkflowRun := os.Getenv("AUTOAR_CURRENT_CHANNEL_ID") != "" || os.Getenv("AUTOAR_CURRENT_SCAN_ID") != ""
+		// Also skip cleanup for subdomain mode (when -s flag is used) as files are needed by workflow
+		if !isWorkflowRun && !isSubdomainMode {
+			if err := cleanupDomainDirectoryForCLI(targetDomain); err != nil {
+				if !silent {
+					fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", targetDomain, err)
+				}
+			}
+		} else if !silent {
+			// Log that we're skipping cleanup
+			if isWorkflowRun {
+				fmt.Printf("[DEBUG] Skipping cleanup (workflow run detected)\n")
+			} else if isSubdomainMode {
+				fmt.Printf("[DEBUG] Skipping cleanup (subdomain mode - files needed by workflow)\n")
 			}
 		}
 	}
@@ -3202,6 +3360,12 @@ func main() {
 	case "lite":
 		err = handleLiteCommand(args)
 
+	case "domain":
+		err = handleDomainCommand(args)
+
+	case "subdomain":
+		err = handleSubdomainCommand(args)
+
 	case "nuclei":
 		err = handleNucleiCommand(args)
 
@@ -3258,8 +3422,8 @@ func main() {
 	case "misconfig":
 		err = handleMisconfigCommand(args)
 
-	case "react2shell":
-		err = handleReact2ShellCommand(args)
+	case "zerodays", "0days":
+		err = handleZerodaysCommand(args)
 
 	case "monitor":
 		err = handleMonitorCommand(args)

@@ -547,6 +547,41 @@ func (s *SQLiteDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, e
 	return subs, nil
 }
 
+// ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain.
+func (s *SQLiteDB) ListLiveSubdomains(domain string) ([]SubdomainStatus, error) {
+	rows, err := s.db.Query(`
+		SELECT s.subdomain, 
+		       COALESCE(s.http_url, ''), 
+		       COALESCE(s.https_url, ''), 
+		       COALESCE(s.http_status, 0), 
+		       COALESCE(s.https_status, 0),
+		       COALESCE(s.is_live, 0)
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE d.domain = ? AND s.is_live = 1
+		ORDER BY s.subdomain;
+	`, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query live subdomains: %v", err)
+	}
+	defer rows.Close()
+
+	var subs []SubdomainStatus
+	for rows.Next() {
+		var s SubdomainStatus
+		var isLiveInt int
+		if err := rows.Scan(&s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &isLiveInt); err != nil {
+			return nil, fmt.Errorf("failed to scan live subdomain status: %v", err)
+		}
+		s.IsLive = isLiveInt != 0
+		subs = append(subs, s)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate live subdomains: %v", rows.Err())
+	}
+	return subs, nil
+}
+
 // CountSubdomains returns the count of subdomains for a given domain.
 func (s *SQLiteDB) CountSubdomains(domain string) (int, error) {
 	var count int
