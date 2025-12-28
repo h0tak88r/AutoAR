@@ -130,6 +130,7 @@ func checkAndInstallSystemPackages(osType string) error {
 			"curl":                     "curl",
 			"jq":                       "jq",
 			"dnsutils":                 "dnsutils",
+			"docker.io":                "docker.io", // Docker for DNSReaper
 		}
 		
 		packageChecker = func(pkg string) bool {
@@ -181,6 +182,7 @@ func checkAndInstallSystemPackages(osType string) error {
 			"curl":                    "curl",
 			"jq":                      "jq",
 			"bind-utils":              "bind-utils",
+			"docker":                  "docker", // Docker for DNSReaper
 		}
 		
 		packageChecker = func(pkg string) bool {
@@ -218,6 +220,33 @@ func checkAndInstallSystemPackages(osType string) error {
 	}
 
 	fmt.Println("   ✅ System packages installed")
+	
+	// Check if Docker is installed and provide setup instructions if not
+	if _, err := exec.LookPath("docker"); err != nil {
+		fmt.Println()
+		fmt.Println("   ⚠️  Docker is not installed or not in PATH")
+		fmt.Println("   📖 Docker is required for DNSReaper (DNS takeover detection)")
+		fmt.Println("   💡 To install Docker:")
+		fmt.Println("      - Debian/Ubuntu: sudo apt-get install docker.io")
+		fmt.Println("      - RHEL/CentOS: sudo yum install docker")
+		fmt.Println("      - Or follow: https://docs.docker.com/get-docker/")
+		fmt.Println("      - After installation, add your user to docker group:")
+		fmt.Println("        sudo usermod -aG docker $USER")
+		fmt.Println("        (then log out and back in)")
+	} else {
+		// Check if Docker daemon is running
+		cmd := exec.Command("docker", "info")
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		if err := cmd.Run(); err != nil {
+			fmt.Println()
+			fmt.Println("   ⚠️  Docker is installed but daemon is not running")
+			fmt.Println("   💡 Start Docker daemon: sudo systemctl start docker")
+		} else {
+			fmt.Println("   ✅ Docker is installed and running")
+		}
+	}
+	
 	return nil
 }
 

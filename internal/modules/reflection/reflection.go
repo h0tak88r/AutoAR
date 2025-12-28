@@ -26,6 +26,7 @@ type Result struct {
 // Options holds reflection scan options
 type Options struct {
 	Domain      string
+	Subdomain   string // Single subdomain to scan (alternative to Domain)
 	Threads     int
 	Timeout     time.Duration
 	URLThreads  int // Concurrency for URL collection
@@ -57,6 +58,20 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		opts.URLThreads = 200
 	}
 
+	// Determine which target to use and whether to skip subdomain enumeration
+	var target string
+	skipSubdomainEnum := false
+	
+	if opts.Subdomain != "" {
+		// Use subdomain mode: work with the specific subdomain
+		target = strings.TrimPrefix(strings.TrimPrefix(opts.Subdomain, "http://"), "https://")
+		skipSubdomainEnum = true
+	} else {
+		// Use domain mode: full enumeration
+		target = opts.Domain
+		skipSubdomainEnum = false
+	}
+
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
 	defer cancel()
@@ -71,16 +86,29 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to create output dir: %w", err)
 	}
 
-	// Ensure URLs exist via Go urls module (with higher concurrency)
-	if _, err := os.Stat(urlsFile); err != nil {
-		log.Printf("[INFO] URLs file missing, collecting URLs for %s (threads: %d)", opts.Domain, opts.URLThreads)
+	// Check if URLs file already exists before collecting (with retry logic)
+	maxRetries := 5
+	retryDelay := 500 * time.Millisecond
+	urlsFileExists := false
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if info, err := os.Stat(urlsFile); err == nil && info.Size() > 0 {
+			urlsFileExists = true
+			break
+		}
+		if attempt < maxRetries {
+			time.Sleep(retryDelay)
+		}
+	}
+	
+	if !urlsFileExists {
+		log.Printf("[INFO] URLs file missing, collecting URLs for %s (threads: %d)", target, opts.URLThreads)
 		urlCtx, urlCancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer urlCancel()
 		
 		// Run URL collection in goroutine with context
 		urlErrChan := make(chan error, 1)
 		go func() {
-			_, err := urls.CollectURLs(opts.Domain, opts.URLThreads, false)
+			_, err := urls.CollectURLs(target, opts.URLThreads, skipSubdomainEnum)
 			urlErrChan <- err
 		}()
 		
@@ -88,29 +116,49 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		case err := <-urlErrChan:
 			if err != nil {
 				log.Printf("[WARN] Failed to collect URLs: %v", err)
-				return nil, fmt.Errorf("failed to get URLs for %s: %w", opts.Domain, err)
+				return nil, fmt.Errorf("failed to get URLs for %s: %w", target, err)
 			}
 		case <-urlCtx.Done():
 			log.Printf("[WARN] URL collection timed out after 10 minutes")
-			return nil, fmt.Errorf("URL collection timed out for %s", opts.Domain)
+			return nil, fmt.Errorf("URL collection timed out for %s", target)
+		}
+		
+		// Wait for file to be written with retry logic
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			if info, err := os.Stat(urlsFile); err == nil && info.Size() > 0 {
+				urlsFileExists = true
+				break
+			}
+			if attempt < maxRetries {
+				time.Sleep(retryDelay)
+			}
 		}
 	}
 
-	if _, err := os.Stat(urlsFile); err != nil {
-		return nil, fmt.Errorf("URLs file not found: %s", urlsFile)
+	if !urlsFileExists {
+		return nil, fmt.Errorf("URLs file not found after collection and retries: %s", urlsFile)
 	}
 
-	// Run embedded kxss engine with concurrency and timeout
-	log.Printf("[INFO] Running embedded kxss reflection scan for %s (threads: %d, timeout: %v)", opts.Domain, opts.Threads, opts.Timeout)
-	
 	// Read URLs from file
 	urlLines, err := readLines(urlsFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read URLs file: %w", err)
 	}
 
+	// Filter out empty lines
+	var validURLs []string
+	for _, url := range urlLines {
+		if strings.TrimSpace(url) != "" {
+			validURLs = append(validURLs, url)
+		}
+	}
+
+	// Run embedded kxss engine with concurrency and timeout
+	log.Printf("[INFO] Running embedded kxss reflection scan for %s (threads: %d, timeout: %v)", target, opts.Threads, opts.Timeout)
+	log.Printf("[INFO] Scanning %d URL(s) for reflection points", len(validURLs))
+	
 	// Scan URLs with concurrency and timeout
-	kxssResults, err := scanURLsWithConcurrency(ctx, urlLines, opts.Threads)
+	kxssResults, err := scanURLsWithConcurrency(ctx, validURLs, opts.Threads)
 	if err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("[WARN] kxss scan timed out after %v", opts.Timeout)
@@ -121,12 +169,14 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		if err := os.WriteFile(outFile, []byte(""), 0o644); err != nil {
 			return nil, fmt.Errorf("failed to create empty output file: %w", err)
 		}
+		log.Printf("[INFO] No reflection points found after scanning %d URL(s)", len(validURLs))
 	} else {
 		// Write results in the same text format as original kxss
 		var lines []string
 		for _, r := range kxssResults {
 			lines = append(lines, fmt.Sprintf("URL: %s Param: %s Unfiltered: %v ", r.URL, r.Param, r.Chars))
 		}
+		log.Printf("[OK] Found %d reflection point(s) out of %d URL(s) scanned", len(kxssResults), len(validURLs))
 		if err := os.WriteFile(outFile, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 			return nil, fmt.Errorf("failed to write kxss results: %w", err)
 		}

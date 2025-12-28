@@ -24,7 +24,10 @@ AutoAR is a comprehensive, modular security automation toolkit designed for bug 
 
 ### 🛡️ **Vulnerability Scanning**
 - **Nuclei Integration**: 1000+ vulnerability templates with custom rate limiting
-- **React2Shell Scanner**: React Server Components RCE detection (CVE-2025-55182) with WAF bypass methods, source code exposure checks, DoS testing, and batch domain processing with automatic live hosts collection
+- **Zerodays Scanner**: Multi-CVE vulnerability scanner with real-time Discord webhook notifications:
+  - **React2Shell (CVE-2025-55182)**: React Server Components RCE detection with WAF bypass methods, source code exposure checks, DoS testing, and batch domain processing with automatic live hosts collection
+  - **MongoDB Memory Leak (CVE-2025-14847)**: Automated MongoDB instance discovery via port scanning and vulnerability testing
+  - **Real-time Notifications**: Vulnerabilities are sent to Discord webhook immediately as they're discovered (no waiting for scan completion)
 - **WordPress Plugin Confusion**: Automated WP plugin/theme confusion attack detection
 - **Dependency Confusion**: GitHub repository dependency confusion scanning
 - **S3 Bucket Enumeration**: AWS S3 bucket discovery and analysis (pure Go via AWS SDK v2, no aws CLI required). Supports both authenticated and unauthenticated testing - automatically falls back to HTTP-based public access testing when credentials are missing
@@ -361,9 +364,9 @@ Once the bot is running, use these slash commands in Discord:
 
 #### Vulnerability Scanning
 - `/nuclei domain:example.com [threads:100]` - Run Nuclei scans
-- `/react2shell domain:example.com [threads:100] [enable_source_exposure:false] [dos_test:false]` - Scan domain hosts for React Server Components RCE (CVE-2025-55182) using next88 smart scan (sequential: normal → WAF bypass → Vercel WAF → paths). Automatically collects live hosts first, then runs smart scan.
-- `/react2shell file:<domains.txt> [threads:100] [enable_source_exposure:false] [dos_test:false]` - Process multiple domains from file. For each domain: collects live hosts, then runs smart scan. Perfect for batch scanning.
-- `/react2shell url:https://example.com [verbose:false]` - Test single URL for React Server Components RCE using next88 smart scan
+- `/zerodays domain:example.com [threads:100] [--cve CVE-2025-55182,CVE-2025-14847] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>]` - Multi-CVE zerodays scanner. Supports React2Shell (CVE-2025-55182) and MongoDB Memory Leak (CVE-2025-14847). Automatically discovers MongoDB instances via port scanning if host not provided. **Real-time webhook notifications** sent immediately when vulnerabilities are found.
+- `/zerodays subdomain:https://subdomain.example.com [threads:100] [--cve CVE-2025-55182]` - Scan single subdomain for React2Shell vulnerability (no enumeration, direct scan).
+- `/zerodays file:<domains.txt> [threads:100] [--cve CVE-2025-55182,CVE-2025-14847]` - Process multiple domains from file. For each domain: collects live hosts, then runs scans. Perfect for batch scanning.
 - `/jwt_scan token:<JWT_TOKEN> [skip_crack:false] [skip_payloads:false] [wordlist:] [max_crack_attempts:]` - JWT token vulnerability scanning using jwt-hack
 - `/wpdepconf domain:example.com` - WordPress plugin confusion
 - `/dalfox domain:example.com [threads:100]` - XSS detection
@@ -872,10 +875,16 @@ curl -X POST "http://localhost:8000/scan/dns" \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com", "dns_type": "dangling-ip"}'
 
-# React2Shell RCE Scan (CVE-2025-55182)
-curl -X POST "http://localhost:8000/scan/react2shell" \
+# Zerodays Multi-CVE Scan (React2Shell + MongoDB)
+# Real-time webhook notifications sent immediately when vulnerabilities are found
+curl -X POST "http://localhost:8000/scan/zerodays" \
   -H "Content-Type: application/json" \
-  -d '{"domain": "example.com", "dos_test": true, "enable_source_exposure": true}'
+  -d '{"domain": "example.com", "cves": ["CVE-2025-55182", "CVE-2025-14847"], "dos_test": true, "enable_source_exposure": true, "threads": 200}'
+
+# Zerodays Single Subdomain Scan
+curl -X POST "http://localhost:8000/scan/zerodays" \
+  -H "Content-Type: application/json" \
+  -d '{"subdomain": "https://subdomain.example.com", "cves": ["CVE-2025-55182"], "threads": 100}'
 
 # Cloud Misconfiguration Scan
 curl -X POST "http://localhost:8000/scan/misconfig" \

@@ -24,6 +24,8 @@ func Run() error {
 		{"jq", "jq"},
 		{"curl", "curl"},
 		{"git", "git"},
+		// Docker (required for DNSReaper in DNS takeover scans)
+		{"docker", "docker"},
 		// Library-integrated tools:
 		// - next88 (React2Shell) is now embedded as a Go package and
 		//   does not require an external binary.

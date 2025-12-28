@@ -152,7 +152,17 @@ func ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
 		}
 	}
 	return dbInstance.ListSubdomainsWithStatus(domain)
+}
+
+// ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain.
+func ListLiveSubdomains(domain string) ([]SubdomainStatus, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
 	}
+	return dbInstance.ListLiveSubdomains(domain)
+}
 
 // CountSubdomains returns the count of subdomains for a given domain.
 func CountSubdomains(domain string) (int, error) {

@@ -57,7 +57,7 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 	}
 
 	// 2. Run httpx to filter live hosts
-	liveCount, err := runHTTPX(domain, threads, subsFile, liveFile)
+	liveCount, liveHostMap, err := runHTTPX(domain, threads, subsFile, liveFile)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 
 	// 3. Update database with live host information (optional but desirable)
 	if liveCount > 0 {
-		if err := updateDatabase(domain, liveFile); err != nil {
+		if err := updateDatabaseFromMap(domain, liveHostMap); err != nil {
 			log.Printf("[WARN] Failed to update database with live hosts for %s: %v", domain, err)
 		}
 	}
@@ -148,17 +148,25 @@ func ensureSubdomains(domain string, threads int, subsFile string) (int, error) 
 	return total, nil
 }
 
+// LiveHostResult represents a live host with its URL and status code
+type LiveHostResult struct {
+	URL        string
+	StatusCode int
+	Scheme     string // "http" or "https"
+	Host       string // hostname without scheme
+}
+
 // runHTTPX executes httpx against the subdomains file and writes live hosts to liveFile.
-// It returns the number of live hosts.
-func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error) {
+// It returns the number of live hosts and a slice of LiveHostResult for database storage.
+func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, []LiveHostResult, error) {
 	if _, err := os.Stat(subsFile); err != nil {
-		return 0, fmt.Errorf("subdomains file not found: %s", subsFile)
+		return 0, nil, fmt.Errorf("subdomains file not found: %s", subsFile)
 	}
 
 	// Read subdomains from file
 	file, err := os.Open(subsFile)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open subdomains file: %v", err)
+		return 0, nil, fmt.Errorf("failed to open subdomains file: %v", err)
 	}
 	defer file.Close()
 
@@ -171,21 +179,22 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("failed to read subdomains file: %v", err)
+		return 0, nil, fmt.Errorf("failed to read subdomains file: %v", err)
 	}
 
 	if len(targets) == 0 {
 		log.Printf("[WARN] No subdomains found in file")
 		if err := writeLines(liveFile, nil); err != nil {
-			return 0, fmt.Errorf("failed to create empty live hosts file: %v", err)
+			return 0, nil, fmt.Errorf("failed to create empty live hosts file: %v", err)
 		}
-		return 0, nil
+		return 0, nil, nil
 	}
 
 	log.Printf("[INFO] Filtering live hosts via httpx with %d threads", threads)
 
-	// Collect live hosts
+	// Collect live hosts with their details
 	var liveHosts []string
+	var liveHostResults []LiveHostResult // Store all results to handle both http and https per host
 	var mu sync.Mutex
 
 	// Configure httpx options with callback
@@ -198,10 +207,32 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error
 		FollowHostRedirects: true,
 		HTTPProxy:      os.Getenv("HTTP_PROXY"),
 		SocksProxy:     os.Getenv("SOCKS_PROXY"),
+		StatusCode:     true, // Enable status code in results
 		OnResult: func(result runner.Result) {
 			if result.URL != "" {
 				mu.Lock()
 				liveHosts = append(liveHosts, result.URL)
+				
+				// Extract host from URL
+				host := result.URL
+				scheme := "https"
+				if strings.HasPrefix(host, "http://") {
+					scheme = "http"
+					host = strings.TrimPrefix(host, "http://")
+				} else if strings.HasPrefix(host, "https://") {
+					host = strings.TrimPrefix(host, "https://")
+				}
+				if idx := strings.Index(host, "/"); idx != -1 {
+					host = host[:idx]
+				}
+				
+				// Store result for database (we'll group by host later)
+				liveHostResults = append(liveHostResults, LiveHostResult{
+					URL:        result.URL,
+					StatusCode: result.StatusCode,
+					Scheme:     scheme,
+					Host:       host,
+				})
 				mu.Unlock()
 			}
 		},
@@ -209,13 +240,13 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error
 
 	// Validate options
 	if err := options.ValidateOptions(); err != nil {
-		return 0, fmt.Errorf("failed to validate httpx options: %v", err)
+		return 0, nil, fmt.Errorf("failed to validate httpx options: %v", err)
 	}
 
 	// Create httpx runner
 	httpxRunner, err := runner.New(&options)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create httpx runner: %v", err)
+		return 0, nil, fmt.Errorf("failed to create httpx runner: %v", err)
 	}
 	defer httpxRunner.Close()
 
@@ -225,7 +256,7 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error
 	// Write results to file
 	outFile, err := os.Create(liveFile)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create output file: %v", err)
+		return 0, nil, fmt.Errorf("failed to create output file: %v", err)
 	}
 	defer outFile.Close()
 
@@ -238,12 +269,13 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, error
 	}
 
 	log.Printf("[OK] Found %d live hosts", len(liveHosts))
-	return len(liveHosts), nil
+	return len(liveHosts), liveHostResults, nil
 }
 
-// updateDatabase marks live hosts in the subdomains table using InsertSubdomain.
-func updateDatabase(domain, liveFile string) error {
-	if os.Getenv("DB_HOST") == "" {
+// updateDatabaseFromMap updates the database with live hosts from the httpx results slice.
+// It groups results by host to merge http and https entries.
+func updateDatabaseFromMap(domain string, liveHostResults []LiveHostResult) error {
+	if os.Getenv("DB_HOST") == "" && os.Getenv("SAVE_TO_DB") != "true" {
 		return nil
 	}
 
@@ -255,40 +287,42 @@ func updateDatabase(domain, liveFile string) error {
 		return err
 	}
 
-	file, err := os.Open(liveFile)
-	if err != nil {
-		return fmt.Errorf("failed to open live hosts file: %v", err)
+	// Group results by host to merge http and https
+	type hostInfo struct {
+		httpURL     string
+		httpsURL    string
+		httpStatus  int
+		httpsStatus int
 	}
-	defer file.Close()
+	hostResults := make(map[string]hostInfo)
 
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+	for _, result := range liveHostResults {
+		res := hostResults[result.Host]
+		if result.Scheme == "http" {
+			res.httpURL = result.URL
+			res.httpStatus = result.StatusCode
+		} else if result.Scheme == "https" {
+			res.httpsURL = result.URL
+			res.httpsStatus = result.StatusCode
+		}
+		hostResults[result.Host] = res
+	}
+
+	// Insert/update each host in database
+	for host, res := range hostResults {
+		// Fallback: construct URLs if not found
+		httpURL := res.httpURL
+		httpsURL := res.httpsURL
+		if httpURL == "" {
+			httpURL = "http://" + host
+		}
+		if httpsURL == "" {
+			httpsURL = "https://" + host
 		}
 
-		// httpx output is usually full URL; extract host
-		host := line
-		if strings.HasPrefix(host, "http://") {
-			host = strings.TrimPrefix(host, "http://")
-		} else if strings.HasPrefix(host, "https://") {
-			host = strings.TrimPrefix(host, "https://")
-		}
-		if idx := strings.Index(host, "/"); idx != -1 {
-			host = host[:idx]
-		}
-
-		httpURL := "http://" + host
-		httpsURL := "https://" + host
-
-		if err := db.InsertSubdomain(domain, host, true, httpURL, httpsURL, 200, 200); err != nil {
+		if err := db.InsertSubdomain(domain, host, true, httpURL, httpsURL, res.httpStatus, res.httpsStatus); err != nil {
 			log.Printf("[WARN] Failed to insert live subdomain %s: %v", host, err)
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed to read live hosts file: %v", err)
 	}
 
 	return nil
@@ -339,4 +373,78 @@ func writeLines(path string, lines []string) error {
 		}
 	}
 	return writer.Flush()
+}
+
+// GetLiveHostsFile returns the path to the live hosts file for a domain.
+// It first checks if the file exists and has content.
+// If not, it queries the database for live hosts and creates the file.
+// Returns the file path and any error encountered.
+// This function is used by all modules (except subdomains and livehosts) to get live hosts.
+func GetLiveHostsFile(domain string) (string, error) {
+	domainDir, err := utils.DomainDirInit(domain)
+	if err != nil {
+		return "", fmt.Errorf("failed to init domain dir: %v", err)
+	}
+
+	subsDir := filepath.Join(domainDir, "subs")
+	if err := utils.EnsureDir(subsDir); err != nil {
+		return "", fmt.Errorf("failed to ensure subs dir: %v", err)
+	}
+
+	liveFile := filepath.Join(subsDir, "live-subs.txt")
+
+	// Step 1: Check if file exists and has content
+	if info, err := os.Stat(liveFile); err == nil && info.Size() > 0 {
+		log.Printf("[INFO] Using existing live hosts file: %s (%d bytes)", liveFile, info.Size())
+		return liveFile, nil
+	}
+
+	// Step 2: File doesn't exist or is empty, try database
+	log.Printf("[INFO] Live hosts file not found or empty, checking database for %s", domain)
+	
+	// Check if database is configured
+	if os.Getenv("DB_HOST") == "" && os.Getenv("SAVE_TO_DB") != "true" {
+		return "", fmt.Errorf("live hosts file not found and database not configured")
+	}
+
+	// Initialize database
+	if err := db.Init(); err != nil {
+		return "", fmt.Errorf("failed to initialize database: %v", err)
+	}
+	if err := db.InitSchema(); err != nil {
+		return "", fmt.Errorf("failed to initialize database schema: %v", err)
+	}
+
+	// Query live subdomains from database
+	liveSubs, err := db.ListLiveSubdomains(domain)
+	if err != nil {
+		return "", fmt.Errorf("failed to query live subdomains from database: %v", err)
+	}
+
+	if len(liveSubs) == 0 {
+		return "", fmt.Errorf("no live hosts found in database for %s", domain)
+	}
+
+	// Convert database results to file format (prefer https_url, fallback to http_url, then subdomain)
+	var liveHosts []string
+	for _, sub := range liveSubs {
+		var url string
+		if sub.HTTPSURL != "" {
+			url = sub.HTTPSURL
+		} else if sub.HTTPURL != "" {
+			url = sub.HTTPURL
+		} else {
+			// Fallback: construct URL from subdomain
+			url = "https://" + sub.Subdomain
+		}
+		liveHosts = append(liveHosts, url)
+	}
+
+	// Write to file
+	if err := writeLines(liveFile, liveHosts); err != nil {
+		return "", fmt.Errorf("failed to write live hosts file from database: %v", err)
+	}
+
+	log.Printf("[OK] Created live hosts file from database: %s (%d hosts)", liveFile, len(liveHosts))
+	return liveFile, nil
 }

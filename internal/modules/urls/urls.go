@@ -40,8 +40,19 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		threads = 100
 	}
 
+	// Determine which domain to use for directory structure
+	// In subdomain mode, use the actual subdomain; otherwise use root domain
+	var dirDomain string
+	if skipSubdomainEnum {
+		// Use the subdomain itself for directory structure
+		dirDomain = domain
+	} else {
+		// Extract root domain for directory structure
+		dirDomain = extractRootDomain(domain)
+	}
+	
 	// Initialize directory structure
-	domainDir, err := utils.DomainDirInit(domain)
+	domainDir, err := utils.DomainDirInit(dirDomain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init domain dir: %v", err)
 	}
@@ -54,26 +65,56 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 
 	var liveFile string
 	if skipSubdomainEnum {
-		// For subdomain mode, create a live file with just the subdomain
+		// For subdomain mode, use the existing live-subs.txt file if it exists
+		// Otherwise create it with the subdomain
 		liveFile = filepath.Join(subsDir, "live-subs.txt")
-		_ = writeLines(liveFile, []string{domain})
+		if _, err := os.Stat(liveFile); os.IsNotExist(err) {
+			// If file doesn't exist, create it with the subdomain
+			// Ensure it has protocol for consistency
+			subdomainURL := domain
+			if !strings.HasPrefix(subdomainURL, "http://") && !strings.HasPrefix(subdomainURL, "https://") {
+				subdomainURL = "https://" + subdomainURL
+			}
+			_ = writeLines(liveFile, []string{subdomainURL})
+		}
 		log.Printf("[INFO] Subdomain mode: scanning %s directly (no subdomain enumeration)", domain)
 	} else {
-		// Ensure live hosts exist using Go livehosts module (silent to avoid duplicate Discord output)
-		liveRes, err := livehosts.FilterLiveHosts(domain, threads, true)
+		// Get live hosts file (checks file first, then database)
+		liveFile, err = livehosts.GetLiveHostsFile(domain)
 		if err != nil {
-			log.Printf("[WARN] livehosts filtering failed for %s: %v", domain, err)
-		}
-
-		liveFile = filepath.Join(subsDir, "live-subs.txt")
-		if liveRes != nil && liveRes.LiveSubsFile != "" {
-			liveFile = liveRes.LiveSubsFile
+			log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
+			// Fallback: try to create it by running livehosts
+			liveRes, err2 := livehosts.FilterLiveHosts(domain, threads, true)
+			if err2 != nil {
+				log.Printf("[WARN] livehosts filtering failed for %s: %v", domain, err2)
+			} else if liveRes != nil && liveRes.LiveSubsFile != "" {
+				liveFile = liveRes.LiveSubsFile
+			}
 		}
 	}
 
 	// Prepare output files
 	allFile := filepath.Join(urlsDir, "all-urls.txt")
 	jsFile := filepath.Join(urlsDir, "js-urls.txt")
+	
+	// Check if URLs already exist and have content - if so, skip collection
+	if info, err := os.Stat(allFile); err == nil && info.Size() > 0 {
+		if jsInfo, err := os.Stat(jsFile); err == nil && jsInfo.Size() >= 0 {
+			// URLs already collected, read and return them
+			allURLs, _ := readLines(allFile)
+			jsURLs, _ := readLines(jsFile)
+			log.Printf("[INFO] Using existing URLs for %s (%d total URLs, %d JS URLs)", dirDomain, len(allURLs), len(jsURLs))
+			return &Result{
+				Domain:    dirDomain,
+				Threads:   threads,
+				TotalURLs: len(allURLs),
+				JSURLs:    len(jsURLs),
+				AllFile:   allFile,
+				JSFile:    jsFile,
+			}, nil
+		}
+	}
+	
 	_ = writeLines(allFile, nil)
 	_ = writeLines(jsFile, nil)
 
@@ -139,13 +180,38 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	log.Printf("[OK] Found %d total URLs; %d JavaScript URLs for %s", total, jsCount, domain)
 
 	return &Result{
-		Domain:    domain,
+		Domain:    dirDomain, // Return domain used for directory structure
 		Threads:   threads,
 		TotalURLs: total,
 		JSURLs:    jsCount,
 		AllFile:   allFile,
 		JSFile:    jsFile,
 	}, nil
+}
+
+// extractRootDomain extracts the root domain from a subdomain
+// e.g., "www.example.com" -> "example.com", "sub.sub.example.com" -> "example.com"
+func extractRootDomain(host string) string {
+	// Remove protocol if present
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimPrefix(host, "https://")
+	
+	// Remove port if present
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	
+	// Remove path if present
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
+	
+	parts := strings.Split(host, ".")
+	if len(parts) >= 2 {
+		// Return last two parts (e.g., example.com)
+		return strings.Join(parts[len(parts)-2:], ".")
+	}
+	return host
 }
 
 // helpers

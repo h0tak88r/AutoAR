@@ -805,7 +805,7 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		embed.Fields = []*discordgo.MessageEmbedField{
 			{
 				Name:   "Core Workflows",
-				Value:  "• `/scan_domain` - Full domain workflow\n• `/lite_scan` - Comprehensive automated scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei\n• `/fast_look` - Quick reconnaissance: subdomain enumeration → live host filtering → URL/JS collection\n• `/react2shell_scan` - React2Shell smart scan",
+				Value:  "• `/scan_domain` - Full domain workflow\n• `/lite_scan` - Comprehensive automated scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei\n• `/fast_look` - Quick reconnaissance: subdomain enumeration → live host filtering → URL/JS collection\n• `/zerodays` - Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)",
 				Inline: false,
 			},
 			{

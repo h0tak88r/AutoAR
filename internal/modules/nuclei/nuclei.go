@@ -131,24 +131,27 @@ func RunNuclei(opts Options) (*Result, error) {
 		}
 	}
 
-	// Use live hosts file from Step 1 (livehosts phase) if it exists
-	// This avoids re-running livehosts collection which is already done in lite scan Step 1
-	liveSubsFile := filepath.Join(subsDir, "live-subs.txt")
-	if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
-		// File doesn't exist or is empty, need to create it
-		log.Printf("[INFO] Live hosts file not found or empty, filtering live hosts for %s", opts.Domain)
-		_, err := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, true)
-		if err != nil {
-			log.Printf("[WARN] Live host detection failed: %v", err)
+	// Get live hosts file (checks file first, then database)
+	liveSubsFile, err := livehosts.GetLiveHostsFile(opts.Domain)
+	if err != nil {
+		log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", opts.Domain, err)
+		// Fallback: try to create it by running livehosts
+		_, err2 := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, true)
+		if err2 != nil {
+			log.Printf("[WARN] Live host detection failed: %v", err2)
+			return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
 		}
 		// Re-check after creation
+		liveSubsFile = filepath.Join(subsDir, "live-subs.txt")
 		if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
 			return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
 		}
 		log.Printf("[INFO] Created live hosts file for %s", opts.Domain)
 	} else {
-		// File exists from Step 1, use it directly
-		log.Printf("[INFO] Using existing live hosts file from Step 1 (size: %d bytes)", info.Size())
+		// File exists from file or database, use it directly
+		if info, err := os.Stat(liveSubsFile); err == nil {
+			log.Printf("[INFO] Using existing live hosts file (size: %d bytes)", info.Size())
+		}
 	}
 
 	targetFile = liveSubsFile
