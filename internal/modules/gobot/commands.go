@@ -277,19 +277,29 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	)
 	output, err := cmd.CombinedOutput()
 
-	// Update status
+	// Update status and get it for the embed
 	scansMutex.Lock()
+	var status string
 	if scan, ok := activeScans[scanID]; ok {
 		if err != nil {
 			scan.Status = "failed"
+			status = "failed"
 		} else {
 			scan.Status = "completed"
+			status = "completed"
+		}
+	} else {
+		// Fallback if scan not found
+		if err != nil {
+			status = "failed"
+		} else {
+			status = "completed"
 		}
 	}
 	scansMutex.Unlock()
 
 	// Update Discord message
-	embed := createScanEmbed(scanType, target, activeScans[scanID].Status)
+	embed := createScanEmbed(scanType, target, status)
 	if err != nil {
 		embed.Color = 0xff0000 // Red
 		outputStr := string(output)
@@ -315,9 +325,24 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	// Update Discord message (only if interaction is still valid)
+	if i != nil && i.Interaction != nil {
+		_, editErr := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		if editErr != nil {
+			log.Printf("[WARN] Failed to update Discord message for scan %s: %v", scanID, editErr)
+			// Try to send a follow-up message if edit fails (e.g., token expired)
+			if channelID != "" {
+				_, followErr := s.ChannelMessageSendEmbed(channelID, embed)
+				if followErr != nil {
+					log.Printf("[ERROR] Failed to send follow-up message for scan %s: %v", scanID, followErr)
+				} else {
+					log.Printf("[INFO] Sent follow-up message for scan %s (original edit failed)", scanID)
+				}
+			}
+		}
+	}
 
 	// Send result files directly from bot (like livehosts does)
 	// IMPORTANT: Send files BEFORE cleanup, otherwise files will be deleted
@@ -797,6 +822,8 @@ func createScanEmbed(scanType, target, status string) *discordgo.MessageEmbed {
 		statusEmoji = "✅"
 	} else if status == "failed" {
 		statusEmoji = "❌"
+	} else if status == "running in background" {
+		statusEmoji = "⏳"
 	}
 
 	return &discordgo.MessageEmbed{
@@ -1026,7 +1053,8 @@ func handleDomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	scanID := fmt.Sprintf("domain_run_%d", time.Now().Unix())
 	command := []string{autoarScript, "domain", "run", "-d", domain}
 
-	embed := createScanEmbed("Domain Workflow", domain, "running")
+	// For domain_run, immediately show "running in background" since it takes a long time
+	embed := createScanEmbed("Domain Workflow", domain, "running in background")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -1035,6 +1063,37 @@ func handleDomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 
 	go runScanBackground(scanID, "domain_run", domain, command, s, i)
+}
+
+// Subdomain Run
+func handleSubdomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	subdomain := ""
+
+	for _, opt := range options {
+		if opt.Name == "subdomain" {
+			subdomain = opt.StringValue()
+		}
+	}
+
+	if subdomain == "" {
+		respond(s, i, "❌ Subdomain is required", false)
+		return
+	}
+
+	scanID := fmt.Sprintf("subdomain_run_%d", time.Now().Unix())
+	command := []string{autoarScript, "subdomain", "run", "-s", subdomain}
+
+	// For subdomain_run, immediately show "running in background" since it takes a long time
+	embed := createScanEmbed("Subdomain Workflow", subdomain, "running in background")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "subdomain_run", subdomain, command, s, i)
 }
 
 // Subdomains

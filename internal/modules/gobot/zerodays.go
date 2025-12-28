@@ -16,8 +16,8 @@ import (
 	next88 "github.com/h0tak88r/AutoAR/v3/internal/tools/next88"
 )
 
-// handleReact2Shell handles both /react2shell_scan (domain) and /react2shell (URL) commands
-func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
+// handleZerodays handles both /zerodays_scan (domain) and /zerodays (URL) commands
+func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	options := data.Options
 	domain := ""
@@ -79,7 +79,7 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 
 		// Update initial response
-		content := fmt.Sprintf("📋 Found %d domains in file. Starting react2shell scan (live hosts + smart scan) for each...", len(targets))
+		content := fmt.Sprintf("📋 Found %d domains in file. Starting zerodays scan (live hosts + smart scan) for each...", len(targets))
 		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: &content,
 		})
@@ -97,7 +97,7 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("[INFO] Processing domain %d/%d: %s", idx+1, len(targets), target)
 
 			embed := &discordgo.MessageEmbed{
-				Title:       "React2Shell Host Scan",
+				Title:       "Zerodays Scan",
 				Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", target, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
 				Color:       0x3498db,
 				Fields: []*discordgo.MessageEmbedField{
@@ -121,14 +121,14 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				},
 			}
 
-			go runReact2ShellScan(s, targetInteraction, target, threads, enableSourceExposure, dosTest)
+			go runZerodaysScan(s, targetInteraction, target, threads, enableSourceExposure, dosTest)
 
 			// Small delay between scans
 			time.Sleep(1 * time.Second)
 		}
 
 		// Send summary
-		summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** react2shell (live hosts + smart scan)\n**Total Domains:** %d", len(targets))
+		summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** zerodays (live hosts + smart scan)\n**Total Domains:** %d", len(targets))
 		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: summary,
 		})
@@ -153,7 +153,7 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if domain != "" {
 	// Send initial response
 	embed := &discordgo.MessageEmbed{
-		Title:       "React2Shell Host Scan",
+		Title:       "Zerodays Scan",
 		Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", domain, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
 		Color:       0x3498db, // Blue
 		Fields: []*discordgo.MessageEmbedField{
@@ -173,7 +173,7 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	// Run scan in background
-	go runReact2ShellScan(s, i, domain, threads, enableSourceExposure, dosTest)
+	go runZerodaysScan(s, i, domain, threads, enableSourceExposure, dosTest)
 		return
 	}
 
@@ -185,7 +185,7 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Send initial response
 	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 React2Shell RCE Test",
+		Title:       "🔍 Zerodays Test",
 		Description: fmt.Sprintf("**Target:** `%s`\n**Method:** next88 Smart Scan (sequential: normal → WAF bypass → Vercel WAF → paths)", url),
 		Color:       0x3498db, // Blue
 		Fields: []*discordgo.MessageEmbedField{
@@ -205,14 +205,14 @@ func handleReact2Shell(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	// Run scan in background
-	go runReact2ShellSingle(s, i, url, verbose)
+	go runZerodaysSingle(s, i, url, verbose)
 }
 
-// runReact2ShellScan runs the actual scan
-func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, threads int, enableSourceExposure, dosTest bool) {
+// runZerodaysScan runs the actual scan
+func runZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, threads int, enableSourceExposure, dosTest bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[ERROR] Panic in runReact2ShellScan: %v", r)
+			log.Printf("[ERROR] Panic in runZerodaysScan: %v", r)
 			updateEmbed(s, i, fmt.Sprintf("❌ Scan failed with error: %v", r), 0xff0000)
 		}
 	}()
@@ -241,7 +241,7 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 	log.Printf("[DEBUG] Normalized %d hosts from %s", len(hosts), liveHostsFile)
 	if len(hosts) == 0 {
 		log.Printf("[WARN] No hosts found to scan")
-		sendReact2ShellResults(s, i, domain, 0, 0, 0, 0, []string{})
+		sendZerodaysResults(s, i, domain, 0, 0, 0, 0, []string{})
 		return
 	}
 
@@ -307,7 +307,7 @@ func runReact2ShellScan(s *discordgo.Session, i *discordgo.InteractionCreate, do
 	// Send results - with retry logic
 	maxRetries := 3
 	for retry := 0; retry < maxRetries; retry++ {
-		err := sendReact2ShellResults(s, i, domain, len(hosts), len(smartScanResults), len(dosResults), len(sourceExposureResults), vulnerableList)
+		err := sendZerodaysResults(s, i, domain, len(hosts), len(smartScanResults), len(dosResults), len(sourceExposureResults), vulnerableList)
 		if err == nil {
 			log.Printf("[DEBUG] Successfully sent results to Discord")
 			break
@@ -665,9 +665,9 @@ func runSourceExposureCheck(domain string, hosts []string, webhookURL string) ([
 	return runNext88ScanLib(hosts, []string{"-check-source-exposure"}, "")
 }
 
-func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, totalHosts, smartScanCount, dosCount, sourceExposureCount int, allVulnerable []string) error {
+func sendZerodaysResults(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, totalHosts, smartScanCount, dosCount, sourceExposureCount int, allVulnerable []string) error {
 	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 React2Shell RCE Test Results",
+		Title:       "🔍 Zerodays Test Results",
 		Description: fmt.Sprintf("**Target:** `%s`", domain),
 	}
 
@@ -751,7 +751,7 @@ func sendReact2ShellResults(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 
-func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
+func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
 	// Use the library-based implementation instead of binary
 	log.Printf("[DEBUG] Running next88 library scan for single URL: %s", target)
 
@@ -759,7 +759,7 @@ func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, 
 	results, err := runNext88ScanLib([]string{target}, []string{"-smart-scan"}, "")
 	if err != nil {
 		embed := &discordgo.MessageEmbed{
-			Title:       "❌ React2Shell Test Failed",
+			Title:       "❌ Zerodays Test Failed",
 			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** %v", target, err),
 			Color:       0xff0000,
 		}
@@ -838,7 +838,7 @@ func runReact2ShellSingle(s *discordgo.Session, i *discordgo.InteractionCreate, 
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 React2Shell RCE Test Results",
+		Title:       "🔍 Zerodays Test Results",
 		Description: fmt.Sprintf("**Target:** `%s`", target),
 		Color:       color,
 	}
@@ -1272,7 +1272,7 @@ func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message strin
 
 func updateEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, message string, color int) {
 	embed := &discordgo.MessageEmbed{
-		Title:       "React2Shell Host Scan",
+		Title:       "Zerodays Scan",
 		Description: message,
 		Color:       color,
 	}

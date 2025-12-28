@@ -35,6 +35,7 @@ var (
 
 // SendFileToChannel sends a file directly to a Discord channel using the global session
 // This is used by modules to send files without requiring the HTTP API
+// Sends files in real-time immediately when called
 func SendFileToChannel(channelID, filePath, description string) error {
 	// Get Discord session
 	discordSessionMutex.RLock()
@@ -42,30 +43,41 @@ func SendFileToChannel(channelID, filePath, description string) error {
 	discordSessionMutex.RUnlock()
 
 	if session == nil {
+		log.Printf("[DISCORD] ❌ Discord bot session is nil - cannot send file")
 		return fmt.Errorf("Discord bot session not available")
 	}
 
+	log.Printf("[DISCORD] 📤 Attempting to send file via Discord bot: %s to channel %s", filepath.Base(filePath), channelID)
+
 	// Check if file exists
-	if info, err := os.Stat(filePath); os.IsNotExist(err) {
+	info, err := os.Stat(filePath)
+	if os.IsNotExist(err) {
+		log.Printf("[DISCORD] ❌ File not found: %s", filePath)
 		return fmt.Errorf("file not found: %s", filePath)
 	} else if err != nil {
+		log.Printf("[DISCORD] ❌ Failed to stat file: %v", err)
 		return fmt.Errorf("failed to stat file: %w", err)
 	} else if info.Size() == 0 {
+		log.Printf("[DISCORD] ❌ File is empty: %s (size: 0)", filePath)
 		return fmt.Errorf("file is empty: %s", filePath)
 	}
+
+	log.Printf("[DISCORD] ✅ File found: %s (size: %d bytes)", filePath, info.Size())
 
 	// Read file
 	fileData, err := os.ReadFile(filePath)
 	if err != nil {
+		log.Printf("[DISCORD] ❌ Failed to read file: %v", err)
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Send file to Discord channel
+	// Send file to Discord channel immediately
 	fileName := filepath.Base(filePath)
 	if description == "" {
 		description = fmt.Sprintf("📁 %s", fileName)
 	}
 
+	log.Printf("[DISCORD] 🚀 Sending file to Discord channel %s: %s (%d bytes)", channelID, fileName, len(fileData))
 	_, err = session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: description,
 		Files: []*discordgo.File{
@@ -78,9 +90,11 @@ func SendFileToChannel(channelID, filePath, description string) error {
 	})
 
 	if err != nil {
+		log.Printf("[DISCORD] ❌ Failed to send file to Discord: %v", err)
 		return fmt.Errorf("failed to send file to Discord: %w", err)
 	}
 
+	log.Printf("[DISCORD] ✅ Successfully sent file to Discord channel: %s", fileName)
 	return nil
 }
 
@@ -368,8 +382,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Route to appropriate handler (handlers are in commands*.go files)
 	switch cmdName {
-	case "react2shell":
-		handleReact2Shell(s, i)
+	case "zerodays", "0days":
+		handleZerodays(s, i)
 	case "scan_domain":
 		handleScanDomain(s, i)
 	case "scan_subdomain":
@@ -380,6 +394,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleFastLook(s, i)
 	case "domain_run":
 		handleDomainRun(s, i)
+	case "subdomain_run":
+		handleSubdomainRun(s, i)
 	case "subdomains":
 		handleSubdomains(s, i)
 	case "cnames":

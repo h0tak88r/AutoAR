@@ -637,6 +637,39 @@ func (p *PostgresDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus,
 	return subs, nil
 }
 
+// ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain.
+func (p *PostgresDB) ListLiveSubdomains(domain string) ([]SubdomainStatus, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT s.subdomain, 
+		       COALESCE(s.http_url, ''), 
+		       COALESCE(s.https_url, ''), 
+		       COALESCE(s.http_status, 0), 
+		       COALESCE(s.https_status, 0),
+		       COALESCE(s.is_live, false)
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE d.domain = $1 AND s.is_live = true
+		ORDER BY s.subdomain;
+	`, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query live subdomains: %v", err)
+	}
+	defer rows.Close()
+
+	var subs []SubdomainStatus
+	for rows.Next() {
+		var s SubdomainStatus
+		if err := rows.Scan(&s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &s.IsLive); err != nil {
+			return nil, fmt.Errorf("failed to scan live subdomain status: %v", err)
+		}
+		subs = append(subs, s)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate live subdomains: %v", rows.Err())
+	}
+	return subs, nil
+}
+
 // CountSubdomains returns the count of subdomains for a given domain.
 func (p *PostgresDB) CountSubdomains(domain string) (int, error) {
 	var count int

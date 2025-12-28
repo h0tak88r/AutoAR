@@ -38,13 +38,21 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		return nil, fmt.Errorf("failed to create output dir: %w", err)
 	}
 
-	// Ensure live hosts exist via Go livehosts module
-	if _, err := os.Stat(subsFile); err != nil {
-		log.Printf("[INFO] Live hosts file missing, filtering live hosts for %s", domain)
-		_, err := livehosts.FilterLiveHosts(domain, threads, false)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get live hosts for %s: %w", domain, err)
+	// Get live hosts file (checks file first, then database)
+	liveHostsFile, err := livehosts.GetLiveHostsFile(domain)
+	if err != nil {
+		log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
+		// Fallback: try to create it by running livehosts
+		_, err2 := livehosts.FilterLiveHosts(domain, threads, false)
+		if err2 != nil {
+			return nil, fmt.Errorf("failed to get live hosts for %s: %w", domain, err2)
 		}
+		liveHostsFile = subsFile
+	}
+
+	if liveHostsFile != subsFile {
+		// File was created from database, update subsFile path
+		subsFile = liveHostsFile
 	}
 
 	if _, err := os.Stat(subsFile); err != nil {

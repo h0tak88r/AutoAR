@@ -45,8 +45,24 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 		if hr == nil || len(hr.Ports) == 0 {
 			return
 		}
+		// Extract hostname from URL if needed (remove protocol)
+		host := hr.Host
+		if strings.HasPrefix(host, "http://") {
+			host = strings.TrimPrefix(host, "http://")
+		} else if strings.HasPrefix(host, "https://") {
+			host = strings.TrimPrefix(host, "https://")
+		}
+		// Remove path if present
+		if idx := strings.Index(host, "/"); idx != -1 {
+			host = host[:idx]
+		}
+		
 		for _, p := range hr.Ports {
-			line := fmt.Sprintf("%s:%d\n", hr.Host, p)
+			if p == nil {
+				continue
+			}
+			// Port is a struct, access the Port field (which is an int)
+			line := fmt.Sprintf("%s:%d\n", host, p.Port)
 			if _, err := writer.WriteString(line); err == nil {
 				count++
 			}
