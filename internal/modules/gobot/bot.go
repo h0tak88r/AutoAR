@@ -14,6 +14,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 )
 
 var (
@@ -64,7 +65,36 @@ func SendFileToChannel(channelID, filePath, description string) error {
 
 	log.Printf("[DISCORD] ✅ File found: %s (size: %d bytes)", filePath, info.Size())
 
-	// Read file
+	fileName := filepath.Base(filePath)
+	if description == "" {
+		description = fmt.Sprintf("📁 %s", fileName)
+	}
+
+	// Check if file is too large for Discord or if R2 is enabled and file should use R2
+	useR2 := r2storage.ShouldUseR2(filePath) || (r2storage.IsEnabled() && info.Size() > r2storage.GetFileSizeLimit())
+
+	if useR2 {
+		// Upload to R2 and send link (use timestamp for regular files)
+		log.Printf("[DISCORD] 📦 File is large (%d bytes), uploading to R2...", info.Size())
+		publicURL, err := r2storage.UploadFile(filePath, fileName, false)
+		if err != nil {
+			log.Printf("[DISCORD] ⚠️  Failed to upload to R2, trying direct Discord upload: %v", err)
+			// Fallback to direct upload if R2 fails
+			useR2 = false
+		} else {
+			// Send R2 link to Discord
+			message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(info.Size())/1024/1024, publicURL)
+			_, err = session.ChannelMessageSend(channelID, message)
+			if err != nil {
+				log.Printf("[DISCORD] ❌ Failed to send R2 link to Discord: %v", err)
+				return fmt.Errorf("failed to send R2 link to Discord: %w", err)
+			}
+			log.Printf("[DISCORD] ✅ Successfully sent R2 link to Discord: %s", publicURL)
+			return nil
+		}
+	}
+
+	// Read file for direct Discord upload
 	fileData, err := os.ReadFile(filePath)
 	if err != nil {
 		log.Printf("[DISCORD] ❌ Failed to read file: %v", err)
@@ -72,11 +102,6 @@ func SendFileToChannel(channelID, filePath, description string) error {
 	}
 
 	// Send file to Discord channel immediately
-	fileName := filepath.Base(filePath)
-	if description == "" {
-		description = fmt.Sprintf("📁 %s", fileName)
-	}
-
 	log.Printf("[DISCORD] 🚀 Sending file to Discord channel %s: %s (%d bytes)", channelID, fileName, len(fileData))
 	_, err = session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: description,
@@ -90,6 +115,25 @@ func SendFileToChannel(channelID, filePath, description string) error {
 	})
 
 	if err != nil {
+		// If direct upload fails due to size, try R2 as fallback
+		if strings.Contains(err.Error(), "413") || strings.Contains(err.Error(), "too large") || strings.Contains(err.Error(), "Request entity too large") {
+			log.Printf("[DISCORD] ⚠️  Discord upload failed due to size, uploading to R2 as fallback...")
+			if r2storage.IsEnabled() {
+				publicURL, r2Err := r2storage.UploadFile(filePath, fileName, false)
+				if r2Err != nil {
+					log.Printf("[DISCORD] ❌ Failed to upload to R2: %v", r2Err)
+					return fmt.Errorf("failed to send file to Discord and R2 upload failed: %w (R2 error: %v)", err, r2Err)
+				}
+				message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(info.Size())/1024/1024, publicURL)
+				_, err = session.ChannelMessageSend(channelID, message)
+				if err != nil {
+					log.Printf("[DISCORD] ❌ Failed to send R2 link to Discord: %v", err)
+					return fmt.Errorf("failed to send R2 link to Discord: %w", err)
+				}
+				log.Printf("[DISCORD] ✅ Successfully sent R2 link to Discord (fallback): %s", publicURL)
+				return nil
+			}
+		}
 		log.Printf("[DISCORD] ❌ Failed to send file to Discord: %v", err)
 		return fmt.Errorf("failed to send file to Discord: %w", err)
 	}
@@ -157,6 +201,10 @@ func StartBot() error {
 	// Register handlers
 	dg.AddHandler(Ready)
 	dg.AddHandler(InteractionCreate)
+	dg.AddHandler(Disconnect) // Handle disconnections
+
+	// Configure reconnection settings
+	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsDirectMessages
 
 	// Open Discord session
 	log.Println("[INFO] Attempting to connect to Discord...")
@@ -324,6 +372,116 @@ func Ready(s *discordgo.Session, event *discordgo.Ready) {
 	fmt.Printf("Bot logged in as: %v#%v\n", event.User.Username, event.User.Discriminator)
 }
 
+// Disconnect handles websocket disconnections and attempts reconnection
+func Disconnect(s *discordgo.Session, event *discordgo.Disconnect) {
+	log.Printf("[WARN] Discord websocket disconnected: %v", event)
+	// discordgo library handles automatic reconnection, but we log it for monitoring
+}
+
+// UpdateInteractionMessage safely updates a Discord interaction message, handling token expiration
+// Discord interaction tokens expire after 15 minutes, so we try to edit first and fall back to follow-up if it fails
+func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCreate, embed *discordgo.MessageEmbed) error {
+	if i == nil || i.Interaction == nil {
+		return fmt.Errorf("invalid interaction")
+	}
+
+	// Try to edit the interaction response first
+	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		// Check if error is due to expired token (401 Unauthorized or "Invalid Webhook Token")
+		errStr := err.Error()
+		isExpiredToken := strings.Contains(errStr, "401") || 
+			strings.Contains(errStr, "Invalid Webhook Token") ||
+			strings.Contains(errStr, "50027") // Discord error code for invalid webhook token
+		
+		if isExpiredToken {
+			log.Printf("[INFO] Interaction token expired, using follow-up message")
+		} else {
+			log.Printf("[WARN] InteractionResponseEdit failed: %v, trying follow-up message", err)
+		}
+		
+		// Try follow-up message as fallback
+		_, followErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		if followErr != nil {
+			// Last resort: try channel message if we have channel ID
+			if i.ChannelID != "" {
+				log.Printf("[WARN] Follow-up also failed, trying channel message: %v", followErr)
+				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+				if channelErr != nil {
+					return fmt.Errorf("all update methods failed: edit=%v, followup=%v, channel=%v", err, followErr, channelErr)
+				}
+				log.Printf("[INFO] Successfully sent message via channel (fallback)")
+				return nil
+			}
+			return fmt.Errorf("edit and follow-up both failed: edit=%v, followup=%v", err, followErr)
+		}
+		if isExpiredToken {
+			log.Printf("[INFO] Successfully sent follow-up message (token expired)")
+		} else {
+			log.Printf("[INFO] Successfully sent follow-up message (edit failed)")
+		}
+		return nil
+	}
+
+	return nil
+}
+
+// UpdateInteractionContent safely updates a Discord interaction message with text content
+// Discord interaction tokens expire after 15 minutes, so we try to edit first and fall back to follow-up if it fails
+func UpdateInteractionContent(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+	if i == nil || i.Interaction == nil {
+		return fmt.Errorf("invalid interaction")
+	}
+
+	// Try to edit the interaction response first
+	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+	})
+	if err != nil {
+		// Check if error is due to expired token
+		errStr := err.Error()
+		isExpiredToken := strings.Contains(errStr, "401") || 
+			strings.Contains(errStr, "Invalid Webhook Token") ||
+			strings.Contains(errStr, "50027")
+		
+		if isExpiredToken {
+			log.Printf("[INFO] Interaction token expired, using follow-up message")
+		} else {
+			log.Printf("[WARN] InteractionResponseEdit failed: %v, trying follow-up message", err)
+		}
+		
+		// Try follow-up as fallback
+		_, followErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: content,
+		})
+		if followErr != nil {
+			// Last resort: try channel message
+			if i.ChannelID != "" {
+				log.Printf("[WARN] Follow-up also failed, trying channel message: %v", followErr)
+				_, channelErr := s.ChannelMessageSend(i.ChannelID, content)
+				if channelErr != nil {
+					return fmt.Errorf("all update methods failed: edit=%v, followup=%v, channel=%v", err, followErr, channelErr)
+				}
+				log.Printf("[INFO] Successfully sent message via channel (fallback)")
+				return nil
+			}
+			return fmt.Errorf("edit and follow-up both failed: edit=%v, followup=%v", err, followErr)
+		}
+		if isExpiredToken {
+			log.Printf("[INFO] Successfully sent follow-up message (token expired)")
+		} else {
+			log.Printf("[INFO] Successfully sent follow-up message (edit failed)")
+		}
+		return nil
+	}
+
+	return nil
+}
+
 // InteractionCreate handles Discord slash command interactions
 func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Read guild restriction from environment variables dynamically (supports .env file)
@@ -450,8 +608,12 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleJWTScan(s, i)
 	case "backup_scan":
 		handleBackupScan(s, i)
+	case "aem_scan":
+		handleAEMScan(s, i)
 	case "check_tools":
 		handleCheckTools(s, i)
+	case "cleanup":
+		handleCleanup(s, i)
 	case "misconfig":
 		handleMisconfig(s, i)
 	case "webdepconf":
@@ -462,7 +624,7 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleScope(s, i)
 	default:
 		log.Printf("Unknown command: %s", cmdName)
-		respond(s, i, fmt.Sprintf("❌ Unknown command: %s", cmdName), false)
+		respond(s, i, fmt.Sprintf("Unknown command: %s", cmdName), false)
 	}
 }
 
@@ -514,21 +676,41 @@ func getResultsDir() string {
 	return dir
 }
 
-// cleanupDomainDirectory removes the domain's result directory
+// cleanupDomainDirectory uploads domain results to R2 (if enabled) and removes the domain's result directory
 func cleanupDomainDirectory(domain string) error {
 	resultsDir := getResultsDir()
 	domainDir := filepath.Join(resultsDir, domain)
-	
-	if _, err := os.Stat(domainDir); os.IsNotExist(err) {
+	return cleanupResultsDirectory(domain, domainDir)
+}
+
+// cleanupResultsDirectory uploads results to R2 (if enabled) and removes the local directory
+// prefix: R2 prefix path (e.g., "domain", "apkx/com.example.app", "github/repos/owner/repo")
+// localPath: Full local path to the results directory
+func cleanupResultsDirectory(prefix, localPath string) error {
+	if _, err := os.Stat(localPath); os.IsNotExist(err) {
 		return nil // Directory doesn't exist, nothing to clean
 	}
 	
-	log.Printf("[INFO] Cleaning up domain directory: %s", domainDir)
-	if err := os.RemoveAll(domainDir); err != nil {
-		log.Printf("[WARN] Failed to cleanup domain directory %s: %v", domainDir, err)
+	// Upload to R2 first if enabled
+	if r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true" {
+		log.Printf("[INFO] Uploading results to R2 before cleanup: %s", localPath)
+		urls, err := r2storage.UploadResultsDirectory(prefix, localPath, true) // Upload and remove local
+		if err != nil {
+			log.Printf("[WARN] Failed to upload results to R2: %v, proceeding with local cleanup", err)
+		} else {
+			log.Printf("[OK] Uploaded %d files to R2 for %s", len(urls), prefix)
+			// Files already removed by UploadResultsDirectory, just return
+			return nil
+		}
+	}
+	
+	// If R2 not enabled or upload failed, do local cleanup
+	log.Printf("[INFO] Cleaning up results directory: %s", localPath)
+	if err := os.RemoveAll(localPath); err != nil {
+		log.Printf("[WARN] Failed to cleanup results directory %s: %v", localPath, err)
 		return err
 	}
-	log.Printf("[OK] Cleaned up domain directory: %s", domainDir)
+	log.Printf("[OK] Cleaned up results directory: %s", localPath)
 	return nil
 }
 

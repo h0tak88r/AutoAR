@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/mitm"
 	iosstore "github.com/h0tak88r/AutoAR/v3/internal/tools/ipatool"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 )
 
 // Options controls how apkX is invoked from AutoAR.
@@ -35,6 +37,7 @@ type Result struct {
 	LogFile      string
 	Duration     time.Duration
 	MITMPatchedAPK string // Path to MITM patched APK if MITM was enabled
+	FromCache    bool     // True if this result was loaded from cache
 }
 
 // PackageOptions controls apkX scans where AutoAR first downloads the
@@ -410,10 +413,141 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		return nil, fmt.Errorf("unsupported platform %q (expected \"android\" or \"ios\")", platform)
 	}
 
+	// Extract version from downloaded APK/IPA to check cache
+	var packageName, version, versionCode string
+	if platform == "android" {
+		packageName, version, versionCode, err = ExtractVersionFromAPK(inputPath)
+		if err != nil {
+			// If version extraction fails, log warning and try to use package name only
+			fmt.Printf("[WARN] Failed to extract version from APK: %v\n", err)
+			// Try to extract at least package name from APK using a simpler method
+			if packageName == "" {
+				// Fallback: use provided package name
+				packageName = pkg
+				version = "latest" // Use "latest" as fallback version
+				fmt.Printf("[CACHE] Using package name '%s' with fallback version 'latest' for cache lookup\n", packageName)
+			} else {
+				// We got package name but not version, use "latest"
+				version = "latest"
+				fmt.Printf("[CACHE] Got package name '%s' but no version, using 'latest' for cache lookup\n", packageName)
+			}
+		}
+	} else {
+		// For iOS, we'll need to extract from IPA (similar logic)
+		// For now, use package name as version identifier
+		packageName = pkg
+		version = "unknown"
+	}
+
+	// Check cache if we have package name
+	if packageName != "" {
+		// Try with version first, then fallback to "latest" if version is empty
+		cacheVersion := version
+		if cacheVersion == "" || cacheVersion == "unknown" {
+			cacheVersion = "latest"
+		}
+		
+		cachePath, found := CheckCache(packageName, cacheVersion)
+		if found {
+			fmt.Printf("[CACHE] ✅ Using cached results for %s v%s (skipping scan)\n", packageName, version)
+			
+			// Load cached result
+			if strings.HasPrefix(cachePath, "r2:") {
+				// R2 cache - download to local cache first
+				r2Prefix := strings.TrimPrefix(cachePath, "r2:")
+				localCachePath := getCachePath(packageName, version)
+				fmt.Printf("[CACHE] 📥 Downloading cache from R2: %s\n", r2Prefix)
+				
+				if err := r2storage.DownloadDirectory(r2Prefix, localCachePath); err != nil {
+					fmt.Printf("[CACHE] ⚠️  Failed to download cache from R2: %v, doing fresh scan\n", err)
+				} else {
+					// Now load from local cache
+					cachedResult, err := LoadCachedResult(localCachePath)
+					if err == nil {
+						fmt.Printf("[CACHE] ✅ Loaded cache from R2 for %s v%s\n", packageName, version)
+						return cachedResult, nil
+					}
+					fmt.Printf("[CACHE] ⚠️  Failed to load downloaded cache: %v, doing fresh scan\n", err)
+				}
+			} else {
+				// Local cache
+				cachedResult, err := LoadCachedResult(cachePath)
+				if err == nil {
+					// Update paths to point to cache
+					return cachedResult, nil
+				}
+				fmt.Printf("[CACHE] ⚠️  Failed to load cached result: %v, doing fresh scan\n", err)
+			}
+		}
+	}
+
+	// No cache found or cache load failed, do fresh scan
+	cacheVersion := version
+	if cacheVersion == "" || cacheVersion == "unknown" {
+		cacheVersion = "latest"
+	}
+	fmt.Printf("[CACHE] 🔍 No cache found for %s v%s, performing fresh scan\n", packageName, cacheVersion)
+
 	// Reuse the existing Run logic for local file analysis.
-	return Run(Options{
+	result, err := Run(Options{
 		InputPath: inputPath,
 		OutputDir: opts.OutputDir,
 		MITM:      opts.MITM,
 	})
+
+	// Save to cache after successful scan
+	if err == nil && result != nil && packageName != "" {
+		// Try to extract version from decompiled AndroidManifest.xml if version extraction failed
+		if version == "" || version == "unknown" || version == "latest" {
+			// Extract from decompiled manifest
+			if result.ReportDir != "" {
+				manifestPath := filepath.Join(result.ReportDir, "AndroidManifest.xml")
+				if _, err := os.Stat(manifestPath); err == nil {
+					// Read and parse manifest
+					content, readErr := os.ReadFile(manifestPath)
+					if readErr == nil {
+						manifestContent := string(content)
+						
+						// Extract version name
+						versionRegex := regexp.MustCompile(`android:versionName\s*=\s*["']([^"']+)["']`)
+						if matches := versionRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
+							version = matches[1]
+						}
+						
+						// Extract version code if version name not found
+						if version == "" {
+							versionCodeRegex := regexp.MustCompile(`android:versionCode\s*=\s*["']([^"']+)["']`)
+							if matches := versionCodeRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
+								version = "v" + matches[1]
+								versionCode = matches[1]
+							}
+						} else {
+							// Also extract version code
+							versionCodeRegex := regexp.MustCompile(`android:versionCode\s*=\s*["']([^"']+)["']`)
+							if matches := versionCodeRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
+								versionCode = matches[1]
+							}
+						}
+						
+						if version != "" {
+							fmt.Printf("[CACHE] ✅ Extracted version from decompiled manifest: %s v%s\n", packageName, version)
+						}
+					}
+				}
+			}
+		}
+		
+		// Use extracted version if available, otherwise use "latest"
+		cacheVersionToSave := version
+		if cacheVersionToSave == "" || cacheVersionToSave == "unknown" {
+			cacheVersionToSave = "latest"
+		}
+		if saveErr := SaveToCache(packageName, cacheVersionToSave, versionCode, result); saveErr != nil {
+			fmt.Printf("[CACHE] ⚠️  Failed to save to cache: %v\n", saveErr)
+		} else {
+			fmt.Printf("[CACHE] 💾 Saved to cache: %s v%s\n", packageName, cacheVersionToSave)
+		}
+	}
+
+	return result, err
 }

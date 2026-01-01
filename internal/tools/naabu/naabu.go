@@ -109,11 +109,34 @@ func readHosts(path string) ([]string, error) {
 		if line == "" {
 			continue
 		}
-		if _, ok := seen[line]; ok {
+		
+		// Clean URL: remove protocol (http://, https://)
+		host := strings.TrimPrefix(line, "https://")
+		host = strings.TrimPrefix(host, "http://")
+		
+		// Remove path if present
+		if idx := strings.Index(host, "/"); idx != -1 {
+			host = host[:idx]
+		}
+		
+		// Remove port if present (keep hostname/IP only)
+		if idx := strings.Index(host, ":"); idx != -1 {
+			// Check if it's an IPv6 address (contains colons)
+			if !strings.Contains(host, "[") {
+				host = host[:idx]
+			}
+		}
+		
+		host = strings.TrimSpace(host)
+		if host == "" {
 			continue
 		}
-		seen[line] = struct{}{}
-		hosts = append(hosts, line)
+		
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		hosts = append(hosts, host)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err

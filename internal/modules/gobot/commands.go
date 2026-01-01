@@ -170,10 +170,7 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 
 	// Update initial response
 	content := fmt.Sprintf("📋 Found %d targets in file. Starting %s scan...", len(targets), scanType)
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: &content,
-	})
-	if err != nil {
+	if err := UpdateInteractionContent(s, i, content); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 
@@ -325,28 +322,19 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		}
 	}
 
-	// Update Discord message (only if interaction is still valid)
-	if i != nil && i.Interaction != nil {
-		_, editErr := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-		if editErr != nil {
-			log.Printf("[WARN] Failed to update Discord message for scan %s: %v", scanID, editErr)
-			// Try to send a follow-up message if edit fails (e.g., token expired)
-			if channelID != "" {
-				_, followErr := s.ChannelMessageSendEmbed(channelID, embed)
-				if followErr != nil {
-					log.Printf("[ERROR] Failed to send follow-up message for scan %s: %v", scanID, followErr)
-				} else {
-					log.Printf("[INFO] Sent follow-up message for scan %s (original edit failed)", scanID)
-				}
-			}
+	// Update Discord message using safe helper that handles token expiration
+	if i != nil {
+		if err := UpdateInteractionMessage(s, i, embed); err != nil {
+			log.Printf("[ERROR] Failed to update Discord message for scan %s: %v", scanID, err)
 		}
 	}
 
 	// Send result files directly from bot (like livehosts does)
 	// IMPORTANT: Send files BEFORE cleanup, otherwise files will be deleted
-	if err == nil {
+	// Skip sending files for modules that handle their own messaging: dns, aem, misconfig, ffuf
+	if err == nil && scanType != "dns" && scanType != "dns_takeover" && scanType != "dns_cname" && 
+		scanType != "dns_ns" && scanType != "dns_azure_aws" && scanType != "dns_dnsreaper" && 
+		scanType != "dns_dangling_ip" && scanType != "aem_scan" && scanType != "misconfig" && scanType != "ffuf" {
 		// Wait for files to be written to disk with retry logic
 		// Some commands (like subdomains) may take longer to write files
 		maxRetries := 5
@@ -373,10 +361,37 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		time.Sleep(1 * time.Second)
 	}
 
-	// Cleanup domain directory after scan completes AND files are sent
+	// Cleanup results directory after scan completes AND files are sent
 	if err == nil {
-		if err := cleanupDomainDirectory(target); err != nil {
-			log.Printf("[WARN] Failed to cleanup domain directory for %s: %v", target, err)
+		resultsDir := getResultsDir()
+		var cleanupPath, cleanupPrefix string
+		
+		// Determine cleanup path based on scan type
+		if scanType == "github_scan" || scanType == "github_org" || scanType == "github_exp" {
+			// GitHub scans: {resultsDir}/github/repos/{target} or {resultsDir}/github/orgs/{target}
+			cleanupPath = filepath.Join(resultsDir, "github", "repos", target)
+			if _, err := os.Stat(cleanupPath); os.IsNotExist(err) {
+				cleanupPath = filepath.Join(resultsDir, "github", "orgs", target)
+			}
+			if _, err := os.Stat(cleanupPath); os.IsNotExist(err) {
+				cleanupPath = filepath.Join(resultsDir, "github", "experimental", target)
+			}
+			cleanupPrefix = "github/repos/" + target
+			if strings.HasPrefix(cleanupPath, filepath.Join(resultsDir, "github", "orgs")) {
+				cleanupPrefix = "github/orgs/" + target
+			} else if strings.HasPrefix(cleanupPath, filepath.Join(resultsDir, "github", "experimental")) {
+				cleanupPrefix = "github/experimental/" + target
+			}
+		} else {
+			// Domain-based scans (subdomains, urls, etc.)
+			cleanupPath = filepath.Join(resultsDir, target)
+			cleanupPrefix = target
+		}
+		
+		if cleanupPath != "" {
+			if err := cleanupResultsDirectory(cleanupPrefix, cleanupPath); err != nil {
+				log.Printf("[WARN] Failed to cleanup results directory for %s: %v", target, err)
+			}
 		}
 	}
 }
@@ -419,9 +434,19 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 		resultFiles = []string{filepath.Join(resultsDir, target, "dalfox-results.txt")}
 	case "backup_scan":
 		// Fuzzuli backup scan results
+		// Sanitize domain for filesystem (remove protocol, replace : with -)
+		// This matches the sanitization used in the backup module
+		sanitizedTarget := target
+		if strings.HasPrefix(target, "http://") {
+			sanitizedTarget = strings.TrimPrefix(target, "http://")
+		} else if strings.HasPrefix(target, "https://") {
+			sanitizedTarget = strings.TrimPrefix(target, "https://")
+		}
+		sanitizedTarget = strings.ReplaceAll(sanitizedTarget, ":", "-")
+		sanitizedTarget = strings.TrimRight(sanitizedTarget, "/")
 		resultFiles = []string{
-			filepath.Join(resultsDir, target, "backup", "fuzzuli-results.txt"),
-			filepath.Join(resultsDir, target, "backup", "fuzzuli-output.log"),
+			filepath.Join(resultsDir, sanitizedTarget, "backup", "fuzzuli-results.txt"),
+			filepath.Join(resultsDir, sanitizedTarget, "backup", "fuzzuli-output.log"),
 		}
 	case "subdomains":
 		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "all-subs.txt")}
@@ -498,8 +523,17 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanT
 			filepath.Join(resultsDir, target, "vulnerabilities", "kxss-results.txt"),
 		)
 		// Backup scan results
+		// Sanitize domain for filesystem (remove protocol, replace : with -)
+		sanitizedTarget := target
+		if strings.HasPrefix(target, "http://") {
+			sanitizedTarget = strings.TrimPrefix(target, "http://")
+		} else if strings.HasPrefix(target, "https://") {
+			sanitizedTarget = strings.TrimPrefix(target, "https://")
+		}
+		sanitizedTarget = strings.ReplaceAll(sanitizedTarget, ":", "-")
+		sanitizedTarget = strings.TrimRight(sanitizedTarget, "/")
 		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, target, "backup", "fuzzuli-results.txt"),
+			filepath.Join(resultsDir, sanitizedTarget, "backup", "fuzzuli-results.txt"),
 		)
 		// DNS takeover results
 		dnsDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")

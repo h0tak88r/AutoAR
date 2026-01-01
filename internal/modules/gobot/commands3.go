@@ -2,6 +2,7 @@ package gobot
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -94,9 +95,9 @@ func handleKeyhack(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 
 	case "search":
 	if query == "" {
@@ -447,9 +448,9 @@ func handleMonitorUpdatesManage(s *discordgo.Session, i *discordgo.InteractionCr
 		})
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 }
 
 // Old handlers - kept for reference but not used
@@ -529,9 +530,9 @@ func handleMonitorUpdatesAdd_OLD(s *discordgo.Session, i *discordgo.InteractionC
 		})
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 }
 
 func handleMonitorUpdatesRemove(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -595,9 +596,9 @@ func handleMonitorUpdatesRemove(s *discordgo.Session, i *discordgo.InteractionCr
 		})
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 }
 
 func handleMonitorUpdatesStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -683,9 +684,9 @@ func handleMonitorUpdatesStart(s *discordgo.Session, i *discordgo.InteractionCre
 		})
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 }
 
 func handleMonitorUpdatesStop(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -768,9 +769,9 @@ func handleMonitorUpdatesStop(s *discordgo.Session, i *discordgo.InteractionCrea
 		})
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 }
 
 
@@ -831,9 +832,9 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 }
 
 // Scan Status - List all scans
@@ -917,7 +918,7 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		})
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		log.Printf("[WARN] Failed to update interaction: %v", err)
+	}
 }

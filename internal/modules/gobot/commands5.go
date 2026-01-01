@@ -2,6 +2,7 @@ package gobot
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -153,9 +154,9 @@ func handleMonitorSubdomainsManage(s *discordgo.Session, i *discordgo.Interactio
 		})
 	} else {
 		// For other actions, edit the original response
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
+		if err := UpdateInteractionMessage(s, i, embed); err != nil {
+			log.Printf("[WARN] Failed to update interaction: %v", err)
+		}
 	}
 }
 
