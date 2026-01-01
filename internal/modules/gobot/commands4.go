@@ -230,11 +230,93 @@ func handleCheckTools(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	go runScanBackground(scanID, "check_tools", "system", command, s, i)
 }
 
+func handleCleanup(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	scanID := fmt.Sprintf("cleanup_%d", time.Now().Unix())
+	command := []string{autoarScript, "cleanup"}
+
+	embed := createScanEmbed("Cleanup Results", "system", "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "cleanup", "system", command, s, i)
+}
+
+func handleAEMScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	domain := ""
+	liveHostsFile := ""
+	threads := 50
+	ssrfHost := ""
+	ssrfPort := 0
+	debug := false
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "domain":
+			domain = opt.StringValue()
+		case "live_hosts_file":
+			liveHostsFile = opt.StringValue()
+		case "threads":
+			threads = int(opt.IntValue())
+		case "ssrf_host":
+			ssrfHost = opt.StringValue()
+		case "ssrf_port":
+			ssrfPort = int(opt.IntValue())
+		case "debug":
+			debug = opt.BoolValue()
+		}
+	}
+
+	if domain == "" && liveHostsFile == "" {
+		respond(s, i, "Either domain or live_hosts_file is required", false)
+		return
+	}
+
+	// Build command
+	args := []string{"aem", "scan"}
+	if domain != "" {
+		args = append(args, "-d", domain)
+	} else {
+		args = append(args, "-l", liveHostsFile)
+	}
+	args = append(args, "-t", fmt.Sprintf("%d", threads))
+	if ssrfHost != "" {
+		args = append(args, "--ssrf-host", ssrfHost)
+		if ssrfPort > 0 {
+			args = append(args, "--ssrf-port", fmt.Sprintf("%d", ssrfPort))
+		}
+	}
+	if debug {
+		args = append(args, "--debug")
+	}
+
+	scanID := fmt.Sprintf("aem_scan_%d", time.Now().Unix())
+	target := domain
+	if target == "" {
+		target = liveHostsFile
+	}
+
+	embed := createScanEmbed("AEM Scan", target, "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "aem_scan", target, args, s, i)
+}
+
 func handleMisconfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	target := ""
 	var service *string
 	delay := 0
+	permutations := false
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -245,21 +327,26 @@ func handleMisconfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			service = &val
 		case "delay":
 			delay = int(opt.IntValue())
+		case "permutations":
+			permutations = opt.BoolValue()
 		}
 	}
 
 	if target == "" {
-		respond(s, i, "❌ Target is required", false)
+		respond(s, i, "Target is required", false)
 		return
 	}
 
 	scanID := fmt.Sprintf("misconfig_%d", time.Now().Unix())
 	command := []string{autoarScript, "misconfig", "scan", target}
 	if service != nil && *service != "" {
-		command = append(command, *service)
+		command = append(command, "--service", *service)
 	}
 	if delay > 0 {
-		command = append(command, fmt.Sprintf("%d", delay))
+		command = append(command, "--delay", fmt.Sprintf("%d", delay))
+	}
+	if permutations {
+		command = append(command, "--permutations")
 	}
 
 	embed := createScanEmbed("Misconfig Scan", target, "running")

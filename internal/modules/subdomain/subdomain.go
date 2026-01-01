@@ -11,11 +11,13 @@ import (
 	"sync"
 	"time"
 
+	aemmod "github.com/h0tak88r/AutoAR/v3/internal/modules/aem"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/backup"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/cnames"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/depconfusion"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/dns"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/ffuf"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/gf"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/jsscan"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/misconfig"
@@ -64,7 +66,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	// Extract root domain for modules that need it (e.g., DNS, S3)
 	rootDomain := extractDomain(subdomainClean)
 
-	totalSteps := 17 // Updated: Added zerodays, cnames, s3 enum
+	totalSteps := 19 // Updated: Added AEM scan
 	step := 1
 
 	// Phase 1: Check if subdomain is live
@@ -111,7 +113,41 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 5: JS scan
+	// Phase 5: FFuf fuzzing
+	if err := runSubdomainPhase("ffuf", step, totalSteps, "FFuf fuzzing", subdomain, 0, func() error {
+		// Read first URL from live hosts file for FFuf URL mode
+		data, err := os.ReadFile(liveHostsFile)
+		if err != nil {
+			return err
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 0 && lines[0] != "" {
+			url := strings.TrimSpace(lines[0])
+			// Ensure URL has /FUZZ placeholder for fuzzing
+			if !strings.Contains(url, "FUZZ") {
+				// Add /FUZZ to the end of the URL
+				if !strings.HasSuffix(url, "/") {
+					url += "/"
+				}
+				url += "FUZZ"
+			}
+			// Run FFuf in URL mode (single target mode)
+			_, err := ffuf.RunFFuf(ffuf.Options{
+				Target:          url,
+				Wordlist:        "", // Use default quick_fuzz.txt
+				Threads:         40,
+				Bypass403:       false, // Can be enabled if needed
+				FollowRedirects: true,
+			})
+			return err
+		}
+		return fmt.Errorf("no live URL found in live hosts file")
+	}); err != nil {
+		log.Printf("[WARN] FFuf fuzzing failed: %v", err)
+	}
+	step++
+
+	// Phase 6: JS scan
 	if err := runSubdomainPhase("jsscan", step, totalSteps, "JS scan", subdomain, 0, func() error {
 		_, err := jsscan.Run(jsscan.Options{
 			Domain:    subdomainClean, // Use subdomain for directory structure
@@ -124,7 +160,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 6: Reflection scan
+	// Phase 7: Reflection scan
 	if err := runSubdomainPhase("reflection", step, totalSteps, "Reflection scan", subdomain, 0, func() error {
 		_, err := reflection.ScanReflectionWithOptions(reflection.Options{
 			Domain:    subdomainClean, // Use subdomain for directory structure
@@ -139,7 +175,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 7: Port scan
+	// Phase 8: Port scan
 	if err := runSubdomainPhase("ports", step, totalSteps, "Port scan", subdomain, 0, func() error {
 		_, err := ports.ScanPorts(subdomainClean, 200)
 		return err
@@ -148,7 +184,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 8: Nuclei scan
+	// Phase 9: Nuclei scan
 	if err := runSubdomainPhase("nuclei", step, totalSteps, "Nuclei scan", subdomain, 0, func() error {
 		// Read first URL from live hosts file for Nuclei URL mode
 		data, err := os.ReadFile(liveHostsFile)
@@ -172,7 +208,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 9: GF scan
+	// Phase 10: GF scan
 	if err := runSubdomainPhase("gf", step, totalSteps, "GF scan", subdomain, 0, func() error {
 		// Use existing URLs file without regenerating
 		urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
@@ -187,11 +223,12 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 10: Backup scan
+	// Phase 11: Backup scan
 	if err := runSubdomainPhase("backup", step, totalSteps, "Backup scan", subdomain, 0, func() error {
 		_, err := backup.Run(backup.Options{
 			Domain:        subdomainClean, // Pass domain so backup saves to correct directory
-			LiveHostsFile: liveHostsFile,
+			LiveHostsFile: liveHostsFile,  // Use live hosts file (prioritized over Domain)
+			Method:        "all",          // Use "all" method for comprehensive scanning
 			Threads:       200,
 		})
 		return err
@@ -200,7 +237,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 11: Misconfig scan
+	// Phase 12: Misconfig scan
 	if err := runSubdomainPhase("misconfig", step, totalSteps, "Misconfig scan", subdomain, 0, func() error {
 		err := misconfig.Run(misconfig.Options{
 			Target:        subdomainClean, // Use subdomain for directory structure
@@ -219,7 +256,20 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 12: DNS scan
+	// Phase 13: AEM scan
+	if err := runSubdomainPhase("aem", step, totalSteps, "AEM scan", subdomain, 0, func() error {
+		_, err := aemmod.Run(aemmod.Options{
+			Domain:        subdomainClean,
+			LiveHostsFile: liveHostsFile,
+			Threads:       50,
+		})
+		return err
+	}); err != nil {
+		log.Printf("[WARN] AEM scan failed: %v", err)
+	}
+	step++
+
+	// Phase 14: DNS scan
 	if err := runSubdomainPhase("dns", step, totalSteps, "DNS scan", subdomain, 0, func() error {
 		// Use root domain for DNS scan (DNS works on domain level)
 		return dns.TakeoverWithOptions(dns.TakeoverOptions{
@@ -231,7 +281,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 13: WordPress confusion
+	// Phase 15: WordPress confusion
 	if err := runSubdomainPhase("wp_confusion", step, totalSteps, "WordPress confusion", subdomain, 0, func() error {
 		// Ensure directory exists
 		if err := os.MkdirAll(filepath.Dir(liveHostsFile), 0755); err != nil {
@@ -275,7 +325,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 14: Dependency confusion
+	// Phase 15: Dependency confusion
 	if err := runSubdomainPhase("depconfusion", step, totalSteps, "Dependency confusion", subdomain, 0, func() error {
 		// Ensure directory exists
 		if err := os.MkdirAll(filepath.Dir(liveHostsFile), 0755); err != nil {
@@ -313,7 +363,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 15: S3 enumeration
+	// Phase 16: S3 enumeration
 	if err := runSubdomainPhase("s3", step, totalSteps, "S3 bucket enumeration", subdomain, 0, func() error {
 		// S3 enumeration on the root domain (S3 works on domain level)
 		// But save results under subdomain directory
@@ -328,7 +378,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 16: Zerodays scan
+	// Phase 17: Zerodays scan
 	if err := runSubdomainPhase("zerodays", step, totalSteps, "Zerodays scan", subdomain, 0, func() error {
 		log.Printf("[INFO] Zerodays scan: Starting scan for subdomain: %s", subdomainClean)
 		log.Printf("[INFO] Zerodays scan: Running command: %s zerodays scan -s %s -t 100 --silent", os.Args[0], subdomainClean)
@@ -486,8 +536,9 @@ func runSubdomainPhase(phaseKey string, step, total int, description, subdomain 
 
 	log.Printf("[OK] %s completed in %s", description, phaseDuration)
 	
-	// Send phase files in real-time
-	if phaseKey != "" {
+	// Send phase files in real-time (skip for modules that handle their own messaging)
+	// Modules that handle their own messaging: dns, aem, misconfig, ffuf
+	if phaseKey != "" && phaseKey != "dns" && phaseKey != "aem" && phaseKey != "misconfig" && phaseKey != "ffuf" {
 		log.Printf("[DEBUG] [SUBDOMAIN] Preparing to send files for phase: %s", phaseKey)
 		
 		// Get expected file paths for this phase
