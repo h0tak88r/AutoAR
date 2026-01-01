@@ -176,10 +176,7 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Update initial response
 	content := fmt.Sprintf("📋 Found %d targets in file. Starting %s scan...", len(targets), scanType)
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: &content,
-	})
-	if err != nil {
+	if err := UpdateInteractionContent(s, i, content); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 
@@ -467,10 +464,7 @@ func processFileScan(s *discordgo.Session, i *discordgo.InteractionCreate, messa
 	}
 
 	content := fmt.Sprintf("📋 Found %d targets in file. Starting %s scan...", len(targets), scanType)
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: &content,
-	})
-	if err != nil {
+	if err := UpdateInteractionContent(s, i, content); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 

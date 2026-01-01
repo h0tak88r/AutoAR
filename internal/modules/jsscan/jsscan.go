@@ -2,11 +2,19 @@ package jsscan
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
+	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
@@ -166,6 +174,19 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 	
+	// Perform actual secret scanning on JS files
+	log.Printf("[INFO] JS scan: Starting secret scanning on %d JS URLs...", totalJS)
+	secretsFile := filepath.Join(jsVulnDir, "js-secrets.txt")
+	if err := scanJSForSecrets(targetJS, secretsFile, opts.Threads); err != nil {
+		log.Printf("[WARN] JS scan: Secret scanning failed: %v", err)
+	} else {
+		if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
+			log.Printf("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
+		} else {
+			log.Printf("[INFO] JS scan: No secrets found in JS files")
+		}
+	}
+	
 	log.Printf("[INFO] JS scan: Final result - %d JS URLs processed", totalJS)
 
 	return &Result{
@@ -274,4 +295,204 @@ func extractRootDomain(host string) string {
 		return strings.Join(parts[len(parts)-2:], ".")
 	}
 	return host
+}
+
+// SecretPattern represents a regex pattern for secret detection
+type SecretPattern struct {
+	Name       string   `yaml:"name"`
+	Regex      string   `yaml:"regex"`
+	Regexes    []string `yaml:"regexes"`
+	Confidence string   `yaml:"confidence"`
+}
+
+// PatternConfig represents the YAML structure of regex pattern files
+type PatternConfig struct {
+	Patterns []struct {
+		Pattern SecretPattern `yaml:"pattern"`
+	} `yaml:"patterns"`
+}
+
+// scanJSForSecrets downloads JS files and scans them for secrets using regex patterns
+func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
+	if threads <= 0 {
+		threads = 50
+	}
+
+	// Load regex patterns
+	patterns, err := loadSecretPatterns()
+	if err != nil {
+		return fmt.Errorf("failed to load secret patterns: %w", err)
+	}
+	log.Printf("[INFO] JS scan: Loaded %d secret patterns", len(patterns))
+
+	// Read JS URLs
+	jsURLs, err := readLines(jsURLsFile)
+	if err != nil {
+		return fmt.Errorf("failed to read JS URLs file: %w", err)
+	}
+	if len(jsURLs) == 0 {
+		return nil
+	}
+
+	// Create output file
+	outFile, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outFile.Close()
+
+	writer := bufio.NewWriter(outFile)
+	defer writer.Flush()
+
+	// Worker pool for downloading and scanning
+	sem := make(chan struct{}, threads)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	findingsCount := 0
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: 15 * time.Second,
+	}
+
+	for _, jsURL := range jsURLs {
+		jsURL = strings.TrimSpace(jsURL)
+		if jsURL == "" {
+			continue
+		}
+
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// Download JS file
+			content, err := downloadJSFile(client, url)
+			if err != nil {
+				return // Silently skip failed downloads
+			}
+
+			// Scan for secrets
+			findings := scanContentForSecrets(content, url, patterns)
+			if len(findings) > 0 {
+				mu.Lock()
+				for _, finding := range findings {
+					writer.WriteString(finding + "\n")
+					findingsCount++
+				}
+				writer.Flush()
+				mu.Unlock()
+			}
+		}(jsURL)
+	}
+
+	wg.Wait()
+	log.Printf("[INFO] JS scan: Secret scanning completed, found %d secrets", findingsCount)
+	return nil
+}
+
+// loadSecretPatterns loads regex patterns from the regexes directory
+func loadSecretPatterns() (map[string][]*regexp.Regexp, error) {
+	patterns := make(map[string][]*regexp.Regexp)
+
+	// Try to load from confident-regexes.yaml first (high confidence patterns)
+	regexesDir := "regexes"
+	confidentFile := filepath.Join(regexesDir, "confident-regexes.yaml")
+	if data, err := os.ReadFile(confidentFile); err == nil {
+		var config PatternConfig
+		if err := yaml.Unmarshal(data, &config); err == nil {
+			for _, p := range config.Patterns {
+				pattern := p.Pattern
+				var regexes []string
+				if pattern.Regex != "" {
+					regexes = []string{pattern.Regex}
+				} else {
+					regexes = pattern.Regexes
+				}
+				for _, regexStr := range regexes {
+					if re, err := regexp.Compile(regexStr); err == nil {
+						patterns[pattern.Name] = append(patterns[pattern.Name], re)
+					}
+				}
+			}
+		}
+	}
+
+	// Also load from risky-regexes.yaml (more patterns)
+	riskyFile := filepath.Join(regexesDir, "risky-regexes.yaml")
+	if data, err := os.ReadFile(riskyFile); err == nil {
+		var config PatternConfig
+		if err := yaml.Unmarshal(data, &config); err == nil {
+			for _, p := range config.Patterns {
+				pattern := p.Pattern
+				var regexes []string
+				if pattern.Regex != "" {
+					regexes = []string{pattern.Regex}
+				} else {
+					regexes = pattern.Regexes
+				}
+				for _, regexStr := range regexes {
+					if re, err := regexp.Compile(regexStr); err == nil {
+						patterns[pattern.Name] = append(patterns[pattern.Name], re)
+					}
+				}
+			}
+		}
+	}
+
+	return patterns, nil
+}
+
+// downloadJSFile downloads a JS file from a URL
+func downloadJSFile(client *http.Client, url string) (string, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("non-200 status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
+// scanContentForSecrets scans JS content for secrets using loaded patterns
+func scanContentForSecrets(content, url string, patterns map[string][]*regexp.Regexp) []string {
+	var findings []string
+	seen := make(map[string]bool)
+
+	for patternName, regexes := range patterns {
+		for _, re := range regexes {
+			matches := re.FindAllString(content, -1)
+			for _, match := range matches {
+				// Truncate long matches
+				if len(match) > 200 {
+					match = match[:200] + "..."
+				}
+				key := fmt.Sprintf("%s:%s", patternName, match)
+				if !seen[key] {
+					seen[key] = true
+					findings = append(findings, fmt.Sprintf("[%s] %s -> %s", patternName, url, match))
+				}
+			}
+		}
+	}
+
+	return findings
 }
