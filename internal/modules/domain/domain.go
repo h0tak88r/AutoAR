@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	aemmod "github.com/h0tak88r/AutoAR/v3/internal/modules/aem"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/backup"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/cnames"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/depconfusion"
@@ -16,7 +18,6 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/ffuf"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/gf"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/githubscan"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/jsscan"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/misconfig"
@@ -55,7 +56,7 @@ func RunDomain(domain string) (*Result, error) {
 	domainDir := filepath.Join(resultsDir, domain)
 	liveHostsFile := filepath.Join(domainDir, "subs", "live-subs.txt")
 
-	totalSteps := 21 // Updated: Added zerodays, cnames already included, s3 already included
+	totalSteps := 20 // Updated: Removed githubscan (not web-related), added zerodays
 	step := 1
 
 	// Phase 1: Reconnaissance
@@ -152,7 +153,7 @@ func RunDomain(domain string) (*Result, error) {
 			_, err := backup.Run(backup.Options{
 				LiveHostsFile: liveHostsFile,
 				Threads:       200,
-				Method:        "regular",
+				Method:        "all",
 			})
 			return err
 		}
@@ -160,7 +161,7 @@ func RunDomain(domain string) (*Result, error) {
 		_, err := backup.Run(backup.Options{
 			Domain:  domain,
 			Threads: 200,
-			Method:  "regular",
+			Method:  "all",
 		})
 		return err
 	}); err != nil {
@@ -192,6 +193,23 @@ func RunDomain(domain string) (*Result, error) {
 	}
 	step++
 
+	if err := runDomainPhase("aem", step, totalSteps, "AEM webapp discovery and scan", domain, 0, func() error {
+		// Use live hosts file if available
+		liveHostsFileToUse := ""
+		if _, err := os.Stat(liveHostsFile); err == nil {
+			liveHostsFileToUse = liveHostsFile
+		}
+		_, err := aemmod.Run(aemmod.Options{
+			Domain:        domain,
+			LiveHostsFile: liveHostsFileToUse,
+			Threads:       50,
+		})
+		return err
+	}); err != nil {
+		log.Printf("[WARN] AEM scan failed: %v", err)
+	}
+	step++
+
 	if err := runDomainPhase("dns", step, totalSteps, "DNS takeover scan", domain, 0, func() error {
 		return dns.Takeover(domain)
 	}); err != nil {
@@ -200,11 +218,56 @@ func RunDomain(domain string) (*Result, error) {
 	step++
 
 	if err := runDomainPhase("ffuf", step, totalSteps, "FFuf fuzzing", domain, 0, func() error {
-		// FFuf needs a target URL - use domain with common paths
-		target := fmt.Sprintf("https://%s", domain)
+		// FFuf on all live hosts with 403 bypass enabled (domain workflow only)
+		if _, err := os.Stat(liveHostsFile); err == nil {
+			// Read live hosts from file
+			file, err := os.Open(liveHostsFile)
+			if err != nil {
+				return fmt.Errorf("failed to open live hosts file: %w", err)
+			}
+			defer file.Close()
+			
+			scanner := bufio.NewScanner(file)
+			var targets []string
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line != "" {
+					// Ensure URL has protocol
+					if !strings.HasPrefix(line, "http://") && !strings.HasPrefix(line, "https://") {
+						line = "https://" + line
+					}
+					targets = append(targets, line)
+				}
+			}
+			
+			if err := scanner.Err(); err != nil {
+				return fmt.Errorf("failed to read live hosts file: %w", err)
+			}
+			
+			if len(targets) == 0 {
+				log.Printf("[WARN] No live hosts found for FFuf fuzzing")
+				return nil
+			}
+			
+			// Run FFuf on each target with 403 bypass
+			for _, target := range targets {
+				_, err := ffuf.RunFFuf(ffuf.Options{
+					Target:     target,
+					Threads:    40,
+					Bypass403:   true, // Enable 403 bypass
+				})
+				if err != nil {
+					log.Printf("[WARN] FFuf fuzzing failed for %s: %v", target, err)
+					// Continue with other targets
+				}
+			}
+			return nil
+		}
+		// Fallback: use domain if no live hosts file
 		_, err := ffuf.RunFFuf(ffuf.Options{
-			Target:  target,
-			Threads: 40,
+			Target:    fmt.Sprintf("https://%s", domain),
+			Threads:   40,
+			Bypass403: true,
 		})
 		return err
 	}); err != nil {
@@ -265,32 +328,10 @@ func RunDomain(domain string) (*Result, error) {
 	}
 	step++
 
-	if err := runDomainPhase("githubscan", step, totalSteps, "GitHub organization scan", domain, 0, func() error {
-		// Try to use domain as GitHub org name (extract base domain)
-		// Extract org name from domain (e.g., "example.com" -> "example")
-		orgName := domain
-		if idx := len(domain) - 4; idx > 0 && domain[idx:] == ".com" {
-			orgName = domain[:idx]
-		} else if idx := len(domain) - 3; idx > 0 && (domain[idx:] == ".io" || domain[idx:] == ".co") {
-			orgName = domain[:idx]
-		}
-		// Try GitHub org scan
-		_, err := githubscan.Run(githubscan.Options{
-			Mode: githubscan.ModeOrg,
-			Org:  orgName,
-		})
-		if err != nil {
-			log.Printf("[WARN] GitHub scan failed for org %s: %v (this is normal if org doesn't exist)", orgName, err)
-		}
-		return nil // Don't fail the workflow if GitHub scan fails
-	}); err != nil {
-		log.Printf("[WARN] GitHub scan failed: %v", err)
-	}
-	step++
 
-	// Phase: Zerodays scan
-	if err := runDomainPhase("zerodays", step, totalSteps, "Zerodays scan", domain, 0, func() error {
-		// Run zerodays via CLI command
+	// Phase: Zerodays scan (sends webhooks in real-time, no file sending needed)
+	if err := runDomainPhase("", step, totalSteps, "Zerodays scan", domain, 0, func() error {
+		// Run zerodays via CLI command - it sends webhooks in real-time
 		cmd := exec.Command(os.Args[0], "zerodays", "scan", "-d", domain, "-t", "100", "--silent")
 		if err := cmd.Run(); err != nil {
 			log.Printf("[WARN] Zerodays scan failed: %v", err)

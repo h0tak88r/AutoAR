@@ -18,7 +18,25 @@ import (
 )
 
 // EnumerateSubdomains enumerates subdomains for a given domain using subfinder and API sources
+// First checks the database for existing subdomains before enumerating
 func EnumerateSubdomains(domain string, threads int) ([]string, error) {
+	// Step 1: Check database first
+	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
+		if err := db.Init(); err == nil {
+			_ = db.InitSchema()
+			count, err := db.CountSubdomains(domain)
+			if err == nil && count > 0 {
+				log.Printf("[INFO] Found %d subdomains in database for %s, using them", count, domain)
+				// Load subdomains from database
+				subs, err := db.ListSubdomains(domain)
+				if err == nil && len(subs) > 0 {
+					log.Printf("[OK] Using %d subdomains from database for %s", len(subs), domain)
+					return subs, nil
+				}
+			}
+		}
+	}
+
 	var results []string
 	var mu sync.Mutex
 	unique := make(map[string]bool)
@@ -36,7 +54,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 		}
 	}
 	
-	// 1. Get subdomains from API sources (lightweight, fast)
+	// 2. Get subdomains from API sources (lightweight, fast)
 	log.Printf("[INFO] Collecting subdomains from API sources for %s", domain)
 	apiResults := getSubdomainsFromAPIs(domain)
 	for _, subdomain := range apiResults {
@@ -44,7 +62,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	}
 	log.Printf("[INFO] Found %d subdomains from API sources", len(apiResults))
 	
-	// 2. Get subdomains from subfinder library
+	// 3. Get subdomains from subfinder library
 	log.Printf("[INFO] Collecting subdomains using subfinder library for %s", domain)
 	subfinderResults, err := getSubdomainsFromSubfinder(domain, threads)
 	if err != nil {

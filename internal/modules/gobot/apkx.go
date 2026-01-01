@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	apkxmod "github.com/h0tak88r/AutoAR/v3/internal/modules/apkx"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 )
 
 // handleApkXScan handles the /apkx_scan command.
@@ -140,20 +142,26 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 
 	if res != nil {
-		// Parse and add secrets summary
-		if summary := parseAPKResultsSummary(res.LogFile); summary != "" {
+		// Parse manifest info and summary stats
+		manifestInfo := parseAPKManifestInfo(res.ReportDir)
+		if manifestInfo != "" {
 			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "🔍 Secrets Summary",
-				Value: summary,
+				Name:  "📱 App Information",
+				Value: manifestInfo,
+				Inline: false,
+			})
+		}
+		
+		// Add summary stats (total findings and categories)
+		if stats := parseAPKSummaryStats(res.LogFile); stats != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "📊 Summary Stats",
+				Value: stats,
 				Inline: false,
 			})
 		}
 		
 		fields = append(fields,
-			&discordgo.MessageEmbedField{
-				Name:  "Report Directory",
-				Value: fmt.Sprintf("`%s`", res.ReportDir),
-			},
 			&discordgo.MessageEmbedField{
 				Name:  "Duration",
 				Value: res.Duration.String(),
@@ -168,17 +176,18 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		)
 	}
 
-		embed := &discordgo.MessageEmbed{
-			Title:       title,
-			Description: desc,
-			Color:       color,
-			Fields: append([]*discordgo.MessageEmbedField{
-				{Name: "Status", Value: status, Inline: false},
-			}, fields...),
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
-
 	files := prepareAPKFiles(res, mitm, &fields)
+
+	// Create embed AFTER prepareAPKFiles so R2 links are included in fields
+	embed := &discordgo.MessageEmbed{
+		Title:       title,
+		Description: desc,
+		Color:       color,
+		Fields: append([]*discordgo.MessageEmbedField{
+			{Name: "Status", Value: status, Inline: false},
+		}, fields...),
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
 
 	log.Printf("[DEBUG] Preparing to send Discord message with %d files", len(files))
 	if len(files) > 0 {
@@ -223,6 +232,18 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("[WARN] FollowupMessageCreate returned nil message without error")
 		}
 	}
+
+	// Upload to R2 and cleanup local files after scan completes
+	if err == nil && res != nil && res.ReportDir != "" {
+		resultsDir := getResultsDir()
+		apkPrefix := strings.TrimPrefix(res.ReportDir, resultsDir+"/")
+		if apkPrefix == res.ReportDir {
+			apkPrefix = "apkx/" + filepath.Base(res.ReportDir)
+		}
+		if err := cleanupResultsDirectory(apkPrefix, res.ReportDir); err != nil {
+			log.Printf("[WARN] Failed to cleanup APK results directory: %v", err)
+		}
+	}
 }(att.Filename, tmpFile.Name(), mitm)
 }
 
@@ -231,6 +252,8 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCreate, pkg string, mitm bool) {
 	log.Printf("[DEBUG] handleApkXScanFromPackage called - package: %s, mitm: %v", pkg, mitm)
 	start := time.Now()
+	
+	// RunFromPackage now checks cache automatically and returns cached results if version matches
 	res, err := apkxmod.RunFromPackage(apkxmod.PackageOptions{
 		Package:  pkg,
 		Platform: "android",
@@ -247,6 +270,10 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 	desc := fmt.Sprintf("Package: `%s`", pkg)
 	color := 0x00ff00
 	status := "✅ Completed"
+	if res != nil && res.FromCache {
+		status = "✅ Completed (Cached)"
+		desc = fmt.Sprintf("Package: `%s`\n💾 **Using cached results**", pkg)
+	}
 	fields := []*discordgo.MessageEmbedField{}
 
 	if err != nil {
@@ -259,20 +286,26 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 	}
 
 	if res != nil {
-		// Parse and add secrets summary
-		if summary := parseAPKResultsSummary(res.LogFile); summary != "" {
+		// Parse manifest info and summary stats
+		manifestInfo := parseAPKManifestInfo(res.ReportDir)
+		if manifestInfo != "" {
 			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "🔍 Secrets Summary",
-				Value: summary,
+				Name:  "📱 App Information",
+				Value: manifestInfo,
+				Inline: false,
+			})
+		}
+		
+		// Add summary stats (total findings and categories)
+		if stats := parseAPKSummaryStats(res.LogFile); stats != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "📊 Summary Stats",
+				Value: stats,
 				Inline: false,
 			})
 		}
 		
 		fields = append(fields,
-			&discordgo.MessageEmbedField{
-				Name:  "Report Directory",
-				Value: fmt.Sprintf("`%s`", res.ReportDir),
-			},
 			&discordgo.MessageEmbedField{
 				Name:  "Duration",
 				Value: res.Duration.String(),
@@ -287,6 +320,9 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 		)
 	}
 
+	files := prepareAPKFiles(res, mitm, &fields)
+
+	// Create embed AFTER prepareAPKFiles so R2 links are included in fields
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
 		Description: desc,
@@ -296,8 +332,6 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 		}, fields...),
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
-
-	files := prepareAPKFiles(res, mitm, &fields)
 
 	log.Printf("[DEBUG] Preparing to send Discord message with %d files", len(files))
 	if len(files) > 0 {
@@ -340,6 +374,21 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Printf("[DEBUG] Successfully sent Discord message (message ID: %s)", msg.ID)
 		} else {
 			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
+		}
+	}
+
+	// Upload to R2 and cleanup local files after scan completes (if not from cache)
+	if err == nil && res != nil && !res.FromCache && res.ReportDir != "" {
+		// Extract package name from report dir for R2 prefix
+		// ReportDir format: {resultsRoot}/apkx/{package_name}
+		resultsDir := getResultsDir()
+		apkPrefix := strings.TrimPrefix(res.ReportDir, resultsDir+"/")
+		if apkPrefix == res.ReportDir {
+			// Fallback: use just the directory name
+			apkPrefix = "apkx/" + filepath.Base(res.ReportDir)
+		}
+		if err := cleanupResultsDirectory(apkPrefix, res.ReportDir); err != nil {
+			log.Printf("[WARN] Failed to cleanup APK results directory: %v", err)
 		}
 	}
 }
@@ -409,20 +458,26 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 		}
 
 	if res != nil {
-		// Parse and add secrets summary
-		if summary := parseAPKResultsSummary(res.LogFile); summary != "" {
+		// Parse manifest info and summary stats
+		manifestInfo := parseAPKManifestInfo(res.ReportDir)
+		if manifestInfo != "" {
 			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "🔍 Secrets Summary",
-				Value: summary,
+				Name:  "📱 App Information",
+				Value: manifestInfo,
+				Inline: false,
+			})
+		}
+		
+		// Add summary stats (total findings and categories)
+		if stats := parseAPKSummaryStats(res.LogFile); stats != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "📊 Summary Stats",
+				Value: stats,
 				Inline: false,
 			})
 		}
 		
 		fields = append(fields,
-			&discordgo.MessageEmbedField{
-				Name:  "Report Directory",
-				Value: fmt.Sprintf("`%s`", res.ReportDir),
-			},
 			&discordgo.MessageEmbedField{
 				Name:  "Duration",
 				Value: res.Duration.String(),
@@ -437,6 +492,9 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 		)
 	}
 
+	files := prepareAPKFiles(res, mitm, &fields)
+
+	// Create embed AFTER prepareAPKFiles so R2 links are included in fields
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
 		Description: desc,
@@ -446,8 +504,6 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 		}, fields...),
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
-
-	files := prepareAPKFiles(res, mitm, &fields)
 
 	log.Printf("[DEBUG] Preparing to send Discord message with %d files", len(files))
 	if len(files) > 0 {
@@ -490,6 +546,18 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 			log.Printf("[DEBUG] Successfully sent Discord message (message ID: %s)", msg.ID)
 		} else {
 			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
+		}
+	}
+
+	// Upload to R2 and cleanup local files after scan completes (if not from cache)
+	if err == nil && res != nil && !res.FromCache && res.ReportDir != "" {
+		resultsDir := getResultsDir()
+		apkPrefix := strings.TrimPrefix(res.ReportDir, resultsDir+"/")
+		if apkPrefix == res.ReportDir {
+			apkPrefix = "apkx/" + filepath.Base(res.ReportDir)
+		}
+		if err := cleanupResultsDirectory(apkPrefix, res.ReportDir); err != nil {
+			log.Printf("[WARN] Failed to cleanup APK results directory: %v", err)
 		}
 	}
 }(pkg, mitm)
@@ -551,20 +619,26 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 
 	if res != nil {
-		// Parse and add secrets summary
-		if summary := parseAPKResultsSummary(res.LogFile); summary != "" {
+		// Parse manifest info and summary stats
+		manifestInfo := parseAPKManifestInfo(res.ReportDir)
+		if manifestInfo != "" {
 			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "🔍 Secrets Summary",
-				Value: summary,
+				Name:  "📱 App Information",
+				Value: manifestInfo,
+				Inline: false,
+			})
+		}
+		
+		// Add summary stats (total findings and categories)
+		if stats := parseAPKSummaryStats(res.LogFile); stats != "" {
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "📊 Summary Stats",
+				Value: stats,
 				Inline: false,
 			})
 		}
 		
 		fields = append(fields,
-			&discordgo.MessageEmbedField{
-				Name:  "Report Directory",
-				Value: fmt.Sprintf("`%s`", res.ReportDir),
-			},
 			&discordgo.MessageEmbedField{
 				Name:  "Duration",
 				Value: res.Duration.String(),
@@ -602,8 +676,20 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Embeds: []*discordgo.MessageEmbed{embed},
 		})
+	}
+
+	// Upload to R2 and cleanup local files after scan completes (if not from cache)
+	if err == nil && res != nil && !res.FromCache && res.ReportDir != "" {
+		resultsDir := getResultsDir()
+		apkPrefix := strings.TrimPrefix(res.ReportDir, resultsDir+"/")
+		if apkPrefix == res.ReportDir {
+			apkPrefix = "apkx/" + filepath.Base(res.ReportDir)
 		}
-	}(bundle)
+		if err := cleanupResultsDirectory(apkPrefix, res.ReportDir); err != nil {
+			log.Printf("[WARN] Failed to cleanup iOS results directory: %v", err)
+		}
+	}
+}(bundle)
 }
 
 // prepareAPKFiles prepares file attachments for Discord (table, JSON, and MITM patched APK)
@@ -652,20 +738,54 @@ func prepareAPKFiles(res *apkxmod.Result, mitm bool, fields *[]*discordgo.Messag
 			// Verify file exists before trying to send
 			if stat, statErr := os.Stat(res.MITMPatchedAPK); statErr == nil {
 				log.Printf("[DEBUG] MITM patched APK file exists, size: %d bytes", stat.Size())
-				// Read file into memory to avoid closing issues
-				if data, err := os.ReadFile(res.MITMPatchedAPK); err == nil {
-					files = append(files, &discordgo.File{
-						Name:        filepath.Base(res.MITMPatchedAPK),
-						ContentType: "application/vnd.android.package-archive",
-						Reader:      bytes.NewReader(data),
-					})
-					*fields = append(*fields, &discordgo.MessageEmbedField{
-						Name:  "🔒 MITM Patched APK",
-						Value: fmt.Sprintf("`%s` (%.2f MB)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024),
-					})
-					log.Printf("[DEBUG] Successfully added MITM patched APK to Discord files")
+				
+				// Check if file should be uploaded to R2
+				if r2storage.ShouldUseR2(res.MITMPatchedAPK) || (r2storage.IsEnabled() && stat.Size() > r2storage.GetFileSizeLimit()) {
+					// Check if file already exists in R2, upload if not
+					log.Printf("[DEBUG] MITM patched APK is large, checking R2...")
+					publicURL, isNew, err := r2storage.UploadFileIfNotExists(res.MITMPatchedAPK, filepath.Base(res.MITMPatchedAPK))
+					if err != nil {
+						log.Printf("[ERROR] Failed to upload MITM patched APK to R2: %v, trying direct upload", err)
+						// Fallback to direct upload
+						if data, readErr := os.ReadFile(res.MITMPatchedAPK); readErr == nil {
+							files = append(files, &discordgo.File{
+								Name:        filepath.Base(res.MITMPatchedAPK),
+								ContentType: "application/vnd.android.package-archive",
+								Reader:      bytes.NewReader(data),
+							})
+							*fields = append(*fields, &discordgo.MessageEmbedField{
+								Name:  "🔒 MITM Patched APK",
+								Value: fmt.Sprintf("`%s` (%.2f MB)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024),
+							})
+						}
+					} else {
+						// Add R2 link to embed
+						statusText := "Uploaded to R2"
+						if !isNew {
+							statusText = "Found in R2"
+						}
+						*fields = append(*fields, &discordgo.MessageEmbedField{
+							Name:  "🔒 MITM Patched APK (R2)",
+							Value: fmt.Sprintf("`%s` (%.2f MB) - %s\n🔗 [Download from R2](%s)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024, statusText, publicURL),
+						})
+						log.Printf("[DEBUG] MITM patched APK %s in R2: %s", statusText, publicURL)
+					}
 				} else {
-					log.Printf("[ERROR] Failed to read MITM patched APK file: %v", err)
+					// Read file into memory for direct upload
+					if data, err := os.ReadFile(res.MITMPatchedAPK); err == nil {
+						files = append(files, &discordgo.File{
+							Name:        filepath.Base(res.MITMPatchedAPK),
+							ContentType: "application/vnd.android.package-archive",
+							Reader:      bytes.NewReader(data),
+						})
+						*fields = append(*fields, &discordgo.MessageEmbedField{
+							Name:  "🔒 MITM Patched APK",
+							Value: fmt.Sprintf("`%s` (%.2f MB)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024),
+						})
+						log.Printf("[DEBUG] Successfully added MITM patched APK to Discord files")
+					} else {
+						log.Printf("[ERROR] Failed to read MITM patched APK file: %v", err)
+					}
 				}
 			} else {
 				log.Printf("[ERROR] MITM patched APK file not found: %s (stat error: %v)", res.MITMPatchedAPK, statErr)
@@ -678,6 +798,118 @@ func prepareAPKFiles(res *apkxmod.Result, mitm bool, fields *[]*discordgo.Messag
 	}
 	
 	return files
+}
+
+// parseAPKManifestInfo extracts package name, version, and minSdk from AndroidManifest.xml
+func parseAPKManifestInfo(reportDir string) string {
+	if reportDir == "" {
+		return ""
+	}
+	
+	// Look for AndroidManifest.xml in common decompilation output locations
+	manifestPaths := []string{
+		filepath.Join(reportDir, "AndroidManifest.xml"),
+		filepath.Join(reportDir, "sources", "AndroidManifest.xml"),
+		filepath.Join(reportDir, "resources", "AndroidManifest.xml"),
+		filepath.Join(reportDir, "res", "AndroidManifest.xml"),
+	}
+	
+	var manifestPath string
+	for _, path := range manifestPaths {
+		if _, err := os.Stat(path); err == nil {
+			manifestPath = path
+			break
+		}
+	}
+	
+	if manifestPath == "" {
+		return ""
+	}
+	
+	// Read the AndroidManifest.xml file
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return ""
+	}
+	
+	manifestContent := string(content)
+	var info strings.Builder
+	
+	// Extract package name
+	packageRegex := regexp.MustCompile(`package\s*=\s*["']([^"']+)["']`)
+	if matches := packageRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
+		info.WriteString(fmt.Sprintf("**Package:** `%s`\n", matches[1]))
+	}
+	
+	// Extract version name
+	versionRegex := regexp.MustCompile(`android:versionName\s*=\s*["']([^"']+)["']`)
+	versionCodeRegex := regexp.MustCompile(`android:versionCode\s*=\s*["']([^"']+)["']`)
+	var versionName, versionCode string
+	if matches := versionRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
+		versionName = matches[1]
+	}
+	if matches := versionCodeRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
+		versionCode = matches[1]
+	}
+	if versionName != "" {
+		if versionCode != "" {
+			info.WriteString(fmt.Sprintf("**Version:** `%s` (code: %s)\n", versionName, versionCode))
+		} else {
+			info.WriteString(fmt.Sprintf("**Version:** `%s`\n", versionName))
+		}
+	} else if versionCode != "" {
+		info.WriteString(fmt.Sprintf("**Version Code:** `%s`\n", versionCode))
+	}
+	
+	// Extract minSdkVersion
+	minSdkRegex := regexp.MustCompile(`android:minSdkVersion\s*=\s*["'](\d+)["']`)
+	if matches := minSdkRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
+		info.WriteString(fmt.Sprintf("**Min SDK:** `%s`\n", matches[1]))
+	} else {
+		// Try alternative pattern without quotes
+		minSdkRegex2 := regexp.MustCompile(`android:minSdkVersion\s*=\s*(\d+)`)
+		if matches := minSdkRegex2.FindStringSubmatch(manifestContent); len(matches) > 1 {
+			info.WriteString(fmt.Sprintf("**Min SDK:** `%s`\n", matches[1]))
+		}
+	}
+	
+	result := info.String()
+	if result == "" {
+		return ""
+	}
+	
+	// Remove trailing newline
+	result = strings.TrimSuffix(result, "\n")
+	return result
+}
+
+// parseAPKSummaryStats extracts summary statistics from results.json
+func parseAPKSummaryStats(jsonPath string) string {
+	if jsonPath == "" {
+		return ""
+	}
+	
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return ""
+	}
+	
+	var results map[string][]string
+	if err := json.Unmarshal(data, &results); err != nil {
+		return ""
+	}
+	
+	if len(results) == 0 {
+		return "No findings detected."
+	}
+	
+	// Count total findings
+	totalFindings := 0
+	for _, findings := range results {
+		totalFindings += len(findings)
+	}
+	
+	return fmt.Sprintf("**Total Findings:** %d\n**Categories:** %d", totalFindings, len(results))
 }
 
 // parseAPKResultsSummary parses the results.json file and creates a markdown table

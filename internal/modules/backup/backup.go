@@ -74,7 +74,9 @@ func Run(opts Options) (*Result, error) {
 	outDir := opts.OutputDir
 	if outDir == "" {
 		if opts.Domain != "" {
-			outDir = filepath.Join(resultsDir, opts.Domain, "backup")
+			// Sanitize domain for filesystem use (remove protocol, replace : with -)
+			sanitizedDomain := sanitizeDomainForPath(opts.Domain)
+			outDir = filepath.Join(resultsDir, sanitizedDomain, "backup")
 		} else {
 			outDir = filepath.Join(resultsDir, "backup")
 		}
@@ -124,19 +126,15 @@ func Run(opts Options) (*Result, error) {
 
 	start := time.Now()
 
+	// Set default method to "all" if not specified
+	if opts.Method == "" {
+		opts.Method = "all"
+		fuzzOpts.Method = fuzzulitool.MethodAll
+	}
+
 	var urls []string
+	// Prioritize LiveHostsFile over Domain when both are provided
 	switch {
-	case opts.Domain != "":
-		log.Printf("[INFO] Backup scan: Scanning domain %s with method %s, threads %d", opts.Domain, opts.Method, threads)
-		if len(opts.Extensions) > 0 {
-			log.Printf("[INFO] Backup scan: Using custom extensions: %v", opts.Extensions)
-		}
-		u, err := fuzzulitool.ScanDomain(opts.Domain, fuzzOpts)
-		if err != nil {
-			return res, fmt.Errorf("fuzzuli scan failed: %w", err)
-		}
-		urls = u
-		log.Printf("[INFO] Backup scan: Generated %d backup file URLs for domain %s", len(urls), opts.Domain)
 	case opts.LiveHostsFile != "":
 		log.Printf("[INFO] Backup scan: Reading live hosts from file: %s", opts.LiveHostsFile)
 		// Count hosts in file for logging
@@ -161,6 +159,20 @@ func Run(opts Options) (*Result, error) {
 		}
 		urls = u
 		log.Printf("[INFO] Backup scan: Generated %d backup file URLs from live hosts", len(urls))
+	case opts.Domain != "":
+		log.Printf("[INFO] Backup scan: Scanning domain %s with method %s, threads %d", opts.Domain, opts.Method, threads)
+		if len(opts.Extensions) > 0 {
+			log.Printf("[INFO] Backup scan: Using custom extensions: %v", opts.Extensions)
+		}
+		u, err := fuzzulitool.ScanDomain(opts.Domain, fuzzOpts)
+		if err != nil {
+			return res, fmt.Errorf("fuzzuli scan failed: %w", err)
+		}
+		urls = u
+		log.Printf("[INFO] Backup scan: Generated %d backup file URLs for domain %s", len(urls), opts.Domain)
+		if len(urls) > 0 {
+			log.Printf("[DEBUG] Backup scan: Sample URLs found: %v", urls[:min(5, len(urls))])
+		}
 	default:
 		return nil, fmt.Errorf("invalid options")
 	}
@@ -208,4 +220,27 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	return res, nil
+}
+
+// sanitizeDomainForPath removes protocol and sanitizes domain for use in filesystem paths
+func sanitizeDomainForPath(domain string) string {
+	domain = strings.TrimSpace(domain)
+	// Remove protocol if present
+	if strings.HasPrefix(domain, "http://") {
+		domain = strings.TrimPrefix(domain, "http://")
+	} else if strings.HasPrefix(domain, "https://") {
+		domain = strings.TrimPrefix(domain, "https://")
+	}
+	// Replace any remaining colons (e.g., from ports) with dashes
+	domain = strings.ReplaceAll(domain, ":", "-")
+	// Remove trailing slashes
+	domain = strings.TrimRight(domain, "/")
+	return domain
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

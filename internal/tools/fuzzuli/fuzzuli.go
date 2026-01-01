@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 // Default configuration values adapted from the original fuzzuli CLI.
@@ -156,7 +158,8 @@ func scanBases(bases []string, opts Options) ([]string, error) {
 	var resultsMu sync.Mutex
 	var results []string
 
-	client := newHTTPClient(opts.Timeout)
+	retryClient := newRetryableHTTPClient(opts.Timeout)
+	client := retryClient.StandardClient()
 
 	worker := func() {
 		defer wg.Done()
@@ -169,6 +172,7 @@ func scanBases(bases []string, opts Options) ([]string, error) {
 					}
 					ok, err := checkURL(client, u, opts)
 					if err != nil {
+						// Silently continue on errors (network issues, etc.)
 						continue
 					}
 					if ok {
@@ -188,6 +192,11 @@ func scanBases(bases []string, opts Options) ([]string, error) {
 
 	for _, base := range bases {
 		words := generateWordlist(base, opts.Method)
+		// Debug: Check if we're generating words
+		if len(words) == 0 {
+			// This shouldn't happen, but log it if it does
+			continue
+		}
 		for _, w := range words {
 			tasks <- task{Base: base, Word: w}
 		}
@@ -199,13 +208,15 @@ func scanBases(bases []string, opts Options) ([]string, error) {
 }
 
 // normalizeBase ensures we have a scheme and no trailing slash.
+// Matches fuzzuli behavior: uses http:// by default (as per original fuzzuli code)
 func normalizeBase(host string) string {
 	host = strings.TrimSpace(host)
 	if host == "" {
 		return ""
 	}
+	// Preserve existing protocol if present
 	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
-		host = "http://" + host
+		host = "http://" + host // Use http:// by default (matches original fuzzuli)
 	}
 	return strings.TrimRight(host, "/")
 }
@@ -221,8 +232,8 @@ func buildURL(base, path, word, ext string) string {
 	return base + path + word + ext
 }
 
-// newHTTPClient returns an HTTP client similar to the one used by fuzzuli.
-func newHTTPClient(timeout time.Duration) *http.Client {
+// newRetryableHTTPClient returns a retryablehttp client (matching real fuzzuli).
+func newRetryableHTTPClient(timeout time.Duration) *retryablehttp.Client {
 	tr := &http.Transport{
 		MaxIdleConns:        100,
 		MaxConnsPerHost:     100,
@@ -236,13 +247,20 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 		}).DialContext,
 	}
 
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: tr,
-	}
+	// Use retryablehttp like the real fuzzuli
+	retryClient := retryablehttp.NewClient()
+	retryClient.RetryMax = 3
+	retryClient.RetryWaitMax = 3 * time.Second
+	retryClient.RetryWaitMin = 100 * time.Millisecond
+	retryClient.Logger = nil // Disable logging
+	retryClient.HTTPClient.Transport = tr
+	retryClient.HTTPClient.Timeout = timeout
+
+	return retryClient
 }
 
 // checkURL performs a HEAD request and applies fuzzuli-like heuristics.
+// Uses retryablehttp client which handles retries automatically (matching real fuzzuli).
 func checkURL(client *http.Client, target string, opts Options) (bool, error) {
 	req, err := http.NewRequest("HEAD", target, nil)
 	if err != nil {
@@ -292,7 +310,11 @@ func checkURL(client *http.Client, target string, opts Options) (bool, error) {
 // generateWordlist builds candidate words from the domain similar to fuzzuli.
 func generateWordlist(domain string, method Method) []string {
 	var words []string
-	justDomain := strings.Split(domain, "://")[1]
+	// Extract domain part (remove protocol if present)
+	justDomain := domain
+	if strings.Contains(domain, "://") {
+		justDomain = strings.Split(domain, "://")[1]
+	}
 
 	// Determine which methods to use
 	methods := []Method{}
@@ -348,7 +370,12 @@ func withoutVowelsAndDots(domain string, wordlist *[]string) {
 }
 
 func reverseDomain(domain string, wordlist *[]string) {
-	split := strings.Split(domain, ".")
+	// Extract domain part (remove protocol if present)
+	clearDomain := domain
+	if strings.Contains(domain, "://") {
+		clearDomain = strings.Split(domain, "://")[1]
+	}
+	split := strings.Split(clearDomain, ".")
 	reversed := reverseSlice(split)
 	reverseDomain := strings.Join(reversed, ".")
 	generatePossibilities(reverseDomain, wordlist)
@@ -358,7 +385,14 @@ func reverseDomain(domain string, wordlist *[]string) {
 }
 
 func mixedSubdomain(domain string, wordlist *[]string) {
-	clearDomain := strings.Split(domain, "://")[1]
+	// Extract domain part (remove protocol if present)
+	clearDomain := domain
+	if strings.Contains(domain, "://") {
+		parts := strings.Split(domain, "://")
+		if len(parts) > 1 {
+			clearDomain = parts[1]
+		}
+	}
 	split := strings.Split(clearDomain, ".")
 	for sindex := range split {
 		for eindex := range split {
@@ -368,7 +402,11 @@ func mixedSubdomain(domain string, wordlist *[]string) {
 }
 
 func shuffle(domain string, wordlist *[]string) {
-	clearDomain := strings.Split(domain, "://")[1]
+	// Extract domain part (remove protocol if present)
+	clearDomain := domain
+	if strings.Contains(domain, "://") {
+		clearDomain = strings.Split(domain, "://")[1]
+	}
 	split := strings.Split(clearDomain, ".")
 	splitReverse := reverseSlice(split)
 	reverseDomain := strings.Join(splitReverse, ".")

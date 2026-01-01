@@ -80,10 +80,7 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		// Update initial response
 		content := fmt.Sprintf("📋 Found %d domains in file. Starting zerodays scan (live hosts + smart scan) for each...", len(targets))
-		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: &content,
-		})
-		if err != nil {
+		if err := UpdateInteractionContent(s, i, content); err != nil {
 			log.Printf("[WARN] Failed to update interaction: %v", err)
 		}
 
@@ -730,21 +727,9 @@ func sendZerodaysResults(s *discordgo.Session, i *discordgo.InteractionCreate, d
 		})
 	}
 
-	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-	if err != nil {
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
 		log.Printf("[ERROR] Failed to update Discord message: %v", err)
-		// Try to send as followup message as fallback
-		_, err2 := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		})
-		if err2 != nil {
-			log.Printf("[ERROR] Failed to send followup message: %v", err2)
-			return fmt.Errorf("both edit and followup failed: edit=%v, followup=%v", err, err2)
-		}
-		log.Printf("[DEBUG] Sent results as followup message (edit failed)")
-		return nil
+		return fmt.Errorf("failed to update interaction message: %w", err)
 	}
 	log.Printf("[DEBUG] Successfully updated Discord message for domain scan: %s", domain)
 	return nil
@@ -763,9 +748,9 @@ func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, tar
 			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** %v", target, err),
 			Color:       0xff0000,
 		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
+		if err := UpdateInteractionMessage(s, i, embed); err != nil {
+			log.Printf("[ERROR] Failed to update embed: %v", err)
+		}
 		return
 	}
 
@@ -912,10 +897,7 @@ func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, tar
 	}
 
 	// Update embed
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-	if err != nil {
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
 		log.Printf("[ERROR] Error updating embed: %v", err)
 		// Try followup as fallback
 		_, err2 := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -1037,10 +1019,7 @@ func handleLivehosts(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		// Update initial response
 		content := fmt.Sprintf("📋 Found %d targets in file. Starting livehosts scan...", len(targets))
-		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: &content,
-		})
-		if err != nil {
+		if err := UpdateInteractionContent(s, i, content); err != nil {
 			log.Printf("[WARN] Failed to update interaction: %v", err)
 		}
 
@@ -1143,9 +1122,9 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 				{Name: "Output", Value: fmt.Sprintf("```%s```", outputStr[:1000]), Inline: false},
 			},
 		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
+		if err := UpdateInteractionMessage(s, i, embed); err != nil {
+			log.Printf("[ERROR] Failed to update embed: %v", err)
+		}
 		return
 	}
 
@@ -1242,10 +1221,7 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 	}
 
 	// Update embed
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-	if err != nil {
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
 		log.Printf("[ERROR] Failed to update embed: %v", err)
 	}
 
@@ -1277,10 +1253,7 @@ func updateEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, message s
 		Color:       color,
 	}
 
-	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
-	if err != nil {
+	if err := UpdateInteractionMessage(s, i, embed); err != nil {
 		log.Printf("Error updating embed: %v", err)
 	}
 }

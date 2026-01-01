@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/backup"
+	aemmod "github.com/h0tak88r/AutoAR/v3/internal/modules/aem"
 	apkxmod "github.com/h0tak88r/AutoAR/v3/internal/modules/apkx"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/checktools"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/cnames"
@@ -43,6 +44,7 @@ import (
 	subdomainmonitor "github.com/h0tak88r/AutoAR/v3/internal/modules/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/wp-confusion"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
 	scopemod "github.com/h0tak88r/AutoAR/v3/internal/modules/scope"
@@ -140,14 +142,16 @@ Commands:
   backup scan            -f <domains_file> [-m <method>] [-ex <extensions>] [-o <output_dir>] [-t <threads>] [--delay <ms>]
                          Methods: regular, withoutdots, withoutvowels, reverse, mixed, withoutdv, shuffle, all
                          Extensions: comma-separated (e.g., .rar,.zip,.tar.gz) - default: all (uses all common backup extensions)
-  apkx scan              -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]
+  aem scan               -d <domain> | -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [--ssrf-host <host>] [--ssrf-port <port>] [--proxy <proxy>] [--debug] [--handler <handler>...]
+                         Scans for AEM webapps and tests for vulnerabilities
+  apkx scan              -i <apk_or_ipa_path> | -p <package_id> [--platform android|ios] [-o <output_dir>] [--mitm]
   apkx mitm              -i <apk_path> [-o <output_dir>] | -p <package_name> [-o <output_dir>]
   depconfusion scan <file>                    Scan local dependency file
   depconfusion github repo <owner/repo>       Scan GitHub repository
   depconfusion github org <org>               Scan GitHub organization
   depconfusion web <url> [url2] [url3]...     Scan web targets
   depconfusion web-file <file>                Scan targets from file
-  misconfig scan <target> [service] [delay]   Scan for misconfigurations
+  misconfig scan <target> [--service <id>] [--delay <ms>] [--permutations]   Scan for misconfigurations
   misconfig service <target> <service-id>     Scan specific service
   scope -p <platform> [options]              Fetch scope from bug bounty platforms
                          Platforms: h1 (HackerOne), bc (Bugcrowd), it (Intigriti), ywh (YesWeHack), immunefi
@@ -177,12 +181,14 @@ Commands:
   zerodays scan        -d <domain> | -s <subdomain> | -f <domains_file> [-t <threads>] [--cve <cve>] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>] [--silent]
                                                                     For each domain: collects live hosts, then runs smart scan
                                                                     --silent: Output only vulnerable hosts (one per line, no progress)
-  ffuf fuzz            -u <url> [-w <wordlist>] [-t <threads>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>]
+  ffuf fuzz            -u <url> | -d <domain> [-w <wordlist>] [-t <threads>] [--concurrency <n>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>]
                                                                     Fuzz URLs with ffuf, filtering only 200 status codes
                                                                     Real-time size-based deduplication (skips duplicate response sizes)
                                                                     --bypass-403: Attempts 403 bypass techniques (headers and path modifications)
                                                                     Default wordlist: Wordlists/quick_fuzz.txt
-                                                                    URL must contain FUZZ placeholder (e.g., https://target.com/FUZZ)
+                                                                    Single URL mode (-u): URL must contain FUZZ placeholder (e.g., https://target.com/FUZZ)
+                                                                    Domain mode (-d): Fuzz all live hosts for the domain with concurrency (default: 5 hosts)
+                                                                    Domain mode: searches live-subs.txt, checks database, or runs livehosts module if needed
   monitor subdomains   -d <domain> [-t <threads>] [--check-new]   Monitor subdomain status changes (one-time check)
                                                                     Detects: new subdomains, status changes, live/dead changes
   monitor subdomains manage <action> [options]                     Manage automatic subdomain monitoring targets
@@ -201,10 +207,12 @@ Database:
   db subdomains list  -d <domain>
   db subdomains export -d <domain> [-o file]
   db js list          -d <domain>
+  db backup           [--upload-r2]  Create database backup (optionally upload to R2)
 
 Utilities:
   check-tools         Check if all required tools are installed
   setup               Install all AutoAR dependencies
+  cleanup             Clean up the entire results directory
   help
 
 Special:
@@ -819,10 +827,10 @@ func handleJSCommand(args []string) error {
 	return nil
 }
 
-// handleFFufCommand parses: autoar ffuf fuzz -u <url> [-w <wordlist>] [-t <threads>] [--recursion] [--bypass-403] [-e <extensions>]
+// handleFFufCommand parses: autoar ffuf fuzz -u <url> | -d <domain> [-w <wordlist>] [-t <threads>] [--recursion] [--bypass-403] [-e <extensions>] [--header <key:value>] [--concurrency <n>]
 func handleFFufCommand(args []string) error {
 	if len(args) == 0 || args[0] != "fuzz" {
-		return fmt.Errorf("usage: ffuf fuzz -u <url> [-w <wordlist>] [-t <threads>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>]")
+		return fmt.Errorf("usage: ffuf fuzz -u <url> | -d <domain> [-w <wordlist>] [-t <threads>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>] [--concurrency <n>]")
 	}
 	args = args[1:]
 
@@ -830,6 +838,7 @@ func handleFFufCommand(args []string) error {
 		Threads:         40,
 		FollowRedirects: true,
 		CustomHeaders:    make(map[string]string),
+		Concurrency:     5, // Default concurrency for domain mode
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -837,6 +846,11 @@ func handleFFufCommand(args []string) error {
 		case "-u", "--url", "--target":
 			if i+1 < len(args) {
 				opts.Target = args[i+1]
+				i++
+			}
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				opts.Domain = args[i+1]
 				i++
 			}
 		case "-w", "--wordlist":
@@ -848,6 +862,13 @@ func handleFFufCommand(args []string) error {
 			if i+1 < len(args) {
 				if t, err := strconv.Atoi(args[i+1]); err == nil {
 					opts.Threads = t
+				}
+				i++
+			}
+		case "--concurrency", "-c":
+			if i+1 < len(args) {
+				if c, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Concurrency = c
 				}
 				i++
 			}
@@ -894,12 +915,17 @@ func handleFFufCommand(args []string) error {
 		}
 	}
 
-	if opts.Target == "" {
-		return fmt.Errorf("target URL (-u) is required")
+	// Validate that either -u or -d is provided, but not both
+	if opts.Target == "" && opts.Domain == "" {
+		return fmt.Errorf("either target URL (-u) or domain (-d) is required")
+	}
+	if opts.Target != "" && opts.Domain != "" {
+		return fmt.Errorf("cannot use both -u and -d together; use -u for single URL or -d for domain mode")
 	}
 
-	// Ensure URL has FUZZ placeholder or add it
-	if !strings.Contains(opts.Target, "FUZZ") {
+	// Domain mode: no need to add FUZZ placeholder (handled in domain mode)
+	// Single target mode: ensure URL has FUZZ placeholder or add it
+	if opts.Target != "" && !strings.Contains(opts.Target, "FUZZ") {
 		if !strings.HasSuffix(opts.Target, "/") {
 			opts.Target += "/"
 		}
@@ -911,8 +937,13 @@ func handleFFufCommand(args []string) error {
 		return err
 	}
 
+	if opts.Domain != "" {
+		fmt.Printf("[OK] FFuf domain mode completed for %s\n", opts.Domain)
+		fmt.Printf("[INFO] Scanned %d hosts, found %d total unique results\n", result.HostsScanned, result.TotalFound)
+	} else {
 	fmt.Printf("[OK] FFuf fuzzing completed for %s\n", opts.Target)
 	fmt.Printf("[INFO] Found %d unique results\n", result.TotalFound)
+	}
 	fmt.Printf("[INFO] Results saved to: %s\n", result.OutputFile)
 	return nil
 }
@@ -928,7 +959,7 @@ func handleBackupCommand(args []string) error {
 	}
 	args = args[1:]
 
-	opts := backup.Options{Threads: 100, Method: "regular"}
+	opts := backup.Options{Threads: 100, Method: "all"} // Default to "all" for comprehensive scanning
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -1011,7 +1042,7 @@ func handleBackupCommand(args []string) error {
 
 // handleApkXCommand parses:
 //
-//	autoar apkx scan -i <apk_or_ipa_path> [-o <output_dir>] [--mitm]
+//	autoar apkx scan -i <apk_or_ipa_path> | -p <package_id> [--platform android|ios] [-o <output_dir>] [--mitm]
 //	autoar apkx mitm -i <apk_path> [-o <output_dir>] | -p <package_name> [-o <output_dir>]
 func handleApkXCommand(args []string) error {
 	if len(args) == 0 {
@@ -1033,12 +1064,24 @@ func handleApkXCommand(args []string) error {
 
 func handleApkXScan(args []string) error {
 	opts := apkxmod.Options{}
+	var packageName string
+	var platform string
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-i", "--input":
 			if i+1 < len(args) {
 				opts.InputPath = args[i+1]
+				i++
+			}
+		case "-p", "--package":
+			if i+1 < len(args) {
+				packageName = args[i+1]
+				i++
+			}
+		case "--platform":
+			if i+1 < len(args) {
+				platform = args[i+1]
 				i++
 			}
 		case "-o", "--output":
@@ -1051,8 +1094,38 @@ func handleApkXScan(args []string) error {
 		}
 	}
 
+	// If package name is provided, use RunFromPackage instead of Run
+	if packageName != "" {
+		if platform == "" {
+			platform = "android" // Default to android
+		}
+		
+		packageOpts := apkxmod.PackageOptions{
+			Package:  packageName,
+			Platform:  platform,
+			OutputDir: opts.OutputDir,
+			MITM:      opts.MITM,
+		}
+		
+		res, err := apkxmod.RunFromPackage(packageOpts)
+		if err != nil {
+			return err
+		}
+		
+		fmt.Printf("[OK] apkX scan completed. Reports in: %s\n", res.ReportDir)
+		fmt.Printf("[INFO] Log: %s\n", res.LogFile)
+		if res.FromCache {
+			fmt.Printf("[INFO] ✅ Results loaded from cache\n")
+		}
+		if res.MITMPatchedAPK != "" {
+			fmt.Printf("[OK] MITM patched APK: %s\n", res.MITMPatchedAPK)
+		}
+		return nil
+	}
+
+	// Otherwise, require input path
 	if opts.InputPath == "" {
-		return fmt.Errorf("input path (-i) is required")
+		return fmt.Errorf("input path (-i) or package name (-p) is required")
 	}
 
 	res, err := apkxmod.Run(opts)
@@ -2110,6 +2183,102 @@ func writeLinesToFileForCLI(path string, lines []string) error {
 	return nil
 }
 
+// handleAEMCommand routes AEM scan commands
+func handleAEMCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: aem scan -d <domain> | -l <live_hosts_file> [options]")
+	}
+
+	subcommand := args[0]
+	if subcommand != "scan" {
+		return fmt.Errorf("unknown aem subcommand: %s (use 'scan')", subcommand)
+	}
+
+	return handleAEMScan(args[1:])
+}
+
+func handleAEMScan(args []string) error {
+	opts := aemmod.Options{}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				opts.Domain = args[i+1]
+				i++
+			}
+		case "-l", "--live-hosts", "--livehosts":
+			if i+1 < len(args) {
+				opts.LiveHostsFile = args[i+1]
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				opts.OutputDir = args[i+1]
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.Threads = t
+				}
+				i++
+			}
+		case "--ssrf-host":
+			if i+1 < len(args) {
+				opts.SSRFHost = args[i+1]
+				i++
+			}
+		case "--ssrf-port":
+			if i+1 < len(args) {
+				if p, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.SSRFPort = p
+				}
+				i++
+			}
+		case "--proxy":
+			if i+1 < len(args) {
+				opts.Proxy = args[i+1]
+				i++
+			}
+		case "--debug":
+			opts.Debug = true
+		case "--handler":
+			if i+1 < len(args) {
+				opts.Handlers = append(opts.Handlers, args[i+1])
+				i++
+			}
+		}
+	}
+
+	if opts.Domain == "" && opts.LiveHostsFile == "" {
+		return fmt.Errorf("either -d (domain) or -l (live_hosts_file) is required")
+	}
+
+	// Set defaults
+	if opts.Threads == 0 {
+		opts.Threads = 50
+	}
+
+	res, err := aemmod.Run(opts)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[OK] AEM scan completed\n")
+	fmt.Printf("[INFO] Discovered AEM instances: %d\n", res.DiscoveredCount)
+	fmt.Printf("[INFO] Vulnerabilities found: %d\n", res.Vulnerabilities)
+	fmt.Printf("[INFO] Results: %s\n", res.ResultsFile)
+	if res.DiscoveredFile != "" {
+		fmt.Printf("[INFO] Discovered AEM instances: %s\n", res.DiscoveredFile)
+	}
+	if res.ScannedFile != "" {
+		fmt.Printf("[INFO] Scan results: %s\n", res.ScannedFile)
+	}
+
+	return nil
+}
+
 // handleMisconfigCommand routes misconfig subcommands
 //
 //	autoar misconfig scan <target> [service] [delay]
@@ -2138,7 +2307,7 @@ func handleMisconfigCommand(args []string) error {
 
 	case "scan":
 		if len(subArgs) < 1 {
-			return fmt.Errorf("usage: misconfig scan <target> [--service <service-id>] [--delay <ms>]")
+			return fmt.Errorf("usage: misconfig scan <target> [--service <service-id>] [--delay <ms>] [--permutations]")
 		}
 		opts.Target = subArgs[0]
 		
@@ -2156,6 +2325,8 @@ func handleMisconfigCommand(args []string) error {
 					}
 					i++
 				}
+			case "--permutations", "-p", "--perms":
+				opts.EnablePerms = true
 			}
 		}
 		return misconfig.Run(opts)
@@ -3295,6 +3466,26 @@ func handleDBCommand(args []string) error {
 			return fmt.Errorf("unknown db subdomains action: %s", action)
 		}
 
+	case "backup":
+		uploadToR2 := false
+		for i := 0; i < len(subArgs); i++ {
+			switch subArgs[i] {
+			case "--upload-r2", "-r2":
+				uploadToR2 = true
+			}
+		}
+		
+		backupPath, r2URL, err := db.BackupDatabase(uploadToR2)
+		if err != nil {
+			return fmt.Errorf("failed to backup database: %v", err)
+		}
+		
+		fmt.Printf("[OK] Database backup created: %s\n", backupPath)
+		if r2URL != "" {
+			fmt.Printf("[OK] Database backup uploaded to R2: %s\n", r2URL)
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("unknown db command: %s", command)
 	}
@@ -3402,6 +3593,14 @@ func main() {
 	case "setup":
 		err = setup.Run()
 
+	case "cleanup":
+		err = utils.CleanupResultsDirectory()
+		if err != nil {
+			fmt.Printf("Error cleaning up results directory: %v\n", err)
+		} else {
+			fmt.Println("Successfully cleaned up results directory")
+		}
+
 	case "jwt":
 		err = handleJWTCommand(args)
 
@@ -3421,6 +3620,9 @@ func main() {
 
 	case "misconfig":
 		err = handleMisconfigCommand(args)
+
+	case "aem":
+		err = handleAEMCommand(args)
 
 	case "zerodays", "0days":
 		err = handleZerodaysCommand(args)

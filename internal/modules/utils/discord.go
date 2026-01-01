@@ -239,8 +239,17 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		}
 		// If no specific result files, don't send anything (will send "no results" message)
 	case "cnames":
+		// CNAME module extracts root domain from subdomain and saves to root domain directory
+		// Check both subdomain directory and root domain directory for compatibility
+		rootDomain := domain
+		parts := strings.Split(domain, ".")
+		if len(parts) > 2 {
+			// Extract last two parts (e.g., account.gomotive.com -> gomotive.com)
+			rootDomain = strings.Join(parts[len(parts)-2:], ".")
+		}
 		files = []string{
-			filepath.Join(resultsDir, domain, "subs", "cname-records.txt"),
+			filepath.Join(resultsDir, rootDomain, "subs", "cname-records.txt"), // CNAME saves to root domain
+			filepath.Join(resultsDir, domain, "subs", "cname-records.txt"),     // Also check subdomain directory for compatibility
 		}
 	case "tech":
 		// Tech detection saves to tech-detect.txt in subs directory
@@ -305,16 +314,11 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		}
 	case "depconfusion":
 		// Depconfusion saves to subdomain directory when Subdomain is provided
-		// Check both subdomain directory and root directory for compatibility
+		// Only check subdomain-specific directory, not global directories (to avoid sending other domains' results)
 		depconfusionSubdomainDir := filepath.Join(resultsDir, domain, "depconfusion", "web-file")
-		depconfusionWebFileDir := filepath.Join(resultsDir, "depconfusion", "web-file")
-		depconfusionWebDir := filepath.Join(resultsDir, "depconfusion", "web")
 		files = []string{
 			filepath.Join(depconfusionSubdomainDir, "depconfusion-results.txt"), // Human-readable text file
 			filepath.Join(depconfusionSubdomainDir, "confused2-web-results.json"),
-			filepath.Join(depconfusionWebFileDir, "depconfusion-results.txt"),
-			filepath.Join(depconfusionWebFileDir, "confused2-web-results.json"),
-			filepath.Join(depconfusionWebDir, "confused2-web-results.json"),
 		}
 	case "s3":
 		// S3 saves to subdomain directory when Subdomain is provided

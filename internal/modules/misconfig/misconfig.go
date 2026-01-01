@@ -1,18 +1,14 @@
 package misconfig
 
 import (
-	"bufio"
-	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	mmapi "github.com/h0tak88r/AutoAR/v3/internal/tools/misconfigmapper"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Options for misconfig scan
@@ -24,6 +20,7 @@ type Options struct {
 	Threads       int    // Concurrency for scanning subdomains
 	Timeout       int    // Timeout in seconds
 	LiveHostsFile string // Optional: path to live hosts file (avoids enumeration)
+	EnablePerms   bool   // Enable permutations (generates many targets, slower but more thorough)
 }
 
 // Run executes misconfig command based on action
@@ -37,11 +34,21 @@ func Run(opts Options) error {
 		resultsDir = "new-results"
 	}
 
+	// Get project root directory (where templates/ directory is located)
+	root := os.Getenv("AUTOAR_ROOT")
+	if root == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			root = cwd
+		} else {
+			root = "/app"
+		}
+	}
+
 	switch opts.Action {
 	case "list":
-		return handleList(resultsDir)
+		return handleList(root)
 	case "update":
-		return handleUpdate(resultsDir)
+		return handleUpdate(root)
 	case "scan":
 		if opts.Target == "" {
 			return fmt.Errorf("target is required for scan action")
@@ -84,7 +91,7 @@ func handleUpdate(root string) error {
 }
 
 func handleScan(opts Options, resultsDir string) error {
-	// Save results under the target directory (which is the subdomain in subdomain mode)
+	// Save results under the target directory
 	outputDir := filepath.Join(resultsDir, opts.Target, "misconfig")
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
@@ -102,187 +109,50 @@ func handleScan(opts Options, resultsDir string) error {
 	}
 	tplDir := templatesDir(root)
 
-	// Step 1: Get live subdomains file (checks provided file first, then existing file, then database)
-	var liveHostsFile string
-	var err error
-	
-	if opts.LiveHostsFile != "" {
-		// Use provided live hosts file (e.g., from subdomain workflow)
-		if _, err := os.Stat(opts.LiveHostsFile); err == nil {
-			liveHostsFile = opts.LiveHostsFile
-			if count, err := countLinesInFile(liveHostsFile); err == nil {
-				log.Printf("[OK] Using %d live subdomains from provided file for %s", count, opts.Target)
-			}
+	// Extract company name from domain (remove TLD and subdomains)
+	// Example: "subdomain.example.com" -> "example", "example.com" -> "example"
+	target := opts.Target
+	if strings.Contains(target, ".") {
+		parts := strings.Split(target, ".")
+		// Take the second-to-last part as company name (e.g., "example" from "example.com")
+		if len(parts) >= 2 {
+			target = parts[len(parts)-2]
 		} else {
-			// In subdomain mode, if file doesn't exist, return error instead of enumerating
-			return fmt.Errorf("provided live hosts file not found: %s", opts.LiveHostsFile)
-		}
-	}
-	
-	if liveHostsFile == "" {
-		log.Printf("[INFO] Getting live subdomains for %s...", opts.Target)
-		liveHostsFile, err = livehosts.GetLiveHostsFile(opts.Target)
-		if err != nil {
-			log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", opts.Target, err)
-			// Fallback: try to create it by running livehosts
-			liveResult, err2 := livehosts.FilterLiveHosts(opts.Target, opts.Threads, true)
-			if err2 != nil {
-				// Handle "no live subdomains found" as a soft error
-				if strings.Contains(err2.Error(), "no live subdomains found") {
-					log.Printf("[INFO] Misconfiguration scan skipped: %v", err2)
-					return nil // Continue workflow
-				}
-				return fmt.Errorf("failed to get live subdomains: %w", err2)
-			}
-			if liveResult.LiveSubs == 0 {
-				return fmt.Errorf("no live subdomains found for %s", opts.Target)
-			}
-			liveHostsFile = liveResult.LiveSubsFile
-			log.Printf("[OK] Found %d live subdomains out of %d total for %s", liveResult.LiveSubs, liveResult.TotalSubs, opts.Target)
-		} else {
-			// Count live hosts from file for logging
-			if count, err := countLinesInFile(liveHostsFile); err == nil {
-				log.Printf("[OK] Using %d live subdomains from file/database for %s", count, opts.Target)
-			}
+			target = parts[0]
 		}
 	}
 
-	// Step 2: Read live subdomains from file
-	var subdomainsList []string
-	if liveHostsFile != "" {
-		file, err := os.Open(liveHostsFile)
-		if err != nil {
-			return fmt.Errorf("failed to open live subdomains file: %w", err)
-		}
-		defer file.Close()
+	log.Printf("[INFO] Scanning for misconfigurations using target: %s (extracted from %s)", target, opts.Target)
 
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-			// Extract hostname from URL (httpx outputs full URLs)
-			host := line
-			if strings.HasPrefix(host, "http://") {
-				host = strings.TrimPrefix(host, "http://")
-			} else if strings.HasPrefix(host, "https://") {
-				host = strings.TrimPrefix(host, "https://")
-			}
-			// Remove path if present
-			if idx := strings.Index(host, "/"); idx != -1 {
-				host = host[:idx]
-			}
-			if host != "" {
-				subdomainsList = append(subdomainsList, host)
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("failed to read live subdomains file: %w", err)
-		}
+	// Set defaults for performance
+	delay := opts.Delay
+	if delay == 0 {
+		delay = 50 // 50ms delay between requests to avoid hammering services
+	}
+	timeout := 3000 // 3 seconds timeout (reduced from 7 for faster scanning)
+
+	// Run misconfig scan - the original tool handles everything
+	// EnablePerms can be enabled via flag for more thorough scanning (generates permutations)
+	// AsDomain=false means replace {TARGET} in baseURL (correct for services like {TARGET}.atlassian.net)
+	allResults, err := mmapi.Scan(mmapi.ScanOptions{
+		Target:        target, // Pass company name, not full domain
+		ServiceID:     opts.ServiceID,
+		Delay:         delay,
+		TemplatesPath: tplDir,
+		AsDomain:      false, // false = replace {TARGET} in baseURL (correct for services like {TARGET}.atlassian.net)
+		EnablePerms:   opts.EnablePerms, // Use flag value (default: false for speed)
+		SkipChecks:    false,
+		Timeout:       timeout,
+		MaxRedirects:  5,
+		SkipSSL:       false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to scan for misconfigurations: %w", err)
 	}
 
-	if len(subdomainsList) == 0 {
-		return fmt.Errorf("no live subdomains to scan for %s", opts.Target)
-	}
+	log.Printf("[OK] Completed misconfig scan")
 
-	// Step 3: Scan each live subdomain for misconfigurations with concurrency
-	threads := opts.Threads
-	if threads <= 0 {
-		threads = 200 // Default 200 concurrent scans (increased from 50)
-	}
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = 300 // 5 minutes default timeout
-	}
-
-	log.Printf("[INFO] Scanning %d live subdomains for misconfigurations (threads: %d, timeout: %ds)...", len(subdomainsList), threads, timeout)
-	
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
-	defer cancel()
-
-	var allResults []mmapi.ScanResult
-	var resultsMutex sync.Mutex
-	totalScanned := int64(0)
-	var scannedMutex sync.Mutex
-
-	// Worker pool for concurrent scanning
-	jobs := make(chan string, len(subdomainsList))
-	var wg sync.WaitGroup
-
-	// Start workers
-	for i := 0; i < threads; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for subdomain := range jobs {
-				// Check context cancellation
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				subdomain = strings.TrimSpace(subdomain)
-				if subdomain == "" {
-					continue
-				}
-
-				// Scan this subdomain
-				subResults, err := mmapi.Scan(mmapi.ScanOptions{
-					Target:        subdomain,
-					ServiceID:     opts.ServiceID,
-					Delay:         opts.Delay,
-					TemplatesPath: tplDir,
-					AsDomain:      true, // Treat as domain to scan the subdomain directly
-				})
-				if err != nil {
-					log.Printf("[WARN] Failed to scan %s: %v", subdomain, err)
-					continue
-				}
-
-				// Thread-safe append
-				if len(subResults) > 0 {
-					resultsMutex.Lock()
-					allResults = append(allResults, subResults...)
-					resultsMutex.Unlock()
-				}
-
-				scannedMutex.Lock()
-				totalScanned++
-				scannedMutex.Unlock()
-			}
-		}()
-	}
-
-	// Send jobs
-	go func() {
-		defer close(jobs)
-		for _, subdomain := range subdomainsList {
-			select {
-			case jobs <- subdomain:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	// Wait for completion or timeout
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		log.Printf("[OK] Completed scanning %d subdomains", totalScanned)
-	case <-ctx.Done():
-		log.Printf("[WARN] Misconfig scan timed out after %ds (scanned %d/%d subdomains)", timeout, totalScanned, len(subdomainsList))
-	}
-
-	// Step 4: Write results to file
+	// Write results to file
 	f, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
@@ -300,31 +170,32 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 	}
 
-	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings across %d live subdomains)\n", opts.Target, len(allResults), totalScanned)
+	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings)\n", opts.Target, len(allResults))
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
+	
+	// Send findings to Discord webhook if configured
+	webhookURL := os.Getenv("DISCORD_WEBHOOK")
+	if webhookURL != "" {
+		vulnerableCount := 0
+		for _, r := range allResults {
+			if r.Vulnerable {
+				vulnerableCount++
+			}
+		}
+		if len(allResults) > 0 {
+			if info, err := os.Stat(outputFile); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("Misconfig Finding: Scan results for %s (%d total, %d vulnerable)", opts.Target, len(allResults), vulnerableCount))
+			}
+			utils.SendWebhookLogAsync(fmt.Sprintf("Misconfig scan completed for %s - %d finding(s), %d vulnerable", opts.Target, len(allResults), vulnerableCount))
+		} else {
+			utils.SendWebhookLogAsync(fmt.Sprintf("Misconfig scan completed for %s with 0 findings", opts.Target))
+		}
+	}
+	
 	return nil
 }
 
 func handleService(opts Options, resultsDir string) error {
 	// Service-specific scan is just a filtered scan with ServiceID set.
 	return handleScan(opts, resultsDir)
-}
-
-// countLinesInFile counts the number of non-empty lines in a file
-func countLinesInFile(filePath string) (int, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	count := 0
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			count++
-		}
-	}
-	return count, scanner.Err()
 }

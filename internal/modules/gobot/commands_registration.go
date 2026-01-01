@@ -369,6 +369,18 @@ func registerAllCommands(s *discordgo.Session) {
 		},
 		// Other commands
 		{
+			Name:        "aem_scan",
+			Description: "Scan for AEM webapps and test for vulnerabilities",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "live_hosts_file", Description: "Path to live hosts file (alternative to domain)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 50)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "ssrf_host", Description: "Hostname/IP for SSRF detection (VPS required)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "ssrf_port", Description: "Port for SSRF detection", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "debug", Description: "Enable debug output", Required: false},
+			},
+		},
+		{
 			Name:        "backup_scan",
 			Description: "Discover backup files using Fuzzuli",
 			Options: []*discordgo.ApplicationCommandOption{
@@ -383,6 +395,10 @@ func registerAllCommands(s *discordgo.Session) {
 		{
 			Name:        "check_tools",
 			Description: "Check if all required tools are installed",
+		},
+		{
+			Name:        "cleanup",
+			Description: "Clean up the entire results directory",
 		},
 		{
 			Name:        "scope",
@@ -420,7 +436,8 @@ func registerAllCommands(s *discordgo.Session) {
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "target", Description: "Target to scan", Required: true},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "service", Description: "Specific service to scan (optional)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "delay", Description: "Delay between requests (default: 0)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "delay", Description: "Delay between requests in ms (default: 50)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "permutations", Description: "Enable permutations for thorough scanning (slower but more comprehensive)", Required: false},
 			},
 		},
 		{
