@@ -85,8 +85,16 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		allSubs := filepath.Join(subsDir, "all-subs.txt")
 
 		// Ensure we have subdomains – reuse Go subdomains module
-		if _, err := os.Stat(allSubs); err != nil {
-			log.Printf("[INFO] all-subs.txt missing, enumerating subdomains for %s", domain)
+		// Check if file exists AND has content
+		needsEnum := false
+		if info, err := os.Stat(allSubs); err != nil {
+			needsEnum = true
+		} else if info.Size() == 0 {
+			needsEnum = true
+		}
+		
+		if needsEnum {
+			log.Printf("[INFO] all-subs.txt missing or empty, enumerating subdomains for %s", domain)
 			subs, err := subdomains.EnumerateSubdomains(domain, 100)
 			if err != nil {
 				return nil, fmt.Errorf("failed to enumerate subdomains: %w", err)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/bwmarrin/discordgo"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 )
 
 var (
@@ -81,6 +82,7 @@ type ScanRequest struct {
 	// Misconfig options
 	ServiceID         *string   `json:"service_id"`        // Misconfig service ID
 	Delay             *int      `json:"delay"`            // Misconfig delay (ms)
+	Permutations      *bool     `json:"permutations"`      // Enable permutations (slower but more thorough)
 	// DNS options
 	DNSType           *string   `json:"dns_type"`         // DNS scan type: takeover, dangling-ip
 	// URLs options
@@ -167,6 +169,9 @@ func setupAPI() *gin.Engine {
 	// List all scans
 	r.GET("/scans", listScans)
 
+	// Utility endpoints
+	r.POST("/cleanup", cleanupHandler)
+
 	return r
 }
 
@@ -231,6 +236,24 @@ func healthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":    "healthy",
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func cleanupHandler(c *gin.Context) {
+	// Execute cleanup via CLI command to avoid import cycle
+	scanID := generateScanID()
+	command := []string{
+		getAutoarScriptPath(),
+		"cleanup",
+	}
+
+	go executeScan(scanID, command, "cleanup")
+
+	c.JSON(http.StatusOK, gin.H{
+		"scan_id": scanID,
+		"status":  "started",
+		"message": "Cleanup started",
+		"command": strings.Join(command, " "),
 	})
 }
 
@@ -501,6 +524,13 @@ func docsHandler(c *gin.Context) {
             <div class="endpoint">
                 <div class="endpoint-path"><span class="method get">GET</span> /scans</div>
                 <div class="description">List all scans (active and completed)</div>
+            </div>
+            <div class="endpoint">
+                <div class="endpoint-path"><span class="method post">POST</span> /cleanup</div>
+                <div class="description">Clean up the entire results directory</div>
+                <div class="example">
+                    <code>curl -X POST http://localhost:8000/cleanup</code>
+                </div>
             </div>
         </div>
 
@@ -987,6 +1017,9 @@ func scanMisconfig(c *gin.Context) {
 	}
 	if req.Delay != nil && *req.Delay > 0 {
 		command = append(command, "--delay", fmt.Sprintf("%d", *req.Delay))
+	}
+	if req.Permutations != nil && *req.Permutations {
+		command = append(command, "--permutations")
 	}
 
 	go executeScan(scanID, command, "misconfig")
@@ -1545,7 +1578,64 @@ func sendFileToDiscord(c *gin.Context) {
 		log.Printf("[API] [sendFileToDiscord] File found: %s (size: %d bytes)", req.FilePath, info.Size())
 	}
 
-	// Read file
+	// Get file info
+	fileName := filepath.Base(req.FilePath)
+	description := req.Description
+	if description == "" {
+		description = fmt.Sprintf("📁 %s", fileName)
+	}
+
+	// Get file info for size check
+	fileInfo, err := os.Stat(req.FilePath)
+	if err != nil {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
+		return
+	}
+
+	// Check if file should use R2
+	useR2 := r2storage.ShouldUseR2(req.FilePath) || (r2storage.IsEnabled() && fileInfo.Size() > r2storage.GetFileSizeLimit())
+
+	if useR2 {
+		// Upload to R2 and send link
+		log.Printf("[API] [sendFileToDiscord] File is large (%d bytes), uploading to R2...", fileInfo.Size())
+		publicURL, err := r2storage.UploadFile(req.FilePath, fileName, false)
+		if err != nil {
+			log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to upload to R2: %v", err)})
+			return
+		}
+
+		// Get Discord session to send link
+		discordSessionMutex.RLock()
+		session := globalDiscordSession
+		discordSessionMutex.RUnlock()
+
+		if session == nil {
+			log.Printf("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
+			return
+		}
+
+		// Send R2 link to Discord
+		message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(fileInfo.Size())/1024/1024, publicURL)
+		_, err = session.ChannelMessageSend(channelID, message)
+		if err != nil {
+			log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link to Discord: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send R2 link: %v", err)})
+			return
+		}
+
+		log.Printf("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully: %s", publicURL)
+		c.JSON(http.StatusOK, gin.H{
+			"message":   "file uploaded to R2 and link sent",
+			"r2_url":   publicURL,
+			"file_size": fileInfo.Size(),
+		})
+		return
+	}
+
+	// Read file for direct Discord upload
 	log.Printf("[API] [sendFileToDiscord] Reading file: %s", req.FilePath)
 	fileData, err := os.ReadFile(req.FilePath)
 	if err != nil {
@@ -1569,12 +1659,6 @@ func sendFileToDiscord(c *gin.Context) {
 	log.Printf("[API] [sendFileToDiscord] Discord session obtained")
 
 	// Send file to Discord channel
-	fileName := filepath.Base(req.FilePath)
-	description := req.Description
-	if description == "" {
-		description = fmt.Sprintf("📁 %s", fileName)
-	}
-
 	log.Printf("[API] [sendFileToDiscord] Sending file to Discord channel %s: %s (description: %s)", channelID, fileName, description)
 	_, err = session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: description,
@@ -1588,6 +1672,32 @@ func sendFileToDiscord(c *gin.Context) {
 	})
 
 	if err != nil {
+		// If direct upload fails due to size, try R2 as fallback
+		if strings.Contains(err.Error(), "413") || strings.Contains(err.Error(), "too large") || strings.Contains(err.Error(), "Request entity too large") {
+			log.Printf("[API] [sendFileToDiscord] ⚠️  Discord upload failed due to size, uploading to R2 as fallback...")
+			if r2storage.IsEnabled() {
+				publicURL, r2Err := r2storage.UploadFile(req.FilePath, fileName, false)
+				if r2Err != nil {
+					log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", r2Err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file and R2 upload failed: %v (R2 error: %v)", err, r2Err)})
+					return
+				}
+				message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(fileInfo.Size())/1024/1024, publicURL)
+				_, err = session.ChannelMessageSend(channelID, message)
+				if err != nil {
+					log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send R2 link: %v", err)})
+					return
+				}
+				log.Printf("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully (fallback): %s", publicURL)
+				c.JSON(http.StatusOK, gin.H{
+					"message":   "file uploaded to R2 and link sent (fallback)",
+					"r2_url":    publicURL,
+					"file_size": fileInfo.Size(),
+				})
+				return
+			}
+		}
 		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send file to Discord: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file: %v", err)})
 		return

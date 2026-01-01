@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
@@ -38,7 +39,26 @@ func ensureSubdomains(domain string) (domainDir string, subsFile string, err err
 
 	subsFile = filepath.Join(subsDir, "all-subs.txt")
 
-	// If we already have a reasonably-sized file, reuse it, but refresh if tiny.
+	// Step 1: Check database first
+	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
+		if err := db.Init(); err == nil {
+			_ = db.InitSchema()
+			count, err := db.CountSubdomains(domain)
+			if err == nil && count > 0 {
+				log.Printf("[INFO] Found %d subdomains in database for %s (dns module), using them", count, domain)
+				// Load subdomains from database and write to file
+				subs, err := db.ListSubdomains(domain)
+				if err == nil && len(subs) > 0 {
+					if err := writeLines(subsFile, subs); err != nil {
+						log.Printf("[WARN] Failed to write subdomains from DB to file: %v", err)
+					}
+					return domainDir, subsFile, nil
+				}
+			}
+		}
+	}
+
+	// Step 2: If we already have a reasonably-sized file, reuse it, but refresh if tiny.
 	if info, statErr := os.Stat(subsFile); statErr == nil && info.Size() > 0 {
 		count, cErr := countLines(subsFile)
 		if cErr == nil && count >= 5 {
@@ -48,6 +68,7 @@ func ensureSubdomains(domain string) (domainDir string, subsFile string, err err
 		log.Printf("[WARN] Only %d subdomains in %s, refreshing enumeration", count, subsFile)
 	}
 
+	// Step 3: Collect subdomains (not in database and no valid file)
 	log.Printf("[INFO] Collecting subdomains for %s (dns module)", domain)
 	subs, err := subdomains.EnumerateSubdomains(domain, 100)
 	if err != nil {
@@ -224,6 +245,9 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		log.Printf("[WARN] Failed to write DNS takeover summary: %v", err)
 	}
 
+	// Send findings to Discord webhook if configured
+	sendDNSFindingsToWebhook(opts.Domain, findingsDir)
+
 	log.Printf("[OK] DNS takeover scan completed for %s (results in %s)", opts.Domain, findingsDir)
 	return nil
 }
@@ -341,6 +365,15 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 			count, _ := countLines(out)
 			if count > 0 {
 				log.Printf("[OK] Nuclei public takeover found %d candidates", count)
+				// Send findings to webhook if configured
+				webhookURL := os.Getenv("DISCORD_WEBHOOK")
+				if webhookURL != "" {
+					domain := filepath.Base(domainDir)
+					if info, err := os.Stat(out); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Finding: CNAME takeover (Nuclei public) for %s (%d found)", domain, count))
+				utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei public takeover: %d candidates for %s", count, domain))
+					}
+				}
 			}
 		}
 	} else {
@@ -373,6 +406,20 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			log.Printf("[WARN] Nuclei custom takeover failed: %v", err)
+		} else {
+			count, _ := countLines(out)
+			if count > 0 {
+				log.Printf("[OK] Nuclei custom takeover found %d candidates", count)
+				// Send findings to webhook if configured
+				webhookURL := os.Getenv("DISCORD_WEBHOOK")
+				if webhookURL != "" {
+					domain := filepath.Base(domainDir)
+					if info, err := os.Stat(out); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Finding: CNAME takeover (Nuclei custom) for %s (%d found)", domain, count))
+					utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei custom takeover: %d candidates for %s", count, domain))
+					}
+				}
+			}
 		}
 	}
 
@@ -413,6 +460,20 @@ func runDNSReaper(domainDir, findingsDir, subsFile string) error {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		log.Printf("[WARN] DNSReaper run failed: %v", err)
+	} else {
+		count, _ := countLines(out)
+		if count > 0 {
+			log.Printf("[OK] DNSReaper found %d candidates", count)
+			// Send findings to webhook if configured
+			webhookURL := os.Getenv("DISCORD_WEBHOOK")
+			if webhookURL != "" {
+				domain := filepath.Base(domainDir)
+				if info, err := os.Stat(out); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Finding: DNSReaper results for %s (%d found)", domain, count))
+					utils.SendWebhookLogAsync(fmt.Sprintf("DNSReaper: %d candidates for %s", count, domain))
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -486,6 +547,35 @@ func checkAzureAWS(domainDir, findingsDir, subsFile string) error {
 	}
 	if err := appendLines(comboOut, summary...); err != nil {
 		return err
+	}
+
+	// Send findings to webhook if configured
+	if azureCount > 0 || awsCount > 0 {
+		log.Printf("[OK] Azure/AWS takeover: %d Azure, %d AWS candidates found", azureCount, awsCount)
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			// Extract domain from domainDir
+			domain := filepath.Base(domainDir)
+			if azureCount > 0 {
+				azureFile := filepath.Join(findingsDir, "azure-takeover.txt")
+				if info, err := os.Stat(azureFile); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(azureFile, fmt.Sprintf("DNS Finding: Azure takeover candidates for %s (%d found)", domain, azureCount))
+				}
+			}
+			if awsCount > 0 {
+				awsFile := filepath.Join(findingsDir, "aws-takeover.txt")
+				if info, err := os.Stat(awsFile); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(awsFile, fmt.Sprintf("DNS Finding: AWS takeover candidates for %s (%d found)", domain, awsCount))
+				}
+			}
+			if vulnCount > 0 {
+				comboFile := filepath.Join(findingsDir, "azure-aws-takeover.txt")
+				if info, err := os.Stat(comboFile); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(comboFile, fmt.Sprintf("DNS Finding: Azure/AWS takeover candidates for %s (%d total)", domain, vulnCount))
+				}
+			}
+			utils.SendWebhookLogAsync(fmt.Sprintf("Azure/AWS takeover check: %d Azure, %d AWS candidates for %s", azureCount, awsCount, domain))
+		}
 	}
 
 	return nil
@@ -661,6 +751,34 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	regex := "ns1-.*.azure-dns.com|ns2-.*.azure-dns.net|ns3-.*.azure-dns.org|ns4-.*.azure-dns.info|ns1\\.dnsimple\\.com|ns2\\.dnsimple\\.com|ns3\\.dnsimple\\.com|ns4\\.dnsimple\\.com|ns1\\.domain\\.com|ns2\\.domain\\.com|ns1\\.dreamhost\\.com|ns2\\.dreamhost\\.com|ns3\\.dreamhost\\.com|ns-cloud-.*.googledomains.com|ns5\\.he\\.net|ns4\\.he\\.net|ns3\\.he\\.net|ns2\\.he\\.net|ns1\\.he\\.net|ns1\\.linode\\.com|ns2\\.linode\\.com|ns1.*.name.com|ns2.*.name.com|ns3.*.name.com|ns4.*.name.com|ns1\\.domaindiscover\\.com|ns2\\.domaindiscover\\.com|yns1\\.yahoo\\.com|yns2\\.yahoo\\.com|ns1\\.reg\\.ru|ns2\\.reg\\.ru"
 	if err := grepRegexToFile(regex, nsRaw, nsFiltered); err != nil {
 		log.Printf("[WARN] regex filter on NS takeover failed: %v", err)
+	}
+
+	// Send findings to webhook if configured
+	if nsRawCount > 0 || nsSrvCount > 0 {
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			// Extract domain from domainDir
+			domain := filepath.Base(domainDir)
+			if nsRawCount > 0 {
+				nsRawFile := filepath.Join(findingsDir, "ns-takeover-raw.txt")
+				if info, err := os.Stat(nsRawFile); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(nsRawFile, fmt.Sprintf("DNS Finding: NS takeover (subdomain errors) for %s (%d found)", domain, nsRawCount))
+				}
+			}
+			if nsSrvCount > 0 {
+				nsVulnFile := filepath.Join(findingsDir, "ns-servers-vuln.txt")
+				if info, err := os.Stat(nsVulnFile); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(nsVulnFile, fmt.Sprintf("DNS Finding: NS takeover (server errors) for %s (%d found)", domain, nsSrvCount))
+				}
+			}
+			nsVulnCount, _ := countLines(nsFiltered)
+			if nsVulnCount > 0 {
+				if info, err := os.Stat(nsFiltered); err == nil && info.Size() > 0 {
+					utils.SendWebhookFileAsync(nsFiltered, fmt.Sprintf("DNS Finding: NS takeover (vulnerable providers) for %s (%d found)", domain, nsVulnCount))
+				}
+			}
+			utils.SendWebhookLogAsync(fmt.Sprintf("NS takeover check: %d subdomain errors, %d NS server errors for %s", nsRawCount, nsSrvCount, domain))
+		}
 	}
 
 	return nil
@@ -873,6 +991,25 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	}
 
 	log.Printf("[OK] Dangling IP check completed: %d candidates found out of %d IPs", len(danglingCandidates), len(ipToSubdomains))
+	
+	// Send findings to webhook if configured
+	if len(danglingCandidates) > 0 {
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			// Extract domain from domainDir
+			domain := filepath.Base(domainDir)
+			danglingFile := filepath.Join(findingsDir, "dangling-ip.txt")
+			summaryFile := filepath.Join(findingsDir, "dangling-ip-summary.txt")
+			if info, err := os.Stat(danglingFile); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(danglingFile, fmt.Sprintf("DNS Finding: Dangling IP candidates for %s (%d found)", domain, len(danglingCandidates)))
+			}
+			if info, err := os.Stat(summaryFile); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(summaryFile, fmt.Sprintf("DNS Finding: Dangling IP summary for %s", domain))
+			}
+			utils.SendWebhookLogAsync(fmt.Sprintf("Dangling IP check: %d candidates found for %s", len(danglingCandidates), domain))
+		}
+	}
+	
 	return nil
 }
 
@@ -1108,6 +1245,71 @@ func grepRegexToFile(pattern, src, dst string) error {
 		return nil
 	}
 	return nil
+}
+
+// sendDNSFindingsToWebhook sends DNS findings to Discord webhook if configured
+func sendDNSFindingsToWebhook(domain, findingsDir string) {
+	webhookURL := os.Getenv("DISCORD_WEBHOOK")
+	if webhookURL == "" {
+		// No webhook configured, skip silently
+		return
+	}
+
+	// Check for findings in key files
+	findingsFiles := []struct {
+		file        string
+		description string
+	}{
+		{"dns-takeover-summary.txt", "DNS takeover summary"},
+	}
+
+	var foundFiles []string
+	hasAnyFindings := false
+	
+	// Check all possible findings files
+	allFindingsFiles := []string{
+		"dangling-ip.txt", "nuclei-takeover-public.txt", "nuclei-takeover-custom.txt",
+		"dnsreaper-results.txt", "azure-takeover.txt", "aws-takeover.txt",
+		"ns-takeover-vuln.txt", "ns-takeover-raw.txt", "ns-servers-vuln.txt",
+	}
+	
+	for _, f := range allFindingsFiles {
+		filePath := filepath.Join(findingsDir, f)
+		if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+			if count, err := countLines(filePath); err == nil && count > 0 {
+				hasAnyFindings = true
+				break
+			}
+		}
+	}
+
+	for _, ff := range findingsFiles {
+		filePath := filepath.Join(findingsDir, ff.file)
+		if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+			// Check if summary has actual findings (not just headers)
+			data, err := os.ReadFile(filePath)
+			if err == nil {
+				content := string(data)
+				// Check if summary indicates findings (look for counts > 0)
+				if !strings.Contains(content, ": 0") || strings.Contains(content, ": 1") || strings.Contains(content, ": 2") {
+					// Has findings, include it
+					foundFiles = append(foundFiles, filePath)
+				}
+			}
+		}
+	}
+
+	if len(foundFiles) > 0 {
+		// Send summary file
+		for _, filePath := range foundFiles {
+			fileName := filepath.Base(filePath)
+			description := fmt.Sprintf("DNS Scan Summary: %s for %s", fileName, domain)
+			utils.SendWebhookFileAsync(filePath, description)
+		}
+	} else if !hasAnyFindings {
+		// No findings at all, send completion message
+		utils.SendWebhookLogAsync(fmt.Sprintf("DNS scan completed for %s with 0 findings", domain))
+	}
 }
 
 func timeNowString() string {

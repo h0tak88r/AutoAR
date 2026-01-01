@@ -73,6 +73,13 @@ func Run() error {
 		}
 	}
 
+	// Clone Nuclei public templates
+	if err := checkAndCloneNucleiTemplates(root); err != nil {
+		fmt.Printf("   ⚠️  Warning: Failed to clone Nuclei public templates: %v\n", err)
+		fmt.Println("   💡 You can manually clone them later:")
+		fmt.Println("      git clone https://github.com/projectdiscovery/nuclei-templates.git")
+	}
+
 	fmt.Println()
 	fmt.Println("✅ Setup completed successfully!")
 	fmt.Println()
@@ -471,4 +478,43 @@ func downloadFile(url, dest string) error {
 
 	_, err = io.Copy(out, resp.Body)
 	return err
+}
+
+// checkAndCloneNucleiTemplates checks if Nuclei public templates exist and clones them if needed
+func checkAndCloneNucleiTemplates(root string) error {
+	nucleiTemplatesDir := filepath.Join(root, "nuclei-templates")
+	
+	// Check if already cloned
+	if info, err := os.Stat(nucleiTemplatesDir); err == nil && info.IsDir() {
+		// Check if it's a git repository
+		gitDir := filepath.Join(nucleiTemplatesDir, ".git")
+		if _, err := os.Stat(gitDir); err == nil {
+			fmt.Println("   [OK] Nuclei public templates already cloned")
+			// Try to update them
+			fmt.Println("   Updating Nuclei public templates...")
+			updateCmd := exec.Command("git", "pull")
+			updateCmd.Dir = nucleiTemplatesDir
+			updateCmd.Stdout = os.Stdout
+			updateCmd.Stderr = os.Stderr
+			if err := updateCmd.Run(); err != nil {
+				fmt.Printf("   ⚠️  Warning: Failed to update templates: %v\n", err)
+			} else {
+				fmt.Println("   ✅ Nuclei public templates updated")
+			}
+			return nil
+		}
+	}
+
+	// Clone the repository
+	fmt.Println("   [MISSING] Nuclei public templates")
+	fmt.Println("   Cloning Nuclei public templates from GitHub...")
+	cloneCmd := exec.Command("git", "clone", "--depth", "1", "https://github.com/projectdiscovery/nuclei-templates.git", nucleiTemplatesDir)
+	cloneCmd.Stdout = os.Stdout
+	cloneCmd.Stderr = os.Stderr
+	if err := cloneCmd.Run(); err != nil {
+		return fmt.Errorf("failed to clone nuclei-templates: %w", err)
+	}
+	
+	fmt.Println("   ✅ Nuclei public templates cloned successfully")
+	return nil
 }

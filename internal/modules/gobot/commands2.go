@@ -25,7 +25,7 @@ func handleDNS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
+		respond(s, i, "Domain is required", false)
 		return
 	}
 
