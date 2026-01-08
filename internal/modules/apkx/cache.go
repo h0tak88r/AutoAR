@@ -61,7 +61,7 @@ func CheckCache(packageName, version string) (string, bool) {
 		if version == "latest" {
 			foundVersion, found := findAnyCachedVersionInR2(packageName)
 			if found {
-				log.Printf("[CACHE] ✅ Found R2 cached results for %s v%s (was looking for 'latest')", packageName, foundVersion)
+				log.Printf("[CACHE] [ + ]Found R2 cached results for %s v%s (was looking for 'latest')", packageName, foundVersion)
 				r2CachePrefix := getR2CachePath(packageName, foundVersion)
 				return "r2:" + r2CachePrefix, true
 			}
@@ -70,7 +70,7 @@ func CheckCache(packageName, version string) (string, bool) {
 			r2ResultsKey := r2CachePrefix + "/results.json"
 			exists, err := r2storage.FileExists(r2ResultsKey)
 			if err == nil && exists {
-				log.Printf("[CACHE] ✅ Found R2 cached results for %s vlatest", packageName)
+				log.Printf("[CACHE] [ + ]Found R2 cached results for %s vlatest", packageName)
 				return "r2:" + r2CachePrefix, true
 			}
 		} else {
@@ -79,7 +79,7 @@ func CheckCache(packageName, version string) (string, bool) {
 			r2ResultsKey := r2CachePrefix + "/results.json"
 			exists, err := r2storage.FileExists(r2ResultsKey)
 			if err == nil && exists {
-				log.Printf("[CACHE] ✅ Found R2 cached results for %s v%s", packageName, version)
+				log.Printf("[CACHE] [ + ]Found R2 cached results for %s v%s", packageName, version)
 				return "r2:" + r2CachePrefix, true // Return with r2: prefix to indicate R2 location
 			}
 		}
@@ -90,7 +90,7 @@ func CheckCache(packageName, version string) (string, bool) {
 	if version == "latest" {
 		foundVersion, found := findAnyCachedVersionLocal(packageName)
 		if found {
-			log.Printf("[CACHE] ✅ Found local cached results for %s v%s (was looking for 'latest')", packageName, foundVersion)
+			log.Printf("[CACHE] [ + ]Found local cached results for %s v%s (was looking for 'latest')", packageName, foundVersion)
 			localCachePath := getCachePath(packageName, foundVersion)
 			return localCachePath, true
 		}
@@ -98,7 +98,7 @@ func CheckCache(packageName, version string) (string, bool) {
 		localCachePath := getCachePath(packageName, version)
 		resultsJson := filepath.Join(localCachePath, "results.json")
 		if _, err := os.Stat(resultsJson); err == nil {
-			log.Printf("[CACHE] ✅ Found local cached results for %s v%s", packageName, version)
+			log.Printf("[CACHE] [ + ]Found local cached results for %s v%s", packageName, version)
 			return localCachePath, true
 		}
 	}
@@ -152,7 +152,7 @@ func CheckCache(packageName, version string) (string, bool) {
 		
 		// Save to cache
 		if err := SaveToCache(packageName, extractedVersion, "", existingResult); err == nil {
-			log.Printf("[CACHE] ✅ Migrated existing scan to cache: %s v%s", packageName, extractedVersion)
+			log.Printf("[CACHE] [ + ]Migrated existing scan to cache: %s v%s", packageName, extractedVersion)
 			// Return the new cache path
 			newCachePath := getCachePath(packageName, extractedVersion)
 			return newCachePath, true
@@ -344,7 +344,7 @@ func SaveToCache(packageName, version, versionCode string, result *Result) error
 		if err != nil {
 			log.Printf("[CACHE] ⚠️  Failed to upload cache to R2: %v", err)
 		} else {
-			log.Printf("[CACHE] ✅ Cache uploaded to R2")
+			log.Printf("[CACHE] [ + ]Cache uploaded to R2")
 		}
 	}
 

@@ -108,35 +108,20 @@ func DiscoverAEM(opts Options) ([]string, error) {
 	log.Printf("[AEM] Starting AEM discovery (native Go)...")
 	discovered := DiscoverAEMFromURLs(urls, client, opts.Threads)
 
-	// Save discovered instances
-	if len(discovered) > 0 {
-		discoveredFH, err := os.Create(discoveredFile)
-		if err == nil {
+	// Always save discovered instances (even if empty)
+	discoveredFH, err := os.Create(discoveredFile)
+	if err == nil {
+		if len(discovered) > 0 {
 			for _, url := range discovered {
 				fmt.Fprintln(discoveredFH, url)
 			}
-			discoveredFH.Close()
+		} else {
+			fmt.Fprintln(discoveredFH, "No AEM instances discovered.")
 		}
-		
-		// Send findings to Discord webhook if configured
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" {
-			if info, err := os.Stat(discoveredFile); err == nil && info.Size() > 0 {
-				domain := opts.Domain
-				if domain == "" && opts.LiveHostsFile != "" {
-					domain = "targets"
-				}
-				utils.SendWebhookFileAsync(discoveredFile, fmt.Sprintf("AEM Discovery: AEM instances found (%d discovered)", len(discovered)))
-				utils.SendWebhookLogAsync(fmt.Sprintf("AEM discovery: %d AEM instance(s) found", len(discovered)))
-			}
-		}
-	} else {
-		// No findings
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" {
-			utils.SendWebhookLogAsync("AEM discovery completed with 0 AEM instances found")
-		}
+		discoveredFH.Close()
 	}
+	
+	// Don't send individual discovery messages - will be sent in consolidated file from Run()
 
 	return discovered, nil
 }
@@ -180,27 +165,22 @@ func ScanAEM(url string, opts Options) ([]Finding, error) {
 	log.Printf("[AEM] Scanning %s for vulnerabilities (native Go)...", url)
 	findings := ScanAEMInstance(url, ssrfHost, client, opts.Handlers)
 
-	// Save findings as JSON
+	// Always save findings as JSON (even if empty)
+	var data []byte
 	if len(findings) > 0 {
-		if data, err := json.MarshalIndent(findings, "", "  "); err == nil {
+		if jsonData, err := json.MarshalIndent(findings, "", "  "); err == nil {
+			data = jsonData
 			os.WriteFile(resultsFile, data, 0644)
 		}
-		
-		// Send findings to Discord webhook if configured
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" {
-			if info, err := os.Stat(resultsFile); err == nil && info.Size() > 0 {
-				utils.SendWebhookFileAsync(resultsFile, fmt.Sprintf("AEM Finding: Vulnerabilities found for %s (%d findings)", url, len(findings)))
-			}
-			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed for %s - %d vulnerability/vulnerabilities found", url, len(findings)))
-		}
 	} else {
-		// No findings
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" {
-			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed for %s with 0 findings", url))
+		// Save empty findings array
+		if jsonData, err := json.MarshalIndent([]Finding{}, "", "  "); err == nil {
+			data = jsonData
+			os.WriteFile(resultsFile, data, 0644)
 		}
 	}
+	
+	// Don't send individual scan messages - will be sent in consolidated file from Run()
 
 	return findings, nil
 }
@@ -260,8 +240,49 @@ func Run(opts Options) (*Result, error) {
 	}
 	res.DiscoveredCount = len(discovered)
 
+	// Always create consolidated result file even if no instances discovered
 	if len(discovered) == 0 {
 		log.Printf("[AEM] No AEM instances discovered")
+		
+		// Create consolidated file with "no results" message
+		consolidatedFile := filepath.Join(outputDir, "aem-scan.txt")
+		consolidatedF, err := os.Create(consolidatedFile)
+		if err == nil {
+			defer consolidatedF.Close()
+			domain := opts.Domain
+			if domain == "" && opts.LiveHostsFile != "" {
+				domain = "targets"
+			}
+			fmt.Fprintf(consolidatedF, "AEM Scan Results for %s\n", domain)
+			fmt.Fprintf(consolidatedF, "========================================\n\n")
+			fmt.Fprintf(consolidatedF, "No AEM instances discovered.\n")
+		}
+		
+		// Save empty results to JSON
+		allResults := map[string]interface{}{
+			"discovered_count": 0,
+			"vulnerabilities":  0,
+			"discovered":       []string{},
+			"findings":         []Finding{},
+			"scan_time":       time.Now().Format(time.RFC3339),
+		}
+		if data, err := json.MarshalIndent(allResults, "", "  "); err == nil {
+			os.WriteFile(resultsFile, data, 0644)
+		}
+		
+		// Send to Discord
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			domain := opts.Domain
+			if domain == "" && opts.LiveHostsFile != "" {
+				domain = "targets"
+			}
+			if info, err := os.Stat(consolidatedFile); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(consolidatedFile, fmt.Sprintf("AEM Scan Results: 0 AEM instances found for %s", domain))
+			}
+			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed for %s: 0 AEM instances discovered", domain))
+		}
+		
 		res.Duration = time.Since(startTime)
 		return res, nil
 	}
@@ -283,7 +304,7 @@ func Run(opts Options) (*Result, error) {
 
 	res.Vulnerabilities = len(allFindings)
 
-	// Save all results
+	// Save all results to JSON files
 	allResults := map[string]interface{}{
 		"discovered_count": res.DiscoveredCount,
 		"vulnerabilities":  res.Vulnerabilities,
@@ -297,23 +318,58 @@ func Run(opts Options) (*Result, error) {
 		os.WriteFile(scannedFile, data, 0644)
 	}
 
-	// Send findings to Discord webhook if configured
+	// Always create consolidated aem-scan.txt file (even with 0 findings)
+	consolidatedFile := filepath.Join(outputDir, "aem-scan.txt")
+	consolidatedF, err := os.Create(consolidatedFile)
+	if err == nil {
+		defer consolidatedF.Close()
+		
+		domain := opts.Domain
+		if domain == "" && opts.LiveHostsFile != "" {
+			domain = "targets"
+		}
+		
+		fmt.Fprintf(consolidatedF, "AEM Scan Results for %s\n", domain)
+		fmt.Fprintf(consolidatedF, "========================================\n\n")
+		fmt.Fprintf(consolidatedF, "Discovered AEM Instances: %d\n", res.DiscoveredCount)
+		fmt.Fprintf(consolidatedF, "Vulnerabilities Found: %d\n\n", res.Vulnerabilities)
+		
+		if len(discovered) > 0 {
+			fmt.Fprintf(consolidatedF, "Discovered Instances:\n")
+			for _, url := range discovered {
+				fmt.Fprintf(consolidatedF, "  - %s\n", url)
+			}
+			fmt.Fprintf(consolidatedF, "\n")
+		}
+		
+		if len(allFindings) > 0 {
+			fmt.Fprintf(consolidatedF, "Vulnerabilities:\n")
+			for _, finding := range allFindings {
+				fmt.Fprintf(consolidatedF, "  - [%s] %s\n", finding.Name, finding.URL)
+				if finding.Description != "" {
+					fmt.Fprintf(consolidatedF, "    Description: %s\n", finding.Description)
+				}
+			}
+		} else {
+			fmt.Fprintf(consolidatedF, "No vulnerabilities found.\n")
+		}
+	}
+
+	// Send findings to Discord webhook if configured (only the consolidated file)
 	webhookURL := os.Getenv("DISCORD_WEBHOOK")
 	if webhookURL != "" {
+		domain := opts.Domain
+		if domain == "" && opts.LiveHostsFile != "" {
+			domain = "targets"
+		}
+		
+		if info, err := os.Stat(consolidatedFile); err == nil && info.Size() > 0 {
+			utils.SendWebhookFileAsync(consolidatedFile, fmt.Sprintf("AEM Scan Results: %d AEM instances, %d vulnerabilities for %s", res.DiscoveredCount, res.Vulnerabilities, domain))
+		}
+		
 		if res.Vulnerabilities > 0 {
-			if info, err := os.Stat(resultsFile); err == nil && info.Size() > 0 {
-				domain := opts.Domain
-				if domain == "" && opts.LiveHostsFile != "" {
-					domain = "targets"
-				}
-				utils.SendWebhookFileAsync(resultsFile, fmt.Sprintf("AEM Scan Summary: %d AEM instances, %d vulnerabilities for %s", res.DiscoveredCount, res.Vulnerabilities, domain))
-			}
 			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed: %d AEM instance(s), %d vulnerability/vulnerabilities found", res.DiscoveredCount, res.Vulnerabilities))
 		} else {
-			domain := opts.Domain
-			if domain == "" && opts.LiveHostsFile != "" {
-				domain = "targets"
-			}
 			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed for %s: %d AEM instance(s), 0 vulnerabilities", domain, res.DiscoveredCount))
 		}
 	}

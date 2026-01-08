@@ -129,14 +129,6 @@ func RunDomain(domain string) (*Result, error) {
 	}
 	step++
 
-	if err := runDomainPhase("nuclei", step, totalSteps, "Nuclei vulnerability scan", domain, 0, func() error {
-		_, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 500})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Nuclei scan failed: %v", err)
-	}
-	step++
-
 	if err := runDomainPhase("gf", step, totalSteps, "GF pattern matching", domain, 0, func() error {
 		// Run GF scan (it's OK to run it)
 		_, err := gf.ScanGF(domain)
@@ -341,6 +333,15 @@ func RunDomain(domain string) (*Result, error) {
 	}); err != nil {
 		log.Printf("[WARN] Zerodays scan failed: %v", err)
 	}
+	step++
+
+	// Final Phase: Nuclei full scan (runs last to catch all vulnerabilities after all other scans)
+	if err := runDomainPhase("nuclei", step, totalSteps, "Nuclei vulnerability scan (final)", domain, 0, func() error {
+		_, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 500})
+		return err
+	}); err != nil {
+		log.Printf("[WARN] Nuclei scan failed: %v", err)
+	}
 
 	log.Printf("[OK] Full domain scan completed for %s", domain)
 	return &Result{Domain: domain}, nil
@@ -383,8 +384,9 @@ func runDomainPhase(phaseKey string, step, total int, description, domain string
 
 	log.Printf("[OK] %s completed in %s", description, phaseDuration)
 	
-	// Send phase files in real-time
-	if phaseKey != "" {
+	// Send phase files in real-time (skip for modules that handle their own messaging)
+	// Modules that handle their own messaging: dns, aem, misconfig, ffuf
+	if phaseKey != "" && phaseKey != "dns" && phaseKey != "aem" && phaseKey != "misconfig" && phaseKey != "ffuf" {
 		log.Printf("[DEBUG] [DOMAIN] Preparing to send files for phase: %s", phaseKey)
 		
 		// Get expected file paths for this phase

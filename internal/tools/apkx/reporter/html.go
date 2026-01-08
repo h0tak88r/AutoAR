@@ -1409,7 +1409,7 @@ const htmlTemplate = `
                     {{end}}
                 {{else}}
                 <div class="empty-state">
-                    <h3>✅ No Vulnerabilities Found</h3>
+                    <h3>[ + ]No Vulnerabilities Found</h3>
                     <p>No security vulnerabilities were detected in this APK.</p>
                 </div>
                 {{end}}
@@ -1448,13 +1448,13 @@ const htmlTemplate = `
                     {{end}}
                     {{if not $hasFindings}}
                     <div class="empty-state">
-                        <h3>✅ No Pattern Matches Found</h3>
+                        <h3>[ + ]No Pattern Matches Found</h3>
                         <p>No sensitive information patterns were detected in this APK.</p>
                     </div>
                     {{end}}
                 {{else}}
                 <div class="empty-state">
-                    <h3>✅ No Pattern Matches Found</h3>
+                    <h3>[ + ]No Pattern Matches Found</h3>
                     <p>No sensitive information patterns were detected in this APK.</p>
                 </div>
                 {{end}}

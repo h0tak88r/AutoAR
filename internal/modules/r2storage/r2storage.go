@@ -72,7 +72,7 @@ func LoadConfig() *R2Config {
 		return config
 	}
 
-	log.Printf("[R2] ✅ R2 storage initialized (bucket: %s)", config.BucketName)
+	log.Printf("[R2] [ + ]R2 storage initialized (bucket: %s)", config.BucketName)
 	return config
 }
 
@@ -183,7 +183,7 @@ func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) 
 		publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, objectKey)
 	}
 
-	log.Printf("[R2] ✅ File uploaded successfully: %s", publicURL)
+	log.Printf("[R2] [ + ]File uploaded successfully: %s", publicURL)
 	return publicURL, nil
 }
 
@@ -230,7 +230,7 @@ func UploadFileWithReader(reader io.Reader, objectKey string, size int64, conten
 		publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, objectKey)
 	}
 
-	log.Printf("[R2] ✅ File uploaded successfully: %s", publicURL)
+	log.Printf("[R2] [ + ]File uploaded successfully: %s", publicURL)
 	return publicURL, nil
 }
 
@@ -428,7 +428,7 @@ func UploadFileIfNotExists(filePath, objectKey string) (string, bool, error) {
 		} else {
 			publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, existingKey)
 		}
-		log.Printf("[R2] ✅ File already exists in R2: %s", publicURL)
+		log.Printf("[R2] [ + ]File already exists in R2: %s", publicURL)
 		return publicURL, false, nil
 	}
 
@@ -487,7 +487,7 @@ func UploadDirectory(basePath, r2Prefix string, skipTimestamp bool) (map[string]
 		}
 
 		urls[localPath] = publicURL
-		log.Printf("[R2] ✅ Uploaded: %s -> %s", relPath, publicURL)
+		log.Printf("[R2] [ + ]Uploaded: %s -> %s", relPath, publicURL)
 
 		return nil
 	})
@@ -532,7 +532,7 @@ func UploadResultsDirectory(domain, resultsPath string, removeLocal bool) (map[s
 			}
 			return nil
 		})
-		log.Printf("[R2] ✅ Local files removed")
+		log.Printf("[R2] [ + ]Local files removed")
 	}
 
 	return urls, nil
@@ -631,7 +631,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 		return fmt.Errorf("no files found in R2 with prefix %s", r2Prefix)
 	}
 
-	log.Printf("[R2] ✅ Downloaded %d files from R2 to %s", downloadedCount, localPath)
+	log.Printf("[R2] [ + ]Downloaded %d files from R2 to %s", downloadedCount, localPath)
 	return nil
 }
 

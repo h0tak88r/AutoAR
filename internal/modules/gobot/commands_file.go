@@ -260,7 +260,7 @@ func handleScanFromFile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	// Send summary
-	summary := fmt.Sprintf("✅ **Scan Complete**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Successful:** %d\n**Failed:** %d",
+	summary := fmt.Sprintf("[ + ]**Scan Complete**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Successful:** %d\n**Failed:** %d",
 		scanType, len(targets), successCount, failCount)
 
 	// Send result files if any
@@ -543,7 +543,7 @@ func processFileScan(s *discordgo.Session, i *discordgo.InteractionCreate, messa
 		time.Sleep(1 * time.Second)
 	}
 
-	summary := fmt.Sprintf("✅ **Scan Complete**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Successful:** %d\n**Failed:** %d",
+	summary := fmt.Sprintf("[ + ]**Scan Complete**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Successful:** %d\n**Failed:** %d",
 		scanType, len(targets), successCount, failCount)
 
 	if len(resultFiles) > 0 {

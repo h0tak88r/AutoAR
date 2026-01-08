@@ -50,6 +50,9 @@ type ScanInfo struct {
 	StartedAt   time.Time // For API compatibility
 	CompletedAt *time.Time
 	Command     string
+	CancelFunc  context.CancelFunc // Function to cancel the scan
+	MessageID   string            // Discord message ID for updating messages
+	ChannelID   string            // Discord channel ID for updating messages
 }
 
 // Note: ScanInfo is shared between commands.go and api.go
@@ -190,7 +193,7 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 		scanID := fmt.Sprintf("%s_%s_%d_%d", scanType, strings.ReplaceAll(target, ".", "_"), time.Now().Unix(), idx)
 
 		embed := createScanEmbed(scanType, target, "running")
-		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		followupMsg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Embeds: []*discordgo.MessageEmbed{embed},
 		})
 		if err != nil {
@@ -198,9 +201,16 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 			continue
 		}
 
-		// Pass channel ID directly instead of creating fake interaction
-		// Store channel ID for this scan
+		// Store channel ID and message ID for this scan (for future updates without tokens)
 		storeChannelID(scanID, i.ChannelID)
+		if followupMsg != nil {
+			scansMutex.Lock()
+			if scan, ok := activeScans[scanID]; ok {
+				scan.MessageID = followupMsg.ID
+				scan.ChannelID = i.ChannelID
+			}
+			scansMutex.Unlock()
+		}
 
 		wg.Add(1)
 		go func(target, scanID string, cmd []string) {
@@ -221,7 +231,7 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 
 	// Send summary with actual started count
 	startedCount := int(atomic.LoadInt64(&successCount))
-	summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Scans Started:** %d",
+	summary := fmt.Sprintf("[ + ]**File Scan Initiated**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Scans Started:** %d",
 		scanType, len(targets), startedCount)
 	s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: summary,
@@ -240,31 +250,33 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		}
 	}
 
-	scansMutex.Lock()
-	now := time.Now()
-	activeScans[scanID] = &ScanInfo{
-		ScanID:    scanID,
-		Type:      scanType,
-		ScanType:  scanType,
-		Target:    target,
-		Status:    "running",
-		StartTime: now,
-		StartedAt: now,
-		Command:   strings.Join(command, " "),
-	}
-	scansMutex.Unlock()
-
 	// Create context with timeout for long-running scans (30 minutes max)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
 
-	// Get channel ID (from interaction or stored)
+	scansMutex.Lock()
+	now := time.Now()
 	channelID := ""
 	if i != nil && i.ChannelID != "" {
 		channelID = i.ChannelID
 	} else {
 		channelID = getChannelID(scanID)
 	}
+	activeScans[scanID] = &ScanInfo{
+		ScanID:     scanID,
+		Type:       scanType,
+		ScanType:   scanType,
+		Target:     target,
+		Status:     "running",
+		StartTime:  now,
+		StartedAt:  now,
+		Command:    strings.Join(command, " "),
+		CancelFunc: cancel,
+		ChannelID:  channelID,
+		// MessageID will be set when the initial message is created
+	}
+	scansMutex.Unlock()
+
+	defer cancel()
 
 	// Execute command with environment variables for modules
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
@@ -274,20 +286,30 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	)
 	output, err := cmd.CombinedOutput()
 
+	// Check if context was cancelled
+	isCancelled := ctx.Err() == context.Canceled
+
 	// Update status and get it for the embed
 	scansMutex.Lock()
 	var status string
 	if scan, ok := activeScans[scanID]; ok {
-		if err != nil {
+		if isCancelled {
+			scan.Status = "cancelled"
+			status = "cancelled"
+		} else if err != nil {
 			scan.Status = "failed"
 			status = "failed"
 		} else {
 			scan.Status = "completed"
 			status = "completed"
 		}
+		// Clear cancel function since scan is done
+		scan.CancelFunc = nil
 	} else {
 		// Fallback if scan not found
-		if err != nil {
+		if isCancelled {
+			status = "cancelled"
+		} else if err != nil {
 			status = "failed"
 		} else {
 			status = "completed"
@@ -297,7 +319,13 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 
 	// Update Discord message
 	embed := createScanEmbed(scanType, target, status)
-	if err != nil {
+	if isCancelled {
+		embed.Color = 0xffa500 // Orange
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:  "Status",
+			Value: "Scan was cancelled by user",
+		})
+	} else if err != nil {
 		embed.Color = 0xff0000 // Red
 		outputStr := string(output)
 		// Truncate very long error messages
@@ -858,6 +886,8 @@ func createScanEmbed(scanType, target, status string) *discordgo.MessageEmbed {
 		statusEmoji = "❌"
 	} else if status == "running in background" {
 		statusEmoji = "⏳"
+	} else if status == "cancelled" || status == "cancelling" {
+		statusEmoji = "⏹️"
 	}
 
 	return &discordgo.MessageEmbed{

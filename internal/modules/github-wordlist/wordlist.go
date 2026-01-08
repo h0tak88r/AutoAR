@@ -91,7 +91,7 @@ func GenerateWordlist(org, token, outputDir string) error {
 					allPatterns[p] = true
 				}
 				totalFiles++
-				fmt.Printf("  ✅ Found %s\n", ignoreFile)
+				fmt.Printf("  [ + ]Found %s\n", ignoreFile)
 			}
 
 			// Small delay to avoid rate limiting
@@ -104,7 +104,7 @@ func GenerateWordlist(org, token, outputDir string) error {
 		}
 	}
 
-	fmt.Printf("✅ Downloaded %d ignore files from %d repositories\n", totalFiles, processedRepos)
+	fmt.Printf("[ + ]Downloaded %d ignore files from %d repositories\n", totalFiles, processedRepos)
 
 	// Generate wordlist
 	fmt.Println("🔧 Generating wordlist from patterns...")
@@ -128,7 +128,7 @@ func GenerateWordlist(org, token, outputDir string) error {
 		return fmt.Errorf("error saving wordlist: %w", err)
 	}
 
-	fmt.Printf("✅ Generated wordlist with %d unique words\n", len(wordlist))
+	fmt.Printf("[ + ]Generated wordlist with %d unique words\n", len(wordlist))
 	fmt.Printf("📁 Patterns saved to: %s\n", patternsFile)
 	fmt.Printf("📁 Wordlist saved to: %s\n", wordlistFile)
 	fmt.Println("🎉 GitHub Target Based Wordlist generation completed!")
@@ -184,7 +184,7 @@ func getOrgRepos(org, token string) ([]string, error) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	fmt.Printf("✅ Found %d total repositories for %s\n", len(repos), org)
+	fmt.Printf("[ + ]Found %d total repositories for %s\n", len(repos), org)
 	return repos, nil
 }
 

@@ -82,7 +82,7 @@ func handleList() error {
 		}
 		status := "❌ Not Running"
 		if t.IsRunning {
-			status = "✅ Running"
+			status = "[ + ]Running"
 		}
 		fmt.Printf("ID: %d | URL: %s | Strategy: %s | Pattern: %s | Status: %s\n", t.ID, t.URL, t.Strategy, patternStr, status)
 	}

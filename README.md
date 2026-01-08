@@ -472,7 +472,7 @@ AutoAR includes **KeyHack**, a comprehensive API key validation system with **77
 
 - **📋 778+ Templates**: Comprehensive collection of API key validation templates from KeysKit and custom additions
 - **🔍 Smart Search**: Search templates by provider name or description
-- **✅ Quick Validation**: Generate ready-to-use validation commands (curl or shell)
+- **[ + ]Quick Validation**: Generate ready-to-use validation commands (curl or shell)
 - **➕ Extensible**: Add custom validation templates via Discord or CLI
 - **🌐 Multi-Format Support**: Supports HTTP-based (curl) and shell-based (AWS CLI, etc.) validation methods
 

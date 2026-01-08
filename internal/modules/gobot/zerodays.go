@@ -125,7 +125,7 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 
 		// Send summary
-		summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** zerodays (live hosts + smart scan)\n**Total Domains:** %d", len(targets))
+		summary := fmt.Sprintf("[ + ]**File Scan Initiated**\n\n**Scan Type:** zerodays (live hosts + smart scan)\n**Total Domains:** %d", len(targets))
 		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: summary,
 		})
@@ -709,7 +709,7 @@ func sendZerodaysResults(s *discordgo.Session, i *discordgo.InteractionCreate, d
 	} else {
 		embed.Color = 0x00ff00 // Green
 		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Status", Value: "✅ **Not Vulnerable**", Inline: false},
+			{Name: "Status", Value: "[ + ]**Not Vulnerable**", Inline: false},
 		}
 
 		statsText := fmt.Sprintf("**Live hosts:** `%d`\n", totalHosts)
@@ -830,7 +830,7 @@ func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, tar
 
 	statusText := "🔴 **Vulnerable**"
 	if !isVulnerable {
-		statusText = "✅ **Not Vulnerable**"
+		statusText = "[ + ]**Not Vulnerable**"
 	}
 	embed.Fields = []*discordgo.MessageEmbedField{
 		{Name: "Status", Value: statusText, Inline: false},
@@ -1064,7 +1064,7 @@ func handleLivehosts(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 
 		// Send summary
-		summary := fmt.Sprintf("✅ **File Scan Initiated**\n\n**Scan Type:** livehosts\n**Total Targets:** %d", len(targets))
+		summary := fmt.Sprintf("[ + ]**File Scan Initiated**\n\n**Scan Type:** livehosts\n**Total Targets:** %d", len(targets))
 		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: summary,
 		})
@@ -1171,11 +1171,11 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "✅ Livehosts Scan Complete",
+		Title:       "[ + ]Livehosts Scan Complete",
 		Description: fmt.Sprintf("**Target:** `%s`", domain),
 		Color:       color,
 		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Status", Value: "✅ Completed", Inline: false},
+			{Name: "Status", Value: "[ + ]Completed", Inline: false},
 			{Name: "Results", Value: fmt.Sprintf("**Live:** `%d`\n**Total:** `%d`", liveHosts, totalHosts), Inline: false},
 		},
 	}

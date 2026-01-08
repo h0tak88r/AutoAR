@@ -984,10 +984,6 @@ patterns:
       regex: "dockerhubpassword(=| =|:| :)"
       confidence: low
   - pattern:
-      name: domain
-      regex: "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*(),]|(?:%[0-9a-fA-F][0-9a-fA-F]))[^><'\" \n)]+"
-      confidence: low
-  - pattern:
       name: doordash_auth_token
       regex: "doordash[_-]?auth[_-]?token(=| =|:| :)"
       confidence: low
@@ -1893,7 +1889,7 @@ patterns:
       confidence: low
   - pattern:
       name: npm_token
-      regex: "([a-zA-Z0-9]{8}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{12})"
+      regex: "npm_[a-zA-Z0-9]{36}"
       confidence: low
   - pattern:
       name: nuget_api_key

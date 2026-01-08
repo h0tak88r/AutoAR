@@ -184,7 +184,7 @@ func UploadResultsToR2(domain string, removeLocal bool) (map[string]string, erro
 		return nil, fmt.Errorf("failed to upload results to R2: %w", err)
 	}
 
-	log.Printf("[R2] ✅ Successfully uploaded %d files for %s to R2", len(urls), domain)
+	log.Printf("[R2] [ + ]Successfully uploaded %d files for %s to R2", len(urls), domain)
 	return urls, nil
 }
 

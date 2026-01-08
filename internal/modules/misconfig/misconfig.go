@@ -97,7 +97,8 @@ func handleScan(opts Options, resultsDir string) error {
 		return fmt.Errorf("failed to create output directory: %v", err)
 	}
 
-	outputFile := filepath.Join(outputDir, "scan-results.txt")
+	// Create file with renamed output for Discord
+	outputFile := filepath.Join(outputDir, "misconfig-scan-results.txt")
 
 	root := os.Getenv("AUTOAR_ROOT")
 	if root == "" {
@@ -152,22 +153,29 @@ func handleScan(opts Options, resultsDir string) error {
 
 	log.Printf("[OK] Completed misconfig scan")
 
-	// Write results to file
+	// Always write results to file (even if empty)
 	f, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer f.Close()
 
-	for _, r := range allResults {
-		status := "EXISTS"
-		if r.Vulnerable {
-			status = "VULNERABLE"
+	vulnerableCount := 0
+	if len(allResults) > 0 {
+		for _, r := range allResults {
+			status := "EXISTS"
+			if r.Vulnerable {
+				status = "VULNERABLE"
+				vulnerableCount++
+			}
+			line := fmt.Sprintf("[%s] %s (%s - %s)\n", status, r.URL, r.ServiceID, r.ServiceName)
+			if _, err := f.WriteString(line); err != nil {
+				return fmt.Errorf("failed to write result: %w", err)
+			}
 		}
-		line := fmt.Sprintf("[%s] %s (%s - %s)\n", status, r.URL, r.ServiceID, r.ServiceName)
-		if _, err := f.WriteString(line); err != nil {
-			return fmt.Errorf("failed to write result: %w", err)
-		}
+	} else {
+		// Write "no results" message to file
+		f.WriteString("No misconfiguration findings found.\n")
 	}
 
 	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings)\n", opts.Target, len(allResults))
@@ -176,16 +184,10 @@ func handleScan(opts Options, resultsDir string) error {
 	// Send findings to Discord webhook if configured
 	webhookURL := os.Getenv("DISCORD_WEBHOOK")
 	if webhookURL != "" {
-		vulnerableCount := 0
-		for _, r := range allResults {
-			if r.Vulnerable {
-				vulnerableCount++
-			}
+		if info, err := os.Stat(outputFile); err == nil && info.Size() > 0 {
+			utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("Misconfig Finding: Scan results for %s (%d total, %d vulnerable)", opts.Target, len(allResults), vulnerableCount))
 		}
 		if len(allResults) > 0 {
-			if info, err := os.Stat(outputFile); err == nil && info.Size() > 0 {
-				utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("Misconfig Finding: Scan results for %s (%d total, %d vulnerable)", opts.Target, len(allResults), vulnerableCount))
-			}
 			utils.SendWebhookLogAsync(fmt.Sprintf("Misconfig scan completed for %s - %d finding(s), %d vulnerable", opts.Target, len(allResults), vulnerableCount))
 		} else {
 			utils.SendWebhookLogAsync(fmt.Sprintf("Misconfig scan completed for %s with 0 findings", opts.Target))

@@ -142,7 +142,7 @@ func handleMonitorSubdomainsManage(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	embed = &discordgo.MessageEmbed{
-		Title:       fmt.Sprintf("✅ Subdomain Monitoring: %s", action),
+		Title:       fmt.Sprintf("[ + ]Subdomain Monitoring: %s", action),
 		Description: fmt.Sprintf("```\n%s\n```", desc),
 		Color:       color,
 	}

@@ -343,7 +343,7 @@ func PrintResults(result *MonitorResult) {
 	}
 
 	if len(result.BecameLive) > 0 {
-		fmt.Printf("\n✅ Became Live (%d):\n", len(result.BecameLive))
+		fmt.Printf("\n[ + ]Became Live (%d):\n", len(result.BecameLive))
 		for _, change := range result.BecameLive {
 			fmt.Printf("  - %s: %s\n", change.Subdomain, change.Message)
 		}
@@ -364,7 +364,7 @@ func PrintResults(result *MonitorResult) {
 	}
 
 	if len(result.NewSubdomains) == 0 && len(result.StatusChanges) == 0 && len(result.BecameLive) == 0 && len(result.BecameDead) == 0 {
-		fmt.Printf("\n✅ No changes detected\n")
+		fmt.Printf("\n[ + ]No changes detected\n")
 	}
 }
 

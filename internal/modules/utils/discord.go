@@ -283,10 +283,11 @@ func GetPhaseFiles(phaseName, domain string) []string {
 			filepath.Join(dnsDir, "dns-takeover-summary.txt"),
 		}
 	case "misconfig":
-		// Misconfig saves to subdomain directory
+		// Misconfig saves to subdomain directory with renamed file
 		files = []string{
+			filepath.Join(resultsDir, domain, "misconfig", "misconfig-scan-results.txt"),
+			// Also check old locations for compatibility
 			filepath.Join(resultsDir, domain, "misconfig", "scan-results.txt"),
-			// Also check old location for compatibility
 			filepath.Join(resultsDir, "misconfig", domain, "scan-results.txt"),
 		}
 	case "nuclei":
@@ -343,6 +344,11 @@ func GetPhaseFiles(phaseName, domain string) []string {
 			filepath.Join(githubOrgDir, "secrets_table.txt"),
 			filepath.Join(githubRepoDir, "secrets.json"),
 			filepath.Join(githubRepoDir, "secrets_table.txt"),
+		}
+	case "aem", "aem_scan":
+		// AEM saves consolidated results to aem-scan.txt
+		files = []string{
+			filepath.Join(resultsDir, domain, "aem", "aem-scan.txt"),
 		}
 	case "zerodays", "0days":
 		// Zerodays saves results to {domain}/zerodays/ directory
