@@ -444,6 +444,15 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "scan_status",
 			Description: "List all active and recent completed scans",
 		},
+		{
+			Name:        "cancel_scan",
+			Description: "Cancel a running scan (domain_run, subdomain_run, etc.)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_id", Description: "Scan ID to cancel (get from /scan_status)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "target", Description: "Target (domain/subdomain) to cancel scans for", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_type", Description: "Scan type (domain_run, subdomain_run, etc.) - required if target is provided", Required: false},
+			},
+		},
 	}
 
 	// List of commands to remove (old/obsolete commands)

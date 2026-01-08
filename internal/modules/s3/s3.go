@@ -188,7 +188,7 @@ func handleEnum(opts Options, resultsDir string) error {
 		if foundCount > 0 {
 			log.Printf("[INFO] S3 enumeration: Sending results to Discord webhook (if configured)")
 			utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("S3 Enumeration Results - %s (%d buckets found)", opts.Root, foundCount))
-			utils.SendWebhookLogAsync(fmt.Sprintf("✅ S3 enumeration completed for: `%s`\n**Buckets found:** %d out of %d tested", opts.Root, foundCount, len(bucketPatterns)))
+			utils.SendWebhookLogAsync(fmt.Sprintf("[ + ]S3 enumeration completed for: `%s`\n**Buckets found:** %d out of %d tested", opts.Root, foundCount, len(bucketPatterns)))
 		} else {
 			log.Printf("[INFO] S3 enumeration: No buckets found, sending status message to Discord webhook (if configured)")
 			utils.SendWebhookLogAsync(fmt.Sprintf("[-] S3 enumeration completed for: `%s`\n**Buckets found:** 0 out of %d tested", opts.Root, len(bucketPatterns)))
@@ -352,7 +352,7 @@ func handleScan(opts Options, resultsDir string) error {
 		if hasResults {
 			log.Printf("[INFO] S3 scan: Sending results to Discord webhook (if configured)")
 			utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("S3 Scan Results - %s (%s, %d objects)", opts.Bucket, scanMethod, objectCount))
-			utils.SendWebhookLogAsync(fmt.Sprintf("✅ S3 scan completed for bucket: `%s`\n**Method:** %s\n**Objects found:** %d", opts.Bucket, scanMethod, objectCount))
+			utils.SendWebhookLogAsync(fmt.Sprintf("[ + ]S3 scan completed for bucket: `%s`\n**Method:** %s\n**Objects found:** %d", opts.Bucket, scanMethod, objectCount))
 		} else {
 			log.Printf("[INFO] S3 scan: No results found, sending status message to Discord webhook (if configured)")
 			utils.SendWebhookLogAsync(fmt.Sprintf("[-] S3 scan completed for bucket: `%s`\n**Method:** %s\n**Objects found:** 0", opts.Bucket, scanMethod))

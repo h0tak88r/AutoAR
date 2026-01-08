@@ -124,7 +124,7 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		title := "📱 apkX Analysis"
 		desc := fmt.Sprintf("File: `%s`", filename)
 		color := 0x00ff00
-		status := "✅ Completed"
+		status := "[ + ]Completed"
 		fields := []*discordgo.MessageEmbedField{}
 
 		if err != nil {
@@ -269,9 +269,9 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 	title := "📱 apkX Analysis (Android Package)"
 	desc := fmt.Sprintf("Package: `%s`", pkg)
 	color := 0x00ff00
-	status := "✅ Completed"
+	status := "[ + ]Completed"
 	if res != nil && res.FromCache {
-		status = "✅ Completed (Cached)"
+		status = "[ + ]Completed (Cached)"
 		desc = fmt.Sprintf("Package: `%s`\n💾 **Using cached results**", pkg)
 	}
 	fields := []*discordgo.MessageEmbedField{}
@@ -320,9 +320,75 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 		)
 	}
 
-	files := prepareAPKFiles(res, mitm, &fields)
+	// Upload to R2 BEFORE creating Discord message to get URLs
+	var r2URLs map[string]string
+	var originalAPKURL, mitmAPKURL string
+	if err == nil && res != nil && !res.FromCache && res.ReportDir != "" {
+		// Extract package name from report dir for R2 prefix
+		resultsDir := getResultsDir()
+		apkPrefix := strings.TrimPrefix(res.ReportDir, resultsDir+"/")
+		if apkPrefix == res.ReportDir {
+			apkPrefix = "apkx/" + filepath.Base(res.ReportDir)
+		}
+		
+		// Upload results directory to R2 (but don't remove local files yet)
+		if r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true" {
+			log.Printf("[INFO] Uploading results to R2 before Discord message: %s", res.ReportDir)
+			var uploadErr error
+			r2URLs, uploadErr = r2storage.UploadResultsDirectory(apkPrefix, res.ReportDir, false) // Don't remove local files yet
+			if uploadErr != nil {
+				log.Printf("[WARN] Failed to upload results to R2: %v", uploadErr)
+			} else {
+				log.Printf("[OK] Uploaded %d files to R2 for %s", len(r2URLs), apkPrefix)
+			}
+		}
+		
+		// Upload original APK if we have it
+		if res.OriginalAPKPath != "" {
+			if _, statErr := os.Stat(res.OriginalAPKPath); statErr == nil {
+				if r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true" {
+					uploadedURL, _, uploadErr := r2storage.UploadFileIfNotExists(res.OriginalAPKPath, filepath.Base(res.OriginalAPKPath))
+					if uploadErr == nil {
+						originalAPKURL = uploadedURL
+						log.Printf("[DEBUG] Original APK uploaded to R2: %s", originalAPKURL)
+					} else {
+						log.Printf("[WARN] Failed to upload original APK to R2: %v", uploadErr)
+					}
+				}
+			}
+		}
+	}
+	
+	// Upload MITM patched APK to R2 if it exists
+	if mitm && res != nil && res.MITMPatchedAPK != "" {
+		if _, statErr := os.Stat(res.MITMPatchedAPK); statErr == nil {
+			if r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true" {
+				publicURL, _, uploadErr := r2storage.UploadFileIfNotExists(res.MITMPatchedAPK, filepath.Base(res.MITMPatchedAPK))
+				if uploadErr == nil {
+					mitmAPKURL = publicURL
+					log.Printf("[DEBUG] MITM patched APK uploaded to R2: %s", publicURL)
+				} else {
+					log.Printf("[WARN] Failed to upload MITM patched APK to R2: %v", uploadErr)
+				}
+			}
+		}
+	}
+	
+	// Prepare files and add R2 links to fields
+	prepareAPKFilesWithR2Links(res, mitm, &fields, r2URLs, mitmAPKURL)
+	
+	// Add original APK link if available
+	if originalAPKURL != "" && res != nil && res.OriginalAPKPath != "" {
+		if stat, statErr := os.Stat(res.OriginalAPKPath); statErr == nil {
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "📱 Original APK",
+				Value: fmt.Sprintf("`%s` (%.2f MB)\n🔗 [Download from R2](%s)", filepath.Base(res.OriginalAPKPath), float64(stat.Size())/1024/1024, originalAPKURL),
+				Inline: false,
+			})
+		}
+	}
 
-	// Create embed AFTER prepareAPKFiles so R2 links are included in fields
+	// Create embed AFTER prepareAPKFilesWithR2Links so R2 links are included in fields
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
 		Description: desc,
@@ -333,60 +399,35 @@ func handleApkXScanFromPackage(s *discordgo.Session, i *discordgo.InteractionCre
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
-	log.Printf("[DEBUG] Preparing to send Discord message with %d files", len(files))
-	if len(files) > 0 {
-		msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Embeds: []*discordgo.MessageEmbed{embed},
-			Files:  files,
-		})
-		if err != nil {
-			log.Printf("[ERROR] Failed to send Discord message with files: %v", err)
-			// Try sending to channel as fallback if interaction expired
-			if i.ChannelID != "" {
-				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
-				if channelErr != nil {
-					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-		} else {
-					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
-				}
+	// Send Discord message without file attachments (only links)
+	msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("[ERROR] Failed to send Discord message: %v", err)
+		// Try sending to channel as fallback if interaction expired
+		if i.ChannelID != "" {
+			_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+			if channelErr != nil {
+				log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
+			} else {
+				log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
 			}
-		} else if msg != nil {
-			log.Printf("[DEBUG] Successfully sent Discord message with files (message ID: %s)", msg.ID)
-		} else {
-			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
 		}
+	} else if msg != nil {
+		log.Printf("[DEBUG] Successfully sent Discord message (message ID: %s)", msg.ID)
 	} else {
-		msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		})
-		if err != nil {
-			log.Printf("[ERROR] Failed to send Discord message: %v", err)
-			// Try sending to channel as fallback if interaction expired
-			if i.ChannelID != "" {
-				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
-				if channelErr != nil {
-					log.Printf("[ERROR] Failed to send fallback channel message: %v", channelErr)
-		} else {
-					log.Printf("[INFO] Sent message to channel as fallback (interaction may have expired)")
-				}
-			}
-		} else if msg != nil {
-			log.Printf("[DEBUG] Successfully sent Discord message (message ID: %s)", msg.ID)
-		} else {
-			log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
-		}
+		log.Printf("[WARN] FollowupMessageCreate returned nil message without error - message may have been sent but response was nil")
 	}
 
-	// Upload to R2 and cleanup local files after scan completes (if not from cache)
+	// Cleanup local files after Discord message is sent (if not from cache)
 	if err == nil && res != nil && !res.FromCache && res.ReportDir != "" {
-		// Extract package name from report dir for R2 prefix
-		// ReportDir format: {resultsRoot}/apkx/{package_name}
 		resultsDir := getResultsDir()
 		apkPrefix := strings.TrimPrefix(res.ReportDir, resultsDir+"/")
 		if apkPrefix == res.ReportDir {
-			// Fallback: use just the directory name
 			apkPrefix = "apkx/" + filepath.Base(res.ReportDir)
 		}
+		// Now remove local files since we've uploaded to R2 and sent Discord message
 		if err := cleanupResultsDirectory(apkPrefix, res.ReportDir); err != nil {
 			log.Printf("[WARN] Failed to cleanup APK results directory: %v", err)
 		}
@@ -445,7 +486,7 @@ func handleApkXScanPackage(s *discordgo.Session, i *discordgo.InteractionCreate)
 		title := "📱 apkX Analysis (Android Package)"
 		desc := fmt.Sprintf("Package: `%s`", packageName)
 		color := 0x00ff00
-		status := "✅ Completed"
+		status := "[ + ]Completed"
 		fields := []*discordgo.MessageEmbedField{}
 
 		if err != nil {
@@ -601,7 +642,7 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		title := "📱 apkX Analysis (iOS App)"
 		desc := fmt.Sprintf("Bundle: `%s`", bundleID)
 		color := 0x00ff00
-		status := "✅ Completed"
+		status := "[ + ]Completed"
 		fields := []*discordgo.MessageEmbedField{}
 
 		if err != nil {
@@ -692,7 +733,54 @@ func handleApkXScanIOS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }(bundle)
 }
 
+// prepareAPKFilesWithR2Links adds R2 links to Discord embed fields instead of uploading files
+func prepareAPKFilesWithR2Links(res *apkxmod.Result, mitm bool, fields *[]*discordgo.MessageEmbedField, r2URLs map[string]string, mitmAPKURL string) {
+	if res == nil {
+		return
+	}
+	
+	// Add links for HTML report and JSON report from R2 URLs
+	if r2URLs != nil && len(r2URLs) > 0 {
+		var htmlURL, jsonURL string
+		for localPath, url := range r2URLs {
+			if strings.HasSuffix(localPath, "security-report.html") {
+				htmlURL = url
+			} else if strings.HasSuffix(localPath, "results.json") {
+				jsonURL = url
+			}
+		}
+		
+		if htmlURL != "" {
+			*fields = append(*fields, &discordgo.MessageEmbedField{
+				Name:  "📄 HTML Report",
+				Value: fmt.Sprintf("🔗 [View Report](%s)", htmlURL),
+				Inline: false,
+			})
+		}
+		
+		if jsonURL != "" {
+			*fields = append(*fields, &discordgo.MessageEmbedField{
+				Name:  "📋 JSON Results",
+				Value: fmt.Sprintf("🔗 [Download JSON](%s)", jsonURL),
+				Inline: false,
+			})
+		}
+	}
+	
+	// Add MITM patched APK link if available
+	if mitm && mitmAPKURL != "" {
+		if stat, statErr := os.Stat(res.MITMPatchedAPK); statErr == nil {
+			*fields = append(*fields, &discordgo.MessageEmbedField{
+				Name:  "🔒 MITM Patched APK",
+				Value: fmt.Sprintf("`%s` (%.2f MB)\n🔗 [Download from R2](%s)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024, mitmAPKURL),
+				Inline: false,
+			})
+		}
+	}
+}
+
 // prepareAPKFiles prepares file attachments for Discord (table, JSON, and MITM patched APK)
+// DEPRECATED: Use prepareAPKFilesWithR2Links instead to send links instead of files
 func prepareAPKFiles(res *apkxmod.Result, mitm bool, fields *[]*discordgo.MessageEmbedField) []*discordgo.File {
 	files := []*discordgo.File{}
 	

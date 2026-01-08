@@ -41,7 +41,7 @@ func BackupDatabase(uploadToR2 bool) (string, string, error) {
 			log.Printf("[DB] ⚠️  Failed to upload backup to R2: %v", err)
 			// Don't fail the backup if R2 upload fails
 		} else {
-			log.Printf("[DB] ✅ Database backup uploaded to R2: %s", r2URL)
+			log.Printf("[DB] [ + ]Database backup uploaded to R2: %s", r2URL)
 		}
 	}
 
@@ -94,7 +94,7 @@ func backupSQLite() (string, error) {
 		return "", fmt.Errorf("failed to copy database file: %w", err)
 	}
 
-	log.Printf("[DB] ✅ SQLite backup created: %s", backupPath)
+	log.Printf("[DB] [ + ]SQLite backup created: %s", backupPath)
 	return backupPath, nil
 }
 
@@ -150,7 +150,7 @@ func backupPostgreSQL() (string, error) {
 		return "", fmt.Errorf("backup file was not created")
 	}
 
-	log.Printf("[DB] ✅ PostgreSQL backup created: %s", backupPath)
+	log.Printf("[DB] [ + ]PostgreSQL backup created: %s", backupPath)
 	return backupPath, nil
 }
 

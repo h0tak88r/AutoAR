@@ -33,11 +33,12 @@ type Options struct {
 
 // Result describes where apkX wrote its output.
 type Result struct {
-	ReportDir    string
-	LogFile      string
-	Duration     time.Duration
+	ReportDir      string
+	LogFile        string
+	Duration       time.Duration
 	MITMPatchedAPK string // Path to MITM patched APK if MITM was enabled
-	FromCache    bool     // True if this result was loaded from cache
+	OriginalAPKPath string // Path to original downloaded APK (for RunFromPackage)
+	FromCache      bool   // True if this result was loaded from cache
 }
 
 // PackageOptions controls apkX scans where AutoAR first downloads the
@@ -449,7 +450,7 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		
 		cachePath, found := CheckCache(packageName, cacheVersion)
 		if found {
-			fmt.Printf("[CACHE] ✅ Using cached results for %s v%s (skipping scan)\n", packageName, version)
+			fmt.Printf("[CACHE] [ + ]Using cached results for %s v%s (skipping scan)\n", packageName, version)
 			
 			// Load cached result
 			if strings.HasPrefix(cachePath, "r2:") {
@@ -464,7 +465,7 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 					// Now load from local cache
 					cachedResult, err := LoadCachedResult(localCachePath)
 					if err == nil {
-						fmt.Printf("[CACHE] ✅ Loaded cache from R2 for %s v%s\n", packageName, version)
+						fmt.Printf("[CACHE] [ + ]Loaded cache from R2 for %s v%s\n", packageName, version)
 						return cachedResult, nil
 					}
 					fmt.Printf("[CACHE] ⚠️  Failed to load downloaded cache: %v, doing fresh scan\n", err)
@@ -494,6 +495,11 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		OutputDir: opts.OutputDir,
 		MITM:      opts.MITM,
 	})
+	
+	// Store the original APK path in the result
+	if result != nil {
+		result.OriginalAPKPath = inputPath
+	}
 
 	// Save to cache after successful scan
 	if err == nil && result != nil && packageName != "" {
@@ -530,7 +536,7 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 						}
 						
 						if version != "" {
-							fmt.Printf("[CACHE] ✅ Extracted version from decompiled manifest: %s v%s\n", packageName, version)
+							fmt.Printf("[CACHE] [ + ]Extracted version from decompiled manifest: %s v%s\n", packageName, version)
 						}
 					}
 				}

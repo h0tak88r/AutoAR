@@ -63,7 +63,7 @@ func SendFileToChannel(channelID, filePath, description string) error {
 		return fmt.Errorf("file is empty: %s", filePath)
 	}
 
-	log.Printf("[DISCORD] ✅ File found: %s (size: %d bytes)", filePath, info.Size())
+	log.Printf("[DISCORD] [ + ]File found: %s (size: %d bytes)", filePath, info.Size())
 
 	fileName := filepath.Base(filePath)
 	if description == "" {
@@ -89,7 +89,7 @@ func SendFileToChannel(channelID, filePath, description string) error {
 				log.Printf("[DISCORD] ❌ Failed to send R2 link to Discord: %v", err)
 				return fmt.Errorf("failed to send R2 link to Discord: %w", err)
 			}
-			log.Printf("[DISCORD] ✅ Successfully sent R2 link to Discord: %s", publicURL)
+			log.Printf("[DISCORD] [ + ]Successfully sent R2 link to Discord: %s", publicURL)
 			return nil
 		}
 	}
@@ -130,7 +130,7 @@ func SendFileToChannel(channelID, filePath, description string) error {
 					log.Printf("[DISCORD] ❌ Failed to send R2 link to Discord: %v", err)
 					return fmt.Errorf("failed to send R2 link to Discord: %w", err)
 				}
-				log.Printf("[DISCORD] ✅ Successfully sent R2 link to Discord (fallback): %s", publicURL)
+				log.Printf("[DISCORD] [ + ]Successfully sent R2 link to Discord (fallback): %s", publicURL)
 				return nil
 			}
 		}
@@ -138,7 +138,7 @@ func SendFileToChannel(channelID, filePath, description string) error {
 		return fmt.Errorf("failed to send file to Discord: %w", err)
 	}
 
-	log.Printf("[DISCORD] ✅ Successfully sent file to Discord channel: %s", fileName)
+	log.Printf("[DISCORD] [ + ]Successfully sent file to Discord channel: %s", fileName)
 	return nil
 }
 
@@ -150,7 +150,7 @@ func StartBot() error {
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
 	} else {
-		fmt.Println("✅ Loaded environment variables from .env file")
+		fmt.Println("[ + ]Loaded environment variables from .env file")
 	}
 
 	// Re-read bot token and guild settings after loading .env
@@ -162,7 +162,7 @@ func StartBot() error {
 	if err := initializeDirectories(); err != nil {
 		log.Printf("[WARN] Failed to initialize directories: %v", err)
 	} else {
-		fmt.Println("✅ Initialized directories")
+		fmt.Println("[ + ]Initialized directories")
 	}
 	
 	// Initialize database if configured
@@ -226,7 +226,7 @@ func StartBot() error {
 	// Register slash commands
 	registerAllCommands(dg)
 
-	fmt.Println("✅ AutoAR Discord Bot is running and connected!")
+	fmt.Println("[ + ]AutoAR Discord Bot is running and connected!")
 	fmt.Println("   Bot is ready to receive commands.")
 
 	// Ensure database is closed on exit
@@ -254,7 +254,7 @@ func StartAPI() error {
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
 	} else {
-		fmt.Println("✅ Loaded environment variables from .env file")
+		fmt.Println("[ + ]Loaded environment variables from .env file")
 	}
 
 	// Re-read API host and port after loading .env
@@ -305,7 +305,7 @@ func StartBoth() error {
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
 	} else {
-		fmt.Println("✅ Loaded environment variables from .env file")
+		fmt.Println("[ + ]Loaded environment variables from .env file")
 	}
 
 	// Re-read configuration after loading .env
@@ -379,10 +379,36 @@ func Disconnect(s *discordgo.Session, event *discordgo.Disconnect) {
 }
 
 // UpdateInteractionMessage safely updates a Discord interaction message, handling token expiration
-// Discord interaction tokens expire after 15 minutes, so we try to edit first and fall back to follow-up if it fails
+// Uses stored message IDs when available to avoid token expiration issues
 func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCreate, embed *discordgo.MessageEmbed) error {
 	if i == nil || i.Interaction == nil {
 		return fmt.Errorf("invalid interaction")
+	}
+
+	// First, try to get stored message ID from scan info (if available)
+	// This allows us to use ChannelMessageEdit which doesn't require interaction tokens
+	channelID := i.ChannelID
+	messageID := ""
+	
+	// Try to find scan by channel ID and get its message ID
+	scansMutex.RLock()
+	for _, scan := range activeScans {
+		if scan.ChannelID == channelID && scan.MessageID != "" {
+			messageID = scan.MessageID
+			break
+		}
+	}
+	scansMutex.RUnlock()
+
+	// If we have a stored message ID, use ChannelMessageEdit (doesn't require interaction token)
+	if messageID != "" && channelID != "" {
+		_, err := s.ChannelMessageEditEmbed(channelID, messageID, embed)
+		if err == nil {
+			log.Printf("[INFO] Successfully updated message using stored message ID (no token required)")
+			return nil
+		}
+		// If edit failed, log but continue to try interaction methods
+		log.Printf("[WARN] Failed to edit message by ID, falling back to interaction methods: %v", err)
 	}
 
 	// Try to edit the interaction response first
@@ -397,32 +423,64 @@ func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCrea
 			strings.Contains(errStr, "50027") // Discord error code for invalid webhook token
 		
 		if isExpiredToken {
-			log.Printf("[INFO] Interaction token expired, using follow-up message")
+			log.Printf("[INFO] Interaction token expired, trying ChannelMessageEdit with channel ID")
 		} else {
-			log.Printf("[WARN] InteractionResponseEdit failed: %v, trying follow-up message", err)
+			log.Printf("[WARN] InteractionResponseEdit failed: %v, trying alternative methods", err)
 		}
 		
-		// Try follow-up message as fallback
+		// If token expired and we have channel ID, try to find message by searching recent messages
+		// or use ChannelMessageEdit if we can get the message ID from the initial response
+		if isExpiredToken && channelID != "" {
+			// Try to get message ID from the initial interaction response
+			// Discord stores the initial response message, we can try to fetch it
+			// For now, try follow-up and store its message ID
+			followupMsg, followErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			})
+			if followErr == nil && followupMsg != nil {
+				// Store the follow-up message ID for future updates
+				log.Printf("[INFO] Created follow-up message, storing ID %s for future updates", followupMsg.ID)
+				// Try to update scan info with this message ID
+				scansMutex.Lock()
+				for _, scan := range activeScans {
+					if scan.ChannelID == channelID {
+						scan.MessageID = followupMsg.ID
+						break
+					}
+				}
+				scansMutex.Unlock()
+				return nil
+			}
+			
+			// Last resort: send new message and log
+			log.Printf("[WARN] Follow-up also failed, sending new channel message: %v", followErr)
+			_, channelErr := s.ChannelMessageSendEmbed(channelID, embed)
+			if channelErr != nil {
+				// Check if it's a permission issue
+				errStr := channelErr.Error()
+				if strings.Contains(errStr, "403") || strings.Contains(errStr, "Missing Access") || strings.Contains(errStr, "50001") {
+					log.Printf("[ERROR] Bot lacks permission to send messages in channel %s. Please ensure the bot has 'Send Messages' permission.", channelID)
+				}
+				log.Printf("[WARN] All update methods failed. This is expected for long-running scans (>15 min).")
+				return nil // Don't fail completely for expired tokens
+			}
+			log.Printf("[INFO] Successfully sent message via channel (fallback)")
+			return nil
+		}
+		
+		// For non-expired token errors, try follow-up
 		_, followErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Embeds: []*discordgo.MessageEmbed{embed},
 		})
 		if followErr != nil {
-			// Last resort: try channel message if we have channel ID
-			if i.ChannelID != "" {
-				log.Printf("[WARN] Follow-up also failed, trying channel message: %v", followErr)
-				_, channelErr := s.ChannelMessageSendEmbed(i.ChannelID, embed)
+			if channelID != "" {
+				_, channelErr := s.ChannelMessageSendEmbed(channelID, embed)
 				if channelErr != nil {
 					return fmt.Errorf("all update methods failed: edit=%v, followup=%v, channel=%v", err, followErr, channelErr)
 				}
-				log.Printf("[INFO] Successfully sent message via channel (fallback)")
 				return nil
 			}
 			return fmt.Errorf("edit and follow-up both failed: edit=%v, followup=%v", err, followErr)
-		}
-		if isExpiredToken {
-			log.Printf("[INFO] Successfully sent follow-up message (token expired)")
-		} else {
-			log.Printf("[INFO] Successfully sent follow-up message (edit failed)")
 		}
 		return nil
 	}
@@ -431,10 +489,34 @@ func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCrea
 }
 
 // UpdateInteractionContent safely updates a Discord interaction message with text content
-// Discord interaction tokens expire after 15 minutes, so we try to edit first and fall back to follow-up if it fails
+// Uses stored message IDs when available to avoid token expiration issues
 func UpdateInteractionContent(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
 	if i == nil || i.Interaction == nil {
 		return fmt.Errorf("invalid interaction")
+	}
+
+	// First, try to get stored message ID from scan info (if available)
+	channelID := i.ChannelID
+	messageID := ""
+	
+	// Try to find scan by channel ID and get its message ID
+	scansMutex.RLock()
+	for _, scan := range activeScans {
+		if scan.ChannelID == channelID && scan.MessageID != "" {
+			messageID = scan.MessageID
+			break
+		}
+	}
+	scansMutex.RUnlock()
+
+	// If we have a stored message ID, use ChannelMessageEdit (doesn't require interaction token)
+	if messageID != "" && channelID != "" {
+		_, err := s.ChannelMessageEdit(channelID, messageID, content)
+		if err == nil {
+			log.Printf("[INFO] Successfully updated message content using stored message ID (no token required)")
+			return nil
+		}
+		log.Printf("[WARN] Failed to edit message by ID, falling back to interaction methods: %v", err)
 	}
 
 	// Try to edit the interaction response first
@@ -449,28 +531,54 @@ func UpdateInteractionContent(s *discordgo.Session, i *discordgo.InteractionCrea
 			strings.Contains(errStr, "50027")
 		
 		if isExpiredToken {
-			log.Printf("[INFO] Interaction token expired, using follow-up message")
+			log.Printf("[INFO] Interaction token expired, trying alternative methods")
 		} else {
 			log.Printf("[WARN] InteractionResponseEdit failed: %v, trying follow-up message", err)
 		}
 		
 		// Try follow-up as fallback
-		_, followErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		followupMsg, followErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: content,
 		})
 		if followErr != nil {
 			// Last resort: try channel message
-			if i.ChannelID != "" {
+			if channelID != "" {
 				log.Printf("[WARN] Follow-up also failed, trying channel message: %v", followErr)
-				_, channelErr := s.ChannelMessageSend(i.ChannelID, content)
+				_, channelErr := s.ChannelMessageSend(channelID, content)
 				if channelErr != nil {
+					// Check if it's a permission issue
+					errStr := channelErr.Error()
+					if strings.Contains(errStr, "403") || strings.Contains(errStr, "Missing Access") || strings.Contains(errStr, "50001") {
+						log.Printf("[ERROR] Bot lacks permission to send messages in channel %s. Please ensure the bot has 'Send Messages' permission.", channelID)
+					}
+					if isExpiredToken {
+						log.Printf("[WARN] All update methods failed due to expired token. This is expected for long-running scans (>15 min).")
+						return nil // Don't fail completely
+					}
 					return fmt.Errorf("all update methods failed: edit=%v, followup=%v, channel=%v", err, followErr, channelErr)
 				}
 				log.Printf("[INFO] Successfully sent message via channel (fallback)")
 				return nil
 			}
+			if isExpiredToken {
+				log.Printf("[WARN] Interaction token expired and no channel ID available. This is expected for scans taking >15 minutes.")
+				return nil // Don't fail completely
+			}
 			return fmt.Errorf("edit and follow-up both failed: edit=%v, followup=%v", err, followErr)
 		}
+		
+		// Store follow-up message ID for future updates
+		if followupMsg != nil && channelID != "" {
+			scansMutex.Lock()
+			for _, scan := range activeScans {
+				if scan.ChannelID == channelID && scan.MessageID == "" {
+					scan.MessageID = followupMsg.ID
+					break
+				}
+			}
+			scansMutex.Unlock()
+		}
+		
 		if isExpiredToken {
 			log.Printf("[INFO] Successfully sent follow-up message (token expired)")
 		} else {
@@ -620,6 +728,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleWebDepConf(s, i)
 	case "scan_status":
 		handleScanStatus(s, i)
+	case "cancel_scan":
+		handleCancelScan(s, i)
 	case "scope":
 		handleScope(s, i)
 	default:
