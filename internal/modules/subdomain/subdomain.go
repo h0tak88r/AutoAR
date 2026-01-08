@@ -184,31 +184,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	step++
 
-	// Phase 9: Nuclei scan
-	if err := runSubdomainPhase("nuclei", step, totalSteps, "Nuclei scan", subdomain, 0, func() error {
-		// Read first URL from live hosts file for Nuclei URL mode
-		data, err := os.ReadFile(liveHostsFile)
-		if err != nil {
-			return err
-		}
-		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-		if len(lines) > 0 && lines[0] != "" {
-			url := strings.TrimSpace(lines[0])
-			// Use URL mode for single subdomain scan
-			_, err := nuclei.RunNuclei(nuclei.Options{
-				URL:     url,
-				Threads: 200,
-				Mode:    nuclei.ModeFull,
-			})
-			return err
-		}
-		return fmt.Errorf("no live URL found in live hosts file")
-	}); err != nil {
-		log.Printf("[WARN] Nuclei scan failed: %v", err)
-	}
-	step++
-
-	// Phase 10: GF scan
+	// Phase 9: GF scan
 	if err := runSubdomainPhase("gf", step, totalSteps, "GF scan", subdomain, 0, func() error {
 		// Use existing URLs file without regenerating
 		urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
@@ -404,6 +380,29 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		log.Printf("[WARN] Zerodays scan failed: %v", err)
 	}
 	step++
+
+	// Final Phase: Nuclei full scan (runs last to catch all vulnerabilities after all other scans)
+	if err := runSubdomainPhase("nuclei", step, totalSteps, "Nuclei scan (final)", subdomain, 0, func() error {
+		// Read first URL from live hosts file for Nuclei URL mode
+		data, err := os.ReadFile(liveHostsFile)
+		if err != nil {
+			return err
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 0 && lines[0] != "" {
+			url := strings.TrimSpace(lines[0])
+			// Use URL mode for single subdomain scan
+			_, err := nuclei.RunNuclei(nuclei.Options{
+				URL:     url,
+				Threads: 200,
+				Mode:    nuclei.ModeFull,
+			})
+			return err
+		}
+		return fmt.Errorf("no live URL found in live hosts file")
+	}); err != nil {
+		log.Printf("[WARN] Nuclei scan failed: %v", err)
+	}
 
 	log.Printf("[OK] Full subdomain scan completed for %s", subdomain)
 	return &Result{Subdomain: subdomain}, nil
