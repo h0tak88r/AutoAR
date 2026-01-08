@@ -347,7 +347,7 @@ func handleMonitorUpdatesManage(s *discordgo.Session, i *discordgo.InteractionCr
 			cmd = append(cmd, "--pattern", pattern)
 		}
 		targetDesc = *url
-		title = "✅ Target Added"
+		title = "[ + ]Target Added"
 
 	case "remove":
 		if id != nil && *id > 0 {
@@ -503,7 +503,7 @@ func handleMonitorUpdatesAdd_OLD(s *discordgo.Session, i *discordgo.InteractionC
 	}
 
 	embed = &discordgo.MessageEmbed{
-		Title:       "✅ Target Added",
+		Title:       "[ + ]Target Added",
 		Description: fmt.Sprintf("**URL:** `%s`\n**Strategy:** %s%s", url, strategy, patternSection),
 		Color:       color,
 	}
@@ -874,8 +874,10 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				statusEmoji = "✅"
 			} else if scan.Status == "failed" {
 				statusEmoji = "❌"
+			} else if scan.Status == "cancelled" || scan.Status == "cancelling" {
+				statusEmoji = "⏹️"
 			}
-			activeText += fmt.Sprintf("%s **%s** - `%s` (%s)\n", statusEmoji, scan.Type, scan.Target, scan.Status)
+			activeText += fmt.Sprintf("%s **%s** - `%s` (%s)\n**Scan ID:** `%s`\n", statusEmoji, scan.Type, scan.Target, scan.Status, scan.ScanID)
 		}
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:  fmt.Sprintf("Active Scans (%d)", activeCount),
@@ -899,13 +901,11 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			statusEmoji := "✅"
 			if result.Status == "failed" {
 				statusEmoji = "❌"
+			} else if result.Status == "cancelled" {
+				statusEmoji = "⏹️"
 			}
-			// Use ScanID as target identifier
-			target := result.ScanID
-			if result.ScanType != "" {
-				target = result.ScanType
-			}
-			completedText += fmt.Sprintf("%s **%s** - `%s` (%s)\n", statusEmoji, result.ScanType, target, result.Status)
+			// ScanResult doesn't have Target field, so we show ScanType and ScanID
+			completedText += fmt.Sprintf("%s **%s** (%s)\n**Scan ID:** `%s`\n", statusEmoji, result.ScanType, result.Status, result.ScanID)
 		}
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:  fmt.Sprintf("Recent Completed Scans (%d)", len(completedList)),
@@ -921,4 +921,114 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if err := UpdateInteractionMessage(s, i, embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
+}
+
+// Cancel Scan - Cancel a running scan
+func handleCancelScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	var scanID string
+	var target string
+	var scanType string
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "scan_id":
+			scanID = opt.StringValue()
+		case "target":
+			target = opt.StringValue()
+		case "scan_type":
+			scanType = opt.StringValue()
+		}
+	}
+
+	// If scan_id is provided, use it directly
+	if scanID != "" {
+		scansMutex.Lock()
+		scan, ok := activeScans[scanID]
+		if !ok {
+			scansMutex.Unlock()
+			respond(s, i, fmt.Sprintf("Scan with ID `%s` not found or already completed", scanID), false)
+			return
+		}
+		if scan.Status != "running" {
+			scansMutex.Unlock()
+			respond(s, i, fmt.Sprintf("Scan `%s` is not running (status: %s)", scanID, scan.Status), false)
+			return
+		}
+		if scan.CancelFunc == nil {
+			scansMutex.Unlock()
+			respond(s, i, fmt.Sprintf("Scan `%s` cannot be cancelled (no cancel function available)", scanID), false)
+			return
+		}
+		// Cancel the scan
+		scan.CancelFunc()
+		scan.Status = "cancelling"
+		scansMutex.Unlock()
+
+		respond(s, i, fmt.Sprintf("Cancelling scan `%s` (%s on `%s`)", scanID, scan.Type, scan.Target), false)
+		return
+	}
+
+	// If target and scan_type are provided, find matching scan
+	if target != "" && scanType != "" {
+		scansMutex.Lock()
+		var foundScan *ScanInfo
+		var foundScanID string
+		for id, scan := range activeScans {
+			if scan.Target == target && scan.Type == scanType && scan.Status == "running" {
+				foundScan = scan
+				foundScanID = id
+				break
+			}
+		}
+		if foundScan == nil {
+			scansMutex.Unlock()
+			respond(s, i, fmt.Sprintf("No running scan found for type `%s` on target `%s`", scanType, target), false)
+			return
+		}
+		if foundScan.CancelFunc == nil {
+			scansMutex.Unlock()
+			respond(s, i, fmt.Sprintf("Scan cannot be cancelled (no cancel function available)", foundScanID), false)
+			return
+		}
+		// Cancel the scan
+		foundScan.CancelFunc()
+		foundScan.Status = "cancelling"
+		scansMutex.Unlock()
+
+		respond(s, i, fmt.Sprintf("Cancelling scan `%s` (%s on `%s`)", foundScanID, foundScan.Type, foundScan.Target), false)
+		return
+	}
+
+	// If only target is provided, list all running scans for that target
+	if target != "" {
+		scansMutex.RLock()
+		var matchingScans []*ScanInfo
+		for _, scan := range activeScans {
+			if scan.Target == target && scan.Status == "running" {
+				matchingScans = append(matchingScans, scan)
+			}
+		}
+		scansMutex.RUnlock()
+
+		if len(matchingScans) == 0 {
+			respond(s, i, fmt.Sprintf("No running scans found for target `%s`", target), false)
+			return
+		}
+
+		// List all matching scans
+		scanList := ""
+		for i, scan := range matchingScans {
+			if i >= 10 {
+				scanList += fmt.Sprintf("\n... and %d more scans", len(matchingScans)-10)
+				break
+			}
+			scanList += fmt.Sprintf("- `%s` (%s) - %s\n", scan.ScanID, scan.Type, scan.Status)
+		}
+		respond(s, i, fmt.Sprintf("Found %d running scan(s) for target `%s`:\n%s\nUse `/cancel_scan scan_id:<scan_id>` to cancel a specific scan", len(matchingScans), target, scanList), false)
+		return
+	}
+
+	// No parameters provided
+	respond(s, i, "Please provide either `scan_id` or both `target` and `scan_type` to cancel a scan. Use `/scan_status` to see active scans.", false)
 }

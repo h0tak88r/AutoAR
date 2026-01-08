@@ -69,7 +69,7 @@ func Run() error {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			fmt.Printf("   ⚠️  Warning: Failed to create %s: %v\n", dir, err)
 		} else {
-			fmt.Printf("   ✅ Created: %s\n", dir)
+			fmt.Printf("   [ + ]Created: %s\n", dir)
 		}
 	}
 
@@ -81,7 +81,7 @@ func Run() error {
 	}
 
 	fmt.Println()
-	fmt.Println("✅ Setup completed successfully!")
+	fmt.Println("[ + ]Setup completed successfully!")
 	fmt.Println()
 	fmt.Println("📋 Next steps:")
 	fmt.Println("   1. Run 'autoar check-tools' to verify all dependencies")
@@ -158,7 +158,7 @@ func checkAndInstallSystemPackages(osType string) error {
 		}
 
 		if len(packagesToInstall) == 0 {
-			fmt.Println("   ✅ All system packages are already installed")
+			fmt.Println("   [ + ]All system packages are already installed")
 			return nil
 		}
 
@@ -210,7 +210,7 @@ func checkAndInstallSystemPackages(osType string) error {
 		}
 
 		if len(packagesToInstall) == 0 {
-			fmt.Println("   ✅ All system packages are already installed")
+			fmt.Println("   [ + ]All system packages are already installed")
 			return nil
 		}
 
@@ -226,7 +226,7 @@ func checkAndInstallSystemPackages(osType string) error {
 		return fmt.Errorf("unsupported OS: %s (only Linux/Debian/RHEL are supported)", osType)
 	}
 
-	fmt.Println("   ✅ System packages installed")
+	fmt.Println("   [ + ]System packages installed")
 	
 	// Check if Docker is installed and provide setup instructions if not
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -250,7 +250,7 @@ func checkAndInstallSystemPackages(osType string) error {
 			fmt.Println("   ⚠️  Docker is installed but daemon is not running")
 			fmt.Println("   💡 Start Docker daemon: sudo systemctl start docker")
 		} else {
-			fmt.Println("   ✅ Docker is installed and running")
+			fmt.Println("   [ + ]Docker is installed and running")
 		}
 	}
 	
@@ -289,7 +289,7 @@ func checkAndInstallGoTools() error {
 		if err := nucleiCmd.Run(); err != nil {
 			return fmt.Errorf("failed to install nuclei: %w", err)
 		}
-		fmt.Println("   ✅ nuclei installed")
+		fmt.Println("   [ + ]nuclei installed")
 	} else {
 		fmt.Println("   [OK] nuclei")
 	}
@@ -319,12 +319,12 @@ func checkAndInstallGoTools() error {
 		if err := buildCmd.Run(); err != nil {
 			return fmt.Errorf("failed to build trufflehog: %w", err)
 		}
-		fmt.Println("   ✅ trufflehog installed")
+		fmt.Println("   [ + ]trufflehog installed")
 	} else {
 		fmt.Println("   [OK] trufflehog")
 	}
 
-	fmt.Println("   ✅ Go tools check completed")
+	fmt.Println("   [ + ]Go tools check completed")
 	return nil
 }
 
@@ -371,7 +371,7 @@ func checkAndInstallJadx() error {
 		return fmt.Errorf("failed to create jadx symlink: %w", err)
 	}
 
-	fmt.Println("   ✅ jadx installed")
+	fmt.Println("   [ + ]jadx installed")
 	return nil
 }
 
@@ -413,7 +413,7 @@ func checkAndInstallApktool() error {
 		return fmt.Errorf("failed to move apktool script: %w", err)
 	}
 
-	fmt.Println("   ✅ apktool installed")
+	fmt.Println("   [ + ]apktool installed")
 	return nil
 }
 
@@ -455,7 +455,7 @@ func checkAndInstallUberApkSigner() error {
 		return fmt.Errorf("failed to move uber-apk-signer script: %w", err)
 	}
 
-	fmt.Println("   ✅ uber-apk-signer installed")
+	fmt.Println("   [ + ]uber-apk-signer installed")
 	return nil
 }
 
@@ -499,7 +499,7 @@ func checkAndCloneNucleiTemplates(root string) error {
 			if err := updateCmd.Run(); err != nil {
 				fmt.Printf("   ⚠️  Warning: Failed to update templates: %v\n", err)
 			} else {
-				fmt.Println("   ✅ Nuclei public templates updated")
+				fmt.Println("   [ + ]Nuclei public templates updated")
 			}
 			return nil
 		}
@@ -515,6 +515,6 @@ func checkAndCloneNucleiTemplates(root string) error {
 		return fmt.Errorf("failed to clone nuclei-templates: %w", err)
 	}
 	
-	fmt.Println("   ✅ Nuclei public templates cloned successfully")
+	fmt.Println("   [ + ]Nuclei public templates cloned successfully")
 	return nil
 }

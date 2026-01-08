@@ -79,7 +79,7 @@ func handleList() error {
 	for _, t := range targets {
 		status := "❌ Not Running"
 		if t.IsRunning {
-			status = "✅ Running"
+			status = "[ + ]Running"
 		}
 		checkNewStr := "No"
 		if t.CheckNew {
