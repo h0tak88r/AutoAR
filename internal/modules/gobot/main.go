@@ -18,7 +18,7 @@ func Main() {
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
 	} else {
-		fmt.Println("✅ Loaded environment variables from .env file")
+		fmt.Println("[ + ]Loaded environment variables from .env file")
 	}
 
 	// Read configuration from environment (after .env is loaded)

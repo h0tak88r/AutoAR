@@ -620,7 +620,7 @@ func runScopeBackground(platform string, command []string, outputFile string, s 
 
 	// Create embed with results
 	embed := &discordgo.MessageEmbed{
-		Title:       "✅ Scope Fetch Complete",
+		Title:       "[ + ]Scope Fetch Complete",
 		Description: fmt.Sprintf("**Platform:** %s\n**%s Found:** %d", platform, resultType, domainCount),
 		Color:       0x00ff00,
 		Fields: []*discordgo.MessageEmbedField{

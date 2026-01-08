@@ -61,6 +61,10 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 			if p == nil {
 				continue
 			}
+			// Skip HTTP (80) and HTTPS (443) ports as they're already known from web scanning
+			if p.Port == 80 || p.Port == 443 {
+				continue
+			}
 			// Port is a struct, access the Port field (which is an int)
 			line := fmt.Sprintf("%s:%d\n", host, p.Port)
 			if _, err := writer.WriteString(line); err == nil {

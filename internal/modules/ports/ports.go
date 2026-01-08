@@ -63,6 +63,20 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	count, err := naabutool.ScanFromFile(subsFile, threads, outFile)
 	if err != nil {
 		log.Printf("[WARN] Naabu scan failed: %v", err)
+		// Create empty file with "no results" message
+		if f, err := os.Create(outFile); err == nil {
+			f.WriteString("No open ports found (scan failed or no ports discovered).\n")
+			f.Close()
+		}
+		count = 0
+	} else {
+		// Check if file is empty and write "no results" message if so
+		if info, err := os.Stat(outFile); err == nil && info.Size() == 0 {
+			if f, err := os.OpenFile(outFile, os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+				f.WriteString("No open ports found (excluding ports 80 and 443).\n")
+				f.Close()
+			}
+		}
 	}
 	log.Printf("[OK] Port scan completed, found %d open ports", count)
 
