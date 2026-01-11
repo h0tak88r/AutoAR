@@ -12,6 +12,9 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
+// FileCallback is called when a file is created during the scan
+type FileCallback func(filePath string)
+
 // Result holds a simple summary of a fastlook run.
 type Result struct {
 	Domain     string
@@ -27,7 +30,8 @@ type Result struct {
 // Steps:
 // 1) Filter live hosts (includes subdomain enumeration if needed, with 200 threads)
 // 2) Collect URLs and JS URLs (with 200 threads, skip subdomain enum since livehosts already did it)
-func RunFastlook(domain string) (*Result, error) {
+// If onFileCreated callback is provided, files are sent in real-time as they're created.
+func RunFastlook(domain string, onFileCreated FileCallback) (*Result, error) {
 	if domain == "" {
 		return nil, fmt.Errorf("domain is required")
 	}
@@ -57,7 +61,7 @@ func RunFastlook(domain string) (*Result, error) {
 		log.Printf("[OK] Live host filtering completed in %s: %d live hosts out of %d subdomains", duration, res.LiveHosts, res.Subdomains)
 		
 		// Send phase 1 files in real-time
-		sendFastlookPhaseFiles("livehosts", domain)
+		sendFastlookPhaseFiles("livehosts", domain, onFileCreated)
 	}
 
 	// Step 2: URL/JS collection (skip subdomain enum since livehosts already did it, optimized with 200 threads)
@@ -77,15 +81,17 @@ func RunFastlook(domain string) (*Result, error) {
 		log.Printf("[OK] URL collection completed in %s: %d URLs, %d JS URLs", duration, res.TotalURLs, res.JSURLs)
 		
 		// Send phase 2 files in real-time
-		sendFastlookPhaseFiles("urls", domain)
+		sendFastlookPhaseFiles("urls", domain, onFileCreated)
 	}
 
 	log.Printf("[OK] Fast Look completed for %s", domain)
 	return res, nil
 }
 
-// sendFastlookPhaseFiles sends result files for a specific fastlook phase to Discord
-func sendFastlookPhaseFiles(phaseName, domain string) {
+// sendFastlookPhaseFiles sends result files for a specific fastlook phase
+// If onFileCreated callback is provided, files are sent via callback for real-time delivery
+// Otherwise falls back to utils.SendPhaseFiles for backward compatibility
+func sendFastlookPhaseFiles(phaseName, domain string, onFileCreated FileCallback) {
 	// Small delay to ensure files are written (reduced for real-time sending)
 	time.Sleep(500 * time.Millisecond)
 	
@@ -129,9 +135,17 @@ func sendFastlookPhaseFiles(phaseName, domain string) {
 		if len(existingFiles) > 0 {
 			log.Printf("[DEBUG] [FASTLOOK] Sending %d file(s) for phase %s", len(existingFiles), phaseName)
 			
-			// SendPhaseFiles will send minimal webhook message (phase name) and files
-			if err := utils.SendPhaseFiles(phaseName, domain, existingFiles); err != nil {
-				log.Printf("[DEBUG] [FASTLOOK] Failed to send files for phase %s: %v", phaseName, err)
+			if onFileCreated != nil {
+				// Use callback for real-time file sending
+				for _, filePath := range existingFiles {
+					log.Printf("[DEBUG] [FASTLOOK] Sending file via callback: %s", filePath)
+					onFileCreated(filePath)
+				}
+			} else {
+				// Fallback to utils.SendPhaseFiles for backward compatibility
+				if err := utils.SendPhaseFiles(phaseName, domain, existingFiles); err != nil {
+					log.Printf("[DEBUG] [FASTLOOK] Failed to send files for phase %s: %v", phaseName, err)
+				}
 			}
 		}
 	}

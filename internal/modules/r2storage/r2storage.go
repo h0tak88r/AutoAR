@@ -1,6 +1,7 @@
 package r2storage
 
 import (
+	"archive/zip"
 	"context"
 	"fmt"
 	"io"
@@ -510,8 +511,13 @@ func UploadResultsDirectory(domain, resultsPath string, removeLocal bool) (map[s
 
 	// Upload directory (use timestamp for regular results to allow multiple versions)
 	urls, err := UploadDirectory(resultsPath, r2Prefix, false)
-	if err != nil {
+	// Return URLs even if there was an error (e.g., missing file), as long as we have some successful uploads
+	if err != nil && len(urls) == 0 {
 		return nil, fmt.Errorf("failed to upload directory: %w", err)
+	}
+	// If we have URLs but also an error, log the error but return the URLs
+	if err != nil {
+		log.Printf("[R2] ⚠️  Some files failed to upload, but %d files were uploaded successfully", len(urls))
 	}
 
 	// Remove local files if requested
@@ -632,6 +638,185 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 	}
 
 	log.Printf("[R2] [ + ]Downloaded %d files from R2 to %s", downloadedCount, localPath)
+	return nil
+}
+
+// ZipAndUploadDirectory creates a zip file of the directory and uploads it to R2
+// Returns the public URL of the uploaded zip file
+func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
+	if !IsEnabled() {
+		return "", fmt.Errorf("R2 storage is not enabled")
+	}
+
+	// Convert to absolute path to avoid working directory issues
+	if absPath, err := filepath.Abs(dirPath); err == nil {
+		dirPath = absPath
+		log.Printf("[R2] Using absolute path: %s", dirPath)
+	}
+
+	// Verify directory exists and has files
+	dirInfo, err := os.Stat(dirPath)
+	if err != nil {
+		return "", fmt.Errorf("directory does not exist: %s: %w", dirPath, err)
+	}
+	if !dirInfo.IsDir() {
+		return "", fmt.Errorf("path is not a directory: %s", dirPath)
+	}
+
+	// Count files in directory before creating zip
+	fileCount := 0
+	err = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			fileCount++
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[R2] Warning: error counting files: %v", err)
+	}
+	log.Printf("[R2] Found %d files in directory: %s", fileCount, dirPath)
+
+	if fileCount == 0 {
+		return "", fmt.Errorf("directory is empty: %s", dirPath)
+	}
+
+	// Create temporary zip file
+	zipFile, err := os.CreateTemp("", fmt.Sprintf("%s-*.zip", domain))
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp zip file: %w", err)
+	}
+	zipPath := zipFile.Name()
+	zipFile.Close()
+	defer os.Remove(zipPath) // Clean up temp file
+
+	// List some files in directory for debugging
+	log.Printf("[R2] Checking files in directory: %s", dirPath)
+	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			relPath, _ := filepath.Rel(dirPath, path)
+			log.Printf("[R2] Found file: %s (size: %d)", relPath, info.Size())
+		}
+		return nil
+	})
+
+	// Create zip archive
+	log.Printf("[R2] Creating zip archive: %s", dirPath)
+	if err := createZipArchive(dirPath, zipPath); err != nil {
+		return "", fmt.Errorf("failed to create zip archive: %w", err)
+	}
+
+	// Get zip file size
+	zipInfo, err := os.Stat(zipPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat zip file: %w", err)
+	}
+	log.Printf("[R2] Zip archive created: %s (%d bytes)", zipPath, zipInfo.Size())
+
+	// Upload zip to R2
+	timestamp := time.Now().Format("20060102-150405")
+	r2Key := fmt.Sprintf("results/%s/%s-results.zip", domain, timestamp)
+	
+	publicURL, err := UploadFile(zipPath, r2Key, true) // skipTimestamp=true since we already included it
+	if err != nil {
+		return "", fmt.Errorf("failed to upload zip file: %w", err)
+	}
+
+	log.Printf("[R2] Zip file uploaded: %s", publicURL)
+	return publicURL, nil
+}
+
+// createZipArchive creates a zip file containing all files in the directory
+func createZipArchive(sourceDir, zipPath string) error {
+	// Check if source directory exists
+	if info, err := os.Stat(sourceDir); err != nil {
+		return fmt.Errorf("source directory does not exist: %w", err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("source path is not a directory: %s", sourceDir)
+	}
+
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		return fmt.Errorf("failed to create zip file: %w", err)
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	fileCount := 0
+	// Walk the directory and add all files to the zip
+	err = filepath.Walk(sourceDir, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			// Log but continue with other files
+			log.Printf("[R2] Warning: error accessing %s: %v", filePath, err)
+			return nil
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Calculate relative path from source directory
+		relPath, err := filepath.Rel(sourceDir, filePath)
+		if err != nil {
+			log.Printf("[R2] Warning: failed to get relative path for %s: %v", filePath, err)
+			return nil
+		}
+
+		// Use forward slashes in zip (zip standard)
+		zipEntryPath := strings.ReplaceAll(relPath, string(filepath.Separator), "/")
+
+		// Open the file
+		file, err := os.Open(filePath)
+		if err != nil {
+			log.Printf("[R2] Warning: failed to open file %s: %v", filePath, err)
+			return nil
+		}
+		defer file.Close()
+
+		// Create zip file header
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			log.Printf("[R2] Warning: failed to create zip header for %s: %v", filePath, err)
+			return nil
+		}
+		header.Name = zipEntryPath
+		header.Method = zip.Deflate
+
+		// Write file header
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			log.Printf("[R2] Warning: failed to create zip entry for %s: %v", filePath, err)
+			return nil
+		}
+
+		// Copy file content to zip
+		_, err = io.Copy(writer, file)
+		if err != nil {
+			log.Printf("[R2] Warning: failed to copy file %s to zip: %v", filePath, err)
+			return nil
+		}
+
+		fileCount++
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("error walking directory: %w", err)
+	}
+
+	if fileCount == 0 {
+		return fmt.Errorf("no files found in directory: %s", sourceDir)
+	}
+
+	log.Printf("[R2] Added %d files to zip archive", fileCount)
 	return nil
 }
 

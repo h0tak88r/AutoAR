@@ -238,6 +238,21 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	count, _ := countLines(out)
 	log.Printf("[OK] Found %d CNAME records for %s", count, domain)
 
+	// Send result files to Discord webhook if configured (only when not running under bot)
+	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			// Send CNAME output file if it exists and has content
+			if info, err := os.Stat(out); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(out, fmt.Sprintf("CNAME Records: %d CNAME records found for %s", count, domain))
+			} else if count == 0 {
+				// Send "no findings" message if no CNAME records found
+				utils.SendWebhookLogAsync(fmt.Sprintf("CNAME collection completed for %s: 0 CNAME records found", domain))
+			}
+		}
+	}
+
 	return &Result{
 		Domain:     domain,
 		Records:    count,
