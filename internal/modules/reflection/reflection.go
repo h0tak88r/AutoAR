@@ -136,7 +136,19 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	}
 
 	if !urlsFileExists {
-		return nil, fmt.Errorf("URLs file not found after collection and retries: %s", urlsFile)
+		log.Printf("[WARN] URLs file not found or empty after collection: %s. Creating empty result file.", urlsFile)
+		// Ensure output directory exists
+		if err := os.MkdirAll(filepath.Dir(outFile), 0755); err != nil {
+			return nil, fmt.Errorf("failed to create output directory: %w", err)
+		}
+		if err := os.WriteFile(outFile, []byte(""), 0644); err != nil {
+			return nil, fmt.Errorf("failed to create empty output file: %w", err)
+		}
+		return &Result{
+			Domain:      opts.Domain,
+			Reflections: 0,
+			OutputFile:  outFile,
+		}, nil
 	}
 
 	// Read URLs from file

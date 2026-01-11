@@ -96,6 +96,25 @@ func RunNuclei(opts Options) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
+		
+		// Send result files to Discord webhook if configured (only when not running under bot)
+		// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+		if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+			webhookURL := os.Getenv("DISCORD_WEBHOOK")
+			if webhookURL != "" && len(resultFiles) > 0 {
+				// Send each result file
+				for _, file := range resultFiles {
+					if info, err := os.Stat(file); err == nil && info.Size() > 0 {
+						fileName := filepath.Base(file)
+						utils.SendWebhookFileAsync(file, fmt.Sprintf("Nuclei Scan Results (%s mode): %s for %s", opts.Mode, fileName, targetName))
+					}
+				}
+			} else if len(resultFiles) == 0 {
+				// Send "no findings" message if no results
+				utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei scan completed (%s mode) for %s: 0 findings", opts.Mode, targetName))
+			}
+		}
+		
 		return &Result{TargetName: targetName, Mode: opts.Mode, ResultFiles: resultFiles}, nil
 	}
 
@@ -164,6 +183,25 @@ func RunNuclei(opts Options) (*Result, error) {
 	}
 
 	log.Printf("[OK] Nuclei scan completed successfully for %s (mode: %s)", targetName, opts.Mode)
+	
+	// Send result files to Discord webhook if configured (only when not running under bot)
+	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" && len(resultFiles) > 0 {
+			// Send each result file
+			for _, file := range resultFiles {
+				if info, err := os.Stat(file); err == nil && info.Size() > 0 {
+					fileName := filepath.Base(file)
+					utils.SendWebhookFileAsync(file, fmt.Sprintf("Nuclei Scan Results (%s mode): %s for %s", opts.Mode, fileName, targetName))
+				}
+			}
+		} else if len(resultFiles) == 0 {
+			// Send "no findings" message if no results
+			utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei scan completed (%s mode) for %s: 0 findings", opts.Mode, targetName))
+		}
+	}
+	
 	return &Result{TargetName: targetName, Mode: opts.Mode, ResultFiles: resultFiles}, nil
 }
 
@@ -205,6 +243,24 @@ func runNucleiScan(targetFile, outputDir string, mode ScanMode, threads int, tar
 			return nil, err
 		}
 		resultFiles = append(resultFiles, files...)
+	}
+
+	// Create summary file
+	summaryFile := filepath.Join(outputDir, "nuclei-summary.txt")
+	summaryContent := fmt.Sprintf("Nuclei Scan Summary\nTarget: %s\nMode: %s\n\n", targetName, mode)
+	
+	if len(resultFiles) > 0 {
+		summaryContent += fmt.Sprintf("Found %d results files:\n", len(resultFiles))
+		for _, file := range resultFiles {
+			count, _ := countLines(file)
+			summaryContent += fmt.Sprintf("- %s (%d findings)\n", filepath.Base(file), count)
+		}
+	} else {
+		summaryContent += "No vulnerabilities found.\n"
+	}
+	
+	if err := os.WriteFile(summaryFile, []byte(summaryContent), 0644); err == nil {
+		resultFiles = append(resultFiles, summaryFile)
 	}
 
 	return resultFiles, nil

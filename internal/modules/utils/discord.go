@@ -49,14 +49,10 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 		existingFiles = []string{}
 		for _, filePath := range filePaths {
 			if info, err := os.Stat(filePath); err == nil {
-				// For zerodays phase, accept files even if empty (they're always created to indicate scan completion)
-				// For other phases, only send non-empty files
-				if phaseName == "zerodays" || phaseName == "0days" || info.Size() > 0 {
-					existingFiles = append(existingFiles, filePath)
-					log.Printf("[DEBUG] [DISCORD] File found: %s (size: %d bytes)", filePath, info.Size())
-				} else {
-					log.Printf("[DEBUG] [DISCORD] File check (attempt %d/%d): %s - empty file (skipping)", attempt, maxRetries, filePath)
-				}
+				// Send all files, even if empty (size = 0)
+				// This ensures users can see that a phase ran, even if it found nothing
+				existingFiles = append(existingFiles, filePath)
+				log.Printf("[DEBUG] [DISCORD] File found: %s (size: %d bytes)", filePath, info.Size())
 			} else {
 				log.Printf("[DEBUG] [DISCORD] File check (attempt %d/%d): %s - %v", attempt, maxRetries, filePath, err)
 			}
@@ -127,7 +123,7 @@ func sendSingleFileToDiscord(apiHost, apiPort, channelID, scanID, phaseName, fil
 func sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID, phaseName, filePath, description string) error {
 	
 	// If channel ID is provided, try bot first (for Discord bot context)
-	// If no channel ID (CLI usage), skip bot and go straight to webhook
+	// If no channel ID (CLI usage), skip bot and go straight to HTTP API/webhook
 	if channelID != "" {
 		// Check if Discord bot session is available (only in main process, not subprocess)
 		// When commands run via exec.Command, they're in a separate process where bot session is nil
@@ -138,16 +134,66 @@ func sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID,
 		} else {
 			// Debug logs only
 			if strings.Contains(err.Error(), "not available") || strings.Contains(err.Error(), "nil") {
-				log.Printf("[DEBUG] [DISCORD] Bot session not available (subprocess) - using webhook")
+				log.Printf("[DEBUG] [DISCORD] Bot session not available (subprocess) - trying HTTP API")
 			} else {
-				log.Printf("[DEBUG] [DISCORD] Bot send failed: %v - trying webhook", err)
+				log.Printf("[DEBUG] [DISCORD] Bot send failed: %v - trying HTTP API", err)
 			}
 		}
 	} else {
-		log.Printf("[DEBUG] [DISCORD] No channel ID (CLI usage) - using webhook")
+		log.Printf("[DEBUG] [DISCORD] No channel ID (CLI usage) - trying HTTP API")
 	}
 	
-	// Webhook is the primary method when no channel ID or bot unavailable
+	// If we have a scan ID, prioritize HTTP API over webhook because HTTP API knows about threads
+	// This ensures files are sent to the correct thread instead of the channel
+	if scanID != "" || channelID != "" {
+		log.Printf("[DEBUG] [DISCORD] Trying HTTP API (scan_id=%s, channel_id=%s)...", scanID, channelID)
+		reqBody := map[string]string{
+			"file_path":   filePath,
+			"channel_id":  channelID,
+			"description": description,
+		}
+		if scanID != "" {
+			reqBody["scan_id"] = scanID
+			log.Printf("[DEBUG] [DISCORD] Including scan_id in HTTP API request: %s", scanID)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err == nil {
+			// Send HTTP request
+			url := fmt.Sprintf("http://%s:%s/internal/send-file", apiHost, apiPort)
+			log.Printf("[DEBUG] [DISCORD] HTTP API URL: %s", url)
+			
+			req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+
+				client := &http.Client{Timeout: 10 * time.Second}
+				resp, err := client.Do(req)
+				if err == nil {
+					defer resp.Body.Close()
+					bodyBytes, _ := io.ReadAll(resp.Body)
+					log.Printf("[DEBUG] [DISCORD] HTTP API response: %d", resp.StatusCode)
+
+					if resp.StatusCode == http.StatusOK {
+						log.Printf("[DEBUG] [DISCORD] ✅ Sent file via HTTP API to thread: %s", filepath.Base(filePath))
+						return nil
+					}
+					log.Printf("[DEBUG] [DISCORD] ❌ HTTP API returned status %d: %s", resp.StatusCode, string(bodyBytes))
+				} else {
+					log.Printf("[DEBUG] [DISCORD] ❌ HTTP API request failed: %v", err)
+				}
+			} else {
+				log.Printf("[DEBUG] [DISCORD] ❌ Failed to create HTTP request: %v", err)
+			}
+		} else {
+			log.Printf("[DEBUG] [DISCORD] ❌ Failed to marshal JSON: %v", err)
+		}
+	} else {
+		log.Printf("[DEBUG] [DISCORD] ⚠️  No scan_id or channel_id - skipping HTTP API")
+	}
+	
+	// Fallback to webhook if HTTP API failed or not available
+	log.Printf("[DEBUG] [DISCORD] Falling back to webhook for file: %s", filepath.Base(filePath))
 	webhookErr := SendWebhookFile(filePath, description)
 	if webhookErr == nil {
 		log.Printf("[DEBUG] [DISCORD] Sent file via webhook: %s", filepath.Base(filePath))
@@ -155,48 +201,7 @@ func sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID,
 	}
 	log.Printf("[DEBUG] [DISCORD] Webhook send failed: %v", webhookErr)
 	
-	// Fallback: Try HTTP API as last resort (only if webhook also failed)
-	log.Printf("[DEBUG] [DISCORD] Trying HTTP API fallback...")
-	reqBody := map[string]string{
-		"file_path":  filePath,
-		"channel_id": channelID,
-		"description": description,
-	}
-	if scanID != "" {
-		reqBody["scan_id"] = scanID
-	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	// Send HTTP request
-	url := fmt.Sprintf("http://%s:%s/internal/send-file", apiHost, apiPort)
-	
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[DEBUG] [DISCORD] All methods failed: webhook=%v, http=%v", webhookErr, err)
-		return fmt.Errorf("all file send methods failed: webhook=%v, http=%v", webhookErr, err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	log.Printf("[DEBUG] [DISCORD] HTTP API response: %d", resp.StatusCode)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP API returned status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	log.Printf("[DEBUG] [DISCORD] Sent file via HTTP API: %s", filepath.Base(filePath))
-	return nil
+	return fmt.Errorf("all file send methods failed: webhook=%v", webhookErr)
 }
 
 // trySendFileDirectly attempts to send file directly through Discord bot session
@@ -271,16 +276,27 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		}
 	case "dns":
 		// DNS scan uses root domain for directory structure (DNS works on domain level)
-		// Extract root domain from subdomain if needed
+		// But in subdomain mode, results are saved to subdomain directory
+		// Send ALL raw DNS result files, not just summary
 		rootDomain := domain
 		parts := strings.Split(domain, ".")
 		if len(parts) > 2 {
 			// Extract last two parts (e.g., www.example.com -> example.com)
 			rootDomain = strings.Join(parts[len(parts)-2:], ".")
 		}
-		dnsDir := filepath.Join(resultsDir, rootDomain, "vulnerabilities", "dns-takeover")
-		files = []string{
-			filepath.Join(dnsDir, "dns-takeover-summary.txt"),
+		
+		// Check subdomain directory first (for subdomain scans)
+		dnsDir := filepath.Join(resultsDir, domain, "vulnerabilities", "dns-takeover")
+		if matches, err := filepath.Glob(filepath.Join(dnsDir, "*.txt")); err == nil && len(matches) > 0 {
+			files = append(files, matches...)
+		}
+		
+		// Then check root domain directory (for domain scans or old format)
+		if domain != rootDomain {
+			dnsRootDir := filepath.Join(resultsDir, rootDomain, "vulnerabilities", "dns-takeover")
+			if matches, err := filepath.Glob(filepath.Join(dnsRootDir, "*.txt")); err == nil && len(matches) > 0 {
+				files = append(files, matches...)
+			}
 		}
 	case "misconfig":
 		// Misconfig saves to subdomain directory with renamed file
@@ -292,10 +308,15 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		}
 	case "nuclei":
 		// Nuclei writes files directly to vulnerabilities/ directory (not vulnerabilities/nuclei/)
-		// Files are named: nuclei-custom-others.txt, nuclei-public-http.txt, nuclei-custom-cves.txt, etc.
+		// Send raw result files only, exclude summary files
 		vulnDir := filepath.Join(resultsDir, domain, "vulnerabilities")
 		if matches, err := filepath.Glob(filepath.Join(vulnDir, "nuclei-*.txt")); err == nil {
-			files = append(files, matches...)
+			// Filter out summary files
+			for _, match := range matches {
+				if !strings.HasSuffix(match, "nuclei-summary.txt") {
+					files = append(files, match)
+				}
+			}
 		}
 	case "gf":
 		// GF results are in vulnerabilities/<pattern>/gf-results.txt
@@ -333,6 +354,11 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		files = []string{
 			filepath.Join(resultsDir, domain, "s3", "buckets.txt"), // New location (subdomain directory)
 			filepath.Join(resultsDir, "s3", rootDomain, "buckets.txt"), // Old location (for compatibility)
+		}
+		// Also include scan results for each bucket
+		s3Dir := filepath.Join(resultsDir, domain, "s3")
+		if matches, err := filepath.Glob(filepath.Join(s3Dir, "*", "scan-results.txt")); err == nil {
+			files = append(files, matches...)
 		}
 	case "githubscan":
 		// GitHub scan results location - check both orgs and repos directories
