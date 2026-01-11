@@ -76,7 +76,35 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
 	}
 
-	log.Printf("[INFO] Starting full domain scan (all features) for %s", domain)
+	// Initialize logger if not already initialized
+	if utils.Log == nil {
+		logConfig := utils.DefaultLogConfig()
+		logConfig.Level = os.Getenv("LOG_LEVEL")
+		if logConfig.Level == "" {
+			logConfig.Level = "info"
+		}
+		if err := utils.InitLogger(logConfig); err != nil {
+			log.Printf("[WARN] Failed to initialize logger: %v", err)
+		} else {
+			utils.Log.WithField("domain", domain).Info("Logger initialized for domain workflow")
+		}
+	}
+
+	// Initialize metrics
+	metrics := utils.InitMetrics()
+	metrics.IncrementActiveScans()
+	defer metrics.DecrementActiveScans()
+
+	// Check if shutting down
+	shutdownMgr := utils.GetShutdownManager()
+	if shutdownMgr.IsShuttingDown() {
+		utils.Log.Warn("Shutdown in progress, domain scan cancelled")
+		return nil, fmt.Errorf("shutdown in progress")
+	}
+	shutdownMgr.IncrementActiveScans()
+	defer shutdownMgr.DecrementActiveScans()
+
+	utils.Log.WithField("domain", domain).Info("Starting full domain scan (all features)")
 
 	resultsDir := utils.GetResultsDir()
 	domainDir := filepath.Join(resultsDir, domain)
@@ -181,8 +209,11 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	step++
 
 	if err := runDomainPhase("gf", step, totalSteps, "GF pattern matching", domain, 0, uploadedFiles, func() error {
-		// Run GF scan (it's OK to run it)
-		_, err := gf.ScanGF(domain)
+		// Use existing URLs file without regenerating (URLs already collected in Phase 5)
+		_, err := gf.ScanGFWithOptions(gf.Options{
+			Domain:    domain,
+			SkipCheck: true, // Skip validation/regeneration to avoid re-running subdomain/livehosts collection
+		})
 		return err
 	}); err != nil {
 		log.Printf("[WARN] GF scan failed: %v", err)
@@ -523,6 +554,44 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 				log.Printf("[OK] Cleaned up domain directory: %s (preserved apkx)", domainDir)
 			}
 		}
+	}
+	
+	utils.Log.WithField("domain", domain).Info("Full domain scan completed successfully")
+	
+	// Track successful completion
+	metrics.IncrementCompletedScans()
+	
+	// Cleanup: Remove local files after all phases complete and files are sent
+	utils.Log.WithField("domain", domain).Info("Cleaning up domain directory")
+	// Wait a moment to ensure all file operations complete
+	time.Sleep(2 * time.Second)
+	
+	// Remove domain directory contents (preserving apkx directory if exists)
+	if err := filepath.Walk(domainDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		// Skip root directory
+		if path == domainDir {
+			return nil
+		}
+		// Preserve apkx directory and its contents
+		if strings.Contains(path, "/apkx/") || strings.HasSuffix(path, "/apkx") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		
+		// Remove everything else
+		if info.IsDir() {
+			return os.RemoveAll(path)
+		}
+		return os.Remove(path)
+	}); err != nil {
+		log.Printf("[WARN] Failed to cleanup domain directory %s: %v", domainDir, err)
+	} else {
+		log.Printf("[OK] Cleaned up domain directory: %s", domainDir)
 	}
 	
 	return &Result{Domain: domain}, nil
