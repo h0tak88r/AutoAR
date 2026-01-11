@@ -68,6 +68,7 @@ func registerAllCommands(s *discordgo.Session) {
 			Description: "Run full domain workflow",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_ffuf", Description: "Skip FFuf fuzzing phase (faster)", Required: false},
 			},
 		},
 		{
@@ -395,10 +396,6 @@ func registerAllCommands(s *discordgo.Session) {
 		{
 			Name:        "check_tools",
 			Description: "Check if all required tools are installed",
-		},
-		{
-			Name:        "cleanup",
-			Description: "Clean up the entire results directory",
 		},
 		{
 			Name:        "scope",

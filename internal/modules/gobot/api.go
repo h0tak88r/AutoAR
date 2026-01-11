@@ -1564,6 +1564,37 @@ func sendFileToDiscord(c *gin.Context) {
 	
 	log.Printf("[API] [sendFileToDiscord] Using channel ID: %s", channelID)
 
+	// Check if we should send to a thread instead of the channel
+	threadID := ""
+	if req.ScanID != "" {
+		scansMutex.RLock()
+		if scan, ok := activeScans[req.ScanID]; ok && scan.ThreadID != "" {
+			threadID = scan.ThreadID
+			log.Printf("[API] [sendFileToDiscord] Found thread ID %s for scan %s", threadID, req.ScanID)
+		}
+		scansMutex.RUnlock()
+	}
+	
+	// If no thread found by scanID, try to find by channel ID
+	if threadID == "" && channelID != "" {
+		scansMutex.RLock()
+		for _, scan := range activeScans {
+			if scan.ChannelID == channelID && scan.ThreadID != "" {
+				threadID = scan.ThreadID
+				log.Printf("[API] [sendFileToDiscord] Found thread ID %s for channel %s", threadID, channelID)
+				break
+			}
+		}
+		scansMutex.RUnlock()
+	}
+	
+	// Use thread ID if available, otherwise use channel ID
+	targetID := channelID
+	if threadID != "" {
+		targetID = threadID
+		log.Printf("[API] [sendFileToDiscord] Sending to thread %s (instead of channel %s)", threadID, channelID)
+	}
+
 	// Check if file exists
 	log.Printf("[API] [sendFileToDiscord] Checking if file exists: %s", req.FilePath)
 	if info, err := os.Stat(req.FilePath); os.IsNotExist(err) {
@@ -1658,9 +1689,9 @@ func sendFileToDiscord(c *gin.Context) {
 	}
 	log.Printf("[API] [sendFileToDiscord] Discord session obtained")
 
-	// Send file to Discord channel
-	log.Printf("[API] [sendFileToDiscord] Sending file to Discord channel %s: %s (description: %s)", channelID, fileName, description)
-	_, err = session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+	// Send file to Discord channel/thread
+	log.Printf("[API] [sendFileToDiscord] Sending file to Discord %s: %s (description: %s)", targetID, fileName, description)
+	_, err = session.ChannelMessageSendComplex(targetID, &discordgo.MessageSend{
 		Content: description,
 		Files: []*discordgo.File{
 			{
@@ -1683,7 +1714,7 @@ func sendFileToDiscord(c *gin.Context) {
 					return
 				}
 				message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(fileInfo.Size())/1024/1024, publicURL)
-				_, err = session.ChannelMessageSend(channelID, message)
+				_, err = session.ChannelMessageSend(targetID, message)
 				if err != nil {
 					log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link: %v", err)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send R2 link: %v", err)})

@@ -71,6 +71,21 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 		}
 	}
 
+	// 4. Send result files to Discord webhook if configured (only when not running under bot)
+	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			// Send live-subs.txt if it exists and has content
+			if info, err := os.Stat(liveFile); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(liveFile, fmt.Sprintf("Live Hosts Results: %d live subdomains found for %s", liveCount, domain))
+			} else if liveCount == 0 {
+				// Send "no findings" message if no live hosts found
+				utils.SendWebhookLogAsync(fmt.Sprintf("Live host filtering completed for %s: 0 live subdomains found out of %d total", domain, totalSubs))
+			}
+		}
+	}
+
 	return &Result{
 		Domain:       domain,
 		Threads:      threads,

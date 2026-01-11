@@ -40,6 +40,8 @@ func Run(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("either Domain or LiveHostsFile must be provided")
 	}
 
+	log.Printf("[DEBUG] Backup Run Options: Domain='%s', LiveHostsFile='%s', OutputDir='%s'", opts.Domain, opts.LiveHostsFile, opts.OutputDir)
+
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if resultsDir == "" {
 		resultsDir = "new-results"

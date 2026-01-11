@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -177,17 +178,27 @@ func ScanWPConfusion(opts ScanOptions) error {
 
 	// Handle output
 	if opts.Output != "" {
+		// Ensure directory exists
+		if err := os.MkdirAll(filepath.Dir(opts.Output), 0755); err != nil {
+			log.Printf("[WARN] Failed to create directory for results %s: %v", opts.Output, err)
+		}
+		
 		if len(allVulnerable) > 0 {
+			// Save vulnerabilities to file
 			if err := saveResults(opts.Output, allVulnerable); err != nil {
 				return fmt.Errorf("error saving results: %w", err)
-			} else if opts.Discord {
+			}
+			if opts.Discord {
 				sendToDiscord(opts.Output, fmt.Sprintf("WordPress Plugin Confusion vulnerabilities across %d targets (%d total found)", processedCount, len(allVulnerable)))
 			}
-		} else if opts.Discord {
-			logFile := strings.Replace(opts.Output, ".txt", ".log", 1)
+		} else {
+			// Create empty file with summary when no vulnerabilities found
 			logContent := fmt.Sprintf("WordPress Plugin Confusion Scan Results\n=====================================\nTargets: %d\nTimestamp: %s\nNo vulnerabilities found across all targets\n", processedCount, time.Now().Format(time.RFC3339))
-			if err := os.WriteFile(logFile, []byte(logContent), 0644); err == nil {
-				sendToDiscord(logFile, fmt.Sprintf("WordPress Plugin Confusion scan log for %d targets (no vulnerabilities)", processedCount))
+			if err := os.WriteFile(opts.Output, []byte(logContent), 0644); err != nil {
+				log.Printf("[WARN] Failed to write empty results to %s: %v", opts.Output, err)
+			}
+			if opts.Discord {
+				sendToDiscord(opts.Output, fmt.Sprintf("WordPress Plugin Confusion scan log for %d targets (no vulnerabilities)", processedCount))
 			}
 		}
 	}

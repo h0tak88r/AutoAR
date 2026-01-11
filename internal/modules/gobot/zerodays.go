@@ -727,7 +727,7 @@ func sendZerodaysResults(s *discordgo.Session, i *discordgo.InteractionCreate, d
 		})
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[ERROR] Failed to update Discord message: %v", err)
 		return fmt.Errorf("failed to update interaction message: %w", err)
 	}
@@ -748,7 +748,7 @@ func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, tar
 			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** %v", target, err),
 			Color:       0xff0000,
 		}
-		if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 			log.Printf("[ERROR] Failed to update embed: %v", err)
 		}
 		return
@@ -897,7 +897,7 @@ func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, tar
 	}
 
 	// Update embed
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[ERROR] Error updating embed: %v", err)
 		// Try followup as fallback
 		_, err2 := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -1122,7 +1122,7 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 				{Name: "Output", Value: fmt.Sprintf("```%s```", outputStr[:1000]), Inline: false},
 			},
 		}
-		if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 			log.Printf("[ERROR] Failed to update embed: %v", err)
 		}
 		return
@@ -1221,7 +1221,7 @@ func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, doma
 	}
 
 	// Update embed
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[ERROR] Failed to update embed: %v", err)
 	}
 
@@ -1253,7 +1253,7 @@ func updateEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, message s
 		Color:       color,
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("Error updating embed: %v", err)
 	}
 }

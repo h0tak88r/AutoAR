@@ -52,6 +52,9 @@ type Result struct {
 // If Domain is set, it runs in domain mode (fuzz all live hosts for the domain)
 // Otherwise, it runs in single target mode
 func RunFFuf(opts Options) (*Result, error) {
+	// Setup log filter to silence noisy library logs
+	setupLogFilter()
+
 	// Domain mode: fuzz all live hosts for the domain
 	if opts.Domain != "" {
 		return RunFFufDomainMode(opts)
@@ -361,37 +364,16 @@ func RunFFuf(opts Options) (*Result, error) {
 	log.Printf("[OK] FFuf fuzzing completed. Found %d unique results", found)
 	log.Printf("[INFO] Results saved to: %s", opts.OutputFile)
 
-	// Close webhook file and send it to Discord if it has content
+	// Webhook file sending removed - files are now sent via utils.SendPhaseFiles from phase functions
+	// Close webhook file if it was created
 	webhookFilePath := filepath.Join(filepath.Dir(opts.OutputFile), "ffuf-webhook-messages.txt")
 	if job.Output != nil {
 		if customOutput, ok := job.Output.(*customOutputProvider); ok && customOutput.webhookFile != nil {
 			customOutput.webhookMutex.Lock()
 			customOutput.webhookFile.Close()
 			customOutput.webhookMutex.Unlock()
-			
-			// Check if file has content and send to Discord
-			if info, err := os.Stat(webhookFilePath); err == nil && info.Size() > 0 {
-				log.Printf("[INFO] Sending webhook messages file to Discord (%d bytes)", info.Size())
-				if err := utils.SendWebhookFile(webhookFilePath, fmt.Sprintf("FFuf findings for %s (%d results)", opts.Target, found)); err != nil {
-					log.Printf("[WARN] Failed to send webhook messages file: %v", err)
-				} else {
-					log.Printf("[OK] Webhook messages file sent to Discord")
-				}
-			} else {
-				// File is empty or doesn't exist, delete it
-				os.Remove(webhookFilePath)
-				// Send "no findings" message
-				webhookURL := os.Getenv("DISCORD_WEBHOOK")
-				if webhookURL != "" && found == 0 {
-					utils.SendWebhookLogAsync(fmt.Sprintf("FFuf scan completed for %s with 0 findings", opts.Target))
-				}
-			}
-		}
-	} else {
-		// No webhook file configured, but still send completion message if no findings
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" && found == 0 {
-			utils.SendWebhookLogAsync(fmt.Sprintf("FFuf scan completed for %s with 0 findings", opts.Target))
+			// Clean up webhook file
+			os.Remove(webhookFilePath)
 		}
 	}
 
@@ -425,27 +407,34 @@ type customOutputProvider struct {
 }
 
 func (c *customOutputProvider) Banner() {
-	c.base.Banner()
+	// Silence banner
+	// c.base.Banner()
 }
 
 func (c *customOutputProvider) Finalize() error {
-	return c.base.Finalize()
+	// Silence finalize
+	// return c.base.Finalize()
+	return nil
 }
 
 func (c *customOutputProvider) Error(errstr string) {
-	c.base.Error(errstr)
+	// Silence errors (network errors, etc.) to prevent log noise
+	// c.base.Error(errstr)
 }
 
 func (c *customOutputProvider) Warning(warnstr string) {
-	c.base.Warning(warnstr)
+	// Silence warning
+	// c.base.Warning(warnstr)
 }
 
 func (c *customOutputProvider) Info(infostr string) {
-	c.base.Info(infostr)
+	// Silence info
+	// c.base.Info(infostr)
 }
 
 func (c *customOutputProvider) Raw(output string) {
-	c.base.Raw(output)
+	// Silence raw
+	// c.base.Raw(output)
 }
 
 func (c *customOutputProvider) Result(resp ffufpkg.Response) {
@@ -533,7 +522,8 @@ func (c *customOutputProvider) Result(resp ffufpkg.Response) {
 	}
 
 	// Also write to base output
-	c.base.Result(resp)
+	// Silence base result output (stops printing results to stdout)
+	// c.base.Result(resp)
 
 	// Increment counter
 	c.resultMutex.Lock()
@@ -1074,6 +1064,8 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	conf := ffufpkg.NewConfig(ctx, cancel)
 	conf.Url = opts.Target
 	conf.Threads = opts.Threads
+	conf.Quiet = true
+	conf.Noninteractive = true
 	// Use absolute path for wordlist
 	absWordlist, err := filepath.Abs(opts.Wordlist)
 	if err != nil {
@@ -1299,37 +1291,16 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		log.Printf("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
 	}
 
-	// Close webhook file and send it to Discord if it has content
+	// Webhook file sending removed - files are now sent via utils.SendPhaseFiles from phase functions
+	// Close webhook file if it was created
 	webhookFilePath := filepath.Join(outputDir, "ffuf-webhook-messages.txt")
 	if job.Output != nil {
 		if customOutput, ok := job.Output.(*customOutputProvider); ok && customOutput.webhookFile != nil {
 			customOutput.webhookMutex.Lock()
 			customOutput.webhookFile.Close()
 			customOutput.webhookMutex.Unlock()
-			
-			// Check if file has content and send to Discord
-			if info, err := os.Stat(webhookFilePath); err == nil && info.Size() > 0 {
-				log.Printf("[INFO] Sending webhook messages file to Discord (%d bytes)", info.Size())
-				if err := utils.SendWebhookFile(webhookFilePath, fmt.Sprintf("FFuf findings for %s (%d results)", opts.Target, found)); err != nil {
-					log.Printf("[WARN] Failed to send webhook messages file: %v", err)
-				} else {
-					log.Printf("[OK] Webhook messages file sent to Discord")
-				}
-			} else {
-				// File is empty or doesn't exist, delete it
-				os.Remove(webhookFilePath)
-				// Send "no findings" message
-				webhookURL := os.Getenv("DISCORD_WEBHOOK")
-				if webhookURL != "" && found == 0 {
-					utils.SendWebhookLogAsync(fmt.Sprintf("FFuf scan completed for %s with 0 findings", opts.Target))
-				}
-			}
-		}
-	} else {
-		// No webhook file configured, but still send completion message if no findings
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" && found == 0 {
-			utils.SendWebhookLogAsync(fmt.Sprintf("FFuf scan completed for %s with 0 findings", opts.Target))
+			// Clean up webhook file
+			os.Remove(webhookFilePath)
 		}
 	}
 

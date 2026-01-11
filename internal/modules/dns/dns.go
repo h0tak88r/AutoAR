@@ -245,8 +245,8 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		log.Printf("[WARN] Failed to write DNS takeover summary: %v", err)
 	}
 
-	// Send findings to Discord webhook if configured
-	sendDNSFindingsToWebhook(opts.Domain, findingsDir)
+	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
+
 
 	log.Printf("[OK] DNS takeover scan completed for %s (results in %s)", opts.Domain, findingsDir)
 	return nil

@@ -28,6 +28,7 @@ type Options struct {
 	OutputDir     string   // Output directory
 	GitHubToken   string   // GitHub token
 	Subdomain     string   // Subdomain for directory structure (optional)
+	Domain        string   // Domain for directory structure (optional)
 }
 
 // Run executes the dependency confusion scan based on options
@@ -98,10 +99,12 @@ func runWebFromFile(opts Options, resultsDir string) error {
 		return fmt.Errorf("target file not found: %s", opts.TargetFile)
 	}
 
-	// Use subdomain directory if provided, otherwise use default
+	// Use subdomain/domain directory if provided, otherwise use default
 	outputDir := opts.OutputDir
 	if outputDir == "" {
-		if opts.Subdomain != "" {
+		if opts.Domain != "" {
+			outputDir = filepath.Join(resultsDir, opts.Domain, "depconfusion", "web-file")
+		} else if opts.Subdomain != "" {
 			outputDir = filepath.Join(resultsDir, opts.Subdomain, "depconfusion", "web-file")
 		} else {
 			outputDir = filepath.Join(resultsDir, "depconfusion", "web-file")

@@ -1,6 +1,7 @@
 package lite
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/misconfig"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/nuclei"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/reflection"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
@@ -32,6 +34,22 @@ type Options struct {
 type Result struct {
 	Domain string
 	Steps  int
+}
+
+// UploadedFileInfo holds information about an uploaded file
+type UploadedFileInfo struct {
+	Phase     string `json:"phase"`
+	FileName  string `json:"file_name"`
+	FilePath  string `json:"file_path"`
+	Size      int64  `json:"size"`
+	SizeHuman string `json:"size_human"`
+	URL       string `json:"url"`
+}
+
+// LiteScanUploads holds all uploaded files information
+type LiteScanUploads struct {
+	Domain string             `json:"domain"`
+	Files  []UploadedFileInfo `json:"files"`
 }
 
 // RunLite runs the lite scan workflow
@@ -64,10 +82,16 @@ func RunLite(opts Options) (*Result, error) {
 
 	log.Printf("[INFO] Starting Lite Scan for %s (%d steps)", opts.Domain, totalSteps)
 
+	// Initialize uploaded files tracking
+	uploadedFiles := &LiteScanUploads{
+		Domain: opts.Domain,
+		Files:  []UploadedFileInfo{},
+	}
+
 	step := 1
 
 	// Step 1: Live host filtering (with increased concurrency)
-	if err := runPhase("livehosts", step, totalSteps, "Live host filtering", opts.Domain, opts.Timeouts["livehosts"], func() error {
+	if err := runPhase("livehosts", step, totalSteps, "Live host filtering", opts.Domain, opts.Timeouts["livehosts"], uploadedFiles, func() error {
 		log.Printf("[LITE] [Step %d/%d] Starting live host filtering for %s (threads: 200)", step, totalSteps, opts.Domain)
 		result, err := livehosts.FilterLiveHosts(opts.Domain, 200, true) // Increased from 100 to 200
 		if err != nil {
@@ -86,7 +110,7 @@ func RunLite(opts Options) (*Result, error) {
 	if reflectionTimeout == 0 {
 		reflectionTimeout = 900 // 15 minutes default
 	}
-	if err := runPhase("reflection", step, totalSteps, "Reflection scanning", opts.Domain, reflectionTimeout, func() error {
+	if err := runPhase("reflection", step, totalSteps, "Reflection scanning", opts.Domain, reflectionTimeout, uploadedFiles, func() error {
 		log.Printf("[LITE] [Step %d/%d] Starting reflection scanning for %s (threads: 50, timeout: %ds)", step, totalSteps, opts.Domain, reflectionTimeout)
 		result, err := reflection.ScanReflectionWithOptions(reflection.Options{
 			Domain:     opts.Domain,
@@ -106,7 +130,7 @@ func RunLite(opts Options) (*Result, error) {
 
 	// Step 3: JavaScript scanning (skippable)
 	if !opts.SkipJS {
-		if err := runPhase("js", step, totalSteps, "JavaScript scanning", opts.Domain, opts.Timeouts["js"], func() error {
+		if err := runPhase("js", step, totalSteps, "JavaScript scanning", opts.Domain, opts.Timeouts["js"], uploadedFiles, func() error {
 			log.Printf("[LITE] [Step %d/%d] Starting JavaScript scanning for %s", step, totalSteps, opts.Domain)
 			result, err := jsscan.Run(jsscan.Options{Domain: opts.Domain, Threads: 200}) // Increased from 100 to 200
 			if err != nil {
@@ -125,7 +149,7 @@ func RunLite(opts Options) (*Result, error) {
 	if cnamesTimeout == 0 {
 		cnamesTimeout = 300 // 5 minutes default
 	}
-	if err := runPhase("cnames", step, totalSteps, "CNAME records collection", opts.Domain, cnamesTimeout, func() error {
+	if err := runPhase("cnames", step, totalSteps, "CNAME records collection", opts.Domain, cnamesTimeout, uploadedFiles, func() error {
 		log.Printf("[LITE] [Step %d/%d] Starting CNAME collection for %s (threads: 100, timeout: %ds)", step, totalSteps, opts.Domain, cnamesTimeout)
 		result, err := cnames.CollectCNAMEsWithOptions(cnames.Options{
 			Domain:  opts.Domain,
@@ -145,7 +169,7 @@ func RunLite(opts Options) (*Result, error) {
 	// Step 5: Backup scan (using live hosts from Step 1)
 	resultsDir := utils.GetResultsDir()
 	liveHostsFile := filepath.Join(resultsDir, opts.Domain, "subs", "live-subs.txt")
-	if err := runPhase("backup", step, totalSteps, "Backup file scan", opts.Domain, opts.Timeouts["backup"], func() error {
+	if err := runPhase("backup", step, totalSteps, "Backup file scan", opts.Domain, opts.Timeouts["backup"], uploadedFiles, func() error {
 		log.Printf("[LITE] [Step %d/%d] Starting backup scan for %s (using live hosts from Step 1)", step, totalSteps, opts.Domain)
 		var result *backup.Result
 		var err error
@@ -174,7 +198,7 @@ func RunLite(opts Options) (*Result, error) {
 	step++
 
 	// Step 6: DNS takeover scan
-	if err := runPhase("dns", step, totalSteps, "DNS takeover scan", opts.Domain, opts.Timeouts["dns"], func() error {
+	if err := runPhase("dns", step, totalSteps, "DNS takeover scan", opts.Domain, opts.Timeouts["dns"], uploadedFiles, func() error {
 		log.Printf("[LITE] [Step %d/%d] Starting DNS takeover scan for %s", step, totalSteps, opts.Domain)
 		err := dns.Takeover(opts.Domain)
 		if err != nil {
@@ -193,7 +217,7 @@ func RunLite(opts Options) (*Result, error) {
 	if misconfigTimeout == 0 {
 		misconfigTimeout = 1800 // 30 minutes default
 	}
-	if err := runPhase("misconfig", step, totalSteps, "Misconfiguration scan", opts.Domain, misconfigTimeout, func() error {
+	if err := runPhase("misconfig", step, totalSteps, "Misconfiguration scan", opts.Domain, misconfigTimeout, uploadedFiles, func() error {
 		log.Printf("[LITE] [Step %d/%d] Starting misconfiguration scan for %s (threads: 200, timeout: %ds)", step, totalSteps, opts.Domain, misconfigTimeout)
 		err := misconfig.Run(misconfig.Options{
 			Target:    opts.Domain,
@@ -216,7 +240,7 @@ func RunLite(opts Options) (*Result, error) {
 	// Step 8: Nuclei vulnerability scan (with increased concurrency)
 	// Note: Nuclei uses live hosts from Step 1 automatically (checks for live-subs.txt)
 	// It scans both public templates (nuclei-templates/http) and custom templates (nuclei_templates/vulns, cves, panels, etc.)
-	if err := runPhase("nuclei", step, totalSteps, "Nuclei vulnerability scan", opts.Domain, opts.Timeouts["nuclei"], func() error {
+	if err := runPhase("nuclei", step, totalSteps, "Nuclei vulnerability scan", opts.Domain, opts.Timeouts["nuclei"], uploadedFiles, func() error {
 		log.Printf("[LITE] [Step %d/%d] Starting Nuclei scan for %s (threads: 500)", step, totalSteps, opts.Domain)
 		result, err := nuclei.RunNuclei(nuclei.Options{Domain: opts.Domain, Mode: nuclei.ModeFull, Threads: 500}) // Increased from 200 to 500
 		if err != nil {
@@ -230,10 +254,11 @@ func RunLite(opts Options) (*Result, error) {
 	}
 
 	log.Printf("[OK] Lite Scan completed for %s", opts.Domain)
+	
 	return &Result{Domain: opts.Domain, Steps: totalSteps}, nil
 }
 
-func runPhase(phaseKey string, step, total int, description, domain string, timeoutSeconds int, fn func() error) error {
+func runPhase(phaseKey string, step, total int, description, domain string, timeoutSeconds int, uploadedFiles *LiteScanUploads, fn func() error) error {
 	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
 
 	var err error
@@ -256,9 +281,10 @@ func runPhase(phaseKey string, step, total int, description, domain string, time
 
 	log.Printf("[OK] %s completed in %s", description, phaseDuration)
 	
-	// Send phase files in real-time (minimal webhook messages - only phase name and files)
+	// Upload phase files to R2 if enabled (always, regardless of bot context)
+	// This ensures files are uploaded to R2 for tracking and bot response
 	if phaseKey != "" {
-		log.Printf("[DEBUG] [LITE] Preparing to send files for phase: %s", phaseKey)
+		log.Printf("[DEBUG] [LITE] Preparing to upload files for phase: %s", phaseKey)
 		
 		// Get expected file paths for this phase
 		phaseFiles := utils.GetPhaseFiles(phaseKey, domain)
@@ -286,9 +312,12 @@ func runPhase(phaseKey string, step, total int, description, domain string, time
 			}
 			
 			if len(existingFiles) > 0 {
-				log.Printf("[DEBUG] [LITE] Sending %d file(s) for phase %s", len(existingFiles), phaseKey)
+				log.Printf("[DEBUG] [LITE] Found %d file(s) for phase %s", len(existingFiles), phaseKey)
 				
-				// SendPhaseFiles will send minimal webhook message (phase name) and files
+				// Send files to Discord in real-time
+				// When running under bot, utils.SendPhaseFiles will send to thread via HTTP API
+				// When running standalone (CLI), it sends via webhook
+				log.Printf("[DEBUG] [LITE] Sending %d file(s) for phase %s", len(existingFiles), phaseKey)
 				if err := utils.SendPhaseFiles(phaseKey, domain, existingFiles); err != nil {
 					log.Printf("[DEBUG] [LITE] Failed to send files for phase %s: %v", phaseKey, err)
 				} else {
@@ -296,9 +325,17 @@ func runPhase(phaseKey string, step, total int, description, domain string, time
 				}
 			} else {
 				log.Printf("[DEBUG] [LITE] No files found for phase %s after retries", phaseKey)
+				// Send "0 findings" message to webhook only when not under bot
+				if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+					utils.SendPhaseFiles(phaseKey, domain, []string{})
+				}
 			}
 		} else {
 			log.Printf("[DEBUG] [LITE] No expected files for phase %s", phaseKey)
+			// Send "0 findings" message to webhook only when not under bot
+			if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+				utils.SendPhaseFiles(phaseKey, domain, []string{})
+			}
 		}
 	}
 	
@@ -376,4 +413,91 @@ func ParseTimeout(s string) (int, error) {
 	}
 
 	return 0, fmt.Errorf("invalid timeout format: %s", s)
+}
+
+// uploadPhaseFileToR2 uploads a phase file to R2 and records the information
+func uploadPhaseFileToR2(phaseKey, domain, filePath string, uploadedFiles *LiteScanUploads) error {
+	// Get file info
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+	
+	if fileInfo.Size() == 0 {
+		return nil // Skip empty files
+	}
+	
+	// Create R2 object key: lite/{domain}/{phase}/{filename}
+	fileName := filepath.Base(filePath)
+	objectKey := fmt.Sprintf("lite/%s/%s/%s", domain, phaseKey, fileName)
+	
+	// Upload to R2
+	publicURL, err := r2storage.UploadFile(filePath, objectKey, false)
+	if err != nil {
+		return fmt.Errorf("failed to upload to R2: %w", err)
+	}
+	
+	// Format file size
+	sizeHuman := formatFileSize(fileInfo.Size())
+	
+	// Record uploaded file information
+	uploadedFiles.Files = append(uploadedFiles.Files, UploadedFileInfo{
+		Phase:     phaseKey,
+		FileName:  fileName,
+		FilePath:  filePath,
+		Size:      fileInfo.Size(),
+		SizeHuman: sizeHuman,
+		URL:       publicURL,
+	})
+	
+	log.Printf("[R2] [LITE] Uploaded phase file: %s (%s) -> %s", fileName, sizeHuman, publicURL)
+	return nil
+}
+
+// formatFileSize formats file size in human-readable format
+func formatFileSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+// saveUploadedFilesInfo saves uploaded files information to a JSON file
+func saveUploadedFilesInfo(domain string, uploadedFiles *LiteScanUploads) error {
+	resultsDir := utils.GetResultsDir()
+	
+	// Get scan ID from environment if available
+	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	if scanID == "" {
+		// Generate a simple ID based on timestamp
+		scanID = fmt.Sprintf("lite_%d", time.Now().Unix())
+	}
+	
+	// Save to file: .lite-uploads-{scanID}.json
+	uploadInfoFile := filepath.Join(resultsDir, fmt.Sprintf(".lite-uploads-%s.json", scanID))
+	
+	// Marshal to JSON
+	jsonData, err := json.MarshalIndent(uploadedFiles, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+	
+	// Write to file
+	if err := os.WriteFile(uploadInfoFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+	
+	log.Printf("[LITE] Saved uploaded files info to: %s (%d files)", uploadInfoFile, len(uploadedFiles.Files))
+	
+	// Also print to stdout for bot to parse (backup method)
+	fmt.Fprintf(os.Stdout, "[LITE-UPLOADS] %s\n", string(jsonData))
+	os.Stdout.Sync()
+	
+	return nil
 }

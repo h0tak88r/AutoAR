@@ -75,7 +75,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			if !strings.HasPrefix(subdomainURL, "http://") && !strings.HasPrefix(subdomainURL, "https://") {
 				subdomainURL = "https://" + subdomainURL
 			}
-			_ = writeLines(liveFile, []string{subdomainURL})
+			_ = utils.WriteLines(liveFile, []string{subdomainURL})
 		}
 		log.Printf("[INFO] Subdomain mode: scanning %s directly (no subdomain enumeration)", domain)
 	} else {
@@ -115,8 +115,8 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		}
 	}
 	
-	_ = writeLines(allFile, nil)
-	_ = writeLines(jsFile, nil)
+	_ = utils.WriteLines(allFile, nil)
+	_ = utils.WriteLines(jsFile, nil)
 
 	// 1) Collect URLs with embedded urlfinder library
 	log.Printf("[INFO] Collecting URLs with embedded urlfinder for %s", domain)
@@ -135,7 +135,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		// Merge external URLs with existing URLs
 		existingURLs, _ := readLines(allFile)
 		allURLs := uniqueStrings(append(existingURLs, externalURLs...))
-		_ = writeLines(allFile, allURLs)
+		_ = utils.WriteLines(allFile, allURLs)
 	}
 
 	// 3) Collect JS URLs with embedded jsfinder over live hosts
@@ -152,7 +152,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			if err != nil {
 				log.Printf("[WARN] jsfinder library failed for %s: %v", domain, err)
 			} else if len(jsMatches) > 0 {
-				if err := writeLines(jsFile, jsMatches); err != nil {
+				if err := utils.WriteLines(jsFile, jsMatches); err != nil {
 					log.Printf("[WARN] Failed to write jsfinder results: %v", err)
 				}
 			}
@@ -169,11 +169,11 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	}
 
 	jsURLs = uniqueStrings(jsURLs)
-	_ = writeLines(jsFile, jsURLs)
+	_ = utils.WriteLines(jsFile, jsURLs)
 
 	// 5) Merge js-urls.txt back into all-urls.txt and deduplicate
 	allURLs = uniqueStrings(append(allURLs, jsURLs...))
-	_ = writeLines(allFile, allURLs)
+	_ = utils.WriteLines(allFile, allURLs)
 
 	total := len(allURLs)
 	jsCount := len(jsURLs)
@@ -239,32 +239,7 @@ func readLines(path string) ([]string, error) {
 }
 
 // writeLines writes lines to a file (one per line). If lines is nil, creates/empties the file.
-func writeLines(path string, lines []string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
 
-	if len(lines) == 0 {
-		return nil
-	}
-
-	w := bufio.NewWriter(file)
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if _, err := w.WriteString(line + "\n"); err != nil {
-			return err
-		}
-	}
-	return w.Flush()
-}
 
 // uniqueStrings returns a deduplicated slice preserving order.
 func uniqueStrings(in []string) []string {

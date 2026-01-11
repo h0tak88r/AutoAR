@@ -327,6 +327,46 @@ func handleWPConfusion(args []string) error {
 }
 
 // handleCnamesCommand parses: autoar cnames get -d <domain>
+// handleDomainCommand parses: autoar domain run -d <domain> [--skip-ffuf]
+func handleDomainCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: domain run -d <domain> [--skip-ffuf]")
+	}
+	if args[0] == "run" {
+		args = args[1:]
+	}
+	var domain string
+	var skipFFuf bool
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain = args[i+1]
+				i++
+			}
+		case "--skip-ffuf":
+			skipFFuf = true
+		}
+	}
+	if domain == "" {
+		return fmt.Errorf("domain (-d) is required")
+	}
+
+	_, err := domainmod.RunDomain(domainmod.ScanOptions{
+		Domain:   domain,
+		SkipFFuf: skipFFuf,
+	})
+	
+	// Cleanup domain directory after scan completes (on exit, not before)
+	if cleanupErr := cleanupDomainDirectoryForCLI(domain); cleanupErr != nil {
+		fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", domain, cleanupErr)
+	}
+	
+	return err
+}
+
+// handleCnamesCommand parses: autoar cnames get -d <domain>
+// handleCnamesCommand parses: autoar cnames get -d <domain>
 func handleCnamesCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: cnames get -d <domain>")
@@ -343,13 +383,13 @@ func handleCnamesCommand(args []string) error {
 				domain = args[i+1]
 				i++
 			}
-		default:
-			// ignore unknown flags for now
 		}
 	}
 	if domain == "" {
-		return fmt.Errorf("domain (-d) is required; usage: cnames get -d <domain>")
+		return fmt.Errorf("domain (-d) is required")
 	}
+
+	// Simple collection call matching signature (domain string)
 	_, err := cnames.CollectCNAMEs(domain)
 	return err
 }
@@ -373,42 +413,15 @@ func handleFastlookCommand(args []string) error {
 		}
 	}
 	if domain == "" {
-		return fmt.Errorf("domain (-d) is required; usage: fastlook run -d <domain>")
+		return fmt.Errorf("domain (-d) is required")
 	}
-	_, err := fastlook.RunFastlook(domain)
+
+	// Run fastlook with no file callback
+	_, err := fastlook.RunFastlook(domain, nil)
 	return err
 }
 
-// handleDomainCommand parses: autoar domain run -d <domain>
-func handleDomainCommand(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: domain run -d <domain>")
-	}
-	if args[0] == "run" {
-		args = args[1:]
-	}
-	var domain string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "-d", "--domain":
-			if i+1 < len(args) {
-				domain = args[i+1]
-				i++
-			}
-		}
-	}
-	if domain == "" {
-		return fmt.Errorf("domain (-d) is required; usage: domain run -d <domain>")
-	}
-	_, err := domainmod.RunDomain(domain)
-	
-	// Cleanup domain directory after scan completes (on exit, not before)
-	if cleanupErr := cleanupDomainDirectoryForCLI(domain); cleanupErr != nil {
-		fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", domain, cleanupErr)
-	}
-	
-	return err
-}
+
 
 // handleSubdomainCommand parses: autoar subdomain run -s <subdomain>
 func handleSubdomainCommand(args []string) error {
