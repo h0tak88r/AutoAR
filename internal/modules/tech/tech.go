@@ -87,7 +87,11 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	}
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No live hosts found")
+		log.Printf("[WARN] No live hosts found; creating empty tech file for %s", domain)
+		if f, err := os.Create(outFile); err == nil {
+			f.WriteString("No live hosts found for technology detection.\n")
+			f.Close()
+		}
 		return &Result{
 			Domain:     domain,
 			Hosts:      0,
@@ -157,6 +161,21 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	httpxRunner.RunEnumeration()
 
 	log.Printf("[OK] Technology detection completed for %d hosts", count)
+
+	// Send result files to Discord webhook if configured (only when not running under bot)
+	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			// Send tech-detect.txt if it exists and has content
+			if info, err := os.Stat(outFile); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(outFile, fmt.Sprintf("Technology Detection Results: %d hosts analyzed for %s", count, domain))
+			} else if count == 0 {
+				// Send "no findings" message if no hosts detected
+				utils.SendWebhookLogAsync(fmt.Sprintf("Technology detection completed for %s: 0 hosts analyzed", domain))
+			}
+		}
+	}
 
 	return &Result{
 		Domain:     domain,

@@ -128,7 +128,15 @@ func Run(opts Options) (*Result, error) {
 		// Note: urls.CollectURLs will also check for existing URLs internally
 		urlRes, err = urls.CollectURLs(target, opts.Threads, skipSubdomainEnum)
 		if err != nil {
-			return nil, fmt.Errorf("failed to collect URLs: %w", err)
+			log.Printf("[WARN] JS scan: Failed to collect URLs: %v. Continuing with potentially empty list.", err)
+			// Ensure we have a valid urlRes even on error to prevent nil pointer
+			if urlRes == nil {
+				urlRes = &urls.Result{
+					Domain:  dirDomain,
+					AllFile: allFile,
+					JSFile:  jsFile,
+				}
+			}
 		}
 		log.Printf("[INFO] JS scan: URL collection completed: %d total URLs, %d JS URLs", urlRes.TotalURLs, urlRes.JSURLs)
 	}
@@ -330,16 +338,16 @@ func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
 	if err != nil {
 		return fmt.Errorf("failed to read JS URLs file: %w", err)
 	}
-	if len(jsURLs) == 0 {
-		return nil
-	}
-
-	// Create output file
+	// Create output file (always create it even if empty)
 	outFile, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer outFile.Close()
+
+	if len(jsURLs) == 0 {
+		return nil
+	}
 
 	writer := bufio.NewWriter(outFile)
 	defer writer.Flush()

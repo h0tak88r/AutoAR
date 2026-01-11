@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Options controls how the AEM scan runs
@@ -270,18 +268,8 @@ func Run(opts Options) (*Result, error) {
 			os.WriteFile(resultsFile, data, 0644)
 		}
 		
-		// Send to Discord
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" {
-			domain := opts.Domain
-			if domain == "" && opts.LiveHostsFile != "" {
-				domain = "targets"
-			}
-			if info, err := os.Stat(consolidatedFile); err == nil && info.Size() > 0 {
-				utils.SendWebhookFileAsync(consolidatedFile, fmt.Sprintf("AEM Scan Results: 0 AEM instances found for %s", domain))
-			}
-			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed for %s: 0 AEM instances discovered", domain))
-		}
+		// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
+		
 		
 		res.Duration = time.Since(startTime)
 		return res, nil
@@ -355,24 +343,7 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
-	// Send findings to Discord webhook if configured (only the consolidated file)
-	webhookURL := os.Getenv("DISCORD_WEBHOOK")
-	if webhookURL != "" {
-		domain := opts.Domain
-		if domain == "" && opts.LiveHostsFile != "" {
-			domain = "targets"
-		}
-		
-		if info, err := os.Stat(consolidatedFile); err == nil && info.Size() > 0 {
-			utils.SendWebhookFileAsync(consolidatedFile, fmt.Sprintf("AEM Scan Results: %d AEM instances, %d vulnerabilities for %s", res.DiscoveredCount, res.Vulnerabilities, domain))
-		}
-		
-		if res.Vulnerabilities > 0 {
-			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed: %d AEM instance(s), %d vulnerability/vulnerabilities found", res.DiscoveredCount, res.Vulnerabilities))
-		} else {
-			utils.SendWebhookLogAsync(fmt.Sprintf("AEM scan completed for %s: %d AEM instance(s), 0 vulnerabilities", domain, res.DiscoveredCount))
-		}
-	}
+	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
 
 	res.Duration = time.Since(startTime)
 	log.Printf("[AEM] Scan completed: %d AEM instances, %d vulnerabilities found", res.DiscoveredCount, res.Vulnerabilities)

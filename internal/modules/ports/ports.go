@@ -80,6 +80,21 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	}
 	log.Printf("[OK] Port scan completed, found %d open ports", count)
 
+	// Send result files to Discord webhook if configured (only when not running under bot)
+	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		if webhookURL != "" {
+			// Send ports.txt if it exists and has content
+			if info, err := os.Stat(outFile); err == nil && info.Size() > 0 {
+				utils.SendWebhookFileAsync(outFile, fmt.Sprintf("Port Scan Results: %d open ports found for %s", count, domain))
+			} else if count == 0 {
+				// Send "no findings" message if no ports found
+				utils.SendWebhookLogAsync(fmt.Sprintf("Port scan completed for %s: 0 open ports found (excluding ports 80 and 443)", domain))
+			}
+		}
+	}
+
 	return &Result{
 		Domain:     domain,
 		Ports:      count,

@@ -95,7 +95,7 @@ func handleKeyhack(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 
@@ -448,7 +448,7 @@ func handleMonitorUpdatesManage(s *discordgo.Session, i *discordgo.InteractionCr
 		})
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 }
@@ -530,7 +530,7 @@ func handleMonitorUpdatesAdd_OLD(s *discordgo.Session, i *discordgo.InteractionC
 		})
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 }
@@ -596,7 +596,7 @@ func handleMonitorUpdatesRemove(s *discordgo.Session, i *discordgo.InteractionCr
 		})
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 }
@@ -684,7 +684,7 @@ func handleMonitorUpdatesStart(s *discordgo.Session, i *discordgo.InteractionCre
 		})
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 }
@@ -769,7 +769,7 @@ func handleMonitorUpdatesStop(s *discordgo.Session, i *discordgo.InteractionCrea
 		})
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 }
@@ -832,7 +832,7 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 }
@@ -918,7 +918,7 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		})
 	}
 
-	if err := UpdateInteractionMessage(s, i, embed); err != nil {
+	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 		log.Printf("[WARN] Failed to update interaction: %v", err)
 	}
 }

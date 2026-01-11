@@ -675,6 +675,9 @@ autoar ports scan -d example.com
 | `DB_TYPE` | Database type (postgresql/sqlite) | `postgresql` |
 | `DB_HOST` | Database host | Required for PostgreSQL |
 | `VERBOSE` | Verbose logging | `true` |
+| `AUTOAR_TIMEOUT_MISCONFIG` | Misconfig scan timeout (seconds, 0=no timeout) | `1800` |
+| `AUTOAR_TIMEOUT_NUCLEI` | Nuclei scan timeout (seconds, 0=no timeout) | `0` |
+| `AUTOAR_TIMEOUT_DEFAULT` | Default phase timeout (seconds, 0=no timeout) | `0` |
 
 ### API Keys
 

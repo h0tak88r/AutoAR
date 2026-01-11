@@ -82,8 +82,6 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 # Compiled binaries (but allow source files)
 /autoar
 autoar.exe
-!cmd/
-!cmd/**
 all-roots.txt
 roots.txt
 .evn.example

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	mmapi "github.com/h0tak88r/AutoAR/v3/internal/tools/misconfigmapper"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 )
 
 // Options for misconfig scan
@@ -181,18 +180,7 @@ func handleScan(opts Options, resultsDir string) error {
 	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings)\n", opts.Target, len(allResults))
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
 	
-	// Send findings to Discord webhook if configured
-	webhookURL := os.Getenv("DISCORD_WEBHOOK")
-	if webhookURL != "" {
-		if info, err := os.Stat(outputFile); err == nil && info.Size() > 0 {
-			utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("Misconfig Finding: Scan results for %s (%d total, %d vulnerable)", opts.Target, len(allResults), vulnerableCount))
-		}
-		if len(allResults) > 0 {
-			utils.SendWebhookLogAsync(fmt.Sprintf("Misconfig scan completed for %s - %d finding(s), %d vulnerable", opts.Target, len(allResults), vulnerableCount))
-		} else {
-			utils.SendWebhookLogAsync(fmt.Sprintf("Misconfig scan completed for %s with 0 findings", opts.Target))
-		}
-	}
+	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
 	
 	return nil
 }
