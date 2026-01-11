@@ -74,7 +74,6 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 *.md
 !README.md
 # Allow nuclei-templates markdown files (submodule)
-!nuclei-templates/**/*.md
 !nuclei_templates/**/*.md
 # Allow gomodules README files
 !gomodules/**/README.md
@@ -92,4 +91,5 @@ autoar
 .db-wal
 
 /backups/
+nuclei-templates/
 Rules.yml

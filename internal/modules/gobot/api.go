@@ -121,6 +121,7 @@ func setupAPI() *gin.Engine {
 	// Root
 	r.GET("/", rootHandler)
 	r.GET("/health", healthHandler)
+	r.GET("/metrics", metricsHandler)
 	r.GET("/docs", docsHandler)
 
 	// Scan endpoints
@@ -233,10 +234,19 @@ func rootHandler(c *gin.Context) {
 }
 
 func healthHandler(c *gin.Context) {
+	snapshot := getMetricsSnapshot()
+	
 	c.JSON(http.StatusOK, gin.H{
 		"status":    "healthy",
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"uptime":    snapshot["uptime"],
+		"active_scans": snapshot["active_scans"],
 	})
+}
+
+func metricsHandler(c *gin.Context) {
+	snapshot := getMetricsSnapshot()
+	c.JSON(http.StatusOK, snapshot)
 }
 
 func cleanupHandler(c *gin.Context) {

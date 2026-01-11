@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -34,6 +35,20 @@ var (
 	activeChannels = make(map[string]string) // scanID -> channelID
 	channelsMutex  sync.RWMutex
 )
+
+// getMetricsSnapshot returns empty metrics to avoid import cycle
+// Metrics are tracked internally by workflows
+func getMetricsSnapshot() map[string]interface{} {
+	// Return basic metrics without importing utils
+	scansMutex.RLock()
+	activeCount := len(activeScans)
+	scansMutex.RUnlock()
+	
+	return map[string]interface{}{
+		"active_scans": activeCount,
+		"message": "Full metrics available after resolving import cycle",
+	}
+}
 
 // SendFileToChannel sends a file directly to a Discord channel using the global session
 // This is used by modules to send files without requiring the HTTP API
@@ -129,22 +144,23 @@ func SendFileToChannel(channelID, filePath, description string) error {
 		}
 	}
 
-	// Read file for direct Discord upload
-	fileData, err := os.ReadFile(filePath)
+	// Stream file directly to Discord (memory efficient - no loading into RAM)
+	log.Printf("[DISCORD] 🚀 Streaming file to Discord %s: %s (%d bytes)", targetID, fileName, info.Size())
+	
+	file, err := os.Open(filePath)
 	if err != nil {
-		log.Printf("[DISCORD] ❌ Failed to read file: %v", err)
-		return fmt.Errorf("failed to read file: %w", err)
+		log.Printf("[DISCORD] ❌ Failed to open file: %v", err)
+		return fmt.Errorf("failed to open file: %w", err)
 	}
+	defer file.Close()
 
-	// Send file to Discord channel/thread immediately
-	log.Printf("[DISCORD] 🚀 Sending file to Discord %s: %s (%d bytes)", targetID, fileName, len(fileData))
+	// Send file to Discord channel/thread immediately (streaming)
 	_, err = session.ChannelMessageSendComplex(targetID, &discordgo.MessageSend{
 		Content: description,
 		Files: []*discordgo.File{
 			{
-				Name:        fileName,
-				ContentType: http.DetectContentType(fileData),
-				Reader:      strings.NewReader(string(fileData)),
+				Name:   fileName,
+				Reader: file, // Stream directly from file
 			},
 		},
 	})
@@ -188,6 +204,10 @@ func StartBot() error {
 		fmt.Println("[ + ]Loaded environment variables from .env file")
 	}
 
+	// NOTE: Logger, metrics, rate limiter, and shutdown manager initialization
+	// moved to workflow modules to avoid import cycle (utils/discord.go imports gobot)
+	// These utilities are available in domain.go, subdomain.go, and other workflow files
+
 	// Re-read bot token and guild settings after loading .env
 	botToken = os.Getenv("DISCORD_BOT_TOKEN")
 	allowedGuildID = getEnv("DISCORD_ALLOWED_GUILD_ID", "")
@@ -208,6 +228,8 @@ func StartBot() error {
 		} else {
 			if err := db.InitSchema(); err != nil {
 				log.Printf("[WARN] Failed to initialize database schema: %v", err)
+			} else {
+				log.Println("[INFO] Database initialized successfully")
 			}
 		}
 	}
@@ -228,18 +250,23 @@ func StartBot() error {
 		return fmt.Errorf("error creating Discord session: %w", err)
 	}
 
-	// Store globally for file sending
+	// Set global session IMMEDIATELY after creation (before opening connection)
+	// This ensures the API can access it even if the bot is still connecting
 	discordSessionMutex.Lock()
 	globalDiscordSession = dg
 	discordSessionMutex.Unlock()
+	log.Println("[INFO] Global Discord session initialized")
 
-	// Register handlers
+	// Set intents
+	dg.Identify.Intents = discordgo.IntentsGuildMessages |
+		discordgo.IntentsDirectMessages |
+		discordgo.IntentsMessageContent |
+		discordgo.IntentsGuilds
+
+	// Register event handlers
 	dg.AddHandler(Ready)
+	dg.AddHandler(Disconnect)
 	dg.AddHandler(InteractionCreate)
-	dg.AddHandler(Disconnect) // Handle disconnections
-
-	// Configure reconnection settings
-	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsDirectMessages
 
 	// Open Discord session
 	log.Println("[INFO] Attempting to connect to Discord...")
@@ -267,13 +294,23 @@ func StartBot() error {
 	apiAddr := fmt.Sprintf("%s:%s", apiHostEnv, apiPortEnv)
 	
 	log.Printf("[INFO] Starting internal HTTP API server on %s", apiAddr)
+	
+	// Start API server with error handling
+	apiStarted := make(chan bool, 1)
 	go func() {
 		if err := http.ListenAndServe(apiAddr, router); err != nil {
 			log.Printf("[ERROR] Internal API server failed: %v", err)
+			if strings.Contains(err.Error(), "address already in use") {
+				log.Printf("[WARN] Port %s is already in use. The HTTP API fallback will not be available.", apiPortEnv)
+				log.Printf("[INFO] Files will be sent via webhook fallback instead")
+			}
+			apiStarted <- false
+		} else {
+			apiStarted <- true
 		}
 	}()
 	
-	// Small delay to ensure API server is listening before commands start
+	// Give API a moment to start
 	time.Sleep(100 * time.Millisecond)
 
 	// Register slash commands (this can take 2+ minutes for 39 commands)
@@ -384,6 +421,7 @@ func StartBoth() error {
 	}()
 
 	var wg sync.WaitGroup
+	var botStarted sync.WaitGroup
 
 	if botTokenEnv == "" {
 		return fmt.Errorf("DISCORD_BOT_TOKEN environment variable is required")
@@ -391,13 +429,28 @@ func StartBoth() error {
 
 	// Start Discord bot if mode allows
 	if autoarModeEnv == "discord" || autoarModeEnv == "both" {
+		botStarted.Add(1)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			
+			// Signal that bot initialization has started
+			// This allows API to wait for the session to be ready
+			go func() {
+				// Wait a moment for globalDiscordSession to be set
+				time.Sleep(500 * time.Millisecond)
+				botStarted.Done()
+			}()
+			
 			if err := StartBot(); err != nil {
 				log.Printf("Discord bot error: %v", err)
 			}
 		}()
+		
+		// Wait for bot to initialize session before starting API
+		log.Println("[INFO] Waiting for Discord bot session to initialize...")
+		botStarted.Wait()
+		log.Println("[INFO] Discord bot session ready, starting API...")
 	}
 
 	// Start API server if mode allows
@@ -803,6 +856,16 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+// getEnvInt returns an environment variable as an integer with a default value
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
 	}
 	return defaultValue
 }

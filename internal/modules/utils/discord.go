@@ -244,8 +244,8 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		}
 		// If no specific result files, don't send anything (will send "no results" message)
 	case "cnames":
-		// CNAME module extracts root domain from subdomain and saves to root domain directory
-		// Check both subdomain directory and root domain directory for compatibility
+		// CNAME module always saves to root domain directory
+		// Extract root domain for proper path resolution
 		rootDomain := domain
 		parts := strings.Split(domain, ".")
 		if len(parts) > 2 {
@@ -253,8 +253,7 @@ func GetPhaseFiles(phaseName, domain string) []string {
 			rootDomain = strings.Join(parts[len(parts)-2:], ".")
 		}
 		files = []string{
-			filepath.Join(resultsDir, rootDomain, "subs", "cname-records.txt"), // CNAME saves to root domain
-			filepath.Join(resultsDir, domain, "subs", "cname-records.txt"),     // Also check subdomain directory for compatibility
+			filepath.Join(resultsDir, rootDomain, "subs", "cname-records.txt"), // CNAME always saves to root domain
 		}
 	case "tech":
 		// Tech detection saves to tech-detect.txt in subs directory
