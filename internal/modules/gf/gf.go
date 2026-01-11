@@ -61,7 +61,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 		// Check if URLs file exists and is valid
 		if info, err := os.Stat(urlsFile); err != nil || info.Size() == 0 {
 			log.Printf("[INFO] No URLs found for %s, running fastlook first", opts.Domain)
-			if _, err := fastlook.RunFastlook(opts.Domain); err != nil {
+			if _, err := fastlook.RunFastlook(opts.Domain, nil); err != nil {
 				return nil, fmt.Errorf("failed to run fastlook: %w", err)
 			}
 		}
@@ -70,7 +70,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 		if err := validateURLsFile(urlsFile); err != nil {
 			log.Printf("[WARN] URLs file appears corrupted, regenerating: %v", err)
 			log.Printf("[INFO] Regenerating URLs for %s via fastlook", opts.Domain)
-			if _, err := fastlook.RunFastlook(opts.Domain); err != nil {
+			if _, err := fastlook.RunFastlook(opts.Domain, nil); err != nil {
 				log.Printf("[WARN] Failed to regenerate URLs via fastlook: %v", err)
 			}
 		}

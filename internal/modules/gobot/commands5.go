@@ -154,7 +154,7 @@ func handleMonitorSubdomainsManage(s *discordgo.Session, i *discordgo.Interactio
 		})
 	} else {
 		// For other actions, edit the original response
-		if err := UpdateInteractionMessage(s, i, embed); err != nil {
+		if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
 			log.Printf("[WARN] Failed to update interaction: %v", err)
 		}
 	}
