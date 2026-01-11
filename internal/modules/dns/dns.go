@@ -189,6 +189,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	}
 
 	// Initialise output files (compatible with legacy layout)
+	// Note: Summary files removed - only raw results are generated
 	files := []string{
 		"nuclei-takeover-public.txt",
 		"nuclei-takeover-custom.txt",
@@ -199,11 +200,9 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		"ns-takeover-vuln.txt",
 		"ns-servers.txt",
 		"ns-servers-vuln.txt",
-		"dns-takeover-summary.txt",
 		"dnsreaper-results.txt",
 		"filtered-ns-takeover-vuln.txt",
 		"dangling-ip.txt",
-		"dangling-ip-summary.txt",
 	}
 	for _, name := range files {
 		p := filepath.Join(findingsDir, name)
@@ -241,9 +240,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		log.Printf("[WARN] Dangling IP check failed: %v", err)
 	}
 
-	if err := writeSummary(opts.Domain, findingsDir, subsFile); err != nil {
-		log.Printf("[WARN] Failed to write DNS takeover summary: %v", err)
-	}
+	// Summary file generation removed - only raw results are sent
 
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
 
@@ -786,12 +783,9 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 
 func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	danglingOut := filepath.Join(findingsDir, "dangling-ip.txt")
-	summaryOut := filepath.Join(findingsDir, "dangling-ip-summary.txt")
+	// Summary file removed - only raw results generated
 	
 	if err := writeLines(danglingOut, nil); err != nil {
-		return err
-	}
-	if err := writeLines(summaryOut, nil); err != nil {
 		return err
 	}
 
@@ -962,33 +956,11 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 		}
 	}
 
-	// Write summary
-	summary := []string{
-		"=== DANGLING IP DETECTION SUMMARY ===",
-		"Scan Date: " + timeNowString(),
-		fmt.Sprintf("Total Subdomains Checked: %d", len(targets)),
-		fmt.Sprintf("Total Unique IPs Found: %d", len(ipToSubdomains)),
-		fmt.Sprintf("IPs Checked: %d", checkedIPs),
-		fmt.Sprintf("Active IPs: %d", countStatus(ipStatus, "active")),
-		fmt.Sprintf("Inactive IPs: %d", countStatus(ipStatus, "inactive")),
-		fmt.Sprintf("Unknown Status IPs: %d", countStatus(ipStatus, "unknown")),
-		fmt.Sprintf("Dangling IP Candidates: %d", len(danglingCandidates)),
-		"",
-		"=== METHODOLOGY ===",
-		"1. Collected A and AAAA records for all subdomains",
-		"2. Checked IP activity using httpx (HTTP/HTTPS responses)",
-		"3. Performed reverse DNS (PTR) lookups for verification",
-		"4. Identified IPs with inactive/unknown status as candidates",
-		"",
-		"=== NOTES ===",
-		"- Dangling IP detection identifies IPs that may no longer be assigned to services",
-		"- Manual verification is required to confirm if IPs can be claimed",
-		"- Inactive IPs with multiple subdomains pointing to them are higher priority",
-		"- Always validate takeover conditions before reporting",
+	// Append dangling IPs to output file
+	if err := appendLines(danglingOut, danglingCandidates...); err != nil {
+		log.Printf("[WARN] Failed to write dangling IPs: %v", err)
 	}
-	if err := writeLines(summaryOut, summary); err != nil {
-		log.Printf("[WARN] Failed to write dangling IP summary: %v", err)
-	}
+	// Summary file removed - only raw results generated
 
 	log.Printf("[OK] Dangling IP check completed: %d candidates found out of %d IPs", len(danglingCandidates), len(ipToSubdomains))
 	
@@ -999,12 +971,9 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 			// Extract domain from domainDir
 			domain := filepath.Base(domainDir)
 			danglingFile := filepath.Join(findingsDir, "dangling-ip.txt")
-			summaryFile := filepath.Join(findingsDir, "dangling-ip-summary.txt")
+			// Summary file removed - only send raw results
 			if info, err := os.Stat(danglingFile); err == nil && info.Size() > 0 {
 				utils.SendWebhookFileAsync(danglingFile, fmt.Sprintf("DNS Finding: Dangling IP candidates for %s (%d found)", domain, len(danglingCandidates)))
-			}
-			if info, err := os.Stat(summaryFile); err == nil && info.Size() > 0 {
-				utils.SendWebhookFileAsync(summaryFile, fmt.Sprintf("DNS Finding: Dangling IP summary for %s", domain))
 			}
 			utils.SendWebhookLogAsync(fmt.Sprintf("Dangling IP check: %d candidates found for %s", len(danglingCandidates), domain))
 		}

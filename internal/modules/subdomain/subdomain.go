@@ -63,12 +63,40 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		return nil, fmt.Errorf("subdomain is required")
 	}
 
-	// Load .env file to ensure webhook URL is available
+	// Load .env file
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
 	}
 
-	log.Printf("[INFO] Starting full subdomain scan (all features) for %s", subdomain)
+	// Initialize logger if not already initialized
+	if utils.Log == nil {
+		logConfig := utils.DefaultLogConfig()
+		logConfig.Level = os.Getenv("LOG_LEVEL")
+		if logConfig.Level == "" {
+			logConfig.Level = "info"
+		}
+		if err := utils.InitLogger(logConfig); err != nil {
+			log.Printf("[WARN] Failed to initialize logger: %v", err)
+		} else {
+			utils.Log.WithField("subdomain", subdomain).Info("Logger initialized for subdomain workflow")
+		}
+	}
+
+	// Initialize metrics
+	metrics := utils.InitMetrics()
+	metrics.IncrementActiveScans()
+	defer metrics.DecrementActiveScans()
+
+	// Check if shutting down
+	shutdownMgr := utils.GetShutdownManager()
+	if shutdownMgr.IsShuttingDown() {
+		utils.Log.Warn("Shutdown in progress, subdomain scan cancelled")
+		return nil, fmt.Errorf("shutdown in progress")
+	}
+	shutdownMgr.IncrementActiveScans()
+	defer shutdownMgr.DecrementActiveScans()
+
+	utils.Log.WithField("subdomain", subdomain).Info("Starting full subdomain scan")
 
 	// Use subdomain itself for directory structure (not root domain)
 	// Remove protocol if present
@@ -540,19 +568,53 @@ func RunSubdomain(subdomain string) (*Result, error) {
 					return filepath.SkipDir
 				}
 				
-				// Remove everything else
-				if info.IsDir() {
-					return os.RemoveAll(path)
-				}
 				return os.Remove(path)
 			})
 			
 			if err != nil {
 				log.Printf("[WARN] Failed to cleanup subdomain directory %s: %v", subdomainDir, err)
 			} else {
-				log.Printf("[OK] Cleaned up subdomain directory: %s (preserved apkx)", subdomainDir)
+				log.Printf("[OK] Cleaned up subdomain directory: %s", subdomainDir)
 			}
 		}
+	}
+	
+	utils.Log.WithField("subdomain", subdomain).Info("Full subdomain scan completed successfully")
+	
+	// Track successful completion
+	metrics.IncrementCompletedScans()
+	
+	// Cleanup: Remove local files after all phases complete and files are sent
+	utils.Log.WithField("subdomain", subdomain).Info("Cleaning up subdomain directory")
+	// Wait a moment to ensure all file operations complete
+	time.Sleep(2 * time.Second)
+	
+	// Remove subdomain directory contents (preserving apkx directory if exists)
+	if err := filepath.Walk(domainDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		// Skip root directory
+		if path == domainDir {
+			return nil
+		}
+		// Preserve apkx directory and its contents
+		if strings.Contains(path, "/apkx/") || strings.HasSuffix(path, "/apkx") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		
+		// Remove everything else
+		if info.IsDir() {
+			return os.RemoveAll(path)
+		}
+		return os.Remove(path)
+	}); err != nil {
+		log.Printf("[WARN] Failed to cleanup subdomain directory %s: %v", domainDir, err)
+	} else {
+		log.Printf("[OK] Cleaned up subdomain directory: %s", domainDir)
 	}
 	
 	return &Result{Subdomain: subdomain}, nil
