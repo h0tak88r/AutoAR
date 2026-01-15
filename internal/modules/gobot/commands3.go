@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 )
 
 // KeyHack Commands
@@ -843,30 +844,27 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
-	scansMutex.RLock()
-	activeCount := len(activeScans)
-	activeList := make([]*ScanInfo, 0, activeCount)
-	for _, scan := range activeScans {
-		activeList = append(activeList, scan)
+	// Get active scans from database (non-blocking!)
+	activeScans, err := db.ListActiveScans()
+	if err != nil {
+		log.Printf("[ERROR] Failed to list active scans: %v", err)
+		respond(s, i, fmt.Sprintf("❌ Error fetching scans: %v", err), false)
+		return
 	}
-	scansMutex.RUnlock()
-
-	// Get completed scans from API results (if available)
-	completedList := getCompletedScans(20)
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "📊 All Scan Status",
-		Description: fmt.Sprintf("**Active Scans:** %d\n**Recent Completed Scans:** %d", activeCount, len(completedList)),
+		Title:       "📊 Scan Status",
+		Description: fmt.Sprintf("**Active Scans:** %d", len(activeScans)),
 		Color:       0x3498db,
 		Fields:      []*discordgo.MessageEmbedField{},
 	}
 
 	// Add active scans
-	if activeCount > 0 {
+	if len(activeScans) > 0 {
 		activeText := ""
-		for i, scan := range activeList {
-			if i >= 10 {
-				activeText += fmt.Sprintf("\n... and %d more active scans", activeCount-10)
+		for idx, scan := range activeScans {
+			if idx >= 10 {
+				activeText += fmt.Sprintf("\n... and %d more active scans", len(activeScans)-10)
 				break
 			}
 			statusEmoji := "🟡"
@@ -877,49 +875,68 @@ func handleScanStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			} else if scan.Status == "cancelled" || scan.Status == "cancelling" {
 				statusEmoji = "⏹️"
 			}
-			activeText += fmt.Sprintf("%s **%s** - `%s` (%s)\n**Scan ID:** `%s`\n", statusEmoji, scan.Type, scan.Target, scan.Status, scan.ScanID)
+			
+			// Calculate elapsed time
+			elapsed := time.Since(scan.StartedAt)
+			elapsedStr := formatDuration(elapsed)
+			
+			// Show progress if available
+			progressStr := ""
+			if scan.TotalPhases > 0 {
+				percentage := float64(scan.CurrentPhase) / float64(scan.TotalPhases) * 100
+				progressStr = fmt.Sprintf("\n**Progress:** Phase %d/%d (%.1f%%)", scan.CurrentPhase, scan.TotalPhases, percentage)
+				if scan.PhaseName != "" {
+					progressStr += fmt.Sprintf(" - %s", scan.PhaseName)
+				}
+			}
+			
+			// Show statistics
+			statsStr := ""
+			if scan.FilesUploaded > 0 || scan.ErrorCount > 0 {
+				statsStr = fmt.Sprintf("\n**Stats:** %d files uploaded", scan.FilesUploaded)
+				if scan.ErrorCount > 0 {
+					statsStr += fmt.Sprintf(", %d errors", scan.ErrorCount)
+				}
+			}
+			
+			activeText += fmt.Sprintf("%s **%s** - `%s`\n**Status:** %s\n**Scan ID:** `%s`\n**Elapsed:** %s%s%s\n\n", 
+				statusEmoji, scan.ScanType, scan.Target, scan.Status, scan.ScanID, elapsedStr, progressStr, statsStr)
 		}
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:  fmt.Sprintf("Active Scans (%d)", activeCount),
+			Name:  fmt.Sprintf("Active Scans (%d)", len(activeScans)),
 			Value: activeText,
 		})
 	} else {
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:  "Active Scans",
-			Value: "No active scans",
+			Value: "✅ No active scans",
 		})
 	}
 
-	// Add completed scans
-	if len(completedList) > 0 {
-		completedText := ""
-		for i, result := range completedList {
-			if i >= 10 {
-				completedText += fmt.Sprintf("\n... and %d more completed scans", len(completedList)-10)
-				break
-			}
-			statusEmoji := "✅"
-			if result.Status == "failed" {
-				statusEmoji = "❌"
-			} else if result.Status == "cancelled" {
-				statusEmoji = "⏹️"
-			}
-			// ScanResult doesn't have Target field, so we show ScanType and ScanID
-			completedText += fmt.Sprintf("%s **%s** (%s)\n**Scan ID:** `%s`\n", statusEmoji, result.ScanType, result.Status, result.ScanID)
+	// Use InteractionResponseEdit to update the deferred response
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("[ERROR] Failed to update scan status interaction: %v", err)
+		// Try follow-up as fallback
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		if err != nil {
+			log.Printf("[ERROR] Failed to send scan status follow-up: %v", err)
 		}
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:  fmt.Sprintf("Recent Completed Scans (%d)", len(completedList)),
-			Value: completedText,
-		})
-	} else {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:  "Completed Scans",
-			Value: "No completed scans",
-		})
 	}
+}
 
-	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
-		log.Printf("[WARN] Failed to update interaction: %v", err)
+// formatDuration formats a duration in human-readable format
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	} else if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	} else {
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
 	}
 }
 

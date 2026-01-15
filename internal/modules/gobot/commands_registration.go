@@ -442,6 +442,13 @@ func registerAllCommands(s *discordgo.Session) {
 			Description: "List all active and recent completed scans",
 		},
 		{
+			Name:        "git_scan",
+			Description: "Dump exposed .git repository and scan for secrets",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Target URL (exposing .git)", Required: true},
+			},
+		},
+		{
 			Name:        "cancel_scan",
 			Description: "Cancel a running scan (domain_run, subdomain_run, etc.)",
 			Options: []*discordgo.ApplicationCommandOption{

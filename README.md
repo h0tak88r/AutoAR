@@ -139,65 +139,62 @@ docker compose up -d
 docker logs autoar-discord
 ```
 
-### Manual Installation (Native - No Docker)
+### 🖥️ Recommended Production Deployment (VPS)
 
-**Quick Start:**
+For the best performance and reliability, **we recommend running AutoAR on a Linux VPS** (Ubuntu/Debian) using `tmux` to ensure the bot keeps running in the background.
+
+**1. Prepare the Environment:**
 ```bash
-# 1. Install dependencies
-autoar setup
+# Clone the repository
+git clone https://github.com/h0tak88r/AutoAR.git
+cd AutoAR
 
-# 2. Configure environment
+# Build the binary
+go build -o autoar ./cmd/autoar
+```
+
+**2. Install Dependencies:**
+AutoAR includes a built-in setup command to install all required external tools (Nuclei, Naabu, etc.) automatically:
+```bash
+./autoar setup
+```
+
+**3. Verify Installation:**
+Run the check-tools command to ensure everything is ready:
+```bash
+./autoar check-tools
+```
+
+**4. Configuration:**
+Create and edit your environment file. The bot will automatically load this file on startup.
+```bash
 cp env.example .env
-# Edit .env and set DISCORD_BOT_TOKEN
-
-# 3. Start the bot
-./start-bot.sh
+nano .env
+# REQUIRED: Set DISCORD_BOT_TOKEN
+# RECOMMENDED: Set API keys (SecurityTrails, Shodan, etc.) for full power
 ```
 
-**Detailed Steps:**
+**5. Run with Tmux (Persistence):**
+Use `tmux` to run the bot in a persistent session that survives SSH disconnections.
 
-1. **Install Go** (1.23 or later):
 ```bash
-# Install Go from https://golang.org/dl/
-# Or use package manager
-sudo apt install golang-go  # Ubuntu/Debian
+# 1. Create a new tmux session named 'autoar'
+tmux new -s autoar
+
+# 2. Start the bot (inside tmux)
+./autoar bot
+
+# 3. Detach from session (Ctrl+B, then D)
+# The bot continues running in the background!
 ```
 
-2. **Install security tools**  
-Only required if you run AutoAR **directly on your host**.  
-The official Docker images install these automatically.  
-Most scanners are still invoked as external binaries; several tools like `next88`, `apkX`,
-`confused2`, `fuzzuli`, `dalfox`, `gf`, `urlfinder`, `jsfinder`, `kxss`, `naabu`, `misconfig-mapper`,
-and the JWT engine (`jwthack`) are embedded as Go libraries and do **not** need separate installation.
+**Managing the Session:**
 ```bash
-# Go-based tools (external binaries AutoAR still calls via CLI)
-go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+# Re-attach to view logs/interact
+tmux attach -t autoar
 
-# System packages (for Naabu/pcap when building locally on Linux)
-sudo apt-get update && sudo apt-get install -y libpcap-dev
-
-# Java runtime (required for jadx and apktool)
-sudo apt-get install -y openjdk-17-jre-headless
-
-# Decompiler used by embedded apkX engine (required for APK analysis)
-curl -L "https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip" -o /tmp/jadx.zip
-sudo mkdir -p /opt/jadx
-sudo unzip -q /tmp/jadx.zip -d /opt/jadx
-sudo ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx
-rm /tmp/jadx.zip
-
-# APK tool for MITM patching (required for apkX MITM patching feature)
-APKTOOL_VERSION="2.9.3"
-curl -L "https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_${APKTOOL_VERSION}.jar" -o /tmp/apktool.jar
-sudo mv /tmp/apktool.jar /usr/local/bin/apktool.jar
-echo '#!/bin/sh\njava -jar /usr/local/bin/apktool.jar "$@"' | sudo tee /usr/local/bin/apktool
-sudo chmod +x /usr/local/bin/apktool
-
-# Optional: APK signer for MITM patched APKs (recommended)
-curl -L "https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar" -o /tmp/uber-apk-signer.jar
-sudo mv /tmp/uber-apk-signer.jar /usr/local/bin/uber-apk-signer.jar
-echo '#!/bin/sh\njava -jar /usr/local/bin/uber-apk-signer.jar "$@"' | sudo tee /usr/local/bin/uber-apk-signer
-sudo chmod +x /usr/local/bin/uber-apk-signer
+# Check if session is running
+tmux ls
 ```
 
 **Note on AWS integration**

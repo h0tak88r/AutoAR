@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -45,9 +46,10 @@ func (s *SQLiteDB) Init() error {
 	}
 
 	// Configure connection pool settings for SQLite
-	// SQLite doesn't support multiple writers well, so limit connections
-	db.SetMaxOpenConns(1)              // Only one connection at a time for SQLite
-	db.SetMaxIdleConns(1)              // Keep one idle connection
+	// With WAL mode enabled, we can support multiple readers and one writer
+	// modernc.org/sqlite supports concurrency well in WAL mode
+	db.SetMaxOpenConns(25)              // Allow multiple concurrent connections
+	db.SetMaxIdleConns(25)              // Keep up to 25 idle connections
 	db.SetConnMaxLifetime(time.Hour)   // Close connections after 1 hour
 	db.SetConnMaxIdleTime(time.Minute * 30) // Close idle connections after 30 minutes
 
@@ -155,6 +157,32 @@ func (s *SQLiteDB) InitSchema() error {
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
 	);
 	
+	-- Create scans table for scan progress tracking
+	CREATE TABLE IF NOT EXISTS scans (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		scan_id TEXT NOT NULL UNIQUE,
+		scan_type TEXT NOT NULL,
+		target TEXT NOT NULL,
+		status TEXT NOT NULL,
+		channel_id TEXT,
+		thread_id TEXT,
+		message_id TEXT,
+		current_phase INTEGER DEFAULT 0,
+		total_phases INTEGER DEFAULT 0,
+		phase_name TEXT,
+		phase_start_time TIMESTAMP,
+		completed_phases TEXT,
+		failed_phases TEXT,
+		files_uploaded INTEGER DEFAULT 0,
+		error_count INTEGER DEFAULT 0,
+		started_at TIMESTAMP NOT NULL,
+		completed_at TIMESTAMP,
+		last_update TIMESTAMP NOT NULL,
+		command TEXT,
+		created_at TIMESTAMP DEFAULT (datetime('now')),
+		updated_at TIMESTAMP DEFAULT (datetime('now'))
+	);
+	
 	-- Create indexes
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
@@ -163,6 +191,19 @@ func (s *SQLiteDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_updates_targets_url ON updates_targets(url);
 	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_domain ON subdomain_monitor_targets(domain);
 	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_is_running ON subdomain_monitor_targets(is_running);
+	CREATE INDEX IF NOT EXISTS idx_scans_scan_id ON scans(scan_id);
+	CREATE INDEX IF NOT EXISTS scans_channel_id_idx ON scans (channel_id);
+	CREATE INDEX IF NOT EXISTS scans_status_idx ON scans (status);
+	CREATE INDEX IF NOT EXISTS scans_started_at_idx ON scans (started_at);
+	
+	-- Create APK cache table for file-based scans
+	CREATE TABLE IF NOT EXISTS apk_cache (
+		hash TEXT PRIMARY KEY,
+		data TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT (datetime('now'))
+	);
+	
+	CREATE INDEX IF NOT EXISTS apk_cache_created_at_idx ON apk_cache (created_at);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -819,6 +860,286 @@ func (s *SQLiteDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarge
 	t.CheckNew = checkNewInt != 0
 	t.IsRunning = isRunningInt != 0
 	return &t, nil
+}
+
+// CreateScan creates a new scan record
+func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
+	completedPhasesJSON := "[]"
+	failedPhasesJSON := "[]"
+	
+	if len(scan.CompletedPhases) > 0 {
+		data, err := json.Marshal(scan.CompletedPhases)
+		if err == nil {
+			completedPhasesJSON = string(data)
+		}
+	}
+	
+	if len(scan.FailedPhases) > 0 {
+		data, err := json.Marshal(scan.FailedPhases)
+		if err == nil {
+			failedPhasesJSON = string(data)
+		}
+	}
+	
+	_, err := s.db.Exec(`
+		INSERT INTO scans (
+			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
+			current_phase, total_phases, phase_name, phase_start_time,
+			completed_phases, failed_phases, files_uploaded, error_count,
+			started_at, last_update, command
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
+		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
+		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
+		scan.StartedAt, scan.LastUpdate, scan.Command)
+	
+	if err != nil {
+		return fmt.Errorf("failed to create scan: %v", err)
+	}
+	return nil
+}
+
+// UpdateScanProgress updates scan progress
+func (s *SQLiteDB) UpdateScanProgress(scanID string, progress *ScanProgress) error {
+	completedPhasesJSON := "[]"
+	failedPhasesJSON := "[]"
+	
+	if len(progress.CompletedPhases) > 0 {
+		data, err := json.Marshal(progress.CompletedPhases)
+		if err == nil {
+			completedPhasesJSON = string(data)
+		}
+	}
+	
+	if len(progress.FailedPhases) > 0 {
+		data, err := json.Marshal(progress.FailedPhases)
+		if err == nil {
+			failedPhasesJSON = string(data)
+		}
+	}
+	
+	_, err := s.db.Exec(`
+		UPDATE scans SET
+			current_phase = ?,
+			total_phases = ?,
+			phase_name = ?,
+			phase_start_time = ?,
+			completed_phases = ?,
+			failed_phases = ?,
+			files_uploaded = ?,
+			error_count = ?,
+			last_update = ?,
+			updated_at = datetime('now')
+		WHERE scan_id = ?;
+	`, progress.CurrentPhase, progress.TotalPhases, progress.PhaseName, progress.PhaseStartTime,
+		completedPhasesJSON, failedPhasesJSON, progress.FilesUploaded, progress.ErrorCount,
+		time.Now(), scanID)
+	
+	if err != nil {
+		return fmt.Errorf("failed to update scan progress: %v", err)
+	}
+	return nil
+}
+
+// UpdateScanStatus updates scan status
+func (s *SQLiteDB) UpdateScanStatus(scanID string, status string) error {
+	now := time.Now()
+	var err error
+	
+	if status == "completed" || status == "failed" || status == "cancelled" {
+		_, err = s.db.Exec(`
+			UPDATE scans SET
+				status = ?,
+				completed_at = ?,
+				last_update = ?,
+				updated_at = datetime('now')
+			WHERE scan_id = ?;
+		`, status, now, now, scanID)
+	} else {
+		_, err = s.db.Exec(`
+			UPDATE scans SET
+				status = ?,
+				last_update = ?,
+				updated_at = datetime('now')
+			WHERE scan_id = ?;
+		`, status, now, scanID)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("failed to update scan status: %v", err)
+	}
+	return nil
+}
+
+// GetScan retrieves a scan by ID
+func (s *SQLiteDB) GetScan(scanID string) (*ScanRecord, error) {
+	var scan ScanRecord
+	var completedPhasesJSON, failedPhasesJSON string
+	var phaseStartTime, completedAt sql.NullTime
+	
+	err := s.db.QueryRow(`
+		SELECT id, scan_id, scan_type, target, status, 
+			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
+			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
+			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+		FROM scans WHERE scan_id = ?;
+	`, scanID).Scan(
+		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
+		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
+		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
+		&completedPhasesJSON, &failedPhasesJSON,
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+	
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("scan not found: %s", scanID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scan: %v", err)
+	}
+	
+	if phaseStartTime.Valid {
+		scan.PhaseStartTime = &phaseStartTime.Time
+	}
+	if completedAt.Valid {
+		scan.CompletedAt = &completedAt.Time
+	}
+	
+	// Unmarshal JSON arrays
+	if completedPhasesJSON != "" && completedPhasesJSON != "[]" {
+		json.Unmarshal([]byte(completedPhasesJSON), &scan.CompletedPhases)
+	}
+	if failedPhasesJSON != "" && failedPhasesJSON != "[]" {
+		json.Unmarshal([]byte(failedPhasesJSON), &scan.FailedPhases)
+	}
+	
+	return &scan, nil
+}
+
+// ListActiveScans lists all active scans
+func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
+	rows, err := s.db.Query(`
+		SELECT id, scan_id, scan_type, target, status,
+			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
+			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
+			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+		FROM scans
+		WHERE status = 'running'
+		ORDER BY started_at DESC;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active scans: %v", err)
+	}
+	defer rows.Close()
+	
+	var scans []*ScanRecord
+	for rows.Next() {
+		var scan ScanRecord
+		var completedPhasesJSON, failedPhasesJSON string
+		var phaseStartTime, completedAt sql.NullTime
+		
+		err := rows.Scan(
+			&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
+			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
+			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
+			&completedPhasesJSON, &failedPhasesJSON,
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+		
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %v", err)
+		}
+		
+		if phaseStartTime.Valid {
+			scan.PhaseStartTime = &phaseStartTime.Time
+		}
+		if completedAt.Valid {
+			scan.CompletedAt = &completedAt.Time
+		}
+		
+		// Unmarshal JSON arrays
+		if completedPhasesJSON != "" && completedPhasesJSON != "[]" {
+			json.Unmarshal([]byte(completedPhasesJSON), &scan.CompletedPhases)
+		}
+		if failedPhasesJSON != "" && failedPhasesJSON != "[]" {
+			json.Unmarshal([]byte(failedPhasesJSON), &scan.FailedPhases)
+		}
+		
+		scans = append(scans, &scan)
+	}
+	
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate scans: %v", rows.Err())
+	}
+	return scans, nil
+}
+
+// ListRecentScans lists recent scans (completed, failed, cancelled)
+func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
+	rows, err := s.db.Query(`
+		SELECT id, scan_id, scan_type, target, status,
+			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
+			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
+			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+		FROM scans
+		WHERE status IN ('completed', 'failed', 'cancelled')
+		ORDER BY started_at DESC
+		LIMIT ?;
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list recent scans: %v", err)
+	}
+	defer rows.Close()
+	
+	var scans []*ScanRecord
+	for rows.Next() {
+		var scan ScanRecord
+		var completedPhasesJSON, failedPhasesJSON string
+		var phaseStartTime, completedAt sql.NullTime
+		
+		err := rows.Scan(
+			&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
+			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
+			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
+			&completedPhasesJSON, &failedPhasesJSON,
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+		
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %v", err)
+		}
+		
+		if phaseStartTime.Valid {
+			scan.PhaseStartTime = &phaseStartTime.Time
+		}
+		if completedAt.Valid {
+			scan.CompletedAt = &completedAt.Time
+		}
+		
+		// Unmarshal JSON arrays
+		if completedPhasesJSON != "" && completedPhasesJSON != "[]" {
+			json.Unmarshal([]byte(completedPhasesJSON), &scan.CompletedPhases)
+		}
+		if failedPhasesJSON != "" && failedPhasesJSON != "[]" {
+			json.Unmarshal([]byte(failedPhasesJSON), &scan.FailedPhases)
+		}
+		
+		scans = append(scans, &scan)
+	}
+	
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate scans: %v", rows.Err())
+	}
+	return scans, nil
+}
+
+// DeleteScan deletes a scan record
+func (s *SQLiteDB) DeleteScan(scanID string) error {
+	_, err := s.db.Exec(`DELETE FROM scans WHERE scan_id = ?;`, scanID)
+	if err != nil {
+		return fmt.Errorf("failed to delete scan: %v", err)
+	}
+	return nil
 }
 
 // Close closes the database connection

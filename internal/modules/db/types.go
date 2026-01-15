@@ -77,8 +77,53 @@ type DB interface {
 	// GetSubdomainMonitorTargetByID returns a single subdomain monitor target by ID
 	GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error)
 
+	// Scan tracking
+	CreateScan(scan *ScanRecord) error
+	UpdateScanProgress(scanID string, progress *ScanProgress) error
+	UpdateScanStatus(scanID string, status string) error
+	GetScan(scanID string) (*ScanRecord, error)
+	ListActiveScans() ([]*ScanRecord, error)
+	ListRecentScans(limit int) ([]*ScanRecord, error)
+	DeleteScan(scanID string) error
+
 	// Close closes the database connection
 	Close()
+}
+
+// ScanRecord represents a scan stored in the database
+type ScanRecord struct {
+	ID              int
+	ScanID          string
+	ScanType        string
+	Target          string
+	Status          string
+	ChannelID       string
+	ThreadID        string
+	MessageID       string
+	CurrentPhase    int
+	TotalPhases     int
+	PhaseName       string
+	PhaseStartTime  *time.Time
+	CompletedPhases []string
+	FailedPhases    []string
+	FilesUploaded   int
+	ErrorCount      int
+	StartedAt       time.Time
+	CompletedAt     *time.Time
+	LastUpdate      time.Time
+	Command         string
+}
+
+// ScanProgress represents progress update for a scan
+type ScanProgress struct {
+	CurrentPhase    int
+	TotalPhases     int
+	PhaseName       string
+	PhaseStartTime  time.Time
+	CompletedPhases []string
+	FailedPhases    []string
+	FilesUploaded   int
+	ErrorCount      int
 }
 
 // KeyhackTemplate represents a stored key validation template

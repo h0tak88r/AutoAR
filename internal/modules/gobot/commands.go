@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 )
 
 var (
@@ -51,9 +52,22 @@ type ScanInfo struct {
 	CompletedAt *time.Time
 	Command     string
 	CancelFunc  context.CancelFunc // Function to cancel the scan
-	MessageID   string            // Discord message ID for updating messages
-	ChannelID   string            // Discord channel ID for updating messages
-	ThreadID    string            // Discord thread ID for sending updates (avoids token expiration)
+	MessageID   string             // Discord message ID for updating messages
+	ChannelID   string             // Discord channel ID for updating messages
+	ThreadID    string             // Discord thread ID for sending updates (avoids token expiration)
+	
+	// Progress tracking
+	CurrentPhase    int       // Current phase number (1-based)
+	TotalPhases     int       // Total number of phases
+	PhaseName       string    // Name of current phase
+	PhaseStartTime  time.Time // When current phase started
+	CompletedPhases []string  // List of completed phase names
+	FailedPhases    []string  // List of failed phase names
+	
+	// Statistics
+	FilesUploaded int       // Number of files uploaded
+	ErrorCount    int       // Number of errors encountered
+	LastUpdate    time.Time // Last progress update time
 }
 
 // UploadedFileInfo holds information about an uploaded file (for lite scans)
@@ -242,21 +256,16 @@ func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, s
 		}
 
 		wg.Add(1)
+		atomic.AddInt64(&successCount, 1)
 		go func(target, scanID string, cmd []string) {
 			defer wg.Done()
 			// Create a minimal interaction-like struct just for channel ID
 			// We'll pass channel ID directly to runScanBackground
 			runScanBackground(scanID, scanType, target, cmd, s, i)
-			atomic.AddInt64(&successCount, 1)
 		}(target, scanID, command)
-
-		// Small delay between scans
-		time.Sleep(1 * time.Second)
 	}
 
-	// Wait for all scans to start (they run in background)
-	// Note: We wait a bit to ensure all goroutines have started
-	time.Sleep(2 * time.Second)
+	// No wait needed as count is updated synchronously
 
 	// Send summary with actual started count
 	startedCount := int(atomic.LoadInt64(&successCount))
@@ -280,13 +289,35 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	}
 
 	// Create context with timeout for long-running scans
-	// domain_run and subdomain_run need longer timeouts (2 hours)
-	// Other scans use 30 minutes
+	// domain_run and subdomain_run need longer timeouts (5 hours by default, configurable via DOMAIN_RUN_TIMEOUT)
+	// Other scans use 30 minutes (configurable via SCAN_TIMEOUT)
 	var timeout time.Duration
 	if scanType == "domain_run" || scanType == "subdomain_run" {
-		timeout = 2 * time.Hour // 2 hours for full workflows
+		// Check for custom timeout from environment variable (in seconds)
+		if timeoutStr := os.Getenv("DOMAIN_RUN_TIMEOUT"); timeoutStr != "" {
+			if timeoutSecs, err := strconv.Atoi(timeoutStr); err == nil && timeoutSecs > 0 {
+				timeout = time.Duration(timeoutSecs) * time.Second
+				log.Printf("[INFO] Using custom domain_run timeout: %v (%d seconds)", timeout, timeoutSecs)
+			} else {
+				timeout = 5 * time.Hour // Default 5 hours for full workflows
+				log.Printf("[WARN] Invalid DOMAIN_RUN_TIMEOUT value '%s', using default: %v", timeoutStr, timeout)
+			}
+		} else {
+			timeout = 5 * time.Hour // Default 5 hours for full workflows
+		}
 	} else {
-		timeout = 30 * time.Minute // 30 minutes for other scans
+		// Check for custom timeout from environment variable (in seconds)
+		if timeoutStr := os.Getenv("SCAN_TIMEOUT"); timeoutStr != "" {
+			if timeoutSecs, err := strconv.Atoi(timeoutStr); err == nil && timeoutSecs > 0 {
+				timeout = time.Duration(timeoutSecs) * time.Second
+				log.Printf("[INFO] Using custom scan timeout: %v (%d seconds)", timeout, timeoutSecs)
+			} else {
+				timeout = 30 * time.Minute // Default 30 minutes for other scans
+				log.Printf("[WARN] Invalid SCAN_TIMEOUT value '%s', using default: %v", timeoutStr, timeout)
+			}
+		} else {
+			timeout = 30 * time.Minute // Default 30 minutes for other scans
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
@@ -332,6 +363,40 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	}
 	scansMutex.Unlock()
 
+	// Create database scan record for tracking (for all scan types)
+	dbNow := time.Now()
+	totalPhases := 1 // Default for simple scans
+	if scanType == "domain_run" {
+		totalPhases = 19
+	} else if scanType == "subdomain_run" {
+		totalPhases = 15
+	}
+	
+	scanRecord := &db.ScanRecord{
+		ScanID:      scanID,
+		ScanType:    scanType,
+		Target:      target,
+		Status:      "running",
+		ChannelID:   channelID,
+		TotalPhases: totalPhases,
+		StartedAt:   dbNow,
+		LastUpdate:  dbNow,
+		Command:     strings.Join(command, " "),
+	}
+	
+	// Get thread ID if it exists
+	scansMutex.RLock()
+	if scan, ok := activeScans[scanID]; ok && scan.ThreadID != "" {
+		scanRecord.ThreadID = scan.ThreadID
+	}
+	scansMutex.RUnlock()
+	
+	if err := db.CreateScan(scanRecord); err != nil {
+		log.Printf("[ERROR] Failed to create scan record in database: %v", err)
+	} else {
+		log.Printf("[INFO] Created database scan record for %s (%s)", scanID, scanType)
+	}
+
 	defer cancel()
 
 	// Execute command with environment variables for modules
@@ -341,9 +406,10 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", channelID),
 	)
 	
-	// Pipe stdout/stderr to see real-time logs from subprocess
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Suppress stdout to avoid flooding terminal with verbose tool output (e.g., FFUF wordlists)
+	// Keep stderr to see actual errors
+	cmd.Stdout = nil // Discard stdout
+	cmd.Stderr = os.Stderr // Keep errors visible
 	
 	err := cmd.Run()
 	output := []byte{} // Empty since we're piping to stdout/stderr
@@ -378,6 +444,13 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		}
 	}
 	scansMutex.Unlock()
+
+	// Update database scan status
+	if err := db.UpdateScanStatus(scanID, status); err != nil {
+		log.Printf("[ERROR] Failed to update scan status in database: %v", err)
+	} else {
+		log.Printf("[INFO] Updated database scan status for %s to %s", scanID, status)
+	}
 
 	// Update Discord message
 	embed := createScanEmbed(scanType, target, status)
@@ -1692,6 +1765,24 @@ func handleDomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("[INFO] Created thread %s for domain_run scan %s", threadID, scanID)
 	}
 
+	// Create database scan record for tracking
+	now := time.Now()
+	scanRecord := &db.ScanRecord{
+		ScanID:      scanID,
+		ScanType:    "domain_run",
+		Target:      domain,
+		Status:      "running",
+		ChannelID:   i.ChannelID,
+		ThreadID:    threadID,
+		TotalPhases: 19, // Domain workflow has 19 phases
+		StartedAt:   now,
+		LastUpdate:  now,
+		Command:     strings.Join(command, " "),
+	}
+	if err := db.CreateScan(scanRecord); err != nil {
+		log.Printf("[ERROR] Failed to create scan record in database: %v", err)
+	}
+
 	go runScanBackground(scanID, "domain_run", domain, command, s, i)
 }
 
@@ -1727,6 +1818,24 @@ func handleSubdomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	threadID := createScanThread(s, i, scanID, "Subdomain Workflow", subdomain)
 	if threadID != "" {
 		log.Printf("[INFO] Created thread %s for subdomain_run scan %s", threadID, scanID)
+	}
+
+	// Create database scan record for tracking
+	now := time.Now()
+	scanRecord := &db.ScanRecord{
+		ScanID:      scanID,
+		ScanType:    "subdomain_run",
+		Target:      subdomain,
+		Status:      "running",
+		ChannelID:   i.ChannelID,
+		ThreadID:    threadID,
+		TotalPhases: 15, // Subdomain workflow has ~15 phases
+		StartedAt:   now,
+		LastUpdate:  now,
+		Command:     strings.Join(command, " "),
+	}
+	if err := db.CreateScan(scanRecord); err != nil {
+		log.Printf("[ERROR] Failed to create scan record in database: %v", err)
 	}
 
 	go runScanBackground(scanID, "subdomain_run", subdomain, command, s, i)
