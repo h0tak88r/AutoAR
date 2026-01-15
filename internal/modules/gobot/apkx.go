@@ -15,6 +15,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	apkxmod "github.com/h0tak88r/AutoAR/v3/internal/modules/apkx"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 )
 
@@ -107,6 +108,70 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("[DEBUG] Starting file-based apkX scan - file: %s, mitm: %v", filename, mitm)
 		// Ensure temp file is cleaned up after analysis
 		defer os.Remove(path)
+
+		// Check APK cache
+		apkHash, hashErr := db.HashAPKFile(path)
+		if hashErr == nil {
+			if entry, err := db.GetAPKCache(apkHash); err == nil {
+				log.Printf("[CACHE] HIT: Using cached results for APK hash %s", apkHash[:16])
+				
+				// Create fields from cache
+				var fields []*discordgo.MessageEmbedField
+				if entry.HTMLReportURL != "" {
+					fields = append(fields, &discordgo.MessageEmbedField{
+						Name: "📄 HTML Report (R2)", Value: fmt.Sprintf("🔗 [View Report](%s)", entry.HTMLReportURL),
+					})
+				}
+				if entry.JSONResultsURL != "" {
+					fields = append(fields, &discordgo.MessageEmbedField{
+						Name: "📋 JSON Results (R2)", Value: fmt.Sprintf("🔗 [Download](%s)", entry.JSONResultsURL),
+					})
+				}
+				if entry.OriginalAPKURL != "" {
+					fields = append(fields, &discordgo.MessageEmbedField{
+						Name: "📱 Original APK (R2)", Value: fmt.Sprintf("🔗 [Download](%s)", entry.OriginalAPKURL),
+					})
+				}
+				if entry.MITMPatchedURL != "" {
+					fields = append(fields, &discordgo.MessageEmbedField{
+						Name: "🔓 MITM Patched APK (R2)", Value: fmt.Sprintf("🔗 [Download](%s)", entry.MITMPatchedURL),
+					})
+				}
+				
+				// Add summary stats if available manually? No, we skip stats in cache mode for now to keep it simple, 
+				// or we could cache stats too. For now just links.
+				
+				embed := &discordgo.MessageEmbed{
+					Title:       "📱 apkX Analysis (Cached)",
+					Description: fmt.Sprintf("File: `%s`\nAnalysis loaded from cache (no new scan performed).", filename),
+					Color:       0x00ff00,
+					Fields:      fields,
+					Timestamp:   entry.CreatedAt.Format(time.RFC3339),
+				}
+				
+				// Create findings table attachment from cached content
+				var cachedFiles []*discordgo.File
+				if entry.FindingsTable != "" {
+					cachedFiles = append(cachedFiles, &discordgo.File{
+						Name:        "findings-table.md",
+						ContentType: "text/markdown",
+						Reader:      strings.NewReader(entry.FindingsTable),
+					})
+				}
+				
+				msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Embeds: []*discordgo.MessageEmbed{embed},
+					Files:  cachedFiles,
+				})
+				if err != nil {
+					log.Printf("[ERROR] Failed to send cached result message: %v", err)
+				} else if msg != nil {
+					log.Printf("[DEBUG] Sent cached results (message ID: %s)", msg.ID)
+				}
+				return
+			}
+		}
+
 		opts := apkxmod.Options{
 			InputPath: path,
 			MITM:      mitm,
@@ -176,7 +241,37 @@ func handleApkXScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		)
 	}
 
+	// Upload to R2 and add link fields
+	var htmlURL, jsonURL, originalURL, mitmURL string
+	if err == nil {
+		htmlURL, jsonURL, originalURL, mitmURL = uploadFileBasedScanToR2(res, filename, path, mitm, &fields)
+	}
+
 	files := prepareAPKFiles(res, mitm, &fields)
+
+	// Save to cache if successful
+	if err == nil && apkHash != "" {
+		// Read findings table content if exists
+		var tableContent string
+		tablePath := filepath.Join(res.ReportDir, "findings-table.md")
+		if data, err := os.ReadFile(tablePath); err == nil {
+			tableContent = string(data)
+		}
+		
+		entry := &db.APKCacheEntry{
+			Hash:           apkHash,
+			Filename:       filename,
+			FindingsTable:  tableContent,
+			HTMLReportURL:  htmlURL,
+			JSONResultsURL: jsonURL,
+			OriginalAPKURL: originalURL,
+			MITMPatchedURL: mitmURL,
+			CreatedAt:      time.Now(),
+		}
+		if saveErr := db.SaveAPKCache(entry); saveErr != nil {
+			log.Printf("[WARN] Failed to save APK to cache: %v", saveErr)
+		}
+	}
 
 	// Create embed AFTER prepareAPKFiles so R2 links are included in fields
 	embed := &discordgo.MessageEmbed{
@@ -800,90 +895,10 @@ func prepareAPKFiles(res *apkxmod.Result, mitm bool, fields *[]*discordgo.Messag
 				})
 			}
 		}
-		
-		// Also include results.json
-		if data, err := os.ReadFile(res.LogFile); err == nil {
-			files = append(files, &discordgo.File{
-				Name:        filepath.Base(res.LogFile),
-				ContentType: "application/json",
-				Reader:      bytes.NewReader(data),
-			})
-		}
 	}
 	
-	// Add MITM patched APK if it exists
-	log.Printf("[DEBUG] Checking MITM patched APK - mitm flag: %v, res.MITMPatchedAPK: %q", mitm, func() string {
-		if res == nil {
-			return "res is nil"
-		}
-		return res.MITMPatchedAPK
-	}())
-	
-	if mitm {
-		log.Printf("[DEBUG] MITM flag is true, checking for patched APK...")
-		if res != nil && res.MITMPatchedAPK != "" {
-			log.Printf("[DEBUG] MITM patched APK path found: %s", res.MITMPatchedAPK)
-			// Verify file exists before trying to send
-			if stat, statErr := os.Stat(res.MITMPatchedAPK); statErr == nil {
-				log.Printf("[DEBUG] MITM patched APK file exists, size: %d bytes", stat.Size())
-				
-				// Check if file should be uploaded to R2
-				if r2storage.ShouldUseR2(res.MITMPatchedAPK) || (r2storage.IsEnabled() && stat.Size() > r2storage.GetFileSizeLimit()) {
-					// Check if file already exists in R2, upload if not
-					log.Printf("[DEBUG] MITM patched APK is large, checking R2...")
-					publicURL, isNew, err := r2storage.UploadFileIfNotExists(res.MITMPatchedAPK, filepath.Base(res.MITMPatchedAPK))
-					if err != nil {
-						log.Printf("[ERROR] Failed to upload MITM patched APK to R2: %v, trying direct upload", err)
-						// Fallback to direct upload
-						if data, readErr := os.ReadFile(res.MITMPatchedAPK); readErr == nil {
-							files = append(files, &discordgo.File{
-								Name:        filepath.Base(res.MITMPatchedAPK),
-								ContentType: "application/vnd.android.package-archive",
-								Reader:      bytes.NewReader(data),
-							})
-							*fields = append(*fields, &discordgo.MessageEmbedField{
-								Name:  "🔒 MITM Patched APK",
-								Value: fmt.Sprintf("`%s` (%.2f MB)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024),
-							})
-						}
-					} else {
-						// Add R2 link to embed
-						statusText := "Uploaded to R2"
-						if !isNew {
-							statusText = "Found in R2"
-						}
-						*fields = append(*fields, &discordgo.MessageEmbedField{
-							Name:  "🔒 MITM Patched APK (R2)",
-							Value: fmt.Sprintf("`%s` (%.2f MB) - %s\n🔗 [Download from R2](%s)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024, statusText, publicURL),
-						})
-						log.Printf("[DEBUG] MITM patched APK %s in R2: %s", statusText, publicURL)
-					}
-				} else {
-					// Read file into memory for direct upload
-					if data, err := os.ReadFile(res.MITMPatchedAPK); err == nil {
-						files = append(files, &discordgo.File{
-							Name:        filepath.Base(res.MITMPatchedAPK),
-							ContentType: "application/vnd.android.package-archive",
-							Reader:      bytes.NewReader(data),
-						})
-						*fields = append(*fields, &discordgo.MessageEmbedField{
-							Name:  "🔒 MITM Patched APK",
-							Value: fmt.Sprintf("`%s` (%.2f MB)", filepath.Base(res.MITMPatchedAPK), float64(stat.Size())/1024/1024),
-						})
-						log.Printf("[DEBUG] Successfully added MITM patched APK to Discord files")
-					} else {
-						log.Printf("[ERROR] Failed to read MITM patched APK file: %v", err)
-					}
-				}
-			} else {
-				log.Printf("[ERROR] MITM patched APK file not found: %s (stat error: %v)", res.MITMPatchedAPK, statErr)
-			}
-		} else {
-			log.Printf("[WARN] MITM flag is true but res.MITMPatchedAPK is empty (res is nil: %v)", res == nil)
-		}
-	} else {
-		log.Printf("[DEBUG] MITM flag is false, skipping MITM patched APK")
-	}
+	// JSON and MITM APK are now sent as R2 links only (no attachments)
+	// This reduces Discord message size and makes messages cleaner
 	
 	return files
 }
