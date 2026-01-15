@@ -20,6 +20,7 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/reflection"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 )
 
 // Options holds lite scan options
@@ -260,6 +261,23 @@ func RunLite(opts Options) (*Result, error) {
 
 func runPhase(phaseKey string, step, total int, description, domain string, timeoutSeconds int, uploadedFiles *LiteScanUploads, fn func() error) error {
 	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
+
+	// Update database with current phase progress
+	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	if scanID != "" {
+		phaseStartTime := time.Now()
+		progress := &db.ScanProgress{
+			CurrentPhase:   step,
+			TotalPhases:    total,
+			PhaseName:      description,
+			PhaseStartTime: phaseStartTime,
+		}
+		if err := db.UpdateScanProgress(scanID, progress); err != nil {
+			log.Printf("[WARN] Failed to update scan progress in database: %v", err)
+		} else {
+			log.Printf("[DEBUG] Updated scan progress: Phase %d/%d - %s", step, total, description)
+		}
+	}
 
 	var err error
 	phaseStartTime := time.Now()

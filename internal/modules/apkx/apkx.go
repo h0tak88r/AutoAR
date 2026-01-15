@@ -233,13 +233,10 @@ func Run(opts Options) (*Result, error) {
 	var mitmPatchedAPK string
 	switch ext {
 	case ".apk":
-		// Use adaptive worker count: fewer workers for better memory management
-		// Default to 4 workers (conservative) to prevent server overload
-		workers := 4
-		if runtime.NumCPU() <= 2 {
-			workers = 2 // Very conservative for small VPS
-		} else if runtime.NumCPU() <= 4 {
-			workers = 3
+		// Use adaptive worker count based on CPU cores for faster scanning
+		workers := runtime.NumCPU()
+		if workers < 4 {
+			workers = 4 // Minimum 4 workers
 		}
 		
 		// Allow override via environment variable
