@@ -193,6 +193,47 @@ func SendFileToChannel(channelID, filePath, description string) error {
 	return nil
 }
 
+// cleanupOrphanedScans marks old "running" scans as "failed" on bot startup
+// This handles cases where the bot crashed or was killed while scans were running
+func cleanupOrphanedScans() {
+	log.Println("[INFO] Cleaning up orphaned scans from previous bot sessions...")
+	
+	// Get all active scans
+	activeScans, err := db.ListActiveScans()
+	if err != nil {
+		log.Printf("[WARN] Failed to list active scans for cleanup: %v", err)
+		return
+	}
+	
+	if len(activeScans) == 0 {
+		log.Println("[INFO] No orphaned scans found")
+		return
+	}
+	
+	// Mark scans older than 6 hours as failed
+	// (Normal scans shouldn't take more than 2 hours based on timeout)
+	cutoffTime := time.Now().Add(-6 * time.Hour)
+	cleanedCount := 0
+	
+	for _, scan := range activeScans {
+		if scan.StartedAt.Before(cutoffTime) {
+			if err := db.UpdateScanStatus(scan.ScanID, "failed"); err != nil {
+				log.Printf("[WARN] Failed to mark orphaned scan %s as failed: %v", scan.ScanID, err)
+			} else {
+				log.Printf("[INFO] Marked orphaned scan %s as failed (started %s ago)", 
+					scan.ScanID, time.Since(scan.StartedAt).Round(time.Minute))
+				cleanedCount++
+			}
+		}
+	}
+	
+	if cleanedCount > 0 {
+		log.Printf("[INFO] Cleaned up %d orphaned scan(s)", cleanedCount)
+	} else {
+		log.Println("[INFO] No orphaned scans found (all scans are recent)")
+	}
+}
+
 // StartBot starts the Discord bot and initializes database
 func StartBot() error {
 	fmt.Println("🚀 Starting AutoAR Discord Bot...")
@@ -230,6 +271,9 @@ func StartBot() error {
 				log.Printf("[WARN] Failed to initialize database schema: %v", err)
 			} else {
 				log.Println("[INFO] Database initialized successfully")
+				
+				// Clean up orphaned scans from previous bot sessions
+				cleanupOrphanedScans()
 			}
 		}
 	}
@@ -843,6 +887,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleWebDepConf(s, i)
 	case "scan_status":
 		handleScanStatus(s, i)
+	case "git_scan":
+		handleGitScan(s, i)
 	case "cancel_scan":
 		handleCancelScan(s, i)
 	case "scope":
@@ -926,18 +972,19 @@ func cleanupResultsDirectory(prefix, localPath string) error {
 		return nil // Directory doesn't exist, nothing to clean
 	}
 	
-	// Upload to R2 first if enabled
-	if r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true" {
-		log.Printf("[INFO] Uploading results to R2 before cleanup: %s", localPath)
-		urls, err := r2storage.UploadResultsDirectory(prefix, localPath, true) // Upload and remove local
-		if err != nil {
-			log.Printf("[WARN] Failed to upload results to R2: %v, proceeding with local cleanup", err)
-		} else {
-			log.Printf("[OK] Uploaded %d files to R2 for %s", len(urls), prefix)
-			// Files already removed by UploadResultsDirectory, just return
-			return nil
-		}
-	}
+	// R2 upload disabled - files are already sent to Discord thread in real-time
+	// No need for redundant R2 upload at the end
+	// if r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true" {
+	// 	log.Printf("[INFO] Uploading results to R2 before cleanup: %s", localPath)
+	// 	urls, err := r2storage.UploadResultsDirectory(prefix, localPath, true) // Upload and remove local
+	// 	if err != nil {
+	// 		log.Printf("[WARN] Failed to upload results to R2: %v, proceeding with local cleanup", err)
+	// 	} else {
+	// 		log.Printf("[OK] Uploaded %d files to R2 for %s", len(urls), prefix)
+	// 		// Files already removed by UploadResultsDirectory, just return
+	// 		return nil
+	// 	}
+	// }
 	
 	// If R2 not enabled or upload failed, do local cleanup
 	log.Printf("[INFO] Cleaning up results directory: %s", localPath)

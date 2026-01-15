@@ -2,14 +2,16 @@ package domain
 
 import (
 
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	aemmod "github.com/h0tak88r/AutoAR/v3/internal/modules/aem"
@@ -32,6 +34,7 @@ import (
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 	wpconfusion "github.com/h0tak88r/AutoAR/v3/internal/modules/wp-confusion"
 )
 
@@ -122,11 +125,17 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		Files:  []UploadedFileInfo{},
 	}
 
-	totalSteps := 20 // Updated: Removed githubscan (not web-related), added zerodays
-	step := 1
+	totalSteps := 19 
+	var currentStep int32
+	
+	// Helper to get next step safely
+	getNextStep := func() int {
+		return int(atomic.AddInt32(&currentStep, 1))
+	}
 
-	// Phase 1: Reconnaissance
-	if err := runDomainPhase("subdomains", step, totalSteps, "Subdomain enumeration", domain, 0, uploadedFiles, func() error {
+	// Phase 1: Reconnaissance (Sequential - Foundation for everything else)
+	// Subdomains runs first to generate the list for everyone else
+	if err := runDomainPhase("subdomains", getNextStep(), totalSteps, "Subdomain enumeration", domain, 0, uploadedFiles, func() error {
 		subs, err := subdomains.EnumerateSubdomains(domain, 200)
 		if err != nil {
 			return err
@@ -145,291 +154,188 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	}); err != nil {
 		log.Printf("[WARN] Subdomain enumeration failed: %v", err)
 	}
-	step++
 
-	if err := runDomainPhase("cnames", step, totalSteps, "CNAME collection", domain, 0, uploadedFiles, func() error {
-		_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{
-			Domain:  domain,
-			Threads: 200,
-			Timeout: 5 * time.Minute,
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] CNAME collection failed: %v", err)
-	}
-	step++
+	// Phase 2: Host Discovery (Parallel)
+	// LiveHosts and CNAMEs use the subdomain list but are independent of each other
+	// We wait for LiveHosts to finish because Phase 3 modules depend on live-subs.txt
+	var wgPhase2 sync.WaitGroup
 
-	if err := runDomainPhase("livehosts", step, totalSteps, "Live host filtering", domain, 0, uploadedFiles, func() error {
-		_, err := livehosts.FilterLiveHosts(domain, 200, true)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Live host filtering failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("tech", step, totalSteps, "Technology detection", domain, 0, uploadedFiles, func() error {
-		_, err := tech.DetectTech(domain, 200)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Technology detection failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("urls", step, totalSteps, "URL collection", domain, 0, uploadedFiles, func() error {
-		_, err := urls.CollectURLs(domain, 200, false)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] URL collection failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("jsscan", step, totalSteps, "JavaScript scan", domain, 0, uploadedFiles, func() error {
-		_, err := jsscan.Run(jsscan.Options{Domain: domain, Threads: 200})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] JavaScript scan failed: %v", err)
-	}
-	step++
-
-	// Phase 2: Vulnerability Scanning
-	if err := runDomainPhase("reflection", step, totalSteps, "Reflection scan", domain, 0, uploadedFiles, func() error {
-		_, err := reflection.ScanReflection(domain)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Reflection scan failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("ports", step, totalSteps, "Port scanning", domain, 0, uploadedFiles, func() error {
-		_, err := ports.ScanPorts(domain, 200)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Port scanning failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("gf", step, totalSteps, "GF pattern matching", domain, 0, uploadedFiles, func() error {
-		// Use existing URLs file without regenerating (URLs already collected in Phase 5)
-		_, err := gf.ScanGFWithOptions(gf.Options{
-			Domain:    domain,
-			SkipCheck: true, // Skip validation/regeneration to avoid re-running subdomain/livehosts collection
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] GF scan failed: %v", err)
-	}
-	step++
-
-	// Phase 3: Additional Scanners (excluding dalfox and sqlmap as they depend on GF)
-	if err := runDomainPhase("backup", step, totalSteps, "Backup file discovery", domain, 0, uploadedFiles, func() error {
-		// Use live hosts file if available
-		if _, err := os.Stat(liveHostsFile); err == nil {
-			_, err := backup.Run(backup.Options{
-				Domain:        domain, // Pass domain for output directory calculation
-				LiveHostsFile: liveHostsFile,
-				Threads:       200,
-				Method:        "all",
-			})
-			return err
-		}
-		// Fallback to domain scan
-		_, err := backup.Run(backup.Options{
-			Domain:  domain,
-			Threads: 200,
-			Method:  "all",
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Backup file discovery failed: %v", err)
-	}
-	// Phase 11: Misconfig scan
-	misconfigTimeout := 1800 // default 30 minutes
-	if timeoutStr := os.Getenv("AUTOAR_TIMEOUT_MISCONFIG"); timeoutStr != "" {
-		if timeout, err := strconv.Atoi(timeoutStr); err == nil {
-			misconfigTimeout = timeout
-		}
-	}
-	if err := runDomainPhase("misconfig", step, totalSteps, "Cloud misconfiguration scan", domain, misconfigTimeout, uploadedFiles, func() error {
-		// Use existing live hosts file if available to avoid re-scanning
-		liveHostsFileToUse := ""
-		if _, err := os.Stat(liveHostsFile); err == nil {
-			liveHostsFileToUse = liveHostsFile
-		}
-		err := misconfig.Run(misconfig.Options{
-			Target:        domain,
-			Action:        "scan",
-			Threads:       200, // Use same thread count as other phases
-			Timeout:       1800,
-			LiveHostsFile: liveHostsFileToUse, // Pass live hosts file to avoid enumeration
-		})
-		// Don't fail if no live subdomains found - this is expected for some domains
-		if err != nil && strings.Contains(err.Error(), "no live subdomains found") {
-			log.Printf("[INFO] Misconfiguration scan skipped: %v", err)
-			return nil // Continue workflow
-		}
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Misconfiguration scan failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("aem", step, totalSteps, "AEM webapp discovery and scan", domain, 0, uploadedFiles, func() error {
-		// Use live hosts file if available
-		liveHostsFileToUse := ""
-		if _, err := os.Stat(liveHostsFile); err == nil {
-			liveHostsFileToUse = liveHostsFile
-		}
-		_, err := aemmod.Run(aemmod.Options{
-			Domain:        domain,
-			LiveHostsFile: liveHostsFileToUse,
-			Threads:       50,
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] AEM scan failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("dns", step, totalSteps, "DNS takeover scan", domain, 0, uploadedFiles, func() error {
-		return dns.Takeover(domain)
-	}); err != nil {
-		log.Printf("[WARN] DNS takeover scan failed: %v", err)
-	}
-	step++
-
-	if !opts.SkipFFuf {
-		if err := runDomainPhase("ffuf", step, totalSteps, "FFuf fuzzing", domain, 0, uploadedFiles, func() error {
-			// FFuf on all live hosts with 403 bypass enabled (domain workflow only)
-			// Use RunFFuf in domain mode which handles live hosts reading, /FUZZ appending, and result consolidation
-			_, err := ffuf.RunFFuf(ffuf.Options{
-				Domain:    domain,
-				Threads:   40,
-				Bypass403: true,
+	wgPhase2.Add(1)
+	go func() {
+		defer wgPhase2.Done()
+		if err := runDomainPhase("cnames", getNextStep(), totalSteps, "CNAME collection", domain, 0, uploadedFiles, func() error {
+			_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{
+				Domain:  domain,
+				Threads: 200,
+				Timeout: 5 * time.Minute,
 			})
 			return err
 		}); err != nil {
-			log.Printf("[WARN] FFuf fuzzing failed: %v", err)
+			log.Printf("[WARN] CNAME collection failed: %v", err)
 		}
+	}()
+
+	wgPhase2.Add(1)
+	go func() {
+		defer wgPhase2.Done()
+		if err := runDomainPhase("livehosts", getNextStep(), totalSteps, "Live host filtering", domain, 0, uploadedFiles, func() error {
+			_, err := livehosts.FilterLiveHosts(domain, 200, true)
+			return err
+		}); err != nil {
+			log.Printf("[WARN] Live host filtering failed: %v", err)
+		}
+	}()
+
+	wgPhase2.Wait()
+
+	// Phase 3: Vulnerability Discovery & Scanners (Parallel)
+	// These modules mostly read live-subs.txt (which is now ready) or are completely independent.
+	// URLs is collected here for Phase 4.
+	var wgPhase3 sync.WaitGroup
+
+	// Group 3a: Standard Scanners
+	phases3 := []struct {
+		key, desc string
+		fn        func() error
+		timeout   int
+	}{
+		{"tech", "Technology detection", func() error { _, err := tech.DetectTech(domain, 200); return err }, 0},
+		{"ports", "Port scanning", func() error { _, err := ports.ScanPorts(domain, 200); return err }, 0},
+		{"urls", "URL collection", func() error { _, err := urls.CollectURLs(domain, 200, false); return err }, 0},
+		{"jsscan", "JavaScript scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: domain, Threads: 200}); return err }, 0},
+		{"dns", "DNS takeover scan", func() error { return dns.Takeover(domain) }, 0},
+		{"aem", "AEM webapp discovery and scan", func() error {
+			liveHostsFileToUse := ""
+			if _, err := os.Stat(liveHostsFile); err == nil {
+				liveHostsFileToUse = liveHostsFile
+			}
+			_, err := aemmod.Run(aemmod.Options{Domain: domain, LiveHostsFile: liveHostsFileToUse, Threads: 50}); return err
+		}, 0},
+		{"wp_confusion", "WordPress confusion scan", func() error {
+			url := fmt.Sprintf("https://%s", domain)
+			return wpconfusion.ScanWPConfusion(wpconfusion.ScanOptions{URL: url, Plugins: true, Theme: true, Output: filepath.Join(domainDir, "wp-confusion", "wp-confusion-results.txt")})
+		}, 0},
+		{"depconfusion", "Dependency confusion scan", func() error {
+			if _, err := os.Stat(liveHostsFile); err == nil {
+				return depconfusion.Run(depconfusion.Options{Mode: "web", Domain: domain, TargetFile: liveHostsFile, Workers: 10, Verbose: false})
+			}
+			tempFile := filepath.Join(filepath.Dir(liveHostsFile), "temp-depconfusion-targets.txt")
+			if err := os.WriteFile(tempFile, []byte(fmt.Sprintf("https://%s\n", domain)), 0644); err != nil { return err }
+			defer os.Remove(tempFile)
+			return depconfusion.Run(depconfusion.Options{Mode: "web", Domain: domain, TargetFile: tempFile, Workers: 10, Verbose: false})
+		}, 0},
+		{"s3", "S3 bucket enumeration and scanning", func() error {
+			if err := s3.Run(s3.Options{Action: "enum", Root: domain}); err != nil { return err }
+			bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
+			if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
+				data, _ := os.ReadFile(bucketsFile)
+				bucketNames := strings.Split(strings.TrimSpace(string(data)), "\n")
+				for _, bn := range bucketNames {
+					if bn = strings.TrimSpace(bn); bn != "" { s3.Run(s3.Options{Action: "scan", Bucket: bn}) }
+				}
+			}
+			return nil
+		}, 0},
+		{"zerodays", "Zerodays scan", func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+			defer cancel()
+			runner := utils.NewCommandRunner(0) // Timeout handled by context
+			return runner.RunSilent(ctx, os.Args[0], "zerodays", "scan", "-d", domain, "-t", "100", "--silent")
+		}, 0},
+		{"backup", "Backup file discovery", func() error {
+			if _, err := os.Stat(liveHostsFile); err == nil {
+				_, err := backup.Run(backup.Options{Domain: domain, LiveHostsFile: liveHostsFile, Threads: 200, Method: "all"})
+				return err
+			}
+			_, err := backup.Run(backup.Options{Domain: domain, Threads: 200, Method: "all"})
+			return err
+		}, 0},
+	}
+	
+	// Misconfig timeout handling
+	misconfigTimeout := 1800
+	if val := os.Getenv("AUTOAR_TIMEOUT_MISCONFIG"); val != "" {
+		if t, err := strconv.Atoi(val); err == nil { misconfigTimeout = t }
+	}
+	phases3 = append(phases3, struct{key, desc string; fn func() error; timeout int}{
+		"misconfig", "Cloud misconfiguration scan", func() error {
+			liveHostsFileToUse := ""
+			if _, err := os.Stat(liveHostsFile); err == nil { liveHostsFileToUse = liveHostsFile }
+			err := misconfig.Run(misconfig.Options{Target: domain, Action: "scan", Threads: 200, Timeout: 1800, LiveHostsFile: liveHostsFileToUse})
+			if err != nil && strings.Contains(err.Error(), "no live subdomains found") { return nil }
+			return err
+		}, misconfigTimeout,
+	})
+
+	for _, p := range phases3 {
+		wgPhase3.Add(1)
+		go func(phase struct{key, desc string; fn func() error; timeout int}) {
+			defer wgPhase3.Done()
+			stepNum := getNextStep()
+			if err := runDomainPhase(phase.key, stepNum, totalSteps, phase.desc, domain, phase.timeout, uploadedFiles, phase.fn); err != nil {
+				log.Printf("[WARN] %s failed: %v", phase.desc, err)
+			}
+		}(p)
+	}
+
+	wgPhase3.Wait()
+
+	// Phase 4: URL-Dependent & Heavy Scanners (Parallel)
+	// GF and Reflection depend on URLs collected in Phase 3.
+	// Nuclei and FFUF are heavy, so running them alone or parallel is a trade-off. 
+	// We run them parallel here as they are the final stage.
+	var wgPhase4 sync.WaitGroup
+
+	wgPhase4.Add(1)
+	go func() {
+		defer wgPhase4.Done()
+		if err := runDomainPhase("reflection", getNextStep(), totalSteps, "[Stage 3] Reflection scan", domain, 0, uploadedFiles, func() error {
+			_, err := reflection.ScanReflection(domain)
+			return err
+		}); err != nil {
+			log.Printf("[WARN] Reflection scan failed: %v", err)
+		}
+	}()
+
+	wgPhase4.Add(1)
+	go func() {
+		defer wgPhase4.Done()
+		if err := runDomainPhase("gf", getNextStep(), totalSteps, "[Stage 3] GF pattern matching", domain, 0, uploadedFiles, func() error {
+			// Output of URLs is expected from Phase 3
+			_, err := gf.ScanGFWithOptions(gf.Options{Domain: domain, SkipCheck: true})
+			return err
+		}); err != nil {
+			log.Printf("[WARN] GF scan failed: %v", err)
+		}
+	}()
+
+	if !opts.SkipFFuf {
+		wgPhase4.Add(1)
+		go func() {
+			defer wgPhase4.Done()
+			if err := runDomainPhase("ffuf", getNextStep(), totalSteps, "[Stage 3] FFuf fuzzing", domain, 0, uploadedFiles, func() error {
+				_, err := ffuf.RunFFuf(ffuf.Options{Domain: domain, Threads: 40, Bypass403: true})
+				return err
+			}); err != nil {
+				log.Printf("[WARN] FFuf fuzzing failed: %v", err)
+			}
+		}()
 	} else {
 		log.Printf("[INFO] Skipping FFuf fuzzing (requested)")
 	}
-	step++
 
-	if err := runDomainPhase("wp_confusion", step, totalSteps, "WordPress confusion scan", domain, 0, uploadedFiles, func() error {
-		// WordPress confusion scan
-		url := fmt.Sprintf("https://%s", domain)
-		return wpconfusion.ScanWPConfusion(wpconfusion.ScanOptions{
-			URL:     url,
-			Plugins: true,
-			Theme:   true,
-			Output:  filepath.Join(domainDir, "wp-confusion", "wp-confusion-results.txt"),
-		})
-	}); err != nil {
-		log.Printf("[WARN] WordPress confusion scan failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("depconfusion", step, totalSteps, "Dependency confusion scan", domain, 0, uploadedFiles, func() error {
-		// Dependency confusion scan in web mode
-		// Use TargetFile instead of Targets to ensure proper URL handling
-		if _, err := os.Stat(liveHostsFile); err == nil {
-			// Use live hosts file directly
-			return depconfusion.Run(depconfusion.Options{
-				Mode:      "web",
-				Domain:    domain, // Pass domain for correct output directory
-				TargetFile: liveHostsFile,
-				Workers:   10,
-				Verbose:   false,
-			})
-		}
-						// Fallback: create a temp file with domain URL
-		tempFile := filepath.Join(filepath.Dir(liveHostsFile), "temp-depconfusion-targets.txt")
-		if err := os.WriteFile(tempFile, []byte(fmt.Sprintf("https://%s\n", domain)), 0644); err != nil {
-			return fmt.Errorf("failed to create temp file: %v", err)
-		}
-		defer os.Remove(tempFile)
-		return depconfusion.Run(depconfusion.Options{
-			Mode:      "web",
-			Domain:    domain, // Pass domain for correct output directory
-			TargetFile: tempFile,
-			Workers:   10,
-			Verbose:   false,
-		})
-	}); err != nil {
-		log.Printf("[WARN] Dependency confusion scan failed: %v", err)
-	}
-	step++
-
-	if err := runDomainPhase("s3", step, totalSteps, "S3 bucket enumeration and scanning", domain, 0, uploadedFiles, func() error {
-		// S3 enumeration
-		if err := s3.Run(s3.Options{
-			Action: "enum",
-			Root:   domain,
-		}); err != nil {
+	wgPhase4.Add(1)
+	go func() {
+		defer wgPhase4.Done()
+		if err := runDomainPhase("nuclei", getNextStep(), totalSteps, "[Stage 3] Nuclei vulnerability scan (final)", domain, 0, uploadedFiles, func() error {
+			_, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 500})
 			return err
+		}); err != nil {
+			log.Printf("[WARN] Nuclei scan failed: %v", err)
 		}
-		
-		// After enumeration, scan found buckets for permissions
-		bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
-		if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
-			// Read bucket names
-			data, err := os.ReadFile(bucketsFile)
-			if err != nil {
-				log.Printf("[WARN] Failed to read buckets file: %v", err)
-				return nil // Don't fail the phase if we can't read buckets
-			}
-			
-			bucketNames := strings.Split(strings.TrimSpace(string(data)), "\n")
-			log.Printf("[INFO] Found %d bucket(s) to scan for permissions", len(bucketNames))
-			
-			// Scan each bucket for permissions
-			for _, bucketName := range bucketNames {
-				bucketName = strings.TrimSpace(bucketName)
-				if bucketName == "" {
-					continue
-				}
-				
-				log.Printf("[INFO] Scanning S3 bucket permissions: %s", bucketName)
-				if err := s3.Run(s3.Options{
-					Action: "scan",
-					Bucket: bucketName,
-				}); err != nil {
-					log.Printf("[WARN] S3 bucket scan failed for %s: %v", bucketName, err)
-					// Continue scanning other buckets even if one fails
-				}
-			}
-		} else {
-			log.Printf("[INFO] No S3 buckets found to scan")
-		}
-		
-		return nil
-	}); err != nil {
-		log.Printf("[WARN] S3 enumeration and scanning failed: %v", err)
-	}
-	step++
+	}()
 
-
-	// Phase: Zerodays scan
-	if err := runDomainPhase("zerodays", step, totalSteps, "Zerodays scan", domain, 0, uploadedFiles, func() error {
-		// Run zerodays via CLI command - it sends webhooks in real-time
-		cmd := exec.Command(os.Args[0], "zerodays", "scan", "-d", domain, "-t", "100", "--silent")
-		if err := cmd.Run(); err != nil {
-			log.Printf("[WARN] Zerodays scan failed: %v", err)
-			return nil // Don't fail workflow if zerodays fails
-		}
-		return nil
-	}); err != nil {
-		log.Printf("[WARN] Zerodays scan failed: %v", err)
-	}
-	step++
-
-	// Final Phase: Nuclei full scan (runs last to catch all vulnerabilities after all other scans)
-	if err := runDomainPhase("nuclei", step, totalSteps, "Nuclei vulnerability scan (final)", domain, 0, uploadedFiles, func() error {
-		_, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 500})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Nuclei scan failed: %v", err)
-	}
+	wgPhase4.Wait()
 
 	log.Printf("[OK] Full domain scan completed for %s", domain)
 	
@@ -498,8 +404,9 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	
 	// Wait a moment to ensure all file writes are flushed to disk
 	// This is important because some modules might still be writing files asynchronously
-	log.Printf("[DEBUG] Waiting 2 seconds for file writes to complete...")
-	time.Sleep(2 * time.Second)
+	log.Printf("[DEBUG] Ensuring file writes complete...")
+	// WaitGroup usage guarantees completion, small buffer for OS flush
+	time.Sleep(100 * time.Millisecond)
 	
 	// Re-check file count after waiting
 	if dirInfo, err := os.Stat(domainDir); err == nil && dirInfo.IsDir() {
@@ -564,7 +471,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	// Cleanup: Remove local files after all phases complete and files are sent
 	utils.Log.WithField("domain", domain).Info("Cleaning up domain directory")
 	// Wait a moment to ensure all file operations complete
-	time.Sleep(2 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 	
 	// Remove domain directory contents (preserving apkx directory if exists)
 	if err := filepath.Walk(domainDir, func(path string, info os.FileInfo, err error) error {
@@ -601,6 +508,23 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 // runDomainPhase runs a single phase with webhook updates and file sending
 func runDomainPhase(phaseKey string, step, total int, description, domain string, timeoutSeconds int, uploadedFiles *DomainScanUploads, fn func() error) error {
 	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
+
+	// Update database with current phase progress
+	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	if scanID != "" {
+		phaseStartTime := time.Now()
+		progress := &db.ScanProgress{
+			CurrentPhase:   step,
+			TotalPhases:    total,
+			PhaseName:      description,
+			PhaseStartTime: phaseStartTime,
+		}
+		if err := db.UpdateScanProgress(scanID, progress); err != nil {
+			log.Printf("[WARN] Failed to update scan progress in database: %v", err)
+		} else {
+			log.Printf("[DEBUG] Updated scan progress: Phase %d/%d - %s", step, total, description)
+		}
+	}
 
 	var err error
 	phaseStartTime := time.Now()

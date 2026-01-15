@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
     git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
     cd /tmp/trufflehog && go build -o /go/bin/trufflehog . && \
-    rm -rf /tmp/trufflehog
+    rm -rf /tmp/trufflehog && \
+    go install github.com/deletescape/goop@latest
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
 
@@ -30,11 +31,11 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
 # Build main autoar binary from cmd/autoar (CGO enabled for naabu/libpcap)
-RUN CGO_ENABLED=1 GOOS=linux go build -o /app/autoar ./cmd/autoar
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar ./cmd/autoar
 
 # Build entrypoint binary (replaces docker-entrypoint.sh)
 WORKDIR /app/internal/modules/entrypoint
-RUN CGO_ENABLED=1 GOOS=linux go build -o /app/autoar-entrypoint .
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar-entrypoint .
 WORKDIR /app
 
 # --- Runtime stage: minimal Debian image ---

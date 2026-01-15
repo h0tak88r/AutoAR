@@ -1,16 +1,16 @@
 package subdomain
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	aemmod "github.com/h0tak88r/AutoAR/v3/internal/modules/aem"
@@ -29,6 +29,7 @@ import (
 	s3mod "github.com/h0tak88r/AutoAR/v3/internal/modules/s3"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
 	wpconfusion "github.com/h0tak88r/AutoAR/v3/internal/modules/wp-confusion"
@@ -119,387 +120,151 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		Files:     []UploadedFileInfo{},
 	}
 
-	totalSteps := 19 // Updated: Added AEM scan
-	step := 1
+	totalSteps := 19 
+	var currentStep int32
+	
+	// Helper to get next step safely
+	getNextStep := func() int {
+		return int(atomic.AddInt32(&currentStep, 1))
+	}
 
-	// Phase 1: Check if subdomain is live
-	if err := runSubdomainPhase("livehosts", step, totalSteps, "Live host check", subdomain, 0, uploadedFiles, func() error {
+	// Phase 1: Live Check (Sequential - Critical Path)
+	if err := runSubdomainPhase("livehosts", getNextStep(), totalSteps, "Live host check", subdomain, 0, uploadedFiles, func() error {
 		return checkAndSaveLiveSubdomain(subdomain, liveHostsFile)
 	}); err != nil {
 		log.Printf("[ERROR] Live host check failed: %v", err)
 		return nil, fmt.Errorf("subdomain %s is not live or check failed: %v", subdomain, err)
 	}
-	step++
 
-	// Phase 2: CNAME collection
-	if err := runSubdomainPhase("cnames", step, totalSteps, "CNAME collection", subdomain, 0, uploadedFiles, func() error {
-		// Remove protocol if present for CNAME check
-		subdomainClean := strings.TrimPrefix(strings.TrimPrefix(subdomain, "http://"), "https://")
-		_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{
-			Subdomain: subdomainClean,
-			Threads:   200,
-			Timeout:  5 * time.Minute,
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] CNAME collection failed: %v", err)
+	// Phase 2: Discovery Group (Parallel, requires LiveHosts)
+	// These modules are mostly independent or read the live-subs.txt file just created.
+	var wgPhase2 sync.WaitGroup
+
+	// Helper for parallel phase execution
+	runParallelPhase := func(wg *sync.WaitGroup, key, desc string, timeout int, fn func() error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := runSubdomainPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, uploadedFiles, fn); err != nil {
+				log.Printf("[WARN] %s failed: %v", desc, err)
+			}
+		}()
 	}
-	step++
 
-	// Phase 3: Technology detection
-	if err := runSubdomainPhase("tech", step, totalSteps, "Technology detection", subdomain, 0, uploadedFiles, func() error {
-		// Modules use GetLiveHostsFile internally, which will find our file
-		_, err := tech.DetectTech(subdomainClean, 200)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Technology detection failed: %v", err)
-	}
-	step++
-
-	// Phase 4: URL collection
-	if err := runSubdomainPhase("urls", step, totalSteps, "URL collection", subdomain, 0, uploadedFiles, func() error {
-		// Use subdomain mode (skipSubdomainEnum=true) with the actual subdomain
-		_, err := urls.CollectURLs(subdomainClean, 200, true)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] URL collection failed: %v", err)
-	}
-	step++
-
-	// Phase 5: FFuf fuzzing
-	if err := runSubdomainPhase("ffuf", step, totalSteps, "FFuf fuzzing", subdomain, 0, uploadedFiles, func() error {
-		// Read first URL from live hosts file for FFuf URL mode
-		data, err := os.ReadFile(liveHostsFile)
-		if err != nil {
+	phases2 := []struct {
+		key, desc string
+		fn        func() error
+		timeout   int
+	}{
+		{"cnames", "[Stage 2] CNAME collection", func() error {
+			// Remove protocol if present for CNAME check
+			subdomainClean := strings.TrimPrefix(strings.TrimPrefix(subdomain, "http://"), "https://")
+			_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{Subdomain: subdomainClean, Threads: 200, Timeout: 5 * time.Minute})
 			return err
-		}
+		}, 0},
+		{"tech", "[Stage 2] Technology detection", func() error { _, err := tech.DetectTech(subdomainClean, 200); return err }, 0},
+		{"ports", "[Stage 2] Port scan", func() error { _, err := ports.ScanPorts(subdomainClean, 200); return err }, 0},
+		{"urls", "[Stage 2] URL collection", func() error { _, err := urls.CollectURLs(subdomainClean, 200, true); return err }, 0},
+		{"jsscan", "[Stage 2] JS scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: subdomainClean, Subdomain: subdomainClean, Threads: 200}); return err }, 0},
+		{"aem", "[Stage 2] AEM scan", func() error { _, err := aemmod.Run(aemmod.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Threads: 50}); return err }, 0},
+		{"dns", "[Stage 2] DNS scan", func() error { return dns.TakeoverWithOptions(dns.TakeoverOptions{Domain: rootDomain, Subdomain: subdomainClean}) }, 0},
+		{"s3", "[Stage 2] S3 bucket enumeration and scanning", func() error {
+			// S3 enumeration on the root domain (S3 works on domain level) but save results under subdomain directory
+			if err := s3mod.Run(s3mod.Options{Action: "enum", Root: rootDomain, Subdomain: subdomainClean, Threads: 100}); err != nil { return err }
+			// After enumeration, scan found buckets for permissions
+			bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
+			if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
+				data, _ := os.ReadFile(bucketsFile)
+				bucketNames := strings.Split(strings.TrimSpace(string(data)), "\n")
+				for _, bn := range bucketNames {
+					if bn = strings.TrimSpace(bn); bn != "" { s3mod.Run(s3mod.Options{Action: "scan", Bucket: bn, Subdomain: subdomainClean}) }
+				}
+			}
+			return nil
+		}, 0},
+		{"backup", "[Stage 2] Backup scan", func() error { _, err := backup.Run(backup.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Method: "all", Threads: 200}); return err }, 0},
+		{"zerodays", "[Stage 2] Zerodays scan", func() error {
+			runner := utils.NewCommandRunner(0)
+			return runner.RunSilent(context.Background(), os.Args[0], "zerodays", "scan", "-s", subdomainClean, "-t", "100", "--silent")
+		}, 0},
+		{"wp_confusion", "[Stage 2] WordPress confusion", func() error {
+			// Check if live hosts file exists with retry logic is not needed if we trust Phase 1 succeeded, 
+			// but keeping robust check for safety inside the anonymous func
+			data, err := os.ReadFile(liveHostsFile)
+			if err != nil || len(data) == 0 { return fmt.Errorf("live hosts file empty or check failed") }
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			if len(lines) > 0 && lines[0] != "" {
+				return wpconfusion.ScanWPConfusion(wpconfusion.ScanOptions{URL: strings.TrimSpace(lines[0]), Plugins: true, Theme: false})
+			}
+			return nil
+		}, 0},
+		{"depconfusion", "[Stage 2] Dependency confusion", func() error {
+			if _, err := os.Stat(liveHostsFile); err != nil { return fmt.Errorf("live hosts file not found") }
+			return depconfusion.Run(depconfusion.Options{Mode: "web", TargetFile: liveHostsFile, Workers: 10, Subdomain: subdomainClean})
+		}, 0},
+	}
+
+	// Misconfig timeout
+	misconfigTimeout := 1800
+	if val := os.Getenv("AUTOAR_TIMEOUT_MISCONFIG"); val != "" {
+		if t, err := strconv.Atoi(val); err == nil { misconfigTimeout = t }
+	}
+	phases2 = append(phases2, struct{key, desc string; fn func() error; timeout int}{
+		"misconfig", "[Stage 2] Misconfig scan", func() error {
+			err := misconfig.Run(misconfig.Options{Target: subdomainClean, Action: "scan", Threads: 200, LiveHostsFile: liveHostsFile})
+			if err != nil && strings.Contains(err.Error(), "no live subdomains found") { return nil }
+			return err
+		}, misconfigTimeout,
+	})
+
+	for _, p := range phases2 {
+		runParallelPhase(&wgPhase2, p.key, p.desc, p.timeout, p.fn)
+	}
+
+	wgPhase2.Wait()
+
+	// Phase 3: Deep Scan Group (Parallel, requires Stage 2 - specifically URLs)
+	var wgPhase3 sync.WaitGroup
+
+	runParallelPhase(&wgPhase3, "gf", "[Stage 3] GF scan", 0, func() error {
+		urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
+		_, err := gf.ScanGFWithOptions(gf.Options{Domain: subdomainClean, URLsFile: urlsFile, SkipCheck: true})
+		return err
+	})
+
+	runParallelPhase(&wgPhase3, "reflection", "[Stage 3] Reflection scan", 0, func() error {
+		_, err := reflection.ScanReflectionWithOptions(reflection.Options{Domain: subdomainClean, Subdomain: subdomainClean, Threads: 50, Timeout: 15 * time.Minute, URLThreads: 200})
+		return err
+	})
+
+	runParallelPhase(&wgPhase3, "ffuf", "[Stage 3] FFuf fuzzing", 0, func() error {
+		data, err := os.ReadFile(liveHostsFile)
+		if err != nil { return err }
 		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 		if len(lines) > 0 && lines[0] != "" {
 			url := strings.TrimSpace(lines[0])
-			// Ensure URL has /FUZZ placeholder for fuzzing
 			if !strings.Contains(url, "FUZZ") {
-				// Add /FUZZ to the end of the URL
-				if !strings.HasSuffix(url, "/") {
-					url += "/"
-				}
+				if !strings.HasSuffix(url, "/") { url += "/" }
 				url += "FUZZ"
 			}
-			// Run FFuf in URL mode (single target mode)
-			_, err := ffuf.RunFFuf(ffuf.Options{
-				Target:          url,
-				Wordlist:        "", // Use default quick_fuzz.txt
-				Threads:         40,
-				Bypass403:       false, // Can be enabled if needed
-				FollowRedirects: true,
-			})
+			_, err := ffuf.RunFFuf(ffuf.Options{Target: url, Wordlist: "", Threads: 40, FollowRedirects: true})
 			return err
 		}
-		return fmt.Errorf("no live URL found in live hosts file")
-	}); err != nil {
-		log.Printf("[WARN] FFuf fuzzing failed: %v", err)
-	}
-	step++
+		return fmt.Errorf("no live URL found")
+	})
 
-	// Phase 6: JS scan
-	if err := runSubdomainPhase("jsscan", step, totalSteps, "JS scan", subdomain, 0, uploadedFiles, func() error {
-		_, err := jsscan.Run(jsscan.Options{
-			Domain:    subdomainClean, // Use subdomain for directory structure
-			Subdomain: subdomainClean, // Actual subdomain to scan
-			Threads:   200,
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] JS scan failed: %v", err)
-	}
-	step++
-
-	// Phase 7: Reflection scan
-	if err := runSubdomainPhase("reflection", step, totalSteps, "Reflection scan", subdomain, 0, uploadedFiles, func() error {
-		_, err := reflection.ScanReflectionWithOptions(reflection.Options{
-			Domain:    subdomainClean, // Use subdomain for directory structure
-			Subdomain: subdomainClean, // Actual subdomain to scan
-			Threads:   50,
-			Timeout:   15 * time.Minute,
-			URLThreads: 200,
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Reflection scan failed: %v", err)
-	}
-	step++
-
-	// Phase 8: Port scan
-	if err := runSubdomainPhase("ports", step, totalSteps, "Port scan", subdomain, 0, uploadedFiles, func() error {
-		_, err := ports.ScanPorts(subdomainClean, 200)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Port scan failed: %v", err)
-	}
-	step++
-
-	// Phase 9: GF scan
-	if err := runSubdomainPhase("gf", step, totalSteps, "GF scan", subdomain, 0, uploadedFiles, func() error {
-		// Use existing URLs file without regenerating
-		urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
-		_, err := gf.ScanGFWithOptions(gf.Options{
-			Domain:    subdomainClean, // Use subdomain for directory structure
-			URLsFile:  urlsFile,
-			SkipCheck: true, // Skip validation/regeneration in subdomain mode
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] GF scan failed: %v", err)
-	}
-	step++
-
-	// Phase 11: Backup scan
-	if err := runSubdomainPhase("backup", step, totalSteps, "Backup scan", subdomain, 0, uploadedFiles, func() error {
-		_, err := backup.Run(backup.Options{
-			Domain:        subdomainClean, // Pass domain so backup saves to correct directory
-			LiveHostsFile: liveHostsFile,  // Use live hosts file (prioritized over Domain)
-			Method:        "all",          // Use "all" method for comprehensive scanning
-			Threads:       200,
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Backup scan failed: %v", err)
-	}
-	step++
-
-	// Phase 12: Misconfig scan
-	misconfigTimeout := 1800 // default 30 minutes
-	if timeoutStr := os.Getenv("AUTOAR_TIMEOUT_MISCONFIG"); timeoutStr != "" {
-		if timeout, err := strconv.Atoi(timeoutStr); err == nil {
-			misconfigTimeout = timeout
-		}
-	}
-	if err := runSubdomainPhase("misconfig", step, totalSteps, "Misconfig scan", subdomain, misconfigTimeout, uploadedFiles, func() error {
-		err := misconfig.Run(misconfig.Options{
-			Target:        subdomainClean, // Use subdomain for directory structure
-			Action:        "scan",
-			Threads:       200,
-			LiveHostsFile: liveHostsFile, // Pass live hosts file to avoid enumeration
-		})
-		// Don't fail if no live subdomains found
-		if err != nil && strings.Contains(err.Error(), "no live subdomains found") {
-			log.Printf("[INFO] Misconfiguration scan skipped: %v", err)
-			return nil
-		}
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Misconfig scan failed: %v", err)
-	}
-	step++
-
-	// Phase 13: AEM scan
-	if err := runSubdomainPhase("aem", step, totalSteps, "AEM scan", subdomain, 0, uploadedFiles, func() error {
-		_, err := aemmod.Run(aemmod.Options{
-			Domain:        subdomainClean,
-			LiveHostsFile: liveHostsFile,
-			Threads:       50,
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] AEM scan failed: %v", err)
-	}
-	step++
-
-	// Phase 14: DNS scan
-	if err := runSubdomainPhase("dns", step, totalSteps, "DNS scan", subdomain, 0, uploadedFiles, func() error {
-		// Use root domain for DNS scan (DNS works on domain level)
-		return dns.TakeoverWithOptions(dns.TakeoverOptions{
-			Domain:    rootDomain, // DNS scan uses root domain
-			Subdomain: subdomainClean,
-		})
-	}); err != nil {
-		log.Printf("[WARN] DNS scan failed: %v", err)
-	}
-	step++
-
-	// Phase 15: WordPress confusion
-	if err := runSubdomainPhase("wp_confusion", step, totalSteps, "WordPress confusion", subdomain, 0, uploadedFiles, func() error {
-		// Ensure directory exists
-		if err := os.MkdirAll(filepath.Dir(liveHostsFile), 0755); err != nil {
-			return fmt.Errorf("failed to create directory for live hosts file: %w", err)
-		}
-		
-		// Check if live hosts file exists with retry logic
-		var data []byte
-		var err error
-		maxRetries := 5
-		retryDelay := 500 * time.Millisecond
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			data, err = os.ReadFile(liveHostsFile)
-			if err == nil && len(data) > 0 {
-				break
-			}
-			if attempt < maxRetries {
-				log.Printf("[DEBUG] Live hosts file not found yet (attempt %d/%d): %s, retrying...", attempt, maxRetries, liveHostsFile)
-				time.Sleep(retryDelay)
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("live hosts file not found after retries: %s: %w", liveHostsFile, err)
-		}
-		if len(data) == 0 {
-			return fmt.Errorf("live hosts file is empty: %s", liveHostsFile)
-		}
-		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-		if len(lines) > 0 && lines[0] != "" {
-			url := strings.TrimSpace(lines[0])
-			err := wpconfusion.ScanWPConfusion(wpconfusion.ScanOptions{
-				URL:      url,
-				Plugins:  true,
-				Theme:    false,
-			})
-			return err
-		}
-		return nil
-	}); err != nil {
-		log.Printf("[WARN] WordPress confusion scan failed: %v", err)
-	}
-	step++
-
-	// Phase 15: Dependency confusion
-	if err := runSubdomainPhase("depconfusion", step, totalSteps, "Dependency confusion", subdomain, 0, uploadedFiles, func() error {
-		// Ensure directory exists
-		if err := os.MkdirAll(filepath.Dir(liveHostsFile), 0755); err != nil {
-			return fmt.Errorf("failed to create directory for live hosts file: %w", err)
-		}
-		
-		// Check if live hosts file exists with retry logic
-		maxRetries := 5
-		retryDelay := 500 * time.Millisecond
-		var fileExists bool
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			if info, err := os.Stat(liveHostsFile); err == nil && info.Size() > 0 {
-				fileExists = true
-				break
-			}
-			if attempt < maxRetries {
-				log.Printf("[DEBUG] Live hosts file not found yet (attempt %d/%d): %s, retrying...", attempt, maxRetries, liveHostsFile)
-				time.Sleep(retryDelay)
-			}
-		}
-		if !fileExists {
-			return fmt.Errorf("live hosts file not found after retries: %s", liveHostsFile)
-		}
-		// Use TargetFile instead of Targets to pass the live hosts file directly
-		// This ensures URLs are properly formatted
-		err := depconfusion.Run(depconfusion.Options{
-			Mode:       "web",
-			TargetFile: liveHostsFile,
-			Workers:    10,
-			Subdomain:  subdomainClean, // Use subdomain for directory structure
-		})
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Dependency confusion scan failed: %v", err)
-	}
-	step++
-
-	// Phase 16: S3 enumeration and scanning
-	if err := runSubdomainPhase("s3", step, totalSteps, "S3 bucket enumeration and scanning", subdomain, 0, uploadedFiles, func() error {
-		// S3 enumeration on the root domain (S3 works on domain level)
-		// But save results under subdomain directory
-		if err := s3mod.Run(s3mod.Options{
-			Action:    "enum",
-			Root:      rootDomain,
-			Subdomain: subdomainClean, // Use subdomain for directory structure
-			Threads:   100,            // Use 100 concurrent threads for faster enumeration
-		}); err != nil {
-			return err
-		}
-		
-		// After enumeration, scan found buckets for permissions
-		bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
-		if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
-			// Read bucket names
-			data, err := os.ReadFile(bucketsFile)
-			if err != nil {
-				log.Printf("[WARN] Failed to read buckets file: %v", err)
-				return nil // Don't fail the phase if we can't read buckets
-			}
-			
-			bucketNames := strings.Split(strings.TrimSpace(string(data)), "\n")
-			log.Printf("[INFO] Found %d bucket(s) to scan for permissions", len(bucketNames))
-			
-			// Scan each bucket for permissions
-			for _, bucketName := range bucketNames {
-				bucketName = strings.TrimSpace(bucketName)
-				if bucketName == "" {
-					continue
-				}
-				
-				log.Printf("[INFO] Scanning S3 bucket permissions: %s", bucketName)
-				if err := s3mod.Run(s3mod.Options{
-					Action:    "scan",
-					Bucket:    bucketName,
-					Subdomain: subdomainClean,
-				}); err != nil {
-					log.Printf("[WARN] S3 bucket scan failed for %s: %v", bucketName, err)
-					// Continue scanning other buckets even if one fails
-				}
-			}
-		} else {
-			log.Printf("[INFO] No S3 buckets found to scan")
-		}
-		
-		return nil
-	}); err != nil {
-		log.Printf("[WARN] S3 enumeration and scanning failed: %v", err)
-	}
-	step++
-
-	// Phase 17: Zerodays scan
-	if err := runSubdomainPhase("zerodays", step, totalSteps, "Zerodays scan", subdomain, 0, uploadedFiles, func() error {
-		log.Printf("[INFO] Zerodays scan: Starting scan for subdomain: %s", subdomainClean)
-		log.Printf("[INFO] Zerodays scan: Running command: %s zerodays scan -s %s -t 100 --silent", os.Args[0], subdomainClean)
-		// Run zerodays via CLI command on the subdomain
-		cmd := exec.Command(os.Args[0], "zerodays", "scan", "-s", subdomainClean, "-t", "100", "--silent")
-		// Capture output for logging
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			log.Printf("[WARN] Zerodays scan failed: %v", err)
-			if stderr.Len() > 0 {
-				log.Printf("[WARN] Zerodays stderr: %s", stderr.String())
-			}
-			return nil // Don't fail workflow if zerodays fails
-		}
-		if stdout.Len() > 0 {
-			log.Printf("[DEBUG] Zerodays stdout: %s", stdout.String())
-		}
-		log.Printf("[OK] Zerodays scan completed for %s", subdomainClean)
-		return nil
-	}); err != nil {
-		log.Printf("[WARN] Zerodays scan failed: %v", err)
-	}
-	step++
-
-	// Final Phase: Nuclei full scan (runs last to catch all vulnerabilities after all other scans)
-	if err := runSubdomainPhase("nuclei", step, totalSteps, "Nuclei scan (final)", subdomain, 0, uploadedFiles, func() error {
-		// Read first URL from live hosts file for Nuclei URL mode
+	runParallelPhase(&wgPhase3, "nuclei", "[Stage 3] Nuclei scan (final)", 0, func() error {
 		data, err := os.ReadFile(liveHostsFile)
-		if err != nil {
-			return err
-		}
+		if err != nil { return err }
 		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 		if len(lines) > 0 && lines[0] != "" {
-			url := strings.TrimSpace(lines[0])
-			// Use URL mode for single subdomain scan
-			_, err := nuclei.RunNuclei(nuclei.Options{
-				URL:     url,
-				Threads: 200,
-				Mode:    nuclei.ModeFull,
-			})
+			_, err := nuclei.RunNuclei(nuclei.Options{URL: strings.TrimSpace(lines[0]), Threads: 200, Mode: nuclei.ModeFull})
 			return err
 		}
-		return fmt.Errorf("no live URL found in live hosts file")
-	}); err != nil {
-		log.Printf("[WARN] Nuclei scan failed: %v", err)
-	}
+		return fmt.Errorf("no live URL found")
+	})
+
+	wgPhase3.Wait()
 
 	log.Printf("[OK] Full subdomain scan completed for %s", subdomain)
 	
@@ -710,6 +475,23 @@ func extractDomain(subdomain string) string {
 // runSubdomainPhase runs a single phase with webhook updates and file sending
 func runSubdomainPhase(phaseKey string, step, total int, description, subdomain string, timeoutSeconds int, uploadedFiles *SubdomainScanUploads, fn func() error) error {
 	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
+
+	// Update database with current phase progress
+	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	if scanID != "" {
+		phaseStartTime := time.Now()
+		progress := &db.ScanProgress{
+			CurrentPhase:   step,
+			TotalPhases:    total,
+			PhaseName:      description,
+			PhaseStartTime: phaseStartTime,
+		}
+		if err := db.UpdateScanProgress(scanID, progress); err != nil {
+			log.Printf("[WARN] Failed to update scan progress in database: %v", err)
+		} else {
+			log.Printf("[DEBUG] Updated scan progress: Phase %d/%d - %s", step, total, description)
+		}
+	}
 
 	var err error
 	phaseStartTime := time.Now()

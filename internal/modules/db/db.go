@@ -284,6 +284,76 @@ func GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error) {
 	return dbInstance.GetSubdomainMonitorTargetByID(id)
 }
 
+// CreateScan creates a new scan record
+func CreateScan(scan *ScanRecord) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.CreateScan(scan)
+}
+
+// UpdateScanProgress updates scan progress
+func UpdateScanProgress(scanID string, progress *ScanProgress) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateScanProgress(scanID, progress)
+}
+
+// UpdateScanStatus updates scan status
+func UpdateScanStatus(scanID string, status string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateScanStatus(scanID, status)
+}
+
+// GetScan retrieves a scan by ID
+func GetScan(scanID string) (*ScanRecord, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.GetScan(scanID)
+}
+
+// ListActiveScans lists all active scans
+func ListActiveScans() ([]*ScanRecord, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListActiveScans()
+}
+
+// ListRecentScans lists recent scans
+func ListRecentScans(limit int) ([]*ScanRecord, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListRecentScans(limit)
+}
+
+// DeleteScan deletes a scan record
+func DeleteScan(scanID string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.DeleteScan(scanID)
+}
+
 // Close closes the database connection pool
 func Close() {
 	if dbInstance != nil {

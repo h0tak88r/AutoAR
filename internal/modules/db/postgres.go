@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -258,6 +259,32 @@ func (p *PostgresDB) InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
+	-- Create scans table for scan progress tracking
+	CREATE TABLE IF NOT EXISTS scans (
+		id SERIAL PRIMARY KEY,
+		scan_id VARCHAR(255) NOT NULL UNIQUE,
+		scan_type VARCHAR(50) NOT NULL,
+		target VARCHAR(255) NOT NULL,
+		status VARCHAR(50) NOT NULL,
+		channel_id VARCHAR(100),
+		thread_id VARCHAR(100),
+		message_id VARCHAR(100),
+		current_phase INTEGER DEFAULT 0,
+		total_phases INTEGER DEFAULT 0,
+		phase_name VARCHAR(255),
+		phase_start_time TIMESTAMP,
+		completed_phases JSONB,
+		failed_phases JSONB,
+		files_uploaded INTEGER DEFAULT 0,
+		error_count INTEGER DEFAULT 0,
+		started_at TIMESTAMP NOT NULL,
+		completed_at TIMESTAMP,
+		last_update TIMESTAMP NOT NULL,
+		command TEXT,
+		created_at TIMESTAMP DEFAULT NOW(),
+		updated_at TIMESTAMP DEFAULT NOW()
+	);
+	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
@@ -265,6 +292,10 @@ func (p *PostgresDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_updates_targets_url ON updates_targets(url);
 	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_domain ON subdomain_monitor_targets(domain);
 	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_is_running ON subdomain_monitor_targets(is_running);
+	CREATE INDEX IF NOT EXISTS idx_scans_scan_id ON scans(scan_id);
+	CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);
+	CREATE INDEX IF NOT EXISTS idx_scans_target ON scans(target);
+	CREATE INDEX IF NOT EXISTS idx_scans_started_at ON scans(started_at);
 	`
 
 	_, err := p.pool.Exec(p.ctx, schema)
@@ -873,6 +904,274 @@ func (p *PostgresDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTar
 		return nil, fmt.Errorf("failed to get subdomain monitor target by id: %v", err)
 	}
 	return &t, nil
+}
+
+// CreateScan creates a new scan record
+func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
+	completedPhasesJSON := "[]"
+	failedPhasesJSON := "[]"
+	
+	if len(scan.CompletedPhases) > 0 {
+		data, err := json.Marshal(scan.CompletedPhases)
+		if err == nil {
+			completedPhasesJSON = string(data)
+		}
+	}
+	
+	if len(scan.FailedPhases) > 0 {
+		data, err := json.Marshal(scan.FailedPhases)
+		if err == nil {
+			failedPhasesJSON = string(data)
+		}
+	}
+	
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO scans (
+			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
+			current_phase, total_phases, phase_name, phase_start_time,
+			completed_phases, failed_phases, files_uploaded, error_count,
+			started_at, last_update, command
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18);
+	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
+		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
+		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
+		scan.StartedAt, scan.LastUpdate, scan.Command)
+	
+	if err != nil {
+		return fmt.Errorf("failed to create scan: %v", err)
+	}
+	return nil
+}
+
+// UpdateScanProgress updates scan progress
+func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) error {
+	completedPhasesJSON := "[]"
+	failedPhasesJSON := "[]"
+	
+	if len(progress.CompletedPhases) > 0 {
+		data, err := json.Marshal(progress.CompletedPhases)
+		if err == nil {
+			completedPhasesJSON = string(data)
+		}
+	}
+	
+	if len(progress.FailedPhases) > 0 {
+		data, err := json.Marshal(progress.FailedPhases)
+		if err == nil {
+			failedPhasesJSON = string(data)
+		}
+	}
+	
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE scans SET
+			current_phase = $1,
+			total_phases = $2,
+			phase_name = $3,
+			phase_start_time = $4,
+			completed_phases = $5,
+			failed_phases = $6,
+			files_uploaded = $7,
+			error_count = $8,
+			last_update = $9,
+			updated_at = NOW()
+		WHERE scan_id = $10;
+	`, progress.CurrentPhase, progress.TotalPhases, progress.PhaseName, progress.PhaseStartTime,
+		completedPhasesJSON, failedPhasesJSON, progress.FilesUploaded, progress.ErrorCount,
+		time.Now(), scanID)
+	
+	if err != nil {
+		return fmt.Errorf("failed to update scan progress: %v", err)
+	}
+	return nil
+}
+
+// UpdateScanStatus updates scan status
+func (p *PostgresDB) UpdateScanStatus(scanID string, status string) error {
+	now := time.Now()
+	var err error
+	
+	if status == "completed" || status == "failed" || status == "cancelled" {
+		_, err = p.pool.Exec(p.ctx, `
+			UPDATE scans SET
+				status = $1,
+				completed_at = $2,
+				last_update = $3,
+				updated_at = NOW()
+			WHERE scan_id = $4;
+		`, status, now, now, scanID)
+	} else {
+		_, err = p.pool.Exec(p.ctx, `
+			UPDATE scans SET
+				status = $1,
+				last_update = $2,
+				updated_at = NOW()
+			WHERE scan_id = $3;
+		`, status, now, scanID)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("failed to update scan status: %v", err)
+	}
+	return nil
+}
+
+// GetScan retrieves a scan by ID
+func (p *PostgresDB) GetScan(scanID string) (*ScanRecord, error) {
+	var scan ScanRecord
+	var completedPhasesJSON, failedPhasesJSON []byte
+	var phaseStartTime, completedAt *time.Time
+	
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT id, scan_id, scan_type, target, status, 
+			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
+			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
+			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+		FROM scans WHERE scan_id = $1;
+	`, scanID).Scan(
+		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
+		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
+		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
+		&completedPhasesJSON, &failedPhasesJSON,
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+	
+	if err == pgx.ErrNoRows {
+		return nil, fmt.Errorf("scan not found: %s", scanID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scan: %v", err)
+	}
+	
+	scan.PhaseStartTime = phaseStartTime
+	scan.CompletedAt = completedAt
+	
+	// Unmarshal JSON arrays
+	if len(completedPhasesJSON) > 0 {
+		json.Unmarshal(completedPhasesJSON, &scan.CompletedPhases)
+	}
+	if len(failedPhasesJSON) > 0 {
+		json.Unmarshal(failedPhasesJSON, &scan.FailedPhases)
+	}
+	
+	return &scan, nil
+}
+
+// ListActiveScans lists all active scans
+func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, scan_id, scan_type, target, status,
+			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
+			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
+			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+		FROM scans
+		WHERE status = 'running'
+		ORDER BY started_at DESC;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active scans: %v", err)
+	}
+	defer rows.Close()
+	
+	var scans []*ScanRecord
+	for rows.Next() {
+		var scan ScanRecord
+		var completedPhasesJSON, failedPhasesJSON []byte
+		var phaseStartTime, completedAt *time.Time
+		
+		err := rows.Scan(
+			&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
+			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
+			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
+			&completedPhasesJSON, &failedPhasesJSON,
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+		
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %v", err)
+		}
+		
+		scan.PhaseStartTime = phaseStartTime
+		scan.CompletedAt = completedAt
+		
+		// Unmarshal JSON arrays
+		if len(completedPhasesJSON) > 0 {
+			json.Unmarshal(completedPhasesJSON, &scan.CompletedPhases)
+		}
+		if len(failedPhasesJSON) > 0 {
+			json.Unmarshal(failedPhasesJSON, &scan.FailedPhases)
+		}
+		
+		scans = append(scans, &scan)
+	}
+	
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate scans: %v", rows.Err())
+	}
+	return scans, nil
+}
+
+// ListRecentScans lists recent scans (completed, failed, cancelled)
+func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, scan_id, scan_type, target, status,
+			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
+			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
+			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+		FROM scans
+		WHERE status IN ('completed', 'failed', 'cancelled')
+		ORDER BY started_at DESC
+		LIMIT $1;
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list recent scans: %v", err)
+	}
+	defer rows.Close()
+	
+	var scans []*ScanRecord
+	for rows.Next() {
+		var scan ScanRecord
+		var completedPhasesJSON, failedPhasesJSON []byte
+		var phaseStartTime, completedAt *time.Time
+		
+		err := rows.Scan(
+			&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
+			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
+			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
+			&completedPhasesJSON, &failedPhasesJSON,
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+		
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %v", err)
+		}
+		
+		scan.PhaseStartTime = phaseStartTime
+		scan.CompletedAt = completedAt
+		
+		// Unmarshal JSON arrays
+		if len(completedPhasesJSON) > 0 {
+			json.Unmarshal(completedPhasesJSON, &scan.CompletedPhases)
+		}
+		if len(failedPhasesJSON) > 0 {
+			json.Unmarshal(failedPhasesJSON, &scan.FailedPhases)
+		}
+		
+		scans = append(scans, &scan)
+	}
+	
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate scans: %v", rows.Err())
+	}
+	return scans, nil
+}
+
+// DeleteScan deletes a scan record
+func (p *PostgresDB) DeleteScan(scanID string) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM scans WHERE scan_id = $1;`, scanID)
+	if err != nil {
+		return fmt.Errorf("failed to delete scan: %v", err)
+	}
+	return nil
 }
 
 // Close closes the database connection pool
