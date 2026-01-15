@@ -151,29 +151,36 @@ func RunNuclei(opts Options) (*Result, error) {
 	}
 
 	// Get live hosts file (checks file first, then database)
-	liveSubsFile, err := livehosts.GetLiveHostsFile(opts.Domain)
-	if err != nil {
-		log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", opts.Domain, err)
-		// Fallback: try to create it by running livehosts
-		_, err2 := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, true)
-		if err2 != nil {
-			log.Printf("[WARN] Live host detection failed: %v", err2)
-			return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
-		}
-		// Re-check after creation
-		liveSubsFile = filepath.Join(subsDir, "live-subs.txt")
-		if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
-			return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
-		}
-		log.Printf("[INFO] Created live hosts file for %s", opts.Domain)
+	liveSubsFile := filepath.Join(subsDir, "live-subs.txt")
+	
+	// Check if live-subs.txt already exists from previous phases
+	if info, err := os.Stat(liveSubsFile); err == nil && info.Size() > 0 {
+		log.Printf("[INFO] Using existing live hosts file from previous phase (size: %d bytes)", info.Size())
+		targetFile = liveSubsFile
 	} else {
-		// File exists from file or database, use it directly
-		if info, err := os.Stat(liveSubsFile); err == nil {
-			log.Printf("[INFO] Using existing live hosts file (size: %d bytes)", info.Size())
+		// File doesn't exist, try to get from database or create it
+		dbFile, err := livehosts.GetLiveHostsFile(opts.Domain)
+		if err != nil {
+			log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", opts.Domain, err)
+			// Fallback: try to create it by running livehosts
+			_, err2 := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, true)
+			if err2 != nil {
+				log.Printf("[WARN] Live host detection failed: %v", err2)
+				return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
+			}
+			// Re-check after creation
+			if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
+				return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
+			}
+			log.Printf("[INFO] Created live hosts file for %s", opts.Domain)
+			targetFile = liveSubsFile
+		} else {
+			// Got file from database
+			log.Printf("[INFO] Using live hosts file from database")
+			targetFile = dbFile
 		}
 	}
 
-	targetFile = liveSubsFile
 	targetCount, _ := countLines(targetFile)
 	log.Printf("[INFO] Running Nuclei in %s mode on %d live targets from %s", opts.Mode, targetCount, liveSubsFile)
 
