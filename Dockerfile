@@ -12,11 +12,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install external Go-based CLI tools used by AutoAR (nuclei, trufflehog)
-RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
+# Install Nuclei
+RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+
+# Install TruffleHog
+RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
     cd /tmp/trufflehog && go build -o /go/bin/trufflehog . && \
-    rm -rf /tmp/trufflehog && \
-    go install github.com/deletescape/goop@latest
+    rm -rf /tmp/trufflehog
+
+# Install Goop
+RUN go install github.com/deletescape/goop@latest
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
 
