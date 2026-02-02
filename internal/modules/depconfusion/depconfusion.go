@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	confused2 "github.com/h0tak88r/AutoAR/v3/internal/tools/confused2"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/subdomains"
+	confused2 "github.com/h0tak88r/AutoAR/internal/tools/confused2"
+	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/projectdiscovery/httpx/runner"
 )
 

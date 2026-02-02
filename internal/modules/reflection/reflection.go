@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	kxsstool "github.com/h0tak88r/AutoAR/v3/internal/tools/kxss"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	kxsstool "github.com/h0tak88r/AutoAR/internal/tools/kxss"
+	"github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // Result holds reflection scan results
