@@ -10,17 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/backup"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/cnames"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/dns"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/jsscan"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/misconfig"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/nuclei"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/reflection"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/backup"
+	"github.com/h0tak88r/AutoAR/internal/modules/cnames"
+	"github.com/h0tak88r/AutoAR/internal/modules/dns"
+	"github.com/h0tak88r/AutoAR/internal/modules/jsscan"
+	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/internal/modules/misconfig"
+	"github.com/h0tak88r/AutoAR/internal/modules/nuclei"
+	"github.com/h0tak88r/AutoAR/internal/modules/reflection"
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 )
 
 // Options holds lite scan options

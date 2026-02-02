@@ -14,7 +14,7 @@ import (
 	"sync"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 )
 
 // EnumerateSubdomains enumerates subdomains for a given domain using subfinder and API sources

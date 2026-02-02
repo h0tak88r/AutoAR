@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/sa7mon/s3scanner/bucket"
 	"github.com/sa7mon/s3scanner/provider"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // Options for s3 commands

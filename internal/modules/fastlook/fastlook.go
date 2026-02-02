@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // FileCallback is called when a file is created during the scan

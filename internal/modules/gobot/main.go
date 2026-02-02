@@ -8,7 +8,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
+	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 )
 
 // Main function for standalone bot execution (backward compatibility)

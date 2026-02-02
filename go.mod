@@ -1,4 +1,4 @@
-module github.com/h0tak88r/AutoAR/v3
+module github.com/h0tak88r/AutoAR
 
 go 1.24.2
 

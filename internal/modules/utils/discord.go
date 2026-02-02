@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/gobot"
+	"github.com/h0tak88r/AutoAR/internal/modules/gobot"
 )
 
 // SendPhaseFiles sends result files for a specific phase to Discord via webhook/bot

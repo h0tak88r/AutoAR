@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	apkxmod "github.com/h0tak88r/AutoAR/v3/internal/modules/apkx"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
+	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
 
 // uploadFileBasedScanToR2 uploads APK scan results to R2 and adds R2 link fields

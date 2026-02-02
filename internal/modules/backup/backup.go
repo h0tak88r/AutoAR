@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	fuzzulitool "github.com/h0tak88r/AutoAR/v3/internal/tools/fuzzuli"
+	fuzzulitool "github.com/h0tak88r/AutoAR/internal/tools/fuzzuli"
 )
 
 // Options controls how the backup scan runs.
