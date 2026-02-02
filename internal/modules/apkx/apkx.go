@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	apkxanalyzer "github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/analyzer"
-	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/downloader"
-	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/mitm"
-	iosstore "github.com/h0tak88r/AutoAR/v3/internal/tools/ipatool"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
+	apkxanalyzer "github.com/h0tak88r/AutoAR/internal/tools/apkx/analyzer"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
+	iosstore "github.com/h0tak88r/AutoAR/internal/tools/ipatool"
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
 
 // Options controls how apkX is invoked from AutoAR.

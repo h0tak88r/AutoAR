@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/git"
+	"github.com/h0tak88r/AutoAR/internal/modules/git"
 )
 
 // handleGitScan handles the /git_scan command

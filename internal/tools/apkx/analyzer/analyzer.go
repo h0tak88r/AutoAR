@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/decompiler"
-	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/reporter"
-	"github.com/h0tak88r/AutoAR/v3/internal/tools/apkx/utils"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/decompiler"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/reporter"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/utils"
 	"gopkg.in/yaml.v3"
 )
 
