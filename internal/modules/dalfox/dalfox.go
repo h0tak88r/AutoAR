@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	dalfoxtool "github.com/h0tak88r/AutoAR/v3/internal/tools/dalfox"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/gf"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/urls"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
+	"github.com/h0tak88r/AutoAR/internal/modules/gf"
+	"github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // Result holds dalfox scan results

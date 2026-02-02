@@ -3,7 +3,7 @@ package subdomainmonitor
 import (
 	"fmt"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 )
 
 // ManagerOptions contains options for managing subdomain monitoring targets

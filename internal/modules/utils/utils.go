@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
 
 // GetResultsDir returns the results directory path

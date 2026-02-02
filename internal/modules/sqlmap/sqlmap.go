@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/gf"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/internal/modules/gf"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // Result holds sqlmap scan results
