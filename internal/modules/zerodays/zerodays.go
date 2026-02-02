@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	next88 "github.com/h0tak88r/AutoAR/v3/internal/tools/next88"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
+	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/projectdiscovery/httpx/runner"
 	"github.com/projectdiscovery/goflags"
 	naaburesult "github.com/projectdiscovery/naabu/v2/pkg/result"

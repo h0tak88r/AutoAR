@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
 
 // BackupDatabase creates a backup of the database and optionally uploads to R2

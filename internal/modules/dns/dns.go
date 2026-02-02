@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/db"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/subdomains"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
 )
 

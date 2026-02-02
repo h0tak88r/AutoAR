@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/deletescape/goop/pkg/goop"
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/scanner"
+	"github.com/h0tak88r/AutoAR/internal/modules/scanner"
 )
 
 // Options controls Git scan behavior

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/v3/internal/modules/envloader"
+	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 )
 
 var (

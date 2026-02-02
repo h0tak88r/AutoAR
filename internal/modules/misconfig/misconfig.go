@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	mmapi "github.com/h0tak88r/AutoAR/v3/internal/tools/misconfigmapper"
+	mmapi "github.com/h0tak88r/AutoAR/internal/tools/misconfigmapper"
 )
 
 // Options for misconfig scan
