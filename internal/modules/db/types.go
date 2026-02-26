@@ -77,6 +77,10 @@ type DB interface {
 	// GetSubdomainMonitorTargetByID returns a single subdomain monitor target by ID
 	GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error)
 
+	// DNS Takeover Providers
+	ListVulnerableDNSProviders() (map[string]string, error)
+	AddVulnerableDNSProvider(name, fingerprint string) error
+
 	// Scan tracking
 	CreateScan(scan *ScanRecord) error
 	UpdateScanProgress(scanID string, progress *ScanProgress) error

@@ -770,6 +770,23 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 				log.Printf("[WARN] Failed to cleanup results directory for %s: %v", target, err)
 			}
 		}
+		
+		// Also cleanup shared module directories that write outside the target's directory
+		// Modules like AEM, S3, misconfig write to new-results/aem/, new-results/s3/, etc.
+		sharedDirs := []string{
+			filepath.Join(resultsDir, "aem"),
+			filepath.Join(resultsDir, "s3", target),
+			filepath.Join(resultsDir, "misconfig", target),
+		}
+		for _, sharedDir := range sharedDirs {
+			if info, statErr := os.Stat(sharedDir); statErr == nil && info.IsDir() {
+				if removeErr := os.RemoveAll(sharedDir); removeErr != nil {
+					log.Printf("[WARN] Failed to cleanup shared directory %s: %v", sharedDir, removeErr)
+				} else {
+					log.Printf("[OK] Cleaned up shared module directory: %s", sharedDir)
+				}
+			}
+		}
 	}
 }
 
