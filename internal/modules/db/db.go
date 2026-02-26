@@ -361,6 +361,26 @@ func Close() {
 	}
 }
 
+// ListVulnerableDNSProviders returns all vulnerable DNS providers from the database
+func ListVulnerableDNSProviders() (map[string]string, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListVulnerableDNSProviders()
+}
+
+// AddVulnerableDNSProvider adds or updates a vulnerable DNS provider
+func AddVulnerableDNSProvider(name, fingerprint string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.AddVulnerableDNSProvider(name, fingerprint)
+}
+
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

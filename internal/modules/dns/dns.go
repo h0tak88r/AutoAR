@@ -16,6 +16,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
+	"regexp"
 )
 
 // Paths and filenames used by the legacy bash dns_takeover.sh script.
@@ -201,7 +202,6 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		"ns-servers.txt",
 		"ns-servers-vuln.txt",
 		"dnsreaper-results.txt",
-		"filtered-ns-takeover-vuln.txt",
 		"dangling-ip.txt",
 	}
 	for _, name := range files {
@@ -743,11 +743,61 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	nsSrvCount, _ := countLines(nsVulnServers)
 	log.Printf("[INFO] NS takeover: %d subdomain errors, %d NS server errors", nsRawCount, nsSrvCount)
 
-	// filter to interesting providers (using same regex list as bash script, simplified)
+	// Load vulnerable providers from the grid
+	providers := loadVulnerableProviders()
 	nsFiltered := filepath.Join(findingsDir, "ns-takeover-vuln.txt")
-	regex := "ns1-.*.azure-dns.com|ns2-.*.azure-dns.net|ns3-.*.azure-dns.org|ns4-.*.azure-dns.info|ns1\\.dnsimple\\.com|ns2\\.dnsimple\\.com|ns3\\.dnsimple\\.com|ns4\\.dnsimple\\.com|ns1\\.domain\\.com|ns2\\.domain\\.com|ns1\\.dreamhost\\.com|ns2\\.dreamhost\\.com|ns3\\.dreamhost\\.com|ns-cloud-.*.googledomains.com|ns5\\.he\\.net|ns4\\.he\\.net|ns3\\.he\\.net|ns2\\.he\\.net|ns1\\.he\\.net|ns1\\.linode\\.com|ns2\\.linode\\.com|ns1.*.name.com|ns2.*.name.com|ns3.*.name.com|ns4.*.name.com|ns1\\.domaindiscover\\.com|ns2\\.domaindiscover\\.com|yns1\\.yahoo\\.com|yns2\\.yahoo\\.com|ns1\\.reg\\.ru|ns2\\.reg\\.ru"
-	if err := grepRegexToFile(regex, nsRaw, nsFiltered); err != nil {
-		log.Printf("[WARN] regex filter on NS takeover failed: %v", err)
+	
+	var vulnFindings []string
+	var vulnFindingsMutex sync.Mutex
+	
+	// Refined NS takeover detection:
+	// For each SERVFAIL/REFUSED candidate, find its authoritative NAMESERVERS
+	// and check if they match any vulnerable provider fingerprints.
+	if len(servfailTargets) > 0 {
+		log.Printf("[INFO] Cross-referencing %d candidates with vulnerable provider fingerprints", len(servfailTargets))
+		jobs4 := make(chan string, len(servfailTargets))
+		var wg4 sync.WaitGroup
+		
+		for i := 0; i < threads; i++ {
+			wg4.Add(1)
+			go func() {
+				defer wg4.Done()
+				for target := range jobs4 {
+					result, err := dnsClient.QueryOne(target)
+					if err == nil && result != nil && len(result.NS) > 0 {
+						for _, ns := range result.NS {
+							matched := false
+							for provider, fingerprint := range providers {
+								if re, err := regexp.Compile("(?i)" + fingerprint); err == nil && re.MatchString(ns) {
+									finding := fmt.Sprintf("[VULNERABLE] [SUBDOMAIN:%s] [NS:%s] [PROVIDER:%s]", target, ns, provider)
+									vulnFindingsMutex.Lock()
+									vulnFindings = append(vulnFindings, finding)
+									vulnFindingsMutex.Unlock()
+									log.Printf("[VULN] Potential NS takeover: %s delegating to %s (%s)", target, ns, provider)
+									matched = true
+									break
+								}
+							}
+							if matched {
+								break
+							}
+						}
+					}
+				}
+			}()
+		}
+		
+		go func() {
+			defer close(jobs4)
+			for _, target := range servfailTargets {
+				jobs4 <- target
+			}
+		}()
+		wg4.Wait()
+	}
+	
+	if err := writeLinesToFile(nsFiltered, vulnFindings); err != nil {
+		log.Printf("[WARN] Failed to write filtered NS takeover: %v", err)
 	}
 
 	// Send findings to webhook if configured
@@ -1163,58 +1213,43 @@ func lookupCNAMEStatus(name string) (string, string) {
 		return "", ""
 	}
 
-	// CNAME
-	cmd := exec.Command("dig", "+short", "+noall", "+answer", name, "CNAME")
+	// CNAME lookup
+	cmd := exec.Command("dig", "+short", name, "CNAME")
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", ""
 	}
-	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	cname := ""
-	if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
-		fields := strings.Fields(lines[0])
-		if len(fields) > 0 {
-			cname = strings.TrimSpace(fields[len(fields)-1])
-		}
+	cname := strings.TrimSpace(string(b))
+	if strings.Contains(cname, "\n") {
+		// If multiple CNAMEs, take the last one
+		lines := strings.Split(cname, "\n")
+		cname = strings.TrimSpace(lines[len(lines)-1])
 	}
 
-	// full status
-	cmd = exec.Command("dig", "+noall", "+answer", name)
+	// Full status lookup
+	// Remove +noall because it suppresses the status line we need
+	cmd = exec.Command("dig", name)
 	b, err = cmd.CombinedOutput()
 	if err != nil {
 		return cname, "ERROR"
 	}
-	status := "UNKNOWN"
+	
 	out := string(b)
+	status := "UNKNOWN"
 	if strings.Contains(out, "status: NXDOMAIN") {
 		status = "NXDOMAIN"
 	} else if strings.Contains(out, "status: NOERROR") {
 		status = "NOERROR"
 	} else if strings.Contains(out, "status: SERVFAIL") {
 		status = "SERVFAIL"
+	} else if strings.Contains(out, "status: REFUSED") {
+		status = "REFUSED"
 	}
+	
 	return cname, status
 }
 
-func grepRegexToFile(pattern, src, dst string) error {
-	if _, err := exec.LookPath("grep"); err != nil {
-		return nil
-	}
-	f, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
 
-	cmd := exec.Command("grep", "-Ei", pattern, src)
-	cmd.Stdout = f
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		// grep returns non-zero when no matches; that's fine
-		return nil
-	}
-	return nil
-}
 
 // sendDNSFindingsToWebhook sends DNS findings to Discord webhook if configured
 func sendDNSFindingsToWebhook(domain, findingsDir string) {
@@ -1282,5 +1317,78 @@ func sendDNSFindingsToWebhook(domain, findingsDir string) {
 }
 
 func timeNowString() string {
-	return time.Now().Format(time.RFC3339)
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+// loadVulnerableProviders reads the can-itake-over-dns.md file and returns a map of provider -> fingerprint
+func loadVulnerableProviders() map[string]string {
+	// 1. Try to load from database first
+	dbProviders, err := db.ListVulnerableDNSProviders()
+	if err == nil && len(dbProviders) > 0 {
+		return dbProviders
+	}
+
+	providers := make(map[string]string)
+	
+	// Default hardcoded list as ultimate fallback
+	fallback := map[string]string{
+		"Azure DNS":         "azure-dns",
+		"AWS Route53":       "awsdns",
+		"DNSimple":          "dnsimple",
+		"DigitalOcean":       "digitalocean",
+		"Linode":            "linode",
+		"Netlify":           "netlify",
+		"Vercel":            "vercel|zeit",
+	}
+
+	path := filepath.Join(utils.GetRootDir(), "can-itake-over-dns.md")
+	file, err := os.Open(path)
+	if err != nil {
+		log.Printf("[WARN] Could not open %s, using fallback providers", path)
+		return fallback
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	startParsing := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "| Provider |") {
+			startParsing = true
+			continue
+		}
+		if startParsing && strings.HasPrefix(line, "| :---") {
+			continue
+		}
+		if startParsing && strings.HasPrefix(line, "|") {
+			parts := strings.Split(line, "|")
+			if len(parts) >= 4 {
+				provider := strings.TrimSpace(parts[1])
+				provider = strings.ReplaceAll(provider, "**", "")
+				vulnerable := strings.TrimSpace(parts[2])
+				fingerprint := strings.TrimSpace(parts[3])
+				fingerprint = strings.ReplaceAll(fingerprint, "`", "")
+				
+				if strings.ToLower(vulnerable) == "yes" && fingerprint != "" {
+					providers[provider] = fingerprint
+				}
+			}
+		}
+	}
+
+	if len(providers) == 0 {
+		return fallback
+	}
+
+	// 2. If we loaded from file but database was empty, sync to database for next time
+	if len(dbProviders) == 0 {
+		log.Printf("[INFO] Populating database with %d DNS providers from %s", len(providers), path)
+		for name, fingerprint := range providers {
+			if err := db.AddVulnerableDNSProvider(name, fingerprint); err != nil {
+				log.Printf("[WARN] Failed to sync DNS provider %s to database: %v", name, err)
+			}
+		}
+	}
+
+	return providers
 }

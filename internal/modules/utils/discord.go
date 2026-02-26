@@ -12,8 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/gobot"
 )
+
+
+// SendFileFunc is a function variable that will be populated by the gobot module
+// to avoid circular dependencies.
+var SendFileFunc func(string, string, string) error
+
 
 // SendPhaseFiles sends result files for a specific phase to Discord via webhook/bot
 // This is used by modules like lite scan to send files in real-time after each phase
@@ -206,7 +211,10 @@ func sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID,
 
 // trySendFileDirectly attempts to send file directly through Discord bot session
 func trySendFileDirectly(channelID, filePath, description string) error {
-	return gobot.SendFileToChannel(channelID, filePath, description)
+	if SendFileFunc != nil {
+		return SendFileFunc(channelID, filePath, description)
+	}
+	return fmt.Errorf("Discord bot session not available")
 }
 
 // GetPhaseFiles returns the result files for a specific lite scan phase
