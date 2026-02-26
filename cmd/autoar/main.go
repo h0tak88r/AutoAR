@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/backup"
+	asrmod "github.com/h0tak88r/AutoAR/internal/modules/asr"
 	aemmod "github.com/h0tak88r/AutoAR/internal/modules/aem"
 	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
 	"github.com/h0tak88r/AutoAR/internal/modules/checktools"
@@ -3663,6 +3664,9 @@ func main() {
 		fmt.Println("Starting REST API server...")
 		err = gobot.StartAPI()
 
+	case "asr":
+		err = handleASRCommand(args)
+
 	case "both":
 		// Start both
 		fmt.Println("Starting both bot and API...")
@@ -3684,3 +3688,104 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+func handleASRCommand(args []string) error {
+	var domain, wordlist, resolvers string
+	mode := 0 // 0 means not set
+	threads := 50
+	showHelp := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-h", "--help":
+			showHelp = true
+		case "-d", "--domain":
+			if i+1 < len(args) {
+				domain = args[i+1]
+				i++
+			}
+		case "-mode", "--mode":
+			if i+1 < len(args) {
+				if m, err := strconv.Atoi(args[i+1]); err == nil {
+					mode = m
+				}
+				i++
+			}
+		case "-t", "--threads":
+			if i+1 < len(args) {
+				if t, err := strconv.Atoi(args[i+1]); err == nil {
+					threads = t
+				}
+				i++
+			}
+		case "-w", "--wordlist":
+			if i+1 < len(args) {
+				wordlist = args[i+1]
+				i++
+			}
+		case "-r", "--resolvers":
+			if i+1 < len(args) {
+				resolvers = args[i+1]
+				i++
+			}
+		}
+	}
+
+	if showHelp {
+		printASRHelp()
+		return nil
+	}
+
+	if domain == "" {
+		return fmt.Errorf("domain is required (-d <domain>). Use 'autoar asr -h' for help")
+	}
+
+	// Interactive Mode Selection if not provided
+	if mode == 0 {
+		fmt.Println("\x1b[34m" + `Choose what you wanna do?
+[1] Passive recon only
+[2] Active recon only (Brute forcing, Permutations, Probing)
+[3] Normal Recon [Passive + Active without Permutations]
+[4] Quick Recon [Passive + TLS Probing + Scraping]
+[5] Full recon [All Techniques]` + "\x1b[0m")
+		fmt.Print("Enter your choice (1-5): ")
+		var input string
+		fmt.Scanln(&input)
+		if m, err := strconv.Atoi(strings.TrimSpace(input)); err == nil && m >= 1 && m <= 5 {
+			mode = m
+		} else {
+			mode = 5 // Default to Full Recon if invalid/empty
+			fmt.Println("[!] Invalid choice, defaulting to Mode 5 (Full Recon)")
+		}
+	}
+
+	opts := asrmod.Options{
+		Domain:    domain,
+		Mode:      mode,
+		Threads:   threads,
+		Wordlist:  wordlist,
+		Resolvers: resolvers,
+	}
+
+	return asrmod.Run(context.Background(), opts)
+}
+
+func printASRHelp() {
+	fmt.Println(`AutoAR ASR (High-Depth Reconnaissance)
+
+Usage: autoar asr -d <domain> [options]
+
+Options:
+  -d, --domain <domain>      Target domain (required)
+  -mode <1-5>                Reconnaissance mode (default: interactive if not set)
+                               1: Passive recon only
+                               2: Active recon only (Brute forcing, TLS, Permutations)
+                               3: Normal Recon (Passive + Active without Permutations)
+                               4: Quick Recon (Passive + TLS Probing + Scraping)
+                               5: Full Recon (All Techniques)
+  -t, --threads <number>     Number of workers/threads (default: 50)
+  -w, --wordlist <path>      Custom wordlist for DNS bruteforcing
+  -r, --resolvers <path>     Custom DNS resolvers file
+  -h, --help                 Show this help message`)
+}
+
