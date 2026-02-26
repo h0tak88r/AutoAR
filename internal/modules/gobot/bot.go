@@ -17,7 +17,13 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
+
+func init() {
+	utils.SendFileFunc = SendFileToChannel
+}
+
 
 var (
 	botToken   = os.Getenv("DISCORD_BOT_TOKEN")
@@ -807,6 +813,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Route to appropriate handler (handlers are in commands*.go files)
 	switch cmdName {
+	case "asr":
+		handleASRBotCommand(s, i)
 	case "zerodays", "0days":
 		handleZerodays(s, i)
 	case "scan_domain":

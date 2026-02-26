@@ -9,6 +9,16 @@ import (
 // registerAllCommands registers all 54 Discord commands
 func registerAllCommands(s *discordgo.Session) {
 	commands := []*discordgo.ApplicationCommand{
+		// ASR commands
+		{
+			Name:        "asr",
+			Description: "High-depth reconnaissance (ASR Modes)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan", Required: true},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "mode", Description: "Recon mode (1-5, default: 5)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 50)", Required: false},
+			},
+		},
 		// Zerodays commands
 		{
 			Name:        "zerodays",

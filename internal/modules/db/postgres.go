@@ -285,6 +285,15 @@ func (p *PostgresDB) InitSchema() error {
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
+	-- Create dns_takeover_providers table
+	CREATE TABLE IF NOT EXISTS dns_takeover_providers (
+		id SERIAL PRIMARY KEY,
+		name VARCHAR(255) NOT NULL UNIQUE,
+		fingerprint TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT NOW(),
+		updated_at TIMESTAMP DEFAULT NOW()
+	);
+	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
@@ -1170,6 +1179,45 @@ func (p *PostgresDB) DeleteScan(scanID string) error {
 	_, err := p.pool.Exec(p.ctx, `DELETE FROM scans WHERE scan_id = $1;`, scanID)
 	if err != nil {
 		return fmt.Errorf("failed to delete scan: %v", err)
+	}
+	return nil
+}
+
+// ListVulnerableDNSProviders returns all vulnerable DNS providers from the database
+func (p *PostgresDB) ListVulnerableDNSProviders() (map[string]string, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT name, fingerprint FROM dns_takeover_providers;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query dns_takeover_providers: %v", err)
+	}
+	defer rows.Close()
+
+	providers := make(map[string]string)
+	for rows.Next() {
+		var name, fingerprint string
+		if err := rows.Scan(&name, &fingerprint); err != nil {
+			return nil, fmt.Errorf("failed to scan dns provider: %v", err)
+		}
+		providers[name] = fingerprint
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate dns providers: %v", rows.Err())
+	}
+	return providers, nil
+}
+
+// AddVulnerableDNSProvider adds or updates a vulnerable DNS provider
+func (p *PostgresDB) AddVulnerableDNSProvider(name, fingerprint string) error {
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO dns_takeover_providers (name, fingerprint)
+		VALUES ($1, $2)
+		ON CONFLICT (name) DO UPDATE SET
+			fingerprint = EXCLUDED.fingerprint,
+			updated_at = NOW();
+	`, name, fingerprint)
+	if err != nil {
+		return fmt.Errorf("failed to add dns provider: %v", err)
 	}
 	return nil
 }
