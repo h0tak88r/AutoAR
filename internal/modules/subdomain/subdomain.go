@@ -307,43 +307,6 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	
 	// R2 upload removed - files are sent directly to Discord threads in real-time
 	
-	// Cleanup: Remove subdomain directory after workflow completion (except apkx and db backup)
-	// Skip cleanup if R2 is enabled - files are already uploaded, no need to keep local copies
-	// Only cleanup if explicitly requested AND R2 is not enabled
-	shouldCleanup := (os.Getenv("AUTOAR_ENV") == "docker" || os.Getenv("AUTOAR_CLEANUP_RESULTS") == "true") && !r2storage.IsEnabled()
-	if shouldCleanup {
-		// Check if directory exists
-		if info, err := os.Stat(subdomainDir); err == nil && info.IsDir() {
-			// Preserve apkx directory if it exists
-			apkxDir := filepath.Join(subdomainDir, "apkx")
-			
-			// Remove all subdirectories except apkx
-			err := filepath.Walk(subdomainDir, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return nil
-				}
-				
-				// Skip the subdomain directory itself
-				if path == subdomainDir {
-					return nil
-				}
-				
-				// Preserve apkx directory
-				if strings.HasPrefix(path, apkxDir) {
-					return filepath.SkipDir
-				}
-				
-				return os.Remove(path)
-			})
-			
-			if err != nil {
-				log.Printf("[WARN] Failed to cleanup subdomain directory %s: %v", subdomainDir, err)
-			} else {
-				log.Printf("[OK] Cleaned up subdomain directory: %s", subdomainDir)
-			}
-		}
-	}
-	
 	utils.Log.WithField("subdomain", subdomain).Info("Full subdomain scan completed successfully")
 	
 	// Track successful completion
@@ -380,6 +343,30 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		log.Printf("[WARN] Failed to cleanup subdomain directory %s: %v", domainDir, err)
 	} else {
 		log.Printf("[OK] Cleaned up subdomain directory: %s", domainDir)
+	}
+	
+	// Also cleanup shared module directories that write outside the subdomain directory
+	// Modules like AEM, S3, misconfig write to new-results/aem/, new-results/s3/, etc.
+	sharedDirs := []string{
+		filepath.Join(resultsDir, "aem"),
+		filepath.Join(resultsDir, "s3", rootDomain),
+		filepath.Join(resultsDir, "s3", subdomainClean),
+		filepath.Join(resultsDir, "misconfig", subdomainClean),
+	}
+	for _, sharedDir := range sharedDirs {
+		if info, err := os.Stat(sharedDir); err == nil && info.IsDir() {
+			if err := os.RemoveAll(sharedDir); err != nil {
+				log.Printf("[WARN] Failed to cleanup shared directory %s: %v", sharedDir, err)
+			} else {
+				log.Printf("[OK] Cleaned up shared module directory: %s", sharedDir)
+			}
+		}
+	}
+	
+	// Remove the subdomain directory itself if it's now empty (excluding apkx)
+	if entries, err := os.ReadDir(domainDir); err == nil && len(entries) == 0 {
+		os.Remove(domainDir)
+		log.Printf("[OK] Removed empty subdomain directory: %s", domainDir)
 	}
 	
 	return &Result{Subdomain: subdomain}, nil

@@ -25,6 +25,7 @@ require (
 	github.com/projectdiscovery/httpx v1.7.4
 	github.com/projectdiscovery/naabu/v2 v2.3.7
 	github.com/projectdiscovery/subfinder/v2 v2.6.7
+	github.com/projectdiscovery/tlsx v1.2.2
 	github.com/sa7mon/s3scanner v0.0.0-20251106040855-9e26bc46e8ee
 	github.com/sirupsen/logrus v1.9.3
 	github.com/sw33tLie/bbscope v0.0.0-20251113222800-c453973e83dd
@@ -213,7 +214,6 @@ require (
 	github.com/projectdiscovery/rawhttp v0.1.90 // indirect
 	github.com/projectdiscovery/retryabledns v1.0.111 // indirect
 	github.com/projectdiscovery/retryablehttp-go v1.1.1 // indirect
-	github.com/projectdiscovery/tlsx v1.2.2 // indirect
 	github.com/projectdiscovery/uncover v1.1.0 // indirect
 	github.com/projectdiscovery/useragent v0.0.105 // indirect
 	github.com/projectdiscovery/utils v0.7.3 // indirect

@@ -183,6 +183,15 @@ func (s *SQLiteDB) InitSchema() error {
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
 	);
 	
+	-- Create dns_takeover_providers table
+	CREATE TABLE IF NOT EXISTS dns_takeover_providers (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		fingerprint TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT (datetime('now')),
+		updated_at TIMESTAMP DEFAULT (datetime('now'))
+	);
+	
 	-- Create indexes
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
@@ -1138,6 +1147,45 @@ func (s *SQLiteDB) DeleteScan(scanID string) error {
 	_, err := s.db.Exec(`DELETE FROM scans WHERE scan_id = ?;`, scanID)
 	if err != nil {
 		return fmt.Errorf("failed to delete scan: %v", err)
+	}
+	return nil
+}
+
+// ListVulnerableDNSProviders returns all vulnerable DNS providers from the database for SQLite
+func (s *SQLiteDB) ListVulnerableDNSProviders() (map[string]string, error) {
+	rows, err := s.db.Query(`
+		SELECT name, fingerprint FROM dns_takeover_providers;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query dns_takeover_providers: %v", err)
+	}
+	defer rows.Close()
+
+	providers := make(map[string]string)
+	for rows.Next() {
+		var name, fingerprint string
+		if err := rows.Scan(&name, &fingerprint); err != nil {
+			return nil, fmt.Errorf("failed to scan dns provider: %v", err)
+		}
+		providers[name] = fingerprint
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate dns providers: %v", rows.Err())
+	}
+	return providers, nil
+}
+
+// AddVulnerableDNSProvider adds or updates a vulnerable DNS provider for SQLite
+func (s *SQLiteDB) AddVulnerableDNSProvider(name, fingerprint string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO dns_takeover_providers (name, fingerprint)
+		VALUES (?, ?)
+		ON CONFLICT (name) DO UPDATE SET
+			fingerprint = excluded.fingerprint,
+			updated_at = datetime('now');
+	`, name, fingerprint)
+	if err != nil {
+		return fmt.Errorf("failed to add dns provider: %v", err)
 	}
 	return nil
 }
