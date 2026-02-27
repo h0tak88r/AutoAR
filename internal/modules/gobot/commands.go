@@ -739,7 +739,14 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 
 	// Cleanup results directory after scan completes AND files are sent
 	// SKIP cleanup for domain_run and subdomain_run - they handle their own zip/upload/cleanup
-	if err == nil && scanType != "domain_run" && scanType != "subdomain_run" {
+	// Always cleanup - even on failure/cancellation - to avoid orphaned result directories
+	shouldCleanup := scanType != "domain_run" && scanType != "subdomain_run"
+	if shouldCleanup {
+		// On failure or cancellation, log why we're still cleaning up
+		if err != nil {
+			log.Printf("[INFO] Cleaning up results directory for failed/cancelled scan: %s (%s)", target, scanType)
+		}
+
 		resultsDir := getResultsDir()
 		var cleanupPath, cleanupPrefix string
 		

@@ -2,6 +2,7 @@ package permutations
 
 import (
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -17,8 +18,18 @@ func NewGenerator(permList []string) *Generator {
 	}
 }
 
+// maxPermutationInput is the maximum number of subdomains to generate permutations for.
+// Generating permutations from very large lists causes OOM kills.
+const maxPermutationInput = 5000
+
 // Generate generates permutations for a list of subdomains
 func (g *Generator) Generate(subdomains []string, domain string) []string {
+	// Cap input size to prevent OOM kills on wildcard domains
+	if len(subdomains) > maxPermutationInput {
+		log.Printf("[WARN] Permutations input capped from %d to %d subdomains to prevent OOM. Use a more targeted wordlist or disable permutations for large scans.", len(subdomains), maxPermutationInput)
+		subdomains = subdomains[:maxPermutationInput]
+	}
+
 	results := make(map[string]bool)
 
 	for _, sub := range subdomains {
