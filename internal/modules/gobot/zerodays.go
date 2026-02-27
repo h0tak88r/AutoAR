@@ -26,10 +26,8 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	enableSourceExposure := false
 	dosTest := false
 	verbose := false
-	var attachment *discordgo.MessageAttachment
 
-	// Check for file attachment
-	attachment = getAttachmentFromOptions(&data)
+	var domainAttachment, hostListAttachment *discordgo.MessageAttachment
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -45,11 +43,86 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			dosTest = opt.BoolValue()
 		case "verbose":
 			verbose = opt.BoolValue()
+		case "file":
+			if attID, ok := opt.Value.(string); ok && i.ApplicationCommandData().Resolved != nil {
+				domainAttachment = i.ApplicationCommandData().Resolved.Attachments[attID]
+			}
+		case "host_list":
+			if attID, ok := opt.Value.(string); ok && i.ApplicationCommandData().Resolved != nil {
+				hostListAttachment = i.ApplicationCommandData().Resolved.Attachments[attID]
+			}
 		}
 	}
 
-	// Handle file attachment (list of domains)
-	if attachment != nil {
+	// Double check if using generic helper for backwards compatibility or if not found by name
+	if domainAttachment == nil && hostListAttachment == nil {
+		domainAttachment = getAttachmentFromOptions(&data)
+	}
+
+	// Handle host list attachment (direct scanning)
+	if hostListAttachment != nil {
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "📥 Downloading host list and processing...",
+			},
+		})
+		if err != nil {
+			log.Printf("[ERROR] Failed to respond to interaction: %v", err)
+			return
+		}
+
+		targets, err := downloadAndProcessFile(hostListAttachment)
+		if err != nil {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("❌ Error processing host list: %v", err),
+			})
+			return
+		}
+
+		if len(targets) == 0 {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: "❌ No valid hosts found in file",
+			})
+			return
+		}
+
+		// Normalize hosts
+		hosts := make([]string, 0, len(targets))
+		for _, t := range targets {
+			host := strings.TrimSpace(t)
+			if host == "" {
+				continue
+			}
+			if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+				host = "https://" + host
+			}
+			hosts = append(hosts, host)
+		}
+
+		embed := &discordgo.MessageEmbed{
+			Title:       "Zerodays Scan (Host List)",
+			Description: fmt.Sprintf("**Total Hosts:** %d\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Direct Smart Scan", len(hosts), threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
+			Color:       0x3498db,
+			Fields: []*discordgo.MessageEmbedField{
+				{Name: "Status", Value: "🟡 Running", Inline: false},
+			},
+		}
+
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		if err != nil {
+			log.Printf("[ERROR] Failed to create followup message: %v", err)
+			return
+		}
+
+		go performZerodaysScan(s, i, "host_list_scan", hosts, threads, enableSourceExposure, dosTest)
+		return
+	}
+
+	// Handle domain file attachment (list of domains, requires enumeration)
+	if domainAttachment != nil {
 		// Respond immediately
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -59,11 +132,11 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		})
 		if err != nil {
 			log.Printf("[ERROR] Failed to respond to interaction: %v", err)
-		return
-	}
+			return
+		}
 
 		// Download and process file
-		targets, err := downloadAndProcessFile(attachment)
+		targets, err := downloadAndProcessFile(domainAttachment)
 		if err != nil {
 			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 				Content: fmt.Sprintf("❌ Error processing file: %v", err),
@@ -141,8 +214,8 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, "❌ Please provide either domain OR url, not both", false)
 		return
 	}
-	if (domain != "" || url != "") && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain/url and file. Use either domain/url or file attachment.", false)
+	if (domain != "" || url != "") && (domainAttachment != nil || hostListAttachment != nil) {
+		respond(s, i, "❌ Cannot specify both direct targets and file/host list. Use either domain/url or an attachment.", false)
 		return
 	}
 
@@ -224,7 +297,6 @@ func runZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, domai
 		updateEmbed(s, i, fmt.Sprintf("❌ Failed to get live hosts: %v", err), 0xff0000)
 		return
 	}
-	log.Printf("[DEBUG] Live hosts file: %s", liveHostsFile)
 
 	// Step 2: Normalize hosts
 	log.Printf("[DEBUG] Step 2: Normalizing hosts")
@@ -242,46 +314,52 @@ func runZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, domai
 		return
 	}
 
-	if len(hosts) > 0 {
-		log.Printf("[DEBUG] First 5 hosts: %v", hosts[:min(5, len(hosts))])
-	}
+	performZerodaysScan(s, i, domain, hosts, threads, enableSourceExposure, dosTest)
+}
+
+// performZerodaysScan executes the core scanning logic on a list of hosts
+func performZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, target string, hosts []string, threads int, enableSourceExposure, dosTest bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ERROR] Panic in performZerodaysScan: %v", r)
+			updateEmbed(s, i, fmt.Sprintf("❌ Scan failed with error: %v", r), 0xff0000)
+		}
+	}()
 
 	// Step 3: Run smart scan
-	log.Printf("[DEBUG] Step 3: Running smart scan on %d hosts", len(hosts))
+	log.Printf("[DEBUG] Running smart scan on %d hosts", len(hosts))
 	smartScanResults, err := runNext88ScanLib(hosts, []string{"-smart-scan"}, getDiscordWebhook())
 	if err != nil {
 		log.Printf("[ERROR] Smart scan failed: %v", err)
 		smartScanResults = []string{}
-	} else {
-		log.Printf("[DEBUG] Smart scan completed, found %d vulnerable hosts", len(smartScanResults))
 	}
 
 	// Step 4: DoS test (if enabled)
 	dosResults := []string{}
 	if dosTest {
-		log.Printf("[DEBUG] Step 4: Running DoS test")
+		log.Printf("[DEBUG] Running DoS test")
 		dosResults, err = runNext88ScanLib(hosts, []string{"-dos-test", "-dos-requests", "100"}, getDiscordWebhook())
 		if err != nil {
 			log.Printf("[ERROR] DoS test failed: %v", err)
-		} else {
-			log.Printf("[DEBUG] DoS test completed, found %d vulnerable hosts", len(dosResults))
 		}
 	}
 
 	// Step 5: Source exposure check (if enabled)
 	sourceExposureResults := []string{}
 	if enableSourceExposure {
-		log.Printf("[DEBUG] Step 5: Running source exposure check")
+		log.Printf("[DEBUG] Running source exposure check")
+		// For host list scan, use target name as domain if it looks like one, otherwise skip domain-based logic
+		domain := target
+		if target == "host_list_scan" {
+			domain = "" 
+		}
 		sourceExposureResults, err = runSourceExposureCheck(domain, hosts, getDiscordWebhook())
 		if err != nil {
 			log.Printf("[ERROR] Source exposure check failed: %v", err)
-		} else {
-			log.Printf("[DEBUG] Source exposure check completed, found %d vulnerable hosts", len(sourceExposureResults))
 		}
 	}
 
 	// Collect all vulnerable hosts
-	log.Printf("[DEBUG] Collecting all vulnerable hosts")
 	allVulnerable := make(map[string]bool)
 	for _, h := range smartScanResults {
 		allVulnerable[h] = true
@@ -298,28 +376,21 @@ func runZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, domai
 		vulnerableList = append(vulnerableList, h)
 	}
 
-	log.Printf("[DEBUG] Total unique vulnerable hosts: %d", len(vulnerableList))
-	log.Printf("[DEBUG] Sending results to Discord for domain: %s", domain)
-
-	// Send results - with retry logic
+	// Send results
 	maxRetries := 3
 	for retry := 0; retry < maxRetries; retry++ {
-		err := sendZerodaysResults(s, i, domain, len(hosts), len(smartScanResults), len(dosResults), len(sourceExposureResults), vulnerableList)
+		err := sendZerodaysResults(s, i, target, len(hosts), len(smartScanResults), len(dosResults), len(sourceExposureResults), vulnerableList)
 		if err == nil {
-			log.Printf("[DEBUG] Successfully sent results to Discord")
 			break
 		}
-		log.Printf("[WARN] Failed to send results (attempt %d/%d): %v", retry+1, maxRetries, err)
-		if retry < maxRetries-1 {
-			time.Sleep(2 * time.Second)
-		}
+		time.Sleep(2 * time.Second)
 	}
 
-	log.Printf("[DEBUG] Domain scan completed for: %s", domain)
-	
-	// Cleanup domain directory after scan
-	if err := cleanupDomainDirectory(domain); err != nil {
-		log.Printf("[WARN] Failed to cleanup domain directory: %v", err)
+	// Cleanup directory if target is a domain
+	if target != "host_list_scan" {
+		if err := cleanupDomainDirectory(target); err != nil {
+			log.Printf("[WARN] Failed to cleanup domain directory: %v", err)
+		}
 	}
 }
 

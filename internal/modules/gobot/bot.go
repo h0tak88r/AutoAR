@@ -813,7 +813,7 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Route to appropriate handler (handlers are in commands*.go files)
 	switch cmdName {
-	case "asr":
+	case "asr", "asr_mode":
 		handleASRBotCommand(s, i)
 	case "zerodays", "0days":
 		handleZerodays(s, i)

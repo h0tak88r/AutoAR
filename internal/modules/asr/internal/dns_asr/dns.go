@@ -107,7 +107,7 @@ func (c *Client) resolveWithPuredns(ctx context.Context, domains []string, threa
 		return nil, fmt.Errorf("failed to write input file: %w", err)
 	}
 
-	args := []string{"resolve", inputFile, "-w", outputFile, "--skip-wildcard-filter", "--skip-validation"}
+	args := []string{"resolve", inputFile, "-w", outputFile}
 	if c.resolvers != "" {
 		args = append(args, "-r", c.resolvers)
 	}
@@ -141,7 +141,7 @@ func (c *Client) bruteforceFileWithPuredns(ctx context.Context, domain, wordlist
 	outputFile := filepath.Join(tmpDir, "asr_bruteforce_output.txt")
 	defer os.Remove(outputFile)
 
-	args := []string{"bruteforce", wordlistPath, domain, "-w", outputFile, "--skip-wildcard-filter", "--skip-validation"}
+	args := []string{"bruteforce", wordlistPath, domain, "-w", outputFile}
 	if c.resolvers != "" {
 		args = append(args, "-r", c.resolvers)
 	}
