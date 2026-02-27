@@ -31,6 +31,7 @@ type Options struct {
 	Domain              string   // Domain to scan (or subdomain)
 	Subdomain           string   // Single subdomain to scan (alternative to Domain)
 	DomainsFile         string   // File with domains (one per line)
+	HostsFile           string   // Alias for DomainsFile, file with hosts/subdomains/IPs
 	URLs                []string // Direct URLs to test
 	Threads             int      // Number of threads
 	DOSTest             bool     // Enable DoS test for React2Shell
@@ -96,14 +97,15 @@ func Run(opts Options) (*Result, error) {
 		cvesToCheck = []string{"CVE-2025-55182", "CVE-2025-14847"}
 	}
 
+
 	// Check React2Shell (CVE-2025-55182)
 	if contains(cvesToCheck, "CVE-2025-55182") {
-		react2ShellResult, err := checkReact2Shell(opts)
+		react2ShellResult, count, err := checkReact2Shell(opts)
 		if err != nil {
 			opts.logWarn("[WARN] React2Shell check failed: %v", err)
 		} else {
 			result.React2ShellVulns = react2ShellResult
-			result.TotalHostsScanned += len(react2ShellResult)
+			result.TotalHostsScanned += count
 			for _, v := range react2ShellResult {
 				if v.Severity != "" {
 					result.TotalVulnerable++
@@ -114,11 +116,22 @@ func Run(opts Options) (*Result, error) {
 
 	// Check MongoDB CVE-2025-14847
 	if contains(cvesToCheck, "CVE-2025-14847") {
-		mongoResult, err := checkMongoDB(opts)
+		mongoResult, count, err := checkMongoDB(opts)
 		if err != nil {
 			opts.logWarn("[WARN] MongoDB CVE-2025-14847 check failed: %v", err)
 		} else {
 			result.MongoDBVulns = mongoResult
+			// If React2Shell already counted hosts, we might be double counting if they are the same
+			// But since MongoDB discovery might find different hosts (only those with port 27017),
+			// and React2Shell scans everything, it's safer to just take the max if they use the same input,
+			// or add them if they are distinct.
+			// For simplicity and to avoid complex tracking, if React2Shell ran, we already have some count.
+			if result.TotalHostsScanned < count {
+				result.TotalHostsScanned = count
+			} else if result.TotalHostsScanned == 0 {
+				result.TotalHostsScanned = count
+			}
+			
 			for _, v := range mongoResult {
 				if v.Vulnerable {
 					result.TotalVulnerable++
@@ -131,7 +144,7 @@ func Run(opts Options) (*Result, error) {
 }
 
 // checkReact2Shell checks for React2Shell vulnerability (CVE-2025-55182)
-func checkReact2Shell(opts Options) ([]React2ShellFinding, error) {
+func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 	var findings []React2ShellFinding
 
 	// Get live hosts if domain/subdomain is provided
@@ -167,20 +180,20 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, error) {
 				// Check if subdomain is live using httpx directly (no enumeration)
 				liveURL, err2 := checkSingleSubdomainLive(subdomainClean, opts.Threads)
 				if err2 != nil {
-					return nil, fmt.Errorf("failed to check if subdomain %s is live: %w", subdomainClean, err2)
+					return nil, 0, fmt.Errorf("failed to check if subdomain %s is live: %w", subdomainClean, err2)
 				}
 				if liveURL == "" {
-					return nil, fmt.Errorf("subdomain %s is not live", subdomainClean)
+					return nil, 0, fmt.Errorf("subdomain %s is not live", subdomainClean)
 				}
 				
 				// Create directory if needed
 				if err := os.MkdirAll(subsDir, 0755); err != nil {
-					return nil, fmt.Errorf("failed to create subs directory: %w", err)
+					return nil, 0, fmt.Errorf("failed to create subs directory: %w", err)
 				}
 				
 				// Write the single live URL to file
 				if err := os.WriteFile(liveHostsFile, []byte(liveURL+"\n"), 0644); err != nil {
-					return nil, fmt.Errorf("failed to write live hosts file: %w", err)
+					return nil, 0, fmt.Errorf("failed to write live hosts file: %w", err)
 				}
 				opts.logInfo("[INFO] Subdomain %s is live, saved to: %s", subdomainClean, liveHostsFile)
 			} else {
@@ -194,11 +207,11 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, error) {
 				opts.logInfo("[INFO] Live hosts file not found for %s, running livehosts module...", target)
 				liveHostsResult, err2 := livehosts.FilterLiveHosts(target, opts.Threads, false)
 				if err2 != nil {
-					return nil, fmt.Errorf("failed to get live hosts: %w", err2)
+					return nil, 0, fmt.Errorf("failed to get live hosts: %w", err2)
 				}
 				liveHostsFile = liveHostsResult.LiveSubsFile
 				if liveHostsFile == "" {
-					return nil, fmt.Errorf("live hosts file path is empty")
+					return nil, 0, fmt.Errorf("live hosts file path is empty")
 				}
 			} else {
 				opts.logInfo("[INFO] Using existing live hosts file from results dir or database: %s", liveHostsFile)
@@ -208,7 +221,7 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, error) {
 		// Read hosts from file
 		file, err := os.Open(liveHostsFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open live hosts file: %w", err)
+			return nil, 0, fmt.Errorf("failed to open live hosts file: %w", err)
 		}
 		defer file.Close()
 
@@ -233,32 +246,42 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, error) {
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			return nil, fmt.Errorf("error reading live hosts file: %w", err)
+			return nil, 0, fmt.Errorf("error reading live hosts file: %w", err)
 		}
 	} else if len(opts.URLs) > 0 {
 		hosts = opts.URLs
-	} else if opts.DomainsFile != "" {
-		// Read from file
-		file, err := os.Open(opts.DomainsFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open domains file: %w", err)
+	} else {
+		hostsFile := opts.HostsFile
+		if hostsFile == "" {
+			hostsFile = opts.DomainsFile
 		}
-		defer file.Close()
 
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" && !strings.HasPrefix(line, "#") {
-				if !strings.HasPrefix(line, "http://") && !strings.HasPrefix(line, "https://") {
-					line = "https://" + line
+		if hostsFile != "" {
+			// Read from file
+			file, err := os.Open(hostsFile)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to open hosts file: %w", err)
+			}
+			defer file.Close()
+
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line != "" && !strings.HasPrefix(line, "#") {
+					if !strings.HasPrefix(line, "http://") && !strings.HasPrefix(line, "https://") {
+						line = "https://" + line
+					}
+					hosts = append(hosts, line)
 				}
-				hosts = append(hosts, line)
+			}
+			if err := scanner.Err(); err != nil {
+				return nil, 0, fmt.Errorf("error reading hosts file: %w", err)
 			}
 		}
 	}
 
 	if len(hosts) == 0 {
-		return findings, nil
+		return findings, 0, nil
 	}
 
 	// Run next88 smart scan with threading
@@ -269,7 +292,7 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, error) {
 	scanArgs := []string{"-smart-scan"}
 	results, err := runNext88Scan(ctx, hosts, scanArgs, opts.Threads, opts.Silent)
 	if err != nil {
-		return nil, fmt.Errorf("next88 scan failed: %w", err)
+		return nil, 0, fmt.Errorf("next88 scan failed: %w", err)
 	}
 
 	// Convert results to findings
@@ -340,11 +363,11 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, error) {
 		}
 	}
 
-	return findings, nil
+	return findings, len(hosts), nil
 }
 
 // checkMongoDB checks for MongoDB CVE-2025-14847 vulnerability
-func checkMongoDB(opts Options) ([]MongoDBFinding, error) {
+func checkMongoDB(opts Options) ([]MongoDBFinding, int, error) {
 	var findings []MongoDBFinding
 
 	host := opts.MongoDBHost
@@ -362,57 +385,67 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, error) {
 	if host != "" {
 		mongoHosts = []string{host}
 	} else {
-		// No explicit host provided - discover MongoDB instances using naabu port scan
-		// Get live hosts file (should exist from React2Shell check)
+		// No explicit host provided - discover MongoDB instances
 		var liveHostsFile string
-		target := opts.Subdomain
-		if target == "" {
-			target = opts.Domain
-		}
 		
-		if target == "" {
-			return nil, fmt.Errorf("MongoDB host, domain, or subdomain required for CVE-2025-14847 check")
-		}
-		
-		// Clean target
-		targetClean := strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://")
-		targetClean = strings.TrimSuffix(targetClean, "/")
-		
-		// Determine if it's a subdomain
-		parts := strings.Split(targetClean, ".")
-		isSubdomain := len(parts) > 2
-		
-		resultsDir := utils.GetResultsDir()
-		var domainDir string
-		if isSubdomain {
-			domainDir = filepath.Join(resultsDir, targetClean)
+		// Priority 1: Use explicit HostsFile/DomainsFile if provided
+		if opts.HostsFile != "" {
+			liveHostsFile = opts.HostsFile
+		} else if opts.DomainsFile != "" {
+			liveHostsFile = opts.DomainsFile
 		} else {
-			domainDir, _ = utils.DomainDirInit(targetClean)
+			// Priority 2: Try to find live-subs.txt for Domain/Subdomain
+			target := opts.Subdomain
+			if target == "" {
+				target = opts.Domain
+			}
+			
+			if target != "" {
+				// Clean target
+				targetClean := strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://")
+				targetClean = strings.TrimSuffix(targetClean, "/")
+				
+				// Determine if it's a subdomain
+				parts := strings.Split(targetClean, ".")
+				isSubdomain := len(parts) > 2
+				
+				resultsDir := utils.GetResultsDir()
+				var domainDir string
+				if isSubdomain {
+					domainDir = filepath.Join(resultsDir, targetClean)
+				} else {
+					domainDir, _ = utils.DomainDirInit(targetClean)
+				}
+				subsDir := filepath.Join(domainDir, "subs")
+				liveHostsFile = filepath.Join(subsDir, "live-subs.txt")
+				
+				// Check if live hosts file exists
+				if info, err := os.Stat(liveHostsFile); err != nil || info.Size() == 0 {
+					opts.logWarn("[WARN] Live hosts file not found for %s, skipping MongoDB discovery", targetClean)
+					return nil, 0, nil // Return empty, not error
+				}
+			}
 		}
-		subsDir := filepath.Join(domainDir, "subs")
-		liveHostsFile = filepath.Join(subsDir, "live-subs.txt")
-		
-		// Check if live hosts file exists
-		if info, err := os.Stat(liveHostsFile); err != nil || info.Size() == 0 {
-			opts.logWarn("[WARN] Live hosts file not found for %s, skipping MongoDB discovery", targetClean)
-			return nil, fmt.Errorf("live hosts file not found for %s (run React2Shell check first or provide --mongodb-host)", targetClean)
+
+		if liveHostsFile != "" {
+			opts.logInfo("[INFO] Discovering MongoDB instances by scanning %s for port %d...", liveHostsFile, port)
+			
+			// Use naabu to scan hosts for MongoDB port
+			discoveredHosts, err := discoverMongoDBHosts(liveHostsFile, port, opts.Threads, opts.Silent)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to discover MongoDB hosts: %w", err)
+			}
+			
+			if len(discoveredHosts) == 0 {
+				opts.logWarn("[INFO] No MongoDB instances found on port %d", port)
+				return findings, 0, nil
+			}
+			
+			mongoHosts = discoveredHosts
+			opts.logWarn("[INFO] Found %d MongoDB host(s) with port %d open", len(mongoHosts), port)
+		} else {
+			return nil, 0, fmt.Errorf("MongoDB host, domain, subdomain, or hosts file required for CVE-2025-14847 check")
 		}
-		
-		opts.logInfo("[INFO] Discovering MongoDB instances by scanning live hosts for port %d...", port)
-		
-		// Use naabu to scan live hosts for MongoDB port
-		discoveredHosts, err := discoverMongoDBHosts(liveHostsFile, port, opts.Threads, opts.Silent)
-		if err != nil {
-			return nil, fmt.Errorf("failed to discover MongoDB hosts: %w", err)
-		}
-		
-		if len(discoveredHosts) == 0 {
-			opts.logWarn("[INFO] No MongoDB instances found on port %d", port)
-			return findings, nil // Return empty findings, not an error
-		}
-		
-		mongoHosts = discoveredHosts
-		opts.logWarn("[INFO] Found %d MongoDB host(s) with port %d open", len(mongoHosts), port)
 	}
 
 	// Use threading for concurrent MongoDB testing
@@ -462,7 +495,7 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, error) {
 		}
 	}
 
-	return findings, nil
+	return findings, len(mongoHosts), nil
 }
 
 // testMongoDBVulnerability tests a MongoDB instance for CVE-2025-14847
