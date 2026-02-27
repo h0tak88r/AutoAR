@@ -19,6 +19,15 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 50)", Required: false},
 			},
 		},
+		{
+			Name:        "asr_mode",
+			Description: "High-depth reconnaissance (ASR Modes)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan", Required: true},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "mode", Description: "Recon mode (1-5, default: 5)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 50)", Required: false},
+			},
+		},
 		// Zerodays commands
 		{
 			Name:        "zerodays",
@@ -27,6 +36,7 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan (for host scanning)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Single URL to test (for single URL testing)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "File containing domains (one per line) - will do live hosts + smart scan for each", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "host_list", Description: "File containing specific hosts/URLs to scan (skips enumeration)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (for domain scan, default: 100)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "enable_source_exposure", Description: "Enable source code exposure check (for domain scan)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "dos_test", Description: "Enable DoS test (for domain scan)", Required: false},
