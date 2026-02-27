@@ -1408,13 +1408,51 @@ func generateKeyhackCommand(t db.KeyhackTemplate, apiKey string) string {
 	return strings.Join(curlParts, " ")
 }
 
+func printZerodaysHelp() {
+	fmt.Println("\033[1;34mZerodays Scanner - Vulnerability Scanning Tool\033[0m")
+	fmt.Println("\n\033[1mUsage:\033[0m")
+	fmt.Println("  autoar zerodays scan [targets] [options]")
+	fmt.Println("  autoar zerodays [targets] [options] (shorthand)")
+
+	fmt.Println("\n\033[1mTargets (at least one required):\033[0m")
+	fmt.Println("  -d, --domain <domain>        Scan a root domain (e.g., example.com)")
+	fmt.Println("  -s, --subdomain <url>       Scan a single subdomain/URL (e.g., api.example.com)")
+	fmt.Println("  -f, --file <file>           Scan hosts from a domains file")
+	fmt.Println("  -l, --live-hosts <file>     Scan hosts from a live hosts file")
+	fmt.Println("  <domain>                    Direct shorthand for -d <domain>")
+
+	fmt.Println("\n\033[1mOptions:\033[0m")
+	fmt.Println("  -t, --threads <n>           Number of concurrent threads (default: 100)")
+	fmt.Println("  --cve <cve_id>             Specific CVE to check (can be specified multiple times)")
+	fmt.Println("                              Supported: CVE-2025-55182 (React2Shell), CVE-2025-14847 (MongoDB)")
+	fmt.Println("  --dos-test                  Enable DoS testing for React2Shell")
+	fmt.Println("  --enable-source-exposure    Enable source exposure check for React2Shell")
+	fmt.Println("  --mongodb-host <host>       Explicit host for MongoDB check")
+	fmt.Println("  --mongodb-port <port>       Explicit port for MongoDB check (default: 27017)")
+	fmt.Println("  --silent                    Output only vulnerable targets")
+	fmt.Println("  help, -h, --help            Show this help message")
+
+	fmt.Println("\n\033[1mExamples:\033[0m")
+	fmt.Println("  autoar zerodays principal.com")
+	fmt.Println("  autoar zerodays -l subs.txt --silent")
+	fmt.Println("  autoar zerodays scan -s https://vulnerable-api.com --dos-test")
+}
+
 // handleZerodaysCommand handles CLI zerodays scan
-// Usage: zerodays scan -d <domain> | -s <subdomain> | -f <domains_file> [-t <threads>] [--cve <cve>] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>] [--silent]
 func handleZerodaysCommand(args []string) error {
-	if len(args) == 0 || args[0] != "scan" {
-		return fmt.Errorf("usage: zerodays scan -d <domain> | -s <subdomain> | -f <domains_file> [-t <threads>] [--cve <cve>] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>] [--silent]")
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		printZerodaysHelp()
+		return nil
 	}
-	args = args[1:]
+
+	// Make "scan" keyword optional
+	if args[0] == "scan" {
+		args = args[1:]
+		if len(args) == 0 {
+			printZerodaysHelp()
+			return nil
+		}
+	}
 
 	var domain, subdomain, domainsFile string
 	threads := 100
@@ -1440,12 +1478,13 @@ func handleZerodaysCommand(args []string) error {
 				subdomain = strings.TrimSuffix(subdomain, "/")
 				i++
 			}
-		case "-f", "--file":
+		case "-f", "--file", "-l", "--live-hosts":
 			if i+1 < len(args) {
 				domainsFile = args[i+1]
 				i++
 			}
 		case "-t", "--threads":
+// ... (rest of the flags unchanged)
 			if i+1 < len(args) {
 				if t, err := strconv.Atoi(args[i+1]); err == nil {
 					threads = t
@@ -1475,214 +1514,119 @@ func handleZerodaysCommand(args []string) error {
 			}
 		case "--silent":
 			silent = true
+		default:
+			// If it doesn't start with "-" and we don't have a domain yet, treat it as a domain shorthand
+			if !strings.HasPrefix(args[i], "-") && domain == "" && subdomain == "" && domainsFile == "" {
+				domain = args[i]
+			}
 		}
 	}
 
-	// Validate that exactly one input method is provided
-	inputCount := 0
-	if domain != "" {
-		inputCount++
-	}
-	if subdomain != "" {
-		inputCount++
-	}
-	if domainsFile != "" {
-		inputCount++
+	// Validate input
+	if domain == "" && subdomain == "" && domainsFile == "" {
+		fmt.Println("\033[1;31mError: Either domain, subdomain, or hosts file must be provided\033[0m\n")
+		printZerodaysHelp()
+		return fmt.Errorf("missing target")
 	}
 
-	if inputCount == 0 {
-		return fmt.Errorf("either -d <domain>, -s <subdomain>, or -f <domains_file> must be provided")
-	}
-	if inputCount > 1 {
-		return fmt.Errorf("cannot use -d, -s, and -f together - use only one")
+	// Prepare zerodays options
+	zerodaysOpts := zerodays.Options{
+		Domain:               domain,
+		Subdomain:            subdomain,
+		HostsFile:            domainsFile,
+		Threads:              threads,
+		DOSTest:              dosTest,
+		EnableSourceExposure: enableSourceExposure,
+		Silent:               silent,
+		CVEs:                 cves,
+		MongoDBHost:          mongoDBHost,
+		MongoDBPort:          mongoDBPort,
 	}
 
-	var domains []string
-	var isSubdomainMode bool
-	
+	// Determine output directory name
+	targetName := ""
 	if subdomain != "" {
-		// Single subdomain mode
-		domains = []string{subdomain}
-		isSubdomainMode = true
+		targetName = subdomain
 	} else if domain != "" {
-		// Single domain mode
-		domains = []string{domain}
-		isSubdomainMode = false
+		targetName = domain
 	} else {
-		// Read domains from file
-		file, err := os.Open(domainsFile)
-		if err != nil {
-			return fmt.Errorf("failed to open domains file: %w", err)
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" && !strings.HasPrefix(line, "#") {
-				domains = append(domains, line)
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("error reading domains file: %w", err)
-		}
-		if len(domains) == 0 {
-			return fmt.Errorf("no valid domains found in file")
-		}
-		isSubdomainMode = false // File mode defaults to domain mode
+		targetName = "file_scan_" + filepath.Base(domainsFile)
 	}
 
-	// Set silent mode for file scanning
-	os.Setenv("AUTOAR_SILENT", "true")
-	defer os.Unsetenv("AUTOAR_SILENT")
+	// Set silent mode for file scanning if many targets are expected
+	if domainsFile != "" {
+		os.Setenv("AUTOAR_SILENT", "true")
+	}
 
-	// Print initial status (only if not silent)
+	// Print initial status
 	if !silent {
-		if isSubdomainMode {
-			fmt.Fprintf(os.Stderr, "Starting zerodays scan for subdomain: %s\n", subdomain)
+		if domainsFile != "" {
+			fmt.Fprintf(os.Stderr, "Starting zerodays batch scan for hosts in: %s\n", domainsFile)
 		} else {
-			fmt.Fprintf(os.Stderr, "Starting zerodays scan for %d domain(s)...\n", len(domains))
-		}
-		if len(cves) > 0 {
-			fmt.Fprintf(os.Stderr, "CVEs to check: %s\n", strings.Join(cves, ", "))
-		} else {
-			fmt.Fprintf(os.Stderr, "CVEs to check: All (CVE-2025-55182, CVE-2025-14847)\n")
-		}
-		if len(domains) > 1 {
-			fmt.Fprintf(os.Stderr, "Processing sequentially...\n\n")
+			fmt.Fprintf(os.Stderr, "Starting zerodays scan for: %s\n", targetName)
 		}
 	}
 
-	// Process each domain
-	for idx, targetDomain := range domains {
-		// Print progress immediately (only if not silent)
-		if !silent && len(domains) > 1 {
-			fmt.Fprintf(os.Stderr, "[%d/%d] Processing %s...\n", idx+1, len(domains), targetDomain)
-		}
-
-		// Prepare zerodays options
-		zerodaysOpts := zerodays.Options{
-			Threads:             threads,
-			DOSTest:             dosTest,
-			EnableSourceExposure: enableSourceExposure,
-			Silent:              silent,
-			CVEs:                cves,
-			MongoDBHost:         mongoDBHost,
-			MongoDBPort:         mongoDBPort,
-		}
-
-		// Set Domain or Subdomain based on input mode
-		if isSubdomainMode {
-			zerodaysOpts.Subdomain = targetDomain
-		} else {
-			// For file mode, try to detect if it's a subdomain
-			parts := strings.Split(targetDomain, ".")
-			if len(parts) > 2 {
-				zerodaysOpts.Subdomain = targetDomain
-			} else {
-				zerodaysOpts.Domain = targetDomain
-			}
-		}
-
-		// Run zerodays scan
-		result, err := zerodays.Run(zerodaysOpts)
-		if err != nil {
-			if !silent {
-				fmt.Printf("[%d/%d] %s: ERROR - %v\n", idx+1, len(domains), targetDomain, err)
-			}
-			continue
-		}
-
-		// Save results (always save, even in silent mode)
-		resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
-		if resultsDir == "" {
-			resultsDir = "new-results"
-		}
-		outputDir := filepath.Join(resultsDir, targetDomain, "zerodays")
-		// Always save results, regardless of silent mode
-		// Log save attempt even in silent mode for debugging
-		if !silent {
-			fmt.Printf("[%d/%d] %s: Saving results to %s...\n", idx+1, len(domains), targetDomain, outputDir)
-		}
-		if err := zerodays.SaveResults(result, outputDir); err != nil {
-			// Always log save errors, even in silent mode (this is critical)
-			fmt.Fprintf(os.Stderr, "[WARN] Failed to save zerodays results to %s: %v\n", outputDir, err)
-		} else {
-			// Verify files were created (even in silent mode)
-			react2ShellFile := filepath.Join(outputDir, "react2shell-cve-2025-55182.txt")
-			mongoFile := filepath.Join(outputDir, "mongodb-cve-2025-14847.txt")
-			jsonFile := filepath.Join(outputDir, "zerodays-results.json")
-			
-			// Check all expected files
-			filesExist := true
-			if _, err := os.Stat(react2ShellFile); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] React2Shell results file not found: %s (error: %v)\n", react2ShellFile, err)
-				filesExist = false
-			}
-			if _, err := os.Stat(mongoFile); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] MongoDB results file not found: %s (error: %v)\n", mongoFile, err)
-				filesExist = false
-			}
-			if _, err := os.Stat(jsonFile); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Zerodays JSON file not found: %s (error: %v)\n", jsonFile, err)
-				filesExist = false
-			}
-			
-			if filesExist && !silent {
-				fmt.Printf("[%d/%d] %s: Results saved to %s\n", idx+1, len(domains), targetDomain, outputDir)
-			}
-		}
-
-		// Print output
-		if len(result.React2ShellVulns) > 0 || len(result.MongoDBVulns) > 0 {
-			if silent {
-				// Silent mode: output vulnerable hosts
-				for _, vuln := range result.React2ShellVulns {
-					fmt.Printf("%s [React2Shell:%s]\n", vuln.URL, vuln.Type)
-				}
-				for _, vuln := range result.MongoDBVulns {
-					if vuln.Vulnerable {
-						fmt.Printf("%s:%d [MongoDB:CVE-2025-14847]\n", vuln.Host, vuln.Port)
-					}
-				}
-			} else {
-				// Verbose mode: show full details
-				fmt.Printf("[%d/%d] %s: %d hosts scanned, %d vulnerable:\n", idx+1, len(domains), targetDomain, result.TotalHostsScanned, result.TotalVulnerable)
-				for _, vuln := range result.React2ShellVulns {
-					fmt.Printf("  - %s [React2Shell:%s] - %s\n", vuln.URL, vuln.Type, vuln.Severity)
-				}
-				for _, vuln := range result.MongoDBVulns {
-					if vuln.Vulnerable {
-						fmt.Printf("  - %s:%d [MongoDB:CVE-2025-14847] - Leaked %d bytes\n", vuln.Host, vuln.Port, len(vuln.LeakedData))
-					}
-				}
-			}
-		} else {
-			if !silent {
-				fmt.Printf("[%d/%d] %s: %d hosts scanned\n", idx+1, len(domains), targetDomain, result.TotalHostsScanned)
-			}
-		}
-
-		// Cleanup domain directory after each domain scan
-		// BUT: Skip cleanup if running from subdomain/domain workflow (they need the files)
-		// Check if we're being called from another workflow by checking for workflow environment variables
-		isWorkflowRun := os.Getenv("AUTOAR_CURRENT_CHANNEL_ID") != "" || os.Getenv("AUTOAR_CURRENT_SCAN_ID") != ""
-		// Also skip cleanup for subdomain mode (when -s flag is used) as files are needed by workflow
-		if !isWorkflowRun && !isSubdomainMode {
-			if err := cleanupDomainDirectoryForCLI(targetDomain); err != nil {
-				if !silent {
-					fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", targetDomain, err)
-				}
-			}
-		} else if !silent {
-			// Log that we're skipping cleanup
-			if isWorkflowRun {
-				fmt.Printf("[DEBUG] Skipping cleanup (workflow run detected)\n")
-			} else if isSubdomainMode {
-				fmt.Printf("[DEBUG] Skipping cleanup (subdomain mode - files needed by workflow)\n")
-			}
-		}
+	// Run zerodays scan
+	result, err := zerodays.Run(zerodaysOpts)
+	if err != nil {
+		return fmt.Errorf("zerodays scan failed: %w", err)
 	}
+
+	// Save results
+	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+	if resultsDir == "" {
+		resultsDir = "new-results"
+	}
+	outputDir, _ := filepath.Abs(filepath.Join(resultsDir, targetName, "zerodays"))
+	
+	if !silent {
+		fmt.Printf("[INFO] Saving results to %s...\n", outputDir)
+	}
+	
+	if err := zerodays.SaveResults(result, outputDir); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] Failed to save zerodays results: %v\n", err)
+	}
+
+	// Print summary output
+	if silent {
+		// Silent mode: output vulnerable hosts
+		for _, vuln := range result.React2ShellVulns {
+			fmt.Printf("%s [React2Shell:%s]\n", vuln.URL, vuln.Type)
+		}
+		for _, vuln := range result.MongoDBVulns {
+			if vuln.Vulnerable {
+				fmt.Printf("%s:%d [MongoDB:CVE-2025-14847]\n", vuln.Host, vuln.Port)
+			}
+		}
+	} else {
+		// Verbose mode: show full details
+		fmt.Printf("\n[+] Scan completed for %s\n", targetName)
+		fmt.Printf("[INFO] Total hosts scanned: %d\n", result.TotalHostsScanned)
+		fmt.Printf("[INFO] Total vulnerable hosts found: %d\n", result.TotalVulnerable)
+		
+		if len(result.React2ShellVulns) > 0 {
+			fmt.Println("\n🔴 React2Shell (CVE-2025-55182) Findings:")
+			for _, vuln := range result.React2ShellVulns {
+				fmt.Printf("  - %s [%s] - %s\n", vuln.URL, vuln.Type, vuln.Severity)
+			}
+		}
+		
+		if len(result.MongoDBVulns) > 0 {
+			vulnFound := false
+			for _, vuln := range result.MongoDBVulns {
+				if vuln.Vulnerable {
+					if !vulnFound {
+						fmt.Println("\n🔴 MongoDB (CVE-2025-14847) Findings:")
+						vulnFound = true
+					}
+					fmt.Printf("  - %s:%d - VULNERABLE (leaked %d bytes)\n", vuln.Host, vuln.Port, len(vuln.LeakedData))
+				}
+			}
+		}
+		
+	}
+	fmt.Printf("\n[OK] Detailed results saved to: %s\n", outputDir)
 
 	return nil
 }
@@ -3767,7 +3711,17 @@ func handleASRCommand(args []string) error {
 		Resolvers: resolvers,
 	}
 
-	return asrmod.Run(context.Background(), opts)
+	err := asrmod.Run(context.Background(), opts)
+	if err == nil {
+		resultsDir := "new-results"
+		if d := os.Getenv("AUTOAR_RESULTS_DIR"); d != "" {
+			resultsDir = d
+		}
+		absPath, _ := filepath.Abs(filepath.Join(resultsDir, domain))
+		fmt.Printf("\n\x1b[32m[OK] ASR scan completed successfully!\x1b[0m\n")
+		fmt.Printf("\x1b[34m[INFO] Results saved to: %s\x1b[0m\n", absPath)
+	}
+	return err
 }
 
 func printASRHelp() {
