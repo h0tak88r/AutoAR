@@ -65,7 +65,7 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Build command
 	command := []string{autoarScript, "jwt", "scan", "--token", token}
-	
+
 	if skipCrack {
 		command = append(command, "--skip-crack")
 	}
@@ -86,9 +86,10 @@ func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	desc := fmt.Sprintf("**Token:** `%s...`\n**Tool:** jwt-hack", token[:min(20, len(token))])
 	if wordlistPath != "" {
 		wordlistName := "Custom"
-		if *wordlistChoice == "fast" {
+		switch *wordlistChoice {
+		case "fast":
 			wordlistName = "Fast (jwt-common.txt)"
-		} else if *wordlistChoice == "heavy" {
+		case "heavy":
 			wordlistName = "Heavy (scraped-JWT-secrets.txt)"
 		}
 		desc += fmt.Sprintf("\n**Wordlist:** %s", wordlistName)
@@ -180,7 +181,7 @@ func handleBackupScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, "❌ Either domain or file attachment is required", false)
 		return
 	}
-	
+
 	if domain != "" && filePath != "" {
 		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
 		return
@@ -193,7 +194,7 @@ func handleBackupScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	} else {
 		command = []string{autoarScript, "backup", "scan", "-d", domain, "-t", fmt.Sprintf("%d", threads)}
 	}
-	
+
 	if method != "" && method != "regular" {
 		command = append(command, "-m", method)
 	}
@@ -475,7 +476,7 @@ func handleScope(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Build command
 	command := []string{autoarScript, "scope", "-p", platform}
-	
+
 	if username != "" {
 		command = append(command, "-u", username)
 	}
@@ -564,7 +565,7 @@ func runScopeBackground(platform string, command []string, outputFile string, s 
 	// Run the command
 	cmd := exec.Command(command[0], command[1:]...)
 	output, err := cmd.CombinedOutput()
-	
+
 	if err != nil {
 		log.Printf("[ERROR] Scope fetch failed: %v\nOutput: %s", err, string(output))
 		embed := &discordgo.MessageEmbed{

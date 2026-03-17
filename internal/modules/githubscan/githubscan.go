@@ -80,34 +80,60 @@ func Run(opts Options) (*Result, error) {
 	tablePath := filepath.Join(baseDir, "secrets_table.txt") // reserved for future processing
 	logPath := filepath.Join(baseDir, "trufflehog.log")
 
-	jsonFile, err := os.Create(jsonPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create secrets.json: %w", err)
-	}
-	defer jsonFile.Close()
-
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create trufflehog.log: %w", err)
-	}
-	defer logFile.Close()
-
 	cmd, err := buildTrufflehogCommand(opts)
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stdout = jsonFile
-	cmd.Stderr = logFile
 
-	if err := cmd.Run(); err != nil {
-		// Still return paths so caller/bot can inspect logs
-		return &Result{
-			BaseDir:    baseDir,
-			JSONPath:   jsonPath,
-			TablePath:  tablePath,
-			LogPath:    logPath,
-			TargetName: target,
-		}, fmt.Errorf("trufflehog command failed: %w", err)
+	// Capture ALL output in one buffer. TruffleHog mixes JSON finding lines
+	// and structured log lines (also JSON) on stdout; stderr is typically empty.
+	rawOutput, runErr := cmd.CombinedOutput()
+
+	// Split into JSON findings vs log/error lines.
+	// A finding line starts with '{"SourceMetadata"' or just '{', while log
+	// lines start with '{"level":'. We write them to separate files.
+	var jsonLines, logLines []string
+	for _, raw := range strings.Split(string(rawOutput), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		// Log/error lines contain "level" key written by trufflehog's logger.
+		if strings.Contains(line, `"level":`) || strings.Contains(line, `"logger":`) {
+			logLines = append(logLines, line)
+		} else if strings.HasPrefix(line, "{") {
+			// Actual finding JSON
+			jsonLines = append(jsonLines, line)
+		} else {
+			// Catch-all: plain text → log
+			logLines = append(logLines, line)
+		}
+	}
+
+	// Write separated files
+	if err := os.WriteFile(jsonPath, []byte(strings.Join(jsonLines, "\n")+"\n"), 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write secrets.json: %w", err)
+	}
+	logContent := strings.Join(logLines, "\n")
+	if runErr != nil {
+		logContent = "ERROR: " + runErr.Error() + "\n\n" + logContent
+	}
+	if err := os.WriteFile(logPath, []byte(logContent+"\n"), 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write trufflehog.log: %w", err)
+	}
+
+	result := &Result{
+		BaseDir:    baseDir,
+		JSONPath:   jsonPath,
+		TablePath:  tablePath,
+		LogPath:    logPath,
+		TargetName: target,
+	}
+
+	if runErr != nil {
+		// Still generate table so caller can inspect what (if anything) was found
+		_ = generateSecretsTable(jsonPath, tablePath)
+		return result, fmt.Errorf("trufflehog command failed: %w", runErr)
 	}
 
 	// Generate secrets table from JSON
@@ -116,13 +142,7 @@ func Run(opts Options) (*Result, error) {
 		fmt.Printf("[WARN] Failed to generate secrets table: %v\n", err)
 	}
 
-	return &Result{
-		BaseDir:    baseDir,
-		JSONPath:   jsonPath,
-		TablePath:  tablePath,
-		LogPath:    logPath,
-		TargetName: target,
-	}, nil
+	return result, nil
 }
 
 func buildTrufflehogCommand(opts Options) (*exec.Cmd, error) {
@@ -185,6 +205,7 @@ func normalizeRepo(repo string) string {
 	repo = strings.TrimPrefix(repo, "https://github.com/")
 	repo = strings.TrimPrefix(repo, "http://github.com/")
 	repo = strings.TrimSuffix(repo, ".git")
+	repo = strings.TrimSuffix(repo, "/") // strip trailing slash e.g. "clerk/javascript/" -> "clerk/javascript"
 	return repo
 }
 

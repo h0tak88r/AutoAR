@@ -27,6 +27,7 @@ import (
 type Options struct {
 	Target          string
 	Domain          string // Domain mode: fuzz all live hosts for this domain
+	ParentDomain    string // When set, per-subdomain results nest under ParentDomain/ffuf/subdomain/
 	Wordlist        string
 	Threads         int
 	Concurrency     int // Concurrency for domain mode (number of hosts to fuzz concurrently)
@@ -925,8 +926,9 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 			// Create per-host options
 			hostOpts := opts
 			hostOpts.Target = targetURL
-			hostOpts.Domain = "" // Clear domain to avoid recursion
-			hostOpts.OutputFile = "" // Use default per-host output
+			hostOpts.Domain = ""          // Clear domain to avoid recursion
+			hostOpts.ParentDomain = opts.Domain // Carry the parent domain for correct output path
+			hostOpts.OutputFile = ""      // Use default per-host output
 
 			// Run ffuf for this host
 			result, err := runFFufSingleTarget(hostOpts)
@@ -1127,16 +1129,25 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	lastSize := int64(-1)
 
 	// Setup output directory
+	// If ParentDomain is set (called from domain mode), nest under:
+	//   {resultsDir}/{parentDomain}/ffuf/{subdomain}/
+	// Otherwise use the legacy single-target layout:
+	//   {resultsDir}/{subdomain}/ffuf/
 	resultsDir := utils.GetResultsDir()
-	outputDir := filepath.Join(resultsDir, extractDomain(opts.Target), "ffuf")
+	subdomainName := extractDomain(opts.Target)
+	var outputDir string
+	if opts.ParentDomain != "" {
+		outputDir = filepath.Join(resultsDir, opts.ParentDomain, "ffuf", subdomainName)
+	} else {
+		outputDir = filepath.Join(resultsDir, subdomainName, "ffuf")
+	}
 	if err := utils.EnsureDir(outputDir); err != nil {
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	if opts.OutputFile == "" {
-		// Create per-host output file
-		hostName := extractDomain(opts.Target)
-		opts.OutputFile = filepath.Join(outputDir, fmt.Sprintf("%s-ffuf-results.txt", hostName))
+		// Create per-host output file inside subdomain dir
+		opts.OutputFile = filepath.Join(outputDir, fmt.Sprintf("%s-ffuf-results.txt", subdomainName))
 	}
 
 	// Create output file

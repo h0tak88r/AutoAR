@@ -159,4 +159,3 @@ func handleMonitorSubdomainsManage(s *discordgo.Session, i *discordgo.Interactio
 		}
 	}
 }
-

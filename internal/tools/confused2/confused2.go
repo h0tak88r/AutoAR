@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,57 @@ import (
 	conflogger "github.com/h0tak88r/confused2/pkg/logger"
 	confweb "github.com/h0tak88r/confused2/pkg/web"
 )
+
+// falsePositivePackages is a set of well-known package names that are NOT real
+// packages and should never be flagged as vulnerable. These typically appear as
+// false positives when confused2 mis-parses a file entry-point or test module.
+var falsePositivePackages = map[string]bool{
+	"main":     true,
+	"__main__": true,
+	".":        true,
+	"app":      true,
+	"src":      true,
+	"test":     true,
+	"tests":    true,
+	"setup":    true,
+}
+
+// filterVulnerable removes known false-positive entries from a package list.
+// Returns nil if all packages were filtered out.
+func filterVulnerable(pkgs []string) []string {
+	var out []string
+	for _, p := range pkgs {
+		normalized := strings.ToLower(strings.TrimSpace(p))
+		if !falsePositivePackages[normalized] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// verifyURLExists does a cheap HEAD request to check if a URL actually exists
+// (returns a 2xx or 3xx response code). Returns false on any error or 4xx/5xx.
+func verifyURLExists(rawURL string) bool {
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 5 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+	resp, err := client.Head("https://" + rawURL)
+	if err != nil {
+		// try http:// as a fallback
+		resp, err = client.Head("http://" + rawURL)
+		if err != nil {
+			return false
+		}
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode < 400
+}
 
 // WebOptions controls how Confused2 web scans are run via the embedded engine.
 // Either Targets or TargetFile must be provided.
@@ -121,17 +173,34 @@ func WebScan(opts WebOptions) (*WebResult, error) {
 		if t == "" {
 			continue
 		}
+
+		// Extract just the hostname part of the target (before any colon/path) to
+		// verify the host actually responds before we bother scanning it.
+		host := t
+		if idx := strings.Index(host, ":"); idx != -1 {
+			host = host[:idx]
+		}
+		if !verifyURLExists(host) {
+			log.Warn("Skipping unreachable target: %s", t)
+			continue
+		}
+
 		results, err := webScanner.ScanTarget(t, cfg.Languages, cfg.DeepScan, opts.MaxDepth)
 		if err != nil {
 			log.Warn("Failed to scan target %s: %v", t, err)
 			continue
 		}
 		for _, r := range results {
+			filtered := filterVulnerable(r.Vulnerable)
+			// Skip the finding entirely if all packages were false positives
+			if len(filtered) == 0 {
+				continue
+			}
 			allFindings = append(allFindings, finding{
 				Target:     r.Target,
 				Type:       r.Type,
 				Language:   r.Language,
-				Vulnerable: append([]string(nil), r.Vulnerable...),
+				Vulnerable: filtered,
 				Total:      r.Total,
 			})
 		}

@@ -196,6 +196,8 @@ func RunMode5(ctx context.Context, opts Options) error {
 	passSubs, _ := passiveRunner.Enumerate(ctx, opts.Domain)
 	opts.Progress(fmt.Sprintf("Found %d subdomains via passive sources", len(passSubs)))
 	allSubdomains = append(allSubdomains, passSubs...)
+	// Save passive results immediately before any filtering
+	utils.WriteLines(filepath.Join(domainDir, "all_subs_passive.txt"), passSubs)
 
 	// 2. TLS Probing
 	opts.Progress("Starting TLS probing")
@@ -220,10 +222,15 @@ func RunMode5(ctx context.Context, opts Options) error {
 	opts.Progress(fmt.Sprintf("Generated %d permutations", len(permSubs)))
 	allSubdomains = append(allSubdomains, permSubs...)
 
-	// Deduplicate before resolving
+	// Deduplicate and save ALL subs before DNS resolution filters them
 	allSubdomains = deduplicate(allSubdomains)
+	opts.Progress(fmt.Sprintf("Total unique subdomains before DNS resolution: %d", len(allSubdomains)))
+	utils.WriteLines(filepath.Join(domainDir, "all_subs_pre_resolve.txt"), allSubdomains)
+
+	// DNS resolution — only confirmed-resolving subs survive this step
 	dnsClient, _ := dns_asr.NewClientWithResolverFile(opts.Resolvers, opts.Threads)
 	allSubdomains, _ = dnsClient.Resolve(ctx, allSubdomains, opts.Threads)
+	opts.Progress(fmt.Sprintf("DNS resolution confirmed %d subdomains", len(allSubdomains)))
 	utils.WriteLines(filepath.Join(domainDir, "all_subs_resolved.txt"), allSubdomains)
 
 	// 5. HTTP Check
