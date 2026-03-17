@@ -109,6 +109,7 @@ func GenerateYAMLConfig(configFile string) error {
 		"QUAKE_PASSWORD", "THREATBOOK_API_KEY", "WHOISXMLAPI_API_KEY",
 		"ZOOMEYE_USERNAME", "ZOOMEYE_PASSWORD", "ZOOMEYEAPI_API_KEY",
 		"H1_API_KEY", "INTEGRITI_API_KEY", "OPENROUTER_API_KEY",
+		"GEMINI_API_KEY",
 	}
 	
 	for _, key := range apiKeys {

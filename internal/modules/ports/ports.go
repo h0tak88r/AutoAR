@@ -65,7 +65,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		log.Printf("[WARN] Naabu scan failed: %v", err)
 		// Create empty file with "no results" message
 		if f, err := os.Create(outFile); err == nil {
-			f.WriteString("No open ports found (scan failed or no ports discovered).\n")
+			f.WriteString("No open ports found (excluding ports 80, 443, 8080 and 8443).\n")
 			f.Close()
 		}
 		count = 0
@@ -73,7 +73,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		// Check if file is empty and write "no results" message if so
 		if info, err := os.Stat(outFile); err == nil && info.Size() == 0 {
 			if f, err := os.OpenFile(outFile, os.O_WRONLY|os.O_APPEND, 0644); err == nil {
-				f.WriteString("No open ports found (excluding ports 80 and 443).\n")
+				f.WriteString("No open ports found (excluding ports 80, 443, 8080 and 8443).\n")
 				f.Close()
 			}
 		}
@@ -90,7 +90,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 				utils.SendWebhookFileAsync(outFile, fmt.Sprintf("Port Scan Results: %d open ports found for %s", count, domain))
 			} else if count == 0 {
 				// Send "no findings" message if no ports found
-				utils.SendWebhookLogAsync(fmt.Sprintf("Port scan completed for %s: 0 open ports found (excluding ports 80 and 443)", domain))
+				utils.SendWebhookLogAsync(fmt.Sprintf("Port scan completed for %s: 0 open ports found (excluding ports 80, 443, 8080 and 8443)", domain))
 			}
 		}
 	}

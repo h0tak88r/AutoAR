@@ -45,6 +45,9 @@ func (p *PostgresDB) Init() error {
 		return fmt.Errorf("failed to parse connection string: %v", err)
 	}
 
+	// Disable prepared statements for compatibility with PgBouncer/Supabase poolers
+	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
 	// Configure pool settings
 	config.MaxConns = 25
 	config.MinConns = 2

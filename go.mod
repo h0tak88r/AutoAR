@@ -29,6 +29,7 @@ require (
 	github.com/sa7mon/s3scanner v0.0.0-20251106040855-9e26bc46e8ee
 	github.com/sirupsen/logrus v1.9.3
 	github.com/sw33tLie/bbscope v0.0.0-20251113222800-c453973e83dd
+	golang.org/x/net v0.47.0
 	golang.org/x/time v0.14.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -281,7 +282,6 @@ require (
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
 	golang.org/x/mod v0.29.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect

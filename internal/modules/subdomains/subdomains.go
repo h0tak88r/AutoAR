@@ -93,60 +93,215 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	return results, nil
 }
 
-// getSubdomainsFromAPIs collects subdomains from hackertarget and crt.sh APIs
+// getSubdomainsFromAPIs collects subdomains from multiple passive DNS and CT sources in parallel
 func getSubdomainsFromAPIs(domain string) []string {
 	var results []string
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	
-	// Hackertarget API
+
+	subdomainRe := regexp.MustCompile(fmt.Sprintf(`[a-zA-Z0-9._-]+\.%s`, regexp.QuoteMeta(domain)))
+
+	addMatches := func(matches []string) {
+		mu.Lock()
+		results = append(results, matches...)
+		mu.Unlock()
+	}
+
+	// 1. HackerTarget — plain-text CSV, no auth required
+	// https://api.hackertarget.com/hostsearch/?q={domain}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		resp, err := http.Get(fmt.Sprintf("https://api.hackertarget.com/hostsearch/?q=%s", domain))
-		if err == nil {
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			re := regexp.MustCompile(fmt.Sprintf(`[a-zA-Z0-9._-]+\.%s`, regexp.QuoteMeta(domain)))
-			matches := re.FindAllString(string(body), -1)
-			mu.Lock()
-			results = append(results, matches...)
-			mu.Unlock()
+		if err != nil {
+			return
 		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		addMatches(subdomainRe.FindAllString(string(body), -1))
 	}()
-	
-	// crt.sh API
+
+	// 2. crt.sh — Certificate Transparency logs, JSON
+	// https://crt.sh/?q=%.{domain}&output=json
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		resp, err := http.Get(fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain))
-		if err == nil {
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			
-			// Parse JSON response
-			var crtData []map[string]interface{}
-			if json.Unmarshal(body, &crtData) == nil {
-				re := regexp.MustCompile(fmt.Sprintf(`[a-zA-Z0-9._-]+\.%s`, regexp.QuoteMeta(domain)))
-				for _, entry := range crtData {
-					if nameValue, ok := entry["name_value"].(string); ok {
-						matches := re.FindAllString(nameValue, -1)
-						mu.Lock()
-						results = append(results, matches...)
-						mu.Unlock()
-					}
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var crtData []map[string]interface{}
+		if json.Unmarshal(body, &crtData) == nil {
+			for _, entry := range crtData {
+				if nameValue, ok := entry["name_value"].(string); ok {
+					addMatches(subdomainRe.FindAllString(nameValue, -1))
 				}
-			} else {
-				// Fallback to regex if JSON parsing fails
-				re := regexp.MustCompile(fmt.Sprintf(`[a-zA-Z0-9._-]+\.%s`, regexp.QuoteMeta(domain)))
-				matches := re.FindAllString(string(body), -1)
-				mu.Lock()
-				results = append(results, matches...)
-				mu.Unlock()
+			}
+		} else {
+			// Fallback regex if JSON is malformed
+			addMatches(subdomainRe.FindAllString(string(body), -1))
+		}
+	}()
+
+	// 3. URLScan.io — optional API key via URLSCAN_API_KEY env var
+	// https://urlscan.io/api/v1/search/?q=domain:{domain}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		req, err := http.NewRequest("GET",
+			fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=200", domain), nil)
+		if err != nil {
+			return
+		}
+		if apiKey := os.Getenv("URLSCAN_API_KEY"); apiKey != "" {
+			req.Header.Set("API-Key", apiKey)
+		}
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var data map[string]interface{}
+		if json.Unmarshal(body, &data) != nil {
+			return
+		}
+		results_, _ := data["results"].([]interface{})
+		for _, r := range results_ {
+			entry, ok := r.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			// Parse page.domain field
+			if page, ok := entry["page"].(map[string]interface{}); ok {
+				if d, ok := page["domain"].(string); ok {
+					addMatches(subdomainRe.FindAllString(d, -1))
+				}
+			}
+			// Also parse task.url which contains the full URL
+			if task, ok := entry["task"].(map[string]interface{}); ok {
+				if u, ok := task["url"].(string); ok {
+					addMatches(subdomainRe.FindAllString(u, -1))
+				}
 			}
 		}
 	}()
-	
+
+	// 4. CertSpotter — Certificate Transparency logs, optional API key via CERTSPOTTER_API_KEY
+	// https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		req, err := http.NewRequest("GET",
+			fmt.Sprintf("https://api.certspotter.com/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names", domain), nil)
+		if err != nil {
+			return
+		}
+		if apiKey := os.Getenv("CERTSPOTTER_API_KEY"); apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var entries []map[string]interface{}
+		if json.Unmarshal(body, &entries) != nil {
+			return
+		}
+		for _, entry := range entries {
+			dnsNames, _ := entry["dns_names"].([]interface{})
+			for _, name := range dnsNames {
+				if s, ok := name.(string); ok {
+					addMatches(subdomainRe.FindAllString(s, -1))
+				}
+			}
+		}
+	}()
+
+	// 5. AlienVault OTX — passive DNS, optional API key via OTX_API_KEY
+	// https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		req, err := http.NewRequest("GET",
+			fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/passive_dns", domain), nil)
+		if err != nil {
+			return
+		}
+		if apiKey := os.Getenv("OTX_API_KEY"); apiKey != "" {
+			req.Header.Set("X-OTX-API-KEY", apiKey)
+		}
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var data map[string]interface{}
+		if json.Unmarshal(body, &data) != nil {
+			return
+		}
+		passiveDNS, _ := data["passive_dns"].([]interface{})
+		for _, record := range passiveDNS {
+			entry, ok := record.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if hostname, ok := entry["hostname"].(string); ok {
+				addMatches(subdomainRe.FindAllString(hostname, -1))
+			}
+		}
+	}()
+
+	// 6. RapidDNS — HTML scrape (no formal free JSON API)
+	// https://rapiddns.io/subdomain/{domain}?full=1
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		req, err := http.NewRequest("GET",
+			fmt.Sprintf("https://rapiddns.io/subdomain/%s?full=1", domain), nil)
+		if err != nil {
+			return
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		addMatches(subdomainRe.FindAllString(string(body), -1))
+	}()
+
+	// 7. DNSRepo — HTML scrape, best-effort
+	// https://dnsrepo.com/subdomains/{domain}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		req, err := http.NewRequest("GET",
+			fmt.Sprintf("https://dnsrepo.com/subdomains/%s", domain), nil)
+		if err != nil {
+			return
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		addMatches(subdomainRe.FindAllString(string(body), -1))
+	}()
+
 	wg.Wait()
 	return results
 }

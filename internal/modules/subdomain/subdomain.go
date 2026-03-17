@@ -2,7 +2,6 @@ package subdomain
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -30,7 +29,6 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
-	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	wpconfusion "github.com/h0tak88r/AutoAR/internal/modules/wp-confusion"
 	"github.com/projectdiscovery/httpx/runner"
@@ -39,22 +37,6 @@ import (
 // Result holds subdomain scan results
 type Result struct {
 	Subdomain string
-}
-
-// UploadedFileInfo holds information about an uploaded file
-type UploadedFileInfo struct {
-	Phase     string `json:"phase"`
-	FileName  string `json:"file_name"`
-	FilePath  string `json:"file_path"`
-	Size      int64  `json:"size"`
-	SizeHuman string `json:"size_human"`
-	URL       string `json:"url"`
-}
-
-// SubdomainScanUploads holds all uploaded files information
-type SubdomainScanUploads struct {
-	Subdomain string             `json:"subdomain"`
-	Files     []UploadedFileInfo `json:"files"`
 }
 
 // RunSubdomain runs the full subdomain scan workflow with ALL features on a single subdomain
@@ -114,11 +96,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	// Extract root domain for modules that need it (e.g., DNS, S3)
 	rootDomain := extractDomain(subdomainClean)
 
-	// Initialize uploaded files tracking
-	uploadedFiles := &SubdomainScanUploads{
-		Subdomain: subdomainClean,
-		Files:     []UploadedFileInfo{},
-	}
+
 
 	totalSteps := 19 
 	var currentStep int32
@@ -129,7 +107,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 
 	// Phase 1: Live Check (Sequential - Critical Path)
-	if err := runSubdomainPhase("livehosts", getNextStep(), totalSteps, "Live host check", subdomain, 0, uploadedFiles, func() error {
+	if err := runSubdomainPhase("livehosts", getNextStep(), totalSteps, "Live host check", subdomain, 0, func() error {
 		return checkAndSaveLiveSubdomain(subdomain, liveHostsFile)
 	}); err != nil {
 		log.Printf("[ERROR] Live host check failed: %v", err)
@@ -145,7 +123,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := runSubdomainPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, uploadedFiles, fn); err != nil {
+			if err := runSubdomainPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, fn); err != nil {
 				log.Printf("[WARN] %s failed: %v", desc, err)
 			}
 		}()
@@ -460,7 +438,7 @@ func extractDomain(subdomain string) string {
 }
 
 // runSubdomainPhase runs a single phase with webhook updates and file sending
-func runSubdomainPhase(phaseKey string, step, total int, description, subdomain string, timeoutSeconds int, uploadedFiles *SubdomainScanUploads, fn func() error) error {
+func runSubdomainPhase(phaseKey string, step, total int, description, subdomain string, timeoutSeconds int, fn func() error) error {
 	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
 
 	// Update database with current phase progress
@@ -593,157 +571,4 @@ func runWithTimeout(fn func() error, timeout time.Duration) error {
 	}
 }
 
-// mapFilePathsToNames maps file paths to friendly names for Discord display
-func mapFilePathsToNames(urls map[string]string) map[string]string {
-	linkMap := make(map[string]string)
-	
-	// Define priority order for files (most important first)
-	// Format: path pattern -> friendly name
-	priorityFiles := []struct {
-		pattern string
-		name    string
-	}{
-		{"subs/live-subs.txt", "live subs"},
-		{"ports/ports.txt", "ports"},
-		{"urls/all-urls.txt", "all urls"},
-		{"aem/aem-scan.txt", "aem"},
-		{"misconfig/misconfig-scan-results.txt", "misconfig"},
-		{"ffuf/ffuf-results.txt", "ffuf"},
-		{"backup/fuzzuli-results.txt", "backup"},
-		{"s3/buckets.txt", "s3 buckets"},
-		{"zerodays/zerodays-results.json", "zerodays"},
-		{"vulnerabilities/nuclei-custom-cves.txt", "nuclei cves"},
-		{"vulnerabilities/dns-takeover/dns-takeover-summary.txt", "dns takeover"},
-		{"vulnerabilities/dns-takeover/dangling-ip-summary.txt", "dangling ips"},
-		{"subs/tech-detect.txt", "tech stack"},
-		{"depconfusion/web-file/depconfusion-results.txt", "dep confusion"},
-	}
-	
-	// First pass: match priority files
-	matched := make(map[string]bool)
-	for _, priority := range priorityFiles {
-		for path, url := range urls {
-			if strings.Contains(path, priority.pattern) && !matched[path] {
-				linkMap[priority.name] = url
-				matched[path] = true
-				break
-			}
-		}
-	}
-	
-	// Second pass: add other important files by directory
-	dirNames := map[string]string{
-		"vulnerabilities/xss/":           "xss",
-		"vulnerabilities/sqli/":           "sqli",
-		"vulnerabilities/ssrf/":           "ssrf",
-		"vulnerabilities/lfi/":            "lfi",
-		"vulnerabilities/rce/":            "rce",
-		"vulnerabilities/ssti/":           "ssti",
-		"vulnerabilities/idor/":          "idor",
-		"vulnerabilities/redirect/":      "redirect",
-		"vulnerabilities/kxss-results.txt": "kxss",
-	}
-	
-	for dirPattern, name := range dirNames {
-		if _, exists := linkMap[name]; !exists {
-			for path, url := range urls {
-				if strings.Contains(path, dirPattern) && !matched[path] {
-					// Get the first file from this directory
-					linkMap[name] = url
-					matched[path] = true
-					break
-				}
-			}
-		}
-	}
-	
-	return linkMap
-}
-
-// uploadSubdomainPhaseFileToR2 uploads a phase file to R2 and records the information
-func uploadSubdomainPhaseFileToR2(phaseKey, subdomain, filePath string, uploadedFiles *SubdomainScanUploads) error {
-	// Get file info
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to stat file: %w", err)
-	}
-	
-	if fileInfo.Size() == 0 {
-		return nil // Skip empty files
-	}
-	
-	// Create R2 object key: subdomain/{subdomain}/{phase}/{filename}
-	fileName := filepath.Base(filePath)
-	objectKey := fmt.Sprintf("subdomain/%s/%s/%s", subdomain, phaseKey, fileName)
-	
-	// Upload to R2
-	publicURL, err := r2storage.UploadFile(filePath, objectKey, false)
-	if err != nil {
-		return fmt.Errorf("failed to upload to R2: %w", err)
-	}
-	
-	// Format file size
-	sizeHuman := formatSubdomainFileSize(fileInfo.Size())
-	
-	// Record uploaded file information
-	uploadedFiles.Files = append(uploadedFiles.Files, UploadedFileInfo{
-		Phase:     phaseKey,
-		FileName:  fileName,
-		FilePath:  filePath,
-		Size:      fileInfo.Size(),
-		SizeHuman: sizeHuman,
-		URL:       publicURL,
-	})
-	
-	log.Printf("[R2] [SUBDOMAIN] Uploaded phase file: %s (%s) -> %s", fileName, sizeHuman, publicURL)
-	return nil
-}
-
-// formatSubdomainFileSize formats file size in human-readable format
-func formatSubdomainFileSize(size int64) string {
-	const unit = 1024
-	if size < unit {
-		return fmt.Sprintf("%d B", size)
-	}
-	div, exp := int64(unit), 0
-	for n := size / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.2f %cB", float64(size)/float64(div), "KMGTPE"[exp])
-}
-
-// saveSubdomainUploadedFilesInfo saves uploaded files information to a JSON file
-func saveSubdomainUploadedFilesInfo(subdomain string, uploadedFiles *SubdomainScanUploads) error {
-	resultsDir := utils.GetResultsDir()
-	
-	// Get scan ID from environment if available
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
-	if scanID == "" {
-		// Generate a simple ID based on timestamp
-		scanID = fmt.Sprintf("subdomain_%d", time.Now().Unix())
-	}
-	
-	// Save to file: .subdomain-uploads-{scanID}.json
-	uploadInfoFile := filepath.Join(resultsDir, fmt.Sprintf(".subdomain-uploads-%s.json", scanID))
-	
-	// Marshal to JSON
-	jsonData, err := json.MarshalIndent(uploadedFiles, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-	
-	// Write to file
-	if err := os.WriteFile(uploadInfoFile, jsonData, 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-	
-	log.Printf("[SUBDOMAIN] Saved uploaded files info to: %s (%d files)", uploadInfoFile, len(uploadedFiles.Files))
-	
-	// Also print to stdout for bot to parse (backup method)
-	fmt.Fprintf(os.Stdout, "[SUBDOMAIN-UPLOADS] %s\n", string(jsonData))
-	os.Stdout.Sync()
-	
-	return nil
-}
 
