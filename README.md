@@ -24,43 +24,58 @@ Ensure you have the following installed on your host or Docker environment:
 
 ## Installation & Setup
 
+There are two primary ways to install and run AutoAR:
+
+### Option 1: Quick Install using `go install`
+Because the main executable is located in the `cmd/autoar` directory, you cannot simply run `go install github.com/h0tak88r/AutoAR@latest`. Instead, you must point directly to the binary package:
+
+```bash
+go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
+```
+*Note: This will install the `autoar` binary to your `$GOPATH/bin` directory (typically `~/go/bin`). Make sure this directory is in your system `$PATH`.*
+
+### Option 2: Clone and Build manually (Recommended)
 1. **Clone the Repository:**
    ```bash
    git clone https://github.com/h0tak88r/AutoAR.git
    cd AutoAR
    ```
 
-2. **Database Initialization:**
+2. **Download Dependencies and Build:**
+   ```bash
+   go mod tidy
+   go build -o autoar ./cmd/autoar
+   ```
+
+3. **Database Initialization:**
    AutoAR uses PostgreSQL or SQLite (depending on your `.env`).
    ```bash
    # Create new-results directory to store findings
    mkdir -p new-results
    ```
 
-3. **Configure the Environment (`.env` file):**
+4. **Configure the Environment (`.env` file):**
    Copy the provided `.env.example` or tailor your `.env` in the root directory. AutoAR relies strictly on these environment variables:
 
    - **DISCORD_BOT_TOKEN**: Your Discord Bot Token (Bot must have `applications.commands` and standard message intents).
-   - **DISCORD_ALLOWED_GUILD_ID**: Restricts the bot exclusively to your own Guild (Server) ID.
+   - **DISCORD_ALLOWED_GUILD**: Restricts the bot exclusively to your own Guild (Server) Name.
    - **DB_TYPE**: `postgresql` or `sqlite3`
    - **DB_HOST**: Your connection URI or sqlite path.
    - **OPENROUTER_API_KEY** / **GEMINI_API_KEY**: API key for your AI Analysis features.
    - **AUTOAR_RESULTS_DIR**: Set to `./new-results` or `/app/new-results` if running via Docker.
    - **Additional Integrations**: Shodan, Censys, VirusTotal, R2 Storage IDs as needed in `.env`.
 
-4. **Build the Bot:**
-   ```bash
-   # Download go modules
-   go mod tidy
-   
-   # Build the main AutoAR executable
-   go build -o autoar ./cmd/autoar
-   ```
-
-5. **Run the Bot:**
+5. **Run the Bot or API:**
    Run the bot natively, ensuring `.env` is loaded automatically:
    ```bash
+   # Start the Discord Bot
    ./autoar bot
+   
+   # Or start the REST API
+   ./autoar api
+   
+   # Or start both simultaneously
+   ./autoar both
    ```
 
 ## Troubleshooting 
