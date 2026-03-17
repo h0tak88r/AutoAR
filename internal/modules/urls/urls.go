@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/modules/gospider"
 	jsfindertool "github.com/h0tak88r/AutoAR/internal/tools/jsfinder"
 	urlfindertool "github.com/h0tak88r/AutoAR/internal/tools/urlfinder"
 	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
@@ -20,12 +21,13 @@ import (
 
 // Result summarizes URL collection for a domain.
 type Result struct {
-	Domain    string
-	Threads   int
-	TotalURLs int
-	JSURLs    int
-	AllFile   string
-	JSFile    string
+	Domain          string
+	Threads         int
+	TotalURLs       int
+	JSURLs          int
+	AllFile         string
+	JSFile          string
+	InterestingFile string
 }
 
 // CollectURLs ensures live hosts exist for a domain and then collects URLs and JS URLs
@@ -138,6 +140,32 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		_ = utils.WriteLines(allFile, allURLs)
 	}
 
+	// 2b) GoSpider spidering against live hosts (up to 50 to stay within timeout)
+	if fi, err2 := os.Stat(liveFile); err2 == nil && fi.Size() > 0 {
+		spiderHosts, _ := readLines(liveFile)
+		if len(spiderHosts) > 50 {
+			spiderHosts = spiderHosts[:50]
+		}
+		log.Printf("[INFO] GoSpider spidering %d live hosts for %s", len(spiderHosts), domain)
+		spiderResult, spiderErr := gospider.Run(gospider.Options{
+			Sites:      spiderHosts,
+			Depth:      2,
+			Concurrent: 5,
+			Threads:    5,
+			Timeout:    10,
+			Robots:     true,
+			JS:         true,
+		})
+		if spiderErr != nil {
+			log.Printf("[WARN] GoSpider failed for %s: %v", domain, spiderErr)
+		} else if len(spiderResult.URLs) > 0 {
+			log.Printf("[OK] GoSpider: Found %d URLs", len(spiderResult.URLs))
+			existingURLs2, _ := readLines(allFile)
+			merged := uniqueStrings(append(existingURLs2, spiderResult.URLs...))
+			_ = utils.WriteLines(allFile, merged)
+		}
+	}
+
 	// 3) Collect JS URLs with embedded jsfinder over live hosts
 	if fi, err := os.Stat(liveFile); err == nil && fi.Size() > 0 {
 		log.Printf("[INFO] Running embedded jsfinder on live hosts for %s", domain)
@@ -179,13 +207,20 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	jsCount := len(jsURLs)
 	log.Printf("[OK] Found %d total URLs; %d JavaScript URLs for %s", total, jsCount, domain)
 
+	// 6) Produce interesting-urls.txt
+	interestingFile := filepath.Join(urlsDir, "interesting-urls.txt")
+	interesting := FilterInterestingURLs(allURLs)
+	_ = utils.WriteLines(interestingFile, interesting)
+	log.Printf("[OK] Interesting URLs: %d written to %s", len(interesting), interestingFile)
+
 	return &Result{
-		Domain:    dirDomain, // Return domain used for directory structure
-		Threads:   threads,
-		TotalURLs: total,
-		JSURLs:    jsCount,
-		AllFile:   allFile,
-		JSFile:    jsFile,
+		Domain:          dirDomain,
+		Threads:         threads,
+		TotalURLs:       total,
+		JSURLs:          jsCount,
+		AllFile:         allFile,
+		JSFile:          jsFile,
+		InterestingFile: interestingFile,
 	}, nil
 }
 
@@ -212,6 +247,87 @@ func extractRootDomain(host string) string {
 		return strings.Join(parts[len(parts)-2:], ".")
 	}
 	return host
+}
+
+// FilterInterestingURLs returns the subset of URLs that are likely high-value
+// for manual testing, grouped into 7 categories.
+func FilterInterestingURLs(urls []string) []string {
+	var out []string
+	seen := make(map[string]bool)
+
+	add := func(u string) {
+		if !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+
+	for _, u := range urls {
+		lower := strings.ToLower(u)
+
+		// 1) Legacy tech file extensions
+		if containsAny(lower, ".php", ".asp", ".aspx", ".cfm", ".cgi", ".pl", ".jsp") {
+			add(u)
+			continue
+		}
+		// 2) Auth / token parameters
+		if containsAny(lower,
+			"?token=", "&token=", "?access_token=", "&access_token=",
+			"?api_key=", "&api_key=", "?key=", "&key=",
+			"?secret=", "&secret=", "?password=", "&password=",
+			"?passwd=", "&passwd=", "?auth=", "&auth=") {
+			add(u)
+			continue
+		}
+		// 3) Admin / dashboard panels
+		if containsAny(lower,
+			"/admin", "/administrator", "/wp-admin", "/wp-login",
+			"/manager", "/dashboard", "/console", "/panel", "/cpanel",
+			"/phpmyadmin", "/adminer") {
+			add(u)
+			continue
+		}
+		// 4) API endpoints
+		if containsAny(lower, "/api/", "/v1/", "/v2/", "/v3/", "/graphql", "/rest/", "/rpc/") {
+			add(u)
+			continue
+		}
+		// 5) Sensitive file exposures
+		if containsAny(lower,
+			".env", ".git", ".bak", ".backup", ".sql", ".db", ".log",
+			".config", ".conf", ".key", ".pem", ".p12", ".pfx",
+			"config.json", "config.yml", "config.yaml", "settings.py",
+			"credentials", "secrets") {
+			add(u)
+			continue
+		}
+		// 6) Open redirect parameters
+		if containsAny(lower,
+			"?redirect=", "&redirect=", "?next=", "&next=",
+			"?url=", "&url=", "?return=", "&return=",
+			"?redir=", "&redir=", "?forward=", "&forward=",
+			"?goto=", "&goto=", "?continue=", "&continue=") {
+			add(u)
+			continue
+		}
+		// 7) Debug / test / staging paths
+		if containsAny(lower, "/debug", "/test", "/dev", "/staging", "/beta", "/internal", "/health", "/metrics", "/actuator") {
+			add(u)
+			continue
+		}
+	}
+
+	return out
+}
+
+// containsAny reports whether s contains any of the given substrings.
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // helpers

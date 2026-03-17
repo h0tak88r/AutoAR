@@ -117,7 +117,7 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			return
 		}
 
-		go performZerodaysScan(s, i, "host_list_scan", hosts, threads, enableSourceExposure, dosTest)
+		go performZerodaysScan(s, i, "host_list_scan", hosts, enableSourceExposure, dosTest)
 		return
 	}
 
@@ -214,36 +214,32 @@ func handleZerodays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, "❌ Please provide either domain OR url, not both", false)
 		return
 	}
-	if (domain != "" || url != "") && (domainAttachment != nil || hostListAttachment != nil) {
-		respond(s, i, "❌ Cannot specify both direct targets and file/host list. Use either domain/url or an attachment.", false)
-		return
-	}
 
 	// Handle domain scan
 	if domain != "" {
-	// Send initial response
-	embed := &discordgo.MessageEmbed{
-		Title:       "Zerodays Scan",
-		Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", domain, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
-		Color:       0x3498db, // Blue
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Status", Value: "🟡 Running", Inline: false},
-		},
-	}
+		// Send initial response
+		embed := &discordgo.MessageEmbed{
+			Title:       "Zerodays Scan",
+			Description: fmt.Sprintf("**Domain:** `%s`\n**Threads:** %d\n**Source Exposure Check:** %s\n**DoS Test:** %s\n**Scan Method:** Smart Scan (next88 - sequential testing)", domain, threads, boolToStatus(enableSourceExposure), boolToStatus(dosTest)),
+			Color:       0x3498db, // Blue
+			Fields: []*discordgo.MessageEmbedField{
+				{Name: "Status", Value: "🟡 Running", Inline: false},
+			},
+		}
 
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-	if err != nil {
-		log.Printf("Error responding to interaction: %v", err)
-		return
-	}
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			},
+		})
+		if err != nil {
+			log.Printf("Error responding to interaction: %v", err)
+			return
+		}
 
-	// Run scan in background
-	go runZerodaysScan(s, i, domain, threads, enableSourceExposure, dosTest)
+		// Run scan in background
+		go runZerodaysScan(s, i, domain, threads, enableSourceExposure, dosTest)
 		return
 	}
 
@@ -314,11 +310,11 @@ func runZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, domai
 		return
 	}
 
-	performZerodaysScan(s, i, domain, hosts, threads, enableSourceExposure, dosTest)
+	performZerodaysScan(s, i, domain, hosts, enableSourceExposure, dosTest)
 }
 
 // performZerodaysScan executes the core scanning logic on a list of hosts
-func performZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, target string, hosts []string, threads int, enableSourceExposure, dosTest bool) {
+func performZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, target string, hosts []string, enableSourceExposure, dosTest bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[ERROR] Panic in performZerodaysScan: %v", r)
@@ -328,7 +324,7 @@ func performZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, t
 
 	// Step 3: Run smart scan
 	log.Printf("[DEBUG] Running smart scan on %d hosts", len(hosts))
-	smartScanResults, err := runNext88ScanLib(hosts, []string{"-smart-scan"}, getDiscordWebhook())
+	smartScanResults, err := runNext88ScanLib(hosts, []string{"-smart-scan"})
 	if err != nil {
 		log.Printf("[ERROR] Smart scan failed: %v", err)
 		smartScanResults = []string{}
@@ -338,7 +334,7 @@ func performZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, t
 	dosResults := []string{}
 	if dosTest {
 		log.Printf("[DEBUG] Running DoS test")
-		dosResults, err = runNext88ScanLib(hosts, []string{"-dos-test", "-dos-requests", "100"}, getDiscordWebhook())
+		dosResults, err = runNext88ScanLib(hosts, []string{"-dos-test", "-dos-requests", "100"})
 		if err != nil {
 			log.Printf("[ERROR] DoS test failed: %v", err)
 		}
@@ -348,12 +344,7 @@ func performZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, t
 	sourceExposureResults := []string{}
 	if enableSourceExposure {
 		log.Printf("[DEBUG] Running source exposure check")
-		// For host list scan, use target name as domain if it looks like one, otherwise skip domain-based logic
-		domain := target
-		if target == "host_list_scan" {
-			domain = "" 
-		}
-		sourceExposureResults, err = runSourceExposureCheck(domain, hosts, getDiscordWebhook())
+		sourceExposureResults, err = runSourceExposureCheck(hosts)
 		if err != nil {
 			log.Printf("[ERROR] Source exposure check failed: %v", err)
 		}
@@ -394,13 +385,8 @@ func performZerodaysScan(s *discordgo.Session, i *discordgo.InteractionCreate, t
 	}
 }
 
-// runNext88Scan runs the next88 library with given flags and returns vulnerable hosts.
-func runNext88Scan(hosts []string, extraFlags []string, webhookURL string) ([]string, error) {
-	return runNext88ScanLib(hosts, extraFlags, webhookURL)
-}
-
 // runNext88ScanLib is the library-based implementation that uses internal/tools/next88.
-func runNext88ScanLib(hosts []string, extraFlags []string, webhookURL string) ([]string, error) {
+func runNext88ScanLib(hosts []string, extraFlags []string) ([]string, error) {
 	if len(hosts) == 0 {
 		return []string{}, nil
 	}
@@ -489,95 +475,7 @@ func runNext88ScanLib(hosts []string, extraFlags []string, webhookURL string) ([
 	return out, nil
 }
 
-// parseNext88Results parses next88 JSON output
-func parseNext88Results(resultsFile string) ([]string, error) {
-	data, err := os.ReadFile(resultsFile)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(data) == 0 {
-		return []string{}, nil
-	}
-
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal(data, &jsonData); err != nil {
-		// Try as array
-		var arrayData []interface{}
-		if err2 := json.Unmarshal(data, &arrayData); err2 != nil {
-			return nil, fmt.Errorf("failed to parse JSON: %v", err)
-		}
-		jsonData = map[string]interface{}{"results": arrayData}
-	}
-
-	results, ok := jsonData["results"].([]interface{})
-	if !ok {
-		return []string{}, nil
-	}
-
-	log.Printf("[DEBUG] Processing %d results from next88", len(results))
-
-	vulnerableHosts := make(map[string]bool)
-	for idx, result := range results {
-		resultMap, ok := result.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		if idx < 3 {
-			keys := make([]string, 0, len(resultMap))
-			for k := range resultMap {
-				keys = append(keys, k)
-			}
-			sample, _ := json.MarshalIndent(resultMap, "", "  ")
-			if len(sample) > 300 {
-				sample = sample[:300]
-			}
-			log.Printf("[DEBUG] Result %d keys: %v", idx, keys)
-			log.Printf("[DEBUG] Result %d sample: %s", idx, string(sample))
-		}
-
-		// Check if vulnerable
-		isVulnerable := false
-		if v, ok := resultMap["vulnerable"].(bool); ok && v {
-			isVulnerable = true
-		} else if v, ok := resultMap["vulnerable"].(string); ok && strings.ToLower(v) == "true" {
-			isVulnerable = true
-		}
-
-		host := ""
-		if h, ok := resultMap["host"].(string); ok {
-			host = h
-		} else if h, ok := resultMap["url"].(string); ok {
-			host = h
-		} else if h, ok := resultMap["target"].(string); ok {
-			host = h
-		}
-
-		if idx < 5 {
-			log.Printf("[DEBUG] Result %d - Host: %s, Vulnerable: %v", idx, host, isVulnerable)
-		}
-
-		if isVulnerable && host != "" {
-			// Extract hostname
-			hostname := extractHostname(host)
-			if hostname != "" {
-				vulnerableHosts[hostname] = true
-				log.Printf("[DEBUG] Found vulnerable host: %s (from: %s)", hostname, host)
-			}
-		}
-	}
-
-	result := make([]string, 0, len(vulnerableHosts))
-	for h := range vulnerableHosts {
-		result = append(result, h)
-	}
-
-	return result, nil
-}
-
 // Helper functions
-// findNext88 removed - we now use the library directly via runNext88ScanLib
 
 // writeLinesToFile writes lines to a file
 func writeLinesToFile(path string, lines []string) error {
@@ -624,10 +522,10 @@ func getLiveHosts(domain string, threads int) (string, error) {
 
 	// Only collect subdomains if not in database
 	if shouldCollect {
-	// Ensure subdomains exist first (this will enumerate if needed) using Go-backed CLI
-	subCmd := exec.Command(autoarScript, "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
-	if err := subCmd.Run(); err != nil {
-		log.Printf("[WARN] Subdomain enumeration via autoar failed: %v, continuing anyway", err)
+		// Ensure subdomains exist first (this will enumerate if needed) using Go-backed CLI
+		subCmd := exec.Command(autoarScript, "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
+		if err := subCmd.Run(); err != nil {
+			log.Printf("[WARN] Subdomain enumeration via autoar failed: %v, continuing anyway", err)
 		}
 	}
 
@@ -724,13 +622,9 @@ func extractHostname(url string) string {
 	return parts[0]
 }
 
-func getDiscordWebhook() string {
-	return os.Getenv("DISCORD_WEBHOOK")
-}
-
-func runSourceExposureCheck(domain string, hosts []string, webhookURL string) ([]string, error) {
+func runSourceExposureCheck(hosts []string) ([]string, error) {
 	// Don't pass webhook - we handle Discord messages directly
-	return runNext88ScanLib(hosts, []string{"-check-source-exposure"}, "")
+	return runNext88ScanLib(hosts, []string{"-check-source-exposure"})
 }
 
 func sendZerodaysResults(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, totalHosts, smartScanCount, dosCount, sourceExposureCount int, allVulnerable []string) error {
@@ -806,13 +700,12 @@ func sendZerodaysResults(s *discordgo.Session, i *discordgo.InteractionCreate, d
 	return nil
 }
 
-
 func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, target string, verbose bool) {
 	// Use the library-based implementation instead of binary
 	log.Printf("[DEBUG] Running next88 library scan for single URL: %s", target)
 
 	// Run smart scan using the library
-	results, err := runNext88ScanLib([]string{target}, []string{"-smart-scan"}, "")
+	results, err := runNext88ScanLib([]string{target}, []string{"-smart-scan"})
 	if err != nil {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Zerodays Test Failed",
@@ -875,11 +768,11 @@ func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, tar
 					}
 
 					pocData = map[string]interface{}{
-						"request":      res.Request,
-						"response":     res.Response,
-						"request_body": res.RequestBody,
+						"request":       res.Request,
+						"response":      res.Response,
+						"request_body":  res.RequestBody,
 						"response_body": res.ResponseBody,
-						"final_url":    res.FinalURL,
+						"final_url":     res.FinalURL,
 					}
 					break
 				}
@@ -1009,296 +902,6 @@ func runZerodaysSingle(s *discordgo.Session, i *discordgo.InteractionCreate, tar
 	}
 }
 
-// Helper function to get string value from map with multiple possible keys
-func getStringValue(m map[string]interface{}, keys ...string) string {
-	for _, key := range keys {
-		if val, ok := m[key]; ok {
-			if str, ok := val.(string); ok {
-				return str
-			}
-		}
-	}
-	return ""
-}
-
-// Helper function to get string from map
-func getStringFromMap(m map[string]interface{}, key, defaultValue string) string {
-	if val, ok := m[key]; ok {
-		if str, ok := val.(string); ok {
-			return str
-		}
-	}
-	return defaultValue
-}
-
-func handleLivehosts(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	threads := 100
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			domain = opt.StringValue()
-		case "threads":
-			threads = int(opt.IntValue())
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	// Handle file attachment
-	if attachment != nil {
-		// Respond immediately
-		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "📥 Downloading file and processing targets...",
-			},
-		})
-		if err != nil {
-			log.Printf("[ERROR] Failed to respond to interaction: %v", err)
-			return
-		}
-
-		// Download and process file
-		targets, err := downloadAndProcessFile(attachment)
-		if err != nil {
-			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Content: fmt.Sprintf("❌ Error processing file: %v", err),
-			})
-			return
-		}
-
-		if len(targets) == 0 {
-			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Content: "❌ No valid targets found in file",
-			})
-			return
-		}
-
-		// Update initial response
-		content := fmt.Sprintf("📋 Found %d targets in file. Starting livehosts scan...", len(targets))
-		if err := UpdateInteractionContent(s, i, content); err != nil {
-			log.Printf("[WARN] Failed to update interaction: %v", err)
-		}
-
-		// Process each target
-		for idx, target := range targets {
-			target = strings.TrimSpace(target)
-			if target == "" {
-				continue
-			}
-
-			log.Printf("[INFO] Processing target %d/%d: %s", idx+1, len(targets), target)
-
-			embed := &discordgo.MessageEmbed{
-				Title:       "🔍 Livehosts Scan",
-				Description: fmt.Sprintf("**Target:** `%s`\n**Threads:** %d", target, threads),
-				Color:       0x3498db,
-				Fields: []*discordgo.MessageEmbedField{
-					{Name: "Status", Value: "🟡 Running", Inline: false},
-				},
-			}
-
-			_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-				Embeds: []*discordgo.MessageEmbed{embed},
-			})
-			if err != nil {
-				log.Printf("[ERROR] Failed to create followup message: %v", err)
-				continue
-			}
-
-			// Create a new interaction create for this target
-			targetInteraction := &discordgo.InteractionCreate{
-				Interaction: &discordgo.Interaction{
-					ID:        i.Interaction.ID + fmt.Sprintf("_%d", idx),
-					ChannelID: i.ChannelID,
-				},
-			}
-
-			go runLivehostsScan(s, targetInteraction, target, threads)
-
-			// Small delay between scans
-			time.Sleep(1 * time.Second)
-		}
-
-		// Send summary
-		summary := fmt.Sprintf("[ + ]**File Scan Initiated**\n\n**Scan Type:** livehosts\n**Total Targets:** %d", len(targets))
-		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: summary,
-		})
-		return
-	}
-
-	// Send initial response
-	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 Livehosts Scan",
-		Description: fmt.Sprintf("**Target:** `%s`\n**Threads:** %d", domain, threads),
-		Color:       0x3498db,
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Status", Value: "🟡 Running", Inline: false},
-		},
-	}
-
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-	if err != nil {
-		log.Printf("Error responding to interaction: %v", err)
-		return
-	}
-
-	// Run scan in background
-	go runLivehostsScan(s, i, domain, threads)
-}
-
-func runLivehostsScan(s *discordgo.Session, i *discordgo.InteractionCreate, domain string, threads int) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("[ERROR] Panic in runLivehostsScan: %v", r)
-			updateEmbed(s, i, fmt.Sprintf("❌ Scan failed with error: %v", r), 0xff0000)
-		}
-	}()
-
-	log.Printf("[DEBUG] Starting livehosts scan for: %s", domain)
-
-	// Run livehosts via Go-backed CLI (it handles DB operations internally)
-	cmd := exec.Command(autoarScript, "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
-
-	output, err := cmd.CombinedOutput()
-	outputStr := string(output)
-
-	if err != nil {
-		log.Printf("[ERROR] livehosts command failed: %v, output: %s", err, outputStr)
-		embed := &discordgo.MessageEmbed{
-			Title:       "❌ Livehosts Scan Failed",
-			Description: fmt.Sprintf("**Target:** `%s`\n**Error:** %v", domain, err),
-			Color:       0xff0000,
-			Fields: []*discordgo.MessageEmbedField{
-				{Name: "Output", Value: fmt.Sprintf("```%s```", outputStr[:1000]), Inline: false},
-			},
-		}
-		if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
-			log.Printf("[ERROR] Failed to update embed: %v", err)
-		}
-		return
-	}
-
-	// Get results file
-	resultsDir := getResultsDir()
-	liveHostsFile := filepath.Join(resultsDir, domain, "subs", "live-subs.txt")
-
-	var totalHosts, liveHosts int
-	var liveHostsList []string
-
-	// Read live hosts file
-	if fileInfo, err := os.Stat(liveHostsFile); err == nil && fileInfo.Size() > 0 {
-		data, err := os.ReadFile(liveHostsFile)
-		if err == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					liveHostsList = append(liveHostsList, line)
-				}
-			}
-			liveHosts = len(liveHostsList)
-		}
-	}
-
-	// Get total subdomains count
-	allSubsFile := filepath.Join(resultsDir, domain, "subs", "all-subs.txt")
-	if fileInfo, err := os.Stat(allSubsFile); err == nil && fileInfo.Size() > 0 {
-		data, err := os.ReadFile(allSubsFile)
-		if err == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			for _, line := range lines {
-				if strings.TrimSpace(line) != "" {
-					totalHosts++
-				}
-			}
-		}
-	}
-
-	// Create result embed
-	color := 0x00ff00 // Green
-	if liveHosts == 0 {
-		color = 0xffaa00 // Orange
-	}
-
-	embed := &discordgo.MessageEmbed{
-		Title:       "[ + ]Livehosts Scan Complete",
-		Description: fmt.Sprintf("**Target:** `%s`", domain),
-		Color:       color,
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Status", Value: "[ + ]Completed", Inline: false},
-			{Name: "Results", Value: fmt.Sprintf("**Live:** `%d`\n**Total:** `%d`", liveHosts, totalHosts), Inline: false},
-		},
-	}
-
-	// Add live hosts list if available
-	if liveHosts > 0 {
-		hostsText := ""
-		for i, host := range liveHostsList {
-			if i >= 20 {
-				hostsText += fmt.Sprintf("\n... and %d more", liveHosts-20)
-				break
-			}
-			hostsText += fmt.Sprintf("`%s`\n", host)
-		}
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:  fmt.Sprintf("Live Hosts (%d)", liveHosts),
-			Value: hostsText,
-		})
-
-		// Attach live hosts file
-		if fileInfo, err := os.Stat(liveHostsFile); err == nil && fileInfo.Size() > 0 {
-			file, err := os.Open(liveHostsFile)
-			if err == nil {
-				defer file.Close()
-				fileData, err := os.ReadFile(liveHostsFile)
-				if err == nil {
-					fileName := fmt.Sprintf("live-subs-%s.txt", time.Now().Format("20060102-150405"))
-					_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-						Files: []*discordgo.File{
-							{
-								Name:        fileName,
-								ContentType: "text/plain",
-								Reader:      strings.NewReader(string(fileData)),
-							},
-						},
-					})
-					if err != nil {
-						log.Printf("[WARN] Failed to send live hosts file: %v", err)
-					}
-				}
-			}
-		}
-	}
-
-	// Update embed
-	if err := UpdateInteractionMessage(s, i, "", embed); err != nil {
-		log.Printf("[ERROR] Failed to update embed: %v", err)
-	}
-
-	log.Printf("[DEBUG] Livehosts scan completed for: %s (live: %d, total: %d)", domain, liveHosts, totalHosts)
-}
-
 func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message string, ephemeral bool) {
 	flags := discordgo.MessageFlagsEphemeral
 	if !ephemeral {
@@ -1341,4 +944,14 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Helper function to get string from map
+func getStringFromMap(m map[string]interface{}, key, defaultValue string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return defaultValue
 }

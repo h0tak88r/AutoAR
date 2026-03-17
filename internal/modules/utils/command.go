@@ -39,7 +39,7 @@ func (c *CommandRunner) Run(ctx context.Context, name string, args ...string) ([
 	cmd.Env = c.Env
 
 	cmdStr := fmt.Sprintf("%s %s", name, strings.Join(args, " "))
-	Log.Debugf("Executing command: %s", cmdStr)
+	GetLogger().Debugf("Executing command: %s", cmdStr)
 
 	start := time.Now()
 	output, err := cmd.CombinedOutput()
@@ -49,11 +49,11 @@ func (c *CommandRunner) Run(ctx context.Context, name string, args ...string) ([
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("command timed out after %v: %s", c.Timeout, cmdStr)
 		}
-		Log.Warnf("Command failed (%s): %v\nOutput: %s", duration, err, string(output))
+		GetLogger().Warnf("Command failed (%s): %v\nOutput: %s", duration, err, string(output))
 		return output, err
 	}
 
-	Log.Debugf("Command finished successfully in %s", duration)
+	GetLogger().Debugf("Command finished successfully in %s", duration)
 	return output, nil
 }
 
@@ -78,7 +78,7 @@ func (c *CommandRunner) RunSilent(ctx context.Context, name string, args ...stri
 	// existing code usually sets .Stdout = nil or similar.
 	
 	cmdStr := fmt.Sprintf("%s %s", name, strings.Join(args, " "))
-	Log.Debugf("Executing command (silent): %s", cmdStr)
+	GetLogger().Debugf("Executing command (silent): %s", cmdStr)
 
 	start := time.Now()
 	err := cmd.Run()
@@ -88,10 +88,10 @@ func (c *CommandRunner) RunSilent(ctx context.Context, name string, args ...stri
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("command timed out after %v: %s", c.Timeout, cmdStr)
 		}
-		Log.Warnf("Command failed (%s): %v", duration, err)
+		GetLogger().Warnf("Command failed (%s): %v", duration, err)
 		return err
 	}
 
-	Log.Debugf("Command finished successfully in %s", duration)
+	GetLogger().Debugf("Command finished successfully in %s", duration)
 	return nil
 }

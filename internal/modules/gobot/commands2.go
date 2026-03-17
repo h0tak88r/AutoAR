@@ -2,8 +2,10 @@ package gobot
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -48,6 +50,9 @@ func handleDNS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	case "dangling-ip":
 		command = []string{autoarScript, "dns", "dangling-ip", "-d", domain}
 		scanName = "DNS Dangling IP"
+	case "cf1016":
+		command = []string{autoarScript, "dns", "cf1016", "-d", domain}
+		scanName = "Cloudflare 1016 Dangling DNS"
 	default: // takeover
 		command = []string{autoarScript, "dns", "takeover", "-d", domain}
 		scanName = "DNS Takeover"
@@ -182,11 +187,17 @@ func handleGitHub(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			respond(s, i, "❌ Repository (owner/repo) is required for scan mode", false)
 			return
 		}
+		// Normalize repo URL to match the directory name written by githubscan module
+		// e.g. "https://github.com/clerk/javascript/" -> "clerk/javascript"
+		repo = strings.TrimPrefix(repo, "https://github.com/")
+		repo = strings.TrimPrefix(repo, "http://github.com/")
+		repo = strings.TrimSuffix(repo, ".git")
+		repo = strings.TrimSuffix(repo, "/")
 		scanID = fmt.Sprintf("github_scan_%d", time.Now().Unix())
 		command = []string{autoarScript, "github", "scan", "-r", repo}
-	if verbose {
-		command = append(command, "-v")
-	}
+		if verbose {
+			command = append(command, "-v")
+		}
 		scanName = "GitHub Scan"
 		target = repo
 
@@ -204,41 +215,46 @@ func handleGitHub(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		target = org
 
 	case "experimental":
-	if repo == "" {
+		if repo == "" {
 			respond(s, i, "❌ Repository (owner/repo) is required for experimental mode", false)
-		return
-	}
+			return
+		}
+		// Normalize repo URL
+		repo = strings.TrimPrefix(repo, "https://github.com/")
+		repo = strings.TrimPrefix(repo, "http://github.com/")
+		repo = strings.TrimSuffix(repo, ".git")
+		repo = strings.TrimSuffix(repo, "/")
 		scanID = fmt.Sprintf("github_exp_%d", time.Now().Unix())
 		command = []string{autoarScript, "github", "experimental", "-r", repo}
 		scanName = "GitHub Experimental"
 		target = repo
 
 	case "wordlist":
-	if org == "" {
+		if org == "" {
 			respond(s, i, "❌ Organization name is required for wordlist mode", false)
-		return
-	}
+			return
+		}
 		scanID = fmt.Sprintf("github_wordlist_%d", time.Now().Unix())
 		command = []string{autoarScript, "github-wordlist", "scan", "-o", org}
 		if token != "" {
 			command = append(command, "-t", token)
-	}
+		}
 		scanName = "GitHub Wordlist"
 		target = org
 
 	case "depconf":
-	if repo == "" && org == "" {
+		if repo == "" && org == "" {
 			respond(s, i, "❌ Either repository (owner/repo) or organization is required for depconf mode", false)
-		return
-	}
+			return
+		}
 		scanID = fmt.Sprintf("githubdepconf_%d", time.Now().Unix())
-	if repo != "" {
-		command = []string{autoarScript, "depconfusion", "github", "repo", repo}
-		target = repo
-	} else {
-		command = []string{autoarScript, "depconfusion", "github", "org", org}
-		target = org
-	}
+		if repo != "" {
+			command = []string{autoarScript, "depconfusion", "github", "repo", repo}
+			target = repo
+		} else {
+			command = []string{autoarScript, "depconfusion", "github", "org", org}
+			target = org
+		}
 		scanName = "GitHub DepConfusion"
 
 	default:
@@ -253,6 +269,23 @@ func handleGitHub(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Embeds: []*discordgo.MessageEmbed{embed},
 		},
 	})
+
+	// Create a thread for scan updates (avoids token expiration, mirrors domain/subdomain scan behavior)
+	threadLabel := "GitHub Scan"
+	switch mode {
+	case "org":
+		threadLabel = "GitHub Org Scan"
+	case "experimental":
+		threadLabel = "GitHub Experimental"
+	case "wordlist":
+		threadLabel = "GitHub Wordlist"
+	case "depconf":
+		threadLabel = "GitHub DepConfusion"
+	}
+	threadID := createScanThread(s, i, scanID, threadLabel, target)
+	if threadID != "" {
+		log.Printf("[INFO] Created thread %s for github scan %s", threadID, scanID)
+	}
 
 	go runScanBackground(scanID, fmt.Sprintf("github_%s", mode), target, command, s, i)
 }
@@ -310,9 +343,9 @@ func handleDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		scanID = fmt.Sprintf("dbdel_%d", time.Now().Unix())
 		command = []string{autoarScript, "db", "domains", "delete", "-d", domain}
-	if force {
-		command = append(command, "-f")
-	}
+		if force {
+			command = append(command, "-f")
+		}
 		scanName = "DB Delete Domain"
 		target = domain
 

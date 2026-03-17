@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/backup"
+	"github.com/h0tak88r/AutoAR/internal/modules/cf1016"
 	"github.com/h0tak88r/AutoAR/internal/modules/cnames"
 	"github.com/h0tak88r/AutoAR/internal/modules/dns"
+	"github.com/h0tak88r/AutoAR/internal/modules/exposure"
 	"github.com/h0tak88r/AutoAR/internal/modules/jsscan"
 	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/modules/misconfig"
@@ -68,17 +70,17 @@ func RunLite(opts Options) (*Result, error) {
 	}
 
 	// Set defaults for unset timeouts
-	phases := []string{"livehosts", "reflection", "js", "cnames", "backup", "dns", "misconfig", "nuclei"}
+	phases := []string{"livehosts", "reflection", "js", "cnames", "backup", "dns", "cf1016", "exposure", "misconfig", "nuclei"}
 	for _, phase := range phases {
 		if opts.Timeouts[phase] == 0 {
 			opts.Timeouts[phase] = opts.PhaseTimeoutDefault
 		}
 	}
 
-	// Calculate total steps: livehosts, reflection, js (if not skipped), cnames, backup, dns, misconfig, nuclei
-	totalSteps := 6 // livehosts, reflection, cnames, backup, dns, misconfig, nuclei
+	// Steps: livehosts, reflection, js (optional), cnames, backup, dns, cf1016, exposure, misconfig, nuclei
+	totalSteps := 8 // without js
 	if !opts.SkipJS {
-		totalSteps = 7 // + js
+		totalSteps = 9 // + js
 	}
 
 	log.Printf("[INFO] Starting Lite Scan for %s (%d steps)", opts.Domain, totalSteps)
@@ -212,7 +214,43 @@ func RunLite(opts Options) (*Result, error) {
 	}
 	step++
 
-	// Step 7: Misconfiguration scan (with increased concurrency)
+	// Step 7: Cloudflare 1016 Dangling DNS scan
+	if err := runPhase("cf1016", step, totalSteps, "Cloudflare 1016 Dangling DNS scan", opts.Domain, opts.Timeouts["cf1016"], uploadedFiles, func() error {
+		log.Printf("[LITE] [Step %d/%d] Starting Cloudflare 1016 dangling DNS scan for %s", step, totalSteps, opts.Domain)
+		result, err := cf1016.Run(cf1016.Options{
+			Domain:  opts.Domain,
+			Threads: 100,
+			Timeout: 10 * time.Second,
+		})
+		if err != nil {
+			return err
+		}
+		log.Printf("[LITE] [Step %d/%d] Cloudflare 1016 scan completed, found %d dangling records", step, totalSteps, len(result.Findings))
+		return nil
+	}); err != nil {
+		log.Printf("[WARN] Cloudflare 1016 dangling DNS scan failed: %v", err)
+	}
+	step++
+
+	// Step 8: Exposure scan (API docs + Docker artefacts)
+	if err := runPhase("exposure", step, totalSteps, "Exposure scan (API docs & Docker)", opts.Domain, opts.Timeouts["exposure"], uploadedFiles, func() error {
+		log.Printf("[LITE] [Step %d/%d] Starting exposure scan for %s", step, totalSteps, opts.Domain)
+		result, err := exposure.Run(exposure.Options{
+			Domain:  opts.Domain,
+			Threads: 50,
+			Timeout: 8 * time.Second,
+		})
+		if err != nil {
+			return err
+		}
+		log.Printf("[LITE] [Step %d/%d] Exposure scan completed, found %d exposures", step, totalSteps, len(result.Findings))
+		return nil
+	}); err != nil {
+		log.Printf("[WARN] Exposure scan failed: %v", err)
+	}
+	step++
+
+	// Step 9: Misconfiguration scan (with increased concurrency)
 	// Note: This uses the live hosts file from Step 1 (livehosts phase)
 	misconfigTimeout := opts.Timeouts["misconfig"]
 	if misconfigTimeout == 0 {

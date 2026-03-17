@@ -24,7 +24,7 @@ func Main() {
 	// Read configuration from environment (after .env is loaded)
 	autoarModeEnv := getEnv("AUTOAR_MODE", "discord")
 	botTokenEnv := os.Getenv("DISCORD_BOT_TOKEN")
-	
+
 	var wg sync.WaitGroup
 
 	// Start Discord bot if needed
@@ -60,4 +60,3 @@ func Main() {
 
 	fmt.Println("\nShutting down...")
 }
-

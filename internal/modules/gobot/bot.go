@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,14 +23,11 @@ func init() {
 	utils.SendFileFunc = SendFileToChannel
 }
 
-
 var (
-	botToken   = os.Getenv("DISCORD_BOT_TOKEN")
-	autoarMode = getEnv("AUTOAR_MODE", "discord")
-	apiHost    = getEnv("API_HOST", "0.0.0.0")
-	apiPort    = getEnv("API_PORT", "8000")
-	allowedGuildID = getEnv("DISCORD_ALLOWED_GUILD_ID", "") // Restrict bot to specific guild by ID (GUID)
-	allowedGuildName = getEnv("DISCORD_ALLOWED_GUILD", "")  // Legacy: Restrict bot to specific guild by name (deprecated, use GUID)
+	botToken = os.Getenv("DISCORD_BOT_TOKEN")
+
+	allowedGuildID   = getEnv("DISCORD_ALLOWED_GUILD_ID", "") // Restrict bot to specific guild by ID (GUID)
+	allowedGuildName = getEnv("DISCORD_ALLOWED_GUILD", "")    // Legacy: Restrict bot to specific guild by name (deprecated, use GUID)
 
 	// Global Discord session for file sending from modules
 	globalDiscordSession *discordgo.Session
@@ -49,10 +45,10 @@ func getMetricsSnapshot() map[string]interface{} {
 	scansMutex.RLock()
 	activeCount := len(activeScans)
 	scansMutex.RUnlock()
-	
+
 	return map[string]interface{}{
 		"active_scans": activeCount,
-		"message": "Full metrics available after resolving import cycle",
+		"message":      "Full metrics available after resolving import cycle",
 	}
 }
 
@@ -81,7 +77,7 @@ func SendFileToChannel(channelID, filePath, description string) error {
 		}
 		scansMutex.RUnlock()
 	}
-	
+
 	// If no thread found by scanID, try to find by channel ID
 	if threadID == "" {
 		scansMutex.RLock()
@@ -152,7 +148,7 @@ func SendFileToChannel(channelID, filePath, description string) error {
 
 	// Stream file directly to Discord (memory efficient - no loading into RAM)
 	log.Printf("[DISCORD] 🚀 Streaming file to Discord %s: %s (%d bytes)", targetID, fileName, info.Size())
-	
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		log.Printf("[DISCORD] ❌ Failed to open file: %v", err)
@@ -203,36 +199,36 @@ func SendFileToChannel(channelID, filePath, description string) error {
 // This handles cases where the bot crashed or was killed while scans were running
 func cleanupOrphanedScans() {
 	log.Println("[INFO] Cleaning up orphaned scans from previous bot sessions...")
-	
+
 	// Get all active scans
 	activeScans, err := db.ListActiveScans()
 	if err != nil {
 		log.Printf("[WARN] Failed to list active scans for cleanup: %v", err)
 		return
 	}
-	
+
 	if len(activeScans) == 0 {
 		log.Println("[INFO] No orphaned scans found")
 		return
 	}
-	
+
 	// Mark scans older than 6 hours as failed
 	// (Normal scans shouldn't take more than 2 hours based on timeout)
 	cutoffTime := time.Now().Add(-6 * time.Hour)
 	cleanedCount := 0
-	
+
 	for _, scan := range activeScans {
 		if scan.StartedAt.Before(cutoffTime) {
 			if err := db.UpdateScanStatus(scan.ScanID, "failed"); err != nil {
 				log.Printf("[WARN] Failed to mark orphaned scan %s as failed: %v", scan.ScanID, err)
 			} else {
-				log.Printf("[INFO] Marked orphaned scan %s as failed (started %s ago)", 
+				log.Printf("[INFO] Marked orphaned scan %s as failed (started %s ago)",
 					scan.ScanID, time.Since(scan.StartedAt).Round(time.Minute))
 				cleanedCount++
 			}
 		}
 	}
-	
+
 	if cleanedCount > 0 {
 		log.Printf("[INFO] Cleaned up %d orphaned scan(s)", cleanedCount)
 	} else {
@@ -243,7 +239,7 @@ func cleanupOrphanedScans() {
 // StartBot starts the Discord bot and initializes database
 func StartBot() error {
 	fmt.Println("🚀 Starting AutoAR Discord Bot...")
-	
+
 	// Load .env file if it exists
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
@@ -259,14 +255,14 @@ func StartBot() error {
 	botToken = os.Getenv("DISCORD_BOT_TOKEN")
 	allowedGuildID = getEnv("DISCORD_ALLOWED_GUILD_ID", "")
 	allowedGuildName = getEnv("DISCORD_ALLOWED_GUILD", "")
-	
+
 	// Initialize directories
 	if err := initializeDirectories(); err != nil {
 		log.Printf("[WARN] Failed to initialize directories: %v", err)
 	} else {
 		fmt.Println("[ + ]Initialized directories")
 	}
-	
+
 	// Initialize database if configured
 	if os.Getenv("DB_HOST") != "" {
 		log.Println("[INFO] Initializing database...")
@@ -277,7 +273,7 @@ func StartBot() error {
 				log.Printf("[WARN] Failed to initialize database schema: %v", err)
 			} else {
 				log.Println("[INFO] Database initialized successfully")
-				
+
 				// Clean up orphaned scans from previous bot sessions
 				cleanupOrphanedScans()
 			}
@@ -342,9 +338,9 @@ func StartBot() error {
 	apiPortEnv := getEnv("API_PORT", "8000")
 	router := setupAPI()
 	apiAddr := fmt.Sprintf("%s:%s", apiHostEnv, apiPortEnv)
-	
+
 	log.Printf("[INFO] Starting internal HTTP API server on %s", apiAddr)
-	
+
 	// Start API server with error handling
 	apiStarted := make(chan bool, 1)
 	go func() {
@@ -359,7 +355,7 @@ func StartBot() error {
 			apiStarted <- true
 		}
 	}()
-	
+
 	// Give API a moment to start
 	time.Sleep(100 * time.Millisecond)
 
@@ -389,7 +385,7 @@ func StartBot() error {
 // StartAPI starts the REST API server
 func StartAPI() error {
 	fmt.Println("🚀 Starting AutoAR API Server...")
-	
+
 	// Load .env file if it exists
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
@@ -400,7 +396,7 @@ func StartAPI() error {
 	// Re-read API host and port after loading .env
 	apiHostEnv := getEnv("API_HOST", "0.0.0.0")
 	apiPortEnv := getEnv("API_PORT", "8000")
-	
+
 	// Initialize database if configured
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err != nil {
@@ -440,7 +436,7 @@ func StartAPI() error {
 // StartBoth starts both Discord bot and API server
 func StartBoth() error {
 	fmt.Println("🚀 Starting AutoAR (Discord Bot + API Server)...")
-	
+
 	// Load .env file if it exists
 	if err := envloader.LoadEnv(); err != nil {
 		log.Printf("[WARN] Failed to load .env file: %v", err)
@@ -451,7 +447,7 @@ func StartBoth() error {
 	// Re-read configuration after loading .env
 	botTokenEnv := os.Getenv("DISCORD_BOT_TOKEN")
 	autoarModeEnv := getEnv("AUTOAR_MODE", "both")
-	
+
 	// Initialize database if configured (only once for both services)
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err != nil {
@@ -483,7 +479,7 @@ func StartBoth() error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			
+
 			// Signal that bot initialization has started
 			// This allows API to wait for the session to be ready
 			go func() {
@@ -491,12 +487,12 @@ func StartBoth() error {
 				time.Sleep(500 * time.Millisecond)
 				botStarted.Done()
 			}()
-			
+
 			if err := StartBot(); err != nil {
 				log.Printf("Discord bot error: %v", err)
 			}
 		}()
-		
+
 		// Wait for bot to initialize session before starting API
 		log.Println("[INFO] Waiting for Discord bot session to initialize...")
 		botStarted.Wait()
@@ -544,7 +540,7 @@ func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCrea
 	channelID := i.ChannelID
 	threadID := ""
 	messageID := ""
-	
+
 	// Try to find scan by scanID first (most reliable), then by channel ID
 	scansMutex.RLock()
 	var foundScan *ScanInfo
@@ -599,16 +595,16 @@ func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCrea
 	if err != nil {
 		// Check if error is due to expired token (401 Unauthorized or "Invalid Webhook Token")
 		errStr := err.Error()
-		isExpiredToken := strings.Contains(errStr, "401") || 
+		isExpiredToken := strings.Contains(errStr, "401") ||
 			strings.Contains(errStr, "Invalid Webhook Token") ||
 			strings.Contains(errStr, "50027") // Discord error code for invalid webhook token
-		
+
 		if isExpiredToken {
 			log.Printf("[DEBUG] Interaction token expired, using thread or follow-up message")
 		} else {
 			log.Printf("[WARN] InteractionResponseEdit failed: %v, trying alternative methods", err)
 		}
-		
+
 		// If we have a thread, we already tried it above, so try follow-up as fallback
 		if threadID == "" {
 			// Try follow-up message
@@ -619,7 +615,7 @@ func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCrea
 				log.Printf("[DEBUG] Created follow-up message as fallback")
 				return nil
 			}
-			
+
 			// Last resort: send new message to channel
 			if channelID != "" {
 				log.Printf("[WARN] Follow-up also failed, trying channel message: %v", followErr)
@@ -639,7 +635,7 @@ func UpdateInteractionMessage(s *discordgo.Session, i *discordgo.InteractionCrea
 				log.Printf("[INFO] Successfully sent message via channel (fallback)")
 				return nil
 			}
-			
+
 			if isExpiredToken {
 				log.Printf("[WARN] Token expired and no thread/channel available. This is expected for scans taking >15 minutes.")
 				return nil // Don't fail completely
@@ -663,7 +659,7 @@ func UpdateInteractionContent(s *discordgo.Session, i *discordgo.InteractionCrea
 	// First, try to get stored message ID from scan info (if available)
 	channelID := i.ChannelID
 	messageID := ""
-	
+
 	// Try to find scan by channel ID and get its message ID
 	scansMutex.RLock()
 	for _, scan := range activeScans {
@@ -691,16 +687,16 @@ func UpdateInteractionContent(s *discordgo.Session, i *discordgo.InteractionCrea
 	if err != nil {
 		// Check if error is due to expired token
 		errStr := err.Error()
-		isExpiredToken := strings.Contains(errStr, "401") || 
+		isExpiredToken := strings.Contains(errStr, "401") ||
 			strings.Contains(errStr, "Invalid Webhook Token") ||
 			strings.Contains(errStr, "50027")
-		
+
 		if isExpiredToken {
 			log.Printf("[INFO] Interaction token expired, trying alternative methods")
 		} else {
 			log.Printf("[WARN] InteractionResponseEdit failed: %v, trying follow-up message", err)
 		}
-		
+
 		// Try follow-up as fallback
 		followupMsg, followErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: content,
@@ -731,7 +727,7 @@ func UpdateInteractionContent(s *discordgo.Session, i *discordgo.InteractionCrea
 			}
 			return fmt.Errorf("edit and follow-up both failed: edit=%v, followup=%v", err, followErr)
 		}
-		
+
 		// Store follow-up message ID for future updates
 		if followupMsg != nil && channelID != "" {
 			scansMutex.Lock()
@@ -743,7 +739,7 @@ func UpdateInteractionContent(s *discordgo.Session, i *discordgo.InteractionCrea
 			}
 			scansMutex.Unlock()
 		}
-		
+
 		if isExpiredToken {
 			log.Printf("[INFO] Successfully sent follow-up message (token expired)")
 		} else {
@@ -761,7 +757,7 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// This ensures values are read after .env is loaded, not from package-level initialization
 	allowedGuildIDEnv := getEnv("DISCORD_ALLOWED_GUILD_ID", "")
 	allowedGuildNameEnv := getEnv("DISCORD_ALLOWED_GUILD", "")
-	
+
 	// Check guild restriction by ID (GUID) - preferred method
 	if allowedGuildIDEnv != "" {
 		// Reject DMs (commands must be in a server)
@@ -785,28 +781,26 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			return
 		}
 
-		// Fetch guild information
-		guild, err := s.Guild(i.GuildID)
+		// Fetch guild information (try state cache first to avoid blocking API calls and 3s timeouts)
+		guild, err := s.State.Guild(i.GuildID)
 		if err != nil {
-			log.Printf("[WARN] Failed to fetch guild info: %v", err)
-			respond(s, i, "❌ Error: Unable to verify server. Please try again.", true)
-			return
+			// Fallback to API if not in state cache
+			guild, err = s.Guild(i.GuildID)
+			if err != nil {
+				log.Printf("[WARN] Failed to fetch guild info: %v", err)
+				respond(s, i, "❌ Error: Unable to verify server. Please try again.", true)
+				return
+			}
 		}
-		
+
 		// Check if guild name matches allowed guild
 		if guild.Name != allowedGuildNameEnv {
 			log.Printf("[INFO] Rejected command from unauthorized guild: %s (expected: %s)", guild.Name, allowedGuildNameEnv)
 			respond(s, i, fmt.Sprintf("❌ This bot is restricted to the **%s** server only. Your server: **%s**", allowedGuildNameEnv, guild.Name), true)
 			return
 		}
-		
-		log.Printf("[DEBUG] Command allowed from guild: %s", guild.Name)
-	}
 
-	// Handle modal submissions
-	if i.Type == discordgo.InteractionModalSubmit {
-		handleModalSubmit(s, i)
-		return
+		log.Printf("[DEBUG] Command allowed from guild: %s", guild.Name)
 	}
 
 	cmdName := i.ApplicationCommandData().Name
@@ -829,30 +823,7 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleDomainRun(s, i)
 	case "subdomain_run":
 		handleSubdomainRun(s, i)
-	case "subdomains":
-		handleSubdomains(s, i)
-	case "cnames":
-		handleCnames(s, i)
-	case "livehosts":
-		handleLivehosts(s, i)
-	case "urls":
-		handleURLs(s, i)
-	case "reflection":
-		handleReflection(s, i)
-	case "tech":
-		handleTech(s, i)
-	case "ports":
-		handlePorts(s, i)
-	case "nuclei":
-		handleNuclei(s, i)
-	case "js_scan":
-		handleJSScan(s, i)
-	case "gf_scan":
-		handleGFScan(s, i)
-	case "sqlmap":
-		handleSQLMap(s, i)
-	case "dalfox":
-		handleDalfox(s, i)
+
 	case "apkx_scan":
 		handleApkXScan(s, i)
 	case "apkx_scan_package":
@@ -901,6 +872,16 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleCancelScan(s, i)
 	case "scope":
 		handleScope(s, i)
+	case "ssrf_bypass":
+		handleSSRFBypass(s, i)
+	case "fuzz":
+		handleFuzz(s, i)
+	case "brain":
+		HandleBrainCommand(s, i)
+	case "scans":
+		HandleScansCommand(s, i)
+	case "ai":
+		handleAIChat(s, i)
 	default:
 		log.Printf("Unknown command: %s", cmdName)
 		respond(s, i, fmt.Sprintf("Unknown command: %s", cmdName), false)
@@ -914,28 +895,18 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// getEnvInt returns an environment variable as an integer with a default value
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
-		}
-	}
-	return defaultValue
-}
-
 // getResultsDir returns the results directory path
 // Tries: AUTOAR_RESULTS_DIR env var -> ./new-results -> /app/new-results (Docker fallback)
 // Normalizes absolute paths at root (like /new-results) to relative paths when not in Docker
 func getResultsDir() string {
 	dir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if dir == "" {
-	// Try current directory first (for native runs)
-	if cwd, err := os.Getwd(); err == nil {
+		// Try current directory first (for native runs)
+		if cwd, err := os.Getwd(); err == nil {
 			return filepath.Join(cwd, "new-results")
-	}
-	// Docker fallback
-	return "/app/new-results"
+		}
+		// Docker fallback
+		return "/app/new-results"
 	}
 
 	// Normalize absolute paths at root when not in Docker
@@ -952,7 +923,7 @@ func getResultsDir() string {
 				}
 			}
 		}
-		
+
 		// If not in Docker and path is absolute (like /new-results), convert to relative
 		if !isDocker {
 			if cwd, err := os.Getwd(); err == nil {
@@ -969,17 +940,16 @@ func getResultsDir() string {
 func cleanupDomainDirectory(domain string) error {
 	resultsDir := getResultsDir()
 	domainDir := filepath.Join(resultsDir, domain)
-	return cleanupResultsDirectory(domain, domainDir)
+	return cleanupResultsDirectory(domainDir)
 }
 
 // cleanupResultsDirectory uploads results to R2 (if enabled) and removes the local directory
-// prefix: R2 prefix path (e.g., "domain", "apkx/com.example.app", "github/repos/owner/repo")
 // localPath: Full local path to the results directory
-func cleanupResultsDirectory(prefix, localPath string) error {
+func cleanupResultsDirectory(localPath string) error {
 	if _, err := os.Stat(localPath); os.IsNotExist(err) {
 		return nil // Directory doesn't exist, nothing to clean
 	}
-	
+
 	// R2 upload disabled - files are already sent to Discord thread in real-time
 	// No need for redundant R2 upload at the end
 	// if r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true" {
@@ -993,7 +963,7 @@ func cleanupResultsDirectory(prefix, localPath string) error {
 	// 		return nil
 	// 	}
 	// }
-	
+
 	// If R2 not enabled or upload failed, do local cleanup
 	log.Printf("[INFO] Cleaning up results directory: %s", localPath)
 	if err := os.RemoveAll(localPath); err != nil {
@@ -1013,7 +983,7 @@ func initializeDirectories() error {
 		filepath.Join(root, "nuclei_templates"),
 		filepath.Join(root, "regexes"),
 	}
-	
+
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
