@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/bwmarrin/discordgo"
+	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
 
@@ -24,69 +24,69 @@ var (
 // ScanInfo is defined in commands.go
 
 type ScanResult struct {
-	ScanID     string    `json:"scan_id"`
-	Status     string    `json:"status"`
-	ScanType   string    `json:"scan_type"`
-	StartedAt  time.Time `json:"started_at"`
+	ScanID      string     `json:"scan_id"`
+	Status      string     `json:"status"`
+	ScanType    string     `json:"scan_type"`
+	StartedAt   time.Time  `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	Output     string    `json:"output,omitempty"`
-	Error      string    `json:"error,omitempty"`
+	Output      string     `json:"output,omitempty"`
+	Error       string     `json:"error,omitempty"`
 }
 
 type ScanRequest struct {
-	Domain            *string   `json:"domain"`
-	Subdomain         *string   `json:"subdomain"`
-	URL               *string   `json:"url"`
-	Bucket            *string   `json:"bucket"`
-	Region            *string   `json:"region"`
-	Repo              *string   `json:"repo"`
-	FilePath          *string   `json:"file_path"`
-	Strategy          *string   `json:"strategy"`
-	Pattern           *string   `json:"pattern"`
-	Interval          *int      `json:"interval"`
-	All               *bool     `json:"all"`
-	Daemon            *bool     `json:"daemon"`
-	Mode              *string   `json:"mode"`
-	SkipJS            *bool     `json:"skip_js"`
-	PhaseTimeout      *int      `json:"phase_timeout"`
-	TimeoutLivehosts  *int      `json:"timeout_livehosts"`
-	TimeoutReflection *int      `json:"timeout_reflection"`
-	TimeoutJS         *int      `json:"timeout_js"`
-	TimeoutNuclei      *int      `json:"timeout_nuclei"`
-	Query             *string   `json:"query"`
-	Provider          *string   `json:"provider"`
-	APIKey            *string   `json:"api_key"`
+	Domain            *string `json:"domain"`
+	Subdomain         *string `json:"subdomain"`
+	URL               *string `json:"url"`
+	Bucket            *string `json:"bucket"`
+	Region            *string `json:"region"`
+	Repo              *string `json:"repo"`
+	FilePath          *string `json:"file_path"`
+	Strategy          *string `json:"strategy"`
+	Pattern           *string `json:"pattern"`
+	Interval          *int    `json:"interval"`
+	All               *bool   `json:"all"`
+	Daemon            *bool   `json:"daemon"`
+	Mode              *string `json:"mode"`
+	SkipJS            *bool   `json:"skip_js"`
+	PhaseTimeout      *int    `json:"phase_timeout"`
+	TimeoutLivehosts  *int    `json:"timeout_livehosts"`
+	TimeoutReflection *int    `json:"timeout_reflection"`
+	TimeoutJS         *int    `json:"timeout_js"`
+	TimeoutNuclei     *int    `json:"timeout_nuclei"`
+	Query             *string `json:"query"`
+	Provider          *string `json:"provider"`
+	APIKey            *string `json:"api_key"`
 	// FFuf options
-	Target            *string   `json:"target"`            // FFuf target URL
-	Wordlist          *string   `json:"wordlist"`         // FFuf wordlist path
-	Threads           *int      `json:"threads"`          // FFuf threads
-	Recursion         *bool     `json:"recursion"`        // FFuf recursion
-	RecursionDepth    *int      `json:"recursion_depth"`  // FFuf recursion depth
-	Bypass403         *bool     `json:"bypass_403"`       // FFuf 403 bypass
-	Extensions        *[]string `json:"extensions"`       // FFuf extensions
-	CustomHeaders     *map[string]string `json:"custom_headers"` // FFuf custom headers
+	Target         *string            `json:"target"`          // FFuf target URL
+	Wordlist       *string            `json:"wordlist"`        // FFuf wordlist path
+	Threads        *int               `json:"threads"`         // FFuf threads
+	Recursion      *bool              `json:"recursion"`       // FFuf recursion
+	RecursionDepth *int               `json:"recursion_depth"` // FFuf recursion depth
+	Bypass403      *bool              `json:"bypass_403"`      // FFuf 403 bypass
+	Extensions     *[]string          `json:"extensions"`      // FFuf extensions
+	CustomHeaders  *map[string]string `json:"custom_headers"`  // FFuf custom headers
 	// Zerodays options
-	DomainsFile       *string   `json:"domains_file"`     // Zerodays domains file
-	DOSTest           *bool     `json:"dos_test"`         // Zerodays DoS test
-	EnableSourceExposure *bool  `json:"enable_source_exposure"` // Zerodays source exposure
-	Silent            *bool     `json:"silent"`            // Zerodays silent mode
-	CVEs              *[]string `json:"cves"`             // CVEs to check (CVE-2025-55182, CVE-2025-14847)
-	MongoDBHost       *string   `json:"mongodb_host"`     // MongoDB host for CVE-2025-14847
-	MongoDBPort       *int     `json:"mongodb_port"`       // MongoDB port for CVE-2025-14847
+	DomainsFile          *string   `json:"domains_file"`           // Zerodays domains file
+	DOSTest              *bool     `json:"dos_test"`               // Zerodays DoS test
+	EnableSourceExposure *bool     `json:"enable_source_exposure"` // Zerodays source exposure
+	Silent               *bool     `json:"silent"`                 // Zerodays silent mode
+	CVEs                 *[]string `json:"cves"`                   // CVEs to check (CVE-2025-55182, CVE-2025-14847)
+	MongoDBHost          *string   `json:"mongodb_host"`           // MongoDB host for CVE-2025-14847
+	MongoDBPort          *int      `json:"mongodb_port"`           // MongoDB port for CVE-2025-14847
 	// JWT options
-	Token             *string   `json:"token"`            // JWT token
-	SkipCrack         *bool     `json:"skip_crack"`       // JWT skip crack
-	SkipPayloads      *bool     `json:"skip_payloads"`    // JWT skip payloads
-	WordlistPath      *string   `json:"wordlist_path"`    // JWT wordlist
-	MaxCrackAttempts  *int      `json:"max_crack_attempts"` // JWT max crack attempts
+	Token            *string `json:"token"`              // JWT token
+	SkipCrack        *bool   `json:"skip_crack"`         // JWT skip crack
+	SkipPayloads     *bool   `json:"skip_payloads"`      // JWT skip payloads
+	WordlistPath     *string `json:"wordlist_path"`      // JWT wordlist
+	MaxCrackAttempts *int    `json:"max_crack_attempts"` // JWT max crack attempts
 	// Misconfig options
-	ServiceID         *string   `json:"service_id"`        // Misconfig service ID
-	Delay             *int      `json:"delay"`            // Misconfig delay (ms)
-	Permutations      *bool     `json:"permutations"`      // Enable permutations (slower but more thorough)
+	ServiceID    *string `json:"service_id"`   // Misconfig service ID
+	Delay        *int    `json:"delay"`        // Misconfig delay (ms)
+	Permutations *bool   `json:"permutations"` // Enable permutations (slower but more thorough)
 	// DNS options
-	DNSType           *string   `json:"dns_type"`         // DNS scan type: takeover, dangling-ip
+	DNSType *string `json:"dns_type"` // DNS scan type: takeover, dangling-ip
 	// URLs options
-	SkipSubdomainEnum *bool     `json:"skip_subdomain_enum"` // URLs: skip subdomain enumeration (treat as single subdomain)
+	SkipSubdomainEnum *bool `json:"skip_subdomain_enum"` // URLs: skip subdomain enumeration (treat as single subdomain)
 }
 
 type ScanResponse struct {
@@ -97,17 +97,17 @@ type ScanResponse struct {
 }
 
 type ScanStatusResponse struct {
-	ScanID     string    `json:"scan_id"`
-	Status     string    `json:"status"`
-	StartedAt  time.Time `json:"started_at"`
+	ScanID      string     `json:"scan_id"`
+	Status      string     `json:"status"`
+	StartedAt   time.Time  `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	Output     *string   `json:"output,omitempty"`
-	Error      *string   `json:"error,omitempty"`
+	Output      *string    `json:"output,omitempty"`
+	Error       *string    `json:"error,omitempty"`
 }
 
 type ScanListResponse struct {
 	ActiveScans    []ScanInfo `json:"active_scans"`
-	CompletedScans []ScanInfo  `json:"completed_scans"`
+	CompletedScans []ScanInfo `json:"completed_scans"`
 }
 
 // Setup API routes
@@ -144,11 +144,11 @@ func setupAPI() *gin.Engine {
 		api.POST("/github_org", scanGitHubOrg)
 		api.POST("/lite", scanLite)
 		api.POST("/apkx", scanApkX)
-		api.POST("/ffuf", scanFFuf) // FFuf fuzzing
-		api.POST("/backup", scanBackup) // Backup file discovery
+		api.POST("/ffuf", scanFFuf)           // FFuf fuzzing
+		api.POST("/backup", scanBackup)       // Backup file discovery
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
-		api.POST("/zerodays", scanZerodays) // Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)
-		api.POST("/jwt", scanJWT) // JWT vulnerability scan
+		api.POST("/zerodays", scanZerodays)   // Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)
+		api.POST("/jwt", scanJWT)             // JWT vulnerability scan
 		api.GET("/:scan_id/status", getScanStatus)
 		api.GET("/:scan_id/results", getScanResults)
 		api.GET("/:scan_id/download", downloadScanResults)
@@ -235,11 +235,11 @@ func rootHandler(c *gin.Context) {
 
 func healthHandler(c *gin.Context) {
 	snapshot := getMetricsSnapshot()
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"status":    "healthy",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"uptime":    snapshot["uptime"],
+		"status":       "healthy",
+		"timestamp":    time.Now().UTC().Format(time.RFC3339),
+		"uptime":       snapshot["uptime"],
 		"active_scans": snapshot["active_scans"],
 	})
 }
@@ -672,7 +672,7 @@ func scanURLs(c *gin.Context) {
 
 	scanID := generateScanID()
 	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "urls", "collect", "-d", *req.Domain}
-	
+
 	// Add --subdomain flag if SkipSubdomainEnum is set and true
 	if req.SkipSubdomainEnum != nil && *req.SkipSubdomainEnum {
 		command = append(command, "--subdomain")
@@ -1441,7 +1441,7 @@ func downloadScanResults(c *gin.Context) {
 func listScans(c *gin.Context) {
 	scansMutex.RLock()
 	defer scansMutex.RUnlock()
-	
+
 	apiScansMutex.RLock()
 	defer apiScansMutex.RUnlock()
 
@@ -1527,7 +1527,7 @@ func executeScan(scanID string, command []string, scanType string) {
 // sendFileToDiscord handles file uploads from modules
 func sendFileToDiscord(c *gin.Context) {
 	log.Printf("[API] [sendFileToDiscord] Received file send request")
-	
+
 	var req struct {
 		ScanID      string `json:"scan_id"`
 		FilePath    string `json:"file_path" binding:"required"`
@@ -1540,8 +1540,8 @@ func sendFileToDiscord(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
-	log.Printf("[API] [sendFileToDiscord] Request details - FilePath: %s, ChannelID: %s, ScanID: %s, Description: %s", 
+
+	log.Printf("[API] [sendFileToDiscord] Request details - FilePath: %s, ChannelID: %s, ScanID: %s, Description: %s",
 		req.FilePath, req.ChannelID, req.ScanID, req.Description)
 
 	// Get channel ID - priority: request > scan_id lookup > environment > default
@@ -1553,25 +1553,25 @@ func sendFileToDiscord(c *gin.Context) {
 		channelID = getChannelID(req.ScanID)
 		log.Printf("[API] [sendFileToDiscord] Looked up channel ID from scan ID %s: %s", req.ScanID, channelID)
 	}
-	
+
 	if channelID == "" {
 		// Try to get from environment (set by modules)
 		channelID = os.Getenv("AUTOAR_CURRENT_CHANNEL_ID")
 		log.Printf("[API] [sendFileToDiscord] Tried environment variable AUTOAR_CURRENT_CHANNEL_ID: %s", channelID)
 	}
-	
+
 	if channelID == "" {
 		// Try default channel from environment
 		channelID = os.Getenv("DISCORD_DEFAULT_CHANNEL_ID")
 		log.Printf("[API] [sendFileToDiscord] Tried environment variable DISCORD_DEFAULT_CHANNEL_ID: %s", channelID)
 	}
-	
+
 	if channelID == "" {
 		log.Printf("[API] [sendFileToDiscord] [ERROR] No channel ID found")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no channel ID found. Provide channel_id, scan_id, or set AUTOAR_CURRENT_CHANNEL_ID"})
 		return
 	}
-	
+
 	log.Printf("[API] [sendFileToDiscord] Using channel ID: %s", channelID)
 
 	// Check if we should send to a thread instead of the channel
@@ -1584,7 +1584,7 @@ func sendFileToDiscord(c *gin.Context) {
 		}
 		scansMutex.RUnlock()
 	}
-	
+
 	// If no thread found by scanID, try to find by channel ID
 	if threadID == "" && channelID != "" {
 		scansMutex.RLock()
@@ -1597,7 +1597,7 @@ func sendFileToDiscord(c *gin.Context) {
 		}
 		scansMutex.RUnlock()
 	}
-	
+
 	// Use thread ID if available, otherwise use channel ID
 	targetID := channelID
 	if threadID != "" {
@@ -1670,7 +1670,7 @@ func sendFileToDiscord(c *gin.Context) {
 		log.Printf("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully: %s", publicURL)
 		c.JSON(http.StatusOK, gin.H{
 			"message":   "file uploaded to R2 and link sent",
-			"r2_url":   publicURL,
+			"r2_url":    publicURL,
 			"file_size": fileInfo.Size(),
 		})
 		return
@@ -1746,30 +1746,6 @@ func sendFileToDiscord(c *gin.Context) {
 
 	log.Printf("[API] [sendFileToDiscord] [SUCCESS] File sent successfully to Discord channel %s", channelID)
 	c.JSON(http.StatusOK, gin.H{"message": "file sent successfully"})
-}
-
-// getCompletedScans returns recent completed scans (for Discord bot)
-func getCompletedScans(limit int) []*ScanResult {
-	apiScansMutex.RLock()
-	defer apiScansMutex.RUnlock()
-	
-	results := make([]*ScanResult, 0, limit)
-	count := 0
-	for _, result := range scanResults {
-		if count >= limit {
-			break
-		}
-		results = append(results, result)
-		count++
-	}
-	return results
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // getEnv is defined in main.go

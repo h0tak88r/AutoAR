@@ -75,8 +75,12 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 
 	if len(existingFiles) == 0 {
 		log.Printf("[DEBUG] [DISCORD] No valid files to send for phase %s", phaseName)
-		// Send webhook message indicating 0 findings
-		SendWebhookLogAsync(fmt.Sprintf("[-] %s completed with 0 findings", phaseName))
+		// Send a short ⚪ message indicating 0 findings
+		msg := fmt.Sprintf("⚪ **%s** — 0 findings", phaseName)
+		if domain != "" {
+			msg = fmt.Sprintf("⚪ **%s** — 0 findings for `%s`", phaseName, domain)
+		}
+		SendWebhookLogAsync(msg)
 		return nil
 	}
 
@@ -272,6 +276,7 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		files = []string{
 			filepath.Join(resultsDir, domain, "urls", "all-urls.txt"),
 			filepath.Join(resultsDir, domain, "urls", "js-urls.txt"),
+			filepath.Join(resultsDir, domain, "urls", "interesting-urls.txt"),
 		}
 	case "ports":
 		files = []string{
@@ -304,6 +309,15 @@ func GetPhaseFiles(phaseName, domain string) []string {
 			if matches, err := filepath.Glob(filepath.Join(dnsRootDir, "*.txt")); err == nil && len(matches) > 0 {
 				files = append(files, matches...)
 			}
+		}
+	case "cf1016":
+		dnsDir := filepath.Join(resultsDir, domain, "vulnerabilities", "dns-takeover")
+		files = []string{
+			filepath.Join(dnsDir, "cf1016-dangling.txt"),
+		}
+	case "exposure":
+		files = []string{
+			filepath.Join(resultsDir, domain, "vulnerabilities", "exposure", "exposure-findings.txt"),
 		}
 	case "misconfig":
 		// Misconfig saves to subdomain directory with renamed file

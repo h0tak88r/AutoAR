@@ -21,6 +21,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/depconfusion"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/dns"
+	cf1016mod "github.com/h0tak88r/AutoAR/internal/modules/cf1016"
 	domainmod "github.com/h0tak88r/AutoAR/internal/modules/domain"
 	"github.com/h0tak88r/AutoAR/internal/modules/fastlook"
 	subdomainmod "github.com/h0tak88r/AutoAR/internal/modules/subdomain"
@@ -3144,6 +3145,20 @@ func handleDNSCommand(args []string) error {
 		return dns.DNSReaper(domain)
 	case "dangling-ip":
 		return dns.DanglingIP(domain)
+	case "cf1016", "cloudflare-1016":
+		result, err := cf1016mod.Run(cf1016mod.Options{
+			Domain:  domain,
+			Threads: 100,
+		})
+		if err != nil {
+			return err
+		}
+		if len(result.Findings) == 0 {
+			fmt.Printf("[cf1016] No Cloudflare 1016 dangling records found for %s\n", domain)
+		} else {
+			fmt.Printf("[cf1016] Found %d dangling record(s). Results: %s\n", len(result.Findings), result.Output)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown dns action: %s", sub)
 	}

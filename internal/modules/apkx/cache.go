@@ -409,10 +409,38 @@ func extractVersionWithAAPT(apkPath string) (packageName, version, versionCode s
 
 // extractVersionWithApktool does a minimal apktool decode to extract manifest
 func extractVersionWithApktool(apkPath string) (packageName, version, versionCode string, err error) {
-	// Find apktool
-	apktoolPath := "/usr/local/bin/apktool.jar"
-	if _, err := os.Stat(apktoolPath); os.IsNotExist(err) {
-		return "", "", "", fmt.Errorf("apktool not found for version extraction")
+	// Find apktool — use the same flexible discovery as mitm.NewPatcher()
+	apktoolPaths := []string{
+		"/usr/local/bin/apktool.jar",
+		"/opt/apktool/apktool.jar",
+		filepath.Join(os.Getenv("HOME"), ".local/share/apktool/apktool.jar"),
+		"apktool.jar",
+	}
+
+	var apktoolPath string
+	// First, check if apktool script exists in PATH and read the JAR path from it
+	if found, lookErr := exec.LookPath("apktool"); lookErr == nil {
+		scriptData, readErr := os.ReadFile(found)
+		if readErr == nil {
+			jarRegex := regexp.MustCompile(`-jar\s+([^\s]+apktool[^\s]*\.jar)`)
+			if matches := jarRegex.FindStringSubmatch(string(scriptData)); len(matches) > 1 {
+				if _, statErr := os.Stat(matches[1]); statErr == nil {
+					apktoolPath = matches[1]
+				}
+			}
+		}
+		// If the JAR wasn't found in the script, fall through to the common locations
+	}
+	if apktoolPath == "" {
+		for _, path := range apktoolPaths {
+			if _, statErr := os.Stat(path); statErr == nil {
+				apktoolPath = path
+				break
+			}
+		}
+	}
+	if apktoolPath == "" {
+		return "", "", "", fmt.Errorf("apktool not found for version extraction (checked PATH script and common locations)")
 	}
 
 	// Find java
