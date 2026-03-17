@@ -19,26 +19,26 @@ func uploadFileBasedScanToR2(res *apkxmod.Result, filename, tempPath string, mit
 	if res == nil || res.ReportDir == "" {
 		return
 	}
-	
+
 	if !r2storage.IsEnabled() || os.Getenv("USE_R2_STORAGE") != "true" {
 		return
 	}
-	
+
 	resultsDir := getResultsDir()
 	apkPrefix := strings.TrimPrefix(res.ReportDir, resultsDir+"/")
 	if apkPrefix == res.ReportDir {
 		apkPrefix = "apkx/" + filepath.Base(res.ReportDir)
 	}
-	
+
 	log.Printf("[INFO] Uploading file-based scan to R2: %s", res.ReportDir)
 	r2URLs, uploadErr := r2storage.UploadResultsDirectory(apkPrefix, res.ReportDir, false)
 	if uploadErr != nil {
 		log.Printf("[WARN] R2 upload failed: %v", uploadErr)
 		return
 	}
-	
+
 	log.Printf("[OK] Uploaded %d files to R2", len(r2URLs))
-	
+
 	// Add R2 link fields for HTML and JSON
 	for localPath, url := range r2URLs {
 		if strings.HasSuffix(localPath, "security-report.html") {
@@ -55,7 +55,7 @@ func uploadFileBasedScanToR2(res *apkxmod.Result, filename, tempPath string, mit
 			})
 		}
 	}
-	
+
 	// Upload and link original APK
 	if tempPath != "" {
 		if _, statErr := os.Stat(tempPath); statErr == nil {
@@ -68,7 +68,7 @@ func uploadFileBasedScanToR2(res *apkxmod.Result, filename, tempPath string, mit
 			}
 		}
 	}
-	
+
 	// Upload and link MITM APK
 	if mitm && res.MITMPatchedAPK != "" {
 		if _, statErr := os.Stat(res.MITMPatchedAPK); statErr == nil {

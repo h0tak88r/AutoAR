@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -238,6 +239,9 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	}
 	if err := checkDanglingIPs(processingDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] Dangling IP check failed: %v", err)
+	}
+	if err := checkCloudflareTunnels(processingDir, findingsDir, subsFile); err != nil {
+		log.Printf("[WARN] Cloudflare Tunnel availability check failed: %v", err)
 	}
 
 	// Summary file generation removed - only raw results are sent
@@ -1029,6 +1033,95 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 		}
 	}
 	
+	return nil
+}
+
+// checkCloudflareTunnels looks for subdomains that use Cloudflare Tunnel (cfargotunnel.com)
+// and reports ones that appear unavailable or misconfigured (Cloudflare tunnel error pages).
+func checkCloudflareTunnels(domainDir, findingsDir, subsFile string) error {
+	out := filepath.Join(findingsDir, "cloudflare-tunnel-errors.txt")
+	if err := writeLines(out, nil); err != nil {
+		return err
+	}
+
+	fSubs, err := os.Open(subsFile)
+	if err != nil {
+		return fmt.Errorf("failed to open subdomains file: %w", err)
+	}
+	defer fSubs.Close()
+
+	scanner := bufio.NewScanner(fSubs)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	found := 0
+
+	for scanner.Scan() {
+		sub := strings.TrimSpace(scanner.Text())
+		if sub == "" {
+			continue
+		}
+
+		cname, _ := lookupCNAMEStatus(sub)
+		if cname == "" {
+			continue
+		}
+
+		// Detect Cloudflare Tunnel CNAME targets
+		if !strings.Contains(strings.ToLower(cname), "cfargotunnel.com") {
+			continue
+		}
+
+		// Try HTTPS first
+		url := "https://" + sub
+		resp, err := client.Get(url)
+		if err != nil {
+			// Network-level failure – likely unavailable tunnel
+			line := fmt.Sprintf("[UNREACHABLE] [SUBDOMAIN:%s] [CNAME:%s] [ERROR:%v]", sub, cname, err)
+			if err := appendLine(out, line); err != nil {
+				log.Printf("[WARN] Failed to write Cloudflare tunnel unreachable finding: %v", err)
+			}
+			found++
+			continue
+		}
+
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		body := strings.ToLower(string(bodyBytes))
+
+		// Look for common Cloudflare Tunnel error patterns
+		isErrorStatus := resp.StatusCode >= 500 && resp.StatusCode < 600
+		hasTunnelErrorText := strings.Contains(body, "cloudflare") &&
+			(strings.Contains(body, "tunnel") ||
+				strings.Contains(body, "cf-ray") ||
+				strings.Contains(body, "origin is unreachable") ||
+				strings.Contains(body, "host is not configured"))
+
+		if isErrorStatus && hasTunnelErrorText {
+			line := fmt.Sprintf("[TUNNEL_ERROR] [SUBDOMAIN:%s] [CNAME:%s] [STATUS:%d]", sub, cname, resp.StatusCode)
+			if err := appendLine(out, line); err != nil {
+				log.Printf("[WARN] Failed to write Cloudflare tunnel error finding: %v", err)
+			}
+			found++
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read subdomains file: %w", err)
+	}
+
+	// If we found issues, send them to webhook (same pattern as other DNS checks)
+	if found > 0 {
+		domain := filepath.Base(domainDir)
+		if info, err := os.Stat(out); err == nil && info.Size() > 0 {
+			utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Hygiene: Cloudflare Tunnel availability issues for %s (%d finding(s))", domain, found))
+		}
+		log.Printf("[OK] Cloudflare Tunnel availability check: %d issue(s) found", found)
+	} else {
+		log.Printf("[INFO] Cloudflare Tunnel availability check: no issues found")
+	}
+
 	return nil
 }
 

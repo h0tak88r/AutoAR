@@ -327,7 +327,9 @@ func runGitHubOrg(opts Options, resultsDir string) error {
 	return nil
 }
 
-// convertJSONToText converts the JSON results file to a human-readable text file
+// convertJSONToText converts the JSON results file to a human-readable text file.
+// Only entries with actual vulnerable packages are written — entries with 0 packages
+// or null vulnerable_packages are false positives and are silently skipped.
 func convertJSONToText(jsonFile, textFile string) error {
 	// Read JSON file
 	data, err := os.ReadFile(jsonFile)
@@ -340,6 +342,25 @@ func convertJSONToText(jsonFile, textFile string) error {
 		return fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
+	// Filter to only entries that have actual vulnerable packages
+	var vulnerable []map[string]interface{}
+	for _, result := range results {
+		vulnPkgs, hasKey := result["vulnerable_packages"]
+		if !hasKey || vulnPkgs == nil {
+			continue
+		}
+		vulnList, ok := vulnPkgs.([]interface{})
+		if !ok || len(vulnList) == 0 {
+			continue
+		}
+		vulnerable = append(vulnerable, result)
+	}
+
+	// Rewrite the JSON file to only contain vulnerable entries (clean up false positives at source)
+	if cleanJSON, marshalErr := json.MarshalIndent(vulnerable, "", "  "); marshalErr == nil {
+		os.WriteFile(jsonFile, cleanJSON, 0644)
+	}
+
 	// Create text file
 	f, err := os.Create(textFile)
 	if err != nil {
@@ -347,45 +368,44 @@ func convertJSONToText(jsonFile, textFile string) error {
 	}
 	defer f.Close()
 
+	if len(vulnerable) == 0 {
+		fmt.Fprintf(f, "=== Dependency Confusion Scan Results ===\n\n")
+		fmt.Fprintf(f, "No vulnerable packages found.\n")
+		return nil
+	}
+
 	// Write header
 	fmt.Fprintf(f, "=== Dependency Confusion Scan Results ===\n\n")
-	fmt.Fprintf(f, "Total Findings: %d\n\n", len(results))
+	fmt.Fprintf(f, "Vulnerable Findings: %d\n\n", len(vulnerable))
 
-	// Write each finding
-	for i, result := range results {
+	// Write each vulnerable finding
+	for i, result := range vulnerable {
 		fmt.Fprintf(f, "--- Finding %d ---\n", i+1)
-		
+
 		if target, ok := result["target"].(string); ok {
-			// Fix target format: convert "www.fasttest.com:package.json" to "https://www.fasttest.com/package.json"
 			normalizedTarget := normalizeTargetURL(target)
 			fmt.Fprintf(f, "Target: %s\n", normalizedTarget)
 		}
-		
+
 		if resultType, ok := result["type"].(string); ok {
 			fmt.Fprintf(f, "Type: %s\n", resultType)
 		}
-		
+
 		if language, ok := result["language"].(string); ok {
 			fmt.Fprintf(f, "Language: %s\n", language)
 		}
-		
+
 		if totalPkgs, ok := result["total_packages"].(float64); ok {
 			fmt.Fprintf(f, "Total Packages: %.0f\n", totalPkgs)
 		}
-		
-		if vulnPkgs, ok := result["vulnerable_packages"]; ok && vulnPkgs != nil {
-			if vulnList, ok := vulnPkgs.([]interface{}); ok && len(vulnList) > 0 {
-				fmt.Fprintf(f, "Vulnerable Packages:\n")
-				for _, pkg := range vulnList {
-					fmt.Fprintf(f, "  - %v\n", pkg)
-				}
-			} else {
-				fmt.Fprintf(f, "Vulnerable Packages: None\n")
-			}
-		} else {
-			fmt.Fprintf(f, "Vulnerable Packages: None\n")
+
+		// vulnerable_packages is guaranteed non-empty here
+		vulnList := result["vulnerable_packages"].([]interface{})
+		fmt.Fprintf(f, "Vulnerable Packages:\n")
+		for _, pkg := range vulnList {
+			fmt.Fprintf(f, "  - %v\n", pkg)
 		}
-		
+
 		fmt.Fprintf(f, "\n")
 	}
 

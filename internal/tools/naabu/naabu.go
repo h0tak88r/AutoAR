@@ -61,8 +61,8 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 			if p == nil {
 				continue
 			}
-			// Skip HTTP (80) and HTTPS (443) ports as they're already known from web scanning
-			if p.Port == 80 || p.Port == 443 {
+			// Skip common web ports as they're already known from web scanning
+			if p.Port == 80 || p.Port == 443 || p.Port == 8080 || p.Port == 8443 {
 				continue
 			}
 			// Port is a struct, access the Port field (which is an int)

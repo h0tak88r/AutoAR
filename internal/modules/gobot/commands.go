@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -55,7 +54,7 @@ type ScanInfo struct {
 	MessageID   string             // Discord message ID for updating messages
 	ChannelID   string             // Discord channel ID for updating messages
 	ThreadID    string             // Discord thread ID for sending updates (avoids token expiration)
-	
+
 	// Progress tracking
 	CurrentPhase    int       // Current phase number (1-based)
 	TotalPhases     int       // Total number of phases
@@ -63,7 +62,7 @@ type ScanInfo struct {
 	PhaseStartTime  time.Time // When current phase started
 	CompletedPhases []string  // List of completed phase names
 	FailedPhases    []string  // List of failed phase names
-	
+
 	// Statistics
 	FilesUploaded int       // Number of files uploaded
 	ErrorCount    int       // Number of errors encountered
@@ -184,103 +183,12 @@ func readTargetsFromFile(filePath string) ([]string, error) {
 	return targets, nil
 }
 
-// handleFileBasedScan processes a file attachment and runs scan for each target
-func handleFileBasedScan(s *discordgo.Session, i *discordgo.InteractionCreate, scanType string, attachment *discordgo.MessageAttachment, buildCommand func(string) []string, threads int) {
-	// Respond immediately
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "📥 Downloading file and processing targets...",
-		},
-	})
-	if err != nil {
-		log.Printf("[ERROR] Failed to respond to interaction: %v", err)
-		return
-	}
-
-	// Download and process file
-	targets, err := downloadAndProcessFile(attachment)
-	if err != nil {
-		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("❌ Error processing file: %v", err),
-		})
-		return
-	}
-
-	if len(targets) == 0 {
-		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: "❌ No valid targets found in file",
-		})
-		return
-	}
-
-	// Update initial response
-	content := fmt.Sprintf("📋 Found %d targets in file. Starting %s scan...", len(targets), scanType)
-	if err := UpdateInteractionContent(s, i, content); err != nil {
-		log.Printf("[WARN] Failed to update interaction: %v", err)
-	}
-
-	// Process each target
-	var successCount int64 // Use atomic for thread-safe counting
-	var wg sync.WaitGroup
-
-	for idx, target := range targets {
-		target = strings.TrimSpace(target)
-		if target == "" {
-			continue
-		}
-
-		log.Printf("[INFO] Processing target %d/%d: %s", idx+1, len(targets), target)
-
-		command := buildCommand(target)
-		scanID := fmt.Sprintf("%s_%s_%d_%d", scanType, strings.ReplaceAll(target, ".", "_"), time.Now().Unix(), idx)
-
-		embed := createScanEmbed(scanType, target, "running")
-		followupMsg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		})
-		if err != nil {
-			log.Printf("[ERROR] Failed to create followup message: %v", err)
-			continue
-		}
-
-		// Store channel ID and message ID for this scan (for future updates without tokens)
-		storeChannelID(scanID, i.ChannelID)
-		if followupMsg != nil {
-			scansMutex.Lock()
-			if scan, ok := activeScans[scanID]; ok {
-				scan.MessageID = followupMsg.ID
-				scan.ChannelID = i.ChannelID
-			}
-			scansMutex.Unlock()
-		}
-
-		wg.Add(1)
-		atomic.AddInt64(&successCount, 1)
-		go func(target, scanID string, cmd []string) {
-			defer wg.Done()
-			// Create a minimal interaction-like struct just for channel ID
-			// We'll pass channel ID directly to runScanBackground
-			runScanBackground(scanID, scanType, target, cmd, s, i)
-		}(target, scanID, command)
-	}
-
-	// No wait needed as count is updated synchronously
-
-	// Send summary with actual started count
-	startedCount := int(atomic.LoadInt64(&successCount))
-	summary := fmt.Sprintf("[ + ]**File Scan Initiated**\n\n**Scan Type:** %s\n**Total Targets:** %d\n**Scans Started:** %d",
-		scanType, len(targets), startedCount)
-	s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: summary,
-	})
-}
 
 func runScanBackground(scanID, scanType, target string, command []string, s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Store channel ID for file notifications from modules
 	// If i is nil or doesn't have ChannelID, try to get it from stored channel IDs
 	if i != nil && i.ChannelID != "" {
-	storeChannelID(scanID, i.ChannelID)
+		storeChannelID(scanID, i.ChannelID)
 	} else {
 		// Fallback: try to get from stored channel IDs
 		if chID := getChannelID(scanID); chID == "" {
@@ -329,7 +237,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	} else {
 		channelID = getChannelID(scanID)
 	}
-	
+
 	// Check if scan info already exists (e.g., thread was created before this goroutine started)
 	existingScan, exists := activeScans[scanID]
 	if exists {
@@ -366,12 +274,13 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	// Create database scan record for tracking (for all scan types)
 	dbNow := time.Now()
 	totalPhases := 1 // Default for simple scans
-	if scanType == "domain_run" {
+	switch scanType {
+	case "domain_run":
 		totalPhases = 19
-	} else if scanType == "subdomain_run" {
+	case "subdomain_run":
 		totalPhases = 15
 	}
-	
+
 	scanRecord := &db.ScanRecord{
 		ScanID:      scanID,
 		ScanType:    scanType,
@@ -383,14 +292,14 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		LastUpdate:  dbNow,
 		Command:     strings.Join(command, " "),
 	}
-	
+
 	// Get thread ID if it exists
 	scansMutex.RLock()
 	if scan, ok := activeScans[scanID]; ok && scan.ThreadID != "" {
 		scanRecord.ThreadID = scan.ThreadID
 	}
 	scansMutex.RUnlock()
-	
+
 	if err := db.CreateScan(scanRecord); err != nil {
 		log.Printf("[ERROR] Failed to create scan record in database: %v", err)
 	} else {
@@ -405,12 +314,12 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
 		fmt.Sprintf("AUTOAR_CURRENT_CHANNEL_ID=%s", channelID),
 	)
-	
+
 	// Suppress stdout to avoid flooding terminal with verbose tool output (e.g., FFUF wordlists)
 	// Keep stderr to see actual errors
-	cmd.Stdout = nil // Discard stdout
+	cmd.Stdout = nil       // Discard stdout
 	cmd.Stderr = os.Stderr // Keep errors visible
-	
+
 	err := cmd.Run()
 	output := []byte{} // Empty since we're piping to stdout/stderr
 
@@ -477,7 +386,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		// For domain_run and subdomain_run, we want a clean summary + R2 zip link + uploaded files list
 		if scanType == "domain_run" || scanType == "subdomain_run" {
 			var zipURL string
-			
+
 			// Try to read URL from file first (more reliable than parsing output)
 			resultsDir := getResultsDir()
 			urlFile := filepath.Join(resultsDir, fmt.Sprintf(".r2-url-%s.txt", scanID))
@@ -492,7 +401,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 					os.Remove(urlFile)
 				}
 			}
-			
+
 			// Fallback: try to extract from output
 			if zipURL == "" {
 				outputStr := string(output)
@@ -501,7 +410,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 					log.Printf("[DEBUG] Extracted zip URL from output: %s", zipURL)
 				}
 			}
-			
+
 			// Read uploaded files information
 			var uploadInfoFile string
 			if scanType == "domain_run" {
@@ -509,7 +418,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 			} else {
 				uploadInfoFile = filepath.Join(resultsDir, fmt.Sprintf(".subdomain-uploads-%s.json", scanID))
 			}
-			
+
 			if uploadData, err := os.ReadFile(uploadInfoFile); err == nil {
 				if scanType == "domain_run" {
 					var uploads DomainScanUploads
@@ -520,15 +429,15 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 							for _, file := range uploads.Files {
 								phaseGroups[file.Phase] = append(phaseGroups[file.Phase], file)
 							}
-							
+
 							// Build file list with sizes (prioritize subdomains and livehosts first)
 							phaseOrder := []string{"subdomains", "livehosts", "cnames", "tech", "urls", "jsscan", "reflection", "ports", "gf", "backup", "misconfig", "aem", "dns", "ffuf", "wp_confusion", "depconfusion", "s3", "nuclei"}
-							
+
 							// Discord embed field has 1024 character limit, so we need to split or truncate
 							const maxFieldLength = 1000 // Leave some buffer
 							var fileList strings.Builder
 							var allFiles []string // Track all files for potential splitting
-							
+
 							// First, collect all file entries
 							for _, phase := range phaseOrder {
 								if files, ok := phaseGroups[phase]; ok && len(phase) > 0 {
@@ -539,7 +448,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 									}
 								}
 							}
-							
+
 							// Add any remaining phases not in the order list
 							for phase, files := range phaseGroups {
 								if len(phase) == 0 {
@@ -560,7 +469,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 									}
 								}
 							}
-							
+
 							// Build file list, truncating if needed
 							for i, entry := range allFiles {
 								testLine := fileList.String() + entry + "\n"
@@ -572,17 +481,17 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 								}
 								fileList.WriteString(entry + "\n")
 							}
-							
+
 							fileListStr := fileList.String()
 							if len(fileListStr) > maxFieldLength {
 								fileListStr = fileListStr[:maxFieldLength-50] + "\n... (truncated, see R2 zip for all files)"
 							}
-							
+
 							embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 								Name:  "📁 Uploaded Files",
 								Value: fileListStr,
 							})
-							
+
 							// Clean up the file
 							os.Remove(uploadInfoFile)
 						}
@@ -596,15 +505,15 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 							for _, file := range uploads.Files {
 								phaseGroups[file.Phase] = append(phaseGroups[file.Phase], file)
 							}
-							
+
 							// Build file list with sizes (prioritize livehosts first)
 							phaseOrder := []string{"livehosts", "cnames", "tech", "urls", "ffuf", "jsscan", "reflection", "ports", "gf", "backup", "misconfig", "aem", "dns", "wp_confusion", "depconfusion", "s3", "zerodays", "nuclei"}
-							
+
 							// Discord embed field has 1024 character limit, so we need to split or truncate
 							const maxFieldLength = 1000 // Leave some buffer
 							var fileList strings.Builder
 							var allFiles []string // Track all files for potential splitting
-							
+
 							// First, collect all file entries
 							for _, phase := range phaseOrder {
 								if files, ok := phaseGroups[phase]; ok && len(phase) > 0 {
@@ -615,7 +524,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 									}
 								}
 							}
-							
+
 							// Add any remaining phases not in the order list
 							for phase, files := range phaseGroups {
 								if len(phase) == 0 {
@@ -636,7 +545,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 									}
 								}
 							}
-							
+
 							// Build file list, truncating if needed
 							for i, entry := range allFiles {
 								testLine := fileList.String() + entry + "\n"
@@ -648,24 +557,24 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 								}
 								fileList.WriteString(entry + "\n")
 							}
-							
+
 							fileListStr := fileList.String()
 							if len(fileListStr) > maxFieldLength {
 								fileListStr = fileListStr[:maxFieldLength-50] + "\n... (truncated, see R2 zip for all files)"
 							}
-							
+
 							embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 								Name:  "📁 Uploaded Files",
 								Value: fileListStr,
 							})
-							
+
 							// Clean up the file
 							os.Remove(uploadInfoFile)
 						}
 					}
 				}
 			}
-			
+
 			if zipURL != "" {
 				embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 					Name:  "Results",
@@ -701,14 +610,13 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		}
 	}
 
-
 	// Send result files directly from bot (like livehosts does)
 	// IMPORTANT: Send files BEFORE cleanup, otherwise files will be deleted
 	// Skip sending files for modules that handle their own messaging: dns, aem, misconfig, ffuf
 	// Skip domain_run and subdomain_run - they upload to R2 and are summarized via embed
 	// Skip lite - it sends files in real-time during the scan via utils.SendPhaseFiles
-	if err == nil && scanType != "dns" && scanType != "dns_takeover" && scanType != "dns_cname" && 
-		scanType != "dns_ns" && scanType != "dns_azure_aws" && scanType != "dns_dnsreaper" && 
+	if err == nil && scanType != "dns" && scanType != "dns_takeover" && scanType != "dns_cname" &&
+		scanType != "dns_ns" && scanType != "dns_azure_aws" && scanType != "dns_dnsreaper" &&
 		scanType != "dns_dangling_ip" && scanType != "aem_scan" && scanType != "misconfig" && scanType != "ffuf" &&
 		scanType != "domain_run" && scanType != "subdomain_run" && scanType != "lite" {
 		// Wait for files to be written to disk with retry logic
@@ -732,7 +640,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 			}
 		}
 		sendResultFiles(s, i, scanID, scanType, target)
-		
+
 		// Small delay to ensure files are sent before cleanup
 		time.Sleep(1 * time.Second)
 	}
@@ -748,8 +656,8 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		}
 
 		resultsDir := getResultsDir()
-		var cleanupPath, cleanupPrefix string
-		
+		var cleanupPath string
+
 		// Determine cleanup path based on scan type
 		if scanType == "github_scan" || scanType == "github_org" || scanType == "github_exp" {
 			// GitHub scans: {resultsDir}/github/repos/{target} or {resultsDir}/github/orgs/{target}
@@ -760,24 +668,17 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 			if _, err := os.Stat(cleanupPath); os.IsNotExist(err) {
 				cleanupPath = filepath.Join(resultsDir, "github", "experimental", target)
 			}
-			cleanupPrefix = "github/repos/" + target
-			if strings.HasPrefix(cleanupPath, filepath.Join(resultsDir, "github", "orgs")) {
-				cleanupPrefix = "github/orgs/" + target
-			} else if strings.HasPrefix(cleanupPath, filepath.Join(resultsDir, "github", "experimental")) {
-				cleanupPrefix = "github/experimental/" + target
-			}
 		} else {
 			// Domain-based scans (subdomains, urls, etc.)
 			cleanupPath = filepath.Join(resultsDir, target)
-			cleanupPrefix = target
 		}
-		
+
 		if cleanupPath != "" {
-			if err := cleanupResultsDirectory(cleanupPrefix, cleanupPath); err != nil {
+			if err := cleanupResultsDirectory(cleanupPath); err != nil {
 				log.Printf("[WARN] Failed to cleanup results directory for %s: %v", target, err)
 			}
 		}
-		
+
 		// Also cleanup shared module directories that write outside the target's directory
 		// Modules like AEM, S3, misconfig write to new-results/aem/, new-results/s3/, etc.
 		sharedDirs := []string{
@@ -799,7 +700,8 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 
 // extractR2ZipURLFromOutput looks for R2 "Results zip uploaded:" log line and returns the URL.
 // Expected format in output/logs:
-//   [R2] Results zip uploaded: https://...
+//
+//	[R2] Results zip uploaded: https://...
 func extractR2ZipURLFromOutput(output string) string {
 	if len(output) == 0 {
 		return ""
@@ -826,35 +728,7 @@ func extractR2ZipURLFromOutput(output string) string {
 	return ""
 }
 
-// extractR2URLFromOutput looks for an R2 "Results uploaded" log line and returns the URL.
-// Expected format in output/logs:
-//   [R2] Results uploaded: https://...
-// This is kept for backward compatibility but extractR2LinksFromOutput is preferred.
-func extractR2URLFromOutput(output string) string {
-	if len(output) == 0 {
-		return ""
-	}
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		idx := strings.Index(line, "Results uploaded:")
-		if idx == -1 {
-			continue
-		}
-		urlPart := strings.TrimSpace(line[idx+len("Results uploaded:"):])
-		if urlPart == "" {
-			continue
-		}
-		if strings.HasPrefix(urlPart, "http://") || strings.HasPrefix(urlPart, "https://") {
-			return urlPart
-		}
-	}
-	return ""
-}
 
 // sendResultFiles sends result files directly from the bot using FollowupMessageCreate
 // This works like livehosts and doesn't require an HTTP API
@@ -874,7 +748,7 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanI
 	} else {
 		log.Printf("[DEBUG] No scan ID provided to sendResultFiles")
 	}
-	
+
 	resultsDir := getResultsDir()
 
 	// Map scan types to their expected result file paths
@@ -1080,7 +954,7 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanI
 			filepath.Join(domainDir, "dangling-ip.txt"),
 			filepath.Join(domainDir, "dangling-ip-summary.txt"),
 		}
-	case "github":
+	case "github_scan":
 		base := filepath.Join(resultsDir, "github", "repos", target)
 		resultFiles = []string{
 			filepath.Join(base, "secrets.json"),
@@ -1130,7 +1004,8 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanI
 		// Add more scan types as needed
 	}
 
-	// Send each result file that exists
+	// Send each result file that exists and track whether anything was actually sent
+	filesSent := 0
 	for _, filePath := range resultFiles {
 		// Handle glob patterns (e.g., *.txt)
 		if strings.Contains(filePath, "*") {
@@ -1138,10 +1013,41 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanI
 			if err == nil {
 				for _, match := range matches {
 					sendSingleFile(s, i, match, threadID)
+					filesSent++
 				}
 			}
 		} else {
-			sendSingleFile(s, i, filePath, threadID)
+			if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+				sendSingleFile(s, i, filePath, threadID)
+				filesSent++
+			}
+		}
+	}
+
+	// If we expected result files but none existed/had content, tell the user clearly
+	if len(resultFiles) > 0 && filesSent == 0 && i != nil {
+		scanLabel := scanType
+		switch scanType {
+		case "github_scan":
+			scanLabel = "GitHub Repo Scan"
+		case "github_org":
+			scanLabel = "GitHub Org Scan"
+		case "github_experimental":
+			scanLabel = "GitHub Experimental Scan"
+		case "githubdepconf_scan", "github_depconf":
+			scanLabel = "GitHub DepConfusion Scan"
+		}
+		embed := &discordgo.MessageEmbed{
+			Title:       fmt.Sprintf("✅ %s — No Findings", scanLabel),
+			Description: fmt.Sprintf("**Target:** `%s`\n\nThe scan completed successfully but found **no secrets or vulnerabilities**.", target),
+			Color:       0x2ecc71,
+		}
+		if threadID != "" {
+			s.ChannelMessageSendEmbed(threadID, embed)
+		} else {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			})
 		}
 	}
 }
@@ -1155,14 +1061,14 @@ func sendJWTResultsSummary(s *discordgo.Session, i *discordgo.InteractionCreate,
 	}
 
 	var result struct {
-		TokenType     string `json:"token_type"`
-		Algorithm     string `json:"algorithm"`
-		Issues        []struct {
+		TokenType string `json:"token_type"`
+		Algorithm string `json:"algorithm"`
+		Issues    []struct {
 			Type        string `json:"type"`
 			Description string `json:"description"`
 		} `json:"issues"`
 		CrackedSecret string `json:"cracked_secret,omitempty"`
-		AttackTokens []struct {
+		AttackTokens  []struct {
 			AttackType  string `json:"attack_type"`
 			Description string `json:"description"`
 			Token       string `json:"token"`
@@ -1262,23 +1168,23 @@ func sendJWTResultsSummary(s *discordgo.Session, i *discordgo.InteractionCreate,
 // sendSingleFile sends a single file via FollowupMessageCreate
 func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePath string, threadID string) {
 	log.Printf("[DEBUG] Attempting to send file: %s", filePath)
-	
+
 	// Retry logic for file reading (in case file is still being written)
 	maxRetries := 3
 	var fileData []byte
 	var err error
 	for retry := 0; retry < maxRetries; retry++ {
 		if fileInfo, statErr := os.Stat(filePath); statErr == nil {
-		if fileInfo.Size() == 0 {
+			if fileInfo.Size() == 0 {
 				if retry < maxRetries-1 {
 					log.Printf("[DEBUG] File %s is empty, retrying in 200ms (attempt %d/%d)", filePath, retry+1, maxRetries)
 					time.Sleep(200 * time.Millisecond)
 					continue
 				}
-			log.Printf("[WARN] File %s exists but is empty (size: 0)", filePath)
-			return
-		}
-		log.Printf("[DEBUG] File found: %s (size: %d bytes)", filePath, fileInfo.Size())
+				log.Printf("[WARN] File %s exists but is empty (size: 0)", filePath)
+				return
+			}
+			log.Printf("[DEBUG] File found: %s (size: %d bytes)", filePath, fileInfo.Size())
 			fileData, err = os.ReadFile(filePath)
 			if err == nil {
 				break
@@ -1298,18 +1204,18 @@ func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePa
 			return
 		}
 	}
-	
-		if err != nil {
+
+	if err != nil {
 		log.Printf("[ERROR] Failed to read file %s after %d retries: %v", filePath, maxRetries, err)
-			return
-		}
-	
-		fileName := filepath.Base(filePath)
+		return
+	}
+
+	fileName := filepath.Base(filePath)
 	contentType := "text/plain"
 	if strings.HasSuffix(strings.ToLower(fileName), ".json") {
 		contentType = "application/json"
 	}
-	
+
 	// Send to thread if available, otherwise use follow-up message
 	if threadID != "" {
 		// Send directly to thread
@@ -1333,16 +1239,16 @@ func sendSingleFile(s *discordgo.Session, i *discordgo.InteractionCreate, filePa
 			Files: []*discordgo.File{
 				{
 					Name:        fileName,
-				ContentType: contentType,
+					ContentType: contentType,
 					Reader:      strings.NewReader(string(fileData)),
 				},
 			},
 		})
 		if err != nil {
-		log.Printf("[ERROR] Failed to send result file %s: %v", fileName, err)
+			log.Printf("[ERROR] Failed to send result file %s: %v", fileName, err)
 		} else {
-		log.Printf("[INFO] Successfully sent result file via bot: %s (size: %d bytes)", fileName, len(fileData))
-	}
+			log.Printf("[INFO] Successfully sent result file via bot: %s (size: %d bytes)", fileName, len(fileData))
+		}
 	}
 }
 
@@ -1362,42 +1268,42 @@ func createScanThread(s *discordgo.Session, i *discordgo.InteractionCreate, scan
 		log.Printf("[WARN] Cannot create thread: channel ID is empty")
 		return ""
 	}
-	
+
 	threadName := fmt.Sprintf("📊 %s: %s", scanType, target)
 	if len(threadName) > 100 {
 		threadName = threadName[:97] + "..."
 	}
-	
+
 	// Create a follow-up message first, then create thread from it
 	// This is more reliable than trying to get the original message via webhook API
 	log.Printf("[DEBUG] Creating follow-up message for thread creation (scanID: %s)", scanID)
-	
+
 	// Create follow-up message with retry logic (discordgo sometimes returns nil even on success)
 	var followupMsg *discordgo.Message
 	var err error
 	var followupMsgID string
-	
+
 	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
 			waitTime := time.Duration(attempt) * 500 * time.Millisecond
 			log.Printf("[DEBUG] Retrying follow-up message creation (attempt %d/5) after %v", attempt+1, waitTime)
 			time.Sleep(waitTime)
 		}
-		
+
 		followupMsg, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: fmt.Sprintf("📊 **%s Scan Started**\n**Target:** `%s`\n\nAll scan updates will be posted in this thread.", scanType, target),
 		})
-		
+
 		if err != nil {
 			log.Printf("[WARN] Attempt %d: Failed to create follow-up message: %v", attempt+1, err)
 			continue
 		}
-		
+
 		// discordgo sometimes returns nil even when message was created
 		// Try to get the message ID from recent messages as fallback
 		if followupMsg == nil || followupMsg.ID == "" {
 			log.Printf("[WARN] Attempt %d: FollowupMessageCreate returned nil/empty, but message may have been created", attempt+1)
-			
+
 			// Wait a bit and try to find the message in channel
 			time.Sleep(1 * time.Second)
 			messages, msgErr := s.ChannelMessages(i.ChannelID, 5, "", "", "")
@@ -1413,31 +1319,31 @@ func createScanThread(s *discordgo.Session, i *discordgo.InteractionCreate, scan
 					}
 				}
 			}
-			
+
 			if followupMsgID != "" {
 				break
 			}
 			continue
 		}
-		
+
 		followupMsgID = followupMsg.ID
 		break
 	}
-	
+
 	if followupMsgID == "" {
 		log.Printf("[ERROR] Failed to create or find follow-up message after retries")
 		return ""
 	}
-	
+
 	log.Printf("[DEBUG] Using follow-up message ID: %s", followupMsgID)
-	
+
 	// Wait a moment before creating thread to ensure message is fully processed
 	time.Sleep(1 * time.Second)
-	
+
 	// Create a thread from the follow-up message
 	log.Printf("[DEBUG] Creating thread from follow-up message %s in channel %s", followupMsgID, i.ChannelID)
 	log.Printf("[DEBUG] Thread name: %s", threadName)
-	
+
 	// Try to create thread with retry logic
 	var thread *discordgo.Channel
 	var threadErr error
@@ -1447,17 +1353,17 @@ func createScanThread(s *discordgo.Session, i *discordgo.InteractionCreate, scan
 			log.Printf("[DEBUG] Retrying thread creation (attempt %d/%d) after %v", attempt+1, 3, waitTime)
 			time.Sleep(waitTime)
 		}
-		
+
 		thread, threadErr = s.MessageThreadStartComplex(i.ChannelID, followupMsgID, &discordgo.ThreadStart{
 			Name:                threadName,
 			AutoArchiveDuration: 1440, // 24 hours
 			Type:                discordgo.ChannelTypeGuildPublicThread,
 		})
-		
+
 		if threadErr == nil && thread != nil && thread.ID != "" {
 			break
 		}
-		
+
 		if threadErr != nil {
 			log.Printf("[WARN] Attempt %d: Failed to create thread: %v", attempt+1, threadErr)
 		} else if thread == nil {
@@ -1466,7 +1372,7 @@ func createScanThread(s *discordgo.Session, i *discordgo.InteractionCreate, scan
 			log.Printf("[WARN] Attempt %d: MessageThreadStartComplex returned thread with empty ID", attempt+1)
 		}
 	}
-	
+
 	if threadErr != nil {
 		log.Printf("[ERROR] Failed to create thread after retries: %v", threadErr)
 		log.Printf("[DEBUG] Channel ID: %s, Message ID: %s, Thread Name: %s", i.ChannelID, followupMsgID, threadName)
@@ -1481,9 +1387,9 @@ func createScanThread(s *discordgo.Session, i *discordgo.InteractionCreate, scan
 		log.Printf("[ERROR] MessageThreadStartComplex returned thread with empty ID after retries")
 		return ""
 	}
-	
+
 	log.Printf("[INFO] Successfully created thread %s from follow-up message %s", thread.ID, followupMsgID)
-	
+
 	// Store thread ID in scan info
 	scansMutex.Lock()
 	if scan, ok := activeScans[scanID]; ok {
@@ -1500,20 +1406,21 @@ func createScanThread(s *discordgo.Session, i *discordgo.InteractionCreate, scan
 		}
 	}
 	scansMutex.Unlock()
-	
+
 	log.Printf("[INFO] Created thread %s for scan %s", thread.ID, scanID)
 	return thread.ID
 }
 
 func createScanEmbed(scanType, target, status string) *discordgo.MessageEmbed {
 	statusEmoji := "🟡"
-	if status == "completed" {
+	switch status {
+	case "completed":
 		statusEmoji = "✅"
-	} else if status == "failed" {
+	case "failed":
 		statusEmoji = "❌"
-	} else if status == "running in background" {
+	case "running in background":
 		statusEmoji = "⏳"
-	} else if status == "cancelled" || status == "cancelling" {
+	case "cancelled", "cancelling":
 		statusEmoji = "⏹️"
 	}
 
@@ -1756,9 +1663,10 @@ func handleDomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	skipFFuf := false
 	for _, opt := range options {
-		if opt.Name == "domain" {
+		switch opt.Name {
+		case "domain":
 			domain = opt.StringValue()
-		} else if opt.Name == "skip_ffuf" {
+		case "skip_ffuf":
 			skipFFuf = opt.BoolValue()
 		}
 	}
@@ -1864,575 +1772,3 @@ func handleSubdomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	go runScanBackground(scanID, "subdomain_run", subdomain, command, s, i)
 }
-
-// Subdomains
-func handleSubdomains(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	threads := 100
-	var attachment *discordgo.MessageAttachment
-
-	// Check for file attachment
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			domain = opt.StringValue()
-		case "threads":
-			threads = int(opt.IntValue())
-		}
-	}
-
-	// Validate: exactly one of domain or file must be provided
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	// Handle file attachment
-	if attachment != nil {
-		handleFileBasedScan(s, i, "subdomains", attachment, func(target string) []string {
-			return []string{autoarScript, "subdomains", "get", "-d", target, "-t", strconv.Itoa(threads)}
-		}, threads)
-		return
-	}
-
-	// Handle single domain
-	scanID := fmt.Sprintf("subdomains_%d", time.Now().Unix())
-	command := []string{autoarScript, "subdomains", "get", "-d", domain, "-t", strconv.Itoa(threads)}
-
-	embed := createScanEmbed("Subdomains", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "subdomains", domain, command, s, i)
-}
-
-// CNAMEs
-func handleCnames(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("cnames_%d", time.Now().Unix())
-	command := []string{autoarScript, "cnames", "get", "-d", domain}
-
-	embed := createScanEmbed("CNAMEs", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "cnames", domain, command, s, i)
-}
-
-// URLs
-func handleURLs(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	threads := 100
-	skipSubdomainEnum := false
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			domain = opt.StringValue()
-		case "threads":
-			threads = int(opt.IntValue())
-		case "subdomain":
-			skipSubdomainEnum = opt.BoolValue()
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	if attachment != nil {
-		handleFileBasedScan(s, i, "urls", attachment, func(target string) []string {
-			cmd := []string{autoarScript, "urls", "collect", "-d", target, "-t", strconv.Itoa(threads)}
-			if skipSubdomainEnum {
-				cmd = append(cmd, "--subdomain")
-			}
-			return cmd
-		}, threads)
-		return
-	}
-
-	scanID := fmt.Sprintf("urls_%d", time.Now().Unix())
-	command := []string{autoarScript, "urls", "collect", "-d", domain, "-t", strconv.Itoa(threads)}
-	if skipSubdomainEnum {
-		command = append(command, "--subdomain")
-	}
-
-	embed := createScanEmbed("URLs", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "urls", domain, command, s, i)
-}
-
-// Reflection
-func handleReflection(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	if attachment != nil {
-		handleFileBasedScan(s, i, "reflection", attachment, func(target string) []string {
-			return []string{autoarScript, "reflection", "scan", "-d", target}
-		}, 0)
-		return
-	}
-
-	scanID := fmt.Sprintf("reflection_%d", time.Now().Unix())
-	command := []string{autoarScript, "reflection", "scan", "-d", domain}
-
-	embed := createScanEmbed("Reflection", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "reflection", domain, command, s, i)
-}
-
-// Tech Detection
-func handleTech(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	threads := 100
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			domain = opt.StringValue()
-		case "threads":
-			threads = int(opt.IntValue())
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	if attachment != nil {
-		handleFileBasedScan(s, i, "tech", attachment, func(target string) []string {
-			return []string{autoarScript, "tech", "detect", "-d", target, "-t", strconv.Itoa(threads)}
-		}, threads)
-		return
-	}
-
-	scanID := fmt.Sprintf("tech_%d", time.Now().Unix())
-	command := []string{autoarScript, "tech", "detect", "-d", domain, "-t", strconv.Itoa(threads)}
-
-	embed := createScanEmbed("Tech Detection", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "tech", domain, command, s, i)
-}
-
-// Ports
-func handlePorts(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	if attachment != nil {
-		handleFileBasedScan(s, i, "ports", attachment, func(target string) []string {
-			return []string{autoarScript, "ports", "scan", "-d", target}
-		}, 0)
-		return
-	}
-
-	scanID := fmt.Sprintf("ports_%d", time.Now().Unix())
-	command := []string{autoarScript, "ports", "scan", "-d", domain}
-
-	embed := createScanEmbed("Ports", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "ports", domain, command, s, i)
-}
-
-// Nuclei
-func handleNuclei(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	var domain, url, mode *string
-	enum := false
-	threads := 100
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			val := opt.StringValue()
-			domain = &val
-		case "url":
-			val := opt.StringValue()
-			url = &val
-		case "mode":
-			val := opt.StringValue()
-			mode = &val
-		case "enum":
-			enum = opt.BoolValue()
-		case "threads":
-			threads = int(opt.IntValue())
-		}
-	}
-
-	// Validate: exactly one of domain, url, or file must be provided
-	if domain == nil && url == nil && attachment == nil {
-		respond(s, i, "❌ Either domain, url, or file attachment must be provided", true)
-		return
-	}
-
-	// Count how many are provided
-	count := 0
-	if domain != nil {
-		count++
-	}
-	if url != nil {
-		count++
-	}
-	if attachment != nil {
-		count++
-	}
-	if count > 1 {
-		respond(s, i, "❌ Cannot use domain, url, and file together. Use only one.", true)
-		return
-	}
-
-	// Handle file attachment
-	if attachment != nil {
-		modeVal := "full"
-		if mode != nil {
-			modeVal = *mode
-		}
-		handleFileBasedScan(s, i, "nuclei", attachment, func(target string) []string {
-			cmd := []string{autoarScript, "nuclei", "run", "-d", target, "-m", modeVal, "-t", strconv.Itoa(threads)}
-			if enum {
-				cmd = append(cmd, "-e")
-			}
-			return cmd
-		}, threads)
-		return
-	}
-
-	scanID := fmt.Sprintf("nuclei_%d", time.Now().Unix())
-	command := []string{autoarScript, "nuclei", "run"}
-
-	var target string
-	if domain != nil {
-		command = append(command, "-d", *domain)
-		target = *domain
-	} else {
-		command = append(command, "-u", *url)
-		target = *url
-	}
-
-	modeVal := "full"
-	if mode != nil {
-		modeVal = *mode
-	}
-	command = append(command, "-m", modeVal)
-
-	if enum && domain != nil {
-		command = append(command, "-e")
-	}
-
-	command = append(command, "-t", strconv.Itoa(threads))
-
-	modeDesc := map[string]string{
-		"full":            "Full (All Templates)",
-		"cves":            "CVEs Only",
-		"panels":          "Panels Discovery",
-		"default-logins":  "Default Logins Only",
-		"vulnerabilities": "Generic Vulnerabilities",
-	}[modeVal]
-
-	enumText := ""
-	if enum && domain != nil {
-		enumText = " with enum"
-	}
-
-	embed := createScanEmbed(fmt.Sprintf("Nuclei %s%s", modeDesc, enumText), target, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, fmt.Sprintf("nuclei-%s", modeVal), target, command, s, i)
-}
-
-// JS Scan
-func handleJSScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-	var subdomain *string
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			domain = opt.StringValue()
-		case "subdomain":
-			val := opt.StringValue()
-			subdomain = &val
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("js_%d", time.Now().Unix())
-	command := []string{autoarScript, "js", "scan", "-d", domain}
-	if subdomain != nil && *subdomain != "" {
-		command = append(command, "-s", *subdomain)
-	}
-
-	embed := createScanEmbed("JS Scan", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "js", domain, command, s, i)
-}
-
-// GF Scan
-func handleGFScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	if attachment != nil {
-		handleFileBasedScan(s, i, "gf", attachment, func(target string) []string {
-			return []string{autoarScript, "gf", "scan", "-d", target}
-		}, 0)
-		return
-	}
-
-	scanID := fmt.Sprintf("gf_%d", time.Now().Unix())
-	command := []string{autoarScript, "gf", "scan", "-d", domain}
-
-	embed := createScanEmbed("GF Scan", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "gf", domain, command, s, i)
-}
-
-// SQLMap
-func handleSQLMap(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	if attachment != nil {
-		handleFileBasedScan(s, i, "sqlmap", attachment, func(target string) []string {
-			return []string{autoarScript, "sqlmap", "run", "-d", target}
-		}, 0)
-		return
-	}
-
-	scanID := fmt.Sprintf("sqlmap_%d", time.Now().Unix())
-	command := []string{autoarScript, "sqlmap", "run", "-d", domain}
-
-	embed := createScanEmbed("SQLMap", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "sqlmap", domain, command, s, i)
-}
-
-// Dalfox
-func handleDalfox(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	options := data.Options
-	domain := ""
-	var attachment *discordgo.MessageAttachment
-
-	attachment = getAttachmentFromOptions(&data)
-
-	for _, opt := range options {
-		if opt.Name == "domain" {
-			domain = opt.StringValue()
-		}
-	}
-
-	if domain == "" && attachment == nil {
-		respond(s, i, "❌ Either domain or file attachment is required", false)
-		return
-	}
-	if domain != "" && attachment != nil {
-		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
-		return
-	}
-
-	if attachment != nil {
-		handleFileBasedScan(s, i, "dalfox", attachment, func(target string) []string {
-			return []string{autoarScript, "dalfox", "run", "-d", target}
-		}, 0)
-		return
-	}
-
-	scanID := fmt.Sprintf("dalfox_%d", time.Now().Unix())
-	command := []string{autoarScript, "dalfox", "run", "-d", domain}
-
-	embed := createScanEmbed("Dalfox", domain, "running")
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-
-	go runScanBackground(scanID, "dalfox", domain, command, s, i)
-}
-
-
-

@@ -19,15 +19,6 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 50)", Required: false},
 			},
 		},
-		{
-			Name:        "asr_mode",
-			Description: "High-depth reconnaissance (ASR Modes)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Domain to scan", Required: true},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "mode", Description: "Recon mode (1-5, default: 5)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of threads (default: 50)", Required: false},
-			},
-		},
 		// Zerodays commands
 		{
 			Name:        "zerodays",
@@ -96,6 +87,31 @@ func registerAllCommands(s *discordgo.Session) {
 			Description: "Run full workflow on a single subdomain (checks if live, then runs all scans)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "subdomain", Description: "The subdomain to scan (e.g., subdomain.example.com)", Required: true},
+			},
+		},
+		{
+			Name:        "brain",
+			Description: "🧠 AI Analysis: Suggest or execute follow-up attacks based on scan results",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_id", Description: "The ID of the scan to analyze", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "attachment", Description: "File containing results to analyze", Required: false},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "mode",
+					Description: "Analysis mode: Suggest or Execute (default: Execute)",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "Suggest", Value: "suggest"},
+						{Name: "Execute", Value: "execute"},
+					},
+				},
+			},
+		},
+		{
+			Name:        "scans",
+			Description: "📜 List recent scans to find Scan IDs",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "limit", Description: "Number of scans to list (default: 10)", Required: false},
 			},
 		},
 		// Reconnaissance commands
@@ -247,13 +263,14 @@ func registerAllCommands(s *discordgo.Session) {
 			Description: "Run DNS takeover scan",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "type", Description: "Scan type: takeover (all), cname, ns, azure-aws, dnsreaper, dangling-ip", Required: false, Choices: []*discordgo.ApplicationCommandOptionChoice{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "type", Description: "Scan type: takeover (all), cname, ns, azure-aws, dnsreaper, dangling-ip, cf1016", Required: false, Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "Takeover (All)", Value: "takeover"},
 					{Name: "CNAME", Value: "cname"},
 					{Name: "NS", Value: "ns"},
 					{Name: "Azure/AWS", Value: "azure-aws"},
 					{Name: "DNSReaper", Value: "dnsreaper"},
 					{Name: "Dangling IP", Value: "dangling-ip"},
+					{Name: "Cloudflare 1016 Dangling", Value: "cf1016"},
 				}},
 			},
 		},
@@ -477,6 +494,73 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionString, Name: "scan_type", Description: "Scan type (domain_run, subdomain_run, etc.) - required if target is provided", Required: false},
 			},
 		},
+		// SSRF / Open Redirect bypass wordlist generator
+		{
+			Name:        "ssrf_bypass",
+			Description: "Generate SSRF/Open Redirect bypass wordlist for Burp Suite Intruder",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "attacker", Description: "Your attacker/collaborator domain (e.g. attacker.com)", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "victim", Description: "Victim/target domain to bypass validation for (e.g. victim.com)", Required: true},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "scheme",
+					Description: "URL scheme to prepend to raw payloads (default: https)",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "https", Value: "https"},
+						{Name: "http", Value: "http"},
+						{Name: "none (raw payloads)", Value: "none"},
+					},
+				},
+			},
+		},
+		// Fuzzing command
+		{
+			Name:        "fuzz",
+			Description: "🔍 Directory & path fuzzing with ffuf — single host or multi-host file",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "host", Description: "Single target host or URL to fuzz (e.g. example.com or https://api.example.com)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "Text file with multiple hosts (one per line) to fuzz in bulk", Required: false},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "wordlist",
+					Description: "Wordlist preset (default: quick)",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "Quick (quick_fuzz.txt)", Value: "quick"},
+						{Name: "Small (dirsearch small)", Value: "small"},
+						{Name: "Medium (dirsearch medium)", Value: "medium"},
+						{Name: "Large (dirsearch big)", Value: "large"},
+						{Name: "API Endpoints", Value: "api"},
+					},
+				},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "extensions", Description: "File extensions to append (e.g. .php,.html,.json)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "threads", Description: "Number of concurrent threads (default: 50)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "rate_limit", Description: "Max requests per second (0 = unlimited)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "match_codes", Description: "HTTP status codes to match (default: 200,204,301,302,307,401,403,405,500)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "filter_size", Description: "Filter out responses by size in bytes (e.g. 1234)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "recursive", Description: "Enable recursive fuzzing", Required: false},
+			},
+		},
+		// AI Chat Mode
+		{
+			Name:        "ai",
+			Description: "🤖 Chat with AutoAR AI — describe what you want to scan in plain language",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "message",
+					Description: "Your request in plain language (e.g. 'do a domain scan on example.com')",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "dry_run",
+					Description: "Only explain what would be done — don't actually run any scans",
+					Required:    false,
+				},
+			},
+		},
 	}
 
 	// List of commands to remove (old/obsolete commands)
@@ -509,7 +593,7 @@ func registerAllCommands(s *discordgo.Session) {
 					break
 				}
 			}
-			
+
 			// Also check if command exists in our new commands list
 			if !shouldRemove {
 				found := false
@@ -546,12 +630,10 @@ func registerAllCommands(s *discordgo.Session) {
 	for _, cmd := range commands {
 		// Check if command already exists
 		var existingCmd *discordgo.ApplicationCommand
-		if existingCommands != nil {
-			for _, ec := range existingCommands {
-				if ec.Name == cmd.Name {
-					existingCmd = ec
-					break
-				}
+		for _, ec := range existingCommands {
+			if ec.Name == cmd.Name {
+				existingCmd = ec
+				break
 			}
 		}
 
@@ -565,11 +647,11 @@ func registerAllCommands(s *discordgo.Session) {
 			}
 		} else {
 			// Create new command
-		_, err := s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
-		if err != nil {
-			log.Printf("Cannot create command %v: %v", cmd.Name, err)
-		} else {
-			log.Printf("Registered command: %s", cmd.Name)
+			_, err := s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
+			if err != nil {
+				log.Printf("Cannot create command %v: %v", cmd.Name, err)
+			} else {
+				log.Printf("Registered command: %s", cmd.Name)
 			}
 		}
 	}
