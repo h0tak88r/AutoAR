@@ -10,18 +10,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/h0tak88r/AutoAR/internal/modules/brain"
-
-	domainmod "github.com/h0tak88r/AutoAR/internal/modules/domain"
-	fastlookmod "github.com/h0tak88r/AutoAR/internal/modules/fastlook"
-	jsscanmod "github.com/h0tak88r/AutoAR/internal/modules/jsscan"
-	litemod "github.com/h0tak88r/AutoAR/internal/modules/lite"
-	livehostsmod "github.com/h0tak88r/AutoAR/internal/modules/livehosts"
-	nucleimod "github.com/h0tak88r/AutoAR/internal/modules/nuclei"
-	portsmod "github.com/h0tak88r/AutoAR/internal/modules/ports"
-	subdomainmod "github.com/h0tak88r/AutoAR/internal/modules/subdomain"
-	subdomainsmod "github.com/h0tak88r/AutoAR/internal/modules/subdomains"
-	techmod "github.com/h0tak88r/AutoAR/internal/modules/tech"
-	urlsmod "github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"os"
+	"strconv"
 )
 
 // ─────────────────────────────────────────────
@@ -134,6 +125,7 @@ func handleAIChat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	var userMessage string
 	dryRun := false
+	agentMode := false
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -141,6 +133,8 @@ func handleAIChat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			userMessage = opt.StringValue()
 		case "dry_run":
 			dryRun = opt.BoolValue()
+		case "agent_mode":
+			agentMode = opt.BoolValue()
 		}
 	}
 
@@ -157,6 +151,77 @@ func handleAIChat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	// ── Agent Mode: full autonomous loop ──────────────────────────────────────
+	if agentMode && !dryRun {
+		log.Printf("[AI] Agent mode activated for: %s", userMessage)
+
+		// Send an initial message we can edit with progress
+		initMsg, _ := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("🤖 **AutoAR AI Agent** — *%s*\n\n⏳ Starting autonomous agent loop…", userMessage),
+		})
+
+		var progressLines []string
+		progressFn := func(msg string) {
+			log.Printf("[AI/AGENT] %s", msg)
+			progressLines = append(progressLines, msg)
+			if initMsg != nil {
+				body := fmt.Sprintf("🤖 **AutoAR AI Agent** — *%s*\n\n%s", userMessage, strings.Join(progressLines, "\n"))
+				if len(body) > 2000 {
+					body = body[:1990] + "\n…"
+				}
+				s.FollowupMessageEdit(i.Interaction, initMsg.ID, &discordgo.WebhookEdit{Content: &body})
+			}
+		}
+
+		result, err := brain.RunAgentLoop(userMessage, progressFn)
+		if err != nil {
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("❌ Agent error: %v", err),
+			})
+			return
+		}
+
+		// Post validated reports the AI flagged as worthy of sending
+		for idx, report := range result.Reports {
+			title := fmt.Sprintf("🧠 AI Finding #%d", idx+1)
+			if len(result.Reports) == 1 {
+				title = "🧠 AI Finding"
+			}
+			if len(report) > 4096 {
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("**%s** (too large — attached as file)", title),
+					Files: []*discordgo.File{
+						{Name: fmt.Sprintf("ai-finding-%d.md", idx+1), ContentType: "text/markdown", Reader: strings.NewReader(report)},
+					},
+				})
+			} else {
+				embed := &discordgo.MessageEmbed{
+					Title:       title,
+					Description: report,
+					Color:       0xFF6600,
+					Footer:      &discordgo.MessageEmbedFooter{Text: "AutoAR AI Agent · Gemini 2.0 Flash"},
+				}
+				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Embeds: []*discordgo.MessageEmbed{embed},
+				})
+			}
+		}
+
+		summary := result.Summary
+		if summary == "" {
+			if len(result.Reports) == 0 {
+				summary = "No notable findings."
+			} else {
+				summary = fmt.Sprintf("%d report(s) generated.", len(result.Reports))
+			}
+		}
+		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("✅ **Agent done** — %s", summary),
+		})
+		return
+	}
+
+	// ── Conversational Mode: ChatWithAI + direct module dispatch ──────────────
 	channelID := i.ChannelID
 
 	// Get conversation history for this channel
@@ -214,10 +279,8 @@ func handleAIChat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Title:       "🤖 AutoAR AI",
 		Description: replyText,
 		Color:       0x7289DA,
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: "Powered by Gemini 2.0 Flash · AutoAR AI Mode",
-		},
-		Timestamp: time.Now().Format(time.RFC3339),
+		Footer:      &discordgo.MessageEmbedFooter{Text: "Powered by Gemini 2.0 Flash · AutoAR AI Mode"},
+		Timestamp:   time.Now().Format(time.RFC3339),
 	}
 
 	if _, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -301,103 +364,129 @@ func runAICommand(s *discordgo.Session, i *discordgo.InteractionCreate, cmd aiCm
 		Content: fmt.Sprintf("🚀 Starting **%s** on `%s`…", cmd.Type, target),
 	})
 
-	var runErr error
+	// Create a unique scan ID
+	scanID := fmt.Sprintf("%s_%d", cmd.Type, time.Now().Unix())
+	var command []string
 
+	// Define AutoAR binary path
+	autoarScript := "./autoar"
+	if os.Getenv("AUTOAR_ENV") == "docker" {
+		autoarScript = "/app/autoar"
+	}
+
+	// ── Build CLI arguments based on the AI's requested command type ──
 	switch cmd.Type {
-
-	// ── Full workflows ──────────────────────────────────────────────
 	case "domain_run":
 		if domain == "" {
 			return fmt.Errorf("domain_run requires a domain")
 		}
-		_, runErr = domainmod.RunDomain(domainmod.ScanOptions{Domain: domain})
+		command = []string{autoarScript, "domain", "run", "-d", domain}
 
 	case "subdomain_run":
 		t := domain
 		if subdomain != "" {
 			t = subdomain
 		}
-		_, runErr = subdomainmod.RunSubdomain(t)
+		if t == "" {
+			return fmt.Errorf("subdomain_run requires a subdomain or domain field")
+		}
+		target = t
+		command = []string{autoarScript, "subdomain", "run", "-s", target}
 
 	case "lite_scan", "lite":
 		if domain == "" {
 			return fmt.Errorf("lite_scan requires a domain")
 		}
-		_, runErr = litemod.RunLite(litemod.Options{
-			Domain:              domain,
-			PhaseTimeoutDefault: 3600,
-			Timeouts:            make(map[string]int),
-		})
+		command = []string{autoarScript, "lite", "scan", "-d", domain}
 
 	case "fast_look", "fastlook":
 		if domain == "" {
 			return fmt.Errorf("fast_look requires a domain")
 		}
-		_, runErr = fastlookmod.RunFastlook(domain, nil)
+		command = []string{autoarScript, "fastlook", "-d", domain}
 
-	// ── Individual recon modules ────────────────────────────────────
 	case "subdomains":
 		if domain == "" {
 			return fmt.Errorf("subdomains requires a domain")
 		}
-		_, runErr = subdomainsmod.EnumerateSubdomains(domain, threads)
+		command = []string{autoarScript, "subdomains", "get", "-d", domain, "-c", strconv.Itoa(threads)}
 
 	case "livehosts":
 		if domain == "" {
 			return fmt.Errorf("livehosts requires a domain")
 		}
-		_, runErr = livehostsmod.FilterLiveHosts(domain, threads, false)
+		command = []string{autoarScript, "livehosts", "get", "-d", domain, "-c", strconv.Itoa(threads)}
 
 	case "urls":
 		if domain == "" {
 			return fmt.Errorf("urls requires a domain")
 		}
-		_, runErr = urlsmod.CollectURLs(domain, threads, false)
+		command = []string{autoarScript, "urls", "get", "-d", domain, "-c", strconv.Itoa(threads)}
 
 	case "js_scan", "js":
 		if domain == "" {
 			return fmt.Errorf("js_scan requires a domain")
 		}
-		_, runErr = jsscanmod.Run(jsscanmod.Options{Domain: domain, Threads: threads})
+		command = []string{autoarScript, "js", "scan", "-d", domain, "-c", strconv.Itoa(threads)}
 
 	case "tech":
 		if domain == "" {
 			return fmt.Errorf("tech requires a domain")
 		}
-		_, runErr = techmod.DetectTech(domain, threads)
+		command = []string{autoarScript, "tech", "detect", "-d", domain, "-c", strconv.Itoa(threads)}
 
 	case "ports":
 		if domain == "" {
 			return fmt.Errorf("ports requires a domain")
 		}
-		_, runErr = portsmod.ScanPorts(domain, threads)
+		command = []string{autoarScript, "ports", "scan", "-d", domain, "-c", strconv.Itoa(threads)}
 
 	case "nuclei":
 		if domain == "" {
 			return fmt.Errorf("nuclei requires a domain")
 		}
-		mode := nucleimod.ScanMode(cmd.Mode)
+		mode := cmd.Mode
 		if mode == "" {
-			mode = nucleimod.ModeFull
+			mode = "full"
 		}
-		_, runErr = nucleimod.RunNuclei(nucleimod.Options{
-			Domain:  domain,
-			Threads: threads,
-			Mode:    mode,
-		})
+		command = []string{autoarScript, "nuclei", "scan", "-d", domain, "-m", mode, "-c", strconv.Itoa(threads)}
 
 	default:
 		return fmt.Errorf("unknown scan type: %s", cmd.Type)
 	}
 
-	if runErr != nil {
-		return runErr
+	// Handle standard command thread creation and execution
+	embed := createScanEmbed(cmd.Type, target, "running in background")
+	s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{embed},
+	})
+
+	threadID := createScanThread(s, i, scanID, cmd.Type, target)
+	if threadID != "" {
+		log.Printf("[INFO] Created thread %s for AI-triggered scan %s", threadID, scanID)
 	}
 
-	// Notify completion
-	s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("✅ **%s** on `%s` completed!", cmd.Type, target),
-	})
+	// Create database scan record for tracking
+	now := time.Now()
+	scanRecord := &db.ScanRecord{
+		ScanID:      scanID,
+		ScanType:    cmd.Type,
+		Target:      target,
+		Status:      "running",
+		ChannelID:   i.ChannelID,
+		ThreadID:    threadID,
+		TotalPhases: 1, // Basic count, adjust if needed
+		StartedAt:   now,
+		LastUpdate:  now,
+		Command:     strings.Join(command, " "),
+	}
+	if err := db.CreateScan(scanRecord); err != nil {
+		log.Printf("[ERROR] Failed to create scan record in database: %v", err)
+	}
+
+	// Execute it in the background just like standard commands do
+	go runScanBackground(scanID, cmd.Type, target, command, s, i)
+
 	return nil
 }
 

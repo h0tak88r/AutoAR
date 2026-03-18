@@ -1772,3 +1772,57 @@ func handleSubdomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	go runScanBackground(scanID, "subdomain_run", subdomain, command, s, i)
 }
+
+// handleHelp displays the available commands to the user in a categorized Discord embed.
+func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	embed := &discordgo.MessageEmbed{
+		Title:       "📚 AutoAR Command Help & Workflows",
+		Description: "AutoAR is an automated security reconnaissance tool and Discord bot. Below are the available commands, separated by category.",
+		Color:       0x00bfff, // Deep Sky Blue
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "🔄 Automated Workflows",
+				Value:  "**`/domain_run`**: Full Domain Workflow (subdomains, ports, vulnerabilities, github, etc.).\n**`/subdomain_run`**: Single Subdomain Workflow. Runs all targeted scans on a *specific subdomain*.\n**`/lite_scan`**: Comprehensive scan skipping heavy fuzzing components.\n**`/fast_look`**: Quick reconnaissance (subdomains, live hosts, URLs).",
+				Inline: false,
+			},
+			{
+				Name:   "🧠 AI & Analysis",
+				Value:  "**`/ai`**: Chat with AutoAR AI (describe your target in natural language).\n**`/brain`**: AI Analysis on your latest scan results to suggest next attacks.",
+				Inline: false,
+			},
+			{
+				Name:   "🎯 Vulnerability Scanners",
+				Value:  "**`/zerodays`**: Scan for specific recent CVEs.\n**`/nuclei`**: Run Nuclei templates on domain/URL.\n**`/sqlmap`**: Run SQLMap on GF SQLi results.\n**`/dalfox`**: Run Dalfox XSS scan.\n**`/jwt_scan`**: Scan JWT tokens for vulnerabilities.",
+				Inline: false,
+			},
+			{
+				Name:   "🔍 Reconnaissance",
+				Value:  "**`/subdomains`**: Enumerate subdomains.\n**`/livehosts`**: Filter live hosts.\n**`/urls`**: Collect URLs and JS endpoints.\n**`/ports`**: Scan ports for a domain.\n**`/github`**: GitHub secrets scanning.",
+				Inline: false,
+			},
+			{
+				Name:   "📱 Specific Scanners",
+				Value:  "**`/apkx_scan`**: Analyze an APK/IPA file.\n**`/apkx_ios`**: Download and analyze an iOS app.\n**`/s3_scan`**: Scan for S3 buckets.\n**`/dns`**: Run DNS takeover scan.",
+				Inline: false,
+			},
+			{
+				Name:   "🛠️ Utilities",
+				Value:  "**`/monitor_subdomains_manage`**: Monitor changes to targets.\n**`/monitor_updates_manage`**: Monitor web pages.\n**`/db`**: Manage database items.\n**`/cancel_scan`**: Cancel a running scan.\n**`/scans`**: List recent scans and their status.",
+				Inline: false,
+			},
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "Use '/<command_name>' to see specific command options.",
+		},
+	}
+
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+	if err != nil {
+		log.Printf("[ERROR] Failed to send help embed: %v", err)
+	}
+}
