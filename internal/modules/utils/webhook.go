@@ -177,14 +177,16 @@ func SendWebhookFile(filePath, description string) error {
 		return nil
 	}
 
-	// Check if file exists
-	fileInfo, err := os.Stat(filePath)
+	// Check if file exists and is not empty
+	_, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
 		return fmt.Errorf("file not found: %s", filePath)
 	} else if err != nil {
 		return fmt.Errorf("failed to stat file: %w", err)
-	} else if fileInfo.Size() == 0 {
-		return fmt.Errorf("file is empty: %s", filePath)
+	}
+	
+	if IsFileEmpty(filePath) {
+		return fmt.Errorf("file is empty or contains only whitespace: %s", filePath)
 	}
 
 	// Read file

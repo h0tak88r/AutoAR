@@ -48,10 +48,226 @@ type AICommandList struct {
 }
 
 const (
-	DefaultModel        = "google/gemini-2.0-flash-001"
+	DefaultModel         = "google/gemini-2.0-flash-001"
 	OpenRouterEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
 	GeminiDirectEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+	MaxAgentIterations   = 8
 )
+
+// ─── Agent Loop types ─────────────────────────────────────────────────────────
+
+// AgentAction is the JSON object the AI must return each turn.
+//
+//	{"action": "run_command", "command": "autoar ports scan -d example.com", "reason": "get open ports"}
+//	{"action": "run_shell",   "command": "nmap -sV ...",                      "reason": "validate port 8080"}
+//	{"action": "report",      "content": "## Findings\n...",                  "notify": true}
+//	{"action": "done",        "summary": "Finished. Found X issues."}
+type AgentAction struct {
+	Action  string `json:"action"`           // run_command | run_shell | report | done
+	Command string `json:"command,omitempty"` // for run_command / run_shell
+	Reason  string `json:"reason,omitempty"`  // why this command
+	Content string `json:"content,omitempty"` // for report
+	Notify  bool   `json:"notify,omitempty"`  // should it go to Discord?
+	Summary string `json:"summary,omitempty"` // for done
+}
+
+// AgentResult summarises what the agent did
+type AgentResult struct {
+	Summary    string   // Final summary from the AI
+	Reports    []string // Markdown text blocks the AI decided to report
+	ShouldSend bool     // Whether any report had notify:true
+}
+
+// autoarSystemPrompt is injected once at conversation start.
+const autoarSystemPrompt = `You are AutoAR Agent — an expert autonomous bug-bounty reconnaissance AI.
+You control the AutoAR security tool via JSON actions.
+
+## AutoAR CLI Commands (use exactly as shown)
+| Command | What it does |
+|---------|-------------|
+| autoar subdomains get -d DOMAIN | Enumerate subdomains (outputs txt list) |
+| autoar livehosts get -d DOMAIN [-t THREADS] | Filter live HTTP hosts (outputs JSON per-host) |
+| autoar ports scan -d DOMAIN | Port scan all live hosts (outputs JSON per-host with open ports) |
+| autoar nuclei run -d DOMAIN | Run Nuclei vulnerability templates (outputs JSON findings) |
+| autoar js scan -d DOMAIN | Extract JS files and scan for secrets (outputs [type] url -> value) |
+| autoar urls collect -d DOMAIN | Collect URLs from crawling & wayback (outputs txt URL list) |
+| autoar tech detect -d DOMAIN | Detect web technologies per host (outputs JSON) |
+| autoar gf scan -d DOMAIN | Pattern-match URLs (outputs txt) |
+| autoar reflection scan -d DOMAIN | Scan for reflected parameters (outputs txt) |
+| autoar dns takeover -d DOMAIN | DNS subdomain takeover scan (outputs JSON) |
+| autoar cnames get -d DOMAIN | Collect CNAME records (outputs txt) |
+| autoar ffuf fuzz -d DOMAIN | Directory/path fuzzing across live hosts (outputs txt) |
+| autoar misconfig scan TARGET | Check cloud/web misconfigurations (outputs JSON) |
+| autoar s3 enum -b ROOT_DOMAIN | Enumerate S3/cloud buckets (outputs JSON) |
+| autoar github scan -r OWNER/REPO | Scan GitHub repo for secrets (outputs txt) |
+| autoar zerodays scan -d DOMAIN | CVE/zero-day scan on live hosts (outputs JSON) |
+| autoar lite run -d DOMAIN | Fast recon workflow (subdomains+live+tech+nuclei) |
+| autoar domain run -d DOMAIN | Full deep-recon workflow |
+
+## JSON Log Schemas (abbreviated)
+- **ports**: {"host": "sub.example.com", "port": 8080, "proto": "tcp", "state": "open"}
+- **nuclei**: {"template-id": "...", "host": "...", "severity": "high|medium|low|info", "matched-at": "..."}
+- **livehosts**: {"url": "https://sub.example.com", "status": 200, "title": "...", "tech": [...]}
+- **dns**: {"host": "...", "cname": "...", "takeover": true/false, "provider": "..."}
+
+## Rules
+1. Each turn respond ONLY with a single valid JSON object matching one of the action types.
+2. After running autoar commands, analyze the output carefully.
+3. For open ports: validate with nmap scripts (run_shell). For nuclei highs: curl to confirm. For JS secrets: curl to validate.
+4. Use "report" + "notify": true ONLY if you found a real, validated, high-confidence finding worth reporting.
+5. Use "report" + "notify": false for informational summaries.
+6. Use "done" when the request is fully handled.
+7. Never invent scan results. Only act on what you actually received.
+8. Max iterations: 8. Use them wisely.`
+
+// RunAgentLoop runs the natural language AI agent loop.
+// userRequest: the user's NL message (e.g. "scan example.com for open ports")
+// progressFn: called with progress strings to post to Discord
+// Returns AgentResult with all reports and a final summary.
+func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, error) {
+	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
+	geminiKey := os.Getenv("GEMINI_API_KEY")
+	if openRouterKey == "" && geminiKey == "" {
+		return nil, fmt.Errorf("neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set")
+	}
+
+	result := &AgentResult{}
+	history := []Message{}
+
+	// Seed with user request
+	firstUserMsg := fmt.Sprintf("User request: %s", userRequest)
+
+	log.Printf("[AGENT] Starting agent loop for: %s", userRequest)
+
+	runner := utils.NewCommandRunner(5 * time.Minute)
+
+	for iter := 0; iter < MaxAgentIterations; iter++ {
+		log.Printf("[AGENT] Iteration %d/%d", iter+1, MaxAgentIterations)
+
+		var aiReply string
+		var err error
+
+		if iter == 0 {
+			aiReply, err = ChatWithAI(history, firstUserMsg, autoarSystemPrompt)
+		} else {
+			aiReply, err = ChatWithAI(history, "", "")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("AI call failed at iter %d: %w", iter+1, err)
+		}
+
+		log.Printf("[AGENT] AI reply (raw): %s", aiReply)
+
+		// Append assistant reply to history
+		history = append(history, Message{Role: "assistant", Content: aiReply})
+
+		// Parse action
+		action, err := parseAgentAction(aiReply)
+		if err != nil {
+			log.Printf("[AGENT] Failed to parse action: %v — stopping", err)
+			break
+		}
+
+		switch action.Action {
+		case "run_command", "run_shell":
+			label := "🔧 AutoAR"
+			if action.Action == "run_shell" {
+				label = "🔍 Shell"
+			}
+			msg := fmt.Sprintf("%s: `%s`\n> _%s_", label, action.Command, action.Reason)
+			if progressFn != nil {
+				progressFn(msg)
+			}
+			log.Printf("[AGENT] Running: %s", action.Command)
+
+			parts := strings.Fields(action.Command)
+			var output []byte
+			if len(parts) > 0 {
+				output, err = runner.Run(context.Background(), parts[0], parts[1:]...)
+			}
+
+			var toolResult string
+			if err != nil {
+				toolResult = fmt.Sprintf("Command failed: %v\nOutput:\n%s", err, string(output))
+				log.Printf("[AGENT] Command error: %v", err)
+			} else {
+				toolResult = string(output)
+				if len(toolResult) == 0 {
+					toolResult = "(no output)"
+				}
+			}
+
+			// Truncate very long output so we don't blow context
+			if len(toolResult) > 8000 {
+				toolResult = toolResult[:8000] + "\n...(truncated)"
+			}
+
+			feedback := fmt.Sprintf("Command output:\n```\n%s\n```", toolResult)
+			history = append(history, Message{Role: "user", Content: feedback})
+
+		case "report":
+			result.Reports = append(result.Reports, action.Content)
+			if action.Notify {
+				result.ShouldSend = true
+			}
+			if progressFn != nil {
+				notifyStr := ""
+				if action.Notify {
+					notifyStr = " *(will be posted to Discord)*"
+				}
+				progressFn(fmt.Sprintf("📋 Agent generated a report%s", notifyStr))
+			}
+			history = append(history, Message{Role: "user", Content: "Report recorded. Continue if needed or use done."})
+
+		case "done":
+			result.Summary = action.Summary
+			log.Printf("[AGENT] Agent done: %s", action.Summary)
+			return result, nil
+
+		default:
+			log.Printf("[AGENT] Unknown action: %s — stopping", action.Action)
+			return result, nil
+		}
+	}
+
+	// Hit max iterations
+	if result.Summary == "" {
+		result.Summary = "Agent reached maximum iterations."
+	}
+	return result, nil
+}
+
+// parseAgentAction extracts the JSON AgentAction from a possibly-markdown-wrapped AI reply.
+func parseAgentAction(reply string) (*AgentAction, error) {
+	clean := strings.TrimSpace(reply)
+	// Strip code fences if present
+	if strings.HasPrefix(clean, "```json") {
+		clean = strings.TrimPrefix(clean, "```json")
+		clean = strings.TrimSuffix(clean, "```")
+	} else if strings.HasPrefix(clean, "```") {
+		clean = strings.TrimPrefix(clean, "```")
+		clean = strings.TrimSuffix(clean, "```")
+	}
+	clean = strings.TrimSpace(clean)
+
+	// Find the first { … } block
+	start := strings.Index(clean, "{")
+	end := strings.LastIndex(clean, "}")
+	if start == -1 || end == -1 || end < start {
+		return nil, fmt.Errorf("no JSON object found in reply: %q", clean)
+	}
+	clean = clean[start : end+1]
+
+	var action AgentAction
+	if err := json.Unmarshal([]byte(clean), &action); err != nil {
+		return nil, fmt.Errorf("JSON unmarshal error: %w (raw: %q)", err, clean)
+	}
+	if action.Action == "" {
+		return nil, fmt.Errorf("action field is empty in JSON: %q", clean)
+	}
+	return &action, nil
+}
+
 
 // isJSSercetsContent detects if the content looks like a JS secrets scan file
 // Format: [type] url_found_on -> secret_value

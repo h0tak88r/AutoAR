@@ -199,9 +199,10 @@ Commands:
                                                                     Options for start/stop: --id <id> | -d <domain> | --all
 
 Workflows:
-  lite run            -d <domain>
-  fastlook run        -d <domain>
-  domain run          -d <domain>
+  lite run            -d <domain>                               Full scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig
+  fastlook run        -d <domain>                               Quick recon: subdomains → live hosts → URLs/JS collection
+  domain run          -d <domain> [--skip-ffuf]                 Full domain workflow: enumerate everything, ports, vuln scan, github, etc.
+  subdomain run       -s <subdomain>                            Full workflow on a single subdomain: live check → ports → JS → vuln scan → nuclei
 
 Database:
   db domains list
