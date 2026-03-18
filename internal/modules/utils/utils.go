@@ -193,3 +193,20 @@ func UploadResultsToR2(domain string, removeLocal bool) (map[string]string, erro
 func ShouldUseR2ForResults() bool {
 	return r2storage.IsEnabled() && os.Getenv("USE_R2_STORAGE") == "true"
 }
+
+// IsFileEmpty strictly checks if a file is empty or contains only whitespace characters
+func IsFileEmpty(filePath string) bool {
+	info, err := os.Stat(filePath)
+	if err != nil || info.Size() == 0 {
+		return true // Missing or 0 bytes
+	}
+	
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return true // Can't read = assume empty
+	}
+	
+	// Check if content is only whitespace
+	return len(strings.TrimSpace(string(data))) == 0
+}
+

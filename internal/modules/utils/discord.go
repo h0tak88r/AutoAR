@@ -53,13 +53,14 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		existingFiles = []string{}
 		for _, filePath := range filePaths {
-			if info, err := os.Stat(filePath); err == nil {
-				// Send all files, even if empty (size = 0)
-				// This ensures users can see that a phase ran, even if it found nothing
+			if !IsFileEmpty(filePath) {
+				// Only send files that actually have content
 				existingFiles = append(existingFiles, filePath)
-				log.Printf("[DEBUG] [DISCORD] File found: %s (size: %d bytes)", filePath, info.Size())
+				if info, err := os.Stat(filePath); err == nil {
+					log.Printf("[DEBUG] [DISCORD] File found and not empty: %s (size: %d bytes)", filePath, info.Size())
+				}
 			} else {
-				log.Printf("[DEBUG] [DISCORD] File check (attempt %d/%d): %s - %v", attempt, maxRetries, filePath, err)
+				log.Printf("[DEBUG] [DISCORD] File missing or empty (attempt %d/%d): %s", attempt, maxRetries, filePath)
 			}
 		}
 

@@ -882,6 +882,8 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		HandleScansCommand(s, i)
 	case "ai":
 		handleAIChat(s, i)
+	case "help":
+		handleHelp(s, i)
 	default:
 		log.Printf("Unknown command: %s", cmdName)
 		respond(s, i, fmt.Sprintf("Unknown command: %s", cmdName), false)
