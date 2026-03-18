@@ -123,6 +123,36 @@ func IsEnabled() bool {
 	return isEnabled && r2Config != nil && r2Config.Enabled
 }
 
+// UploadResultFileAndLog uploads a result file to R2 only if it's non-empty.
+// The r2Key is the object key (e.g. "results/example.com/subs/subdomains.txt").
+// It prints a prominent [R2-RESULT-URL] log line so AI agents can extract the URL.
+// Returns the public URL or an empty string if the file was empty or R2 is not enabled.
+func UploadResultFileAndLog(localPath, r2Key string) string {
+	if !IsEnabled() {
+		return ""
+	}
+
+	info, err := os.Stat(localPath)
+	if err != nil {
+		return "" // File doesn't exist
+	}
+	if info.Size() == 0 {
+		log.Printf("[R2] ⏭️  Skipping empty file: %s", localPath)
+		return ""
+	}
+
+	publicURL, err := UploadFile(localPath, r2Key, true) // skipTimestamp=true, key already has domain/path
+	if err != nil {
+		log.Printf("[R2] ⚠️  Failed to upload result file %s: %v", localPath, err)
+		return ""
+	}
+
+	// Print a very visible marker line — AI agents and log parsers use this
+	log.Printf("[R2-RESULT-URL] %s -> %s", localPath, publicURL)
+	fmt.Printf("\n🔗 R2 Result: %s\n   URL: %s\n\n", localPath, publicURL)
+	return publicURL
+}
+
 // UploadFile uploads a file to R2 and returns the public URL
 // If skipTimestamp is true, the file is uploaded without a timestamp prefix (for cache/backups)
 func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) {

@@ -3,14 +3,19 @@ package utils
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
 
 // WriteLines writes lines to a file (one per line)
-// Creates parent directories if they don't exist
+// Creates parent directories if they don't exist.
+// After writing, if R2 storage is enabled and the file is non-empty,
+// it automatically uploads the file and prints the public URL.
 func WriteLines(path string, lines []string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
@@ -19,8 +24,35 @@ func WriteLines(path string, lines []string) error {
 	if len(lines) > 0 {
 		data += "\n"
 	}
-	return os.WriteFile(path, []byte(data), 0644)
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		return err
+	}
+
+	// Auto-upload to R2 if enabled and file is non-empty
+	if len(lines) > 0 && r2storage.IsEnabled() {
+		go uploadResultAsync(path)
+	}
+
+	return nil
 }
+
+// uploadResultAsync uploads a result file to R2 in the background.
+// The R2 key strips the leading "/" and uses the full local path as key.
+func uploadResultAsync(path string) {
+	// Derive R2 key from the path:
+	// Strip absolute prefix up to "new-results" so the key is e.g.
+	//   new-results/example.com/subs/subdomains.txt
+	r2Key := path
+	if idx := strings.Index(path, "new-results/"); idx >= 0 {
+		r2Key = path[idx:]
+	} else if strings.HasPrefix(r2Key, "/") {
+		r2Key = r2Key[1:]
+	}
+	r2storage.UploadResultFileAndLog(path, r2Key)
+	log.Printf("[R2] ✅ Auto-uploaded result file: %s", path)
+}
+
+
 
 // ReadLines reads lines from a file
 func ReadLines(path string) ([]string, error) {
