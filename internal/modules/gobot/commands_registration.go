@@ -6,9 +6,24 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// registerAllCommands registers all 54 Discord commands
+// registerAllCommands registers all Discord commands
 func registerAllCommands(s *discordgo.Session) {
 	commands := []*discordgo.ApplicationCommand{
+		// AI Natural Language command
+		{
+			Name:        "ai",
+			Description: "🤖 Talk to AutoAR in natural language — the AI will decide what scans to run",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "message", Description: "Your natural language request (e.g. 'scan example.com for open ports')", Required: true},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "agent_mode",
+					Description: "Enable full autonomous agent mode (runs commands, validates results, reports to Discord)",
+					Required:    false,
+				},
+				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "dry_run", Description: "Explain what you would do without running scans", Required: false},
+			},
+		},
 		// ASR commands
 		{
 			Name:        "asr",
@@ -560,6 +575,10 @@ func registerAllCommands(s *discordgo.Session) {
 					Required:    false,
 				},
 			},
+		},
+		{
+			Name:        "help",
+			Description: "📚 Display all available AutoAR commands and workflows",
 		},
 	}
 
