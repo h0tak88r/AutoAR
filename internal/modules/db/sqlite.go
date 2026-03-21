@@ -141,6 +141,9 @@ func (s *SQLiteDB) InitSchema() error {
 		strategy TEXT NOT NULL,
 		pattern TEXT,
 		is_running INTEGER DEFAULT 0,
+		last_hash TEXT,
+		last_run_at TIMESTAMP,
+		change_count INTEGER DEFAULT 0,
 		created_at TIMESTAMP DEFAULT (datetime('now')),
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
 	);
@@ -153,9 +156,25 @@ func (s *SQLiteDB) InitSchema() error {
 		threads INTEGER DEFAULT 100,
 		check_new INTEGER DEFAULT 1,
 		is_running INTEGER DEFAULT 0,
+		last_run_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT (datetime('now')),
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
 	);
+	
+	-- Create monitor_changes table for change history
+	CREATE TABLE IF NOT EXISTS monitor_changes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		target_type TEXT NOT NULL,
+		target_id INTEGER NOT NULL,
+		domain TEXT NOT NULL,
+		change_type TEXT NOT NULL,
+		detail TEXT,
+		detected_at TIMESTAMP DEFAULT (datetime('now')),
+		notified INTEGER DEFAULT 0
+	);
+	CREATE INDEX IF NOT EXISTS idx_monitor_changes_domain ON monitor_changes(domain);
+	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
+	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
 	
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
@@ -763,7 +782,7 @@ func (s *SQLiteDB) GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 // ListSubdomainMonitorTargets returns all subdomain monitoring targets
 func (s *SQLiteDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error) {
 	rows, err := s.db.Query(`
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		ORDER BY domain;
 	`)
@@ -776,7 +795,7 @@ func (s *SQLiteDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, erro
 	for rows.Next() {
 		var t SubdomainMonitorTarget
 		var checkNewInt, isRunningInt int
-		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &isRunningInt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &isRunningInt, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan subdomain monitor target: %v", err)
 		}
 		t.CheckNew = checkNewInt != 0
@@ -855,10 +874,10 @@ func (s *SQLiteDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarge
 	var t SubdomainMonitorTarget
 	var checkNewInt, isRunningInt int
 	err := s.db.QueryRow(`
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		WHERE id = ?;
-	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &isRunningInt, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &isRunningInt, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("subdomain monitor target not found with id: %d", id)
@@ -869,6 +888,94 @@ func (s *SQLiteDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarge
 	t.CheckNew = checkNewInt != 0
 	t.IsRunning = isRunningInt != 0
 	return &t, nil
+}
+
+// UpdateSubdomainMonitorLastRun updates last_run_at to now for a subdomain monitor target
+func (s *SQLiteDB) UpdateSubdomainMonitorLastRun(id int) error {
+	_, err := s.db.Exec(`
+		UPDATE subdomain_monitor_targets
+		SET last_run_at = datetime('now')
+		WHERE id = ?;
+	`, id)
+	if err != nil {
+		return fmt.Errorf("failed to update subdomain monitor last_run_at: %v", err)
+	}
+	return nil
+}
+
+// UpdateMonitorTargetLastRun updates last_hash, last_run_at, and optionally increments change_count
+func (s *SQLiteDB) UpdateMonitorTargetLastRun(id int, hash string, changed bool) error {
+	changedInt := 0
+	if changed {
+		changedInt = 1
+	}
+	_, err := s.db.Exec(`
+		UPDATE updates_targets
+		SET last_hash = ?,
+		    last_run_at = datetime('now'),
+		    change_count = change_count + ?
+		WHERE id = ?;
+	`, hash, changedInt, id)
+	if err != nil {
+		return fmt.Errorf("failed to update monitor target last run: %v", err)
+	}
+	return nil
+}
+
+// InsertMonitorChange records a detected change in the monitor_changes table
+func (s *SQLiteDB) InsertMonitorChange(change *MonitorChange) error {
+	notifiedInt := 0
+	if change.Notified {
+		notifiedInt = 1
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO monitor_changes (target_type, target_id, domain, change_type, detail, notified)
+		VALUES (?, ?, ?, ?, ?, ?);
+	`, change.TargetType, change.TargetID, change.Domain, change.ChangeType, change.Detail, notifiedInt)
+	if err != nil {
+		return fmt.Errorf("failed to insert monitor change: %v", err)
+	}
+	return nil
+}
+
+// ListMonitorChanges lists recent monitor changes, optionally filtered by domain
+func (s *SQLiteDB) ListMonitorChanges(domain string, limit int) ([]MonitorChange, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var rows *sql.Rows
+	var err error
+
+	if domain != "" {
+		rows, err = s.db.Query(`
+			SELECT id, target_type, target_id, domain, change_type, COALESCE(detail,'') as detail, detected_at, notified
+			FROM monitor_changes WHERE domain = ? ORDER BY detected_at DESC LIMIT ?;
+		`, domain, limit)
+	} else {
+		rows, err = s.db.Query(`
+			SELECT id, target_type, target_id, domain, change_type, COALESCE(detail,'') as detail, detected_at, notified
+			FROM monitor_changes ORDER BY detected_at DESC LIMIT ?;
+		`, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query monitor changes: %v", err)
+	}
+	defer rows.Close()
+
+	var changes []MonitorChange
+	for rows.Next() {
+		var c MonitorChange
+		var notifiedInt int
+		if err := rows.Scan(&c.ID, &c.TargetType, &c.TargetID, &c.Domain, &c.ChangeType, &c.Detail, &c.DetectedAt, &notifiedInt); err != nil {
+			return nil, fmt.Errorf("failed to scan monitor change: %v", err)
+		}
+		c.Notified = notifiedInt != 0
+		changes = append(changes, c)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate monitor changes: %v", rows.Err())
+	}
+	return changes, nil
 }
 
 // CreateScan creates a new scan record
