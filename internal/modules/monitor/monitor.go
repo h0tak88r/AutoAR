@@ -118,6 +118,7 @@ func handleStart(opts Options) error {
 		if opts.Interval > 0 {
 			fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
 		}
+		StartURLMonitorDaemon()
 	} else if opts.All {
 		targets, err := db.ListMonitorTargets()
 		if err != nil {
@@ -135,6 +136,7 @@ func handleStart(opts Options) error {
 		if opts.Interval > 0 {
 			fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
 		}
+		StartURLMonitorDaemon()
 	} else if opts.URL != "" {
 		// Find target by URL and start it
 		targets, err := db.ListMonitorTargets()
@@ -158,6 +160,7 @@ func handleStart(opts Options) error {
 		if opts.Interval > 0 {
 			fmt.Printf("[INFO] Check interval: %d seconds\n", opts.Interval)
 		}
+		StartURLMonitorDaemon()
 	} else {
 		return fmt.Errorf("either --all, --id <id>, or -u <url> must be specified")
 	}
