@@ -284,6 +284,46 @@ func GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error) {
 	return dbInstance.GetSubdomainMonitorTargetByID(id)
 }
 
+// UpdateSubdomainMonitorLastRun updates last_run_at for a subdomain monitor target (fixes timer bug)
+func UpdateSubdomainMonitorLastRun(id int) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateSubdomainMonitorLastRun(id)
+}
+
+// UpdateMonitorTargetLastRun updates last_hash and last_run_at for a URL monitor target
+func UpdateMonitorTargetLastRun(id int, hash string, changed bool) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateMonitorTargetLastRun(id, hash, changed)
+}
+
+// InsertMonitorChange records a detected change in the monitor_changes table
+func InsertMonitorChange(change *MonitorChange) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.InsertMonitorChange(change)
+}
+
+// ListMonitorChanges lists recent monitor changes, optionally filtered by domain
+func ListMonitorChanges(domain string, limit int) ([]MonitorChange, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListMonitorChanges(domain, limit)
+}
+
 // CreateScan creates a new scan record
 func CreateScan(scan *ScanRecord) error {
 	if dbInstance == nil {
