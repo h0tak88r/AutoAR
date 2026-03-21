@@ -51,7 +51,7 @@ const (
 	DefaultModel         = "google/gemini-2.0-flash-001"
 	OpenRouterEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
 	GeminiDirectEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-	MaxAgentIterations   = 8
+	MaxAgentIterations   = 20 // increased from 8 — complex hunts need subdomains+live+ports+nuclei+js+gf+validations
 )
 
 // ─── Agent Loop types ─────────────────────────────────────────────────────────
@@ -103,12 +103,8 @@ You control the AutoAR security tool via JSON actions.
 | autoar zerodays scan -d DOMAIN | CVE/zero-day scan on live hosts (outputs JSON) |
 | autoar lite run -d DOMAIN | Fast recon workflow (subdomains+live+tech+nuclei) |
 | autoar domain run -d DOMAIN | Full deep-recon workflow |
-
-## JSON Log Schemas (abbreviated)
-- **ports**: {"host": "sub.example.com", "port": 8080, "proto": "tcp", "state": "open"}
-- **nuclei**: {"template-id": "...", "host": "...", "severity": "high|medium|low|info", "matched-at": "..."}
-- **livehosts**: {"url": "https://sub.example.com", "status": 200, "title": "...", "tech": [...]}
-- **dns**: {"host": "...", "cname": "...", "takeover": true/false, "provider": "..."}
+| autoar status --json | Poll active scan progress: {"active_scans":[{"target":"","scan_type":"","status":"","current_phase":0,"total_phases":0,"phase_name":""}]} |
+| autoar explain PATH | Feed any result file to AI for triage: returns markdown analysis |
 
 ## Rules
 1. Each turn respond ONLY with a single valid JSON object matching one of the action types.
@@ -118,7 +114,7 @@ You control the AutoAR security tool via JSON actions.
 5. Use "report" + "notify": false for informational summaries.
 6. Use "done" when the request is fully handled.
 7. Never invent scan results. Only act on what you actually received.
-8. Max iterations: 8. Use them wisely.`
+8. Max iterations: 20. For long scans, use 'autoar status --json' to poll progress between iterations instead of waiting blindly.`
 
 // RunAgentLoop runs the natural language AI agent loop.
 // userRequest: the user's NL message (e.g. "scan example.com for open ports")
@@ -161,11 +157,32 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 		// Append assistant reply to history
 		history = append(history, Message{Role: "assistant", Content: aiReply})
 
-		// Parse action
-		action, err := parseAgentAction(aiReply)
-		if err != nil {
-			log.Printf("[AGENT] Failed to parse action: %v — stopping", err)
-			break
+		// Parse action — retry up to 2 times on bad JSON so one hallucination
+		// doesn't kill the whole session.
+		var action *AgentAction
+		for attempt := 0; attempt < 2; attempt++ {
+			action, err = parseAgentAction(aiReply)
+			if err == nil {
+				break
+			}
+			if attempt == 0 {
+				log.Printf("[AGENT] Bad JSON (attempt %d): %v — asking AI to retry", attempt+1, err)
+				history = append(history, Message{
+					Role:    "user",
+					Content: "Your last response was not valid JSON. Please respond with EXACTLY one JSON action object and nothing else. Example: {\"action\":\"run_command\",\"command\":\"autoar subdomains get -d example.com\",\"reason\":\"start recon\"}",
+				})
+				aiReply, err = ChatWithAI(history, "", "")
+				if err != nil {
+					log.Printf("[AGENT] AI retry call failed: %v — skipping iteration", err)
+					break
+				}
+				history = append(history, Message{Role: "assistant", Content: aiReply})
+			}
+		}
+		if action == nil {
+			log.Printf("[AGENT] Could not parse action after retries — skipping iteration")
+			history = append(history, Message{Role: "user", Content: "Skipping this turn due to invalid response. Please continue with a valid JSON action."})
+			continue
 		}
 
 		switch action.Action {
@@ -197,10 +214,8 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 				}
 			}
 
-			// Truncate very long output so we don't blow context
-			if len(toolResult) > 8000 {
-				toolResult = toolResult[:8000] + "\n...(truncated)"
-			}
+			// Smart truncation: keep head (startup info) + tail (where results live)
+			toolResult = smartTruncate(toolResult, 8000)
 
 			feedback := fmt.Sprintf("Command output:\n```\n%s\n```", toolResult)
 			history = append(history, Message{Role: "user", Content: feedback})
@@ -235,6 +250,24 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 		result.Summary = "Agent reached maximum iterations."
 	}
 	return result, nil
+}
+
+// smartTruncate keeps the beginning (startup/info) and the end (results) of long output.
+// This is better than naive head-only truncation because scan results are at the end.
+func smartTruncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	headLen := 2000
+	tailLen := maxLen - headLen - 50 // 50 chars for the separator line
+	if tailLen < 500 {
+		// maxLen is very small, just do a simple truncation
+		return s[:maxLen] + "...(truncated)"
+	}
+	head := s[:headLen]
+	tail := s[len(s)-tailLen:]
+	skipped := len(s) - headLen - tailLen
+	return head + fmt.Sprintf("\n\n...[%d bytes omitted]...\n\n", skipped) + tail
 }
 
 // parseAgentAction extracts the JSON AgentAction from a possibly-markdown-wrapped AI reply.
