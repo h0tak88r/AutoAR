@@ -238,15 +238,27 @@ func (p *PostgresDB) InitSchema() error {
 		strategy TEXT NOT NULL,
 		pattern TEXT,
 		is_running BOOLEAN DEFAULT FALSE,
+		last_hash TEXT,
+		last_run_at TIMESTAMP,
+		change_count INTEGER DEFAULT 0,
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
 	
-	-- Ensure is_running column exists (for backward compatibility)
+	-- Ensure new columns exist (for backward compatibility)
 	DO $$ 
 	BEGIN
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='updates_targets' AND column_name='is_running') THEN
 			ALTER TABLE updates_targets ADD COLUMN is_running BOOLEAN DEFAULT FALSE;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='updates_targets' AND column_name='last_hash') THEN
+			ALTER TABLE updates_targets ADD COLUMN last_hash TEXT;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='updates_targets' AND column_name='last_run_at') THEN
+			ALTER TABLE updates_targets ADD COLUMN last_run_at TIMESTAMP;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='updates_targets' AND column_name='change_count') THEN
+			ALTER TABLE updates_targets ADD COLUMN change_count INTEGER DEFAULT 0;
 		END IF;
 	END $$;
 	
@@ -258,9 +270,33 @@ func (p *PostgresDB) InitSchema() error {
 		threads INTEGER DEFAULT 100,
 		check_new BOOLEAN DEFAULT TRUE,
 		is_running BOOLEAN DEFAULT FALSE,
+		last_run_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
+	
+	-- Ensure last_run_at exists (for backward compatibility)
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='subdomain_monitor_targets' AND column_name='last_run_at') THEN
+			ALTER TABLE subdomain_monitor_targets ADD COLUMN last_run_at TIMESTAMP;
+		END IF;
+	END $$;
+
+	-- Create monitor_changes table for change history
+	CREATE TABLE IF NOT EXISTS monitor_changes (
+		id SERIAL PRIMARY KEY,
+		target_type VARCHAR(20) NOT NULL,
+		target_id INTEGER NOT NULL,
+		domain TEXT NOT NULL,
+		change_type VARCHAR(50) NOT NULL,
+		detail TEXT,
+		detected_at TIMESTAMP DEFAULT NOW(),
+		notified BOOLEAN DEFAULT FALSE
+	);
+	CREATE INDEX IF NOT EXISTS idx_monitor_changes_domain ON monitor_changes(domain);
+	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
+	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
 	
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
@@ -828,7 +864,7 @@ func (p *PostgresDB) GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 // ListSubdomainMonitorTargets returns all subdomain monitoring targets
 func (p *PostgresDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error) {
 	rows, err := p.pool.Query(p.ctx, `
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		ORDER BY domain;
 	`)
@@ -840,7 +876,7 @@ func (p *PostgresDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, er
 	var targets []SubdomainMonitorTarget
 	for rows.Next() {
 		var t SubdomainMonitorTarget
-		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan subdomain monitor target: %v", err)
 		}
 		targets = append(targets, t)
@@ -904,10 +940,10 @@ func (p *PostgresDB) SetSubdomainMonitorRunningStatus(id int, isRunning bool) er
 func (p *PostgresDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error) {
 	var t SubdomainMonitorTarget
 	err := p.pool.QueryRow(p.ctx, `
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		WHERE id = $1;
-	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("subdomain monitor target not found with id: %d", id)
@@ -916,6 +952,88 @@ func (p *PostgresDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTar
 		return nil, fmt.Errorf("failed to get subdomain monitor target by id: %v", err)
 	}
 	return &t, nil
+}
+
+// UpdateSubdomainMonitorLastRun updates last_run_at to now for a subdomain monitor target
+func (p *PostgresDB) UpdateSubdomainMonitorLastRun(id int) error {
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE subdomain_monitor_targets
+		SET last_run_at = NOW()
+		WHERE id = $1;
+	`, id)
+	if err != nil {
+		return fmt.Errorf("failed to update subdomain monitor last_run_at: %v", err)
+	}
+	return nil
+}
+
+// UpdateMonitorTargetLastRun updates last_hash, last_run_at, and optionally increments change_count
+func (p *PostgresDB) UpdateMonitorTargetLastRun(id int, hash string, changed bool) error {
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE updates_targets
+		SET last_hash = $1,
+		    last_run_at = NOW(),
+		    change_count = CASE WHEN $2 THEN change_count + 1 ELSE change_count END
+		WHERE id = $3;
+	`, hash, changed, id)
+	if err != nil {
+		return fmt.Errorf("failed to update monitor target last run: %v", err)
+	}
+	return nil
+}
+
+// InsertMonitorChange records a detected change in the monitor_changes table
+func (p *PostgresDB) InsertMonitorChange(change *MonitorChange) error {
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO monitor_changes (target_type, target_id, domain, change_type, detail, notified)
+		VALUES ($1, $2, $3, $4, $5, $6);
+	`, change.TargetType, change.TargetID, change.Domain, change.ChangeType, change.Detail, change.Notified)
+	if err != nil {
+		return fmt.Errorf("failed to insert monitor change: %v", err)
+	}
+	return nil
+}
+
+// ListMonitorChanges lists recent monitor changes, optionally filtered by domain
+func (p *PostgresDB) ListMonitorChanges(domain string, limit int) ([]MonitorChange, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var rows interface{ Close() }
+	var err error
+	var query string
+	var args []interface{}
+
+	if domain != "" {
+		query = `SELECT id, target_type, target_id, domain, change_type, COALESCE(detail,'') as detail, detected_at, notified
+				 FROM monitor_changes WHERE domain = $1 ORDER BY detected_at DESC LIMIT $2;`
+		args = []interface{}{domain, limit}
+	} else {
+		query = `SELECT id, target_type, target_id, domain, change_type, COALESCE(detail,'') as detail, detected_at, notified
+				 FROM monitor_changes ORDER BY detected_at DESC LIMIT $1;`
+		args = []interface{}{limit}
+	}
+
+	pgRows, pgErr := p.pool.Query(p.ctx, query, args...)
+	if pgErr != nil {
+		return nil, fmt.Errorf("failed to query monitor changes: %v", pgErr)
+	}
+	rows = pgRows
+	defer pgRows.Close()
+
+	var changes []MonitorChange
+	for pgRows.Next() {
+		var c MonitorChange
+		if err = pgRows.Scan(&c.ID, &c.TargetType, &c.TargetID, &c.Domain, &c.ChangeType, &c.Detail, &c.DetectedAt, &c.Notified); err != nil {
+			return nil, fmt.Errorf("failed to scan monitor change: %v", err)
+		}
+		changes = append(changes, c)
+	}
+	_ = rows
+	if pgRows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate monitor changes: %v", pgRows.Err())
+	}
+	return changes, nil
 }
 
 // CreateScan creates a new scan record

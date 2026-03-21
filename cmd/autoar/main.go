@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/modules/brain"
 	"github.com/h0tak88r/AutoAR/internal/modules/backup"
 	asrmod "github.com/h0tak88r/AutoAR/internal/modules/asr"
 	aemmod "github.com/h0tak88r/AutoAR/internal/modules/aem"
@@ -105,120 +107,128 @@ func init() {
 func printUsage() {
 	usage := `Usage: autoar <command> <action> [options]
 
-Commands:
+━━━━━━━━━━━━━━━━━━━━━ Workflows ━━━━━━━━━━━━━━━━━━━━━
+  domain run          -d <domain> [--skip-ffuf]   Full workflow: subdomains→livehosts→ports→tech→DNS→S3→
+                                                   nuclei→JS→URLs→GF→backup→misconfig (~1-5 hrs)
+  subdomain run       -s <subdomain>               Deep-dive on one subdomain: live→ports→JS→nuclei
+  lite run            -d <domain>                  Lighter workflow: livehosts→reflection→JS→CNAME→DNS→misconfig
+  fastlook run        -d <domain>                  Quick recon: subdomains→live hosts→URLs/JS (~15 min)
+
+━━━━━━━━━━━━━━━━━━━━━ Reconnaissance ━━━━━━━━━━━━━━━━━━━━━
   subdomains get      -d <domain>
   livehosts get       -d <domain>
   cnames get          -d <domain>
   urls collect        -d <domain> [--subdomain]
-  js scan             -d <domain> [-s <subdomain>]
-  reflection scan     -d <domain>
-  nuclei run          -d <domain>
   tech detect         -d <domain>
   ports scan          -d <domain>
-  gf scan             -d <domain>
-  sqlmap run          -d <domain>
+
+━━━━━━━━━━━━━━━━━━━━━ Vulnerability Scanning ━━━━━━━━━━━━━━━━━━━━━
+  nuclei run          -d <domain> [-m <mode>] [-t <threads>]
+  zerodays scan       -d <domain> | -s <subdomain> | -f <file>
+                      [--cve <CVE-ID>] [--dos-test] [--silent]
+  reflection scan     -d <domain>
   dalfox run          -d <domain>
-  
-  monitor updates add    -u <url> [--strategy ...] [--pattern <regex>]
-  monitor updates remove -u <url>
-  monitor updates start  [--interval <sec>] [--daemon] [--all]
-  monitor updates stop   [--all]
-  monitor updates list
-  wpDepConf scan      -d <domain> | -l <live_hosts_file>
-  dns takeover        -d <domain>     (comprehensive scan)
-  dns cname           -d <domain>     (CNAME takeover only)
-  dns ns              -d <domain>     (NS takeover only)
-  dns azure-aws       -d <domain>     (Azure/AWS takeover only)
-  dns dnsreaper       -d <domain>     (DNSReaper scan only)
-  dns dangling-ip     -d <domain>     (Dangling IP detection only)
-  dns all             -d <domain>     (comprehensive scan)
+  sqlmap run          -d <domain>
+  gf scan             -d <domain>
+  jwt scan            --token <JWT_TOKEN> [--skip-crack] [--test-attacks] [-w <wordlist>]
+  misconfig scan      <target> [--service <id>] [--permutations]
+  misconfig service   <target> <service-id>
+  misconfig list
+  misconfig update
+
+━━━━━━━━━━━━━━━━━━━━━ DNS Takeover ━━━━━━━━━━━━━━━━━━━━━
+  dns takeover        -d <domain>    (all methods)
+  dns cname           -d <domain>
+  dns ns              -d <domain>
+  dns azure-aws       -d <domain>
+  dns dnsreaper       -d <domain>
+  dns dangling-ip     -d <domain>
+  dns all             -d <domain>
+
+━━━━━━━━━━━━━━━━━━━━━ JavaScript & Assets ━━━━━━━━━━━━━━━━━━━━━
+  js scan             -d <domain> [-s <subdomain>]
+
+━━━━━━━━━━━━━━━━━━━━━ Cloud & Storage ━━━━━━━━━━━━━━━━━━━━━
   s3 scan             -b <bucket> [-r <region>]
   s3 enum             -b <root_domain>
+  aem scan            -d <domain> | -l <live_hosts_file>
+                      [--ssrf-host <h>] [--ssrf-port <p>] [--proxy <p>] [--debug]
+
+━━━━━━━━━━━━━━━━━━━━━ GitHub Recon ━━━━━━━━━━━━━━━━━━━━━
   github scan         -r <owner/repo>
   github org          -o <org> [-m <max-repos>]
   github depconfusion -r <owner/repo>
   github experimental -r <owner/repo>
-  github-wordlist scan -o <github_org> [-t <github_token>]
-  backup scan            -d <domain> [-m <method>] [-ex <extensions>] [-o <output_dir>] [-t <threads>] [--delay <ms>]
-  backup scan            -l <live_hosts_file> [-m <method>] [-ex <extensions>] [-o <output_dir>] [-t <threads>] [--delay <ms>]
-  backup scan            -f <domains_file> [-m <method>] [-ex <extensions>] [-o <output_dir>] [-t <threads>] [--delay <ms>]
-                         Methods: regular, withoutdots, withoutvowels, reverse, mixed, withoutdv, shuffle, all
-                         Extensions: comma-separated (e.g., .rar,.zip,.tar.gz) - default: all (uses all common backup extensions)
-  aem scan               -d <domain> | -l <live_hosts_file> [-o <output_dir>] [-t <threads>] [--ssrf-host <host>] [--ssrf-port <port>] [--proxy <proxy>] [--debug] [--handler <handler>...]
-                         Scans for AEM webapps and tests for vulnerabilities
-  apkx scan              -i <apk_or_ipa_path> | -p <package_id> [--platform android|ios] [-o <output_dir>] [--mitm]
-  apkx mitm              -i <apk_path> [-o <output_dir>] | -p <package_name> [-o <output_dir>]
-  depconfusion scan <file>                    Scan local dependency file
-  depconfusion github repo <owner/repo>       Scan GitHub repository
-  depconfusion github org <org>               Scan GitHub organization
-  depconfusion web <url> [url2] [url3]...     Scan web targets
-  depconfusion web-file <file>                Scan targets from file
-  misconfig scan <target> [--service <id>] [--delay <ms>] [--permutations]   Scan for misconfigurations
-  misconfig service <target> <service-id>     Scan specific service
-  scope -p <platform> [options]              Fetch scope from bug bounty platforms
-                         Platforms: h1 (HackerOne), bc (Bugcrowd), it (Intigriti), ywh (YesWeHack), immunefi
-                         Options:
-                           -u, --username     Username (for HackerOne)
-                           -t, --token        API token (required for most platforms)
-                           -e, --email        Email (for Bugcrowd/YesWeHack login)
-                           -P, --password     Password (for Bugcrowd/YesWeHack login)
-                           -c, --categories   Categories filter (default: all)
-                           -o, --output       Output file path (default: stdout)
-                           --bbp-only         Only fetch programs offering monetary rewards
-                           --pvt-only         Only fetch private programs
-                           --include-oos      Include out-of-scope items
-                           --public-only      Only fetch public programs (HackerOne)
-                           --active-only      Only fetch active programs (HackerOne)
-                           --extract-roots    Extract root domains (default: true)
-                           --no-extract-roots Output raw targets instead of root domains
-                           --concurrency      Concurrency level (default: 3)
-  misconfig list                              List available services
-  misconfig update                            Update templates
-  keyhack list                                List all API key validation templates
-  keyhack search <query>                      Search API key validation templates
-  keyhack validate <provider> <api_key>       Generate validation command for API key
-  keyhack add <keyname> <command> <desc> [notes] Add a new template
-  jwt scan             --token <JWT_TOKEN> [OPTIONS]                Scan JWT token for vulnerabilities using jwt-hack
-                                                                    Options: --skip-crack, --skip-payloads, --test-attacks, -w wordlist, --max-crack-attempts N
-  zerodays scan        -d <domain> | -s <subdomain> | -f <domains_file> [-t <threads>] [--cve <cve>] [--dos-test] [--enable-source-exposure] [--mongodb-host <host>] [--mongodb-port <port>] [--silent]
-                                                                    For each domain: collects live hosts, then runs smart scan
-                                                                    --silent: Output only vulnerable hosts (one per line, no progress)
-  ffuf fuzz            -u <url> | -d <domain> [-w <wordlist>] [-t <threads>] [--concurrency <n>] [--recursion] [--recursion-depth <depth>] [--bypass-403] [-e <extensions>] [--header <key:value>]
-                                                                    Fuzz URLs with ffuf, filtering only 200 status codes
-                                                                    Real-time size-based deduplication (skips duplicate response sizes)
-                                                                    --bypass-403: Attempts 403 bypass techniques (headers and path modifications)
-                                                                    Default wordlist: Wordlists/quick_fuzz.txt
-                                                                    Single URL mode (-u): URL must contain FUZZ placeholder (e.g., https://target.com/FUZZ)
-                                                                    Domain mode (-d): Fuzz all live hosts for the domain with concurrency (default: 5 hosts)
-                                                                    Domain mode: searches live-subs.txt, checks database, or runs livehosts module if needed
-  monitor subdomains   -d <domain> [-t <threads>] [--check-new]   Monitor subdomain status changes (one-time check)
-                                                                    Detects: new subdomains, status changes, live/dead changes
-  monitor subdomains manage <action> [options]                     Manage automatic subdomain monitoring targets
-                                                                    Actions: list, add, remove, start, stop
-                                                                    Options for add: -d <domain> -i <interval> -t <threads> [--check-new]
-                                                                    Options for start/stop: --id <id> | -d <domain> | --all
+  github-wordlist scan -o <github_org> [-t <token>]
+  depconfusion scan   <file>
+  depconfusion github repo <owner/repo>
+  depconfusion github org <org>
+  depconfusion web    <url> [url2]...
+  depconfusion web-file <file>
 
-Workflows:
-  lite run            -d <domain>                               Full scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig
-  fastlook run        -d <domain>                               Quick recon: subdomains → live hosts → URLs/JS collection
-  domain run          -d <domain> [--skip-ffuf]                 Full domain workflow: enumerate everything, ports, vuln scan, github, etc.
-  subdomain run       -s <subdomain>                            Full workflow on a single subdomain: live check → ports → JS → vuln scan → nuclei
+━━━━━━━━━━━━━━━━━━━━━ Other Modules ━━━━━━━━━━━━━━━━━━━━━
+  wpDepConf scan      -d <domain> | -l <live_hosts_file>
+  backup scan         -d <domain> | -l <file> | -f <domains_file>
+                      [-m <method>] [-ex .zip,.rar] [-t <threads>]
+                      Methods: regular, withoutdots, withoutvowels, reverse, mixed, all
+  ffuf fuzz           -u <url_with_FUZZ> | -d <domain>
+                      [-w <wordlist>] [--bypass-403] [--recursion]
+  asr                 -d <domain> [-mode 1-5] [-t <threads>]
+  apkx scan           -i <apk|ipa_path> | -p <package_id> [--platform android|ios]
+  apkx mitm           -i <apk_path> | -p <package_name>
+  keyhack list
+  keyhack search      <query>
+  keyhack validate    <provider> <api_key>
+  keyhack add         <keyname> <command> <desc> [notes]
 
-Database:
+━━━━━━━━━━━━━━━━━━━━━ Monitoring ━━━━━━━━━━━━━━━━━━━━━
+  monitor subdomains  -d <domain> [-t <threads>] [--check-new]
+                      One-time check: detects new/dead/live-status changes
+  monitor subdomains manage add    -d <domain> -i <interval-sec> [-t <threads>] [--check-new]
+  monitor subdomains manage list
+  monitor subdomains manage start  --id <id> | -d <domain> | --all
+  monitor subdomains manage stop   --id <id> | -d <domain> | --all
+                      Background daemon with Discord alerts + DB change history ✨
+  monitor updates add    -u <url> [--strategy hash|content|regex] [--pattern <regex>]
+  monitor updates remove -u <url>
+  monitor updates start  [--id <id>] [--all]
+  monitor updates list
+
+━━━━━━━━━━━━━━━━━━━━━ Bug Bounty Scope ━━━━━━━━━━━━━━━━━━━━━
+  scope -p <platform> [options]
+        Platforms: h1 (HackerOne), bc (Bugcrowd), it (Intigriti), ywh (YesWeHack), immunefi
+        Options: -u <username>, -t <token>, -e <email>, -P <password>
+                 --bbp-only, --pvt-only, --active-only, --extract-roots
+
+━━━━━━━━━━━━━━━━━━━━━ Database ━━━━━━━━━━━━━━━━━━━━━
   db domains list
   db domains delete   -d <domain>
   db subdomains list  -d <domain>
   db subdomains export -d <domain> [-o file]
   db js list          -d <domain>
-  db backup           [--upload-r2]  Create database backup (optionally upload to R2)
+  db backup           [--upload-r2]
 
-Utilities:
+━━━━━━━━━━━━━━━━━━━━━ AI Agent Commands ✨ ━━━━━━━━━━━━━━━━━━━━━
+  status [--json]
+        Show runtime metrics & active scan progress from DB.
+        Useful for AI agents polling on long-running domain scans.
+
+  explain <result-file> [--json]
+        Feed any result file to the AI for autonomous analysis.
+        Example: autoar explain new-results/target.com/nuclei-output.txt
+
+  agent "<request>" [--json]
+        Run the full AI agent loop (≤20 iterations) from the CLI — no Discord needed.
+        Example: autoar agent "find XSS vulnerabilities on example.com"
+        Example: autoar agent "scan example.com and report critical nuclei findings" --json
+
+━━━━━━━━━━━━━━━━━━━━━ Utilities ━━━━━━━━━━━━━━━━━━━━━
   check-tools         Check if all required tools are installed
   setup               Install all AutoAR dependencies
   cleanup             Clean up the entire results directory
   help
 
-Special:
+━━━━━━━━━━━━━━━━━━━━━ Special ━━━━━━━━━━━━━━━━━━━━━
   bot                 Start Discord bot
   api                 Start REST API server
   both                Start both bot and API
@@ -329,7 +339,6 @@ func handleWPConfusion(args []string) error {
 	return wpconfusion.ScanWPConfusion(opts)
 }
 
-// handleCnamesCommand parses: autoar cnames get -d <domain>
 // handleDomainCommand parses: autoar domain run -d <domain> [--skip-ffuf]
 func handleDomainCommand(args []string) error {
 	if len(args) == 0 {
@@ -355,18 +364,35 @@ func handleDomainCommand(args []string) error {
 		return fmt.Errorf("domain (-d) is required")
 	}
 
+	// #9: create a DB scan record so `autoar status` can track this CLI-triggered scan
+	scanID := generateScanID("domain")
+	_ = db.Init()
+	_ = db.InitSchema()
+	_ = db.CreateScan(&db.ScanRecord{
+		ScanID:   scanID,
+		ScanType: "domain",
+		Target:   domain,
+		Status:   "running",
+	})
+	os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
+	defer func() {
+		_ = db.UpdateScanStatus(scanID, "done")
+		os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
+	}()
+
 	_, err := domainmod.RunDomain(domainmod.ScanOptions{
 		Domain:   domain,
 		SkipFFuf: skipFFuf,
 	})
-	
+
 	// Cleanup domain directory after scan completes (on exit, not before)
 	if cleanupErr := cleanupDomainDirectoryForCLI(domain); cleanupErr != nil {
 		fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", domain, cleanupErr)
 	}
-	
+
 	return err
 }
+
 
 // handleCnamesCommand parses: autoar cnames get -d <domain>
 // handleCnamesCommand parses: autoar cnames get -d <domain>
@@ -419,10 +445,27 @@ func handleFastlookCommand(args []string) error {
 		return fmt.Errorf("domain (-d) is required")
 	}
 
+	// #9: DB scan tracking for CLI-triggered fastlook runs
+	scanID := generateScanID("fastlook")
+	_ = db.Init()
+	_ = db.InitSchema()
+	_ = db.CreateScan(&db.ScanRecord{
+		ScanID:   scanID,
+		ScanType: "fastlook",
+		Target:   domain,
+		Status:   "running",
+	})
+	os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
+	defer func() {
+		_ = db.UpdateScanStatus(scanID, "done")
+		os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
+	}()
+
 	// Run fastlook with no file callback
 	_, err := fastlook.RunFastlook(domain, nil)
 	return err
 }
+
 
 
 
@@ -577,9 +620,31 @@ func handleLiteCommand(args []string) error {
 		return fmt.Errorf("domain (-d) is required; usage: lite run -d <domain>")
 	}
 
+	// #9: DB scan tracking for CLI-triggered lite runs
+	scanID := generateScanID("lite")
+	_ = db.Init()
+	_ = db.InitSchema()
+	_ = db.CreateScan(&db.ScanRecord{
+		ScanID:   scanID,
+		ScanType: "lite",
+		Target:   opts.Domain,
+		Status:   "running",
+	})
+	os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
+	defer func() {
+		_ = db.UpdateScanStatus(scanID, "done")
+		os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
+	}()
+
 	_, err := lite.RunLite(opts)
 	return err
 }
+
+// generateScanID returns a unique scan ID with a given prefix.
+func generateScanID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
+
 
 // handleNucleiCommand parses: autoar nuclei run -d <domain> | -u <url> [-m <mode>] [-t <threads>]
 func handleNucleiCommand(args []string) error {
@@ -615,9 +680,68 @@ func handleNucleiCommand(args []string) error {
 			}
 		}
 	}
-	_, err := nuclei.RunNuclei(opts)
-	return err
+
+	jsonOut := false
+	for _, a := range args {
+		if a == "--json" || a == "-j" {
+			jsonOut = true
+		}
+	}
+
+	res, err := nuclei.RunNuclei(opts)
+	if err != nil {
+		return err
+	}
+	if jsonOut && res != nil {
+		type NucleiOut struct {
+			Domain      string   `json:"domain"`
+			Total       int      `json:"total_findings"`
+			Critical    int      `json:"critical"`
+			High        int      `json:"high"`
+			Medium      int      `json:"medium"`
+			Low         int      `json:"low"`
+			Info        int      `json:"info"`
+			ResultFiles []string `json:"result_files"`
+		}
+		out := NucleiOut{Domain: opts.Domain, ResultFiles: res.ResultFiles}
+		// Parse each result file for nuclei JSONL severity fields
+		for _, fpath := range res.ResultFiles {
+			data, ferr := os.ReadFile(fpath)
+			if ferr != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || !strings.Contains(line, "severity") {
+					continue
+				}
+				var finding map[string]interface{}
+				if json.Unmarshal([]byte(line), &finding) != nil {
+					continue
+				}
+				sev, _ := finding["severity"].(string)
+				switch strings.ToLower(sev) {
+				case "critical":
+					out.Critical++
+				case "high":
+					out.High++
+				case "medium":
+					out.Medium++
+				case "low":
+					out.Low++
+				default:
+					out.Info++
+				}
+			}
+		}
+		out.Total = out.Critical + out.High + out.Medium + out.Low + out.Info
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	}
+	return nil
 }
+
 
 // handleReflectionCommand parses: autoar reflection scan -d <domain>
 func handleReflectionCommand(args []string) error {
@@ -3632,6 +3756,15 @@ func main() {
 		fmt.Println("Starting both bot and API...")
 		err = gobot.StartBoth()
 
+	case "status":
+		err = handleStatusCommand(args)
+
+	case "explain":
+		err = handleExplainCommand(args)
+
+	case "agent":
+		err = handleAgentCommand(args)
+
 	// Help
 	case "help", "--help", "-h":
 		printUsage()
@@ -3759,3 +3892,178 @@ Options:
   -h, --help                 Show this help message`)
 }
 
+// handleStatusCommand — autoar status [--json]
+// Prints runtime metrics and DB scan progress (useful for AI agent polling).
+func handleStatusCommand(args []string) error {
+	jsonOut := false
+	for _, a := range args {
+		if a == "--json" || a == "-j" {
+			jsonOut = true
+		}
+	}
+
+	m := utils.GetMetrics()
+	snap := m.GetSnapshot()
+
+	_ = db.Init()
+	_ = db.InitSchema()
+
+	var activeScans []*db.ScanRecord
+	if scans, err := db.ListRecentScans(50); err == nil {
+		for _, s := range scans {
+			if s.Status == "running" || s.Status == "starting" {
+				activeScans = append(activeScans, s)
+			}
+		}
+	}
+
+	if jsonOut {
+		type StatusOut struct {
+			Metrics     utils.MetricsSnapshot `json:"metrics"`
+			ActiveScans []*db.ScanRecord      `json:"active_scans"`
+		}
+		out := StatusOut{Metrics: snap, ActiveScans: activeScans}
+		if activeScans == nil {
+			out.ActiveScans = []*db.ScanRecord{}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	}
+
+	uptime := time.Duration(snap.Uptime * float64(time.Second)).Round(time.Second)
+	fmt.Printf("═══════════════════ AutoAR Status ═══════════════════\n")
+	fmt.Printf("  Uptime          : %s\n", uptime)
+	fmt.Printf("  Active scans    : %d\n", snap.ActiveScans)
+	fmt.Printf("  Completed scans : %d\n", snap.CompletedScans)
+	fmt.Printf("  Failed scans    : %d\n", snap.FailedScans)
+	fmt.Printf("  Total errors    : %d\n", snap.TotalErrors)
+	fmt.Printf("  Files uploaded  : %d (failed: %d)\n", snap.FilesSent, snap.FilesFailedSend)
+	if !snap.LastScanTime.IsZero() {
+		fmt.Printf("  Last scan       : %s ago\n", time.Since(snap.LastScanTime).Round(time.Second))
+	}
+	if len(activeScans) > 0 {
+		fmt.Printf("\nActive scans (from DB):\n")
+		for _, s := range activeScans {
+			elapsed := time.Since(s.StartedAt).Round(time.Second)
+			phasePct := 0
+			if s.TotalPhases > 0 {
+				phasePct = (s.CurrentPhase * 100) / s.TotalPhases
+			}
+			fmt.Printf("  [%s] %s %s — phase %d/%d (%d%%) — elapsed %s\n",
+				s.Status, s.ScanType, s.Target,
+				s.CurrentPhase, s.TotalPhases, phasePct, elapsed)
+			if s.PhaseName != "" {
+				fmt.Printf("    current phase : %s\n", s.PhaseName)
+			}
+		}
+	} else {
+		fmt.Println("\nNo actively running scans in the database.")
+	}
+	return nil
+}
+
+// handleExplainCommand — autoar explain <result-file> [--json]
+// Feeds a result file to ExecuteAutonomous for AI-driven analysis.
+func handleExplainCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: autoar explain <result-file> [--json]")
+	}
+	jsonOut := false
+	var filePath string
+	for _, a := range args {
+		if a == "--json" || a == "-j" {
+			jsonOut = true
+		} else if !strings.HasPrefix(a, "-") {
+			if filePath == "" {
+				filePath = a
+			}
+		}
+	}
+	if filePath == "" {
+		return fmt.Errorf("usage: autoar explain <result-file> [--json]")
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("cannot read file %q: %w", filePath, err)
+	}
+
+	if !jsonOut {
+		fmt.Printf("[*] Analysing %s with AI…\n", filePath)
+	}
+
+	analysis, err := brain.ExecuteAutonomous(string(content))
+	if err != nil {
+		return fmt.Errorf("AI analysis failed: %w", err)
+	}
+
+	if jsonOut {
+		type ExplainOut struct {
+			File     string `json:"file"`
+			Analysis string `json:"analysis"`
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(ExplainOut{File: filePath, Analysis: analysis})
+	}
+
+	fmt.Println()
+	fmt.Println(analysis)
+	return nil
+}
+
+// handleAgentCommand — autoar agent "<request>" [--json]
+// Exposes brain.RunAgentLoop as a first-class CLI command, so any tool
+// (CoPaw, scripts, CI/CD) can trigger the full AI hunt without Discord.
+func handleAgentCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: autoar agent \"<natural language request>\" [--json]\nexample: autoar agent \"find XSS on example.com\"")
+	}
+	jsonOut := false
+	var parts []string
+	for _, a := range args {
+		if a == "--json" || a == "-j" {
+			jsonOut = true
+		} else {
+			parts = append(parts, a)
+		}
+	}
+	request := strings.Join(parts, " ")
+	if request == "" {
+		return fmt.Errorf("request string is required")
+	}
+
+	if !jsonOut {
+		fmt.Printf("[*] AutoAR agent starting for: %s\n", request)
+		fmt.Printf("[*] Max iterations: %d\n\n", brain.MaxAgentIterations)
+	}
+
+	progressFn := func(msg string) {
+		if !jsonOut {
+			clean := strings.ReplaceAll(msg, "**", "")
+			clean = strings.ReplaceAll(clean, "`", "")
+			fmt.Println(clean)
+		}
+	}
+
+	result, err := brain.RunAgentLoop(request, progressFn)
+	if err != nil {
+		return fmt.Errorf("agent loop failed: %w", err)
+	}
+
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	fmt.Println()
+	if result.Summary != "" {
+		fmt.Printf("═══ Agent Summary ═══\n%s\n", result.Summary)
+	}
+	for i, report := range result.Reports {
+		fmt.Printf("\n═══ Report %d ═══\n%s\n", i+1, report)
+	}
+	return nil
+}

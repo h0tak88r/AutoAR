@@ -33,6 +33,8 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | 📱 **Mobile Apps** | APK/IPA analysis with MobSF + MITM traffic interception |
 | ⚙️ **Misconfigs** | 100+ service misconfiguration checks |
 | 🏴‍☠️ **BB Scope** | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack, Immunefi |
+| 🔄 **Monitoring** | Subdomain + URL change monitoring daemon with Discord alerts & DB history |
+| 🤖 **AI Agent CLI** | Full AI hunt loop as a CLI command: `autoar agent "find XSS on example.com"` |
 | 📤 **R2 Storage** | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL |
 
 ---
@@ -219,6 +221,8 @@ Options:
 
 ### Subdomain Monitoring
 
+The monitoring daemon uses a dedicated `last_run_at` DB column (fixes the old timer bug), persists every detected change to `monitor_changes` for history, and sends Discord webhook alerts automatically.
+
 ```
 autoar monitor subdomains -d <domain>         One-time check for subdomain changes
                           [--check-new]       Alert on newly discovered subdomains
@@ -228,6 +232,29 @@ autoar monitor subdomains manage list
 autoar monitor subdomains manage start  --all | --id <id> | -d <domain>
 autoar monitor subdomains manage stop   --all
 ```
+
+### AI Agent Commands
+
+Autonomous bug hunting directly from the terminal — no Discord required.
+
+```
+autoar agent "<request>" [--json]
+    Run the full AI agent loop (up to 20 iterations) from the CLI.
+    Example: autoar agent "find XSS vulnerabilities on example.com"
+    Example: autoar agent "full recon on example.com" --json
+
+autoar explain <result-file> [--json]
+    Feed any scan result file to the AI for triage and follow-up suggestions.
+    Example: autoar explain new-results/example.com/nuclei-output.txt
+    Example: autoar explain new-results/example.com/js-secrets.txt --json
+
+autoar status [--json]
+    Show runtime metrics and DB scan progress.
+    Useful for AI agents polling long-running scans:
+    Example: autoar status --json
+    Returns: { "active_scans": [ { "target": "...", "current_phase": 4, "total_phases": 12 } ] }
+```
+
 
 ### Database & Results
 

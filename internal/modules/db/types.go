@@ -77,6 +77,18 @@ type DB interface {
 	// GetSubdomainMonitorTargetByID returns a single subdomain monitor target by ID
 	GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error)
 
+	// UpdateSubdomainMonitorLastRun updates last_run_at to now for a subdomain monitor target
+	UpdateSubdomainMonitorLastRun(id int) error
+
+	// UpdateMonitorTargetLastRun updates last_hash and last_run_at for a URL monitor target
+	UpdateMonitorTargetLastRun(id int, hash string, changed bool) error
+
+	// InsertMonitorChange records a detected change in the monitor_changes table
+	InsertMonitorChange(change *MonitorChange) error
+
+	// ListMonitorChanges lists recent monitor changes, optionally filtered by domain
+	ListMonitorChanges(domain string, limit int) ([]MonitorChange, error)
+
 	// DNS Takeover Providers
 	ListVulnerableDNSProviders() (map[string]string, error)
 	AddVulnerableDNSProvider(name, fingerprint string) error
@@ -142,27 +154,43 @@ type KeyhackTemplate struct {
 	Description     string
 }
 
-// MonitorTarget represents a monitoring target
+// MonitorTarget represents a URL/page monitoring target
 type MonitorTarget struct {
-	ID        int
-	URL       string
-	Strategy  string
-	Pattern   string
-	IsRunning bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            int
+	URL           string
+	Strategy      string
+	Pattern       string
+	IsRunning     bool
+	LastHash      string    // hash of last fetched content (for change detection)
+	LastRunAt     *time.Time // when this target was last actually checked
+	ChangeCount   int       // total number of changes detected
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // SubdomainMonitorTarget represents a subdomain monitoring target
 type SubdomainMonitorTarget struct {
 	ID        int
 	Domain    string
-	Interval  int // Check interval in seconds
-	Threads   int // Threads for httpx
-	CheckNew  bool // Check for new subdomains
+	Interval  int        // Check interval in seconds
+	Threads   int        // Threads for httpx
+	CheckNew  bool       // Check for new subdomains
 	IsRunning bool
+	LastRunAt *time.Time // when this target was last actually checked (NOT the same as UpdatedAt)
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// MonitorChange records a detected change for history/querying
+type MonitorChange struct {
+	ID          int
+	TargetType  string    // "subdomain" | "url"
+	TargetID    int       // FK to subdomain_monitor_targets or updates_targets
+	Domain      string    // domain or URL being monitored
+	ChangeType  string    // "new_subdomain", "became_live", "became_dead", "status_changed", "content_changed"
+	Detail      string    // JSON blob with old/new values
+	DetectedAt  time.Time
+	Notified    bool      // whether a Discord alert was sent
 }
 
 // SubdomainStatus represents a subdomain with its status information
