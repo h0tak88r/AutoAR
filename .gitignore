@@ -42,8 +42,9 @@ Thumbs.db
 # API logs
 api.log
 autoar_api.log
+autoar-bot.log
 autoAR.log
-
+logs/
 # Service files
 *.service
 
