@@ -199,7 +199,7 @@ func handleAIChat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 					Title:       title,
 					Description: report,
 					Color:       0xFF6600,
-					Footer:      &discordgo.MessageEmbedFooter{Text: "AutoAR AI Agent · Gemini 2.0 Flash"},
+					Footer:      &discordgo.MessageEmbedFooter{Text: "AutoAR AI Agent · Step-3.5 Flash"},
 				}
 				s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 					Embeds: []*discordgo.MessageEmbed{embed},
@@ -279,7 +279,7 @@ func handleAIChat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Title:       "🤖 AutoAR AI",
 		Description: replyText,
 		Color:       0x7289DA,
-		Footer:      &discordgo.MessageEmbedFooter{Text: "Powered by Gemini 2.0 Flash · AutoAR AI Mode"},
+		Footer:      &discordgo.MessageEmbedFooter{Text: "Powered by Step-3.5 Flash · AutoAR AI Mode"},
 		Timestamp:   time.Now().Format(time.RFC3339),
 	}
 
