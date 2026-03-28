@@ -34,7 +34,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | ⚙️ **Misconfigs** | 100+ service misconfiguration checks |
 | 🏴‍☠️ **BB Scope** | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack, Immunefi |
 | 🔄 **Monitoring** | Subdomain + URL change monitoring daemon with Discord alerts & DB history |
-| 🤖 **AI Agent CLI** | Full AI hunt loop as a CLI command: `autoar agent "find XSS on example.com"` |
+| 🤖 **AI Agent** | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required |
 | 📤 **R2 Storage** | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL |
 
 ---
@@ -256,6 +256,40 @@ autoar status [--json]
 ```
 
 
+---
+
+## 🤖 AI-Driven Security Framework — Free for Everyone
+
+As of the latest release, AutoAR's AI engine runs on **[`stepfun/step-3.5-flash:free`](https://openrouter.ai/stepfun/step-3.5-flash:free)** via [OpenRouter](https://openrouter.ai). This is a **completely free model** — no credits, no billing required.
+
+> **Every AutoAR user can now access a full AI-driven bug bounty framework at zero cost** — just sign up for a free OpenRouter account and paste your key into `.env`.
+
+### What the AI powers
+
+| Discord Command | What it does |
+|---|---|
+| `/ai message:<request>` | Chat with AutoAR AI in natural language. Describe your target and it will queue the right scans automatically. |
+| `/ai message:<request> agent_mode:True` | Autonomous agent loop — the AI plans, runs tools, validates findings, and reports confirmed bugs. |
+| `/ai message:<request> dry_run:True` | Preview what scans would run without executing anything. |
+| `/brain` | AI analysis of your latest scan results — suggests next-step attacks and highlights interesting findings. |
+| `autoar agent "<request>"` | Same autonomous agent loop from the terminal (no Discord needed). |
+| `autoar explain <result-file>` | Feed any result file to the AI for triage and follow-up suggestions. |
+
+### Getting your free OpenRouter key
+
+1. Go to [openrouter.ai](https://openrouter.ai) and create a **free account** (no credit card required for free models)
+2. Navigate to **Keys** → **Create Key**
+3. Copy your key and add it to `.env`:
+
+```env
+OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+That's it. AutoAR will automatically use `stepfun/step-3.5-flash:free` for all `/ai` and `/brain` commands.
+
+> **Tip:** If `OPENROUTER_API_KEY` is set, it is used first. `GEMINI_API_KEY` is a fallback for direct Gemini access. You only need one of the two.
+
+
 ### Database & Results
 
 ```
@@ -419,8 +453,12 @@ ZOOMEYE_PASSWORD=...
 H1_API_KEY=...           # HackerOne
 INTEGRITI_API_KEY=...    # Intigriti
 
-# AI analysis
-OPENROUTER_API_KEY=...   # For AI-driven scan analysis
+# AI analysis — only ONE key is needed
+# ✅ Recommended: OpenRouter free tier (no credit card required)
+#    Sign up at https://openrouter.ai · Uses stepfun/step-3.5-flash:free automatically
+OPENROUTER_API_KEY=...   # Powers /ai, /brain, and `autoar agent` — completely free
+
+# Optional fallback: direct Gemini API (only if you don't use OpenRouter)
 GEMINI_API_KEY=...
 ```
 
