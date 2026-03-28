@@ -48,7 +48,7 @@ type AICommandList struct {
 }
 
 const (
-	DefaultModel         = "google/gemini-2.0-flash-001"
+	DefaultModel         = "stepfun/step-3.5-flash:free"
 	OpenRouterEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
 	GeminiDirectEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 	MaxAgentIterations   = 20 // increased from 8 — complex hunts need subdomains+live+ports+nuclei+js+gf+validations
