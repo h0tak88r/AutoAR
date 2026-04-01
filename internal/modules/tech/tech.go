@@ -87,11 +87,7 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	}
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No live hosts found; creating empty tech file for %s", domain)
-		if f, err := os.Create(outFile); err == nil {
-			f.WriteString("No live hosts found for technology detection.\n")
-			f.Close()
-		}
+		log.Printf("[WARN] No live hosts found for %s; skipping tech detection", domain)
 		return &Result{
 			Domain:     domain,
 			Hosts:      0,
