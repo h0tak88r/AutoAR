@@ -172,9 +172,6 @@ func handleScan(opts Options, resultsDir string) error {
 				return fmt.Errorf("failed to write result: %w", err)
 			}
 		}
-	} else {
-		// Write "no results" message to file
-		f.WriteString("No misconfiguration findings found.\n")
 	}
 
 	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings)\n", opts.Target, len(allResults))
