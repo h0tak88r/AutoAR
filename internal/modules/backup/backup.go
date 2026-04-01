@@ -189,11 +189,6 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 	
-	// Always write a message if no results found
-	if foundCount == 0 {
-		resultsFH.WriteString("No backup files found.\n")
-	}
-	
 	log.Printf("[INFO] Backup scan: Wrote %d backup URLs to results file: %s", foundCount, resultsFile)
 
 	res.Duration = time.Since(start)

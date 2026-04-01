@@ -537,17 +537,19 @@ func checkAzureAWS(domainDir, findingsDir, subsFile string) error {
 		return err
 	}
 
-	// Append simple summary to combo file
-	summary := []string{
-		"=== AZURE & AWS SUBDOMAIN TAKEOVER DETECTION SUMMARY ===",
-		"Scan Date: " + timeNowString(),
-		fmt.Sprintf("Total Subdomains Checked: %d", mustCount(subsFile)),
-		fmt.Sprintf("Azure Vulnerabilities Found: %d", azureCount),
-		fmt.Sprintf("AWS Vulnerabilities Found: %d", awsCount),
-		fmt.Sprintf("Total Vulnerabilities: %d", vulnCount),
-	}
-	if err := appendLines(comboOut, summary...); err != nil {
-		return err
+	// Append simple summary to combo file only if vulnerabilities were found
+	if vulnCount > 0 {
+		summary := []string{
+			"=== AZURE & AWS SUBDOMAIN TAKEOVER DETECTION SUMMARY ===",
+			"Scan Date: " + timeNowString(),
+			fmt.Sprintf("Total Subdomains Checked: %d", mustCount(subsFile)),
+			fmt.Sprintf("Azure Vulnerabilities Found: %d", azureCount),
+			fmt.Sprintf("AWS Vulnerabilities Found: %d", awsCount),
+			fmt.Sprintf("Total Vulnerabilities: %d", vulnCount),
+		}
+		if err := appendLines(comboOut, summary...); err != nil {
+			return err
+		}
 	}
 
 	// Send findings to webhook if configured
