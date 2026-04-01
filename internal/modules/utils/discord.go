@@ -76,11 +76,7 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 
 	if len(existingFiles) == 0 {
 		log.Printf("[DEBUG] [DISCORD] No valid files to send for phase %s", phaseName)
-		// Send a short ⚪ message indicating 0 findings
-		msg := fmt.Sprintf("⚪ **%s** — 0 findings", phaseName)
-		if domain != "" {
-			msg = fmt.Sprintf("⚪ **%s** — 0 findings for `%s`", phaseName, domain)
-		}
+		msg := phaseNoResultsMessage(phaseName, domain)
 		SendWebhookLogAsync(msg)
 		return nil
 	}
@@ -416,3 +412,51 @@ func GetPhaseFiles(phaseName, domain string) []string {
 	return files
 }
 
+// phaseNoResultsMessage returns a styled Discord message for a phase that yielded zero results
+func phaseNoResultsMessage(phaseName, domain string) string {
+	target := domain
+	if target == "" {
+		target = "targets"
+	} else {
+		target = "`" + target + "`"
+	}
+
+	switch phaseName {
+	case "ports":
+		return fmt.Sprintf("[ ⚪ ] **Port Scan** — No open ports found (excluding 80, 443, 8080, 8443) for %s", target)
+	case "aem", "aem_scan":
+		return fmt.Sprintf("[ ⚪ ] **AEM Scan** — No AEM instances discovered for %s", target)
+	case "tech":
+		return fmt.Sprintf("[ ⚪ ] **Tech Detection** — No live hosts found for %s", target)
+	case "backup":
+		return fmt.Sprintf("[ ⚪ ] **Backup Scan** — No backup files found for %s", target)
+	case "misconfig":
+		return fmt.Sprintf("[ ⚪ ] **Misconfig Scan** — No misconfigurations found for %s", target)
+	case "subdomains":
+		return fmt.Sprintf("[ ⚪ ] **Subdomains** — No subdomains found for %s", target)
+	case "livehosts":
+		return fmt.Sprintf("[ ⚪ ] **Live Hosts** — No live hosts found for %s", target)
+	case "urls":
+		return fmt.Sprintf("[ ⚪ ] **URLs** — No interesting URLs found for %s", target)
+	case "jsscan", "js":
+		return fmt.Sprintf("[ ⚪ ] **JS Scan** — No JavaScript vulnerabilities found for %s", target)
+	case "nuclei":
+		return fmt.Sprintf("[ ⚪ ] **Nuclei** — No vulnerabilities found for %s", target)
+	case "gf":
+		return fmt.Sprintf("[ ⚪ ] **GF Patterns** — No vulnerable parameters found for %s", target)
+	case "s3":
+		return fmt.Sprintf("[ ⚪ ] **S3 Scan** — No exposed buckets found for %s", target)
+	case "githubscan":
+		return fmt.Sprintf("[ ⚪ ] **GitHub Scan** — No secrets found for %s", target)
+	case "zerodays", "0days":
+		return fmt.Sprintf("[ ⚪ ] **0-Days** — No zero-day vulnerabilities found for %s", target)
+	case "ffuf":
+		return fmt.Sprintf("[ ⚪ ] **Fuzzing** — No hidden directories found for %s", target)
+	default:
+		name := phaseName
+		if len(phaseName) > 0 {
+			name = strings.ToUpper(string(phaseName[0])) + phaseName[1:]
+		}
+		return fmt.Sprintf("[ ⚪ ] **%s** — 0 findings for %s", name, target)
+	}
+}
