@@ -63,36 +63,14 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	count, err := naabutool.ScanFromFile(subsFile, threads, outFile)
 	if err != nil {
 		log.Printf("[WARN] Naabu scan failed: %v", err)
-		// Create empty file with "no results" message
-		if f, err := os.Create(outFile); err == nil {
-			f.WriteString("No open ports found (excluding ports 80, 443, 8080 and 8443).\n")
-			f.Close()
-		}
 		count = 0
-	} else {
-		// Check if file is empty and write "no results" message if so
-		if info, err := os.Stat(outFile); err == nil && info.Size() == 0 {
-			if f, err := os.OpenFile(outFile, os.O_WRONLY|os.O_APPEND, 0644); err == nil {
-				f.WriteString("No open ports found (excluding ports 80, 443, 8080 and 8443).\n")
-				f.Close()
-			}
-		}
 	}
 	log.Printf("[OK] Port scan completed, found %d open ports", count)
 
 	// Send result files to Discord webhook if configured (only when not running under bot)
 	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
 	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" {
-			// Send ports.txt if it exists and has content
-			if info, err := os.Stat(outFile); err == nil && info.Size() > 0 {
-				utils.SendWebhookFileAsync(outFile, fmt.Sprintf("Port Scan Results: %d open ports found for %s", count, domain))
-			} else if count == 0 {
-				// Send "no findings" message if no ports found
-				utils.SendWebhookLogAsync(fmt.Sprintf("Port scan completed for %s: 0 open ports found (excluding ports 80, 443, 8080 and 8443)", domain))
-			}
-		}
+		utils.SendPhaseFiles("ports", domain, []string{outFile})
 	}
 
 	return &Result{

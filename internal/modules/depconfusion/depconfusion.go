@@ -357,8 +357,12 @@ func convertJSONToText(jsonFile, textFile string) error {
 	}
 
 	// Rewrite the JSON file to only contain vulnerable entries (clean up false positives at source)
-	if cleanJSON, marshalErr := json.MarshalIndent(vulnerable, "", "  "); marshalErr == nil {
-		os.WriteFile(jsonFile, cleanJSON, 0644)
+	if len(vulnerable) == 0 {
+		os.WriteFile(jsonFile, []byte{}, 0644) // Leave JSON file entirely empty
+	} else {
+		if cleanJSON, marshalErr := json.MarshalIndent(vulnerable, "", "  "); marshalErr == nil {
+			os.WriteFile(jsonFile, cleanJSON, 0644)
+		}
 	}
 
 	// Create text file
@@ -369,9 +373,7 @@ func convertJSONToText(jsonFile, textFile string) error {
 	defer f.Close()
 
 	if len(vulnerable) == 0 {
-		fmt.Fprintf(f, "=== Dependency Confusion Scan Results ===\n\n")
-		fmt.Fprintf(f, "No vulnerable packages found.\n")
-		return nil
+		return nil // Leave text file empty, do not write header or "No vulnerable packages found"
 	}
 
 	// Write header
