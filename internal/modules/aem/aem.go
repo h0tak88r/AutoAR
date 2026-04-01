@@ -106,17 +106,15 @@ func DiscoverAEM(opts Options) ([]string, error) {
 	log.Printf("[AEM] Starting AEM discovery (native Go)...")
 	discovered := DiscoverAEMFromURLs(urls, client, opts.Threads)
 
-	// Always save discovered instances (even if empty)
-	discoveredFH, err := os.Create(discoveredFile)
-	if err == nil {
-		if len(discovered) > 0 {
+	// Save discovered instances (only if found - empty files handled by SendPhaseFiles)
+	if len(discovered) > 0 {
+		discoveredFH, err := os.Create(discoveredFile)
+		if err == nil {
 			for _, url := range discovered {
 				fmt.Fprintln(discoveredFH, url)
 			}
-		} else {
-			fmt.Fprintln(discoveredFH, "No AEM instances discovered.")
+			discoveredFH.Close()
 		}
-		discoveredFH.Close()
 	}
 	
 	// Don't send individual discovery messages - will be sent in consolidated file from Run()
@@ -238,38 +236,21 @@ func Run(opts Options) (*Result, error) {
 	}
 	res.DiscoveredCount = len(discovered)
 
-	// Always create consolidated result file even if no instances discovered
+	// If no AEM instances discovered, save JSON and return (no file created — SendPhaseFiles sends message)
 	if len(discovered) == 0 {
 		log.Printf("[AEM] No AEM instances discovered")
 		
-		// Create consolidated file with "no results" message
-		consolidatedFile := filepath.Join(outputDir, "aem-scan.txt")
-		consolidatedF, err := os.Create(consolidatedFile)
-		if err == nil {
-			defer consolidatedF.Close()
-			domain := opts.Domain
-			if domain == "" && opts.LiveHostsFile != "" {
-				domain = "targets"
-			}
-			fmt.Fprintf(consolidatedF, "AEM Scan Results for %s\n", domain)
-			fmt.Fprintf(consolidatedF, "========================================\n\n")
-			fmt.Fprintf(consolidatedF, "No AEM instances discovered.\n")
-		}
-		
-		// Save empty results to JSON
+		// Save empty results to JSON only
 		allResults := map[string]interface{}{
 			"discovered_count": 0,
 			"vulnerabilities":  0,
 			"discovered":       []string{},
 			"findings":         []Finding{},
-			"scan_time":       time.Now().Format(time.RFC3339),
+			"scan_time":        time.Now().Format(time.RFC3339),
 		}
 		if data, err := json.MarshalIndent(allResults, "", "  "); err == nil {
 			os.WriteFile(resultsFile, data, 0644)
 		}
-		
-		// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
-		
 		
 		res.Duration = time.Since(startTime)
 		return res, nil
