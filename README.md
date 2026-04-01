@@ -36,6 +36,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | 🔄 **Monitoring** | Subdomain + URL change monitoring daemon with Discord alerts & DB history |
 | 🤖 **AI Agent** | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required |
 | 📤 **R2 Storage** | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL |
+| 🔔 **Smart Alerts** | Rich Discord notifications for zero-findings scans — no more empty files or spam |
 
 ---
 
