@@ -41,6 +41,9 @@ func Run(opts Options) error {
 		if opts.Strategy == "" {
 			opts.Strategy = "hash"
 		}
+		if opts.Strategy == "regex" && opts.Pattern == "" {
+			opts.Pattern = `([A-Z][a-z]{2,9} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})`
+		}
 		return handleAdd(opts.URL, opts.Strategy, opts.Pattern)
 	case "remove":
 		if opts.ID > 0 {
