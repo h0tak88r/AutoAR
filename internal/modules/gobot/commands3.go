@@ -343,6 +343,9 @@ func handleMonitorUpdatesManage(s *discordgo.Session, i *discordgo.InteractionCr
 			respond(s, i, "❌ URL is required for add action", false)
 			return
 		}
+		if strategy == "regex" && pattern == "" {
+			pattern = `([A-Z][a-z]{2,9} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})`
+		}
 		cmd = []string{autoarScript, "monitor", "updates", "add", "-u", *url, "--strategy", strategy}
 		if pattern != "" {
 			cmd = append(cmd, "--pattern", pattern)
