@@ -393,7 +393,7 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Target ID (for remove/start/stop)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "URL (for add/start/stop by URL)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "strategy", Description: "Strategy: hash|size|headers|regex (for add, default: hash)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionString, Name: "pattern", Description: "Regex pattern if strategy=regex (for add)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "pattern", Description: "Regex pattern if strategy=regex (default: date format)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionInteger, Name: "interval", Description: "Interval in seconds (for start, default: 86400)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "all", Description: "Apply to all targets (for start/stop)", Required: false},
 			},
