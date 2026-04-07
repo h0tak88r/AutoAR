@@ -45,8 +45,8 @@ func uploadResultAsync(path string) {
 	r2Key := path
 	if idx := strings.Index(path, "new-results/"); idx >= 0 {
 		r2Key = path[idx:]
-	} else if strings.HasPrefix(r2Key, "/") {
-		r2Key = r2Key[1:]
+	} else {
+		r2Key = strings.TrimPrefix(r2Key, "/")
 	}
 	r2storage.UploadResultFileAndLog(path, r2Key)
 	log.Printf("[R2] ✅ Auto-uploaded result file: %s", path)

@@ -536,19 +536,15 @@ func runSubdomainPhase(phaseKey string, step, total int, description, subdomain 
 			if err := utils.SendPhaseFiles(phaseKey, subdomainClean, existingFiles); err != nil {
 				log.Printf("[DEBUG] [SUBDOMAIN] Failed to send files for phase %s: %v", phaseKey, err)
 			}
-		} else {
-			log.Printf("[DEBUG] [SUBDOMAIN] No files found for phase %s after retries", phaseKey)
-			// Send "0 findings" message to webhook only when not under bot
-			if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+			} else {
+				log.Printf("[DEBUG] [SUBDOMAIN] No files found for phase %s after retries", phaseKey)
+				// Always send "0 findings" message, let the discord utility handle routing
 				utils.SendPhaseFiles(phaseKey, subdomainClean, []string{})
-			}
-		}	
+			}	
 		} else {
 			log.Printf("[DEBUG] [SUBDOMAIN] No expected files for phase %s", phaseKey)
-			// Send "0 findings" message to webhook only when not under bot
-			if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-				utils.SendPhaseFiles(phaseKey, subdomainClean, []string{})
-			}
+			// Always send "0 findings" message, let the discord utility handle routing
+			utils.SendPhaseFiles(phaseKey, subdomainClean, []string{})
 		}
 	}
 
