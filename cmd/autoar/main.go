@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -55,7 +54,6 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/zerodays"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
-	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
 )
 
 var (
@@ -1650,7 +1648,7 @@ func handleZerodaysCommand(args []string) error {
 
 	// Validate input
 	if domain == "" && subdomain == "" && domainsFile == "" {
-		fmt.Println("\033[1;31mError: Either domain, subdomain, or hosts file must be provided\033[0m\n")
+		fmt.Println("\033[1;31mError: Either domain, subdomain, or hosts file must be provided\033[0m")
 		printZerodaysHelp()
 		return fmt.Errorf("missing target")
 	}
@@ -1914,358 +1912,6 @@ func handleScopeCommand(args []string) error {
 	return nil
 }
 
-// Helper functions for CLI
-func getLiveHostsForCLI(domain string, threads int) (string, error) {
-	return getLiveHostsForCLIWithContext(context.Background(), domain, threads)
-}
-
-func getLiveHostsForCLIWithContext(ctx context.Context, domain string, threads int) (string, error) {
-	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
-	if resultsDir == "" {
-		resultsDir = "new-results"
-	}
-
-	subsDir := filepath.Join(resultsDir, domain, "subs")
-
-	// Check if subdomains exist in database first
-	shouldCollect := true
-	silent := os.Getenv("AUTOAR_SILENT") == "true"
-	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
-		if err := db.Init(); err == nil {
-			_ = db.InitSchema()
-			count, err := db.CountSubdomains(domain)
-			if err == nil && count > 0 {
-				if !silent {
-					fmt.Printf("[INFO] Found %d subdomains in database for %s, skipping collection\n", count, domain)
-				}
-				shouldCollect = false
-				// Load subdomains from DB and write to file for compatibility
-				subs, err := db.ListSubdomains(domain)
-				if err == nil && len(subs) > 0 {
-					allSubsFile := filepath.Join(subsDir, "all-subs.txt")
-					os.MkdirAll(subsDir, 0755)
-					if err := writeLinesToFileForCLI(allSubsFile, subs); err != nil {
-						if !silent {
-							fmt.Printf("[WARN] Failed to write subdomains from DB to file: %v\n", err)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Only collect subdomains if not in database
-	if shouldCollect {
-		// Ensure subdomains exist first
-		subCmd := exec.CommandContext(ctx, os.Args[0], "subdomains", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "-s")
-		if err := subCmd.Run(); err != nil {
-			if ctx.Err() == context.DeadlineExceeded {
-				return "", context.DeadlineExceeded
-			}
-			return "", fmt.Errorf("subdomain enumeration failed: %w", err)
-		}
-	}
-
-	// Run livehosts
-	cmd := exec.CommandContext(ctx, os.Args[0], "livehosts", "get", "-d", domain, "-t", fmt.Sprintf("%d", threads), "--silent")
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return "", context.DeadlineExceeded
-		}
-		return "", fmt.Errorf("livehosts failed: %w", err)
-	}
-
-	// Check for live hosts file
-	liveHostsFile := filepath.Join(subsDir, "live-subs.txt")
-	if fileInfo, err := os.Stat(liveHostsFile); err == nil && fileInfo.Size() > 0 {
-		return liveHostsFile, nil
-	}
-
-	// Fallback to all-subs.txt
-	allSubsFile := filepath.Join(subsDir, "all-subs.txt")
-	if fileInfo, err := os.Stat(allSubsFile); err == nil && fileInfo.Size() > 0 {
-		return allSubsFile, nil
-	}
-
-	return "", fmt.Errorf("no live hosts file found")
-}
-
-func normalizeHostsForCLI(hostsFile string) ([]string, error) {
-	data, err := os.ReadFile(hostsFile)
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(string(data), "\n")
-	normalized := make([]string, 0, len(lines))
-
-	for _, line := range lines {
-		host := strings.TrimSpace(line)
-		if host == "" {
-			continue
-		}
-		host = strings.TrimSuffix(host, "/")
-		if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
-			host = "https://" + host
-		}
-		normalized = append(normalized, host)
-	}
-
-	return normalized, nil
-}
-
-func runNext88ScanForCLI(hosts []string, extraFlags []string) ([]string, error) {
-	return runNext88ScanForCLIWithContext(context.Background(), hosts, extraFlags)
-}
-
-// runNext88ScanForCLIWithTypes returns a map of host -> vulnerability type
-func runNext88ScanForCLIWithTypes(ctx context.Context, hosts []string, extraFlags []string) (map[string]string, error) {
-	if len(hosts) == 0 {
-		return make(map[string]string), nil
-	}
-
-	opts := next88.ScanOptions{
-		Timeout:         10 * time.Second,
-		VerifySSL:       false,
-		FollowRedirects: true,
-		SafeCheck:       false,
-		Windows:         false,
-		WAFBypass:       false,
-		WAFBypassSizeKB: 128,
-		VercelWAFBypass: false,
-		Paths:           nil,
-		DoubleEncode:    false,
-		SemicolonBypass: false,
-		CheckSourceExp:  false,
-		CustomHeaders:   make(map[string]string),
-		Threads:         10,
-		Quiet:           true,
-		Verbose:         false,
-		NoColor:         true,
-		AllResults:      true,
-		DiscordWebhook:  "",
-		DOSTest:         false,
-		DOSRequests:     100,
-		SmartScan:       false,
-	}
-
-	if len(hosts) < opts.Threads {
-		opts.Threads = len(hosts)
-		if opts.Threads == 0 {
-			opts.Threads = 1
-		}
-	}
-
-	for i := 0; i < len(extraFlags); i++ {
-		flag := extraFlags[i]
-		switch flag {
-		case "-smart-scan":
-			opts.SmartScan = true
-		case "-dos-test":
-			opts.DOSTest = true
-		case "-dos-requests":
-			if i+1 < len(extraFlags) {
-				if v, err := strconv.Atoi(extraFlags[i+1]); err == nil && v > 0 {
-					opts.DOSRequests = v
-				}
-				i++
-			}
-		case "-check-source-exposure":
-			opts.CheckSourceExp = true
-		}
-	}
-
-	// Check context before running
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	results, err := next88.Run(hosts, opts)
-	if err != nil {
-		// Check if context was cancelled during execution
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			return nil, err
-		}
-	}
-
-	vulnerableHosts := make(map[string]string) // host -> vuln type
-	for _, res := range results {
-		if res.Vulnerable != nil && *res.Vulnerable {
-			host := res.Host
-			if host == "" {
-				host = res.TestedURL
-			}
-			if host == "" {
-				continue
-			}
-			hostname := extractHostnameForCLI(host)
-			if hostname != "" {
-				vulnType := res.VulnType
-				if vulnType == "" {
-					// Default based on scan type
-					if opts.DOSTest {
-						vulnType = "dos-test"
-					} else if opts.CheckSourceExp {
-						vulnType = "source-exposure"
-					} else {
-						vulnType = "normal"
-					}
-				}
-				// If host already exists, combine types (e.g., "normal,source-exposure")
-				if existingType, exists := vulnerableHosts[hostname]; exists {
-					if existingType != vulnType && !strings.Contains(existingType, vulnType) {
-						vulnerableHosts[hostname] = existingType + "," + vulnType
-					}
-				} else {
-					vulnerableHosts[hostname] = vulnType
-				}
-			}
-		}
-	}
-
-	return vulnerableHosts, nil
-}
-
-func runNext88ScanForCLIWithContext(ctx context.Context, hosts []string, extraFlags []string) ([]string, error) {
-	if len(hosts) == 0 {
-		return []string{}, nil
-	}
-
-	opts := next88.ScanOptions{
-		Timeout:         10 * time.Second,
-		VerifySSL:       false,
-		FollowRedirects: true,
-		SafeCheck:       false,
-		Windows:         false,
-		WAFBypass:       false,
-		WAFBypassSizeKB: 128,
-		VercelWAFBypass: false,
-		Paths:           nil,
-		DoubleEncode:    false,
-		SemicolonBypass: false,
-		CheckSourceExp:  false,
-		CustomHeaders:   make(map[string]string),
-		Threads:         10,
-		Quiet:           true,
-		Verbose:         false,
-		NoColor:         true,
-		AllResults:      true,
-		DiscordWebhook:  "",
-		DOSTest:         false,
-		DOSRequests:     100,
-		SmartScan:       false,
-	}
-
-	if len(hosts) < opts.Threads {
-		opts.Threads = len(hosts)
-		if opts.Threads == 0 {
-			opts.Threads = 1
-		}
-	}
-
-	for i := 0; i < len(extraFlags); i++ {
-		flag := extraFlags[i]
-		switch flag {
-		case "-smart-scan":
-			opts.SmartScan = true
-		case "-dos-test":
-			opts.DOSTest = true
-		case "-dos-requests":
-			if i+1 < len(extraFlags) {
-				if v, err := strconv.Atoi(extraFlags[i+1]); err == nil && v > 0 {
-					opts.DOSRequests = v
-				}
-				i++
-			}
-		case "-check-source-exposure":
-			opts.CheckSourceExp = true
-		}
-	}
-
-	// Check context before running
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	results, err := next88.Run(hosts, opts)
-	if err != nil {
-		// Check if context was cancelled during execution
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			return nil, err
-		}
-	}
-
-	vulnerableHosts := make(map[string]string) // host -> vuln type
-	for _, res := range results {
-		if res.Vulnerable != nil && *res.Vulnerable {
-			host := res.Host
-			if host == "" {
-				host = res.TestedURL
-			}
-			if host == "" {
-				continue
-			}
-			hostname := extractHostnameForCLI(host)
-			if hostname != "" {
-				vulnType := res.VulnType
-				if vulnType == "" {
-					// Default to "normal" if not set (for backward compatibility)
-					vulnType = "normal"
-				}
-				// If host already exists, combine types (e.g., "normal,source-exposure")
-				if existingType, exists := vulnerableHosts[hostname]; exists {
-					if existingType != vulnType && !strings.Contains(existingType, vulnType) {
-						vulnerableHosts[hostname] = existingType + "," + vulnType
-					}
-				} else {
-					vulnerableHosts[hostname] = vulnType
-				}
-			}
-		}
-	}
-
-	out := make([]string, 0, len(vulnerableHosts))
-	for h := range vulnerableHosts {
-		out = append(out, h)
-	}
-
-	return out, nil
-}
-
-func extractHostnameForCLI(url string) string {
-	url = strings.TrimPrefix(url, "https://")
-	url = strings.TrimPrefix(url, "http://")
-	parts := strings.Split(url, "/")
-	host := parts[0]
-	parts = strings.Split(host, ":")
-	return parts[0]
-}
-
-// writeLinesToFileForCLI writes lines to a file
-func writeLinesToFileForCLI(path string, lines []string) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	for _, line := range lines {
-		if _, err := fmt.Fprintln(file, line); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // handleAEMCommand routes AEM scan commands
 func handleAEMCommand(args []string) error {
@@ -3242,8 +2888,9 @@ func handleDNSCommand(args []string) error {
 	sub := args[0]
 	subArgs := args[1:]
 
-	// parse -d/--domain
+	// parse -d/--domain and -s/--subdomain
 	var domain string
+	var subdomain string
 	for i := 0; i < len(subArgs); i++ {
 		switch subArgs[i] {
 		case "-d", "--domain":
@@ -3251,9 +2898,14 @@ func handleDNSCommand(args []string) error {
 				domain = subArgs[i+1]
 				i++
 			}
+		case "-s", "--subdomain":
+			if i+1 < len(subArgs) {
+				subdomain = subArgs[i+1]
+				i++
+			}
 		}
 	}
-	if domain == "" {
+	if domain == "" && subdomain == "" {
 		return fmt.Errorf("domain (-d) is required")
 	}
 
@@ -3271,15 +2923,39 @@ func handleDNSCommand(args []string) error {
 	case "dangling-ip":
 		return dns.DanglingIP(domain)
 	case "cf1016", "cloudflare-1016":
-		result, err := cf1016mod.Run(cf1016mod.Options{
+		opts := cf1016mod.Options{
 			Domain:  domain,
 			Threads: 100,
-		})
+		}
+		// -s/--subdomain: scan a single subdomain directly (no live-subs.txt required)
+		if subdomain != "" {
+			tmpFile, err := os.CreateTemp("", "cf1016-sub-*.txt")
+			if err != nil {
+				return fmt.Errorf("cf1016: failed to create temp file: %w", err)
+			}
+			tmpPath := tmpFile.Name()
+			defer os.Remove(tmpPath)
+			if _, err := fmt.Fprintln(tmpFile, subdomain); err != nil {
+				tmpFile.Close()
+				return fmt.Errorf("cf1016: failed to write temp file: %w", err)
+			}
+			tmpFile.Close()
+			opts.SubdomainsFile = tmpPath
+			// Fall back to subdomain as domain label for output path
+			if opts.Domain == "" {
+				opts.Domain = subdomain
+			}
+		}
+		result, err := cf1016mod.Run(opts)
 		if err != nil {
 			return err
 		}
+		target := domain
+		if subdomain != "" {
+			target = subdomain
+		}
 		if len(result.Findings) == 0 {
-			fmt.Printf("[cf1016] No Cloudflare 1016 dangling records found for %s\n", domain)
+			fmt.Printf("[cf1016] No Cloudflare 1016 dangling records found for %s\n", target)
 		} else {
 			fmt.Printf("[cf1016] Found %d dangling record(s). Results: %s\n", len(result.Findings), result.Output)
 		}
