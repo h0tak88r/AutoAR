@@ -582,17 +582,13 @@ func runDomainPhase(phaseKey string, step, total int, description, domain string
 				}
 			} else {
 				log.Printf("[DEBUG] [DOMAIN] No files found for phase %s after retries", phaseKey)
-				// Send "0 findings" message to webhook only when not under bot
-				if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-					utils.SendPhaseFiles(phaseKey, domain, []string{})
-				}
+				// Always send "0 findings" message, let the discord utility handle routing
+				utils.SendPhaseFiles(phaseKey, domain, []string{})
 			}
 		} else {
 			log.Printf("[DEBUG] [DOMAIN] No expected files for phase %s", phaseKey)
-			// Send "0 findings" message to webhook only when not under bot
-			if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-				utils.SendPhaseFiles(phaseKey, domain, []string{})
-			}
+			// Always send "0 findings" message, let the discord utility handle routing
+			utils.SendPhaseFiles(phaseKey, domain, []string{})
 		}
 	}
 
@@ -615,16 +611,4 @@ func runWithTimeout(fn func() error, timeout time.Duration) error {
 	}
 }
 
-// formatDomainFileSize formats file size in human-readable format
-func formatDomainFileSize(size int64) string {
-	const unit = 1024
-	if size < unit {
-		return fmt.Sprintf("%d B", size)
-	}
-	div, exp := int64(unit), 0
-	for n := size / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.2f %cB", float64(size)/float64(div), "KMGTPE"[exp])
-}
+

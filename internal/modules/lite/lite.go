@@ -381,17 +381,13 @@ func runPhase(phaseKey string, step, total int, description, domain string, time
 				}
 			} else {
 				log.Printf("[DEBUG] [LITE] No files found for phase %s after retries", phaseKey)
-				// Send "0 findings" message to webhook only when not under bot
-				if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-					utils.SendPhaseFiles(phaseKey, domain, []string{})
-				}
+				// Always send "0 findings" message, let the discord utility handle routing
+				utils.SendPhaseFiles(phaseKey, domain, []string{})
 			}
 		} else {
 			log.Printf("[DEBUG] [LITE] No expected files for phase %s", phaseKey)
-			// Send "0 findings" message to webhook only when not under bot
-			if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-				utils.SendPhaseFiles(phaseKey, domain, []string{})
-			}
+			// Always send "0 findings" message, let the discord utility handle routing
+			utils.SendPhaseFiles(phaseKey, domain, []string{})
 		}
 	}
 	

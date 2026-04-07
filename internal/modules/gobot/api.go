@@ -165,6 +165,7 @@ func setupAPI() *gin.Engine {
 	internal := r.Group("/internal")
 	{
 		internal.POST("/send-file", sendFileToDiscord)
+		internal.POST("/send-message", sendMessageToDiscord)
 	}
 
 	// List all scans
@@ -1746,6 +1747,80 @@ func sendFileToDiscord(c *gin.Context) {
 
 	log.Printf("[API] [sendFileToDiscord] [SUCCESS] File sent successfully to Discord channel %s", channelID)
 	c.JSON(http.StatusOK, gin.H{"message": "file sent successfully"})
+}
+
+// sendMessageToDiscord handles sending text messages from modules
+func sendMessageToDiscord(c *gin.Context) {
+	log.Printf("[API] [sendMessageToDiscord] Received message send request")
+
+	var req struct {
+		ScanID    string `json:"scan_id"`
+		Message   string `json:"message" binding:"required"`
+		ChannelID string `json:"channel_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var channelID string
+	if req.ChannelID != "" {
+		channelID = req.ChannelID
+	} else if req.ScanID != "" {
+		channelID = getChannelID(req.ScanID)
+	}
+	if channelID == "" {
+		channelID = os.Getenv("AUTOAR_CURRENT_CHANNEL_ID")
+	}
+	if channelID == "" {
+		channelID = os.Getenv("DISCORD_DEFAULT_CHANNEL_ID")
+	}
+	if channelID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no channel ID found"})
+		return
+	}
+
+	threadID := ""
+	if req.ScanID != "" {
+		scansMutex.RLock()
+		if scan, ok := activeScans[req.ScanID]; ok && scan.ThreadID != "" {
+			threadID = scan.ThreadID
+		}
+		scansMutex.RUnlock()
+	}
+	if threadID == "" && channelID != "" {
+		scansMutex.RLock()
+		for _, scan := range activeScans {
+			if scan.ChannelID == channelID && scan.ThreadID != "" {
+				threadID = scan.ThreadID
+				break
+			}
+		}
+		scansMutex.RUnlock()
+	}
+
+	targetID := channelID
+	if threadID != "" {
+		targetID = threadID
+	}
+
+	discordSessionMutex.RLock()
+	session := globalDiscordSession
+	discordSessionMutex.RUnlock()
+
+	if session == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
+		return
+	}
+
+	_, err := session.ChannelMessageSend(targetID, req.Message)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send message: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "message sent successfully"})
 }
 
 // getEnv is defined in main.go
