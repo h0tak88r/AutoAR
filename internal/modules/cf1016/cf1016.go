@@ -44,10 +44,22 @@ var cloudflareCIDRs = []string{
 	"131.0.72.0/22",
 }
 
+// cloudflareCIDRsV6 is the list of Cloudflare's published IPv6 CIDR ranges.
+// Source: https://www.cloudflare.com/ips-v6
+var cloudflareCIDRsV6 = []string{
+	"2400:cb00::/32",
+	"2606:4700::/32",
+	"2803:f800::/32",
+	"2405:b500::/32",
+	"2405:8100::/32",
+	"2a06:98c0::/29",
+	"2c0f:f248::/32",
+}
+
 var cfNets []*net.IPNet
 
 func init() {
-	for _, cidr := range cloudflareCIDRs {
+	for _, cidr := range append(cloudflareCIDRs, cloudflareCIDRsV6...) {
 		_, network, err := net.ParseCIDR(cidr)
 		if err == nil {
 			cfNets = append(cfNets, network)
