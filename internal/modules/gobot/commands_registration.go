@@ -277,7 +277,8 @@ func registerAllCommands(s *discordgo.Session) {
 			Name:        "dns",
 			Description: "Run DNS takeover scan",
 			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain", Required: true},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "Root domain (enumerates subdomains first)", Required: false},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "subdomain", Description: "Single subdomain to scan directly (skips enumeration, ideal for cf1016)", Required: false},
 				{Type: discordgo.ApplicationCommandOptionString, Name: "type", Description: "Scan type: takeover (all), cname, ns, azure-aws, dnsreaper, dangling-ip, cf1016", Required: false, Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "Takeover (All)", Value: "takeover"},
 					{Name: "CNAME", Value: "cname"},

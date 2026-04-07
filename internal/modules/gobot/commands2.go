@@ -15,51 +15,98 @@ import (
 func handleDNS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	domain := ""
+	subdomain := ""
 	scanType := "takeover" // Default to takeover
 
 	for _, opt := range options {
 		switch opt.Name {
 		case "domain":
 			domain = opt.StringValue()
+		case "subdomain":
+			subdomain = opt.StringValue()
 		case "type":
 			scanType = opt.StringValue()
 		}
 	}
 
-	if domain == "" {
-		respond(s, i, "Domain is required", false)
+	// Strip URL scheme prefixes so users can paste URLs directly
+	domain = strings.TrimPrefix(strings.TrimPrefix(domain, "https://"), "http://")
+	domain = strings.TrimSuffix(domain, "/")
+	subdomain = strings.TrimPrefix(strings.TrimPrefix(subdomain, "https://"), "http://")
+	subdomain = strings.TrimSuffix(subdomain, "/")
+
+	if domain == "" && subdomain == "" {
+		respond(s, i, "❌ Either **domain** or **subdomain** is required.", false)
 		return
 	}
 
-	// Map scan type to CLI command
+	// Determine target label for Discord embed
+	target := domain
+	if subdomain != "" {
+		target = subdomain
+	}
+
+	// Build CLI command — subdomain mode passes -s instead of -d (skips enumeration)
 	var command []string
 	var scanName string
 	switch scanType {
 	case "cname":
-		command = []string{autoarScript, "dns", "cname", "-d", domain}
 		scanName = "DNS CNAME"
+		if subdomain != "" {
+			command = []string{autoarScript, "dns", "cname", "-d", subdomain}
+		} else {
+			command = []string{autoarScript, "dns", "cname", "-d", domain}
+		}
 	case "ns":
-		command = []string{autoarScript, "dns", "ns", "-d", domain}
 		scanName = "DNS NS"
+		if subdomain != "" {
+			command = []string{autoarScript, "dns", "ns", "-d", subdomain}
+		} else {
+			command = []string{autoarScript, "dns", "ns", "-d", domain}
+		}
 	case "azure-aws":
-		command = []string{autoarScript, "dns", "azure-aws", "-d", domain}
 		scanName = "DNS Azure/AWS"
+		if subdomain != "" {
+			command = []string{autoarScript, "dns", "azure-aws", "-d", subdomain}
+		} else {
+			command = []string{autoarScript, "dns", "azure-aws", "-d", domain}
+		}
 	case "dnsreaper":
-		command = []string{autoarScript, "dns", "dnsreaper", "-d", domain}
 		scanName = "DNSReaper"
+		if subdomain != "" {
+			command = []string{autoarScript, "dns", "dnsreaper", "-d", subdomain}
+		} else {
+			command = []string{autoarScript, "dns", "dnsreaper", "-d", domain}
+		}
 	case "dangling-ip":
-		command = []string{autoarScript, "dns", "dangling-ip", "-d", domain}
 		scanName = "DNS Dangling IP"
+		if subdomain != "" {
+			command = []string{autoarScript, "dns", "dangling-ip", "-d", subdomain}
+		} else {
+			command = []string{autoarScript, "dns", "dangling-ip", "-d", domain}
+		}
 	case "cf1016":
-		command = []string{autoarScript, "dns", "cf1016", "-d", domain}
 		scanName = "Cloudflare 1016 Dangling DNS"
+		if subdomain != "" {
+			// -s mode: scan the single subdomain directly, no live-subs.txt needed
+			command = []string{autoarScript, "dns", "cf1016", "-s", subdomain}
+			if domain != "" {
+				command = append(command, "-d", domain)
+			}
+		} else {
+			command = []string{autoarScript, "dns", "cf1016", "-d", domain}
+		}
 	default: // takeover
-		command = []string{autoarScript, "dns", "takeover", "-d", domain}
 		scanName = "DNS Takeover"
+		if subdomain != "" {
+			command = []string{autoarScript, "dns", "takeover", "-d", subdomain}
+		} else {
+			command = []string{autoarScript, "dns", "takeover", "-d", domain}
+		}
 	}
 
 	scanID := fmt.Sprintf("dns_%s_%d", scanType, time.Now().Unix())
-	embed := createScanEmbed(scanName, domain, "running")
+	embed := createScanEmbed(scanName, target, "running")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -67,7 +114,7 @@ func handleDNS(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		},
 	})
 
-	go runScanBackground(scanID, fmt.Sprintf("dns_%s", scanType), domain, command, s, i)
+	go runScanBackground(scanID, fmt.Sprintf("dns_%s", scanType), target, command, s, i)
 }
 
 // S3 Commands

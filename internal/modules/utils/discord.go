@@ -77,7 +77,13 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 	if len(existingFiles) == 0 {
 		log.Printf("[DEBUG] [DISCORD] No valid files to send for phase %s", phaseName)
 		msg := phaseNoResultsMessage(phaseName, domain)
-		SendWebhookLogAsync(msg)
+		
+		// Attempt to send via internal API (which supports thread routing)
+		err := sendMessageToDiscordAPI(apiHost, apiPort, channelID, scanID, msg)
+		if err != nil {
+			log.Printf("[DEBUG] [DISCORD] HTTP API message send failed (%v), falling back to webhook", err)
+			SendWebhookLogAsync(msg)
+		}
 		return nil
 	}
 
@@ -103,8 +109,7 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 		}
 		
 		// Send file (will use bot if available, otherwise webhook, even if no channel ID)
-		// sendSingleFileToDiscord handles webhook fallback when channelID is empty
-		if err := sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID, phaseName, filePath, description); err != nil {
+		if err := sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID, filePath, description); err != nil {
 			log.Printf("[DEBUG] [DISCORD] Failed to send file %s: %v", fileName, err)
 			failCount++
 		} else {
@@ -122,11 +127,7 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 	return nil
 }
 
-func sendSingleFileToDiscord(apiHost, apiPort, channelID, scanID, phaseName, filePath string) error {
-	return sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID, phaseName, filePath, filepath.Base(filePath))
-}
-
-func sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID, phaseName, filePath, description string) error {
+func sendSingleFileToDiscordWithDescription(apiHost, apiPort, channelID, scanID, filePath, description string) error {
 	
 	// If channel ID is provided, try bot first (for Discord bot context)
 	// If no channel ID (CLI usage), skip bot and go straight to HTTP API/webhook
@@ -216,6 +217,47 @@ func trySendFileDirectly(channelID, filePath, description string) error {
 		return SendFileFunc(channelID, filePath, description)
 	}
 	return fmt.Errorf("Discord bot session not available")
+}
+
+func sendMessageToDiscordAPI(apiHost, apiPort, channelID, scanID, message string) error {
+	// If no scan ID or channel ID, direct fallback makes more sense
+	if scanID == "" && channelID == "" {
+		return fmt.Errorf("no scan_id or channel_id")
+	}
+
+	reqBody := map[string]string{
+		"message":    message,
+		"channel_id": channelID,
+	}
+	if scanID != "" {
+		reqBody["scan_id"] = scanID
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("http://%s:%s/internal/send-message", apiHost, apiPort)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // GetPhaseFiles returns the result files for a specific lite scan phase
@@ -452,6 +494,10 @@ func phaseNoResultsMessage(phaseName, domain string) string {
 		return fmt.Sprintf("[ ⚪ ] **0-Days** — No zero-day vulnerabilities found for %s", target)
 	case "ffuf":
 		return fmt.Sprintf("[ ⚪ ] **Fuzzing** — No hidden directories found for %s", target)
+	case "dns":
+		return fmt.Sprintf("[ ⚪ ] **DNS Takeover** — No vulnerable records or dangling IPs found for %s", target)
+	case "cf1016":
+		return fmt.Sprintf("[ ⚪ ] **CF1016 Dangling DNS** — No missing Cloudflare origins found for %s", target)
 	default:
 		name := phaseName
 		if len(phaseName) > 0 {
