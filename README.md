@@ -52,8 +52,15 @@ autoar subdomain run   -s <subdomain>        Focused deep-dive on a single subdo
                                              live check → ports → JS → vuln scan → nuclei
 
 autoar lite run        -d <domain>           Lighter workflow: livehosts → reflection → JS → CNAME → DNS → misconfig
+                       [--skip-js]           Skip JavaScript scanning
+                       [--phase-timeout]     Set default phase timeout in seconds
+                       [--timeout-<phase>]   Specific overrides (e.g. --timeout-livehosts)
 
 autoar fastlook run    -d <domain>           Quick recon: subdomains → live hosts → URLs/JS collection
+
+autoar asr             -d <domain>           High-depth reconnaissance (ASR Modes)
+                       [-mode 1-5]           Recon mode (default: 5)
+                       [-t <threads>]        Number of threads
 ```
 
 ### Reconnaissance
@@ -92,11 +99,13 @@ autoar jwt scan        --token <JWT_TOKEN>    Analyze JWT tokens for vulnerabili
 
 ```
 autoar dns takeover    -d <domain>            Comprehensive DNS takeover scan (all methods)
+                       [-s <subdomain>]       Target a single subdomain directly (skips enumeration)
 autoar dns cname       -d <domain>            CNAME takeover detection
 autoar dns ns          -d <domain>            Nameserver takeover detection
 autoar dns azure-aws   -d <domain>            Azure/AWS cloud service takeover
 autoar dns dnsreaper   -d <domain>            DNSReaper-based detection
 autoar dns dangling-ip -d <domain>            Dangling IP detection
+autoar dns cf1016      -s <subdomain>         Cloudflare 1016 Dangling DNS detection
 autoar dns all         -d <domain>            Run all DNS checks simultaneously
 ```
 
@@ -231,7 +240,12 @@ autoar monitor subdomains -d <domain>         One-time check for subdomain chang
 autoar monitor subdomains manage add    -d <domain> -i <interval_sec>
 autoar monitor subdomains manage list
 autoar monitor subdomains manage start  --all | --id <id> | -d <domain>
-autoar monitor subdomains manage stop   --all
+autoar monitor subdomains manage stop   --all | --id <id> | -d <domain>
+
+autoar monitor updates manage add       -u <url> [--strategy hash|content|regex] [--pattern <regex>]
+autoar monitor updates manage remove    -u <url>
+autoar monitor updates manage start     [--id <id>] [--all]
+autoar monitor updates manage list
 ```
 
 ### AI Agent Commands
