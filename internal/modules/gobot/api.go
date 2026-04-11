@@ -19,6 +19,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/internal/version"
 )
 
 var (
@@ -314,7 +315,7 @@ func corsMiddleware() gin.HandlerFunc {
 func rootHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "AutoAR API Server",
-		"version": "3.3.1",
+		"version": version.Version,
 		"docs":    "/docs",
 		"status":  "operational",
 	})
@@ -450,7 +451,7 @@ func docsHandler(c *gin.Context) {
     <div class="container">
         <header>
             <h1>AutoAR API Documentation</h1>
-            <div class="version">Version 3.3.1</div>
+            <div class="version">Version ` + version.Version + `</div>
         </header>
 
         <div class="section">
