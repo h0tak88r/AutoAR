@@ -3,6 +3,7 @@ package gobot
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,15 +17,26 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/h0tak88r/AutoAR/internal/version"
 )
 
+const (
+	// maxScanResults caps the in-memory result cache to prevent unbounded growth (#20).
+	maxScanResults = 1000
+	// maxConcurrentScans limits simultaneous child-process scans (#2).
+	maxConcurrentScans = 15
+)
+
 var (
 	scanResults   = make(map[string]*ScanResult)
 	apiScansMutex sync.RWMutex
+
+	// scanSemaphore limits concurrent child-process scans (#2 rate limiting).
+	scanSemaphore = make(chan struct{}, maxConcurrentScans)
 )
 
 // ScanInfo is defined in commands.go
@@ -183,6 +195,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.GET("/monitor/changes", apiMonitorChanges)
 		apiGroup.DELETE("/monitor/changes", apiClearMonitorChanges)
 		apiGroup.POST("/monitor/url-targets", apiPostMonitorURLTarget)
+		apiGroup.POST("/monitor/suggest-from-domain", apiPostMonitorSuggestFromDomain)
 		apiGroup.DELETE("/monitor/url-targets/:id", apiDeleteMonitorURLTarget)
 		apiGroup.POST("/monitor/url-targets/:id/pause", apiPauseMonitorURLTarget)
 		apiGroup.POST("/monitor/url-targets/:id/resume", apiResumeMonitorURLTarget)
@@ -266,6 +279,12 @@ func scanApkX(c *gin.Context) {
 		return
 	}
 
+	// #5: Validate file_path is within an allowed directory to prevent path traversal.
+	if err := validateFilePath(*req.FilePath); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	scanID := generateScanID()
 	command := []string{
 		getAutoarScriptPath(),
@@ -283,14 +302,41 @@ func scanApkX(c *gin.Context) {
 	})
 }
 
+// validateFilePath ensures the given path is inside an allowed directory (#5 path traversal protection).
+func validateFilePath(filePath string) error {
+	allowedRoots := []string{
+		getResultsDir(),
+		os.TempDir(),
+		"/app",
+		"/tmp",
+	}
+	if extra := os.Getenv("AUTOAR_ALLOWED_FILE_ROOT"); extra != "" {
+		allowedRoots = append(allowedRoots, extra)
+	}
+	clean := filepath.Clean(filePath)
+	for _, root := range allowedRoots {
+		if root == "" {
+			continue
+		}
+		cleanRoot := filepath.Clean(root)
+		if strings.HasPrefix(clean, cleanRoot+string(filepath.Separator)) || clean == cleanRoot {
+			return nil
+		}
+	}
+	return fmt.Errorf("file_path %q is outside the allowed directories — only paths under AUTOAR_RESULTS_DIR or /tmp are permitted", filePath)
+}
+
 func corsMiddleware() gin.HandlerFunc {
+	// #3: Warn once at startup if the API accepts cross-origin requests from any origin.
+	allowedOrigins := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if allowedOrigins == "" {
+		log.Printf("[WARN] CORS_ALLOWED_ORIGINS is not set — API accepts cross-origin requests from ANY origin. Set CORS_ALLOWED_ORIGINS in production.")
+	}
+
 	return func(c *gin.Context) {
-		// Comma-separated list, e.g. "https://dash.example.com,https://www.example.com"
-		// If unset, allow any origin (dev only — set CORS_ALLOWED_ORIGINS on your VPS).
-		allowed := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
 		origin := c.Request.Header.Get("Origin")
-		if allowed != "" {
-			for _, o := range strings.Split(allowed, ",") {
+		if allowedOrigins != "" {
+			for _, o := range strings.Split(allowedOrigins, ",") {
 				if strings.TrimSpace(o) == origin && origin != "" {
 					c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 					c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -708,7 +754,7 @@ func scanDomainRun(c *gin.Context) {
 		return
 	}
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "domain", "run", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "domain", "run", "-d", *req.Domain}
 	if req.SkipFFuf != nil && *req.SkipFFuf {
 		command = append(command, "--skip-ffuf")
 	}
@@ -733,7 +779,7 @@ func scanSubdomainRun(c *gin.Context) {
 		return
 	}
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "subdomain", "run", "-s", *req.Subdomain}
+	command := []string{getAutoarScriptPath(), "subdomain", "run", "-s", *req.Subdomain}
 	go executeScan(scanID, command, "subdomain_run")
 	c.JSON(http.StatusOK, ScanResponse{
 		ScanID:  scanID,
@@ -756,7 +802,7 @@ func scanLivehosts(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "livehosts", "get", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "livehosts", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "livehosts")
 
@@ -781,7 +827,7 @@ func scanCnames(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "cnames", "get", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "cnames", "get", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "cnames")
 
@@ -806,7 +852,7 @@ func scanURLs(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "urls", "collect", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "urls", "collect", "-d", *req.Domain}
 
 	// Add --subdomain flag if SkipSubdomainEnum is set and true
 	if req.SkipSubdomainEnum != nil && *req.SkipSubdomainEnum {
@@ -836,7 +882,7 @@ func scanJS(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "js", "scan", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "js", "scan", "-d", *req.Domain}
 
 	if req.Subdomain != nil && *req.Subdomain != "" {
 		command = append(command, "-s", *req.Subdomain)
@@ -865,7 +911,7 @@ func scanReflection(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "reflection", "scan", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "reflection", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "reflection")
 
@@ -895,7 +941,7 @@ func scanNuclei(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "nuclei", "run"}
+	command := []string{getAutoarScriptPath(), "nuclei", "run"}
 
 	var target string
 	if req.Domain != nil {
@@ -939,7 +985,7 @@ func scanTech(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "tech", "detect", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "tech", "detect", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "tech")
 
@@ -964,7 +1010,7 @@ func scanPorts(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "ports", "scan", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "ports", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "ports")
 
@@ -989,7 +1035,7 @@ func scanGF(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "gf", "scan", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "gf", "scan", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "gf")
 
@@ -1014,7 +1060,7 @@ func scanDNSTakeover(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "dns", "takeover", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "dns", "takeover", "-d", *req.Domain}
 
 	go executeScan(scanID, command, "dns-takeover")
 
@@ -1049,7 +1095,7 @@ func scanDNS(c *gin.Context) {
 		}
 	}
 
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "dns", dnsType, "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "dns", dnsType, "-d", *req.Domain}
 
 	go executeScan(scanID, command, fmt.Sprintf("dns-%s", dnsType))
 
@@ -1075,7 +1121,7 @@ func scanFFuf(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "ffuf", "fuzz", "-u", *req.Target}
+	command := []string{getAutoarScriptPath(), "ffuf", "fuzz", "-u", *req.Target}
 
 	if req.Wordlist != nil && *req.Wordlist != "" {
 		command = append(command, "-w", *req.Wordlist)
@@ -1125,7 +1171,7 @@ func scanBackup(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "backup", "scan", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "backup", "scan", "-d", *req.Domain}
 
 	if req.Threads != nil && *req.Threads > 0 {
 		command = append(command, "-t", fmt.Sprintf("%d", *req.Threads))
@@ -1155,7 +1201,7 @@ func scanMisconfig(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "misconfig", "scan", *req.Domain}
+	command := []string{getAutoarScriptPath(), "misconfig", "scan", *req.Domain}
 
 	if req.ServiceID != nil && *req.ServiceID != "" {
 		command = append(command, "--service", *req.ServiceID)
@@ -1196,7 +1242,7 @@ func scanZerodays(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "zerodays", "scan"}
+	command := []string{getAutoarScriptPath(), "zerodays", "scan"}
 
 	if req.Domain != nil {
 		command = append(command, "-d", *req.Domain)
@@ -1257,7 +1303,7 @@ func scanJWT(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "jwt", "scan", "-t", *req.Token}
+	command := []string{getAutoarScriptPath(), "jwt", "scan", "-t", *req.Token}
 
 	if req.SkipCrack != nil && *req.SkipCrack {
 		command = append(command, "--skip-crack")
@@ -1295,7 +1341,7 @@ func scanS3(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "s3", "scan", "-b", *req.Bucket}
+	command := []string{getAutoarScriptPath(), "s3", "scan", "-b", *req.Bucket}
 
 	if req.Region != nil && *req.Region != "" {
 		command = append(command, "-r", *req.Region)
@@ -1324,7 +1370,7 @@ func scanGitHub(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "github", "scan", "-r", *req.Repo}
+	command := []string{getAutoarScriptPath(), "github", "scan", "-r", *req.Repo}
 
 	go executeScan(scanID, command, "github")
 
@@ -1343,21 +1389,27 @@ func scanGitHubOrg(c *gin.Context) {
 		return
 	}
 
-	org := req.Repo
-	if org == nil || *org == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Organization name is required (use 'repo' field)"})
+	// #12: Prefer 'domain' field for org name; fall back to 'repo' for backward compatibility.
+	var org string
+	if req.Domain != nil && *req.Domain != "" {
+		org = *req.Domain
+	} else if req.Repo != nil && *req.Repo != "" {
+		org = *req.Repo
+	}
+	if org == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Organization name is required (use 'domain' field)"})
 		return
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "github", "org", "-o", *org}
+	command := []string{getAutoarScriptPath(), "github", "org", "-o", org}
 
 	go executeScan(scanID, command, "github_org")
 
 	c.JSON(http.StatusOK, ScanResponse{
 		ScanID:  scanID,
 		Status:  "started",
-		Message: fmt.Sprintf("GitHub organization scan started for %s", *org),
+		Message: fmt.Sprintf("GitHub organization scan started for %s", org),
 		Command: strings.Join(command, " "),
 	})
 }
@@ -1375,7 +1427,7 @@ func scanLite(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "lite", "run", "-d", *req.Domain}
+	command := []string{getAutoarScriptPath(), "lite", "run", "-d", *req.Domain}
 
 	if req.SkipJS != nil && *req.SkipJS {
 		command = append(command, "--skip-js")
@@ -1428,7 +1480,7 @@ func keyhackSearch(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "keyhack", "search", *req.Query}
+	command := []string{getAutoarScriptPath(), "keyhack", "search", *req.Query}
 
 	go executeScan(scanID, command, "keyhack_search")
 
@@ -1458,7 +1510,7 @@ func keyhackValidate(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "keyhack", "validate", *req.Provider, *req.APIKey}
+	command := []string{getAutoarScriptPath(), "keyhack", "validate", *req.Provider, *req.APIKey}
 
 	go executeScan(scanID, command, "keyhack_validate")
 
@@ -1473,31 +1525,36 @@ func keyhackValidate(c *gin.Context) {
 func getScanStatus(c *gin.Context) {
 	scanID := c.Param("scan_id")
 
+	// Check active in-memory scans first (fastest path).
 	scansMutex.RLock()
-	defer scansMutex.RUnlock()
+	activeScan, inActive := activeScans[scanID]
+	scansMutex.RUnlock()
 
-	// Check active scans (from commands.go)
-	if scan, ok := activeScans[scanID]; ok {
+	if inActive {
 		c.JSON(http.StatusOK, ScanStatusResponse{
 			ScanID:      scanID,
-			Status:      scan.Status,
-			StartedAt:   scan.StartedAt,
-			CompletedAt: scan.CompletedAt,
+			Status:      activeScan.Status,
+			StartedAt:   activeScan.StartedAt,
+			CompletedAt: activeScan.CompletedAt,
 			Output:      nil,
 			Error:       nil,
 		})
 		return
 	}
 
-	// Check completed scans
-	if scan, ok := scanResults[scanID]; ok {
+	// Check in-memory completed results cache.
+	apiScansMutex.RLock()
+	scan, inResults := scanResults[scanID]
+	apiScansMutex.RUnlock()
+
+	if inResults {
 		var output *string
-		var err *string
+		var scanErr *string
 		if scan.Output != "" {
 			output = &scan.Output
 		}
 		if scan.Error != "" {
-			err = &scan.Error
+			scanErr = &scan.Error
 		}
 		c.JSON(http.StatusOK, ScanStatusResponse{
 			ScanID:      scanID,
@@ -1505,7 +1562,20 @@ func getScanStatus(c *gin.Context) {
 			StartedAt:   scan.StartedAt,
 			CompletedAt: scan.CompletedAt,
 			Output:      output,
-			Error:       err,
+			Error:       scanErr,
+		})
+		return
+	}
+
+	// #6: Fall through to DB — covers scans that survived a server restart.
+	if dbScan, err := db.GetScan(scanID); err == nil && dbScan != nil {
+		c.JSON(http.StatusOK, ScanStatusResponse{
+			ScanID:      scanID,
+			Status:      dbScan.Status,
+			StartedAt:   dbScan.StartedAt,
+			CompletedAt: dbScan.CompletedAt,
+			Output:      nil,
+			Error:       nil,
 		})
 		return
 	}
@@ -1574,34 +1644,32 @@ func downloadScanResults(c *gin.Context) {
 }
 
 func listScans(c *gin.Context) {
+	// #9: Pull active from memory, historical from DB (newest first, deterministic).
 	scansMutex.RLock()
-	defer scansMutex.RUnlock()
-
-	apiScansMutex.RLock()
-	defer apiScansMutex.RUnlock()
-
 	active := make([]ScanInfo, 0, len(activeScans))
 	for _, scan := range activeScans {
 		active = append(active, *scan)
 	}
+	scansMutex.RUnlock()
 
-	completed := make([]ScanInfo, 0, len(scanResults))
-	count := 0
-	for _, scan := range scanResults {
-		if count >= 20 {
-			break
+	// Fetch up to 50 recent scans from DB for the completed list.
+	completed := make([]ScanInfo, 0, 50)
+	if dbScans, err := db.ListRecentScans(50); err == nil {
+		for _, s := range dbScans {
+			if s.Status == "running" {
+				continue // already in active list
+			}
+			completed = append(completed, ScanInfo{
+				ScanID:      s.ScanID,
+				Type:        s.ScanType,
+				ScanType:    s.ScanType,
+				Target:      s.Target,
+				Status:      s.Status,
+				StartTime:   s.StartedAt,
+				StartedAt:   s.StartedAt,
+				CompletedAt: s.CompletedAt,
+			})
 		}
-		completed = append(completed, ScanInfo{
-			ScanID:      scan.ScanID,
-			Type:        scan.ScanType,
-			ScanType:    scan.ScanType,
-			Target:      scan.ScanID,
-			Status:      scan.Status,
-			StartTime:   scan.StartedAt,
-			StartedAt:   scan.StartedAt,
-			CompletedAt: scan.CompletedAt,
-		})
-		count++
 	}
 
 	c.JSON(http.StatusOK, ScanListResponse{
@@ -1611,10 +1679,17 @@ func listScans(c *gin.Context) {
 }
 
 // Helper functions
+
+// generateScanID returns a cryptographically random UUID v4 (#1).
+// Using time.Now().UnixNano() was collision-prone under concurrent load and guessable.
 func generateScanID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return uuid.New().String()
 }
 
+// extractScanTargetFromCommand infers the human-readable target from command arguments (#11).
+// Special cases:
+//   - JWT scans: returns "jwt-token" rather than exposing the actual token value in the DB.
+//   - APK/IPA scans: returns the filename only (not the full path) for privacy.
 func extractScanTargetFromCommand(command []string, scanType string) string {
 	if len(command) == 0 {
 		return ""
@@ -1627,7 +1702,7 @@ func extractScanTargetFromCommand(command []string, scanType string) string {
 			continue
 		}
 		switch arg {
-		case "-d", "--domain", "-s", "--subdomain", "-u", "--url":
+		case "-d", "--domain", "-s", "--subdomain":
 			return next
 		}
 	}
@@ -1638,29 +1713,38 @@ func extractScanTargetFromCommand(command []string, scanType string) string {
 			continue
 		}
 		switch {
+		case arg == "-u" || arg == "--url":
+			return next
 		case (st == "s3") && (arg == "-b" || arg == "--bucket"):
 			return next
-		case st == "github" && arg == "-r":
+		case (st == "github" || st == "github_scan") && arg == "-r":
 			return next
 		case st == "github_org" && arg == "-o":
 			return next
 		case st == "zerodays" && arg == "-f":
-			return next
+			return "file:" + filepath.Base(next)
 		case st == "apkx" && (arg == "-i" || arg == "--input"):
-			return next
+			// Return filename only — full paths may contain sensitive directory structure.
+			return filepath.Base(next)
 		case st == "jwt" && (arg == "-t" || arg == "--token"):
-			return next
+			// Never expose the raw token string in the DB.
+			return "jwt-token"
 		}
 	}
 	return ""
 }
 
 func executeScan(scanID string, command []string, scanType string) {
+	// #2: Acquire semaphore slot — blocks if maxConcurrentScans are already running.
+	scanSemaphore <- struct{}{}
+	defer func() { <-scanSemaphore }()
+
 	startedAt := time.Now()
 
 	target := extractScanTargetFromCommand(command, scanType)
-	if target == "" && len(command) > 0 {
-		target = scanType // fallback
+	if target == "" {
+		// #11: Use a descriptive label, never just the raw scanType as if it were a domain.
+		target = "[" + scanType + "]"
 	}
 
 	scansMutex.Lock()
@@ -1674,9 +1758,9 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 	scansMutex.Unlock()
 
-	// Persist scan record to DB so the UI /api/scans endpoint can track it
+	// #8: db.Init() is idempotent (guarded by nil-check in db.go); EnsureSchema is sync.Once.
 	_ = db.Init()
-	_ = db.InitSchema()
+	_ = db.EnsureSchema()
 	dbRecord := &db.ScanRecord{
 		ScanID:      scanID,
 		ScanType:    scanType,
@@ -1777,6 +1861,21 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 
 	scanResults[scanID] = result
+
+	// #20: Evict oldest entry when the cache exceeds maxScanResults.
+	if len(scanResults) > maxScanResults {
+		var oldest string
+		var oldestTime time.Time
+		for id, r := range scanResults {
+			if oldest == "" || r.StartedAt.Before(oldestTime) {
+				oldest = id
+				oldestTime = r.StartedAt
+			}
+		}
+		if oldest != "" {
+			delete(scanResults, oldest)
+		}
+	}
 }
 
 func indexScanArtifacts(scanID, scanType, target string) {
@@ -2086,15 +2185,23 @@ func sendFileToDiscord(c *gin.Context) {
 		return
 	}
 
-	// Read file for direct Discord upload
-	log.Printf("[API] [sendFileToDiscord] Reading file: %s", req.FilePath)
-	fileData, err := os.ReadFile(req.FilePath)
-	if err != nil {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to read file: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
+	// #4: Stream file via os.Open instead of loading everything into RAM with os.ReadFile.
+	log.Printf("[API] [sendFileToDiscord] Opening file for streaming: %s", req.FilePath)
+	fileStream, streamErr := os.Open(req.FilePath)
+	if streamErr != nil {
+		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to open file: %v", streamErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to open file: %v", streamErr)})
 		return
 	}
-	log.Printf("[API] [sendFileToDiscord] Read %d bytes from file", len(fileData))
+	defer fileStream.Close()
+	log.Printf("[API] [sendFileToDiscord] Streaming %d bytes to Discord", fileInfo.Size())
+
+	// Detect content type from the first 512 bytes without buffering the whole file.
+	header := make([]byte, 512)
+	n, _ := fileStream.Read(header)
+	contentType := http.DetectContentType(header[:n])
+	// Seek back to the beginning so the full file is sent.
+	_, _ = fileStream.Seek(0, io.SeekStart)
 
 	// Get Discord session
 	log.Printf("[API] [sendFileToDiscord] Getting Discord session...")
@@ -2109,15 +2216,15 @@ func sendFileToDiscord(c *gin.Context) {
 	}
 	log.Printf("[API] [sendFileToDiscord] Discord session obtained")
 
-	// Send file to Discord channel/thread
-	log.Printf("[API] [sendFileToDiscord] Sending file to Discord %s: %s (description: %s)", targetID, fileName, description)
+	// Stream file to Discord channel/thread (no memory buffer)
+	log.Printf("[API] [sendFileToDiscord] Streaming file to Discord %s: %s (description: %s)", targetID, fileName, description)
 	_, err = session.ChannelMessageSendComplex(targetID, &discordgo.MessageSend{
 		Content: description,
 		Files: []*discordgo.File{
 			{
 				Name:        fileName,
-				ContentType: http.DetectContentType(fileData),
-				Reader:      strings.NewReader(string(fileData)),
+				ContentType: contentType,
+				Reader:      fileStream,
 			},
 		},
 	})

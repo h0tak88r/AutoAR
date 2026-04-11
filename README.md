@@ -1,14 +1,14 @@
 # AutoAR — Automated Attack & Reconnaissance Platform
 
-<div align="center">
+
 
 **The ultimate bug bounty automation framework. Scan smarter, find more, ship faster.**
 
-[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Discord](https://img.shields.io/badge/Interface-Discord_Bot-5865F2?logo=discord)](https://discord.com)
+[Go](https://golang.org/)
+[License](LICENSE)
+[Discord](https://discord.com)
 
-</div>
+
 
 ---
 
@@ -22,24 +22,26 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 
 ## ✨ Feature Highlights
 
-| Category | What AutoAR Does |
-|---|---|
-| 🌐 **Subdomains** | Enumerate using 15+ sources: Subfinder, CertSpotter, SecurityTrails, Chaos, crt.sh, OTX, VirusTotal, and more |
-| 🔍 **Live Hosts** | Detect alive hosts using httpx with follow-redirects and status detection |
-| 🕳️ **DNS Takeovers** | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, and dangling-IP takeover opportunities |
-| 💥 **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting |
-| 🧠 **Zero-Days** | Smart scan configured for detected tech stacks — finds active CVEs |
-| ☁️ **S3 Buckets** | Enumerate and scan AWS S3 buckets for exposure and misconfig |
-| 🔗 **JavaScript** | Extract secrets, API endpoints, auth tokens from JS files |
-| 🐙 **GitHub Recon** | Org-level and repo-level scanning for secrets, dependency confusion |
-| 📱 **Mobile Apps** | APK/IPA analysis with MobSF + MITM traffic interception |
-| ⚙️ **Misconfigs** | 100+ service misconfiguration checks |
-| 🏴‍☠️ **BB Scope** | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack, Immunefi |
-| 🔄 **Monitoring** | Subdomain + URL change monitoring daemon with Discord alerts & DB history |
-| 🤖 **AI Agent** | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required |
-| 📤 **R2 Storage** | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL |
-| 🔔 **Smart Alerts** | Rich Discord notifications for zero-findings scans — no more empty files or spam |
-| 🖥️ **Web dashboard** | **v4.0+** — Single-page UI at `/ui` for stats, scans, domains, URL/subdomain monitors, R2 files, and settings (optional Supabase auth) |
+
+| Category               | What AutoAR Does                                                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 🌐 **Subdomains**      | Enumerate using 15+ sources: Subfinder, CertSpotter, SecurityTrails, Chaos, crt.sh, OTX, VirusTotal, and more                          |
+| 🔍 **Live Hosts**      | Detect alive hosts using httpx with follow-redirects and status detection                                                              |
+| 🕳️ **DNS Takeovers**  | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, and dangling-IP takeover opportunities                                                   |
+| 💥 **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting                                                             |
+| 🧠 **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                     |
+| ☁️ **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
+| 🔗 **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
+| 🐙 **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
+| 📱 **Mobile Apps**     | APK/IPA analysis with MobSF + MITM traffic interception                                                                                |
+| ⚙️ **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
+| 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack, Immunefi                                                                   |
+| 🔄 **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
+| 🤖 **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required     |
+| 📤 **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
+| 🔔 **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
+| 🖥️ **Web dashboard**  | **v4.0+** — Single-page UI at `/ui` for stats, scans, domains, URL/subdomain monitors, R2 files, and settings (optional Supabase auth) |
+
 
 ---
 
@@ -273,25 +275,26 @@ autoar status [--json]
     Returns: { "active_scans": [ { "target": "...", "current_phase": 4, "total_phases": 12 } ] }
 ```
 
-
 ---
 
 ## 🤖 AI-Driven Security Framework — Free for Everyone
 
-As of the latest release, AutoAR's AI engine runs on **[`stepfun/step-3.5-flash:free`](https://openrouter.ai/stepfun/step-3.5-flash:free)** via [OpenRouter](https://openrouter.ai). This is a **completely free model** — no credits, no billing required.
+As of the latest release, AutoAR's AI engine runs on `**[stepfun/step-3.5-flash:free](https://openrouter.ai/stepfun/step-3.5-flash:free)**` via [OpenRouter](https://openrouter.ai). This is a **completely free model** — no credits, no billing required.
 
 > **Every AutoAR user can now access a full AI-driven bug bounty framework at zero cost** — just sign up for a free OpenRouter account and paste your key into `.env`.
 
 ### What the AI powers
 
-| Discord Command | What it does |
-|---|---|
-| `/ai message:<request>` | Chat with AutoAR AI in natural language. Describe your target and it will queue the right scans automatically. |
-| `/ai message:<request> agent_mode:True` | Autonomous agent loop — the AI plans, runs tools, validates findings, and reports confirmed bugs. |
-| `/ai message:<request> dry_run:True` | Preview what scans would run without executing anything. |
-| `/brain` | AI analysis of your latest scan results — suggests next-step attacks and highlights interesting findings. |
-| `autoar agent "<request>"` | Same autonomous agent loop from the terminal (no Discord needed). |
-| `autoar explain <result-file>` | Feed any result file to the AI for triage and follow-up suggestions. |
+
+| Discord Command                         | What it does                                                                                                   |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/ai message:<request>`                 | Chat with AutoAR AI in natural language. Describe your target and it will queue the right scans automatically. |
+| `/ai message:<request> agent_mode:True` | Autonomous agent loop — the AI plans, runs tools, validates findings, and reports confirmed bugs.              |
+| `/ai message:<request> dry_run:True`    | Preview what scans would run without executing anything.                                                       |
+| `/brain`                                | AI analysis of your latest scan results — suggests next-step attacks and highlights interesting findings.      |
+| `autoar agent "<request>"`              | Same autonomous agent loop from the terminal (no Discord needed).                                              |
+| `autoar explain <result-file>`          | Feed any result file to the AI for triage and follow-up suggestions.                                           |
+
 
 ### Getting your free OpenRouter key
 
@@ -306,7 +309,6 @@ OPENROUTER_API_KEY=sk-or-v1-...
 That's it. AutoAR will automatically use `stepfun/step-3.5-flash:free` for all `/ai` and `/brain` commands.
 
 > **Tip:** If `OPENROUTER_API_KEY` is set, it is used first. `GEMINI_API_KEY` is a fallback for direct Gemini access. You only need one of the two.
-
 
 ### Database & Results
 
@@ -372,6 +374,7 @@ go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
 ```
 
 > Make sure `$GOPATH/bin` (typically `~/go/bin`) is in your `$PATH`:
+>
 > ```bash
 > echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc && source ~/.bashrc
 > ```
@@ -422,6 +425,7 @@ DISCORD_ALLOWED_GUILD_ID=your_guild_id   # Optional: restrict to one server
 ```
 
 Getting a Discord Bot Token:
+
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
 2. New Application → Bot → Copy Token
 3. Enable **Message Content Intent** under Privileged Gateway Intents
@@ -441,6 +445,7 @@ R2_PUBLIC_URL=https://pub-xxxx.r2.dev   # Your bucket's public URL
 ```
 
 Creating R2 Credentials:
+
 1. Cloudflare dashboard → R2 → Create Bucket
 2. Account Settings → API Tokens → Create R2 Token (read+write)
 3. Enable public access: Bucket Settings → Public Access → Allow
@@ -580,13 +585,13 @@ See the [CoPaw AutoAR Skill documentation](/blob/main/docs/copaw-skill.md) for f
 
 ## 🐳 Docker & Compose
 
-The repository includes a multi-stage **`Dockerfile`** (Go build + Debian runtime with common CLI deps) and **`docker-compose.yml`** with three app services and an optional database.
+The repository includes a multi-stage `**Dockerfile`** (Go build + Debian runtime with common CLI deps) and `**docker-compose.yml**` with three app services and an optional database.
 
 ### Prerequisites
 
-1. Copy and edit environment: `cp env.example .env`  
-   Compose loads **`.env`** from the project root (create it before `docker compose up` or the `env_file` step will fail).
-2. Paths inside the image use **`/app`** (`AUTOAR_RESULTS_DIR=/app/new-results`, templates under `/app/nuclei_templates`, etc.) — already set in `env.example`.
+1. Copy and edit environment: `cp env.example .env`
+  Compose loads `**.env**` from the project root (create it before `docker compose up` or the `env_file` step will fail).
+2. Paths inside the image use `**/app**` (`AUTOAR_RESULTS_DIR=/app/new-results`, templates under `/app/nuclei_templates`, etc.) — already set in `env.example`.
 
 ### Build
 
@@ -596,11 +601,13 @@ docker compose build
 
 ### Run services
 
-| Goal | Command |
-|------|---------|
-| Discord bot only | `docker compose up -d autoar-discord` |
-| REST API + dashboard UI only | `docker compose --profile api up -d autoar-api` |
-| Bot + API together | `docker compose --profile full up -d autoar-full` |
+
+| Goal                         | Command                                           |
+| ---------------------------- | ------------------------------------------------- |
+| Discord bot only             | `docker compose up -d autoar-discord`             |
+| REST API + dashboard UI only | `docker compose --profile api up -d autoar-api`   |
+| Bot + API together           | `docker compose --profile full up -d autoar-full` |
+
 
 - **API / UI:** `http://localhost:8000` (health: `GET /health`, dashboard: `/ui/`).  
 - **Logs:** `docker compose logs -f autoar-api` (or the service name you use).
@@ -621,7 +628,7 @@ Adjust `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` in `.env` if you chan
 
 ### Dashboard auth & R2 in Docker
 
-Pass the same variables as on bare metal (see [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md)). `docker-compose.yml` forwards **`SUPABASE_*`**, **`USE_R2_STORAGE`**, **`R2_*`**, and **`GEMINI_API_KEY`** into the API services when set in `.env`.
+Pass the same variables as on bare metal (see [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md)). `docker-compose.yml` forwards `**SUPABASE_***`, `**USE_R2_STORAGE**`, `**R2_***`, and `**GEMINI_API_KEY**` into the API services when set in `.env`.
 
 ### Typical `.env` inside Docker
 
@@ -651,9 +658,9 @@ DB_HOST=postgresql://username:password@host:5432/autoar
 1. Create a project at [supabase.com](https://supabase.com)
 2. Get connection URI from Settings → Database
 3. Use the pooled connection string:
-   ```env
+  ```env
    DB_HOST=postgresql://postgres.xxx:password@aws-eu.pooler.supabase.com:6543/postgres?sslmode=require
-   ```
+  ```
 
 ### SQLite (Zero-config Local)
 
@@ -704,6 +711,7 @@ brew install libpcap                  # macOS
 ### Database Connection Refused
 
 For PostgreSQL, ensure:
+
 - The DB_HOST URL is correct and the server is running
 - Network allows connections (firewall rules, VPN)
 - For Supabase: use the **pooler** (port 6543) not the direct port (5432)
@@ -712,15 +720,15 @@ For PostgreSQL, ensure:
 
 ## 🏷️ GitHub release (tag → CI)
 
-Versions are defined once in [`internal/version/version.go`](internal/version/version.go) (`Version`, no `v` prefix). To publish **v4.0.0**:
+Versions are defined once in `[internal/version/version.go](internal/version/version.go)` (`Version`, no `v` prefix). To publish **v4.0.0**:
 
 1. Set `const Version = "4.0.0"` and commit.
 2. From the repo root:
-   ```bash
+  ```bash
    chmod +x scripts/tag-release.sh
    ./scripts/tag-release.sh v4.0.0
-   ```
-   This pushes your current branch and the annotated tag. **[`.github/workflows/release.yml`](.github/workflows/release.yml)** then builds Linux binaries, attaches `tar.gz` / `zip`, generates release notes, and pushes **`ghcr.io/<owner>/autoar`** for that tag.
+  ```
+   This pushes your current branch and the annotated tag. `**[.github/workflows/release.yml](.github/workflows/release.yml)**` then builds Linux binaries, attaches `tar.gz` / `zip`, generates release notes, and pushes `**ghcr.io/<owner>/autoar**` for that tag.
 
 You need a Git remote with push access (HTTPS + token or SSH). No manual “Create release” step in the UI is required.
 
@@ -751,8 +759,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-<div align="center">
+
 
 Built with ❤️ for the bug bounty community · [GitHub](https://github.com/h0tak88r/AutoAR)
 
-</div>
