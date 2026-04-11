@@ -711,13 +711,13 @@ For PostgreSQL, ensure:
 
 ## 🏷️ GitHub release (tag → CI)
 
-Versions are defined once in [`internal/version/version.go`](internal/version/version.go) (`Version`, no `v` prefix). To publish **v3.4.0**:
+Versions are defined once in [`internal/version/version.go`](internal/version/version.go) (`Version`, no `v` prefix). To publish **v3.5.0**:
 
-1. Set `const Version = "3.4.0"` and commit.
+1. Set `const Version = "3.5.0"` and commit.
 2. From the repo root:
    ```bash
    chmod +x scripts/tag-release.sh
-   ./scripts/tag-release.sh v3.4.0
+   ./scripts/tag-release.sh v3.5.0
    ```
    This pushes your current branch and the annotated tag. **[`.github/workflows/release.yml`](.github/workflows/release.yml)** then builds Linux binaries, attaches `tar.gz` / `zip`, generates release notes, and pushes **`ghcr.io/<owner>/autoar`** for that tag.
 
