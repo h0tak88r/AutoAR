@@ -16,6 +16,8 @@ AutoAR is a powerful, end-to-end automated security reconnaissance and vulnerabi
 
 Results are automatically uploaded to **Cloudflare R2 storage** and linked directly in your output — no hunting through directories.
 
+**Public VPS / dashboard:** configure Supabase-backed login and JWT verification for the HTTP API — see [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md).
+
 ---
 
 ## ✨ Feature Highlights
@@ -375,16 +377,17 @@ go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
 
 ### Option 3 — Docker
 
+Requires [Docker](https://docs.docker.com/get-docker/) and Compose **V2** (`docker compose`). Legacy installs may use `docker-compose` instead.
+
 ```bash
-# Discord bot
-docker-compose up autoar-discord
+cp env.example .env
+# Edit .env (Discord token, DB_HOST, API keys, optional Supabase + R2 for the dashboard)
 
-# REST API
-docker-compose --profile api up autoar-api
-
-# Both
-docker-compose --profile full up autoar-full
+docker compose build
+docker compose up -d autoar-discord
 ```
+
+See **Docker & Compose** below for API-only, full stack, optional local Postgres, and environment notes.
 
 ---
 
@@ -574,29 +577,59 @@ See the [CoPaw AutoAR Skill documentation](/blob/main/docs/copaw-skill.md) for f
 
 ---
 
-## 🐳 Docker Usage
+## 🐳 Docker & Compose
 
-### Docker Compose Profiles
+The repository includes a multi-stage **`Dockerfile`** (Go build + Debian runtime with common CLI deps) and **`docker-compose.yml`** with three app services and an optional database.
+
+### Prerequisites
+
+1. Copy and edit environment: `cp env.example .env`  
+   Compose loads **`.env`** from the project root (create it before `docker compose up` or the `env_file` step will fail).
+2. Paths inside the image use **`/app`** (`AUTOAR_RESULTS_DIR=/app/new-results`, templates under `/app/nuclei_templates`, etc.) — already set in `env.example`.
+
+### Build
 
 ```bash
-# Discord bot (default)
-docker-compose up autoar-discord
-
-# REST API only
-docker-compose --profile api up autoar-api
-
-# Both Discord + API
-docker-compose --profile full up autoar-full
+docker compose build
 ```
 
-### Environment for Docker
+### Run services
+
+| Goal | Command |
+|------|---------|
+| Discord bot only | `docker compose up -d autoar-discord` |
+| REST API + dashboard UI only | `docker compose --profile api up -d autoar-api` |
+| Bot + API together | `docker compose --profile full up -d autoar-full` |
+
+- **API / UI:** `http://localhost:8000` (health: `GET /health`, dashboard: `/ui/`).  
+- **Logs:** `docker compose logs -f autoar-api` (or the service name you use).
+
+### Optional: local PostgreSQL
+
+For a self-contained stack (no external Supabase DB), start the bundled Postgres and point `DB_HOST` at it:
+
+```bash
+# In .env set:
+# DB_TYPE=postgresql
+# DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
+
+docker compose --profile api --profile localdb up -d postgres autoar-api
+```
+
+Adjust `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` in `.env` if you change the defaults in `docker-compose.yml` (keep them consistent with `DB_HOST`).
+
+### Dashboard auth & R2 in Docker
+
+Pass the same variables as on bare metal (see [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md)). `docker-compose.yml` forwards **`SUPABASE_*`**, **`USE_R2_STORAGE`**, **`R2_*`**, and **`GEMINI_API_KEY`** into the API services when set in `.env`.
+
+### Typical `.env` inside Docker
 
 ```env
 AUTOAR_RESULTS_DIR=/app/new-results
 NUCLEI_TEMPLATES_PATH=/app/nuclei_templates
 FFUF_WORDLIST_PATH=/app/Wordlists/quick_fuzz.txt
 DB_TYPE=postgresql
-DB_HOST=postgresql://user:pass@db:5432/autoar
+DB_HOST=postgresql://user:pass@host:5432/bughunt
 ```
 
 ---

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -671,6 +672,57 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 	return nil
 }
 
+// ExtractObjectKeyFromPublicURL extracts object key from a public URL.
+func ExtractObjectKeyFromPublicURL(publicURL string) string {
+	if strings.TrimSpace(publicURL) == "" {
+		return ""
+	}
+	u, err := url.Parse(publicURL)
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimPrefix(u.Path, "/")
+	if r2Config != nil && r2Config.PublicURL != "" {
+		base, berr := url.Parse(r2Config.PublicURL)
+		if berr == nil && strings.EqualFold(base.Host, u.Host) {
+			basePath := strings.Trim(strings.TrimPrefix(base.Path, "/"), "/")
+			if basePath != "" && strings.HasPrefix(path, basePath+"/") {
+				path = strings.TrimPrefix(path, basePath+"/")
+			}
+		}
+	}
+	return strings.TrimPrefix(path, "/")
+}
+
+// DeleteObjects deletes object keys from R2. Missing keys are ignored.
+func DeleteObjects(keys []string) error {
+	if !IsEnabled() {
+		return nil
+	}
+	uniq := map[string]struct{}{}
+	for _, k := range keys {
+		k = strings.TrimSpace(strings.TrimPrefix(k, "/"))
+		if k == "" {
+			continue
+		}
+		uniq[k] = struct{}{}
+	}
+	for k := range uniq {
+		_, err := r2Client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+			Bucket: aws.String(r2Config.BucketName),
+			Key:    aws.String(k),
+		})
+		if err != nil {
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "nosuchkey") || strings.Contains(low, "notfound") || strings.Contains(low, "404") {
+				continue
+			}
+			return fmt.Errorf("delete object %s: %w", k, err)
+		}
+	}
+	return nil
+}
+
 // ZipAndUploadDirectory creates a zip file of the directory and uploads it to R2
 // Returns the public URL of the uploaded zip file
 func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
@@ -758,6 +810,8 @@ func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
 	}
 
 	log.Printf("[R2] Zip file uploaded: %s", publicURL)
+	// So API executeScan + ExtractR2ZipURLFromOutput reliably capture the zip URL from combined output
+	fmt.Fprintf(os.Stdout, "\nResults zip uploaded: %s\n", publicURL)
 	return publicURL, nil
 }
 
