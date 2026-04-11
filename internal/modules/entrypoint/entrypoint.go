@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 func main() {
@@ -48,8 +49,10 @@ func main() {
 		fmt.Println("[entrypoint] IPATOOL_AUTH_CODE is not set (optional)")
 	}
 
-	// Initialize database schema (only if database is configured)
-	if os.Getenv("DB_HOST") != "" && os.Getenv("DB_USER") != "" {
+	// Initialize database schema when DB_HOST is set (connection string or host) and SAVE_TO_DB is not false
+	dbHost := strings.TrimSpace(os.Getenv("DB_HOST"))
+	saveToDB := strings.TrimSpace(os.Getenv("SAVE_TO_DB"))
+	if dbHost != "" && !strings.EqualFold(saveToDB, "false") {
 		fmt.Println("[entrypoint] Initializing database schema")
 		cmd := exec.Command("/usr/local/bin/autoar", "db", "init-schema")
 		cmd.Stdout = os.Stdout

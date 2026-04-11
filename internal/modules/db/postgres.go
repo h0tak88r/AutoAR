@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,9 +49,20 @@ func (p *PostgresDB) Init() error {
 	// Disable prepared statements for compatibility with PgBouncer/Supabase poolers
 	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	// Configure pool settings
-	config.MaxConns = 25
-	config.MinConns = 2
+	// Pool size: default low for Supabase transaction pooler (shared max connections).
+	maxConns := int32(10)
+	if v := os.Getenv("DB_MAX_CONNS"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 32); err == nil && n > 0 && n <= 100 {
+			maxConns = int32(n)
+		}
+	}
+	minConns := int32(2)
+	if maxConns < minConns {
+		minConns = maxConns
+	}
+
+	config.MaxConns = maxConns
+	config.MinConns = minConns
 	config.MaxConnLifetime = time.Hour
 	config.MaxConnIdleTime = time.Minute * 30
 
@@ -320,8 +332,23 @@ func (p *PostgresDB) InitSchema() error {
 		completed_at TIMESTAMP,
 		last_update TIMESTAMP NOT NULL,
 		command TEXT,
+		result_url TEXT,
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
+	);
+
+	-- Create scan_artifacts table for R2 indexed outputs
+	CREATE TABLE IF NOT EXISTS scan_artifacts (
+		id SERIAL PRIMARY KEY,
+		scan_id VARCHAR(255) NOT NULL,
+		file_name TEXT,
+		local_path TEXT,
+		r2_key TEXT NOT NULL,
+		public_url TEXT NOT NULL,
+		size_bytes BIGINT DEFAULT 0,
+		line_count INTEGER DEFAULT 0,
+		content_type TEXT,
+		created_at TIMESTAMP DEFAULT NOW()
 	);
 	
 	-- Create dns_takeover_providers table
@@ -344,12 +371,36 @@ func (p *PostgresDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);
 	CREATE INDEX IF NOT EXISTS idx_scans_target ON scans(target);
 	CREATE INDEX IF NOT EXISTS idx_scans_started_at ON scans(started_at);
+	CREATE INDEX IF NOT EXISTS idx_scan_artifacts_scan_id ON scan_artifacts(scan_id);
+	CREATE INDEX IF NOT EXISTS idx_scan_artifacts_created_at ON scan_artifacts(created_at);
 	`
 
 	_, err := p.pool.Exec(p.ctx, schema)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %v", err)
 	}
+
+	// Migrate legacy DBs: CREATE TABLE IF NOT EXISTS does not add new columns to existing scans tables.
+	_, err = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS result_url TEXT`)
+	if err != nil {
+		return fmt.Errorf("failed to migrate scans.result_url: %v", err)
+	}
+
+	// Deduplicate legacy artifact rows before enforcing uniqueness.
+	_, _ = p.pool.Exec(p.ctx, `
+		DELETE FROM scan_artifacts a
+		USING scan_artifacts b
+		WHERE a.scan_id = b.scan_id
+		  AND a.r2_key = b.r2_key
+		  AND a.id < b.id;
+	`)
+	if _, idxErr := p.pool.Exec(p.ctx, `
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_artifacts_scan_r2_key_uniq
+		ON scan_artifacts(scan_id, r2_key);
+	`); idxErr != nil {
+		log.Printf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
+	}
+
 	if os.Getenv("AUTOAR_SILENT") != "true" {
 		log.Printf("[OK] Database schema initialized")
 	}
@@ -764,22 +815,90 @@ func (p *PostgresDB) CountSubdomains(domain string) (int, error) {
 	return count, nil
 }
 
-// DeleteDomain deletes a domain and all its related data using ON DELETE CASCADE.
+// DeleteDomain deletes scan history, monitor rows, monitor target, then the domain (cascades subdomains / js_files).
 func (p *PostgresDB) DeleteDomain(domain string) error {
-	cmdTag, err := p.pool.Exec(p.ctx, `DELETE FROM domains WHERE domain = $1;`, domain)
+	tx, err := p.pool.Begin(p.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin delete domain: %v", err)
+	}
+	defer tx.Rollback(p.ctx)
+
+	scanMatch := `target = $1 OR (char_length(target) > char_length($1) AND right(target, char_length($1) + 1) = '.' || $1)`
+	domainMatch := `domain = $1 OR (char_length(domain) > char_length($1) AND right(domain, char_length($1) + 1) = '.' || $1)`
+
+	if _, err := tx.Exec(p.ctx, `DELETE FROM scan_artifacts WHERE scan_id IN (SELECT scan_id FROM scans WHERE `+scanMatch+`);`, domain); err != nil {
+		return fmt.Errorf("failed to delete scan artifacts for domain %s: %v", domain, err)
+	}
+	if _, err := tx.Exec(p.ctx, `DELETE FROM scans WHERE `+scanMatch+`;`, domain); err != nil {
+		return fmt.Errorf("failed to delete scans for domain %s: %v", domain, err)
+	}
+	if _, err := tx.Exec(p.ctx, `DELETE FROM monitor_changes WHERE `+domainMatch+`;`, domain); err != nil {
+		return fmt.Errorf("failed to delete monitor changes for domain %s: %v", domain, err)
+	}
+	if _, err := tx.Exec(p.ctx, `DELETE FROM subdomain_monitor_targets WHERE domain = $1;`, domain); err != nil {
+		return fmt.Errorf("failed to delete subdomain monitor target: %v", err)
+	}
+	cmdTag, err := tx.Exec(p.ctx, `DELETE FROM domains WHERE domain = $1;`, domain)
 	if err != nil {
 		return fmt.Errorf("failed to delete domain %s: %v", domain, err)
 	}
 	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("domain not found: %s", domain)
 	}
+	if err := tx.Commit(p.ctx); err != nil {
+		return fmt.Errorf("failed to commit delete domain: %v", err)
+	}
 	return nil
+}
+
+// ListAllScanIDs returns all scan_id values, newest first.
+func (p *PostgresDB) ListAllScanIDs() ([]string, error) {
+	rows, err := p.pool.Query(p.ctx, `SELECT scan_id FROM scans ORDER BY started_at DESC NULLS LAST, id DESC;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scan ids: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan scan_id: %v", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ListScanIDsForDomainRoot returns scan IDs for the root domain or hosts under it.
+func (p *PostgresDB) ListScanIDsForDomainRoot(domain string) ([]string, error) {
+	q := `
+		SELECT scan_id FROM scans
+		WHERE target = $1
+		   OR (char_length(target) > char_length($1) AND right(target, char_length($1) + 1) = '.' || $1)
+		ORDER BY started_at DESC NULLS LAST, id DESC;
+	`
+	rows, err := p.pool.Query(p.ctx, q, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scans for domain: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan scan_id: %v", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // ListMonitorTargets returns all monitoring targets
 func (p *PostgresDB) ListMonitorTargets() ([]MonitorTarget, error) {
 	rows, err := p.pool.Query(p.ctx, `
-		SELECT id, url, strategy, COALESCE(pattern, '') as pattern, is_running, created_at, updated_at
+		SELECT id, url, strategy, COALESCE(pattern, '') AS pattern, is_running,
+		       COALESCE(last_hash, '') AS last_hash, last_run_at, COALESCE(change_count, 0) AS change_count,
+		       created_at, updated_at
 		FROM updates_targets
 		ORDER BY created_at DESC;
 	`)
@@ -791,7 +910,8 @@ func (p *PostgresDB) ListMonitorTargets() ([]MonitorTarget, error) {
 	var targets []MonitorTarget
 	for rows.Next() {
 		var t MonitorTarget
-		if err := rows.Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.IsRunning,
+			&t.LastHash, &t.LastRunAt, &t.ChangeCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan monitor target: %v", err)
 		}
 		targets = append(targets, t)
@@ -848,10 +968,13 @@ func (p *PostgresDB) SetMonitorRunningStatus(id int, isRunning bool) error {
 func (p *PostgresDB) GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 	var t MonitorTarget
 	err := p.pool.QueryRow(p.ctx, `
-		SELECT id, url, strategy, COALESCE(pattern, '') as pattern, is_running, created_at, updated_at
+		SELECT id, url, strategy, COALESCE(pattern, '') AS pattern, is_running,
+		       COALESCE(last_hash, '') AS last_hash, last_run_at, COALESCE(change_count, 0) AS change_count,
+		       created_at, updated_at
 		FROM updates_targets
 		WHERE id = $1;
-	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.IsRunning, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &t.IsRunning,
+		&t.LastHash, &t.LastRunAt, &t.ChangeCount, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("monitor target not found with id: %d", id)
@@ -994,6 +1117,25 @@ func (p *PostgresDB) InsertMonitorChange(change *MonitorChange) error {
 	return nil
 }
 
+// ClearMonitorChanges deletes all monitor change rows and resets URL monitor change_count.
+func (p *PostgresDB) ClearMonitorChanges() error {
+	tx, err := p.pool.Begin(p.ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(p.ctx)
+	if _, err := tx.Exec(p.ctx, `DELETE FROM monitor_changes;`); err != nil {
+		return fmt.Errorf("clear monitor_changes: %w", err)
+	}
+	if _, err := tx.Exec(p.ctx, `UPDATE updates_targets SET change_count = 0;`); err != nil {
+		return fmt.Errorf("reset change_count: %w", err)
+	}
+	if err := tx.Commit(p.ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 // ListMonitorChanges lists recent monitor changes, optionally filtered by domain
 func (p *PostgresDB) ListMonitorChanges(domain string, limit int) ([]MonitorChange, error) {
 	if limit <= 0 {
@@ -1060,12 +1202,12 @@ func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
 			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
 			current_phase, total_phases, phase_name, phase_start_time,
 			completed_phases, failed_phases, files_uploaded, error_count,
-			started_at, last_update, command
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18);
+			started_at, last_update, command, result_url
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19);
 	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
 		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
 		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
-		scan.StartedAt, scan.LastUpdate, scan.Command)
+		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create scan: %v", err)
@@ -1115,6 +1257,25 @@ func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) e
 	return nil
 }
 
+// UpdateScanResult updates scan status and result URL
+func (p *PostgresDB) UpdateScanResult(scanID, status, resultURL string) error {
+	now := time.Now()
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE scans SET
+			status = $1,
+			result_url = $2,
+			completed_at = $3,
+			last_update = $4,
+			updated_at = NOW()
+		WHERE scan_id = $5;
+	`, status, resultURL, now, now, scanID)
+	
+	if err != nil {
+		return fmt.Errorf("failed to update scan result: %v", err)
+	}
+	return nil
+}
+
 // UpdateScanStatus updates scan status
 func (p *PostgresDB) UpdateScanStatus(scanID string, status string) error {
 	now := time.Now()
@@ -1150,20 +1311,21 @@ func (p *PostgresDB) GetScan(scanID string) (*ScanRecord, error) {
 	var scan ScanRecord
 	var completedPhasesJSON, failedPhasesJSON []byte
 	var phaseStartTime, completedAt *time.Time
-	
+
 	err := p.pool.QueryRow(p.ctx, `
 		SELECT id, scan_id, scan_type, target, status, 
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, 
+			COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans WHERE scan_id = $1;
 	`, scanID).Scan(
 		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 		&completedPhasesJSON, &failedPhasesJSON,
-		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
 	
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("scan not found: %s", scanID)
@@ -1193,9 +1355,9 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
-		WHERE status = 'running'
+		WHERE status IN ('running', 'starting', 'paused')
 		ORDER BY started_at DESC;
 	`)
 	if err != nil {
@@ -1214,7 +1376,7 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -1240,6 +1402,23 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 	return scans, nil
 }
 
+// FailStaleActiveScans sets non-terminal scans to failed — workers are gone after process restart.
+func (p *PostgresDB) FailStaleActiveScans() (int64, error) {
+	now := time.Now()
+	tag, err := p.pool.Exec(p.ctx, `
+		UPDATE scans SET
+			status = 'failed',
+			completed_at = $1,
+			last_update = $1,
+			updated_at = NOW()
+		WHERE status IN ('running', 'starting', 'paused', 'cancelling');
+	`, now)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fail stale scans: %v", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ListRecentScans lists recent scans (completed, failed, cancelled)
 func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 	rows, err := p.pool.Query(p.ctx, `
@@ -1247,7 +1426,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
 		WHERE status IN ('completed', 'failed', 'cancelled')
 		ORDER BY started_at DESC
@@ -1269,7 +1448,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -1295,11 +1474,75 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 	return scans, nil
 }
 
+// AppendScanArtifact stores a scan output artifact.
+func (p *PostgresDB) AppendScanArtifact(artifact *ScanArtifact) error {
+	if artifact == nil {
+		return fmt.Errorf("artifact is nil")
+	}
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO scan_artifacts (
+			scan_id, file_name, local_path, r2_key, public_url, size_bytes, line_count, content_type
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (scan_id, r2_key) DO UPDATE SET
+			file_name=EXCLUDED.file_name,
+			local_path=EXCLUDED.local_path,
+			public_url=EXCLUDED.public_url,
+			size_bytes=EXCLUDED.size_bytes,
+			line_count=EXCLUDED.line_count,
+			content_type=EXCLUDED.content_type,
+			created_at=NOW()
+	`, artifact.ScanID, artifact.FileName, artifact.LocalPath, artifact.R2Key, artifact.PublicURL, artifact.SizeBytes, artifact.LineCount, artifact.ContentType)
+	if err != nil {
+		return fmt.Errorf("failed to append scan artifact: %v", err)
+	}
+	return nil
+}
+
+// ListScanArtifacts returns artifacts for a scan, newest first.
+func (p *PostgresDB) ListScanArtifacts(scanID string) ([]*ScanArtifact, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, scan_id, COALESCE(file_name, ''), COALESCE(local_path, ''), COALESCE(r2_key, ''),
+			COALESCE(public_url, ''), COALESCE(size_bytes, 0), COALESCE(line_count, 0),
+			COALESCE(content_type, ''), created_at
+		FROM scan_artifacts
+		WHERE scan_id = $1
+		ORDER BY created_at DESC, id DESC
+	`, scanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scan artifacts: %v", err)
+	}
+	defer rows.Close()
+
+	var out []*ScanArtifact
+	for rows.Next() {
+		var a ScanArtifact
+		if err := rows.Scan(&a.ID, &a.ScanID, &a.FileName, &a.LocalPath, &a.R2Key, &a.PublicURL, &a.SizeBytes, &a.LineCount, &a.ContentType, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan artifact row: %v", err)
+		}
+		out = append(out, &a)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate scan artifacts: %v", rows.Err())
+	}
+	return out, nil
+}
+
 // DeleteScan deletes a scan record
 func (p *PostgresDB) DeleteScan(scanID string) error {
-	_, err := p.pool.Exec(p.ctx, `DELETE FROM scans WHERE scan_id = $1;`, scanID)
+	tx, err := p.pool.Begin(p.ctx)
 	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback(p.ctx)
+
+	if _, err := tx.Exec(p.ctx, `DELETE FROM scan_artifacts WHERE scan_id = $1;`, scanID); err != nil {
+		return fmt.Errorf("failed to delete scan artifacts: %v", err)
+	}
+	if _, err := tx.Exec(p.ctx, `DELETE FROM scans WHERE scan_id = $1;`, scanID); err != nil {
 		return fmt.Errorf("failed to delete scan: %v", err)
+	}
+	if err := tx.Commit(p.ctx); err != nil {
+		return fmt.Errorf("failed to commit delete scan: %v", err)
 	}
 	return nil
 }

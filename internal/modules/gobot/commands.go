@@ -50,7 +50,9 @@ type ScanInfo struct {
 	StartedAt   time.Time // For API compatibility
 	CompletedAt *time.Time
 	Command     string
-	CancelFunc  context.CancelFunc // Function to cancel the scan
+	CancelFunc  context.CancelFunc // Function to cancel the scan (Discord / CommandContext runs)
+	ExecCmd     *exec.Cmd          `json:"-"` // API executeScan: child process (kill / pause via signals)
+	CancelRequested bool           `json:"-"` // API: user requested stop; Wait() will mark cancelled
 	MessageID   string             // Discord message ID for updating messages
 	ChannelID   string             // Discord channel ID for updating messages
 	ThreadID    string             // Discord thread ID for sending updates (avoids token expiration)
@@ -405,7 +407,7 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 			// Fallback: try to extract from output
 			if zipURL == "" {
 				outputStr := string(output)
-				zipURL = extractR2ZipURLFromOutput(outputStr)
+				zipURL = ExtractR2ZipURLFromOutput(outputStr)
 				if zipURL != "" {
 					log.Printf("[DEBUG] Extracted zip URL from output: %s", zipURL)
 				}
@@ -698,11 +700,11 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	}
 }
 
-// extractR2ZipURLFromOutput looks for R2 "Results zip uploaded:" log line and returns the URL.
-// Expected format in output/logs:
-//
-//	[R2] Results zip uploaded: https://...
-func extractR2ZipURLFromOutput(output string) string {
+// ExtractR2ZipURLFromOutput finds an R2 zip / result URL in process output (API executeScan, etc.).
+// Matches legacy and current r2storage log lines, e.g.:
+//   [R2] Results zip uploaded: https://...
+//   ... [R2] Zip file uploaded: https://...   (see ZipAndUploadDirectory in r2storage)
+func ExtractR2ZipURLFromOutput(output string) string {
 	if len(output) == 0 {
 		return ""
 	}
@@ -713,16 +715,34 @@ func extractR2ZipURLFromOutput(output string) string {
 		if line == "" {
 			continue
 		}
-		idx := strings.Index(line, "Results zip uploaded:")
+		if strings.Contains(line, "Results zip uploaded:") ||
+			strings.Contains(line, "Zip file uploaded:") {
+			if u := extractFirstHTTPURL(line); u != "" {
+				return u
+			}
+		}
+	}
+	return ""
+}
+
+func extractFirstHTTPURL(s string) string {
+	for _, prefix := range []string{"https://", "http://"} {
+		idx := strings.Index(s, prefix)
 		if idx == -1 {
 			continue
 		}
-		urlPart := strings.TrimSpace(line[idx+len("Results zip uploaded:"):])
-		if urlPart == "" {
-			continue
+		rest := s[idx:]
+		end := len(rest)
+		for i := 0; i < len(rest); i++ {
+			c := rest[i]
+			if c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ')' || c == '"' || c == '\'' {
+				end = i
+				break
+			}
 		}
-		if strings.HasPrefix(urlPart, "http://") || strings.HasPrefix(urlPart, "https://") {
-			return urlPart
+		u := strings.TrimRight(rest[:end], ".,;")
+		if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+			return u
 		}
 	}
 	return ""

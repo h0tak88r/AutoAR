@@ -141,7 +141,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		if err := os.MkdirAll(filepath.Dir(outFile), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create output directory: %w", err)
 		}
-		if err := os.WriteFile(outFile, []byte(""), 0644); err != nil {
+		if err := utils.WriteFile(outFile, []byte("")); err != nil {
 			return nil, fmt.Errorf("failed to create empty output file: %w", err)
 		}
 		return &Result{
@@ -178,7 +178,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 			log.Printf("[WARN] kxss scan failed: %v", err)
 		}
 		// Create empty file to keep downstream logic consistent
-		if err := os.WriteFile(outFile, []byte(""), 0o644); err != nil {
+		if err := utils.WriteFile(outFile, []byte("")); err != nil {
 			return nil, fmt.Errorf("failed to create empty output file: %w", err)
 		}
 		log.Printf("[INFO] No reflection points found after scanning %d URL(s)", len(validURLs))
@@ -189,7 +189,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 			lines = append(lines, fmt.Sprintf("URL: %s Param: %s Unfiltered: %v ", r.URL, r.Param, r.Chars))
 		}
 		log.Printf("[OK] Found %d reflection point(s) out of %d URL(s) scanned", len(kxssResults), len(validURLs))
-		if err := os.WriteFile(outFile, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		if err := utils.WriteFile(outFile, []byte(strings.Join(lines, "\n"))); err != nil {
 			return nil, fmt.Errorf("failed to write kxss results: %w", err)
 		}
 		// Filter out empty results as before
