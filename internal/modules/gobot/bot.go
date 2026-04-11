@@ -195,44 +195,18 @@ func SendFileToChannel(channelID, filePath, description string) error {
 	return nil
 }
 
-// cleanupOrphanedScans marks old "running" scans as "failed" on bot startup
-// This handles cases where the bot crashed or was killed while scans were running
+// cleanupOrphanedScans marks in-progress scans as failed on bot startup (same as API restart).
 func cleanupOrphanedScans() {
 	log.Println("[INFO] Cleaning up orphaned scans from previous bot sessions...")
-
-	// Get all active scans
-	activeScans, err := db.ListActiveScans()
+	n, err := db.FailStaleActiveScans()
 	if err != nil {
-		log.Printf("[WARN] Failed to list active scans for cleanup: %v", err)
+		log.Printf("[WARN] Failed to fail stale scans: %v", err)
 		return
 	}
-
-	if len(activeScans) == 0 {
-		log.Println("[INFO] No orphaned scans found")
-		return
-	}
-
-	// Mark scans older than 6 hours as failed
-	// (Normal scans shouldn't take more than 2 hours based on timeout)
-	cutoffTime := time.Now().Add(-6 * time.Hour)
-	cleanedCount := 0
-
-	for _, scan := range activeScans {
-		if scan.StartedAt.Before(cutoffTime) {
-			if err := db.UpdateScanStatus(scan.ScanID, "failed"); err != nil {
-				log.Printf("[WARN] Failed to mark orphaned scan %s as failed: %v", scan.ScanID, err)
-			} else {
-				log.Printf("[INFO] Marked orphaned scan %s as failed (started %s ago)",
-					scan.ScanID, time.Since(scan.StartedAt).Round(time.Minute))
-				cleanedCount++
-			}
-		}
-	}
-
-	if cleanedCount > 0 {
-		log.Printf("[INFO] Cleaned up %d orphaned scan(s)", cleanedCount)
+	if n > 0 {
+		log.Printf("[INFO] Marked %d interrupted scan(s) as failed (no running worker after restart).", n)
 	} else {
-		log.Println("[INFO] No orphaned scans found (all scans are recent)")
+		log.Println("[INFO] No orphaned scans in database")
 	}
 }
 
@@ -407,6 +381,9 @@ func StartAPI() error {
 			}
 		}
 	}
+
+	// Ensure scans don't remain "running" across restarts (single-instance mode).
+	reconcileStaleScansOnStartup()
 
 	// Ensure database is closed on exit
 	defer func() {

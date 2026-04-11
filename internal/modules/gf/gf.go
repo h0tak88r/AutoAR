@@ -144,11 +144,11 @@ func runGFPattern(urlsFile, pattern, outFile string) error {
 	}
 
 	if len(matches) == 0 {
-		return os.WriteFile(outFile, []byte(""), 0o644)
+		return utils.WriteFile(outFile, []byte(""))
 	}
 
 	data := strings.Join(matches, "\n") + "\n"
-	return os.WriteFile(outFile, []byte(data), 0o644)
+	return utils.WriteFile(outFile, []byte(data))
 }
 
 func countLines(path string) (int, error) {

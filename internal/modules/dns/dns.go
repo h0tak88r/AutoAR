@@ -1228,28 +1228,8 @@ func writeLinesToFile(path string, lines []string) error {
 }
 
 func writeLines(path string, lines []string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if len(lines) == 0 {
-		return nil
-	}
-	w := bufio.NewWriter(f)
-	for _, l := range lines {
-		if strings.TrimSpace(l) == "" {
-			continue
-		}
-		if _, err := w.WriteString(l + "\n"); err != nil {
-			return err
-		}
-	}
-	return w.Flush()
+	// Use shared writer so non-empty outputs auto-upload to R2.
+	return utils.WriteLines(path, lines)
 }
 
 func appendLine(path, line string) error {

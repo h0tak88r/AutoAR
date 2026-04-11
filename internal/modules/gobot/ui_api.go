@@ -1,0 +1,1177 @@
+package gobot
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/subdomainmonitor"
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/config — returns public (non-secret) configuration to the UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiConfigHandler(c *gin.Context) {
+	jwtSecretSet := strings.TrimSpace(os.Getenv("SUPABASE_JWT_SECRET")) != ""
+	// Public anon key only (never use service_role / sb_secret here — browser-visible).
+	anon := strings.TrimSpace(os.Getenv("SUPABASE_ANON_KEY"))
+	c.JSON(http.StatusOK, gin.H{
+		"version":            "3.3.2",
+		"r2_enabled":         r2storage.IsEnabled(),
+		"r2_public_url":      os.Getenv("R2_PUBLIC_URL"),
+		"r2_bucket":          os.Getenv("R2_BUCKET_NAME"),
+		"supabase_url":       os.Getenv("SUPABASE_URL"),
+		"supabase_anon_key":  anon,
+		"auth_enabled":       jwtSecretSet,
+		"auth_provider":      "supabase",
+		"db_type":            getEnv("DB_TYPE", "postgresql"),
+		"mode":               getEnv("AUTOAR_MODE", "discord"),
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/dashboard/stats — aggregated real-time stats
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiDashboardStats(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	domains, _ := db.ListDomains()
+	domainCount := len(domains)
+
+	subdomainTotal := 0
+	liveTotal := 0
+	for _, d := range domains {
+		subs, err := db.ListSubdomainsWithStatus(d)
+		if err == nil {
+			subdomainTotal += len(subs)
+			for _, s := range subs {
+				if s.IsLive {
+					liveTotal++
+				}
+			}
+		}
+	}
+
+	monitorTargets, _ := db.ListMonitorTargets()
+	subMonitorTargets, _ := db.ListSubdomainMonitorTargets()
+
+	runningMonitors := 0
+	for _, t := range monitorTargets {
+		if t.IsRunning {
+			runningMonitors++
+		}
+	}
+	for _, t := range subMonitorTargets {
+		if t.IsRunning {
+			runningMonitors++
+		}
+	}
+
+	activeScansList, _ := db.ListActiveScans()
+	activeScansList = mergeActiveScansFromMemory(activeScansList)
+	activeScans := len(activeScansList)
+
+	recentScans, _ := db.ListRecentScans(100)
+	completedScans := 0
+	for _, s := range recentScans {
+		if s.Status == "done" || s.Status == "completed" {
+			completedScans++
+		}
+	}
+
+	recentChanges, _ := db.ListMonitorChanges("", 5)
+
+	c.JSON(http.StatusOK, gin.H{
+		"domains":          domainCount,
+		"subdomains":       subdomainTotal,
+		"live_subdomains":  liveTotal,
+		"monitor_targets":  len(monitorTargets) + len(subMonitorTargets),
+		"running_monitors": runningMonitors,
+		"active_scans":     activeScans,
+		"completed_scans":  completedScans,
+		"recent_changes":   recentChanges,
+		"timestamp":        time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/domains — list tracked root domains
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiListDomains(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	domains, err := db.ListDomains()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type DomainInfo struct {
+		Domain         string `json:"domain"`
+		SubdomainCount int    `json:"subdomain_count"`
+		LiveCount      int    `json:"live_count"`
+	}
+
+	result := make([]DomainInfo, 0, len(domains))
+	for _, d := range domains {
+		subs, _ := db.ListSubdomainsWithStatus(d)
+		liveCount := 0
+		for _, s := range subs {
+			if s.IsLive {
+				liveCount++
+			}
+		}
+		result = append(result, DomainInfo{
+			Domain:         d,
+			SubdomainCount: len(subs),
+			LiveCount:      liveCount,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"domains": result, "total": len(result)})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/domains/:domain/subdomains — list subdomains with status
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiListSubdomains(c *gin.Context) {
+	domain := c.Param("domain")
+	if domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain is required"})
+		return
+	}
+
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	subs, err := db.ListSubdomainsWithStatus(domain)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"domain":     domain,
+		"subdomains": subs,
+		"total":      len(subs),
+	})
+}
+
+// DELETE /api/domains/:domain — remove domain row, subdomains, related scans/artifacts, monitor rows, subdomain monitor target; R2 cleanup for those scans.
+func apiDeleteDomain(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	domain := strings.TrimSpace(c.Param("domain"))
+	if domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain is required"})
+		return
+	}
+
+	scanIDs, err := db.ListScanIDsForDomainRoot(domain)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	scansMutex.RLock()
+	for _, id := range scanIDs {
+		if s, ok := activeScans[id]; ok && s != nil {
+			st := strings.ToLower(s.Status)
+			if st == "running" || st == "starting" || st == "paused" || st == "cancelling" {
+				scansMutex.RUnlock()
+				c.JSON(http.StatusBadRequest, gin.H{"error": "a scan for this domain is still active; stop it first", "scan_id": id})
+				return
+			}
+		}
+	}
+	scansMutex.RUnlock()
+
+	keySet := make(map[string]struct{})
+	for _, id := range scanIDs {
+		mergeR2KeysForScanInto(id, keySet)
+	}
+	keys := r2KeySetToSlice(keySet)
+	if err := r2storage.DeleteObjects(keys); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.DeleteDomain(domain); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	purgeScanMemoryByIDs(scanIDs)
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":               true,
+		"domain":           domain,
+		"deleted_scans":    len(scanIDs),
+		"deleted_r2_keys":  len(keys),
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/scans — list recent scans (active + historical)
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiListScans(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	active, err := db.ListActiveScans()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Safety net: if a scan is marked active in DB but there's no in-memory worker after restart,
+	// mark it failed once it hasn't updated for a short grace window.
+	if len(active) > 0 {
+		cutoff := time.Now().Add(-2 * time.Minute)
+		mem := map[string]struct{}{}
+		scansMutex.RLock()
+		for id := range activeScans {
+			mem[id] = struct{}{}
+		}
+		scansMutex.RUnlock()
+
+		updated := false
+		for _, r := range active {
+			if r == nil {
+				continue
+			}
+			if _, ok := mem[r.ScanID]; ok {
+				continue
+			}
+			if !r.LastUpdate.IsZero() && r.LastUpdate.Before(cutoff) {
+				_ = db.UpdateScanStatus(r.ScanID, "failed")
+				updated = true
+			}
+		}
+		if updated {
+			active, _ = db.ListActiveScans()
+		}
+	}
+
+	recent, err := db.ListRecentScans(50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	active = mergeActiveScansFromMemory(active)
+
+	if active == nil {
+		active = make([]*db.ScanRecord, 0)
+	}
+	if recent == nil {
+		recent = make([]*db.ScanRecord, 0)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"active_scans": active,
+		"recent_scans": recent,
+		"total":        len(active) + len(recent),
+	})
+}
+
+// GET /api/scans/:id/artifacts — list indexed artifacts for a scan
+func apiListScanArtifacts(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	artifacts, err := db.ListScanArtifacts(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if artifacts == nil {
+		artifacts = make([]*db.ScanArtifact, 0)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"scan_id":   id,
+		"artifacts": artifacts,
+		"total":     len(artifacts),
+	})
+}
+
+func scanIsActiveInMemory(id string) bool {
+	scansMutex.RLock()
+	defer scansMutex.RUnlock()
+	s, ok := activeScans[id]
+	if !ok || s == nil {
+		return false
+	}
+	st := strings.ToLower(s.Status)
+	return st == "running" || st == "starting" || st == "paused" || st == "cancelling"
+}
+
+func mergeR2KeysForScanInto(scanID string, keySet map[string]struct{}) {
+	scan, _ := db.GetScan(scanID)
+	artifacts, _ := db.ListScanArtifacts(scanID)
+	for _, a := range artifacts {
+		if a == nil {
+			continue
+		}
+		if a.R2Key != "" {
+			keySet[a.R2Key] = struct{}{}
+		} else if a.PublicURL != "" {
+			if k := r2storage.ExtractObjectKeyFromPublicURL(a.PublicURL); k != "" {
+				keySet[k] = struct{}{}
+			}
+		}
+	}
+	if scan != nil && scan.ResultURL != "" {
+		if k := r2storage.ExtractObjectKeyFromPublicURL(scan.ResultURL); k != "" {
+			keySet[k] = struct{}{}
+		}
+	}
+}
+
+func r2KeySetToSlice(keySet map[string]struct{}) []string {
+	if len(keySet) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(keySet))
+	for k := range keySet {
+		out = append(out, k)
+	}
+	return out
+}
+
+func purgeScanMemoryByIDs(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	scansMutex.Lock()
+	for _, id := range ids {
+		delete(activeScans, id)
+	}
+	scansMutex.Unlock()
+	apiScansMutex.Lock()
+	for _, id := range ids {
+		delete(scanResults, id)
+	}
+	apiScansMutex.Unlock()
+}
+
+// performScanDelete removes R2 objects and the scan row; clears API result cache. Caller must ensure the scan is not active in memory.
+func performScanDelete(scanID string) (int, error) {
+	keySet := make(map[string]struct{})
+	mergeR2KeysForScanInto(scanID, keySet)
+	keys := r2KeySetToSlice(keySet)
+	if err := r2storage.DeleteObjects(keys); err != nil {
+		return 0, err
+	}
+	if err := db.DeleteScan(scanID); err != nil {
+		return 0, err
+	}
+	purgeScanMemoryByIDs([]string{scanID})
+	return len(keys), nil
+}
+
+// DELETE /api/scans/:id — delete scan record and indexed R2 artifacts
+func apiDeleteScan(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+
+	if scanIsActiveInMemory(id) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan is still active; stop it first"})
+		return
+	}
+
+	nKeys, err := performScanDelete(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":              true,
+		"scan_id":         id,
+		"deleted_r2_keys": nKeys,
+	})
+}
+
+// POST /api/scans/bulk-delete — body: { "scan_ids": ["..."] }
+func apiBulkDeleteScans(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	var body struct {
+		ScanIDs []string `json:"scan_ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, id := range body.ScanIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no scan_ids provided"})
+		return
+	}
+
+	deleted, skippedActive, failed := 0, 0, 0
+	var firstErr string
+	for _, id := range ids {
+		if scanIsActiveInMemory(id) {
+			skippedActive++
+			continue
+		}
+		if _, err := performScanDelete(id); err != nil {
+			failed++
+			if firstErr == "" {
+				firstErr = err.Error()
+			}
+			continue
+		}
+		deleted++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":             failed == 0,
+		"deleted":        deleted,
+		"skipped_active": skippedActive,
+		"failed":         failed,
+		"error":          firstErr,
+	})
+}
+
+// POST /api/scans/clear-all — delete every scan that is not active in memory (skipped_active in response).
+func apiClearAllScans(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	allIDs, err := db.ListAllScanIDs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	deleted, skippedActive, failed := 0, 0, 0
+	var firstErr string
+	for _, id := range allIDs {
+		if scanIsActiveInMemory(id) {
+			skippedActive++
+			continue
+		}
+		if _, err := performScanDelete(id); err != nil {
+			failed++
+			if firstErr == "" {
+				firstErr = err.Error()
+			}
+			continue
+		}
+		deleted++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":             failed == 0,
+		"deleted":        deleted,
+		"skipped_active": skippedActive,
+		"failed":         failed,
+		"error":          firstErr,
+	})
+}
+
+// POST /api/scans/:id/cancel — stop a running scan (API child process or Discord cancel ctx)
+func apiCancelScan(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	if err := CancelScanByID(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "cancel requested"})
+}
+
+// POST /api/scans/:id/pause — SIGSTOP on API scan child (Unix only)
+func apiPauseScan(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	if err := PauseScanByID(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "paused"})
+}
+
+// POST /api/scans/:id/resume — SIGCONT after pause (Unix only)
+func apiResumeScan(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	if err := ResumeScanByID(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "resumed"})
+}
+
+// mergeActiveScansFromMemory overlays in-memory API state (activeScans) on DB rows so live
+// phase/status/command win. Previously we skipped memory when the scan already existed in
+// the DB, which forced phase 0/1 (0%) for API-started runs.
+func mergeActiveScansFromMemory(dbActive []*db.ScanRecord) []*db.ScanRecord {
+	scansMutex.RLock()
+	defer scansMutex.RUnlock()
+
+	out := make([]*db.ScanRecord, 0, len(dbActive)+len(activeScans))
+	for _, r := range dbActive {
+		if r == nil {
+			continue
+		}
+		if info, ok := activeScans[r.ScanID]; ok && info != nil {
+			st := strings.ToLower(info.Status)
+			if st == "running" || st == "starting" || st == "paused" || st == "cancelling" {
+				out = append(out, mergeScanRecordWithMemory(r, info))
+				continue
+			}
+		}
+		out = append(out, r)
+	}
+
+	seen := make(map[string]struct{}, len(out)+len(activeScans))
+	for _, r := range out {
+		seen[r.ScanID] = struct{}{}
+	}
+	for id, info := range activeScans {
+		if info == nil {
+			continue
+		}
+		st := strings.ToLower(info.Status)
+		if st != "running" && st != "starting" && st != "paused" && st != "cancelling" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, scanInfoToScanRecord(info))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
+	return out
+}
+
+func mergeScanRecordWithMemory(r *db.ScanRecord, info *ScanInfo) *db.ScanRecord {
+	m := scanInfoToScanRecord(info)
+	merged := *r
+	merged.Status = m.Status
+	merged.CurrentPhase = m.CurrentPhase
+	if m.TotalPhases > 0 {
+		merged.TotalPhases = m.TotalPhases
+	}
+	merged.PhaseName = m.PhaseName
+	merged.LastUpdate = m.LastUpdate
+	merged.Command = m.Command
+	merged.PhaseStartTime = m.PhaseStartTime
+	if len(m.CompletedPhases) > 0 {
+		merged.CompletedPhases = m.CompletedPhases
+	}
+	if len(m.FailedPhases) > 0 {
+		merged.FailedPhases = m.FailedPhases
+	}
+	merged.FilesUploaded = m.FilesUploaded
+	merged.ErrorCount = m.ErrorCount
+	return &merged
+}
+
+func scanInfoToScanRecord(info *ScanInfo) *db.ScanRecord {
+	st := info.ScanType
+	if st == "" {
+		st = info.Type
+	}
+	sa := info.StartedAt
+	if sa.IsZero() {
+		sa = info.StartTime
+	}
+	lu := info.LastUpdate
+	if lu.IsZero() {
+		lu = sa
+	}
+	tp := info.TotalPhases
+	if tp <= 0 {
+		tp = 1
+	}
+	rec := &db.ScanRecord{
+		ScanID:        info.ScanID,
+		ScanType:      st,
+		Target:        info.Target,
+		Status:        info.Status,
+		CurrentPhase:  info.CurrentPhase,
+		TotalPhases:   tp,
+		PhaseName:     info.PhaseName,
+		StartedAt:     sa,
+		LastUpdate:    lu,
+		Command:       info.Command,
+		ChannelID:     info.ChannelID,
+		ThreadID:      info.ThreadID,
+		MessageID:     info.MessageID,
+		FilesUploaded: info.FilesUploaded,
+		ErrorCount:    info.ErrorCount,
+	}
+	if !info.PhaseStartTime.IsZero() {
+		t := info.PhaseStartTime
+		rec.PhaseStartTime = &t
+	}
+	if len(info.CompletedPhases) > 0 {
+		rec.CompletedPhases = append([]string(nil), info.CompletedPhases...)
+	}
+	if len(info.FailedPhases) > 0 {
+		rec.FailedPhases = append([]string(nil), info.FailedPhases...)
+	}
+	return rec
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/monitor/targets — URL monitor targets
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiMonitorTargets(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	targets, err := db.ListMonitorTargets()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"targets": targets, "total": len(targets)})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/monitor/subdomain-targets — subdomain monitor targets
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiSubdomainMonitorTargets(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	targets, err := db.ListSubdomainMonitorTargets()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"targets": targets, "total": len(targets)})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/monitor/changes — recent monitor change history
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiMonitorChanges(c *gin.Context) {
+	domain := c.Query("domain")
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	changes, err := db.ListMonitorChanges(domain, 50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"changes": changes, "total": len(changes)})
+}
+
+// DELETE /api/monitor/changes — wipe change history and reset URL monitor change counters.
+func apiClearMonitorChanges(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	if err := db.ClearMonitorChanges(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func normalizeMonitorPageURL(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", fmt.Errorf("url is required")
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("invalid URL")
+	}
+	u.Fragment = ""
+	return u.String(), nil
+}
+
+func monitorTargetIDForURL(canonical string) (int, error) {
+	targets, err := db.ListMonitorTargets()
+	if err != nil {
+		return 0, err
+	}
+	for _, t := range targets {
+		if t.URL == canonical {
+			return t.ID, nil
+		}
+	}
+	return 0, fmt.Errorf("target not found after save")
+}
+
+// POST /api/monitor/url-targets — add (or update) a URL monitor; optionally mark running and start URL daemon.
+func apiPostMonitorURLTarget(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	var body struct {
+		URL      string `json:"url"`
+		Strategy string `json:"strategy"`
+		Pattern  string `json:"pattern"`
+		Start    *bool  `json:"start"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+
+	canonical, err := normalizeMonitorPageURL(body.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	strategy := strings.TrimSpace(strings.ToLower(body.Strategy))
+	if strategy == "" {
+		strategy = "hash"
+	}
+	if strategy != "hash" && strategy != "regex" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "strategy must be hash or regex"})
+		return
+	}
+	pattern := strings.TrimSpace(body.Pattern)
+	if strategy == "regex" && pattern == "" {
+		pattern = `([A-Z][a-z]{2,9} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})`
+	}
+
+	if err := db.AddMonitorTarget(canonical, strategy, pattern); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	id, err := monitorTargetIDForURL(canonical)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	start := true
+	if body.Start != nil {
+		start = *body.Start
+	}
+	if start {
+		if err := db.SetMonitorRunningStatus(id, true); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		monitor.StartURLMonitorDaemon()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":       true,
+		"id":       id,
+		"url":      canonical,
+		"strategy": strategy,
+		"started":  start,
+	})
+}
+
+func parseMonitorTargetID(c *gin.Context) (int, bool) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid monitor id"})
+		return 0, false
+	}
+	return id, true
+}
+
+// DELETE /api/monitor/url-targets/:id — remove URL monitor target.
+func apiDeleteMonitorURLTarget(c *gin.Context) {
+	id, ok := parseMonitorTargetID(c)
+	if !ok {
+		return
+	}
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	t, err := db.GetMonitorTargetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.RemoveMonitorTarget(t.URL); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// POST /api/monitor/url-targets/:id/pause — stop checking this URL (keeps row).
+func apiPauseMonitorURLTarget(c *gin.Context) {
+	id, ok := parseMonitorTargetID(c)
+	if !ok {
+		return
+	}
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	if _, err := db.GetMonitorTargetByID(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.SetMonitorRunningStatus(id, false); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "running": false})
+}
+
+// POST /api/monitor/url-targets/:id/resume — mark running and wake URL monitor worker.
+func apiResumeMonitorURLTarget(c *gin.Context) {
+	id, ok := parseMonitorTargetID(c)
+	if !ok {
+		return
+	}
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	if _, err := db.GetMonitorTargetByID(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.SetMonitorRunningStatus(id, true); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	monitor.StartURLMonitorDaemon()
+	c.JSON(http.StatusOK, gin.H{"ok": true, "running": true})
+}
+
+// POST /api/monitor/subdomain-targets — add subdomain monitor target; optionally mark running and start subdomain daemon.
+func apiPostMonitorSubdomainTarget(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	var body struct {
+		Domain          string `json:"domain"`
+		IntervalSeconds int    `json:"interval_seconds"`
+		Threads         int    `json:"threads"`
+		CheckNew        *bool  `json:"check_new"`
+		Start           *bool  `json:"start"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+
+	domain := strings.TrimSpace(body.Domain)
+	if domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain is required"})
+		return
+	}
+
+	interval := body.IntervalSeconds
+	if interval <= 0 {
+		interval = 3600
+	}
+	threads := body.Threads
+	if threads <= 0 {
+		threads = 100
+	}
+	checkNew := true
+	if body.CheckNew != nil {
+		checkNew = *body.CheckNew
+	}
+
+	if err := db.AddSubdomainMonitorTarget(domain, interval, threads, checkNew); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	targets, err := db.ListSubdomainMonitorTargets()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	var id int
+	found := false
+	for _, t := range targets {
+		if t.Domain == domain {
+			id = t.ID
+			found = true
+			break
+		}
+	}
+	if !found {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "target not found after save"})
+		return
+	}
+
+	start := true
+	if body.Start != nil {
+		start = *body.Start
+	}
+	if start {
+		if err := db.SetSubdomainMonitorRunningStatus(id, true); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if !subdomainmonitor.IsDaemonRunning() {
+			if err := subdomainmonitor.StartDaemon(); err != nil {
+				log.Printf("[WARN] subdomain monitor daemon: %v", err)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":                true,
+		"id":                id,
+		"domain":            domain,
+		"interval_seconds":  interval,
+		"threads":           threads,
+		"check_new":         checkNew,
+		"started":           start,
+	})
+}
+
+// DELETE /api/monitor/subdomain-targets/:id — remove subdomain monitor target.
+func apiDeleteMonitorSubdomainTarget(c *gin.Context) {
+	id, ok := parseMonitorTargetID(c)
+	if !ok {
+		return
+	}
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	t, err := db.GetSubdomainMonitorTargetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.RemoveSubdomainMonitorTarget(t.Domain); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// POST /api/monitor/subdomain-targets/:id/pause
+func apiPauseMonitorSubdomainTarget(c *gin.Context) {
+	id, ok := parseMonitorTargetID(c)
+	if !ok {
+		return
+	}
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	if _, err := db.GetSubdomainMonitorTargetByID(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.SetSubdomainMonitorRunningStatus(id, false); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "running": false})
+}
+
+// POST /api/monitor/subdomain-targets/:id/resume
+func apiResumeMonitorSubdomainTarget(c *gin.Context) {
+	id, ok := parseMonitorTargetID(c)
+	if !ok {
+		return
+	}
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	if _, err := db.GetSubdomainMonitorTargetByID(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.SetSubdomainMonitorRunningStatus(id, true); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !subdomainmonitor.IsDaemonRunning() {
+		if err := subdomainmonitor.StartDaemon(); err != nil {
+			log.Printf("[WARN] subdomain monitor daemon: %v", err)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "running": true})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/r2/files — proxy R2 bucket object listing
+// ─────────────────────────────────────────────────────────────────────────────
+
+// R2FileInfo represents a single object in the R2 bucket
+type R2FileInfo struct {
+	Key          string    `json:"key"`
+	Size         int64     `json:"size"`
+	LastModified time.Time `json:"last_modified"`
+	PublicURL    string    `json:"public_url"`
+}
+
+func apiR2Files(c *gin.Context) {
+	if !r2storage.IsEnabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "R2 storage is not enabled"})
+		return
+	}
+
+	prefix := strings.TrimPrefix(c.Query("prefix"), "/")
+	publicBaseURL := strings.TrimSuffix(os.Getenv("R2_PUBLIC_URL"), "/")
+	bucketName := os.Getenv("R2_BUCKET_NAME")
+	accountID := os.Getenv("R2_ACCOUNT_ID")
+	accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+	secretKey := os.Getenv("R2_SECRET_KEY")
+
+	client, err := buildR2Client(accountID, accessKey, secretKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to init R2 client: %v", err)})
+		return
+	}
+
+	// Build list request — delimiter "/" for folder UI; omit delimiter when recursive=1
+	// so nested keys (e.g. new-results/domain/urls/file.txt) are included.
+	listPrefix := prefix
+	if listPrefix != "" && !strings.HasSuffix(listPrefix, "/") {
+		listPrefix += "/"
+	}
+
+	recursive := c.Query("recursive") == "1" || strings.EqualFold(c.Query("recursive"), "true")
+
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucketName),
+	}
+	if listPrefix != "" {
+		input.Prefix = aws.String(listPrefix)
+	}
+	if !recursive {
+		input.Delimiter = aws.String("/")
+	}
+
+	var files []R2FileInfo
+	var dirs []string
+
+	paginator := s3.NewListObjectsV2Paginator(client, input)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to list R2: %v", err)})
+			return
+		}
+
+		for _, cp := range page.CommonPrefixes {
+			if cp.Prefix != nil {
+				dirs = append(dirs, *cp.Prefix)
+			}
+		}
+
+		for _, obj := range page.Contents {
+			key := aws.ToString(obj.Key)
+			if listPrefix != "" && key == listPrefix {
+				continue // skip the virtual "dir" itself
+			}
+			size := int64(0)
+			if obj.Size != nil {
+				size = *obj.Size
+			}
+			lastMod := time.Time{}
+			if obj.LastModified != nil {
+				lastMod = *obj.LastModified
+			}
+			files = append(files, R2FileInfo{
+				Key:          key,
+				Size:         size,
+				LastModified: lastMod,
+				PublicURL:    publicBaseURL + "/" + key,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"prefix": prefix,
+		"dirs":   dirs,
+		"files":  files,
+		"total":  len(files),
+	})
+}
+
+// buildR2Client constructs an S3-compatible client pointing at Cloudflare R2
+func buildR2Client(accountID, accessKey, secretKey string) (*s3.Client, error) {
+	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
+
+	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, opts ...interface{}) (aws.Endpoint, error) {
+		if service == s3.ServiceID {
+			return aws.Endpoint{URL: endpoint, SigningRegion: "auto"}, nil
+		}
+		return aws.Endpoint{}, fmt.Errorf("unknown endpoint: %s", service)
+	})
+
+	cfg, err := awsconfig.LoadDefaultConfig(context.TODO(),
+		awsconfig.WithEndpointResolverWithOptions(resolver),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
+		awsconfig.WithRegion("auto"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.UsePathStyle = true
+	}), nil
+}

@@ -12,6 +12,7 @@ import (
 
 	confused2 "github.com/h0tak88r/AutoAR/internal/tools/confused2"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/projectdiscovery/httpx/runner"
 )
 
@@ -358,10 +359,10 @@ func convertJSONToText(jsonFile, textFile string) error {
 
 	// Rewrite the JSON file to only contain vulnerable entries (clean up false positives at source)
 	if len(vulnerable) == 0 {
-		os.WriteFile(jsonFile, []byte{}, 0644) // Leave JSON file entirely empty
+		_ = utils.WriteFile(jsonFile, []byte{}) // Leave JSON file entirely empty
 	} else {
 		if cleanJSON, marshalErr := json.MarshalIndent(vulnerable, "", "  "); marshalErr == nil {
-			os.WriteFile(jsonFile, cleanJSON, 0644)
+			_ = utils.WriteFile(jsonFile, cleanJSON)
 		}
 	}
 

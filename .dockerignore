@@ -1,11 +1,37 @@
-Dockerfile
-.dockerignore
+# Git and IDE
 .git
-.gitignore
-README.md
-*.md
+.gitmodules
+.github
+.cursor
+.vscode
+.idea
+
+# Secrets and local env (runtime secrets via compose env_file / -e)
 .env
+
+# Build outputs & logs
 *.log
+autoar
+*.exe
 new-results/
-*.tmp
-*.temp
+web-data/
+backups/
+api.log
+
+# Tests and temp
+tmp_*
+test-*
+
+# Large or optional local trees (image clones nuclei_templates / Wordlists in Dockerfile)
+nuclei_templates/
+Wordlists/
+
+# Docs not needed at build
+*.md
+!README.md
+
+# Misc
+*.db
+*.sqlite
+*.sqlite3
+.DS_Store

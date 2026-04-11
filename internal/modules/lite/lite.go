@@ -483,8 +483,8 @@ func uploadPhaseFileToR2(phaseKey, domain, filePath string, uploadedFiles *LiteS
 	fileName := filepath.Base(filePath)
 	objectKey := fmt.Sprintf("lite/%s/%s/%s", domain, phaseKey, fileName)
 	
-	// Upload to R2
-	publicURL, err := r2storage.UploadFile(filePath, objectKey, false)
+	// Upload to R2 (skipTimestamp=true so keys stay lite/{domain}/... and the dashboard can list by prefix)
+	publicURL, err := r2storage.UploadFile(filePath, objectKey, true)
 	if err != nil {
 		return fmt.Errorf("failed to upload to R2: %w", err)
 	}
@@ -541,7 +541,7 @@ func saveUploadedFilesInfo(domain string, uploadedFiles *LiteScanUploads) error 
 	}
 	
 	// Write to file
-	if err := os.WriteFile(uploadInfoFile, jsonData, 0644); err != nil {
+	if err := utils.WriteFile(uploadInfoFile, jsonData); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 	

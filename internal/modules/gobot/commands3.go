@@ -587,22 +587,34 @@ func handleCancelScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			respond(s, i, fmt.Sprintf("Scan with ID `%s` not found or already completed", scanID), false)
 			return
 		}
-		if scan.Status != "running" {
+		if scan.Status != "running" && scan.Status != "starting" && scan.Status != "paused" {
 			scansMutex.Unlock()
 			respond(s, i, fmt.Sprintf("Scan `%s` is not running (status: %s)", scanID, scan.Status), false)
 			return
 		}
-		if scan.CancelFunc == nil {
+		scan.CancelRequested = true
+		if scan.ExecCmd != nil && scan.ExecCmd.Process != nil {
+			_ = scan.ExecCmd.Process.Kill()
+			scan.Status = "cancelling"
 			scansMutex.Unlock()
-			respond(s, i, fmt.Sprintf("Scan `%s` cannot be cancelled (no cancel function available)", scanID), false)
+			respond(s, i, fmt.Sprintf("Stopping API scan `%s`…", scanID), false)
 			return
 		}
-		// Cancel the scan
+		if scan.CancelFunc == nil {
+			scansMutex.Unlock()
+			respond(s, i, fmt.Sprintf("Scan `%s` cannot be cancelled (no cancel support)", scanID), false)
+			return
+		}
+		// Cancel the scan (Discord / CommandContext)
 		scan.CancelFunc()
 		scan.Status = "cancelling"
 		scansMutex.Unlock()
 
-		respond(s, i, fmt.Sprintf("Cancelling scan `%s` (%s on `%s`)", scanID, scan.Type, scan.Target), false)
+		st := scan.ScanType
+		if st == "" {
+			st = scan.Type
+		}
+		respond(s, i, fmt.Sprintf("Cancelling scan `%s` (%s on `%s`)", scanID, st, scan.Target), false)
 		return
 	}
 
@@ -612,7 +624,12 @@ func handleCancelScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		var foundScan *ScanInfo
 		var foundScanID string
 		for id, scan := range activeScans {
-			if scan.Target == target && scan.Type == scanType && scan.Status == "running" {
+			st := scan.ScanType
+			if st == "" {
+				st = scan.Type
+			}
+			active := scan.Status == "running" || scan.Status == "starting" || scan.Status == "paused"
+			if scan.Target == target && st == scanType && active {
 				foundScan = scan
 				foundScanID = id
 				break
@@ -623,12 +640,19 @@ func handleCancelScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			respond(s, i, fmt.Sprintf("No running scan found for type `%s` on target `%s`", scanType, target), false)
 			return
 		}
-		if foundScan.CancelFunc == nil {
+		foundScan.CancelRequested = true
+		if foundScan.ExecCmd != nil && foundScan.ExecCmd.Process != nil {
+			_ = foundScan.ExecCmd.Process.Kill()
+			foundScan.Status = "cancelling"
 			scansMutex.Unlock()
-			respond(s, i, fmt.Sprintf("Scan `%s` cannot be cancelled (no cancel function available)", foundScanID), false)
+			respond(s, i, fmt.Sprintf("Stopping API scan `%s`…", foundScanID), false)
 			return
 		}
-		// Cancel the scan
+		if foundScan.CancelFunc == nil {
+			scansMutex.Unlock()
+			respond(s, i, fmt.Sprintf("Scan `%s` cannot be cancelled (no cancel support)", foundScanID), false)
+			return
+		}
 		foundScan.CancelFunc()
 		foundScan.Status = "cancelling"
 		scansMutex.Unlock()
