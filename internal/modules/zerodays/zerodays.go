@@ -762,7 +762,7 @@ func SaveResults(result *Result, outputDir string) error {
 				// Save leaked data to separate file
 				if len(vuln.LeakedData) > 0 {
 					leakFile := filepath.Join(outputDir, fmt.Sprintf("mongodb-leaked-%s-%d.bin", strings.ReplaceAll(vuln.Host, ".", "_"), vuln.Port))
-					if err := os.WriteFile(leakFile, vuln.LeakedData, 0644); err != nil {
+					if err := utils.WriteFile(leakFile, vuln.LeakedData); err != nil {
 						log.Printf("[WARN] Failed to save leaked data: %v", err)
 					}
 				}
@@ -779,7 +779,7 @@ func SaveResults(result *Result, outputDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal results: %w", err)
 	}
-	if err := os.WriteFile(jsonFile, jsonData, 0644); err != nil {
+	if err := utils.WriteFile(jsonFile, jsonData); err != nil {
 		return fmt.Errorf("failed to write JSON file: %w", err)
 	}
 

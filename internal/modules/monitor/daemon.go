@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,8 +104,8 @@ func checkAllURLTargets() {
 	wg.Wait()
 }
 
-// checkTarget fetches a single URL, computes a SHA-256 hash, and records a
-// change to the DB + fires a Discord alert if the content differs.
+// checkTarget fetches a single URL. For strategy "hash" it compares SHA-256 of the body;
+// for "regex" it compares the first regex match (or full match) to the stored baseline.
 func checkTarget(client *http.Client, t db.MonitorTarget) {
 	resp, err := client.Get(t.URL)
 	if err != nil {
@@ -118,6 +120,19 @@ func checkTarget(client *http.Client, t db.MonitorTarget) {
 		return
 	}
 
+	strategy := strings.ToLower(strings.TrimSpace(t.Strategy))
+	if strategy == "" {
+		strategy = "hash"
+	}
+	if strategy == "regex" {
+		checkTargetRegex(t, body)
+		return
+	}
+
+	checkTargetHash(t, body)
+}
+
+func checkTargetHash(t db.MonitorTarget, body []byte) {
 	rawHash := sha256.Sum256(body)
 	currentHash := fmt.Sprintf("%x", rawHash)
 
@@ -134,9 +149,10 @@ func checkTarget(client *http.Client, t db.MonitorTarget) {
 	}
 
 	// Content changed → record in DB + send Discord alert
-	log.Printf("[URL-MONITOR] ⚠️  Change detected for %s", t.URL)
+	log.Printf("[URL-MONITOR] ⚠️  Change detected for %s (hash)", t.URL)
 
 	detail, _ := json.Marshal(map[string]string{
+		"strategy": "hash",
 		"old_hash": t.LastHash,
 		"new_hash": currentHash,
 	})
@@ -150,10 +166,102 @@ func checkTarget(client *http.Client, t db.MonitorTarget) {
 	})
 	_ = db.UpdateMonitorTargetLastRun(t.ID, currentHash, true)
 
-	// Send Discord webhook alert
+	oldShort, newShort := t.LastHash, currentHash
+	if len(oldShort) > 8 {
+		oldShort = oldShort[:8]
+	}
+	if len(newShort) > 8 {
+		newShort = newShort[:8]
+	}
 	msg := fmt.Sprintf(
 		"🔔 **URL Monitor Alert**\n**URL**: %s\n**Change**: content hash changed\n**Old hash**: `%s`\n**New hash**: `%s`\n**Timestamp**: %s",
-		t.URL, t.LastHash[:8], currentHash[:8], time.Now().Format(time.RFC3339),
+		t.URL, oldShort, newShort, time.Now().Format(time.RFC3339),
+	)
+	utils.SendWebhookLogAsync(msg)
+}
+
+// looksLikeSHA256Hex reports whether s is a 64-char hex string (legacy hash baseline).
+func looksLikeSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func defaultRegexPattern() string {
+	return `([A-Z][a-z]{2,9} [0-9]{1,2}, [0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})`
+}
+
+func checkTargetRegex(t db.MonitorTarget, body []byte) {
+	pat := strings.TrimSpace(t.Pattern)
+	if pat == "" {
+		pat = defaultRegexPattern()
+	}
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		log.Printf("[URL-MONITOR] Invalid regex for %s: %v", t.URL, err)
+		return
+	}
+
+	text := string(body)
+	match := re.FindString(text)
+
+	// Switched from hash strategy — old last_hash is hex; establish fresh regex baseline.
+	baseline := t.LastHash
+	if looksLikeSHA256Hex(baseline) {
+		baseline = ""
+	}
+
+	if baseline == "" {
+		log.Printf("[URL-MONITOR] First check for %s — storing baseline regex match", t.URL)
+		_ = db.UpdateMonitorTargetLastRun(t.ID, match, false)
+		return
+	}
+
+	if match == baseline {
+		_ = db.UpdateMonitorTargetLastRun(t.ID, match, false)
+		return
+	}
+
+	log.Printf("[URL-MONITOR] ⚠️  Change detected for %s (regex)", t.URL)
+
+	detailObj := map[string]string{
+		"strategy":  "regex",
+		"old_match": baseline,
+		"new_match": match,
+	}
+	if len(pat) <= 200 {
+		detailObj["pattern"] = pat
+	}
+	detail, _ := json.Marshal(detailObj)
+
+	_ = db.InsertMonitorChange(&db.MonitorChange{
+		TargetType: "url",
+		TargetID:   t.ID,
+		Domain:     t.URL,
+		ChangeType: "content_changed",
+		Detail:     string(detail),
+		Notified:   true,
+	})
+	_ = db.UpdateMonitorTargetLastRun(t.ID, match, true)
+
+	oldDisp, newDisp := baseline, match
+	if len(oldDisp) > 80 {
+		oldDisp = oldDisp[:80] + "…"
+	}
+	if len(newDisp) > 80 {
+		newDisp = newDisp[:80] + "…"
+	}
+	msg := fmt.Sprintf(
+		"🔔 **URL Monitor Alert** (regex)\n**URL**: %s\n**Change**: matched text changed\n**Old**: `%s`\n**New**: `%s`\n**Timestamp**: %s",
+		t.URL, oldDisp, newDisp, time.Now().Format(time.RFC3339),
 	)
 	utils.SendWebhookLogAsync(msg)
 }

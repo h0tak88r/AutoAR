@@ -1,19 +1,24 @@
 package gobot
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 var (
@@ -48,6 +53,7 @@ type ScanRequest struct {
 	Daemon            *bool   `json:"daemon"`
 	Mode              *string `json:"mode"`
 	SkipJS            *bool   `json:"skip_js"`
+	SkipFFuf          *bool   `json:"skip_ffuf"`
 	PhaseTimeout      *int    `json:"phase_timeout"`
 	TimeoutLivehosts  *int    `json:"timeout_livehosts"`
 	TimeoutReflection *int    `json:"timeout_reflection"`
@@ -110,23 +116,88 @@ type ScanListResponse struct {
 	CompletedScans []ScanInfo `json:"completed_scans"`
 }
 
+// reconcileStaleScansOnStartup marks DB scans that were still "running" as failed. In-memory
+// workers are gone after restart; leaving them active confuses the dashboard.
+func reconcileStaleScansOnStartup() {
+	if err := db.Init(); err != nil {
+		return
+	}
+	if err := db.EnsureSchema(); err != nil {
+		log.Printf("[WARN] EnsureSchema during stale scan reconcile: %v", err)
+	}
+	n, err := db.FailStaleActiveScans()
+	if err != nil {
+		log.Printf("[WARN] Stale scan reconcile: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("[INFO] Marked %d interrupted scan(s) as failed (API restart — no running worker).", n)
+	}
+}
+
 // Setup API routes
 func setupAPI() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
+	reconcileStaleScansOnStartup()
+
 	// CORS middleware
 	r.Use(corsMiddleware())
+
+	auth := supabaseJWTAuth()
 
 	// Root
 	r.GET("/", rootHandler)
 	r.GET("/health", healthHandler)
-	r.GET("/metrics", metricsHandler)
-	r.GET("/docs", docsHandler)
+	r.GET("/metrics", auth, metricsHandler)
+	r.GET("/docs", auth, docsHandler)
+
+	// ── Dashboard UI (embedded SPA) ──────────────────────────────────────────
+	// Both /ui and /ui/* use the same handler — no redirect loops.
+	r.GET("/ui", serveDashboardUI)
+	r.GET("/ui/*filepath", serveDashboardUI)
+
+	// Public: SPA reads this before login (no JWT).
+	r.GET("/api/config", apiConfigHandler)
+
+	// ── Dashboard data API (protected when SUPABASE_JWT_SECRET is set) ───────
+	apiGroup := r.Group("/api")
+	apiGroup.Use(auth)
+	{
+		apiGroup.GET("/dashboard/stats", apiDashboardStats)
+		apiGroup.GET("/domains", apiListDomains)
+		apiGroup.DELETE("/domains/:domain", apiDeleteDomain)
+		apiGroup.GET("/domains/:domain/subdomains", apiListSubdomains)
+		apiGroup.GET("/scans", apiListScans)
+		apiGroup.GET("/scans/:id/artifacts", apiListScanArtifacts)
+		apiGroup.POST("/scans/bulk-delete", apiBulkDeleteScans)
+		apiGroup.POST("/scans/clear-all", apiClearAllScans)
+		apiGroup.DELETE("/scans/:id", apiDeleteScan)
+		apiGroup.POST("/scans/:id/cancel", apiCancelScan)
+		apiGroup.POST("/scans/:id/pause", apiPauseScan)
+		apiGroup.POST("/scans/:id/resume", apiResumeScan)
+		apiGroup.GET("/monitor/targets", apiMonitorTargets)
+		apiGroup.GET("/monitor/subdomain-targets", apiSubdomainMonitorTargets)
+		apiGroup.GET("/monitor/changes", apiMonitorChanges)
+		apiGroup.DELETE("/monitor/changes", apiClearMonitorChanges)
+		apiGroup.POST("/monitor/url-targets", apiPostMonitorURLTarget)
+		apiGroup.DELETE("/monitor/url-targets/:id", apiDeleteMonitorURLTarget)
+		apiGroup.POST("/monitor/url-targets/:id/pause", apiPauseMonitorURLTarget)
+		apiGroup.POST("/monitor/url-targets/:id/resume", apiResumeMonitorURLTarget)
+		apiGroup.POST("/monitor/subdomain-targets", apiPostMonitorSubdomainTarget)
+		apiGroup.DELETE("/monitor/subdomain-targets/:id", apiDeleteMonitorSubdomainTarget)
+		apiGroup.POST("/monitor/subdomain-targets/:id/pause", apiPauseMonitorSubdomainTarget)
+		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiResumeMonitorSubdomainTarget)
+		apiGroup.GET("/r2/files", apiR2Files)
+	}
 
 	// Scan endpoints
 	api := r.Group("/scan")
+	api.Use(auth)
 	{
+		api.POST("/domain_run", scanDomainRun)
+		api.POST("/subdomain_run", scanSubdomainRun)
 		api.POST("/subdomains", scanSubdomains)
 		api.POST("/livehosts", scanLivehosts)
 		api.POST("/cnames", scanCnames)
@@ -156,6 +227,7 @@ func setupAPI() *gin.Engine {
 
 	// KeyHack endpoints
 	keyhack := r.Group("/keyhack")
+	keyhack.Use(auth)
 	{
 		keyhack.POST("/search", keyhackSearch)
 		keyhack.POST("/validate", keyhackValidate)
@@ -163,16 +235,17 @@ func setupAPI() *gin.Engine {
 
 	// Internal endpoints for module file notifications
 	internal := r.Group("/internal")
+	internal.Use(auth)
 	{
 		internal.POST("/send-file", sendFileToDiscord)
 		internal.POST("/send-message", sendMessageToDiscord)
 	}
 
-	// List all scans
-	r.GET("/scans", listScans)
+	// List all scans (legacy path)
+	r.GET("/scans", auth, listScans)
 
 	// Utility endpoints
-	r.POST("/cleanup", cleanupHandler)
+	r.POST("/cleanup", auth, cleanupHandler)
 
 	return r
 }
@@ -211,8 +284,21 @@ func scanApkX(c *gin.Context) {
 
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		// Comma-separated list, e.g. "https://dash.example.com,https://www.example.com"
+		// If unset, allow any origin (dev only — set CORS_ALLOWED_ORIGINS on your VPS).
+		allowed := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+		origin := c.Request.Header.Get("Origin")
+		if allowed != "" {
+			for _, o := range strings.Split(allowed, ",") {
+				if strings.TrimSpace(o) == origin && origin != "" {
+					c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+					c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+					break
+				}
+			}
+		} else {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
@@ -605,6 +691,53 @@ func scanSubdomains(c *gin.Context) {
 		ScanID:  scanID,
 		Status:  "started",
 		Message: fmt.Sprintf("Subdomain enumeration started for %s", *req.Domain),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanDomainRun runs the full domain workflow pipeline.
+func scanDomainRun(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Domain == nil || *req.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Domain is required"})
+		return
+	}
+	scanID := generateScanID()
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "domain", "run", "-d", *req.Domain}
+	if req.SkipFFuf != nil && *req.SkipFFuf {
+		command = append(command, "--skip-ffuf")
+	}
+	go executeScan(scanID, command, "domain_run")
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("Domain workflow scan started for %s", *req.Domain),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// scanSubdomainRun runs the full subdomain workflow pipeline.
+func scanSubdomainRun(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Subdomain == nil || *req.Subdomain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Subdomain is required"})
+		return
+	}
+	scanID := generateScanID()
+	command := []string{getEnv("AUTOAR_SCRIPT_PATH", "/usr/local/bin/autoar"), "subdomain", "run", "-s", *req.Subdomain}
+	go executeScan(scanID, command, "subdomain_run")
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("Subdomain workflow scan started for %s", *req.Subdomain),
 		Command: strings.Join(command, " "),
 	})
 }
@@ -1481,24 +1614,142 @@ func generateScanID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
+func extractScanTargetFromCommand(command []string, scanType string) string {
+	if len(command) == 0 {
+		return ""
+	}
+	st := strings.ToLower(scanType)
+	for i := 0; i < len(command)-1; i++ {
+		arg := command[i]
+		next := command[i+1]
+		if next == "" {
+			continue
+		}
+		switch arg {
+		case "-d", "--domain", "-s", "--subdomain", "-u", "--url":
+			return next
+		}
+	}
+	for i := 0; i < len(command)-1; i++ {
+		arg := command[i]
+		next := command[i+1]
+		if next == "" {
+			continue
+		}
+		switch {
+		case (st == "s3") && (arg == "-b" || arg == "--bucket"):
+			return next
+		case st == "github" && arg == "-r":
+			return next
+		case st == "github_org" && arg == "-o":
+			return next
+		case st == "zerodays" && arg == "-f":
+			return next
+		case st == "apkx" && (arg == "-i" || arg == "--input"):
+			return next
+		case st == "jwt" && (arg == "-t" || arg == "--token"):
+			return next
+		}
+	}
+	return ""
+}
+
 func executeScan(scanID string, command []string, scanType string) {
 	startedAt := time.Now()
+
+	target := extractScanTargetFromCommand(command, scanType)
+	if target == "" && len(command) > 0 {
+		target = scanType // fallback
+	}
 
 	scansMutex.Lock()
 	activeScans[scanID] = &ScanInfo{
 		ScanID:    scanID,
 		Status:    "running",
 		ScanType:  scanType,
+		Target:    target,
 		StartedAt: startedAt,
 		Command:   strings.Join(command, " "),
 	}
 	scansMutex.Unlock()
 
-	// Execute command
-	cmd := exec.Command(command[0], command[1:]...)
-	output, err := cmd.CombinedOutput()
+	// Persist scan record to DB so the UI /api/scans endpoint can track it
+	_ = db.Init()
+	_ = db.InitSchema()
+	dbRecord := &db.ScanRecord{
+		ScanID:      scanID,
+		ScanType:    scanType,
+		Target:      target,
+		Status:      "running",
+		TotalPhases: 1,
+		StartedAt:   startedAt,
+		LastUpdate:  startedAt,
+		Command:     strings.Join(command, " "),
+	}
+	if err := db.CreateScan(dbRecord); err != nil {
+		log.Printf("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
+	}
 
+	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
+	)
+	var combined bytes.Buffer
+	cmd.Stdout = &combined
+	cmd.Stderr = &combined
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("[executeScan] Failed to start scan %s: %v", scanID, err)
+		completedAt := time.Now()
+		_ = db.UpdateScanResult(scanID, "failed", "")
+		scansMutex.Lock()
+		delete(activeScans, scanID)
+		scansMutex.Unlock()
+		apiScansMutex.Lock()
+		scanResults[scanID] = &ScanResult{
+			ScanID: scanID, Status: "failed", ScanType: scanType,
+			StartedAt: startedAt, CompletedAt: &completedAt, Error: err.Error(),
+		}
+		apiScansMutex.Unlock()
+		return
+	}
+
+	scansMutex.Lock()
+	if s, ok := activeScans[scanID]; ok {
+		s.ExecCmd = cmd
+	}
+	scansMutex.Unlock()
+
+	err := cmd.Wait()
+	output := combined.Bytes()
 	completedAt := time.Now()
+
+	scansMutex.Lock()
+	si, stillThere := activeScans[scanID]
+	cancelled := stillThere && si != nil && si.CancelRequested
+	scansMutex.Unlock()
+
+	// Determine final status
+	finalStatus := "completed"
+	if cancelled {
+		finalStatus = "cancelled"
+	} else if err != nil {
+		finalStatus = "failed"
+		log.Printf("[executeScan] Scan %s (%s) failed: %v", scanID, scanType, err)
+	}
+
+	// Extract R2 result URL from output if any
+	resultURL := ExtractR2ZipURLFromOutput(string(output))
+	if resultURL != "" {
+		log.Printf("[executeScan] Extracted result URL for scan %s: %s", scanID, resultURL)
+	}
+
+	// Update DB status and result URL
+	if dbErr := db.UpdateScanResult(scanID, finalStatus, resultURL); dbErr != nil {
+		log.Printf("[executeScan] Failed to update DB status for %s: %v", scanID, dbErr)
+	}
+	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
+	indexScanArtifacts(scanID, scanType, target)
 
 	scansMutex.Lock()
 	delete(activeScans, scanID)
@@ -1507,22 +1758,179 @@ func executeScan(scanID string, command []string, scanType string) {
 	apiScansMutex.Lock()
 	defer apiScansMutex.Unlock()
 
-	// Add to results
+	// Add to in-memory results cache
 	result := &ScanResult{
 		ScanID:      scanID,
-		Status:      "completed",
+		Status:      finalStatus,
 		ScanType:    scanType,
 		StartedAt:   startedAt,
 		CompletedAt: &completedAt,
 		Output:      string(output),
 	}
 
-	if err != nil {
-		result.Status = "failed"
+	if err != nil && finalStatus != "cancelled" {
 		result.Error = err.Error()
+	}
+	if finalStatus == "cancelled" {
+		result.Error = "cancelled by user"
 	}
 
 	scanResults[scanID] = result
+}
+
+func indexScanArtifacts(scanID, scanType, target string) {
+	resultsDir := getResultsDir()
+	if scanID == "" || resultsDir == "" {
+		return
+	}
+	roots := make([]string, 0, 8)
+	if target != "" {
+		roots = append(roots, filepath.Join(resultsDir, target))
+	}
+	switch scanType {
+	case "misconfig":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, "misconfig", target))
+		}
+	case "s3":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, "s3", target))
+		}
+	case "github":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, "github", "repos", target))
+		}
+	case "github_org":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, "github", "orgs", target))
+		}
+	case "jwt":
+		roots = append(roots, filepath.Join(resultsDir, "jwt-scan"))
+	case "apkx":
+		roots = append(roots, filepath.Join(resultsDir, "apkx"))
+	}
+
+	seen := map[string]struct{}{}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil || info.IsDir() {
+				return nil
+			}
+			if shouldSkipArtifact(path) {
+				return nil
+			}
+			if _, ok := seen[path]; ok {
+				return nil
+			}
+			seen[path] = struct{}{}
+			if _, idxErr := utils.IndexExistingResultFile(scanID, path); idxErr != nil {
+				log.Printf("[executeScan] index artifact failed (%s): %v", path, idxErr)
+			}
+			return nil
+		})
+	}
+}
+
+func shouldSkipArtifact(path string) bool {
+	name := strings.ToLower(filepath.Base(path))
+	if strings.HasPrefix(name, ".lite-uploads-") {
+		return true
+	}
+	if strings.HasPrefix(name, "temp-") || strings.Contains(name, "dangling-ip-temp") {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin":
+		return false
+	default:
+		return true
+	}
+}
+
+// CancelScanByID stops a running scan: API process (SIGKILL) or Discord context cancel.
+func CancelScanByID(scanID string) error {
+	scansMutex.Lock()
+	defer scansMutex.Unlock()
+	scan, ok := activeScans[scanID]
+	if !ok {
+		return fmt.Errorf("scan not found or already finished")
+	}
+	if scan.Status != "running" && scan.Status != "starting" && scan.Status != "paused" {
+		return fmt.Errorf("scan is not active (status: %s)", scan.Status)
+	}
+	scan.CancelRequested = true
+	if scan.ExecCmd != nil && scan.ExecCmd.Process != nil {
+		if err := scan.ExecCmd.Process.Kill(); err != nil {
+			return fmt.Errorf("kill process: %w", err)
+		}
+		return nil
+	}
+	if scan.CancelFunc != nil {
+		scan.CancelFunc()
+		scan.Status = "cancelling"
+		return nil
+	}
+	return fmt.Errorf("this scan cannot be cancelled (not started via API or Discord with cancel support)")
+}
+
+// PauseScanByID sends SIGSTOP to the API scan child process (Unix only).
+func PauseScanByID(scanID string) error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("pause is not supported on Windows")
+	}
+	scansMutex.Lock()
+	defer scansMutex.Unlock()
+	scan, ok := activeScans[scanID]
+	if !ok {
+		return fmt.Errorf("scan not found or already finished")
+	}
+	if scan.Status != "running" && scan.Status != "starting" {
+		return fmt.Errorf("only running scans can be paused (status: %s)", scan.Status)
+	}
+	if scan.ExecCmd == nil || scan.ExecCmd.Process == nil {
+		return fmt.Errorf("pause is only available for scans started via the REST API")
+	}
+	if err := scan.ExecCmd.Process.Signal(syscall.SIGSTOP); err != nil {
+		return fmt.Errorf("pause: %w", err)
+	}
+	scan.Status = "paused"
+	_ = db.Init()
+	if err := db.UpdateScanStatus(scanID, "paused"); err != nil {
+		return fmt.Errorf("update status: %w", err)
+	}
+	return nil
+}
+
+// ResumeScanByID sends SIGCONT after PauseScanByID (Unix only).
+func ResumeScanByID(scanID string) error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("resume is not supported on Windows")
+	}
+	scansMutex.Lock()
+	defer scansMutex.Unlock()
+	scan, ok := activeScans[scanID]
+	if !ok {
+		return fmt.Errorf("scan not found or already finished")
+	}
+	if scan.Status != "paused" {
+		return fmt.Errorf("scan is not paused (status: %s)", scan.Status)
+	}
+	if scan.ExecCmd == nil || scan.ExecCmd.Process == nil {
+		return fmt.Errorf("resume is only available for scans started via the REST API")
+	}
+	if err := scan.ExecCmd.Process.Signal(syscall.SIGCONT); err != nil {
+		return fmt.Errorf("resume: %w", err)
+	}
+	scan.Status = "running"
+	_ = db.Init()
+	if err := db.UpdateScanStatus(scanID, "running"); err != nil {
+		return fmt.Errorf("update status: %w", err)
+	}
+	return nil
 }
 
 // sendFileToDiscord handles file uploads from modules

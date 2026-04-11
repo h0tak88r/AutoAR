@@ -89,6 +89,9 @@ type DB interface {
 	// ListMonitorChanges lists recent monitor changes, optionally filtered by domain
 	ListMonitorChanges(domain string, limit int) ([]MonitorChange, error)
 
+	// ClearMonitorChanges deletes all rows in monitor_changes and resets URL target change_count.
+	ClearMonitorChanges() error
+
 	// DNS Takeover Providers
 	ListVulnerableDNSProviders() (map[string]string, error)
 	AddVulnerableDNSProvider(name, fingerprint string) error
@@ -97,10 +100,19 @@ type DB interface {
 	CreateScan(scan *ScanRecord) error
 	UpdateScanProgress(scanID string, progress *ScanProgress) error
 	UpdateScanStatus(scanID string, status string) error
+	UpdateScanResult(scanID, status, resultURL string) error
 	GetScan(scanID string) (*ScanRecord, error)
 	ListActiveScans() ([]*ScanRecord, error)
 	ListRecentScans(limit int) ([]*ScanRecord, error)
+	AppendScanArtifact(artifact *ScanArtifact) error
+	ListScanArtifacts(scanID string) ([]*ScanArtifact, error)
+	// FailStaleActiveScans marks running/starting/paused/cancelling scans as failed (e.g. after API restart).
+	FailStaleActiveScans() (int64, error)
 	DeleteScan(scanID string) error
+	// ListAllScanIDs returns every scan_id in the scans table (newest first).
+	ListAllScanIDs() ([]string, error)
+	// ListScanIDsForDomainRoot returns scan IDs whose target is the root domain or a host under it (sub.example.com for example.com).
+	ListScanIDsForDomainRoot(domain string) ([]string, error)
 
 	// Close closes the database connection
 	Close()
@@ -108,26 +120,41 @@ type DB interface {
 
 // ScanRecord represents a scan stored in the database
 type ScanRecord struct {
-	ID              int
-	ScanID          string
-	ScanType        string
-	Target          string
-	Status          string
-	ChannelID       string
-	ThreadID        string
-	MessageID       string
-	CurrentPhase    int
-	TotalPhases     int
-	PhaseName       string
-	PhaseStartTime  *time.Time
-	CompletedPhases []string
-	FailedPhases    []string
-	FilesUploaded   int
-	ErrorCount      int
-	StartedAt       time.Time
-	CompletedAt     *time.Time
-	LastUpdate      time.Time
-	Command         string
+	ID              int        `json:"id"`
+	ScanID          string     `json:"scan_id"`
+	ScanType        string     `json:"scan_type"`
+	Target          string     `json:"target"`
+	Status          string     `json:"status"`
+	ChannelID       string     `json:"channel_id,omitempty"`
+	ThreadID        string     `json:"thread_id,omitempty"`
+	MessageID       string     `json:"message_id,omitempty"`
+	CurrentPhase    int        `json:"current_phase"`
+	TotalPhases     int        `json:"total_phases"`
+	PhaseName       string     `json:"phase_name,omitempty"`
+	PhaseStartTime  *time.Time `json:"phase_start_time,omitempty"`
+	CompletedPhases []string   `json:"completed_phases,omitempty"`
+	FailedPhases    []string   `json:"failed_phases,omitempty"`
+	FilesUploaded   int        `json:"files_uploaded"`
+	ErrorCount      int        `json:"error_count"`
+	StartedAt       time.Time  `json:"started_at"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	LastUpdate      time.Time  `json:"last_update"`
+	Command         string     `json:"command,omitempty"`
+	ResultURL       string     `json:"result_url,omitempty"`
+}
+
+// ScanArtifact represents an output artifact produced by a scan and stored in R2.
+type ScanArtifact struct {
+	ID          int       `json:"id"`
+	ScanID      string    `json:"scan_id"`
+	FileName    string    `json:"file_name"`
+	LocalPath   string    `json:"local_path,omitempty"`
+	R2Key       string    `json:"r2_key"`
+	PublicURL   string    `json:"public_url"`
+	SizeBytes   int64     `json:"size_bytes"`
+	LineCount   int       `json:"line_count"`
+	ContentType string    `json:"content_type,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // ScanProgress represents progress update for a scan

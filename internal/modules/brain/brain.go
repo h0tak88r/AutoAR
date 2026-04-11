@@ -48,7 +48,7 @@ type AICommandList struct {
 }
 
 const (
-	DefaultModel         = "stepfun/step-3.5-flash:free"
+	DefaultModel         = "nvidia/nemotron-3-nano-30b-a3b:free"
 	OpenRouterEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
 	GeminiDirectEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 	MaxAgentIterations   = 20 // increased from 8 — complex hunts need subdomains+live+ports+nuclei+js+gf+validations
@@ -63,7 +63,7 @@ const (
 //	{"action": "report",      "content": "## Findings\n...",                  "notify": true}
 //	{"action": "done",        "summary": "Finished. Found X issues."}
 type AgentAction struct {
-	Action  string `json:"action"`           // run_command | run_shell | report | done
+	Action  string `json:"action"`            // run_command | run_shell | report | done
 	Command string `json:"command,omitempty"` // for run_command / run_shell
 	Reason  string `json:"reason,omitempty"`  // why this command
 	Content string `json:"content,omitempty"` // for report
@@ -301,7 +301,6 @@ func parseAgentAction(reply string) (*AgentAction, error) {
 	return &action, nil
 }
 
-
 // isJSSercetsContent detects if the content looks like a JS secrets scan file
 // Format: [type] url_found_on -> secret_value
 func isJSSecretsContent(content string) bool {
@@ -429,7 +428,7 @@ Scan Results:
 	for i, cmd := range cmdList.Commands {
 		log.Printf("[BRAIN] [%d/%d] Executing: %s", i+1, len(cmdList.Commands), cmd.Command)
 		executionResults.WriteString(fmt.Sprintf("\n--- Command: %s ---\nDescription: %s\n", cmd.Command, cmd.Description))
-		
+
 		// Parse command string into name and args
 		parts := strings.Fields(cmd.Command)
 		if len(parts) == 0 {

@@ -198,8 +198,23 @@ func (s *SQLiteDB) InitSchema() error {
 		completed_at TIMESTAMP,
 		last_update TIMESTAMP NOT NULL,
 		command TEXT,
+		result_url TEXT,
 		created_at TIMESTAMP DEFAULT (datetime('now')),
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
+	);
+
+	-- Create scan_artifacts table for R2 indexed outputs
+	CREATE TABLE IF NOT EXISTS scan_artifacts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		scan_id TEXT NOT NULL,
+		file_name TEXT,
+		local_path TEXT,
+		r2_key TEXT NOT NULL,
+		public_url TEXT NOT NULL,
+		size_bytes INTEGER DEFAULT 0,
+		line_count INTEGER DEFAULT 0,
+		content_type TEXT,
+		created_at TIMESTAMP DEFAULT (datetime('now'))
 	);
 	
 	-- Create dns_takeover_providers table
@@ -223,6 +238,8 @@ func (s *SQLiteDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS scans_channel_id_idx ON scans (channel_id);
 	CREATE INDEX IF NOT EXISTS scans_status_idx ON scans (status);
 	CREATE INDEX IF NOT EXISTS scans_started_at_idx ON scans (started_at);
+	CREATE INDEX IF NOT EXISTS scan_artifacts_scan_id_idx ON scan_artifacts (scan_id);
+	CREATE INDEX IF NOT EXISTS scan_artifacts_created_at_idx ON scan_artifacts (created_at);
 	
 	-- Create APK cache table for file-based scans
 	CREATE TABLE IF NOT EXISTS apk_cache (
@@ -237,6 +254,26 @@ func (s *SQLiteDB) InitSchema() error {
 	_, err := s.db.Exec(schema)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %v", err)
+	}
+	// Migrate legacy scans table: ensure result_url exists (CREATE TABLE IF NOT EXISTS does not add columns)
+	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN result_url TEXT`); merr != nil {
+		low := strings.ToLower(merr.Error())
+		if !strings.Contains(low, "duplicate column") {
+			return fmt.Errorf("failed to migrate scans.result_url: %v", merr)
+		}
+	}
+	// Deduplicate legacy artifact rows before enforcing uniqueness.
+	_, _ = s.db.Exec(`
+		DELETE FROM scan_artifacts
+		WHERE id NOT IN (
+			SELECT MAX(id) FROM scan_artifacts GROUP BY scan_id, r2_key
+		);
+	`)
+	if _, idxErr := s.db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS scan_artifacts_scan_r2_key_uniq
+		ON scan_artifacts (scan_id, r2_key);
+	`); idxErr != nil {
+		log.Printf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
 	}
 	if os.Getenv("AUTOAR_SILENT") != "true" {
 		log.Printf("[OK] Database schema initialized")
@@ -666,9 +703,32 @@ func (s *SQLiteDB) CountSubdomains(domain string) (int, error) {
 	return count, nil
 }
 
-// DeleteDomain deletes a domain and all its related data using ON DELETE CASCADE.
+// DeleteDomain deletes scan history, monitor rows, monitor target, then the domain (cascades subdomains / js_files).
 func (s *SQLiteDB) DeleteDomain(domain string) error {
-	result, err := s.db.Exec(`DELETE FROM domains WHERE domain = ?;`, domain)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin delete domain: %v", err)
+	}
+	defer tx.Rollback()
+
+	scanMatch := `target = ? OR (length(target) > length(?) AND substr(target, length(target) - length(?), length(?) + 1) = '.' || ?)`
+	domainMatch := `domain = ? OR (length(domain) > length(?) AND substr(domain, length(domain) - length(?), length(?) + 1) = '.' || ?)`
+
+	args5 := []any{domain, domain, domain, domain, domain}
+	qArtifacts := `DELETE FROM scan_artifacts WHERE scan_id IN (SELECT scan_id FROM scans WHERE ` + scanMatch + `);`
+	if _, err := tx.Exec(qArtifacts, args5...); err != nil {
+		return fmt.Errorf("failed to delete scan artifacts for domain %s: %v", domain, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM scans WHERE `+scanMatch+`;`, args5...); err != nil {
+		return fmt.Errorf("failed to delete scans for domain %s: %v", domain, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM monitor_changes WHERE `+domainMatch+`;`, args5...); err != nil {
+		return fmt.Errorf("failed to delete monitor changes for domain %s: %v", domain, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM subdomain_monitor_targets WHERE domain = ?;`, domain); err != nil {
+		return fmt.Errorf("failed to delete subdomain monitor target: %v", err)
+	}
+	result, err := tx.Exec(`DELETE FROM domains WHERE domain = ?;`, domain)
 	if err != nil {
 		return fmt.Errorf("failed to delete domain %s: %v", domain, err)
 	}
@@ -679,13 +739,60 @@ func (s *SQLiteDB) DeleteDomain(domain string) error {
 	if rowsAffected == 0 {
 		return fmt.Errorf("domain not found: %s", domain)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit delete domain: %v", err)
+	}
 	return nil
+}
+
+// ListAllScanIDs returns all scan_id values, newest first.
+func (s *SQLiteDB) ListAllScanIDs() ([]string, error) {
+	rows, err := s.db.Query(`SELECT scan_id FROM scans ORDER BY started_at DESC, id DESC;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scan ids: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan scan_id: %v", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ListScanIDsForDomainRoot returns scan IDs for the root domain or hosts under it.
+func (s *SQLiteDB) ListScanIDsForDomainRoot(domain string) ([]string, error) {
+	q := `
+		SELECT scan_id FROM scans
+		WHERE target = ?
+		   OR (length(target) > length(?) AND substr(target, length(target) - length(?), length(?) + 1) = '.' || ?)
+		ORDER BY started_at DESC, id DESC;
+	`
+	rows, err := s.db.Query(q, domain, domain, domain, domain, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scans for domain: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan scan_id: %v", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // ListMonitorTargets returns all monitoring targets
 func (s *SQLiteDB) ListMonitorTargets() ([]MonitorTarget, error) {
 	rows, err := s.db.Query(`
-		SELECT id, url, strategy, COALESCE(pattern, '') as pattern, is_running, created_at, updated_at
+		SELECT id, url, strategy, COALESCE(pattern, '') AS pattern, is_running,
+		       COALESCE(last_hash, '') AS last_hash, last_run_at, COALESCE(change_count, 0) AS change_count,
+		       created_at, updated_at
 		FROM updates_targets
 		ORDER BY created_at DESC;
 	`)
@@ -698,7 +805,8 @@ func (s *SQLiteDB) ListMonitorTargets() ([]MonitorTarget, error) {
 	for rows.Next() {
 		var t MonitorTarget
 		var isRunning int
-		if err := rows.Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &isRunning, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &isRunning,
+			&t.LastHash, &t.LastRunAt, &t.ChangeCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan monitor target: %v", err)
 		}
 		t.IsRunning = isRunning != 0
@@ -765,10 +873,13 @@ func (s *SQLiteDB) GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 	var t MonitorTarget
 	var isRunning int
 	err := s.db.QueryRow(`
-		SELECT id, url, strategy, COALESCE(pattern, '') as pattern, is_running, created_at, updated_at
+		SELECT id, url, strategy, COALESCE(pattern, '') AS pattern, is_running,
+		       COALESCE(last_hash, '') AS last_hash, last_run_at, COALESCE(change_count, 0) AS change_count,
+		       created_at, updated_at
 		FROM updates_targets
 		WHERE id = ?;
-	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &isRunning, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.URL, &t.Strategy, &t.Pattern, &isRunning,
+		&t.LastHash, &t.LastRunAt, &t.ChangeCount, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("monitor target not found with id: %d", id)
@@ -938,6 +1049,25 @@ func (s *SQLiteDB) InsertMonitorChange(change *MonitorChange) error {
 	return nil
 }
 
+// ClearMonitorChanges deletes all monitor change rows and resets URL monitor change_count.
+func (s *SQLiteDB) ClearMonitorChanges() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM monitor_changes;`); err != nil {
+		return fmt.Errorf("clear monitor_changes: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE updates_targets SET change_count = 0;`); err != nil {
+		return fmt.Errorf("reset change_count: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 // ListMonitorChanges lists recent monitor changes, optionally filtered by domain
 func (s *SQLiteDB) ListMonitorChanges(domain string, limit int) ([]MonitorChange, error) {
 	if limit <= 0 {
@@ -1002,12 +1132,12 @@ func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
 			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
 			current_phase, total_phases, phase_name, phase_start_time,
 			completed_phases, failed_phases, files_uploaded, error_count,
-			started_at, last_update, command
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+			started_at, last_update, command, result_url
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
 		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
 		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
-		scan.StartedAt, scan.LastUpdate, scan.Command)
+		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create scan: %v", err)
@@ -1057,6 +1187,25 @@ func (s *SQLiteDB) UpdateScanProgress(scanID string, progress *ScanProgress) err
 	return nil
 }
 
+// UpdateScanResult updates scan status and result URL
+func (s *SQLiteDB) UpdateScanResult(scanID, status, resultURL string) error {
+	now := time.Now()
+	_, err := s.db.Exec(`
+		UPDATE scans SET
+			status = ?,
+			result_url = ?,
+			completed_at = ?,
+			last_update = ?,
+			updated_at = datetime('now')
+		WHERE scan_id = ?;
+	`, status, resultURL, now, now, scanID)
+	
+	if err != nil {
+		return fmt.Errorf("failed to update scan result: %v", err)
+	}
+	return nil
+}
+
 // UpdateScanStatus updates scan status
 func (s *SQLiteDB) UpdateScanStatus(scanID string, status string) error {
 	now := time.Now()
@@ -1098,14 +1247,14 @@ func (s *SQLiteDB) GetScan(scanID string) (*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans WHERE scan_id = ?;
 	`, scanID).Scan(
 		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 		&completedPhasesJSON, &failedPhasesJSON,
-		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
 	
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("scan not found: %s", scanID)
@@ -1139,9 +1288,9 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
-		WHERE status = 'running'
+		WHERE status IN ('running', 'starting', 'paused')
 		ORDER BY started_at DESC;
 	`)
 	if err != nil {
@@ -1160,7 +1309,7 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -1190,6 +1339,24 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 	return scans, nil
 }
 
+// FailStaleActiveScans sets non-terminal scans to failed — workers are gone after process restart.
+func (s *SQLiteDB) FailStaleActiveScans() (int64, error) {
+	now := time.Now()
+	res, err := s.db.Exec(`
+		UPDATE scans SET
+			status = 'failed',
+			completed_at = ?,
+			last_update = ?,
+			updated_at = datetime('now')
+		WHERE status IN ('running', 'starting', 'paused', 'cancelling');
+	`, now, now)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fail stale scans: %v", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // ListRecentScans lists recent scans (completed, failed, cancelled)
 func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 	rows, err := s.db.Query(`
@@ -1197,7 +1364,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
 		WHERE status IN ('completed', 'failed', 'cancelled')
 		ORDER BY started_at DESC
@@ -1219,7 +1386,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -1249,11 +1416,75 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 	return scans, nil
 }
 
+// AppendScanArtifact stores a scan output artifact.
+func (s *SQLiteDB) AppendScanArtifact(artifact *ScanArtifact) error {
+	if artifact == nil {
+		return fmt.Errorf("artifact is nil")
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO scan_artifacts (
+			scan_id, file_name, local_path, r2_key, public_url, size_bytes, line_count, content_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(scan_id, r2_key) DO UPDATE SET
+			file_name=excluded.file_name,
+			local_path=excluded.local_path,
+			public_url=excluded.public_url,
+			size_bytes=excluded.size_bytes,
+			line_count=excluded.line_count,
+			content_type=excluded.content_type,
+			created_at=datetime('now')
+	`, artifact.ScanID, artifact.FileName, artifact.LocalPath, artifact.R2Key, artifact.PublicURL, artifact.SizeBytes, artifact.LineCount, artifact.ContentType)
+	if err != nil {
+		return fmt.Errorf("failed to append scan artifact: %v", err)
+	}
+	return nil
+}
+
+// ListScanArtifacts returns artifacts for a scan, newest first.
+func (s *SQLiteDB) ListScanArtifacts(scanID string) ([]*ScanArtifact, error) {
+	rows, err := s.db.Query(`
+		SELECT id, scan_id, COALESCE(file_name, ''), COALESCE(local_path, ''), COALESCE(r2_key, ''),
+			COALESCE(public_url, ''), COALESCE(size_bytes, 0), COALESCE(line_count, 0),
+			COALESCE(content_type, ''), created_at
+		FROM scan_artifacts
+		WHERE scan_id = ?
+		ORDER BY created_at DESC, id DESC
+	`, scanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scan artifacts: %v", err)
+	}
+	defer rows.Close()
+
+	var out []*ScanArtifact
+	for rows.Next() {
+		var a ScanArtifact
+		if err := rows.Scan(&a.ID, &a.ScanID, &a.FileName, &a.LocalPath, &a.R2Key, &a.PublicURL, &a.SizeBytes, &a.LineCount, &a.ContentType, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan artifact row: %v", err)
+		}
+		out = append(out, &a)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate scan artifacts: %v", rows.Err())
+	}
+	return out, nil
+}
+
 // DeleteScan deletes a scan record
 func (s *SQLiteDB) DeleteScan(scanID string) error {
-	_, err := s.db.Exec(`DELETE FROM scans WHERE scan_id = ?;`, scanID)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM scan_artifacts WHERE scan_id = ?;`, scanID); err != nil {
+		return fmt.Errorf("failed to delete scan artifacts: %v", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM scans WHERE scan_id = ?;`, scanID); err != nil {
 		return fmt.Errorf("failed to delete scan: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit delete scan: %v", err)
 	}
 	return nil
 }
