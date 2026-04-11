@@ -331,6 +331,19 @@
               </div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Registers the target in the database. When “Start checking now” is on, marks it running and wakes the URL monitor worker (same as CLI <code style="font-size:10px;opacity:.85">monitor updates add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
             </div>
+            <div class="monitor-ai-suggest" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(30,40,60,.25)">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px">AI-assisted URLs</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.45">Enter a <strong>target domain</strong>. The server probes common release/changelog/blog paths, then ranks pages with <strong>OpenRouter</strong> (or heuristics if no API key). Select rows and add them as URL monitors.</div>
+              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+                <div style="flex:1;min-width:200px">
+                  <label for="monitor-ai-domain" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Domain</label>
+                  <input class="search-input" id="monitor-ai-domain" type="text" placeholder="example.com" autocomplete="off" style="width:100%;box-sizing:border-box" />
+                </div>
+                <button type="button" class="btn btn-primary" id="monitor-ai-suggest-btn" style="padding:8px 16px;font-size:13px" onclick="runMonitorAISuggest()">Discover &amp; rank</button>
+              </div>
+              <div id="monitor-ai-suggest-meta" style="font-size:11px;color:var(--text-muted);margin-top:8px;display:none"></div>
+              <div id="monitor-ai-suggest-results" style="margin-top:14px;display:none"></div>
+            </div>
             <div id="monitor-url-container">
               <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
             </div>

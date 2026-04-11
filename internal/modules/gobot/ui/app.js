@@ -1274,6 +1274,104 @@ async function quickAddSubdomainMonitor() {
   }
 }
 
+async function runMonitorAISuggest() {
+  const inp = document.getElementById('monitor-ai-domain');
+  const btn = document.getElementById('monitor-ai-suggest-btn');
+  const meta = document.getElementById('monitor-ai-suggest-meta');
+  const box = document.getElementById('monitor-ai-suggest-results');
+  if (!inp) return;
+  const domain = inp.value.trim();
+  if (!domain) {
+    showToast('error', 'Domain required', 'e.g. example.com');
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (meta) {
+    meta.style.display = 'block';
+    meta.textContent = 'Probing common release/changelog paths (may take up to a minute)…';
+  }
+  if (box) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+  }
+  try {
+    const res = await apiPost('/api/monitor/suggest-from-domain', { domain });
+    state._monitorSuggestCache = res;
+    if (meta) {
+      const mode = res.ai ? 'AI-ranked' : 'Heuristic ranking (set OPENROUTER_API_KEY on the API server for AI)';
+      meta.textContent = `${mode} · ${res.candidates_probed || 0} HTML pages found`;
+    }
+    renderMonitorAISuggestResults(res);
+  } catch (e) {
+    if (meta) meta.textContent = '';
+    showToast('error', 'Suggest failed', e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderMonitorAISuggestResults(res) {
+  const box = document.getElementById('monitor-ai-suggest-results');
+  if (!box) return;
+  const rows = res.suggestions || [];
+  if (!rows.length) {
+    box.style.display = 'block';
+    box.innerHTML = '<div class="empty-state" style="padding:12px"><div class="empty-title">No pages found</div><div style="font-size:12px;color:var(--text-muted)">Try another domain or add a URL manually above.</div></div>';
+    return;
+  }
+  let html = '<table class="data-table"><thead><tr><th style="width:36px"></th><th>URL</th><th>Score</th><th>Strategy</th><th>Reason</th></tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    const url = r.URL || r.url || '';
+    const strat = (r.Strategy || r.strategy || 'hash').toLowerCase();
+    const score = r.Score ?? r.score ?? 0;
+    const reason = r.Reason || r.reason || '';
+    const title = r.Title || r.title || '';
+    html += `<tr data-index="${i}">
+      <td><input type="checkbox" class="monitor-suggest-cb" data-url="${esc(url)}" data-strategy="${esc(strat)}" checked /></td>
+      <td><span style="font-size:12px;color:var(--accent-cyan)">${esc(url)}</span>${title ? `<div style="font-size:11px;color:var(--text-muted)">${esc(title)}</div>` : ''}</td>
+      <td>${esc(String(score))}</td>
+      <td><span class="scan-type">${esc(strat)}</span></td>
+      <td style="font-size:11px;color:var(--text-muted)">${esc(reason).slice(0, 200)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  html += '<div style="margin-top:12px"><button type="button" class="btn btn-primary" onclick="addSelectedMonitorSuggestions()">Add selected as monitors</button></div>';
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+async function addSelectedMonitorSuggestions() {
+  const cbs = Array.from(document.querySelectorAll('.monitor-suggest-cb:checked'));
+  if (!cbs.length) {
+    showToast('error', 'None selected', 'Check at least one URL.');
+    return;
+  }
+  let ok = 0;
+  for (const cb of cbs) {
+    const url = cb.getAttribute('data-url');
+    const strategy = cb.getAttribute('data-strategy') || 'hash';
+    try {
+      await apiPost('/api/monitor/url-targets', {
+        url,
+        strategy,
+        pattern: '',
+        start: true,
+      });
+      ok++;
+    } catch (e) {
+      showToast('error', 'Add failed', `${url}: ${e.message}`);
+      return;
+    }
+  }
+  showToast('success', 'Monitors added', `${ok} URL monitor(s) started.`);
+  const resBox = document.getElementById('monitor-ai-suggest-results');
+  if (resBox) resBox.style.display = 'none';
+  const meta = document.getElementById('monitor-ai-suggest-meta');
+  if (meta) meta.style.display = 'none';
+  await loadMonitor();
+  loadStats();
+}
+
 async function pauseUrlMonitor(id) {
   try {
     await apiPost(`/api/monitor/url-targets/${encodeURIComponent(id)}/pause`, {});

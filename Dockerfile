@@ -128,6 +128,6 @@ USER autoar
 # Use tini as init for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/autoar-entrypoint"]
 
-# Basic healthcheck: ensure process is running
+# Basic healthcheck: verify the API server responds, not just that the process exists (#18)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD pgrep -f autoar || exit 1
+  CMD curl -sf http://localhost:${API_PORT:-8000}/health || exit 1
