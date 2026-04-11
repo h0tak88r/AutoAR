@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
+	"github.com/h0tak88r/AutoAR/internal/modules/monitorsuggest"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/version"
@@ -43,6 +44,8 @@ func apiConfigHandler(c *gin.Context) {
 		"auth_provider":     "supabase",
 		"db_type":           getEnv("DB_TYPE", "postgresql"),
 		"mode":              getEnv("AUTOAR_MODE", "discord"),
+		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
+			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 	})
 }
 
@@ -833,6 +836,38 @@ func apiPostMonitorURLTarget(c *gin.Context) {
 		"url":      canonical,
 		"strategy": strategy,
 		"started":  start,
+	})
+}
+
+// POST /api/monitor/suggest-from-domain — probe common release/changelog paths, then rank with AI (or heuristics).
+func apiPostMonitorSuggestFromDomain(c *gin.Context) {
+	var body struct {
+		Domain string `json:"domain"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+	d := strings.TrimSpace(body.Domain)
+	if d == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Minute)
+	defer cancel()
+
+	suggestions, candidates, err := monitorsuggest.SuggestFromDomain(ctx, d)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ai := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" || strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
+	c.JSON(http.StatusOK, gin.H{
+		"suggestions":       suggestions,
+		"candidates_probed": len(candidates),
+		"ai":                ai,
 	})
 }
 
