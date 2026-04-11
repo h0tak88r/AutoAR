@@ -21,6 +21,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomainmonitor"
+	"github.com/h0tak88r/AutoAR/internal/version"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,16 +33,16 @@ func apiConfigHandler(c *gin.Context) {
 	// Public anon key only (never use service_role / sb_secret here — browser-visible).
 	anon := strings.TrimSpace(os.Getenv("SUPABASE_ANON_KEY"))
 	c.JSON(http.StatusOK, gin.H{
-		"version":            "3.3.2",
-		"r2_enabled":         r2storage.IsEnabled(),
-		"r2_public_url":      os.Getenv("R2_PUBLIC_URL"),
-		"r2_bucket":          os.Getenv("R2_BUCKET_NAME"),
-		"supabase_url":       os.Getenv("SUPABASE_URL"),
-		"supabase_anon_key":  anon,
-		"auth_enabled":       jwtSecretSet,
-		"auth_provider":      "supabase",
-		"db_type":            getEnv("DB_TYPE", "postgresql"),
-		"mode":               getEnv("AUTOAR_MODE", "discord"),
+		"version":           version.Version,
+		"r2_enabled":        r2storage.IsEnabled(),
+		"r2_public_url":     os.Getenv("R2_PUBLIC_URL"),
+		"r2_bucket":         os.Getenv("R2_BUCKET_NAME"),
+		"supabase_url":      os.Getenv("SUPABASE_URL"),
+		"supabase_anon_key": anon,
+		"auth_enabled":      jwtSecretSet,
+		"auth_provider":     "supabase",
+		"db_type":           getEnv("DB_TYPE", "postgresql"),
+		"mode":              getEnv("AUTOAR_MODE", "discord"),
 	})
 }
 
@@ -224,10 +225,10 @@ func apiDeleteDomain(c *gin.Context) {
 	purgeScanMemoryByIDs(scanIDs)
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":               true,
-		"domain":           domain,
-		"deleted_scans":    len(scanIDs),
-		"deleted_r2_keys":  len(keys),
+		"ok":              true,
+		"domain":          domain,
+		"deleted_scans":   len(scanIDs),
+		"deleted_r2_keys": len(keys),
 	})
 }
 
@@ -981,13 +982,13 @@ func apiPostMonitorSubdomainTarget(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":                true,
-		"id":                id,
-		"domain":            domain,
-		"interval_seconds":  interval,
-		"threads":           threads,
-		"check_new":         checkNew,
-		"started":           start,
+		"ok":               true,
+		"id":               id,
+		"domain":           domain,
+		"interval_seconds": interval,
+		"threads":          threads,
+		"check_new":        checkNew,
+		"started":          start,
 	})
 }
 
