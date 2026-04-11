@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -453,24 +454,23 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 
 	log.Printf("[INFO] Batch inserting %d subdomains for %s (domain_id: %d)", len(subdomains), domain, domainID)
 
-	// Use transaction for better performance
+	// Use a transaction for atomic batch insert.
+	// #14: Do NOT use tx.Prepare with a named statement ("batch_insert_subdomains") —
+	// with pgxpool each connection is different and the name can collide across goroutines.
+	// Use inline SQL with direct tx.Exec instead.
 	tx, err := p.pool.Begin(p.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback(p.ctx)
 
-	// Prepare statement for batch insert
-	_, err = tx.Prepare(p.ctx, "batch_insert_subdomains", `
+	const batchSQL = `
 		INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status)
 		VALUES ($1, $2, $3, '', '', 0, 0)
 		ON CONFLICT (subdomain) DO UPDATE SET 
 			updated_at = $4,
 			domain_id = EXCLUDED.domain_id;
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %v", err)
-	}
+	`
 
 	count := 0
 	for _, subdomain := range subdomains {
@@ -479,7 +479,7 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 			continue
 		}
 
-		_, err := tx.Exec(p.ctx, "batch_insert_subdomains", domainID, subdomain, isLive, time.Now())
+		_, err := tx.Exec(p.ctx, batchSQL, domainID, subdomain, isLive, time.Now())
 		if err != nil {
 			log.Printf("[WARN] Failed to insert subdomain %s: %v", subdomain, err)
 			continue
@@ -535,19 +535,15 @@ func (p *PostgresDB) InsertSubdomain(domain, subdomain string, isLive bool, http
 	return nil
 }
 
-// InsertJSFile inserts or updates a JS file for a subdomain
-// It extracts the subdomain from the JS URL automatically
+// InsertJSFile inserts or updates a JS file for a subdomain.
+// #15: Use net/url.Parse to correctly extract hostnames (handles ports, auth, etc.).
 func (p *PostgresDB) InsertJSFile(domain, jsURL, contentHash string) error {
-	// Extract subdomain from URL (e.g., https://sub.example.com/path.js -> sub.example.com)
-	subdomain := jsURL
-	if strings.HasPrefix(jsURL, "http://") {
-		subdomain = strings.TrimPrefix(jsURL, "http://")
-	} else if strings.HasPrefix(jsURL, "https://") {
-		subdomain = strings.TrimPrefix(jsURL, "https://")
-	}
-	// Get just the hostname part
-	if idx := strings.Index(subdomain, "/"); idx != -1 {
-		subdomain = subdomain[:idx]
+	// Extract hostname from JS URL — correctly handles ports.
+	var subdomain string
+	if parsed, err := url.Parse(jsURL); err == nil && parsed.Hostname() != "" {
+		subdomain = parsed.Hostname() // strips port correctly (e.g. sub.example.com:8080 → sub.example.com)
+	} else {
+		subdomain = jsURL // fallback: store as-is if not a valid URL
 	}
 
 	domainID, err := p.InsertOrGetDomain(domain)
