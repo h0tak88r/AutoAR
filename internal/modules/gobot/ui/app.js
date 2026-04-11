@@ -1,7 +1,7 @@
 /**
  * AutoAR Dashboard — app.js
  * Vanilla JS SPA: router, data fetching, component rendering
- * Bundle: 2026-04-10 — scan merge, R2 shortcuts, adaptive poll, visible control buttons
+ * Bundle: v4.0 — dashboard UI; scan merge, R2, monitors, auth
  */
 
 // ── Constants ─────────────────────────────────────────────────────────────────
