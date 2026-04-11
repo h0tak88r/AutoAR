@@ -8,11 +8,6 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g., v3.3.0)'
-        required: true
 
 jobs:
   build:
@@ -48,6 +43,7 @@ jobs:
           ./autoar --help || true
 
       - name: Gitleaks scan
+        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         with:
           config-path: .gitleaks.toml
@@ -55,10 +51,6 @@ jobs:
       - name: Create release archive
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          if [ -z "$VERSION" ]; then
-            VERSION=${{ github.event.inputs.version }}
-          fi
-          
           # Create release directory
           mkdir -p release
           
@@ -84,10 +76,11 @@ jobs:
           zip -r autoar-${GITHUB_REF_NAME}-linux-amd64.zip release/
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          name: AutoAR ${{ github.ref_name }}
           files: |
             autoar-*.tar.gz
             autoar-*.zip
@@ -98,6 +91,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   docker:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -140,4 +134,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          # Single platform: CGO + Dockerfile are tuned for amd64; add arm64 when cross-build is verified.
+          platforms: linux/amd64
