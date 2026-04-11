@@ -1,3 +1,10 @@
+# AutoAR — Docker Compose
+# Copy env.example to .env and set secrets before first run:  cp env.example .env
+#
+# Optional local Postgres (profiles: api + localdb):
+#   docker compose --profile api --profile localdb up -d postgres autoar-api
+#   Set in .env: DB_TYPE=postgresql  DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
+
 services:
     # Example 1: Discord Bot only (default behavior)
     autoar-discord:
@@ -9,6 +16,8 @@ services:
         image: autoar:latest
         container_name: autoar-discord
         restart: unless-stopped
+        env_file:
+            - .env
         environment:
             # Mode Configuration
             - AUTOAR_MODE=discord # Options: discord, api, both
@@ -127,6 +136,8 @@ services:
         restart: unless-stopped
         profiles:
             - api # Only starts when using: docker-compose --profile api up
+        env_file:
+            - .env
         environment:
             # Mode Configuration
             - AUTOAR_MODE=api # API mode only
@@ -214,18 +225,31 @@ services:
             - APKX_WORKERS=${APKX_WORKERS:-2}
             - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
 
+            # Dashboard (Supabase JWT) + R2 — pass through from .env (see docs/DASHBOARD_AUTH.md)
+            - SUPABASE_URL=${SUPABASE_URL:-}
+            - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
+            - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+            - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
+            - USE_R2_STORAGE=${USE_R2_STORAGE:-}
+            - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
+            - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
+            - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+            - R2_SECRET_KEY=${R2_SECRET_KEY:-}
+            - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+            - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
         ports:
-            - "8000:8000" # Expose API port
+            - "8000:8000" # Container listens on API_PORT (default 8000); change host side if needed: "9000:8000"
         volumes:
             - results-data:/app/new-results
             - ./regexes:/app/regexes:ro
         healthcheck:
             test:
-                ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+                ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${API_PORT:-8000}/health >/dev/null || exit 1"]
             interval: 30s
             timeout: 5s
             retries: 3
-            start_period: 30s
+            start_period: 40s
 
     # Example 3: Both Discord Bot AND API Server
     autoar-full:
@@ -239,6 +263,8 @@ services:
         restart: unless-stopped
         profiles:
             - full # Only starts when using: docker-compose --profile full up
+        env_file:
+            - .env
         environment:
             # Mode Configuration
             - AUTOAR_MODE=both # Run both Discord bot and API server
@@ -339,21 +365,57 @@ services:
             - APKX_WORKERS=${APKX_WORKERS:-2}
             - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
 
+            # Dashboard + R2 (same as autoar-api)
+            - SUPABASE_URL=${SUPABASE_URL:-}
+            - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
+            - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+            - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
+            - USE_R2_STORAGE=${USE_R2_STORAGE:-}
+            - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
+            - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
+            - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+            - R2_SECRET_KEY=${R2_SECRET_KEY:-}
+            - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+            - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
         ports:
-            - "8000:8000" # Expose API port
+            - "8000:8000"
         volumes:
             - results-data:/app/new-results
             - ./regexes:/app/regexes:ro
         healthcheck:
             test:
-                ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+                ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${API_PORT:-8000}/health >/dev/null || exit 1"]
             interval: 30s
             timeout: 5s
             retries: 3
-            start_period: 30s
+            start_period: 40s
+
+    # Optional PostgreSQL for self-hosted stacks (use with --profile localdb)
+    postgres:
+        image: postgres:16-alpine
+        container_name: autoar-postgres
+        profiles:
+            - localdb
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-autoar}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autoar}
+            POSTGRES_DB: ${POSTGRES_DB:-bughunt}
+        volumes:
+            - autoar-pgdata:/var/lib/postgresql/data
+        ports:
+            - "${POSTGRES_PORT:-5432}:5432"
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U autoar -d bughunt"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+            start_period: 10s
 
 volumes:
     results-data:
+    autoar-pgdata:
 # Usage Examples:
 #
 # 1. Run Discord Bot only (default):

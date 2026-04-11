@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 type Mode string
@@ -111,14 +113,14 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// Write separated files
-	if err := os.WriteFile(jsonPath, []byte(strings.Join(jsonLines, "\n")+"\n"), 0o644); err != nil {
+	if err := utils.WriteFile(jsonPath, []byte(strings.Join(jsonLines, "\n")+"\n")); err != nil {
 		return nil, fmt.Errorf("failed to write secrets.json: %w", err)
 	}
 	logContent := strings.Join(logLines, "\n")
 	if runErr != nil {
 		logContent = "ERROR: " + runErr.Error() + "\n\n" + logContent
 	}
-	if err := os.WriteFile(logPath, []byte(logContent+"\n"), 0o644); err != nil {
+	if err := utils.WriteFile(logPath, []byte(logContent+"\n")); err != nil {
 		return nil, fmt.Errorf("failed to write trufflehog.log: %w", err)
 	}
 
@@ -245,7 +247,7 @@ func generateSecretsTable(jsonPath, tablePath string) error {
 	lines := strings.Split(strings.TrimSpace(string(jsonData)), "\n")
 	if len(lines) == 0 || (len(lines) == 1 && strings.TrimSpace(lines[0]) == "") {
 		// No secrets found, create empty table
-		return os.WriteFile(tablePath, []byte("No secrets found.\n"), 0644)
+		return utils.WriteFile(tablePath, []byte("No secrets found.\n"))
 	}
 
 	var secrets []TruffleHogSecret
@@ -263,7 +265,7 @@ func generateSecretsTable(jsonPath, tablePath string) error {
 	}
 
 	if len(secrets) == 0 {
-		return os.WriteFile(tablePath, []byte("No secrets found.\n"), 0644)
+		return utils.WriteFile(tablePath, []byte("No secrets found.\n"))
 	}
 
 	// Generate table
@@ -307,5 +309,5 @@ func generateSecretsTable(jsonPath, tablePath string) error {
 		table.WriteString(fmt.Sprintf("%s | %s | %s\n", secretName, secretValue, url))
 	}
 
-	return os.WriteFile(tablePath, []byte(table.String()), 0644)
+	return utils.WriteFile(tablePath, []byte(table.String()))
 }

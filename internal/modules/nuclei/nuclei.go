@@ -86,7 +86,7 @@ func RunNuclei(opts Options) (*Result, error) {
 
 		// Create temporary URL file
 		targetFile = filepath.Join(domainDir, "temp-url.txt")
-		if err := os.WriteFile(targetFile, []byte(opts.URL+"\n"), 0644); err != nil {
+		if err := utils.WriteFile(targetFile, []byte(opts.URL+"\n")); err != nil {
 			return nil, fmt.Errorf("failed to create temp URL file: %w", err)
 		}
 		defer os.Remove(targetFile)
@@ -266,7 +266,7 @@ func runNucleiScan(targetFile, outputDir string, mode ScanMode, threads int, tar
 		summaryContent += "No vulnerabilities found.\n"
 	}
 	
-	if err := os.WriteFile(summaryFile, []byte(summaryContent), 0644); err == nil {
+	if err := utils.WriteFile(summaryFile, []byte(summaryContent)); err == nil {
 		resultFiles = append(resultFiles, summaryFile)
 	}
 
@@ -496,12 +496,5 @@ func countLines(path string) (int, error) {
 }
 
 func writeLines(path string, lines []string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	data := strings.Join(lines, "\n")
-	if len(lines) > 0 {
-		data += "\n"
-	}
-	return os.WriteFile(path, []byte(data), 0644)
+	return utils.WriteLines(path, lines)
 }
