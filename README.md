@@ -4,7 +4,7 @@
 
 **The ultimate bug bounty automation framework. Scan smarter, find more, ship faster.**
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Interface-Discord_Bot-5865F2?logo=discord)](https://discord.com)
 
@@ -39,6 +39,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | 🤖 **AI Agent** | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required |
 | 📤 **R2 Storage** | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL |
 | 🔔 **Smart Alerts** | Rich Discord notifications for zero-findings scans — no more empty files or spam |
+| 🖥️ **Web dashboard** | **v4.0+** — Single-page UI at `/ui` for stats, scans, domains, URL/subdomain monitors, R2 files, and settings (optional Supabase auth) |
 
 ---
 
@@ -343,7 +344,7 @@ autoar both                Start Discord bot + API server simultaneously
 
 ### Prerequisites
 
-- **Go 1.21+** — [Download](https://golang.org/dl/)
+- **Go 1.24+** — [Download](https://golang.org/dl/)
 - **Git**
 - System tools: `curl`, `bash`
 - *(Optional)* PostgreSQL for persistent storage, or use SQLite for zero-config
@@ -711,13 +712,13 @@ For PostgreSQL, ensure:
 
 ## 🏷️ GitHub release (tag → CI)
 
-Versions are defined once in [`internal/version/version.go`](internal/version/version.go) (`Version`, no `v` prefix). To publish **v3.5.3**:
+Versions are defined once in [`internal/version/version.go`](internal/version/version.go) (`Version`, no `v` prefix). To publish **v4.0.0**:
 
-1. Set `const Version = "3.5.3"` and commit.
+1. Set `const Version = "4.0.0"` and commit.
 2. From the repo root:
    ```bash
    chmod +x scripts/tag-release.sh
-   ./scripts/tag-release.sh v3.5.3
+   ./scripts/tag-release.sh v4.0.0
    ```
    This pushes your current branch and the annotated tag. **[`.github/workflows/release.yml`](.github/workflows/release.yml)** then builds Linux binaries, attaches `tar.gz` / `zip`, generates release notes, and pushes **`ghcr.io/<owner>/autoar`** for that tag.
 
