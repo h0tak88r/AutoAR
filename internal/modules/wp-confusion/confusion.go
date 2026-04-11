@@ -99,34 +99,34 @@ func ScanWPConfusion(opts ScanOptions) error {
 
 	for _, targetURL := range urls {
 		vulnerable := []string{}
-		fmt.Println("-------------------------\n")
+		fmt.Println("-------------------------")
 		fmt.Printf("[i] Target: %s\n\n", targetURL)
 
 		if opts.Theme {
-			fmt.Println("[i] Searching theme\n")
+			fmt.Println("[i] Searching theme")
 			themeName := detectTheme(targetURL)
 			if themeName != "" {
 				fmt.Printf("[i] Found WP theme: %s\n\n", themeName)
 				if isVulnerable := checkWordPressOrgTheme(themeName); isVulnerable {
-					fmt.Println("\t[!] Vulnerable to WP Theme Confusion attack\n")
+					fmt.Println("\t[!] Vulnerable to WP Theme Confusion attack")
 					fmt.Printf("\t[!] %s/wp-content/themes/%s\n", targetURL, themeName)
 					fmt.Printf("\t[!] https://wordpress.org/themes/%s\n\n", themeName)
 					vulnerable = append(vulnerable, fmt.Sprintf("%s/wp-content/themes/%s", targetURL, themeName))
 				} else {
-					fmt.Println("\t[i] Not vulnerable\n")
+					fmt.Println("\t[i] Not vulnerable")
 				}
 			}
 		}
 
 		if opts.Plugins {
-			fmt.Println("[i] Searching plugins\n")
+			fmt.Println("[i] Searching plugins")
 			pluginList := detectPlugins(targetURL)
 
 			for _, plugin := range pluginList {
 				fmt.Printf("[i] Found WP plugin: %s\n", plugin)
 
 				if !isAllowedSlug(plugin) {
-					fmt.Println("\t[i] Not vulnerable - disallowed name\n")
+					fmt.Println("\t[i] Not vulnerable - disallowed name")
 					continue
 				}
 
@@ -154,12 +154,12 @@ func ScanWPConfusion(opts ScanOptions) error {
 				}
 
 				if isVulnerable := checkWordPressOrgPlugin(plugin); isVulnerable {
-					fmt.Println("\t[!] Vulnerable to WP Plugin Confusion attack\n")
+					fmt.Println("\t[!] Vulnerable to WP Plugin Confusion attack")
 					fmt.Printf("\t[!] %s/wp-content/plugins/%s\n", targetURL, plugin)
 					fmt.Printf("\t[!] https://wordpress.org/plugins/%s\n\n", plugin)
 					vulnerable = append(vulnerable, fmt.Sprintf("%s/wp-content/plugins/%s", targetURL, plugin))
 				} else {
-					fmt.Println("\t[i] Not vulnerable - already claimed\n")
+					fmt.Println("\t[i] Not vulnerable - already claimed")
 				}
 			}
 		}
