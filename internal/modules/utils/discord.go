@@ -97,13 +97,18 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 		// For GF files, extract pattern name from path for better description
 		description := fileName
 		if phaseName == "gf" && strings.Contains(filePath, "vulnerabilities") {
-			// Extract pattern name from path like: .../vulnerabilities/img-traversal/gf-results.txt
-			parts := strings.Split(filePath, string(filepath.Separator))
-			for j, part := range parts {
-				if part == "vulnerabilities" && j+1 < len(parts) {
-					pattern := parts[j+1]
-					description = fmt.Sprintf("gf-%s-results.txt", pattern)
-					break
+			base := filepath.Base(filePath)
+			if strings.HasPrefix(base, "gf-") && strings.HasSuffix(base, "-results.txt") {
+				description = base
+			} else {
+				// Legacy gf-results.txt: derive from .../vulnerabilities/<pattern>/...
+				parts := strings.Split(filePath, string(filepath.Separator))
+				for j, part := range parts {
+					if part == "vulnerabilities" && j+1 < len(parts) {
+						pattern := parts[j+1]
+						description = fmt.Sprintf("gf-%s-results.txt", pattern)
+						break
+					}
 				}
 			}
 		}
@@ -379,12 +384,19 @@ func GetPhaseFiles(phaseName, domain string) []string {
 			}
 		}
 	case "gf":
-		// GF results are in vulnerabilities/<pattern>/gf-results.txt
+		// GF results: vulnerabilities/<pattern>/gf-<pattern>-results.txt (legacy: gf-results.txt)
 		vulnDir := filepath.Join(resultsDir, domain, "vulnerabilities")
 		patterns := []string{"debug_logic", "idor", "iext", "img-traversal", "iparams", "isubs", "jsvar", "lfi", "rce", "redirect", "sqli", "ssrf", "ssti", "xss"}
 		for _, pattern := range patterns {
-			gfFile := filepath.Join(vulnDir, pattern, "gf-results.txt")
-			files = append(files, gfFile)
+			newPath := filepath.Join(vulnDir, pattern, fmt.Sprintf("gf-%s-results.txt", pattern))
+			oldPath := filepath.Join(vulnDir, pattern, "gf-results.txt")
+			if !IsFileEmpty(newPath) {
+				files = append(files, newPath)
+			} else if !IsFileEmpty(oldPath) {
+				files = append(files, oldPath)
+			} else {
+				files = append(files, newPath)
+			}
 		}
 	case "ffuf":
 		files = []string{
@@ -482,6 +494,8 @@ func phaseNoResultsMessage(phaseName, domain string) string {
 		return fmt.Sprintf("[ ⚪ ] **URLs** — No interesting URLs found for %s", target)
 	case "jsscan", "js":
 		return fmt.Sprintf("[ ⚪ ] **JS Scan** — No JavaScript vulnerabilities found for %s", target)
+	case "reflection":
+		return fmt.Sprintf("[ ⚪ ] **Reflection** — 0 findings for %s", target)
 	case "nuclei":
 		return fmt.Sprintf("[ ⚪ ] **Nuclei** — No vulnerabilities found for %s", target)
 	case "gf":

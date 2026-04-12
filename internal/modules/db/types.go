@@ -109,6 +109,8 @@ type DB interface {
 	// FailStaleActiveScans marks running/starting/paused/cancelling scans as failed (e.g. after API restart).
 	FailStaleActiveScans() (int64, error)
 	DeleteScan(scanID string) error
+	// CountScansWithTargetExcluding counts rows with the same target excluding one scan_id.
+	CountScansWithTargetExcluding(excludeScanID, target string) (int, error)
 	// ListAllScanIDs returns every scan_id in the scans table (newest first).
 	ListAllScanIDs() ([]string, error)
 	// ListScanIDsForDomainRoot returns scan IDs whose target is the root domain or a host under it (sub.example.com for example.com).

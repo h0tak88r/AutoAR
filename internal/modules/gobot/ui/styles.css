@@ -883,6 +883,89 @@ input, select, textarea { font-family: inherit; }
   box-shadow: var(--shadow-glow-cyan);
 }
 
+.r2-tree-nav { cursor: pointer; }
+
+.r2-tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.r2-file-row-nav { cursor: pointer; }
+
+.r2-file-row-dir .r2-file-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.r2-row-action {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.r2-row-action:hover {
+  opacity: 1;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.r2-row-cb {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-cyan);
+}
+
+.r2-ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  min-width: 140px;
+}
+
+.r2-ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-family: inherit;
+}
+
+.r2-ctx-item:hover {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+}
+
+.scan-no-results-banner {
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-primary);
+}
+
 /* ── Search / Filter bar ──────────────────────────────────────────────────────── */
 
 .filter-bar {

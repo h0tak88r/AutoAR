@@ -270,6 +270,24 @@
 
 
       <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Scan results (deep link /scans/:id)                           -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-scan-detail">
+        <div class="view-header" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between">
+          <div>
+            <button type="button" class="btn btn-ghost" id="scan-detail-back" style="margin-bottom:8px">← Back to Scans</button>
+            <h1 class="view-title" id="scan-detail-title">Scan results</h1>
+            <div class="view-subtitle" id="scan-detail-sub"></div>
+          </div>
+          <a class="btn btn-ghost" id="scan-detail-api" href="#" style="display:none;font-size:12px" target="_blank" rel="noopener">API</a>
+        </div>
+        <div id="scan-detail-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-scan-detail -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
       <!-- VIEW: Domains                                                        -->
       <!-- ══════════════════════════════════════════════════════════════════ -->
       <div class="view" id="view-domains">
@@ -429,6 +447,7 @@
           <div class="r2-files-panel">
             <div class="card-header">
               <div class="card-title"><span class="card-title-icon">📄</span>Files</div>
+              <button type="button" id="r2-delete-selected" class="btn btn-ghost" style="display:none">🗑 Delete selected</button>
             </div>
             <div id="r2-files-list">
               <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
@@ -459,63 +478,7 @@
   </div><!-- /main -->
 </div><!-- /shell -->
 
-<!-- Modal Overlay for Scan Results -->
-<div id="scan-modal" class="modal-overlay" style="display: none;">
-  <div class="modal">
-    <div class="modal-header">
-      <div id="modal-title">Scan Results</div>
-      <button class="modal-close" onclick="closeScanModal()">✕</button>
-    </div>
-    <div class="modal-body" id="modal-body">
-      <!-- R2 content will be injected here -->
-    </div>
-  </div>
-</div>
-
 <style>
-.modal-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-  overflow: hidden;
-}
-.modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
-  font-size: 15px;
-}
-.modal-close {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 16px;
-}
-.modal-close:hover { color: var(--text); }
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-}
 .clickable-row {
   cursor: pointer;
   transition: background 0.15s ease;
