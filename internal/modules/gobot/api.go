@@ -124,11 +124,6 @@ type ScanStatusResponse struct {
 	Error       *string    `json:"error,omitempty"`
 }
 
-type ScanListResponse struct {
-	ActiveScans    []ScanInfo `json:"active_scans"`
-	CompletedScans []ScanInfo `json:"completed_scans"`
-}
-
 // reconcileStaleScansOnStartup marks DB scans that were still "running" as failed. In-memory
 // workers are gone after restart; leaving them active confuses the dashboard.
 func reconcileStaleScansOnStartup() {
@@ -170,6 +165,9 @@ func setupAPI() *gin.Engine {
 	// Both /ui and /ui/* use the same handler — no redirect loops.
 	r.GET("/ui", serveDashboardUI)
 	r.GET("/ui/*filepath", serveDashboardUI)
+	// Deep link: /scans/:scanId (same SPA; client router reads pathname)
+	r.GET("/scans", serveDashboardUI)
+	r.GET("/scans/*filepath", serveDashboardUI)
 
 	// Public: SPA reads this before login (no JWT).
 	r.GET("/api/config", apiConfigHandler)
@@ -183,7 +181,11 @@ func setupAPI() *gin.Engine {
 		apiGroup.DELETE("/domains/:domain", apiDeleteDomain)
 		apiGroup.GET("/domains/:domain/subdomains", apiListSubdomains)
 		apiGroup.GET("/scans", apiListScans)
+		apiGroup.GET("/scans/:id/results/summary", apiScanResultsSummary)
+		apiGroup.GET("/scans/:id/results/files", apiScanResultFiles)
+		apiGroup.GET("/scans/:id/results/file", apiScanResultFileContent)
 		apiGroup.GET("/scans/:id/artifacts", apiListScanArtifacts)
+		apiGroup.GET("/scans/:id", apiGetScan)
 		apiGroup.POST("/scans/bulk-delete", apiBulkDeleteScans)
 		apiGroup.POST("/scans/clear-all", apiClearAllScans)
 		apiGroup.DELETE("/scans/:id", apiDeleteScan)
@@ -204,6 +206,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/monitor/subdomain-targets/:id/pause", apiPauseMonitorSubdomainTarget)
 		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiResumeMonitorSubdomainTarget)
 		apiGroup.GET("/r2/files", apiR2Files)
+		apiGroup.POST("/r2/delete", apiR2Delete)
 	}
 
 	// Scan endpoints
@@ -254,9 +257,6 @@ func setupAPI() *gin.Engine {
 		internal.POST("/send-file", sendFileToDiscord)
 		internal.POST("/send-message", sendMessageToDiscord)
 	}
-
-	// List all scans (legacy path)
-	r.GET("/scans", auth, listScans)
 
 	// Utility endpoints
 	r.POST("/cleanup", auth, cleanupHandler)
@@ -1643,41 +1643,6 @@ func downloadScanResults(c *gin.Context) {
 	c.File(tmpFile.Name())
 }
 
-func listScans(c *gin.Context) {
-	// #9: Pull active from memory, historical from DB (newest first, deterministic).
-	scansMutex.RLock()
-	active := make([]ScanInfo, 0, len(activeScans))
-	for _, scan := range activeScans {
-		active = append(active, *scan)
-	}
-	scansMutex.RUnlock()
-
-	// Fetch up to 50 recent scans from DB for the completed list.
-	completed := make([]ScanInfo, 0, 50)
-	if dbScans, err := db.ListRecentScans(50); err == nil {
-		for _, s := range dbScans {
-			if s.Status == "running" {
-				continue // already in active list
-			}
-			completed = append(completed, ScanInfo{
-				ScanID:      s.ScanID,
-				Type:        s.ScanType,
-				ScanType:    s.ScanType,
-				Target:      s.Target,
-				Status:      s.Status,
-				StartTime:   s.StartedAt,
-				StartedAt:   s.StartedAt,
-				CompletedAt: s.CompletedAt,
-			})
-		}
-	}
-
-	c.JSON(http.StatusOK, ScanListResponse{
-		ActiveScans:    active,
-		CompletedScans: completed,
-	})
-}
-
 // Helper functions
 
 // generateScanID returns a cryptographically random UUID v4 (#1).
@@ -1835,6 +1800,8 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
 	indexScanArtifacts(scanID, scanType, target)
+	// domain_run / subdomain_run delete local results after upload — backfill from R2 for the UI table.
+	indexWorkflowArtifactsFromR2(scanID, scanType, target)
 
 	scansMutex.Lock()
 	delete(activeScans, scanID)
@@ -1934,12 +1901,126 @@ func indexScanArtifacts(scanID, scanType, target string) {
 	}
 }
 
+// targetHostForR2Prefixes mirrors the UI r2PrefixesForScan hostname normalization (app.js).
+func targetHostForR2Prefixes(target string) string {
+	t := strings.TrimSpace(target)
+	t = strings.TrimPrefix(strings.TrimPrefix(t, "http://"), "https://")
+	if i := strings.Index(t, "/"); i >= 0 {
+		t = t[:i]
+	}
+	t = strings.TrimPrefix(strings.ToLower(t), "www.")
+	return t
+}
+
+// workflowScanR2Prefixes returns R2 key prefixes used for domain_run / subdomain_run (matches app.js default branch).
+func workflowScanR2Prefixes(target string) []string {
+	h := targetHostForR2Prefixes(target)
+	if h == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	add("new-results/" + h + "/")
+	add("results/" + h + "/")
+	add("lite/" + h + "/")
+	add("new-results/misconfig/" + h + "/")
+	add("misconfig/" + h + "/")
+	return out
+}
+
+// isR2KeyIndexableArtifact matches shouldSkipArtifact extension rules for workflow backfill.
+func isR2KeyIndexableArtifact(key string) bool {
+	name := strings.ToLower(filepath.Base(key))
+	if strings.HasPrefix(name, ".lite-uploads-") {
+		return false
+	}
+	if strings.HasPrefix(name, "temp-") || strings.Contains(name, "dangling-ip-temp") {
+		return false
+	}
+	if strings.EqualFold(name, "temp-url.txt") {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin":
+		return true
+	default:
+		return false
+	}
+}
+
+// indexWorkflowArtifactsFromR2 populates scan_artifacts from R2 listings for domain_run / subdomain_run.
+// Full-domain and single-subdomain workflows delete local result dirs on completion, so post-scan
+// filesystem indexing finds nothing; uploads still land in R2. Backfilling here makes the scan modal
+// use the same indexed-artifact table as other scans instead of the raw R2 fallback.
+func indexWorkflowArtifactsFromR2(scanID, scanType, target string) {
+	st := strings.ToLower(strings.TrimSpace(scanType))
+	if st != "domain_run" && st != "subdomain_run" {
+		return
+	}
+	if strings.TrimSpace(scanID) == "" || !r2storage.IsEnabled() {
+		return
+	}
+	prefixes := workflowScanR2Prefixes(target)
+	if len(prefixes) == 0 {
+		return
+	}
+	seenKey := map[string]struct{}{}
+	for _, prefix := range prefixes {
+		objs, err := r2storage.ListObjectsRecursive(prefix)
+		if err != nil {
+			log.Printf("[indexWorkflowArtifactsFromR2] list prefix %q: %v", prefix, err)
+			continue
+		}
+		for _, o := range objs {
+			if o.Size == 0 {
+				continue
+			}
+			if !isR2KeyIndexableArtifact(o.Key) {
+				continue
+			}
+			if _, dup := seenKey[o.Key]; dup {
+				continue
+			}
+			seenKey[o.Key] = struct{}{}
+			pub := r2storage.PublicURLForKey(o.Key)
+			if pub == "" {
+				continue
+			}
+			art := &db.ScanArtifact{
+				ScanID:    scanID,
+				FileName:  filepath.Base(o.Key),
+				R2Key:     o.Key,
+				PublicURL: pub,
+				SizeBytes: o.Size,
+				CreatedAt: o.LastModified,
+			}
+			if err := db.AppendScanArtifact(art); err != nil {
+				log.Printf("[indexWorkflowArtifactsFromR2] append %s: %v", o.Key, err)
+			}
+		}
+	}
+}
+
 func shouldSkipArtifact(path string) bool {
 	name := strings.ToLower(filepath.Base(path))
 	if strings.HasPrefix(name, ".lite-uploads-") {
 		return true
 	}
 	if strings.HasPrefix(name, "temp-") || strings.Contains(name, "dangling-ip-temp") {
+		return true
+	}
+	if strings.EqualFold(name, "temp-url.txt") {
 		return true
 	}
 	ext := strings.ToLower(filepath.Ext(name))

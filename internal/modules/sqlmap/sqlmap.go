@@ -32,7 +32,7 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 
 	resultsDir := utils.GetResultsDir()
 	domainDir := filepath.Join(resultsDir, domain)
-	inFile := filepath.Join(domainDir, "vulnerabilities", "sqli", "gf-results.txt")
+	inFile := filepath.Join(domainDir, "vulnerabilities", "sqli", gf.ResultFileForPattern("sqli"))
 	outFile := filepath.Join(domainDir, "vulnerabilities", "sqli", "sqlmap-results.txt")
 
 	if err := utils.EnsureDir(filepath.Dir(outFile)); err != nil {

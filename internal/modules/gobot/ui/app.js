@@ -127,20 +127,38 @@ const state = {
   scanType: 'lite',
   scanTarget: '',
   pollTimer: null,
+  /** UUID scan id when view === 'scan-detail' */
+  scanDetailId: null,
+  /** Pagination + selection for /scans/:id page */
+  scanDetailUI: { filesPage: 1, filesPerPage: 30, previewPage: 1, previewPerPage: 100, selectedR2: null },
   _sbClient: null,
   /** Latest access_token; avoids races right after login before getSession() is consistent. */
   _authAccessToken: null,
   _sbAuthListener: false,
   _dashboardStarted: false,
   _shellWired: false,
+  _r2BrowserWired: false,
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
 const VIEWS = ['overview', 'scans', 'domains', 'monitor', 'r2', 'settings'];
 
+function pathScanId() {
+  const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 function navigateTo(view) {
+  const prev = state.view;
   state.view = view;
+  if (view !== 'scan-detail') {
+    state.scanDetailId = null;
+    document.getElementById('view-scan-detail')?.classList.remove('active');
+    if (prev === 'scan-detail' && /^\/scans\//.test(location.pathname)) {
+      try { history.pushState({}, '', '/ui'); } catch (e) { /* ignore */ }
+    }
+  }
   VIEWS.forEach(v => {
     const el = document.getElementById(`view-${v}`);
     const nav = document.getElementById(`nav-${v}`);
@@ -150,6 +168,31 @@ function navigateTo(view) {
   document.getElementById('topbar-title').textContent = viewTitle(view);
   state.selectedDomain = null;
   refreshCurrentView();
+  startPolling();
+}
+
+/** Deep-linked scan results page (/scans/:id). */
+async function openScanResultsPage(scanId, opts = {}) {
+  const { replace = false, noHistory = false } = opts;
+  if (state.scanDetailId !== scanId) {
+    state.scanDetailUI = { filesPage: 1, filesPerPage: 30, previewPage: 1, previewPerPage: 100, selectedR2: null };
+  }
+  state.scanDetailId = scanId;
+  state.view = 'scan-detail';
+  VIEWS.forEach(v => {
+    document.getElementById(`view-${v}`)?.classList.remove('active');
+    document.getElementById(`nav-${v}`)?.classList.remove('active');
+  });
+  document.getElementById('view-scan-detail')?.classList.add('active');
+  document.getElementById('topbar-title').textContent = 'Scan results';
+  if (!noHistory) {
+    const path = `/scans/${encodeURIComponent(scanId)}`;
+    if (location.pathname !== path) {
+      if (replace) history.replaceState({ scanId }, '', path);
+      else history.pushState({ scanId }, '', path);
+    }
+  }
+  await renderScanDetailView(scanId);
   startPolling();
 }
 
@@ -493,6 +536,8 @@ function wireShellOnce() {
       }
     });
   }
+
+  wireR2BrowserOnce();
 }
 
 async function startDashboard() {
@@ -515,8 +560,38 @@ async function startDashboard() {
   }
 
   wireShellOnce();
+  const backBtn = document.getElementById('scan-detail-back');
+  if (backBtn && !backBtn.dataset.wired) {
+    backBtn.dataset.wired = '1';
+    backBtn.addEventListener('click', () => navigateTo('scans'));
+  }
+  if (!window.__autoarPopstate) {
+    window.__autoarPopstate = true;
+    window.addEventListener('popstate', () => {
+      const sid = pathScanId();
+      if (sid) {
+        openScanResultsPage(sid, { noHistory: true });
+      } else {
+        state.scanDetailId = null;
+        state.view = 'overview';
+        document.getElementById('view-scan-detail')?.classList.remove('active');
+        VIEWS.forEach(v => {
+          document.getElementById(`view-${v}`)?.classList.toggle('active', v === 'overview');
+          document.getElementById(`nav-${v}`)?.classList.toggle('active', v === 'overview');
+        });
+        document.getElementById('topbar-title').textContent = 'Overview';
+        refreshCurrentView();
+        startPolling();
+      }
+    });
+  }
   await loadStats();
-  navigateTo('overview');
+  const deepScan = pathScanId();
+  if (deepScan) {
+    await openScanResultsPage(deepScan, { replace: true });
+  } else {
+    navigateTo('overview');
+  }
   state._dashboardStarted = true;
 }
 
@@ -568,6 +643,141 @@ async function loadR2(prefix = '') {
     showToast('error', 'R2 Error', e.message);
   } finally {
     if (el) el.style.display = 'none';
+  }
+}
+
+function wireR2BrowserOnce() {
+  if (state._r2BrowserWired) return;
+  state._r2BrowserWired = true;
+
+  const delSel = document.getElementById('r2-delete-selected');
+  if (delSel && !delSel.dataset.wired) {
+    delSel.dataset.wired = '1';
+    delSel.addEventListener('click', (e) => {
+      e.stopPropagation();
+      r2DeleteSelected();
+    });
+  }
+
+  let menu = document.getElementById('r2-ctx-menu');
+  if (!menu) {
+    menu = document.createElement('div');
+    menu.id = 'r2-ctx-menu';
+    menu.className = 'r2-ctx-menu';
+    menu.setAttribute('role', 'menu');
+    menu.innerHTML = '<button type="button" class="r2-ctx-item" data-action="delete">Delete…</button>';
+    menu.style.display = 'none';
+    document.body.appendChild(menu);
+  }
+
+  let r2CtxTarget = null;
+
+  document.addEventListener('click', (e) => {
+    if (menu.contains(e.target)) return;
+    menu.style.display = 'none';
+    r2CtxTarget = null;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') menu.style.display = 'none';
+  });
+
+  document.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.r2-file-row[data-r2-prefix], .r2-file-row[data-r2-key], .r2-tree-item[data-r2-prefix]');
+    if (!row || !document.getElementById('view-r2')?.contains(row)) return;
+    e.preventDefault();
+    r2CtxTarget = row;
+    menu.style.display = 'block';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    requestAnimationFrame(() => {
+      const r = menu.getBoundingClientRect();
+      let left = e.clientX;
+      let top = e.clientY;
+      if (r.right > window.innerWidth) left = Math.max(8, window.innerWidth - r.width - 8);
+      if (r.bottom > window.innerHeight) top = Math.max(8, window.innerHeight - r.height - 8);
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+    });
+  });
+
+  menu.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="delete"]');
+    if (!btn || !r2CtxTarget) return;
+    e.stopPropagation();
+    menu.style.display = 'none';
+    const t = r2CtxTarget;
+    r2CtxTarget = null;
+    const p = t.getAttribute('data-r2-prefix');
+    const k = t.getAttribute('data-r2-key');
+    if (p) r2DeletePrefixInteractive(p);
+    else if (k) r2DeleteKeyInteractive(k);
+  });
+
+  const filesList = document.getElementById('r2-files-list');
+  if (filesList && !filesList.dataset.changeWired) {
+    filesList.dataset.changeWired = '1';
+    filesList.addEventListener('change', (e) => {
+      if (e.target && e.target.classList.contains('r2-row-cb')) r2UpdateDeleteSelectedVisibility();
+    });
+  }
+}
+
+function r2UpdateDeleteSelectedVisibility() {
+  const btn = document.getElementById('r2-delete-selected');
+  if (!btn) return;
+  const n = document.querySelectorAll('#r2-files-list .r2-row-cb:checked').length;
+  btn.style.display = n > 0 ? 'inline-block' : 'none';
+  btn.textContent = n > 0 ? `🗑 Delete selected (${n})` : '🗑 Delete selected';
+}
+
+async function r2DeletePrefixInteractive(prefix) {
+  if (!prefix) return;
+  if (!confirm(`Delete this folder and everything under it?\n\n${prefix}\n\nThis cannot be undone.`)) return;
+  try {
+    const res = await apiPost('/api/r2/delete', { prefix });
+    const n = res.deleted != null ? res.deleted : '?';
+    showToast('success', 'R2', `Deleted (${n} object${n === 1 ? '' : 's'})`);
+    await loadR2(state.r2.prefix);
+  } catch (e) {
+    showToast('error', 'R2', e.message);
+  }
+}
+
+async function r2DeleteKeyInteractive(key) {
+  if (!key) return;
+  if (!confirm(`Delete this file?\n\n${key}\n\nThis cannot be undone.`)) return;
+  try {
+    await apiPost('/api/r2/delete', { key });
+    showToast('success', 'R2', 'File deleted');
+    await loadR2(state.r2.prefix);
+  } catch (e) {
+    showToast('error', 'R2', e.message);
+  }
+}
+
+async function r2DeleteSelected() {
+  const boxes = [...document.querySelectorAll('#r2-files-list .r2-row-cb:checked')];
+  if (!boxes.length) return;
+  const prefixes = [];
+  const keys = [];
+  for (const cb of boxes) {
+    if (cb.dataset.r2Prefix) prefixes.push(cb.dataset.r2Prefix);
+    if (cb.dataset.r2Key) keys.push(cb.dataset.r2Key);
+  }
+  const total = prefixes.length + keys.length;
+  if (!total) return;
+  if (!confirm(`Delete ${prefixes.length} folder tree(s) and ${keys.length} file(s)? This cannot be undone.`)) return;
+  try {
+    for (const p of prefixes) {
+      await apiPost('/api/r2/delete', { prefix: p });
+    }
+    for (const k of keys) {
+      await apiPost('/api/r2/delete', { key: k });
+    }
+    showToast('success', 'R2', `Deleted ${total} item(s)`);
+    await loadR2(state.r2.prefix);
+  } catch (e) {
+    showToast('error', 'R2', e.message);
   }
 }
 
@@ -779,6 +989,9 @@ function refreshCurrentView() {
     case 'monitor':  loadMonitor(); break;
     case 'r2':       loadR2(state.r2.prefix); break;
     case 'settings': loadConfig(); break;
+    case 'scan-detail':
+      if (state.scanDetailId) renderScanDetailView(state.scanDetailId);
+      break;
   }
 }
 
@@ -910,7 +1123,7 @@ function scanItemHtml(s) {
     : `<div class="progress-bar" style="margin-top:8px"><div class="progress-fill" style="width:${pct}%"></div></div>
     <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Phase ${currentPhase}/${totalPhases} (${pct}%)</div>`;
 
-  return `<div class="scan-item clickable-row" onclick="openScanModal('${esc(target)}', '${esc(scanType)}', '${esc(modalStatus)}', '${esc(scanID)}')">
+  return `<div class="scan-item clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})'>
     <div class="scan-meta">
       <span class="scan-target">${esc(target)}</span>
       <span class="scan-type">${esc(scanType)}</span>
@@ -953,7 +1166,7 @@ function scanRowHtml(s) {
     : `<button type="button" class="scan-control-btn-r2" onclick='event.stopPropagation();browseR2ForScan(${JSON.stringify(target)}, ${JSON.stringify(scanType)})'>Browse R2</button>`;
   const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" onclick='event.stopPropagation();deleteScan(${JSON.stringify(scanID)}, ${JSON.stringify(target)})'>Delete</button>`;
   const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${esc(scanID)}" onclick="event.stopPropagation()" aria-label="Select scan" />`;
-  return `<tr class="clickable-row" onclick="openScanModal('${esc(target)}', '${esc(scanType)}', '${esc(status)}', '${esc(scanID)}')">
+  return `<tr class="clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})'>
     <td onclick="event.stopPropagation()">${rowSelect}</td>
     <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(target)}</span></td>
     <td><span class="scan-type">${esc(scanType)}</span></td>
@@ -965,148 +1178,293 @@ function scanRowHtml(s) {
   </tr>`;
 }
 
-// ── Scan Modal ────────────────────────────────────────────────────────────────
+// ── Scan results page (/scans/:id) ─────────────────────────────────────────────
 
-/** List R2 objects (recursive) for this scan’s target + type — matches worker upload layout. */
-async function fetchR2FilesForTarget(target, scanType) {
-  const prefixes = r2PrefixesForScan(target, scanType);
-  const seen = new Set();
-  const files = [];
-  for (const prefix of prefixes) {
-    try {
-      const res = await apiFetch(
-        `/api/r2/files?prefix=${encodeURIComponent(prefix)}&recursive=1`
-      );
-      for (const f of res.files || []) {
-        if (f.key && !seen.has(f.key)) {
-          seen.add(f.key);
-          files.push(f);
-        }
-      }
-    } catch (e) {
-      /* continue with next prefix */
+/** Plain-text line when a finished scan has no indexed artifacts (aligned with Discord phaseNoResultsMessage). */
+function scanNoArtifactsMessage(scanType, target) {
+  const t = (target && String(target).trim()) || 'this target';
+  const st = String(scanType || '').toLowerCase().trim();
+  switch (st) {
+    case 'ports':
+      return `[ ⚪ ] Port Scan — No open ports found (excluding 80, 443, 8080, 8443) for ${t}`;
+    case 'aem':
+    case 'aem_scan':
+      return `[ ⚪ ] AEM Scan — No AEM instances discovered for ${t}`;
+    case 'tech':
+      return `[ ⚪ ] Tech Detection — No live hosts found for ${t}`;
+    case 'backup':
+      return `[ ⚪ ] Backup Scan — No backup files found for ${t}`;
+    case 'misconfig':
+      return `[ ⚪ ] Misconfig Scan — No misconfigurations found for ${t}`;
+    case 'subdomains':
+      return `[ ⚪ ] Subdomains — No subdomains found for ${t}`;
+    case 'livehosts':
+      return `[ ⚪ ] Live hosts — No live hosts found for ${t}`;
+    case 'urls':
+      return `[ ⚪ ] URLs — No interesting URLs found for ${t}`;
+    case 'jsscan':
+    case 'js':
+      return `[ ⚪ ] JS Scan — No JavaScript vulnerabilities found for ${t}`;
+    case 'reflection':
+      return `[ ⚪ ] Reflection — 0 findings for ${t}`;
+    case 'nuclei':
+      return `[ ⚪ ] Nuclei — No vulnerabilities found for ${t}`;
+    case 'gf':
+      return `[ ⚪ ] GF Patterns — No vulnerable parameters found for ${t}`;
+    case 's3':
+      return `[ ⚪ ] S3 Scan — No exposed buckets found for ${t}`;
+    case 'githubscan':
+      return `[ ⚪ ] GitHub Scan — No secrets found for ${t}`;
+    case 'zerodays':
+    case '0days':
+      return `[ ⚪ ] 0-Days — No zero-day vulnerabilities found for ${t}`;
+    case 'ffuf':
+      return `[ ⚪ ] FFuf — No hidden directories found for ${t}`;
+    case 'dns':
+      return `[ ⚪ ] DNS takeover — No vulnerable records or dangling IPs found for ${t}`;
+    case 'cf1016':
+      return `[ ⚪ ] CF1016 dangling DNS — No missing Cloudflare origins found for ${t}`;
+    case 'lite':
+      return `[ ⚪ ] Lite Workflow — No result files were indexed for ${t}. Check Discord (if used) for per-phase summaries, or confirm R2 / artifact indexing.`;
+    default: {
+      const name = st ? st.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Scan';
+      return `[ ⚪ ] ${name} — 0 findings for ${t}`;
     }
   }
-  return files;
 }
 
-async function fetchScanArtifacts(scanID) {
-  if (!scanID) return [];
-  const res = await apiFetch(`/api/scans/${encodeURIComponent(scanID)}/artifacts`);
-  const list = res.artifacts || [];
-  const seen = new Set();
-  const uniq = [];
-  list.forEach(a => {
-    const key = a.r2_key || a.public_url || `${a.file_name}:${a.size_bytes}:${a.created_at}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    uniq.push(a);
-  });
-  return uniq;
+function goToScanResultsPage(scanID) {
+  if (!scanID) return;
+  openScanResultsPage(scanID);
 }
 
-function renderIndexedArtifactRows(artifacts) {
-  const sorted = [...artifacts].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  let html = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Found ${sorted.length} indexed artifacts for this scan.</div>`;
-  html += `<table class="data-table">
-    <thead><tr><th>File</th><th>Size</th><th>Lines</th><th>Updated</th><th>URL</th></tr></thead><tbody>`;
-  sorted.forEach(a => {
-    const name = a.file_name || (a.r2_key ? a.r2_key.split('/').pop() : 'file');
-    const lines = Number(a.line_count || 0);
-    html += `<tr>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(name)}</td>
-      <td style="font-size:12px;color:var(--text-muted)">${fmtSize(a.size_bytes || 0)}</td>
-      <td style="font-size:12px;color:var(--text-muted)">${lines > 0 ? lines.toLocaleString() : '—'}</td>
-      <td style="font-size:12px;color:var(--text-muted)">${fmtDate(a.created_at)}</td>
-      <td>${a.public_url ? `<a href="${esc(a.public_url)}" target="_blank" class="scan-result-link">Open</a>` : '—'}</td>
-    </tr>`;
-  });
-  html += `</tbody></table>`;
-  return html;
-}
-
-async function openScanModal(target, scanType, status, scanID) {
-  const modal = document.getElementById('scan-modal');
-  const title = document.getElementById('modal-title');
-  const body = document.getElementById('modal-body');
-  if (!modal || !title || !body) return;
-
-  const btext = status === 'completed' || status === 'done' ? `<span style="color:var(--accent-emerald)">● done</span>` :
-                status === 'running' || status === 'starting' ? `<span style="color:var(--accent-cyan)">⚡ ${status}</span>` :
-                status === 'paused' ? `<span style="color:var(--accent-amber)">⏸ paused</span>` :
-                status === 'cancelled' ? `<span style="color:var(--text-muted)">⏹ cancelled</span>` :
-                status === 'failed' || status === 'error' ? `<span style="color:var(--accent-red)">❌ ${status}</span>` : status;
-
-  title.innerHTML = `Results: <span style="font-family:'JetBrains Mono',monospace">${esc(target)}</span> (${esc(scanType)}) [${btext}]`;
-  
-  // Find scan in state to check for result_url
-  const allScans = [...(state.scans.active_scans || []), ...(state.scans.recent_scans || [])];
-  const scan = allScans.find(s => (s.scan_id || s.ScanID) === scanID);
-  const resultURL = scan ? (scan.result_url || scan.ResultURL) : null;
-
-  let headerHtml = '';
-  if (resultURL) {
-    headerHtml = `<div class="scan-result-main" style="background:rgba(16,185,129,0.1);border:1px solid var(--accent-emerald);border-radius:8px;padding:16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between">
-      <div>
-        <div style="font-weight:600;color:var(--accent-emerald);font-size:14px;margin-bottom:4px">📦 Main Scan Result Attached</div>
-        <div style="font-size:12px;color:var(--text-muted)">The scan output was automatically zipped and uploaded to R2.</div>
-      </div>
-      <a href="${esc(resultURL)}" target="_blank" class="btn btn-primary" style="background:var(--accent-emerald);border-color:var(--accent-emerald)">Download Result</a>
-    </div>`;
-  }
-
-  body.innerHTML = `${headerHtml}<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading results from R2...</div></div>`;
-  modal.style.display = 'flex';
-
+async function renderScanDetailView(scanId) {
+  const container = document.getElementById('scan-detail-container');
+  const sub = document.getElementById('scan-detail-sub');
+  const apiA = document.getElementById('scan-detail-api');
+  if (!container) return;
+  const ui = state.scanDetailUI;
+  container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>';
   try {
-    const artifacts = await fetchScanArtifacts(scanID);
-    if (artifacts.length > 0) {
-      body.innerHTML = headerHtml + renderIndexedArtifactRows(artifacts);
-      return;
+    // Single round-trip: scan metadata + paginated file list (see GET .../results/summary).
+    const sum = await apiFetch(
+      `/api/scans/${encodeURIComponent(scanId)}/results/summary?page=${ui.filesPage}&per_page=${ui.filesPerPage}`
+    );
+    const scan = sum.scan;
+    const target = scan.target || scan.Target || '';
+    const st = scan.scan_type || scan.ScanType || '';
+    const stat = scan.status || scan.Status || '';
+    const titleEl = document.getElementById('scan-detail-title');
+    if (titleEl) titleEl.textContent = target || 'Scan results';
+    if (sub) sub.textContent = `${st} · ${stat}`;
+    if (apiA) {
+      apiA.href = `/api/scans/${encodeURIComponent(scanId)}`;
+      apiA.style.display = 'inline-flex';
     }
 
-    const files = await fetchR2FilesForTarget(target, scanType);
-    
-    if (files.length === 0) {
-      const prefixes = r2PrefixesForScan(target, scanType);
-      const searched = prefixes && prefixes.length
-        ? `<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.5">
-             <div style="font-weight:600;color:var(--text-secondary);margin-bottom:6px">Searched R2 prefixes:</div>
-             <div style="font-family:'JetBrains Mono',monospace;white-space:pre-wrap">${esc(prefixes.join('\n'))}</div>
-           </div>`
-        : '';
-      body.innerHTML = headerHtml + emptyState('📭', 'No results found', 'This scan either produced no files, or the results were cleaned up from R2.') + searched;
-      return;
+    const files = sum.files || [];
+    const total = sum.total || 0;
+    const pages = Math.max(1, Math.ceil(total / ui.filesPerPage) || 1);
+
+    const zipURL = scan.result_url || scan.ResultURL || '';
+    const zipBanner = zipURL
+      ? `<div class="card" style="margin-bottom:16px;border:1px solid var(--accent-emerald);background:rgba(16,185,129,0.08)">
+          <div class="card-body" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+            <span style="font-size:13px;color:var(--text-secondary)">Full scan archive (zip) on R2</span>
+            <a href="${esc(zipURL)}" target="_blank" rel="noopener" class="btn btn-primary" style="background:var(--accent-emerald);border-color:var(--accent-emerald)">Download zip</a>
+          </div></div>`
+      : '';
+
+    let html = zipBanner + `<div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px">
+        <div class="card-title">Result files</div>
+        <div style="font-size:12px;color:var(--text-muted)">JSON first · ${total} files · page ${ui.filesPage} / ${pages}</div>
+      </div>
+      <div class="card-body" style="padding:0">
+      <table class="data-table"><thead><tr><th>File</th><th>Size</th><th>Source</th><th>JSON</th><th></th></tr></thead><tbody>`;
+    if (!files.length) {
+      const statNorm = String(stat || '').trim();
+      const finishedOk = /^(completed|done|success)$/i.test(statNorm);
+      const stillRunning = /^(running|pending|queued|active|in_progress|in progress)$/i.test(statNorm);
+      const failedish = /fail|error|cancel/i.test(statNorm);
+      let emptyMsg;
+      if (finishedOk) {
+        emptyMsg = `<div class="scan-no-results-banner">${esc(scanNoArtifactsMessage(st, target))}</div>
+          <p style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">No files were indexed for this scan in the database. If you expected attachments, confirm uploads and artifact indexing.</p>`;
+      } else if (stillRunning) {
+        emptyMsg = 'No indexed artifacts yet — this scan may still be running.';
+      } else if (failedish) {
+        emptyMsg = `No result files indexed. Status: ${esc(statNorm)}`;
+      } else {
+        emptyMsg = 'No indexed artifacts for this scan yet. Run a workflow scan or wait for artifact indexing to finish.';
+      }
+      html += `<tr><td colspan="5" style="padding:16px;color:var(--text-secondary);vertical-align:top">${emptyMsg}</td></tr>`;
     }
-
-    // Sort files by last modified descending
-    files.sort((a, b) => new Date(b.last_modified) - new Date(a.last_modified));
-
-    let html = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Found ${files.length} result files in R2 storage matching this target. Download them below:</div>`;
-    html += `<div class="r2-browser"><div class="r2-files-panel" style="width:100%"><div id="r2-files-list">`;
-    
     files.forEach(f => {
-      const name = f.key.split('/').pop();
-      const ext  = name.split('.').pop().toLowerCase();
-      html += `<div class="r2-file-row">
-        <span class="r2-file-icon">${fileIcon(ext)}</span>
-        <span class="r2-file-name" title="${esc(f.key)}">${esc(name)}</span>
-        <span class="r2-file-size">${fmtSize(f.size)}</span>
-        <span class="r2-file-date">${fmtDate(f.last_modified)}</span>
-        <a href="${esc(f.public_url)}" target="_blank" class="r2-download-btn" title="Download">⬇</a>
-      </div>`;
+      const jm = f.is_json ? '✓' : '—';
+      const rkAttr = encodeURIComponent(f.r2_key);
+      html += `<tr class="scan-file-row" data-r2="${rkAttr}" style="cursor:pointer">
+        <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(f.file_name)}</td>
+        <td>${fmtSize(f.size_bytes)}</td>
+        <td>${esc(f.source)}</td>
+        <td>${jm}</td>
+        <td><button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 8px">Preview</button></td>
+      </tr>`;
     });
-    
-    html += `</div></div></div>`;
-    body.innerHTML = headerHtml + html;
+    html += `</tbody></table></div>
+      <div style="padding:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border)">
+        <button type="button" class="btn btn-ghost" ${ui.filesPage <= 1 ? 'disabled' : ''} id="scan-files-prev">Prev</button>
+        <button type="button" class="btn btn-ghost" ${ui.filesPage >= pages ? 'disabled' : ''} id="scan-files-next">Next</button>
+      </div></div>`;
+    html += `<div id="scan-preview-panel" class="card">
+      <div class="card-header"><div class="card-title" id="scan-preview-title">Preview</div></div>
+      <div class="card-body" id="scan-preview-body" style="max-height:70vh;overflow:auto">
+        <p style="font-size:13px;color:var(--text-muted)">Select a file. Loads local disk first, then R2 (response cached under <code style="font-size:11px">new-results/.scan-r2-cache/</code>).</p>
+      </div></div>`;
+    container.innerHTML = html;
+
+    document.getElementById('scan-files-prev')?.addEventListener('click', () => {
+      if (ui.filesPage > 1) {
+        ui.filesPage -= 1;
+        renderScanDetailView(scanId);
+      }
+    });
+    document.getElementById('scan-files-next')?.addEventListener('click', () => {
+      if (ui.filesPage < pages) {
+        ui.filesPage += 1;
+        renderScanDetailView(scanId);
+      }
+    });
+    container.querySelectorAll('.scan-file-row').forEach(row => {
+      row.addEventListener('click', e => {
+        if (e.target.closest('button')) return;
+        const raw = row.getAttribute('data-r2');
+        const k = raw ? decodeURIComponent(raw) : '';
+        if (k) loadScanFilePreview(scanId, k);
+      });
+    });
+    container.querySelectorAll('.scan-file-row button').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const row = e.target.closest('.scan-file-row');
+        const raw = row && row.getAttribute('data-r2');
+        const k = raw ? decodeURIComponent(raw) : '';
+        if (k) loadScanFilePreview(scanId, k);
+      });
+    });
+
+    if (ui.selectedR2) {
+      requestAnimationFrame(() => {
+        loadScanFilePreview(scanId, ui.selectedR2, { retainPage: true });
+      });
+    }
   } catch (e) {
-    body.innerHTML = headerHtml + emptyState('❌', 'Error loading r2 files', e.message);
+    container.innerHTML = `<div class="card"><div class="card-body" style="color:var(--accent-red)">${esc(e.message || String(e))}</div></div>`;
   }
 }
 
-function closeScanModal() {
-  const modal = document.getElementById('scan-modal');
-  if (modal) modal.style.display = 'none';
+async function loadScanFilePreview(scanId, r2Key, opts = {}) {
+  if (!r2Key) return;
+  const ui = state.scanDetailUI;
+  ui.selectedR2 = r2Key;
+  if (!opts.retainPage) ui.previewPage = 1;
+  const body = document.getElementById('scan-preview-body');
+  const ptitle = document.getElementById('scan-preview-title');
+  if (body) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>';
+  }
+  try {
+    const q = `r2_key=${encodeURIComponent(r2Key)}&page=${ui.previewPage}&per_page=${ui.previewPerPage}`;
+    const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?${q}`);
+    if (ptitle) ptitle.textContent = data.file_name || (r2Key && r2Key.split('/').pop()) || 'Preview';
+
+    if (data.format === 'too_large') {
+      body.innerHTML = `<p style="color:var(--text-muted)">${esc(data.error || 'File too large')}</p>
+        <p style="font-size:12px">Size: ${(data.size_bytes || 0).toLocaleString()} bytes (max ${(data.max_bytes || 0).toLocaleString()})</p>
+        ${data.public_url ? `<p><a class="scan-result-link" target="_blank" href="${esc(data.public_url)}">Download from R2</a></p>` : ''}`;
+      return;
+    }
+    if (data.error && data.format === 'binary') {
+      body.innerHTML = `<p style="color:var(--text-muted)">${esc(data.error)}</p>
+        ${data.public_url ? `<p><a class="scan-result-link" target="_blank" href="${esc(data.public_url)}">Open in R2</a></p>` : ''}`;
+      return;
+    }
+    if (data.error && data.format === 'json') {
+      body.innerHTML = `<pre style="font-size:12px;white-space:pre-wrap">${esc(data.error)}</pre>`;
+      return;
+    }
+
+    const srcNote = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Source: <strong>${esc(data.source_used || '')}</strong>
+      ${data.public_url ? ` · <a class="scan-result-link" target="_blank" href="${esc(data.public_url)}">Raw URL</a>` : ''}</div>`;
+
+    if (data.format === 'json-array') {
+      const total = data.total_items || 0;
+      const pp = data.per_page || ui.previewPerPage;
+      const pages = Math.max(1, Math.ceil(total / pp) || 1);
+      let block = srcNote;
+      if (data.array_field) {
+        block += `<div style="font-size:12px;margin-bottom:8px">Array field: <code>${esc(data.array_field)}</code></div>`;
+      }
+      if (data.object_preview && typeof data.object_preview === 'object') {
+        block += `<pre style="font-size:11px;opacity:.9;margin-bottom:12px;max-height:120px;overflow:auto">${esc(JSON.stringify(data.object_preview, null, 2))}</pre>`;
+      }
+      block += `<pre style="font-size:12px;white-space:pre-wrap;font-family:'JetBrains Mono',monospace">${esc(JSON.stringify(data.items || [], null, 2))}</pre>`;
+      block += `<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost" ${ui.previewPage <= 1 ? 'disabled' : ''} id="pv-prev">Prev</button>
+        <span style="font-size:12px;color:var(--text-muted)">Items ${((ui.previewPage - 1) * pp) + 1}–${Math.min(ui.previewPage * pp, total)} of ${total}</span>
+        <button type="button" class="btn btn-ghost" ${ui.previewPage >= pages ? 'disabled' : ''} id="pv-next">Next</button>
+      </div>`;
+      body.innerHTML = block;
+      document.getElementById('pv-prev')?.addEventListener('click', () => {
+        if (ui.previewPage > 1) {
+          ui.previewPage -= 1;
+          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+        }
+      });
+      document.getElementById('pv-next')?.addEventListener('click', () => {
+        if (ui.previewPage < pages) {
+          ui.previewPage += 1;
+          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+        }
+      });
+      return;
+    }
+
+    if (data.format === 'json-object') {
+      body.innerHTML = srcNote + `<pre style="font-size:12px;white-space:pre-wrap;font-family:'JetBrains Mono',monospace">${esc(JSON.stringify(data.data, null, 2))}</pre>`;
+      return;
+    }
+
+    if (data.format === 'text') {
+      const lines = data.lines || [];
+      const total = data.total_lines || 0;
+      const pp = data.per_page || ui.previewPerPage;
+      const pages = Math.max(1, Math.ceil(total / pp) || 1);
+      body.innerHTML = srcNote + `<pre style="font-size:12px;white-space:pre-wrap;font-family:'JetBrains Mono',monospace">${esc(lines.join('\n'))}</pre>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost" ${ui.previewPage <= 1 ? 'disabled' : ''} id="tx-prev">Prev</button>
+          <span style="font-size:12px;color:var(--text-muted)">Lines page ${ui.previewPage} / ${pages}</span>
+          <button type="button" class="btn btn-ghost" ${ui.previewPage >= pages ? 'disabled' : ''} id="tx-next">Next</button>
+        </div>`;
+      document.getElementById('tx-prev')?.addEventListener('click', () => {
+        if (ui.previewPage > 1) {
+          ui.previewPage -= 1;
+          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+        }
+      });
+      document.getElementById('tx-next')?.addEventListener('click', () => {
+        if (ui.previewPage < pages) {
+          ui.previewPage += 1;
+          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+        }
+      });
+      return;
+    }
+
+    body.innerHTML = srcNote + `<pre style="font-size:12px;white-space:pre-wrap">${esc(JSON.stringify(data, null, 2))}</pre>`;
+  } catch (e) {
+    if (body) body.innerHTML = `<p style="color:var(--accent-red)">${esc(e.message || String(e))}</p>`;
+  }
 }
 
 function renderDomainGrid() {
@@ -1569,13 +1927,16 @@ function renderR2() {
   if (pathEl) pathEl.textContent = '/' + (prefix || '');
 
   // Tree — root always + current dirs
-  let treeHtml = `<div class="r2-tree-item ${!prefix ? 'active' : ''}" onclick="loadR2('')">
-    <span>📦</span><span style="overflow:hidden;text-overflow:ellipsis">root</span>
+  let treeHtml = `<div class="r2-tree-item ${!prefix ? 'active' : ''}">
+    <span class="r2-tree-nav" onclick="loadR2('')">📦</span>
+    <span class="r2-tree-nav r2-tree-label" onclick="loadR2('')">root</span>
   </div>`;
   (dirs || []).forEach(d => {
     const name = d.replace(prefix, '').replace(/\/$/, '');
-    treeHtml += `<div class="r2-tree-item" onclick="loadR2('${esc(d)}')">
-      <span>📁</span><span style="overflow:hidden;text-overflow:ellipsis">${esc(name || d)}</span>
+    treeHtml += `<div class="r2-tree-item" data-r2-prefix="${escAttr(d)}">
+      <span class="r2-tree-nav" onclick='loadR2(${JSON.stringify(d)})'>📁</span>
+      <span class="r2-tree-nav r2-tree-label" onclick='loadR2(${JSON.stringify(d)})'>${esc(name || d)}</span>
+      <button type="button" class="r2-row-action" title="Delete folder" aria-label="Delete folder" onclick='event.stopPropagation();r2DeletePrefixInteractive(${JSON.stringify(d)})'>🗑</button>
     </div>`;
   });
   treeEl.innerHTML = treeHtml;
@@ -1583,6 +1944,7 @@ function renderR2() {
   // Files list
   if (!files.length && !dirs.length) {
     filesEl.innerHTML = emptyState('📂', 'Empty folder', 'No files in this prefix.');
+    r2UpdateDeleteSelectedVisibility();
     return;
   }
 
@@ -1590,34 +1952,39 @@ function renderR2() {
   // Show parent nav if in a sub-prefix
   if (prefix) {
     const parent = prefix.split('/').slice(0, -2).join('/');
-    html += `<div class="r2-file-row" style="cursor:pointer" onclick="loadR2('${parent}')">
+    html += `<div class="r2-file-row" style="cursor:pointer" onclick='loadR2(${JSON.stringify(parent)})'>
       <span class="r2-file-icon">⬆️</span>
       <span class="r2-file-name">.. (go up)</span>
     </div>`;
   }
-  // Sub-dirs as clickable rows
+  // Sub-dirs as rows (navigate on name/icon; delete / checkbox separate)
   (dirs || []).forEach(d => {
     const name = d.replace(prefix, '').replace(/\/$/, '');
-    html += `<div class="r2-file-row" style="cursor:pointer" onclick="loadR2('${esc(d)}')">
-      <span class="r2-file-icon">📁</span>
-      <span class="r2-file-name">${esc(name || d)}/</span>
+    html += `<div class="r2-file-row r2-file-row-dir" data-r2-prefix="${escAttr(d)}">
+      <input type="checkbox" class="r2-row-cb" data-r2-prefix="${escAttr(d)}" onclick="event.stopPropagation()" title="Select for bulk delete" />
+      <span class="r2-file-icon r2-file-row-nav" onclick='loadR2(${JSON.stringify(d)})'>📁</span>
+      <span class="r2-file-name r2-file-row-nav" onclick='loadR2(${JSON.stringify(d)})'>${esc(name || d)}/</span>
       <span class="r2-file-size">—</span>
       <span class="r2-file-date">—</span>
+      <button type="button" class="r2-row-action" title="Delete folder" aria-label="Delete folder" onclick='event.stopPropagation();r2DeletePrefixInteractive(${JSON.stringify(d)})'>🗑</button>
     </div>`;
   });
   // Files
   (files || []).forEach(f => {
     const name = f.key.replace(prefix, '');
     const ext  = name.split('.').pop().toLowerCase();
-    html += `<div class="r2-file-row">
+    html += `<div class="r2-file-row" data-r2-key="${escAttr(f.key)}">
+      <input type="checkbox" class="r2-row-cb" data-r2-key="${escAttr(f.key)}" onclick="event.stopPropagation()" title="Select for bulk delete" />
       <span class="r2-file-icon">${fileIcon(ext)}</span>
       <span class="r2-file-name" title="${esc(f.key)}">${esc(name)}</span>
       <span class="r2-file-size">${fmtSize(f.size)}</span>
       <span class="r2-file-date">${fmtDate(f.last_modified)}</span>
-      <a href="${esc(f.public_url)}" target="_blank" class="r2-download-btn" title="Download">⬇</a>
+      <button type="button" class="r2-row-action" title="Delete file" aria-label="Delete file" onclick='event.stopPropagation();r2DeleteKeyInteractive(${JSON.stringify(f.key)})'>🗑</button>
+      <a href="${esc(f.public_url)}" target="_blank" class="r2-download-btn" title="Download" onclick="event.stopPropagation()">⬇</a>
     </div>`;
   });
   filesEl.innerHTML = html;
+  r2UpdateDeleteSelectedVisibility();
 }
 
 function renderSettings() {
@@ -1932,6 +2299,15 @@ function esc(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/** Escape for HTML attribute values (e.g. data-r2-prefix). */
+function escAttr(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;');
 }
 
 function fmtDate(d) {

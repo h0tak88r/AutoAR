@@ -19,6 +19,12 @@ type Result struct {
 	ResultFiles  []string
 }
 
+// ResultFileForPattern returns the GF output filename for a pattern directory
+// (e.g. img-traversal → gf-img-traversal-results.txt).
+func ResultFileForPattern(pattern string) string {
+	return fmt.Sprintf("gf-%s-results.txt", pattern)
+}
+
 // Options for GF scan
 type Options struct {
 	Domain    string // Domain name (for directory structure)
@@ -92,7 +98,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 			continue
 		}
 
-		outFile := filepath.Join(outDir, "gf-results.txt")
+		outFile := filepath.Join(outDir, ResultFileForPattern(pattern))
 		if err := runGFPattern(urlsFile, pattern, outFile); err != nil {
 			log.Printf("[WARN] GF pattern %s failed: %v", pattern, err)
 			continue

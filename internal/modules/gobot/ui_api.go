@@ -16,6 +16,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
@@ -216,6 +217,7 @@ func apiDeleteDomain(c *gin.Context) {
 	for _, id := range scanIDs {
 		mergeR2KeysForScanInto(id, keySet)
 	}
+	mergeWorkflowPrefixesIntoKeySet(domain, keySet)
 	keys := r2KeySetToSlice(keySet)
 	if err := r2storage.DeleteObjects(keys); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -369,6 +371,63 @@ func r2KeySetToSlice(keySet map[string]struct{}) []string {
 	return out
 }
 
+// mergeWorkflowTargetR2TreeIntoKeySet adds all R2 keys under workflow layout prefixes for target
+// when no other scan row still references the same target (so shared domains are not wiped).
+func mergeWorkflowTargetR2TreeIntoKeySet(scanID string, scan *db.ScanRecord, keySet map[string]struct{}) {
+	if !r2storage.IsEnabled() || scan == nil || keySet == nil {
+		return
+	}
+	target := strings.TrimSpace(scan.Target)
+	if target == "" || strings.HasPrefix(target, "[") {
+		return
+	}
+	others, err := db.CountScansWithTargetExcluding(scanID, target)
+	if err != nil {
+		log.Printf("[scan-delete] count scans for target %q: %v — skipping R2 prefix tree delete", target, err)
+		return
+	}
+	if others > 0 {
+		log.Printf("[scan-delete] target %q still referenced by %d other scan(s); R2 prefix tree kept (only this scan’s indexed keys)", target, others)
+		return
+	}
+	for _, prefix := range workflowScanR2Prefixes(target) {
+		keys, err := r2storage.ListObjectKeysUnderPrefix(prefix)
+		if err != nil {
+			log.Printf("[scan-delete] list R2 prefix %q: %v", prefix, err)
+			continue
+		}
+		for _, k := range keys {
+			if k != "" {
+				keySet[k] = struct{}{}
+			}
+		}
+	}
+	log.Printf("[scan-delete] queued full R2 workflow tree delete for target %q (last scan row for this target)", target)
+}
+
+// mergeWorkflowPrefixesIntoKeySet lists every key under workflow prefixes for a hostname (domain delete).
+func mergeWorkflowPrefixesIntoKeySet(host string, keySet map[string]struct{}) {
+	if !r2storage.IsEnabled() || keySet == nil {
+		return
+	}
+	h := strings.TrimSpace(host)
+	if h == "" {
+		return
+	}
+	for _, prefix := range workflowScanR2Prefixes(h) {
+		keys, err := r2storage.ListObjectKeysUnderPrefix(prefix)
+		if err != nil {
+			log.Printf("[domain-delete] list R2 prefix %q: %v", prefix, err)
+			continue
+		}
+		for _, k := range keys {
+			if k != "" {
+				keySet[k] = struct{}{}
+			}
+		}
+	}
+}
+
 func purgeScanMemoryByIDs(ids []string) {
 	if len(ids) == 0 {
 		return
@@ -389,6 +448,9 @@ func purgeScanMemoryByIDs(ids []string) {
 func performScanDelete(scanID string) (int, error) {
 	keySet := make(map[string]struct{})
 	mergeR2KeysForScanInto(scanID, keySet)
+	if scan, err := db.GetScan(scanID); err == nil && scan != nil {
+		mergeWorkflowTargetR2TreeIntoKeySet(scanID, scan, keySet)
+	}
 	keys := r2KeySetToSlice(keySet)
 	if err := r2storage.DeleteObjects(keys); err != nil {
 		return 0, err
@@ -1185,6 +1247,202 @@ func apiR2Files(c *gin.Context) {
 		"files":  files,
 		"total":  len(files),
 	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/r2/delete — delete one object by key or all objects under a prefix
+// ─────────────────────────────────────────────────────────────────────────────
+
+// r2ListAllKeysUnderPrefix lists every object key under prefix (recursive, no delimiter).
+// Matches the browser listing bucket/client (same env vars as GET /api/r2/files).
+func r2ListAllKeysUnderPrefix(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
+	listPrefix := strings.TrimPrefix(strings.TrimSpace(prefix), "/")
+	if listPrefix != "" && !strings.HasSuffix(listPrefix, "/") {
+		listPrefix += "/"
+	}
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+	}
+	if listPrefix != "" {
+		input.Prefix = aws.String(listPrefix)
+	}
+	var keys []string
+	paginator := s3.NewListObjectsV2Paginator(client, input)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, obj := range page.Contents {
+			k := aws.ToString(obj.Key)
+			if listPrefix != "" && k == listPrefix {
+				continue
+			}
+			if k != "" {
+				keys = append(keys, k)
+			}
+		}
+	}
+	return keys, nil
+}
+
+// r2DeleteKeys removes objects via S3 DeleteObjects in batches of 1000.
+func r2DeleteKeys(ctx context.Context, client *s3.Client, bucket string, keys []string) error {
+	uniq := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		k = strings.TrimSpace(strings.TrimPrefix(k, "/"))
+		if k == "" {
+			continue
+		}
+		uniq[k] = struct{}{}
+	}
+	if len(uniq) == 0 {
+		return nil
+	}
+	const batchSize = 1000
+	batch := make([]string, 0, batchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		objs := make([]types.ObjectIdentifier, len(batch))
+		for i, k := range batch {
+			objs[i] = types.ObjectIdentifier{Key: aws.String(k)}
+		}
+		out, err := client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(bucket),
+			Delete: &types.Delete{
+				Objects: objs,
+				Quiet:   aws.Bool(true),
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if len(out.Errors) > 0 {
+			e := out.Errors[0]
+			return fmt.Errorf("delete %s: %s (%s)", aws.ToString(e.Key), aws.ToString(e.Code), aws.ToString(e.Message))
+		}
+		batch = batch[:0]
+		return nil
+	}
+	for k := range uniq {
+		batch = append(batch, k)
+		if len(batch) >= batchSize {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	return flush()
+}
+
+func validateR2ObjectKey(key string) error {
+	key = strings.TrimPrefix(strings.TrimSpace(key), "/")
+	if key == "" {
+		return fmt.Errorf("empty key")
+	}
+	if strings.Contains(key, "..") {
+		return fmt.Errorf("invalid key")
+	}
+	return nil
+}
+
+func validateR2DeletePrefix(prefix string) error {
+	prefix = strings.TrimPrefix(strings.TrimSpace(prefix), "/")
+	if prefix == "" {
+		return fmt.Errorf("empty prefix")
+	}
+	if strings.Contains(prefix, "..") {
+		return fmt.Errorf("invalid prefix")
+	}
+	return nil
+}
+
+func apiR2Delete(c *gin.Context) {
+	if !r2storage.IsEnabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "R2 storage is not enabled"})
+		return
+	}
+
+	bucketName := strings.TrimSpace(os.Getenv("R2_BUCKET_NAME"))
+	accountID := os.Getenv("R2_ACCOUNT_ID")
+	accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+	secretKey := os.Getenv("R2_SECRET_KEY")
+	if bucketName == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "R2 bucket is not configured"})
+		return
+	}
+	client, err := buildR2Client(accountID, accessKey, secretKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to init R2 client: %v", err)})
+		return
+	}
+	ctx := c.Request.Context()
+
+	var body struct {
+		Prefix string `json:"prefix"`
+		Key    string `json:"key"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	key := strings.TrimSpace(body.Key)
+	prefix := strings.TrimPrefix(strings.TrimSpace(body.Prefix), "/")
+
+	if key != "" && prefix != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provide either key or prefix, not both"})
+		return
+	}
+	if key == "" && prefix == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "prefix or key required"})
+		return
+	}
+
+	if key != "" {
+		if err := validateR2ObjectKey(key); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		objKey := strings.TrimPrefix(strings.TrimSpace(key), "/")
+		_, delErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    aws.String(objKey),
+		})
+		if delErr != nil {
+			low := strings.ToLower(delErr.Error())
+			if !strings.Contains(low, "nosuchkey") && !strings.Contains(low, "notfound") && !strings.Contains(low, "404") {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": delErr.Error()})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "deleted": 1})
+		return
+	}
+
+	if err := validateR2DeletePrefix(prefix); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	keys, err := r2ListAllKeysUnderPrefix(ctx, client, bucketName, prefix)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if len(keys) == 0 {
+		log.Printf("[API] R2 delete prefix %q: listed 0 objects (bucket=%s)", prefix, bucketName)
+		c.JSON(http.StatusOK, gin.H{"ok": true, "deleted": 0, "prefix": prefix})
+		return
+	}
+	if err := r2DeleteKeys(ctx, client, bucketName, keys); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	log.Printf("[API] R2 deleted %d object(s) under prefix %q (bucket=%s)", len(keys), prefix, bucketName)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "deleted": len(keys), "prefix": prefix})
 }
 
 // buildR2Client constructs an S3-compatible client pointing at Cloudflare R2
