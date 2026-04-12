@@ -363,6 +363,11 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 		log.Printf("[INFO] Updated database scan status for %s to %s", scanID, status)
 	}
 
+	// Match API executeScan: index R2 artifacts for workflow scans (local dirs are cleaned up before indexing).
+	if err == nil && status == "completed" && (scanType == "domain_run" || scanType == "subdomain_run") {
+		indexWorkflowArtifactsFromR2(scanID, scanType, target)
+	}
+
 	// Update Discord message
 	embed := createScanEmbed(scanType, target, status)
 	if isCancelled {

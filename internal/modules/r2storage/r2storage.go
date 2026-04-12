@@ -694,6 +694,115 @@ func ExtractObjectKeyFromPublicURL(publicURL string) string {
 	return strings.TrimPrefix(path, "/")
 }
 
+// ListedObject is a single object listed from R2 for artifact indexing.
+type ListedObject struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+}
+
+// PublicURLForKey returns the public CDN URL for an object key, or empty if not configured.
+func PublicURLForKey(objectKey string) string {
+	if r2Config == nil || !r2Config.Enabled || strings.TrimSpace(r2Config.PublicURL) == "" {
+		return ""
+	}
+	k := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
+	if k == "" {
+		return ""
+	}
+	return strings.TrimSuffix(r2Config.PublicURL, "/") + "/" + k
+}
+
+// ListObjectsRecursive lists all objects under prefix (full recursion; no delimiter).
+func ListObjectsRecursive(prefix string) ([]ListedObject, error) {
+	if !IsEnabled() || r2Client == nil || r2Config == nil {
+		return nil, fmt.Errorf("R2 not available")
+	}
+	listPrefix := strings.TrimPrefix(strings.TrimSpace(prefix), "/")
+	if listPrefix != "" && !strings.HasSuffix(listPrefix, "/") {
+		listPrefix += "/"
+	}
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(r2Config.BucketName),
+	}
+	if listPrefix != "" {
+		input.Prefix = aws.String(listPrefix)
+	}
+	var out []ListedObject
+	paginator := s3.NewListObjectsV2Paginator(r2Client, input)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, err
+		}
+		for _, obj := range page.Contents {
+			key := aws.ToString(obj.Key)
+			if listPrefix != "" && key == listPrefix {
+				continue
+			}
+			size := int64(0)
+			if obj.Size != nil {
+				size = *obj.Size
+			}
+			lm := time.Time{}
+			if obj.LastModified != nil {
+				lm = *obj.LastModified
+			}
+			out = append(out, ListedObject{
+				Key:          key,
+				Size:         size,
+				LastModified: lm.UTC(),
+			})
+		}
+	}
+	return out, nil
+}
+
+// ListObjectKeysUnderPrefix returns every object key under prefix (recursive S3 list).
+func ListObjectKeysUnderPrefix(prefix string) ([]string, error) {
+	objs, err := ListObjectsRecursive(prefix)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(objs))
+	for _, o := range objs {
+		if o.Key != "" {
+			keys = append(keys, o.Key)
+		}
+	}
+	return keys, nil
+}
+
+// MaxGetObjectBytes caps single-object reads for dashboard / API use.
+const MaxGetObjectBytes = 25 * 1024 * 1024
+
+// GetObjectBytes downloads an object from R2 by key (full key as stored in the bucket).
+func GetObjectBytes(objectKey string) ([]byte, error) {
+	if !IsEnabled() || r2Client == nil || r2Config == nil {
+		return nil, fmt.Errorf("R2 not available")
+	}
+	key := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
+	if key == "" {
+		return nil, fmt.Errorf("empty object key")
+	}
+	out, err := r2Client.GetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(r2Config.BucketName),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer out.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(out.Body, MaxGetObjectBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxGetObjectBytes {
+		return nil, fmt.Errorf("object exceeds %d bytes", MaxGetObjectBytes)
+	}
+	return data, nil
+}
+
 // DeleteObjects deletes object keys from R2. Missing keys are ignored.
 func DeleteObjects(keys []string) error {
 	if !IsEnabled() {
