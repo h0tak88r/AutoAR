@@ -482,6 +482,16 @@ func DeleteScan(scanID string) error {
 	return dbInstance.DeleteScan(scanID)
 }
 
+// CountScansWithTargetExcluding counts scans sharing a target except the given scan_id.
+func CountScansWithTargetExcluding(excludeScanID, target string) (int, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return 0, err
+		}
+	}
+	return dbInstance.CountScansWithTargetExcluding(excludeScanID, target)
+}
+
 // Close closes the database connection pool
 func Close() {
 	if dbInstance != nil {

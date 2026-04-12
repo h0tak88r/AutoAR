@@ -1543,6 +1543,19 @@ func (p *PostgresDB) DeleteScan(scanID string) error {
 	return nil
 }
 
+// CountScansWithTargetExcluding returns how many scans share this target besides excludeScanID.
+func (p *PostgresDB) CountScansWithTargetExcluding(excludeScanID, target string) (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx,
+		`SELECT COUNT(*)::int FROM scans WHERE target = $1 AND scan_id != $2`,
+		target, excludeScanID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count scans by target: %v", err)
+	}
+	return n, nil
+}
+
 // ListVulnerableDNSProviders returns all vulnerable DNS providers from the database
 func (p *PostgresDB) ListVulnerableDNSProviders() (map[string]string, error) {
 	rows, err := p.pool.Query(p.ctx, `
