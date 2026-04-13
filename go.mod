@@ -1,6 +1,6 @@
 module github.com/h0tak88r/AutoAR
 
-go 1.24.2
+go 1.23
 
 require (
 	github.com/99designs/keyring v1.2.1
