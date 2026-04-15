@@ -365,6 +365,24 @@ func handleScan(opts Options, resultsDir string) error {
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
 	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
 	log.Printf("[OK] S3 scan completed for bucket: %s (method: %s, objects: %d, results: %s, log: %s)", opts.Bucket, scanMethod, objectCount, outputFile, logFile)
+
+	// Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && objectCount > 0 {
+		data, readErr := os.ReadFile(outputFile)
+		if readErr == nil {
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			var nonEmpty []string
+			for _, l := range lines {
+				if strings.TrimSpace(l) != "" {
+					nonEmpty = append(nonEmpty, l)
+				}
+			}
+			if err := utils.WriteLinesAsJSON(scanID, opts.Bucket, "s3", "s3-vulnerabilities.json", nonEmpty); err != nil {
+				log.Printf("[WARN] Failed to write S3 JSON: %v", err)
+			}
+		}
+	}
+
 	return nil
 }
 

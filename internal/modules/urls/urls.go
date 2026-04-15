@@ -213,6 +213,18 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	_ = utils.WriteLines(interestingFile, interesting)
 	log.Printf("[OK] Interesting URLs: %d written to %s", len(interesting), interestingFile)
 
+	// Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && total > 0 {
+		if err := utils.WriteLinesAsJSON(scanID, dirDomain, "urls", "urls.json", allURLs); err != nil {
+			log.Printf("[WARN] Failed to write URLs JSON: %v", err)
+		}
+		if len(jsURLs) > 0 {
+			if err := utils.WriteLinesAsJSON(scanID, dirDomain, "js-urls", "js-urls.json", jsURLs); err != nil {
+				log.Printf("[WARN] Failed to write JS URLs JSON: %v", err)
+			}
+		}
+	}
+
 	return &Result{
 		Domain:          dirDomain,
 		Threads:         threads,

@@ -156,6 +156,8 @@ type ScanArtifact struct {
 	SizeBytes   int64     `json:"size_bytes"`
 	LineCount   int       `json:"line_count"`
 	ContentType string    `json:"content_type,omitempty"`
+	Module      string    `json:"module,omitempty"` // The module that produced this artifact (e.g., "nuclei", "subfinder", "httpx")
+	Category    string    `json:"category,omitempty"` // Artifact category (e.g., "vulnerability", "recon", "config")
 	CreatedAt   time.Time `json:"created_at"`
 }
 
