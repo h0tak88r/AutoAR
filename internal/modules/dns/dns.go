@@ -1052,10 +1052,8 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 		}
 	}
 
-	// Append dangling IPs to output file
-	if err := appendLines(danglingOut, danglingCandidates...); err != nil {
-		log.Printf("[WARN] Failed to write dangling IPs: %v", err)
-	}
+	// NOTE: [CANDIDATE] lines already written one-by-one inside the loop above.
+	// Do NOT append danglingCandidates again here — that would produce duplicate bare-IP rows.
 	// Summary file removed - only raw results generated
 
 	log.Printf("[OK] Dangling IP check completed: %d candidates found out of %d IPs", len(danglingCandidates), len(ipToSubdomains))

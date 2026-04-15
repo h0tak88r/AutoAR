@@ -362,19 +362,31 @@ func handleDomainCommand(args []string) error {
 		return fmt.Errorf("domain (-d) is required")
 	}
 
-	// #9: create a DB scan record so `autoar status` can track this CLI-triggered scan
-	scanID := generateScanID("domain")
+	// When run as a subprocess by executeScan/runScanBackground, AUTOAR_CURRENT_SCAN_ID is
+	// already set and a DB record already exists — reuse the parent scan ID to avoid creating
+	// a duplicate "domain" record alongside the canonical "domain_run" record.
+	if parentScanID := strings.TrimSpace(os.Getenv("AUTOAR_CURRENT_SCAN_ID")); parentScanID != "" {
+		// Subprocess mode: parent already owns the scan record; just run the workflow.
+		_, err := domainmod.RunDomain(domainmod.ScanOptions{
+			Domain:   domain,
+			SkipFFuf: skipFFuf,
+		})
+		return err
+	}
+
+	// Standalone CLI mode: create a DB scan record so `autoar status` can track this run.
+	scanID := generateScanID("domain_run")
 	_ = db.Init()
 	_ = db.InitSchema()
 	_ = db.CreateScan(&db.ScanRecord{
 		ScanID:   scanID,
-		ScanType: "domain",
+		ScanType: "domain_run",
 		Target:   domain,
 		Status:   "running",
 	})
 	os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
 	defer func() {
-		_ = db.UpdateScanStatus(scanID, "done")
+		_ = db.UpdateScanStatus(scanID, "completed")
 		os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
 	}()
 
@@ -388,6 +400,9 @@ func handleDomainCommand(args []string) error {
 		fmt.Printf("[WARN] Failed to cleanup domain directory for %s: %v\n", domain, cleanupErr)
 	}
 
+	if err != nil {
+		_ = db.UpdateScanStatus(scanID, "failed")
+	}
 	return err
 }
 
@@ -443,7 +458,13 @@ func handleFastlookCommand(args []string) error {
 		return fmt.Errorf("domain (-d) is required")
 	}
 
-	// #9: DB scan tracking for CLI-triggered fastlook runs
+	// When run as a subprocess (AUTOAR_CURRENT_SCAN_ID already set), skip creating a duplicate record.
+	if parentScanID := strings.TrimSpace(os.Getenv("AUTOAR_CURRENT_SCAN_ID")); parentScanID != "" {
+		_, err := fastlook.RunFastlook(domain, nil)
+		return err
+	}
+
+	// Standalone CLI mode: create a DB scan record for tracking.
 	scanID := generateScanID("fastlook")
 	_ = db.Init()
 	_ = db.InitSchema()
@@ -455,12 +476,15 @@ func handleFastlookCommand(args []string) error {
 	})
 	os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
 	defer func() {
-		_ = db.UpdateScanStatus(scanID, "done")
+		_ = db.UpdateScanStatus(scanID, "completed")
 		os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
 	}()
 
 	// Run fastlook with no file callback
 	_, err := fastlook.RunFastlook(domain, nil)
+	if err != nil {
+		_ = db.UpdateScanStatus(scanID, "failed")
+	}
 	return err
 }
 
@@ -618,7 +642,13 @@ func handleLiteCommand(args []string) error {
 		return fmt.Errorf("domain (-d) is required; usage: lite run -d <domain>")
 	}
 
-	// #9: DB scan tracking for CLI-triggered lite runs
+	// When run as a subprocess (AUTOAR_CURRENT_SCAN_ID already set), skip creating a duplicate record.
+	if parentScanID := strings.TrimSpace(os.Getenv("AUTOAR_CURRENT_SCAN_ID")); parentScanID != "" {
+		_, err := lite.RunLite(opts)
+		return err
+	}
+
+	// Standalone CLI mode: create a DB scan record for tracking.
 	scanID := generateScanID("lite")
 	_ = db.Init()
 	_ = db.InitSchema()
@@ -630,11 +660,14 @@ func handleLiteCommand(args []string) error {
 	})
 	os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
 	defer func() {
-		_ = db.UpdateScanStatus(scanID, "done")
+		_ = db.UpdateScanStatus(scanID, "completed")
 		os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
 	}()
 
 	_, err := lite.RunLite(opts)
+	if err != nil {
+		_ = db.UpdateScanStatus(scanID, "failed")
+	}
 	return err
 }
 

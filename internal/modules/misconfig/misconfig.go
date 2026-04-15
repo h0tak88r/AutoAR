@@ -182,11 +182,15 @@ func handleScan(opts Options, resultsDir string) error {
 
 	// Write JSON results to scan directory (local-first)
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(allResults) > 0 {
-		// Emit as an array of individual finding objects so the dashboard parser
-		// can extract name/url/severity per row via parseFindingFromObject.
+		// Each finding is emitted as a flat object whose fields map directly to the
+		// dashboard table columns via parseFindingFromObject:
+		//   template-id  → VULNERABILITY TYPE column (human-readable name)
+		//   matched-at   → TARGET column (preferred by parser over url)
+		//   severity     → SEV column
 		type misconfigFinding struct {
+			// Use readable name as template-id so dashboard shows it in VULN TYPE column
 			TemplateID  string `json:"template-id"`
-			Name        string `json:"name"`
+			MatchedAt   string `json:"matched-at"` // preferred target field in parser
 			URL         string `json:"url"`
 			ServiceID   string `json:"service_id"`
 			ServiceName string `json:"service_name"`
@@ -199,13 +203,14 @@ func handleScan(opts Options, resultsDir string) error {
 			if r.Vulnerable {
 				sev = "medium"
 			}
-			name := r.ServiceName
+			// template-id = human-readable service name (shown in VULNERABILITY TYPE column)
+			displayName := r.ServiceName
 			if r.Vulnerable {
-				name = r.ServiceName + " (VULNERABLE)"
+				displayName = r.ServiceName + " ⚠ VULNERABLE"
 			}
 			findings = append(findings, misconfigFinding{
-				TemplateID:  r.ServiceID,
-				Name:        name,
+				TemplateID:  displayName,
+				MatchedAt:   r.URL,
 				URL:         r.URL,
 				ServiceID:   r.ServiceID,
 				ServiceName: r.ServiceName,
