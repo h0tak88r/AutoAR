@@ -71,6 +71,18 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 		}
 	}
 
+	// 3b. Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && liveCount > 0 {
+		if err := utils.WriteJSONToScanDir(scanID, "livehosts.json", map[string]interface{}{
+			"scan_id": scanID,
+			"target":  domain,
+			"results": liveHostMap,
+			"count":   liveCount,
+		}); err != nil {
+			log.Printf("[WARN] Failed to write livehosts JSON: %v", err)
+		}
+	}
+
 	// 4. Send result files to Discord webhook if configured (only when not running under bot)
 	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
 	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {

@@ -114,6 +114,26 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 	}
 
 	log.Printf("[OK] GF scan completed: %d total matches across all patterns", totalMatches)
+
+	// Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && totalMatches > 0 {
+		var allMatches []string
+		for _, rf := range resultFiles {
+			data, err := os.ReadFile(rf)
+			if err != nil {
+				continue
+			}
+			for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				if strings.TrimSpace(l) != "" {
+					allMatches = append(allMatches, l)
+				}
+			}
+		}
+		if err := utils.WriteLinesAsJSON(scanID, opts.Domain, "gf", "gf-vulnerabilities.json", allMatches); err != nil {
+			log.Printf("[WARN] Failed to write GF JSON: %v", err)
+		}
+	}
+
 	return &Result{Domain: opts.Domain, TotalMatches: totalMatches, ResultFiles: resultFiles}, nil
 }
 

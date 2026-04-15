@@ -23,8 +23,12 @@ type PostgresDB struct {
 
 // Init initializes the PostgreSQL database connection pool
 func (p *PostgresDB) Init() error {
-	// Parse PostgreSQL connection string if provided
-	dbHostEnv := os.Getenv("DB_HOST")
+	// Parse PostgreSQL connection string if provided.
+	// Prefer DB_HOST; fall back to DATABASE_URL (common in hosting / copied .env files).
+	dbHostEnv := strings.TrimSpace(os.Getenv("DB_HOST"))
+	if dbHostEnv == "" {
+		dbHostEnv = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
 	var connStr string
 
 	if strings.HasPrefix(dbHostEnv, "postgresql://") || strings.HasPrefix(dbHostEnv, "postgres://") {
@@ -386,6 +390,10 @@ func (p *PostgresDB) InitSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to migrate scans.result_url: %v", err)
 	}
+
+	// Migrate scan_artifacts table: add module and category columns
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scan_artifacts ADD COLUMN IF NOT EXISTS module TEXT`)
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scan_artifacts ADD COLUMN IF NOT EXISTS category TEXT`)
 
 	// Deduplicate legacy artifact rows before enforcing uniqueness.
 	_, _ = p.pool.Exec(p.ctx, `
@@ -1477,8 +1485,8 @@ func (p *PostgresDB) AppendScanArtifact(artifact *ScanArtifact) error {
 	}
 	_, err := p.pool.Exec(p.ctx, `
 		INSERT INTO scan_artifacts (
-			scan_id, file_name, local_path, r2_key, public_url, size_bytes, line_count, content_type
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			scan_id, file_name, local_path, r2_key, public_url, size_bytes, line_count, content_type, module, category
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (scan_id, r2_key) DO UPDATE SET
 			file_name=EXCLUDED.file_name,
 			local_path=EXCLUDED.local_path,
@@ -1486,8 +1494,10 @@ func (p *PostgresDB) AppendScanArtifact(artifact *ScanArtifact) error {
 			size_bytes=EXCLUDED.size_bytes,
 			line_count=EXCLUDED.line_count,
 			content_type=EXCLUDED.content_type,
+			module=EXCLUDED.module,
+			category=EXCLUDED.category,
 			created_at=NOW()
-	`, artifact.ScanID, artifact.FileName, artifact.LocalPath, artifact.R2Key, artifact.PublicURL, artifact.SizeBytes, artifact.LineCount, artifact.ContentType)
+	`, artifact.ScanID, artifact.FileName, artifact.LocalPath, artifact.R2Key, artifact.PublicURL, artifact.SizeBytes, artifact.LineCount, artifact.ContentType, artifact.Module, artifact.Category)
 	if err != nil {
 		return fmt.Errorf("failed to append scan artifact: %v", err)
 	}
@@ -1499,7 +1509,7 @@ func (p *PostgresDB) ListScanArtifacts(scanID string) ([]*ScanArtifact, error) {
 	rows, err := p.pool.Query(p.ctx, `
 		SELECT id, scan_id, COALESCE(file_name, ''), COALESCE(local_path, ''), COALESCE(r2_key, ''),
 			COALESCE(public_url, ''), COALESCE(size_bytes, 0), COALESCE(line_count, 0),
-			COALESCE(content_type, ''), created_at
+			COALESCE(content_type, ''), COALESCE(module, ''), COALESCE(category, ''), created_at
 		FROM scan_artifacts
 		WHERE scan_id = $1
 		ORDER BY created_at DESC, id DESC
@@ -1512,7 +1522,7 @@ func (p *PostgresDB) ListScanArtifacts(scanID string) ([]*ScanArtifact, error) {
 	var out []*ScanArtifact
 	for rows.Next() {
 		var a ScanArtifact
-		if err := rows.Scan(&a.ID, &a.ScanID, &a.FileName, &a.LocalPath, &a.R2Key, &a.PublicURL, &a.SizeBytes, &a.LineCount, &a.ContentType, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ScanID, &a.FileName, &a.LocalPath, &a.R2Key, &a.PublicURL, &a.SizeBytes, &a.LineCount, &a.ContentType, &a.Module, &a.Category, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan artifact row: %v", err)
 		}
 		out = append(out, &a)

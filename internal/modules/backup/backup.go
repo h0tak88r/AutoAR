@@ -10,6 +10,7 @@ import (
 	"time"
 
 	fuzzulitool "github.com/h0tak88r/AutoAR/internal/tools/fuzzuli"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // Options controls how the backup scan runs.
@@ -218,6 +219,27 @@ func Run(opts Options) (*Result, error) {
 				if strings.TrimSpace(ls.Text()) != "" {
 					res.LiveHostsCount++
 				}
+			}
+		}
+	}
+
+	// Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && res.FoundCount > 0 {
+		data, readErr := os.ReadFile(res.ResultsFile)
+		if readErr == nil {
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			var nonEmpty []string
+			for _, l := range lines {
+				if strings.TrimSpace(l) != "" {
+					nonEmpty = append(nonEmpty, l)
+				}
+			}
+			target := opts.Domain
+			if target == "" {
+				target = "backup-scan"
+			}
+			if err := utils.WriteLinesAsJSON(scanID, target, "backup", "backup-vulnerabilities.json", nonEmpty); err != nil {
+				log.Printf("[WARN] Failed to write backup JSON: %v", err)
 			}
 		}
 	}

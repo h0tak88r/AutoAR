@@ -15,6 +15,7 @@ import (
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // EnumerateSubdomains enumerates subdomains for a given domain using subfinder and API sources
@@ -349,10 +350,17 @@ func getSubdomainsFromSubfinder(domain string, threads int) ([]string, error) {
 			unique[line] = true
 			results = append(results, line)
 		}
-	}
+		}
 
-	return results, nil
-}
+		// Write JSON results to scan directory (local-first)
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(results) > 0 {
+			if err := utils.WriteLinesAsJSON(scanID, domain, "subdomain", "subdomains.json", results); err != nil {
+				log.Printf("[WARN] Failed to write subdomain JSON: %v", err)
+			}
+		}
+
+		return results, nil
+	}
 
 // getProviderConfig returns provider configuration from environment variables
 // It generates a temporary config file from environment variables if no config file exists

@@ -263,6 +263,19 @@ func (s *SQLiteDB) InitSchema() error {
 			return fmt.Errorf("failed to migrate scans.result_url: %v", merr)
 		}
 	}
+	// Migrate scan_artifacts table: add module and category columns
+	if _, merr := s.db.Exec(`ALTER TABLE scan_artifacts ADD COLUMN module TEXT`); merr != nil {
+		low := strings.ToLower(merr.Error())
+		if !strings.Contains(low, "duplicate column") {
+			log.Printf("[WARN] Failed to add module column: %v", merr)
+		}
+	}
+	if _, merr := s.db.Exec(`ALTER TABLE scan_artifacts ADD COLUMN category TEXT`); merr != nil {
+		low := strings.ToLower(merr.Error())
+		if !strings.Contains(low, "duplicate column") {
+			log.Printf("[WARN] Failed to add category column: %v", merr)
+		}
+	}
 	// Deduplicate legacy artifact rows before enforcing uniqueness.
 	_, _ = s.db.Exec(`
 		DELETE FROM scan_artifacts
@@ -1420,8 +1433,8 @@ func (s *SQLiteDB) AppendScanArtifact(artifact *ScanArtifact) error {
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO scan_artifacts (
-			scan_id, file_name, local_path, r2_key, public_url, size_bytes, line_count, content_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			scan_id, file_name, local_path, r2_key, public_url, size_bytes, line_count, content_type, module, category
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(scan_id, r2_key) DO UPDATE SET
 			file_name=excluded.file_name,
 			local_path=excluded.local_path,
@@ -1429,8 +1442,10 @@ func (s *SQLiteDB) AppendScanArtifact(artifact *ScanArtifact) error {
 			size_bytes=excluded.size_bytes,
 			line_count=excluded.line_count,
 			content_type=excluded.content_type,
+			module=excluded.module,
+			category=excluded.category,
 			created_at=datetime('now')
-	`, artifact.ScanID, artifact.FileName, artifact.LocalPath, artifact.R2Key, artifact.PublicURL, artifact.SizeBytes, artifact.LineCount, artifact.ContentType)
+	`, artifact.ScanID, artifact.FileName, artifact.LocalPath, artifact.R2Key, artifact.PublicURL, artifact.SizeBytes, artifact.LineCount, artifact.ContentType, artifact.Module, artifact.Category)
 	if err != nil {
 		return fmt.Errorf("failed to append scan artifact: %v", err)
 	}
@@ -1442,7 +1457,7 @@ func (s *SQLiteDB) ListScanArtifacts(scanID string) ([]*ScanArtifact, error) {
 	rows, err := s.db.Query(`
 		SELECT id, scan_id, COALESCE(file_name, ''), COALESCE(local_path, ''), COALESCE(r2_key, ''),
 			COALESCE(public_url, ''), COALESCE(size_bytes, 0), COALESCE(line_count, 0),
-			COALESCE(content_type, ''), created_at
+			COALESCE(content_type, ''), COALESCE(module, ''), COALESCE(category, ''), created_at
 		FROM scan_artifacts
 		WHERE scan_id = ?
 		ORDER BY created_at DESC, id DESC
@@ -1455,7 +1470,7 @@ func (s *SQLiteDB) ListScanArtifacts(scanID string) ([]*ScanArtifact, error) {
 	var out []*ScanArtifact
 	for rows.Next() {
 		var a ScanArtifact
-		if err := rows.Scan(&a.ID, &a.ScanID, &a.FileName, &a.LocalPath, &a.R2Key, &a.PublicURL, &a.SizeBytes, &a.LineCount, &a.ContentType, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ScanID, &a.FileName, &a.LocalPath, &a.R2Key, &a.PublicURL, &a.SizeBytes, &a.LineCount, &a.ContentType, &a.Module, &a.Category, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan artifact row: %v", err)
 		}
 		out = append(out, &a)

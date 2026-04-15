@@ -114,7 +114,28 @@ func RunNuclei(opts Options) (*Result, error) {
 				utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei scan completed (%s mode) for %s: 0 findings", opts.Mode, targetName))
 			}
 		}
-		
+
+		// Index each JSONL result file into the scan directory so the dashboard can find them.
+		// We preserve the nuclei JSONL format rather than re-wrapping lines, so template-id,
+		// matched-at, info.severity etc. remain accessible for clean dashboard parsing.
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			for _, rf := range resultFiles {
+				info, err := os.Stat(rf)
+				if err != nil || info.Size() == 0 {
+					continue
+				}
+				// Copy file into scan dir
+				scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
+				if data, readErr := os.ReadFile(rf); readErr == nil {
+					if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
+						if _, idxErr := utils.IndexExistingResultFile(scanID, scanFile); idxErr != nil {
+							log.Printf("[WARN] Failed to index nuclei file %s: %v", filepath.Base(rf), idxErr)
+						}
+					}
+				}
+			}
+		}
+
 		return &Result{TargetName: targetName, Mode: opts.Mode, ResultFiles: resultFiles}, nil
 	}
 
@@ -190,13 +211,29 @@ func RunNuclei(opts Options) (*Result, error) {
 	}
 
 	log.Printf("[OK] Nuclei scan completed successfully for %s (mode: %s)", targetName, opts.Mode)
-	
-	// Send result files to Discord webhook if configured (only when not running under bot)
-	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+
+	// Index each JSONL result file into the scan dir (preserves nuclei JSON structure)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		for _, rf := range resultFiles {
+			info, err := os.Stat(rf)
+			if err != nil || info.Size() == 0 {
+				continue
+			}
+			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
+			if data, readErr := os.ReadFile(rf); readErr == nil {
+				if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
+					if _, idxErr := utils.IndexExistingResultFile(scanID, scanFile); idxErr != nil {
+						log.Printf("[WARN] Failed to index nuclei file %s: %v", filepath.Base(rf), idxErr)
+					}
+				}
+			}
+		}
+	}
+
+	// Send result files to Discord webhook (only when not running under bot)
 	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
 		webhookURL := os.Getenv("DISCORD_WEBHOOK")
 		if webhookURL != "" && len(resultFiles) > 0 {
-			// Send each result file
 			for _, file := range resultFiles {
 				if info, err := os.Stat(file); err == nil && info.Size() > 0 {
 					fileName := filepath.Base(file)
@@ -204,11 +241,10 @@ func RunNuclei(opts Options) (*Result, error) {
 				}
 			}
 		} else if len(resultFiles) == 0 {
-			// Send "no findings" message if no results
 			utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei scan completed (%s mode) for %s: 0 findings", opts.Mode, targetName))
 		}
 	}
-	
+
 	return &Result{TargetName: targetName, Mode: opts.Mode, ResultFiles: resultFiles}, nil
 }
 
@@ -281,7 +317,7 @@ func runFullScan(targetFile, outputDir string, threads int, targetName, root str
 	customDir := filepath.Join(root, "nuclei_templates", "vulns")
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom templates (nuclei_templates/vulns)...")
-		customOut := filepath.Join(outputDir, "nuclei-custom-others.txt")
+		customOut := filepath.Join(outputDir, "nuclei-custom-others.json")
 		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
 			if count, _ := countLines(customOut); count > 0 {
 				log.Printf("[OK] Found %d findings with custom templates", count)
@@ -294,7 +330,7 @@ func runFullScan(targetFile, outputDir string, threads int, targetName, root str
 	publicDir := filepath.Join(root, "nuclei-templates", "http")
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public HTTP templates (nuclei-templates/http)...")
-		publicOut := filepath.Join(outputDir, "nuclei-public-http.txt")
+		publicOut := filepath.Join(outputDir, "nuclei-public-http.json")
 		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
 			if count, _ := countLines(publicOut); count > 0 {
 				log.Printf("[OK] Found %d findings with public HTTP templates", count)
@@ -322,7 +358,7 @@ func runCVEsScan(targetFile, outputDir string, threads int, targetName, root str
 	customDir := filepath.Join(root, "nuclei_templates", "cves")
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom CVE templates...")
-		customOut := filepath.Join(outputDir, "nuclei-custom-cves.txt")
+		customOut := filepath.Join(outputDir, "nuclei-custom-cves.json")
 		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
 			if count, _ := countLines(customOut); count > 0 {
 				log.Printf("[OK] Found %d CVE findings with custom templates", count)
@@ -335,7 +371,7 @@ func runCVEsScan(targetFile, outputDir string, threads int, targetName, root str
 	publicDir := filepath.Join(root, "nuclei-templates", "http", "cves")
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public CVE templates...")
-		publicOut := filepath.Join(outputDir, "nuclei-public-cves.txt")
+		publicOut := filepath.Join(outputDir, "nuclei-public-cves.json")
 		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
 			if count, _ := countLines(publicOut); count > 0 {
 				log.Printf("[OK] Found %d CVE findings with public templates", count)
@@ -355,7 +391,7 @@ func runPanelsScan(targetFile, outputDir string, threads int, targetName, root s
 	customDir := filepath.Join(root, "nuclei_templates", "panels")
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom panel templates...")
-		customOut := filepath.Join(outputDir, "nuclei-custom-panels.txt")
+		customOut := filepath.Join(outputDir, "nuclei-custom-panels.json")
 		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
 			if count, _ := countLines(customOut); count > 0 {
 				log.Printf("[OK] Found %d panels with custom templates", count)
@@ -368,7 +404,7 @@ func runPanelsScan(targetFile, outputDir string, threads int, targetName, root s
 	publicDir := filepath.Join(root, "nuclei-templates", "http", "exposed-panels")
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public exposed panels templates...")
-		publicOut := filepath.Join(outputDir, "nuclei-public-panels.txt")
+		publicOut := filepath.Join(outputDir, "nuclei-public-panels.json")
 		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
 			if count, _ := countLines(publicOut); count > 0 {
 				log.Printf("[OK] Found %d exposed panels with public templates", count)
@@ -421,7 +457,7 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 	customDir := filepath.Join(root, "nuclei_templates", "vulns")
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom vulnerability templates...")
-		customOut := filepath.Join(outputDir, "nuclei-custom-vulnerabilities.txt")
+		customOut := filepath.Join(outputDir, "nuclei-custom-vulnerabilities.json")
 		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
 			if count, _ := countLines(customOut); count > 0 {
 				log.Printf("[OK] Found %d vulnerability findings with custom templates", count)
@@ -434,7 +470,7 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 	publicDir := filepath.Join(root, "nuclei-templates", "http", "vulnerabilities")
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public vulnerability templates...")
-		publicOut := filepath.Join(outputDir, "nuclei-public-vulnerabilities.txt")
+		publicOut := filepath.Join(outputDir, "nuclei-public-vulnerabilities.json")
 		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
 			if count, _ := countLines(publicOut); count > 0 {
 				log.Printf("[OK] Found %d vulnerability findings with public templates", count)
@@ -447,7 +483,7 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 	dastDir := filepath.Join(root, "nuclei-templates", "dast", "vulnerabilities")
 	if dirExists(dastDir) {
 		log.Printf("[INFO] Scanning with DAST vulnerability templates...")
-		dastOut := filepath.Join(outputDir, "nuclei-dast-vulnerabilities.txt")
+		dastOut := filepath.Join(outputDir, "nuclei-dast-vulnerabilities.json")
 		if err := runNucleiCommand(targetFile, dastDir, threads, dastOut); err == nil {
 			if count, _ := countLines(dastOut); count > 0 {
 				log.Printf("[OK] Found %d vulnerability findings with DAST templates", count)
@@ -459,8 +495,20 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 	return resultFiles, nil
 }
 
+// runNucleiCommand runs nuclei with JSONL output (-json flag).
+// Each line of the output file is a self-contained JSON object with fields:
+//   template-id, matched-at, info.severity, info.name, host, etc.
+// This lets the dashboard parse clean vulnerability names instead of raw text.
 func runNucleiCommand(targetFile, templateDir string, threads int, outputFile string) error {
-	cmd := exec.Command("nuclei", "-l", targetFile, "-t", templateDir, "-c", fmt.Sprintf("%d", threads), "-silent", "-duc", "-o", outputFile)
+	cmd := exec.Command("nuclei",
+		"-l", targetFile,
+		"-t", templateDir,
+		"-c", fmt.Sprintf("%d", threads),
+		"-silent",
+		"-duc",
+		"-json",       // JSONL output: one JSON object per finding
+		"-o", outputFile,
+	)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

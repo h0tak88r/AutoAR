@@ -238,16 +238,45 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	count, _ := countLines(out)
 	log.Printf("[OK] Found %d CNAME records for %s", count, domain)
 
-	// Send result files to Discord webhook if configured (only when not running under bot)
-	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+	// Write JSON output to scan directory for dashboard
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(cnameRecords) > 0 {
+		// Emit structured objects: {subdomain, cname, type}
+		type cnameEntry struct {
+			Subdomain string `json:"subdomain"`
+			CNAME     string `json:"cname"`
+			Type      string `json:"type"`
+		}
+		var entries []cnameEntry
+		for _, rec := range cnameRecords {
+			// format: "sub.example.com CNAME target.example.com"
+			parts := strings.Fields(rec)
+			if len(parts) >= 3 {
+				entries = append(entries, cnameEntry{
+					Subdomain: parts[0],
+					CNAME:     parts[2],
+					Type:      "CNAME",
+				})
+			}
+		}
+		if err := utils.WriteJSONToScanDir(scanID, "cname-records.json", map[string]interface{}{
+			"scan_id":   scanID,
+			"target":    domain,
+			"scan_type": "cnames",
+			"generated": fmt.Sprintf("%v", count),
+			"records":   entries,
+			"count":     len(entries),
+		}); err != nil {
+			log.Printf("[WARN] Failed to write CNAME JSON: %v", err)
+		}
+	}
+
+	// Send result files to Discord webhook (only when not running under bot)
 	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
 		webhookURL := os.Getenv("DISCORD_WEBHOOK")
 		if webhookURL != "" {
-			// Send CNAME output file if it exists and has content
 			if info, err := os.Stat(out); err == nil && info.Size() > 0 {
 				utils.SendWebhookFileAsync(out, fmt.Sprintf("CNAME Records: %d CNAME records found for %s", count, domain))
 			} else if count == 0 {
-				// Send "no findings" message if no CNAME records found
 				utils.SendWebhookLogAsync(fmt.Sprintf("CNAME collection completed for %s: 0 CNAME records found", domain))
 			}
 		}

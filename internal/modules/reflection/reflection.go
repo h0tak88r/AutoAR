@@ -205,6 +205,23 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		log.Printf("[INFO] No reflection points found")
 	}
 
+	// Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && count > 0 {
+		data, readErr := os.ReadFile(outFile)
+		if readErr == nil {
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			var nonEmpty []string
+			for _, l := range lines {
+				if strings.TrimSpace(l) != "" {
+					nonEmpty = append(nonEmpty, l)
+				}
+			}
+			if err := utils.WriteLinesAsJSON(scanID, opts.Domain, "reflection", "xss-reflection-vulnerabilities.json", nonEmpty); err != nil {
+				log.Printf("[WARN] Failed to write reflection JSON: %v", err)
+			}
+		}
+	}
+
 	return &Result{
 		Domain:      opts.Domain,
 		Reflections: count,

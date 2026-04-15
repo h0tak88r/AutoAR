@@ -11,15 +11,15 @@
 </head>
 <body>
 
-<!-- Login (Supabase) — shown when API auth is enabled and there is no session -->
+<!-- Login gate — shown when API auth is enabled and there is no valid local session -->
 <div id="auth-gate" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
   <div class="auth-card">
     <div class="auth-logo">🎯</div>
     <h1 class="auth-title">AutoAR</h1>
-    <p class="auth-sub">Sign in with your Supabase account</p>
+    <p class="auth-sub">Sign in to continue</p>
     <form id="auth-form" class="auth-form">
-      <label class="auth-label" for="auth-email">Email</label>
-      <input class="search-input auth-input" id="auth-email" type="email" autocomplete="username" required placeholder="you@example.com" />
+      <label class="auth-label" for="auth-username">Username</label>
+      <input class="search-input auth-input" id="auth-username" type="text" autocomplete="username" required placeholder="admin" />
       <label class="auth-label" for="auth-password">Password</label>
       <input class="search-input auth-input" id="auth-password" type="password" autocomplete="current-password" required placeholder="••••••••" />
       <p id="auth-error" class="auth-error" role="alert"></p>
@@ -491,7 +491,7 @@
 <!-- Toast notifications -->
 <div class="toast-container" id="toast-container"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Local auth: no external SDK needed -->
 <script src="/ui/app.js"></script>
 </body>
 </html>
