@@ -190,11 +190,8 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		return fmt.Errorf("failed to create findings dir: %w", err)
 	}
 
-	// Initialise output files (compatible with legacy layout)
-	// Note: Summary files removed - only raw results are generated
-	files := []string{
-		"nuclei-takeover-public.txt",
-		"nuclei-takeover-custom.txt",
+	// Initialise non-nuclei output files (nuclei produces .json via -json flag)
+	txtFiles := []string{
 		"azure-takeover.txt",
 		"aws-takeover.txt",
 		"azure-aws-takeover.txt",
@@ -205,7 +202,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		"dnsreaper-results.txt",
 		"dangling-ip.txt",
 	}
-	for _, name := range files {
+	for _, name := range txtFiles {
 		p := filepath.Join(findingsDir, name)
 		if err := writeLines(p, nil); err != nil {
 			return fmt.Errorf("failed to initialise %s: %w", p, err)
@@ -248,6 +245,49 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
 
+
+	// Index all result files into the scan directory for the dashboard.
+	// Nuclei output is JSONL (.json), everything else is plain text.
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		// All files produced by this scan phase
+		allOutputFiles := append(txtFiles,
+			"nuclei-takeover-public.json",
+			"nuclei-takeover-custom.json",
+		)
+		var allTextFindings []string
+		for _, name := range allOutputFiles {
+			p := filepath.Join(findingsDir, name)
+			info, err := os.Stat(p)
+			if err != nil || info.Size() == 0 {
+				continue
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			// Copy into scan dir and index it
+			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), name)
+			if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
+				if _, idxErr := utils.IndexExistingResultFile(scanID, scanFile); idxErr != nil {
+					log.Printf("[WARN] Failed to index DNS file %s: %v", name, idxErr)
+				}
+			}
+			// For plain text files, also collect lines for a combined JSON
+			if !strings.HasSuffix(name, ".json") {
+				for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+					if strings.TrimSpace(l) != "" {
+						allTextFindings = append(allTextFindings, l)
+					}
+				}
+			}
+		}
+		// Write combined text findings as JSON summary for the dashboard
+		if len(allTextFindings) > 0 {
+			if err := utils.WriteLinesAsJSON(scanID, opts.Domain, "dns-takeover", "dns-takeover-vulnerabilities.json", allTextFindings); err != nil {
+				log.Printf("[WARN] Failed to write DNS takeover JSON: %v", err)
+			}
+		}
+	}
 
 	log.Printf("[OK] DNS takeover scan completed for %s (results in %s)", opts.Domain, findingsDir)
 	return nil
@@ -355,9 +395,9 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 	}
 
 	if publicDir != "" {
-		out := filepath.Join(findingsDir, "nuclei-takeover-public.txt")
+		out := filepath.Join(findingsDir, "nuclei-takeover-public.json")
 		log.Printf("[INFO] Running Nuclei public takeover templates from %s", publicDir)
-		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(publicDir, "http", "takeovers"), "-o", out)
+		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(publicDir, "http", "takeovers"), "-json", "-silent", "-o", out)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -400,9 +440,9 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 		}
 	}
 	if customDir != "" {
-		out := filepath.Join(findingsDir, "nuclei-takeover-custom.txt")
+		out := filepath.Join(findingsDir, "nuclei-takeover-custom.json")
 		log.Printf("[INFO] Running Nuclei custom takeover templates from %s", customDir)
-		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(customDir, "http", "takeovers"), "-o", out)
+		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(customDir, "http", "takeovers"), "-json", "-silent", "-o", out)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -1146,8 +1186,9 @@ func min(a, b int) int {
 
 func writeSummary(domain, findingsDir, subsFile string) error {
 	summary := filepath.Join(findingsDir, "dns-takeover-summary.txt")
-	nPublic, _ := countLines(filepath.Join(findingsDir, "nuclei-takeover-public.txt"))
-	nCustom, _ := countLines(filepath.Join(findingsDir, "nuclei-takeover-custom.txt"))
+	// Nuclei outputs are now .json (JSONL), others remain .txt
+	nPublic, _ := countLines(filepath.Join(findingsDir, "nuclei-takeover-public.json"))
+	nCustom, _ := countLines(filepath.Join(findingsDir, "nuclei-takeover-custom.json"))
 	dnsReaper, _ := countLines(filepath.Join(findingsDir, "dnsreaper-results.txt"))
 	nAzure, _ := countLines(filepath.Join(findingsDir, "azure-takeover.txt"))
 	nAWS, _ := countLines(filepath.Join(findingsDir, "aws-takeover.txt"))
@@ -1345,9 +1386,9 @@ func sendDNSFindingsToWebhook(domain, findingsDir string) {
 	var foundFiles []string
 	hasAnyFindings := false
 	
-	// Check all possible findings files
+	// Check all possible findings files (nuclei outputs are .json, everything else .txt)
 	allFindingsFiles := []string{
-		"dangling-ip.txt", "nuclei-takeover-public.txt", "nuclei-takeover-custom.txt",
+		"dangling-ip.txt", "nuclei-takeover-public.json", "nuclei-takeover-custom.json",
 		"dnsreaper-results.txt", "azure-takeover.txt", "aws-takeover.txt",
 		"ns-takeover-vuln.txt", "ns-takeover-raw.txt", "ns-servers-vuln.txt",
 	}

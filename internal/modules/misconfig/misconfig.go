@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	mmapi "github.com/h0tak88r/AutoAR/internal/tools/misconfigmapper"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // Options for misconfig scan
@@ -176,9 +177,47 @@ func handleScan(opts Options, resultsDir string) error {
 
 	fmt.Printf("[OK] Misconfig scan completed for %s (%d findings)\n", opts.Target, len(allResults))
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
-	
+
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
-	
+
+	// Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(allResults) > 0 {
+		// Emit as an array of individual finding objects so the dashboard parser
+		// can extract name/url/severity per row via parseFindingFromObject.
+		type misconfigFinding struct {
+			TemplateID  string `json:"template-id"`
+			Name        string `json:"name"`
+			URL         string `json:"url"`
+			ServiceID   string `json:"service_id"`
+			ServiceName string `json:"service_name"`
+			Vulnerable  bool   `json:"vulnerable"`
+			Severity    string `json:"severity"`
+		}
+		var findings []misconfigFinding
+		for _, r := range allResults {
+			sev := "info"
+			if r.Vulnerable {
+				sev = "medium"
+			}
+			name := r.ServiceName
+			if r.Vulnerable {
+				name = r.ServiceName + " (VULNERABLE)"
+			}
+			findings = append(findings, misconfigFinding{
+				TemplateID:  r.ServiceID,
+				Name:        name,
+				URL:         r.URL,
+				ServiceID:   r.ServiceID,
+				ServiceName: r.ServiceName,
+				Vulnerable:  r.Vulnerable,
+				Severity:    sev,
+			})
+		}
+		if err := utils.WriteJSONToScanDir(scanID, "misconfig-vulnerabilities.json", findings); err != nil {
+			log.Printf("[WARN] Failed to write misconfig JSON: %v", err)
+		}
+	}
+
 	return nil
 }
 

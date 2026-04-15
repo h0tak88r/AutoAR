@@ -31,20 +31,17 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 
 func apiConfigHandler(c *gin.Context) {
-	jwtSecretSet := strings.TrimSpace(os.Getenv("SUPABASE_JWT_SECRET")) != ""
-	// Public anon key only (never use service_role / sb_secret here — browser-visible).
-	anon := strings.TrimSpace(os.Getenv("SUPABASE_ANON_KEY"))
+	// Must match supabaseJWTAuth / dashboardAPIAuthEnforced (UI sends Bearer only when this is true).
+	authOn := dashboardAPIAuthEnforced()
 	c.JSON(http.StatusOK, gin.H{
-		"version":           version.Version,
-		"r2_enabled":        r2storage.IsEnabled(),
-		"r2_public_url":     os.Getenv("R2_PUBLIC_URL"),
-		"r2_bucket":         os.Getenv("R2_BUCKET_NAME"),
-		"supabase_url":      os.Getenv("SUPABASE_URL"),
-		"supabase_anon_key": anon,
-		"auth_enabled":      jwtSecretSet,
-		"auth_provider":     "supabase",
-		"db_type":           getEnv("DB_TYPE", "postgresql"),
-		"mode":              getEnv("AUTOAR_MODE", "discord"),
+		"version":       version.Version,
+		"r2_enabled":    r2storage.IsEnabled(),
+		"r2_public_url": os.Getenv("R2_PUBLIC_URL"),
+		"r2_bucket":     os.Getenv("R2_BUCKET_NAME"),
+		"auth_enabled":  authOn,
+		"auth_provider": "local",
+		"db_type":       getEnv("DB_TYPE", "postgresql"),
+		"mode":          getEnv("AUTOAR_MODE", "discord"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 	})
@@ -387,7 +384,7 @@ func mergeWorkflowTargetR2TreeIntoKeySet(scanID string, scan *db.ScanRecord, key
 		return
 	}
 	if others > 0 {
-		log.Printf("[scan-delete] target %q still referenced by %d other scan(s); R2 prefix tree kept (only this scan’s indexed keys)", target, others)
+		log.Printf("[scan-delete] target %q still referenced by %d other scan(s); R2 prefix tree kept (only this scan's indexed keys)", target, others)
 		return
 	}
 	for _, prefix := range workflowScanR2Prefixes(target) {
