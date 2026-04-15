@@ -23,6 +23,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/monitorsuggest"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomainmonitor"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/h0tak88r/AutoAR/internal/version"
 )
 
@@ -455,6 +456,19 @@ func performScanDelete(scanID string) (int, error) {
 	if err := db.DeleteScan(scanID); err != nil {
 		return 0, err
 	}
+
+	// Delete the local scan directory (new-results/<scanID>/).
+	// This only removes the scan-scoped result files — domains and subdomains
+	// in the database are intentionally preserved.
+	localDir := utils.GetScanResultsDir(scanID)
+	if info, err := os.Stat(localDir); err == nil && info.IsDir() {
+		if err := os.RemoveAll(localDir); err != nil {
+			log.Printf("[WARN] Failed to delete local scan dir %s: %v", localDir, err)
+		} else {
+			log.Printf("[INFO] Deleted local scan dir: %s", localDir)
+		}
+	}
+
 	purgeScanMemoryByIDs([]string{scanID})
 	return len(keys), nil
 }

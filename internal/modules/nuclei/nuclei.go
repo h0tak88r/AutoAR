@@ -288,10 +288,9 @@ func runNucleiScan(targetFile, outputDir string, mode ScanMode, threads int, tar
 		resultFiles = append(resultFiles, files...)
 	}
 
-	// Create summary file
+	// Write a local debug summary (NOT indexed as a scan artifact — it produces noise in the dashboard)
 	summaryFile := filepath.Join(outputDir, "nuclei-summary.txt")
 	summaryContent := fmt.Sprintf("Nuclei Scan Summary\nTarget: %s\nMode: %s\n\n", targetName, mode)
-	
 	if len(resultFiles) > 0 {
 		summaryContent += fmt.Sprintf("Found %d results files:\n", len(resultFiles))
 		for _, file := range resultFiles {
@@ -301,10 +300,8 @@ func runNucleiScan(targetFile, outputDir string, mode ScanMode, threads int, tar
 	} else {
 		summaryContent += "No vulnerabilities found.\n"
 	}
-	
-	if err := utils.WriteFile(summaryFile, []byte(summaryContent)); err == nil {
-		resultFiles = append(resultFiles, summaryFile)
-	}
+	// Write summary for local debugging only — do NOT append to resultFiles
+	_ = utils.WriteFile(summaryFile, []byte(summaryContent))
 
 	return resultFiles, nil
 }

@@ -378,12 +378,83 @@ func RunFFuf(opts Options) (*Result, error) {
 		}
 	}
 
+	// Write structured JSON to scan directory for dashboard
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if customOutput, ok := job.Output.(*customOutputProvider); ok {
+			customOutput.resultsMutex.Lock()
+			captured := append([]ffufpkg.Result(nil), customOutput.results...)
+			customOutput.resultsMutex.Unlock()
+			if len(captured) > 0 {
+				if err := writeFfufJSON(scanID, captured); err != nil {
+					log.Printf("[WARN] Failed to write FFUF JSON: %v", err)
+				}
+			}
+		}
+	}
+
 	return &Result{
 		Target:      opts.Target,
 		TotalFound:  found,
 		OutputFile:  opts.OutputFile,
 		UniqueSizes: uniqueSizes,
 	}, nil
+}
+
+// writeFfufJSON converts raw ffufpkg.Result structs to structured dashboard findings.
+// Each finding maps to the 4-column table:
+//   - VULN TYPE  = path portion of the URL (e.g. /admin, /backup.zip) with size/lines hints
+//   - TARGET     = full matched URL
+//   - SEV        = "info" (fuzzing results are informational)
+//   - MODULE     = FFUF
+func writeFfufJSON(scanID string, results []ffufpkg.Result) error {
+	type ffufFinding struct {
+		TemplateID    string `json:"template-id"` // path shown in VULN TYPE column
+		MatchedAt     string `json:"matched-at"`  // full URL in TARGET column
+		StatusCode    int    `json:"status_code"`
+		ContentLength int64  `json:"content_length"`
+		ContentLines  int64  `json:"content_lines"`
+		ContentWords  int64  `json:"content_words"`
+		Severity      string `json:"severity"`
+	}
+	findings := make([]ffufFinding, 0, len(results))
+	for _, r := range results {
+		// Extract just the path from the URL for the VULN TYPE column
+		path := r.Url
+		if idx := strings.Index(path, "://"); idx >= 0 {
+			path = path[idx+3:]
+			if slashIdx := strings.Index(path, "/"); slashIdx >= 0 {
+				path = path[slashIdx:]
+			} else {
+				path = "/"
+			}
+		}
+		// Build a compact type label: /path [sz]
+		label := path
+		if r.ContentLength > 0 {
+			sz := r.ContentLength
+			switch {
+			case sz >= 1024*1024:
+				label += fmt.Sprintf(" [%.1fMB]", float64(sz)/(1024*1024))
+			case sz >= 1024:
+				label += fmt.Sprintf(" [%.1fKB]", float64(sz)/1024)
+			default:
+				label += fmt.Sprintf(" [%dB]", sz)
+			}
+		}
+		if r.ContentLines > 0 {
+			label += fmt.Sprintf(" %dL", r.ContentLines)
+		}
+		findings = append(findings, ffufFinding{
+			TemplateID:    label,
+			MatchedAt:     r.Url,
+			StatusCode:    int(r.StatusCode),
+			ContentLength: r.ContentLength,
+			ContentLines:  r.ContentLines,
+			ContentWords:  r.ContentWords,
+			Severity:      "info",
+		})
+	}
+	return utils.WriteJSONToScanDir(scanID, "ffuf-results.json", findings)
 }
 
 // customOutputProvider filters results in real-time
@@ -1312,6 +1383,20 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 			customOutput.webhookMutex.Unlock()
 			// Clean up webhook file
 			os.Remove(webhookFilePath)
+		}
+	}
+
+	// Write structured JSON to scan directory for dashboard
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if customOutput, ok := job.Output.(*customOutputProvider); ok {
+			customOutput.resultsMutex.Lock()
+			captured := append([]ffufpkg.Result(nil), customOutput.results...)
+			customOutput.resultsMutex.Unlock()
+			if len(captured) > 0 {
+				if err := writeFfufJSON(scanID, captured); err != nil {
+					log.Printf("[WARN] Failed to write FFUF JSON (single): %v", err)
+				}
+			}
 		}
 	}
 
