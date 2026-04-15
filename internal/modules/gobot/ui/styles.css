@@ -3015,6 +3015,23 @@ input[type="search"]::-webkit-search-results-decoration {
   background: rgba(0, 0, 0, 0.15);
 }
 
+/* Findings table rows — left-border accent on hover */
+.dashboard-table tbody tr.findings-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.035);
+  transition: background 120ms ease, border-left-color 120ms ease;
+  border-left: 2px solid transparent;
+}
+
+.dashboard-table tbody tr.findings-row:hover {
+  background: rgba(6, 182, 212, 0.06) !important;
+  border-left-color: var(--accent-cyan);
+}
+
+/* Tighten th padding to match 7px cell padding */
+.dashboard-table thead th {
+  padding: 9px 10px;
+}
+
 /* Subtle border for active tab */
 .tab-pill.active {
   box-shadow: 0 0 0 2px var(--accent-cyan-dim), 0 2px 12px rgba(6, 182, 212, 0.2);

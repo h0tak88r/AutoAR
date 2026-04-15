@@ -116,20 +116,62 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 	log.Printf("[OK] GF scan completed: %d total matches across all patterns", totalMatches)
 
 	// Write JSON results to scan directory (local-first)
+	// Emit structured per-pattern finding objects so the dashboard can show:
+	//   VULN TYPE = pattern name (e.g. gf-sqli, gf-lfi)
+	//   TARGET    = the vulnerable URL
+	//   SEV       = derived from pattern severity
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && totalMatches > 0 {
-		var allMatches []string
+		// Map pattern names to rough severity levels
+		patternSeverity := map[string]string{
+			"sqli":       "high",
+			"rce":        "high",
+			"lfi":        "high",
+			"ssrf":       "high",
+			"ssti":       "high",
+			"redirect":   "medium",
+			"xss":        "medium",
+			"idor":       "medium",
+			"iparams":    "medium",
+			"debug_logic": "medium",
+			"iext":       "low",
+			"img-traversal": "low",
+			"isubs":      "low",
+			"jsvar":      "low",
+		}
+		type gfFinding struct {
+			TemplateID string `json:"template-id"` // VULN TYPE column
+			MatchedAt  string `json:"matched-at"`  // TARGET column
+			Severity   string `json:"severity"`    // SEV column
+			Pattern    string `json:"pattern"`     // raw pattern name
+		}
+		var findings []gfFinding
 		for _, rf := range resultFiles {
+			// Extract pattern name from filename: gf-<pattern>-results.txt
+			base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(rf), "-results.txt"), ".txt")
+			patternName := strings.TrimPrefix(base, "gf-")
+			sev := patternSeverity[patternName]
+			if sev == "" {
+				sev = "low"
+			}
+			displayName := "gf-" + patternName
 			data, err := os.ReadFile(rf)
 			if err != nil {
 				continue
 			}
 			for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-				if strings.TrimSpace(l) != "" {
-					allMatches = append(allMatches, l)
+				l = strings.TrimSpace(l)
+				if l == "" {
+					continue
 				}
+				findings = append(findings, gfFinding{
+					TemplateID: displayName,
+					MatchedAt:  l,
+					Severity:   sev,
+					Pattern:    patternName,
+				})
 			}
 		}
-		if err := utils.WriteLinesAsJSON(scanID, opts.Domain, "gf", "gf-vulnerabilities.json", allMatches); err != nil {
+		if err := utils.WriteJSONToScanDir(scanID, "gf-vulnerabilities.json", findings); err != nil {
 			log.Printf("[WARN] Failed to write GF JSON: %v", err)
 		}
 	}

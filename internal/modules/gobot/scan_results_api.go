@@ -784,6 +784,42 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 	}
 }
 
+// isNoiseFinding returns true for rows that are debug/summary text and should
+// not appear in the dashboard findings table.
+func isNoiseFinding(finding, target string) bool {
+	f := strings.TrimSpace(finding)
+	t := strings.TrimSpace(target)
+	if f == "" && t == "" {
+		return true
+	}
+	if f == "<nil>" || f == "nil" || f == "—" {
+		return true
+	}
+	// Nuclei summary file lines
+	noisePrefixes := []string{
+		"Nuclei Scan Summary",
+		"No vulnerabilities found",
+		"Target:",
+		"Mode:",
+		"Found ",
+		"- nuclei-",
+		"Tools Used:",
+		"Scan Date:",
+		"=== ",
+		"Skipping unreachable target",
+	}
+	for _, p := range noisePrefixes {
+		if strings.HasPrefix(f, p) {
+			return true
+		}
+	}
+	// Bare ISO timestamp (e.g. "2026-04-15 03:20:01")
+	if len(f) >= 19 && f[4] == '-' && f[7] == '-' && f[10] == ' ' && f[13] == ':' {
+		return true
+	}
+	return false
+}
+
 func parseArtifactFindings(raw []byte, module, category string, maxRows int) []parsedFinding {
 	if maxRows < 1 {
 		maxRows = 1
@@ -793,7 +829,7 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 		if len(out) >= maxRows {
 			return
 		}
-		if strings.TrimSpace(r.Finding) == "" && strings.TrimSpace(r.Target) == "" {
+		if isNoiseFinding(r.Finding, r.Target) {
 			return
 		}
 		if strings.TrimSpace(r.Target) == "" {
