@@ -169,10 +169,11 @@ func setupAPI() *gin.Engine {
 	r.GET("/scans", serveDashboardUI)
 	r.GET("/scans/*filepath", serveDashboardUI)
 
-	// Public: SPA reads this before login (no JWT).
+	// Public: SPA reads these before login (no JWT).
 	r.GET("/api/config", apiConfigHandler)
+	r.POST("/api/auth/login", apiLocalAuthLogin)
 
-	// ── Dashboard data API (protected when SUPABASE_JWT_SECRET is set) ───────
+	// ── Dashboard data API (protected when DASHBOARD_USER/PASSWORD is set) ───
 	apiGroup := r.Group("/api")
 	apiGroup.Use(auth)
 	{
@@ -184,6 +185,8 @@ func setupAPI() *gin.Engine {
 		apiGroup.GET("/scans/:id/results/summary", apiScanResultsSummary)
 		apiGroup.GET("/scans/:id/results/files", apiScanResultFiles)
 		apiGroup.GET("/scans/:id/results/file", apiScanResultFileContent)
+		apiGroup.GET("/scans/:id/results/parsed", apiScanParsedResults)
+		apiGroup.GET("/scans/:id/results/assets", apiScanAssets)
 		apiGroup.GET("/scans/:id/artifacts", apiListScanArtifacts)
 		apiGroup.GET("/scans/:id", apiGetScan)
 		apiGroup.POST("/scans/bulk-delete", apiBulkDeleteScans)
@@ -1877,6 +1880,10 @@ func indexScanArtifacts(scanID, scanType, target string) {
 		roots = append(roots, filepath.Join(resultsDir, "apkx"))
 	}
 
+	// Ensure scan results directory exists for local-first file storage
+	scanResultsDir := utils.GetScanResultsDir(scanID)
+	_ = os.MkdirAll(scanResultsDir, 0755)
+
 	seen := map[string]struct{}{}
 	for _, root := range roots {
 		if root == "" {
@@ -1893,6 +1900,19 @@ func indexScanArtifacts(scanID, scanType, target string) {
 				return nil
 			}
 			seen[path] = struct{}{}
+
+			// Copy file to scan results directory for local-first access
+			fileName := filepath.Base(path)
+			destPath := filepath.Join(scanResultsDir, fileName)
+			if _, statErr := os.Stat(destPath); statErr != nil {
+				if data, readErr := os.ReadFile(path); readErr == nil {
+					if writeErr := os.WriteFile(destPath, data, 0644); writeErr != nil {
+						log.Printf("[executeScan] failed to copy %s to scan dir: %v", fileName, writeErr)
+					}
+				}
+			}
+
+			// Legacy: still index for backward compat
 			if _, idxErr := utils.IndexExistingResultFile(scanID, path); idxErr != nil {
 				log.Printf("[executeScan] index artifact failed (%s): %v", path, idxErr)
 			}
