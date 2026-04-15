@@ -140,6 +140,20 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
+	// Write JSON results to scan directory (local-first)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && result.TotalVulnerable > 0 {
+		target := opts.Domain
+		if target == "" {
+			target = opts.Subdomain
+		}
+		if target == "" {
+			target = "zerodays"
+		}
+		if err := utils.WriteJSONToScanDir(scanID, "zerodays-results.json", result); err != nil {
+			log.Printf("[WARN] Failed to write zerodays JSON: %v", err)
+		}
+	}
+
 	return result, nil
 }
 
