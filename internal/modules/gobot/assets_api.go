@@ -103,9 +103,10 @@ func buildAssets(scanID string) []AssetEntry {
 		})
 	}
 
-	// ── 3. Tech-detect (httpx JSONL) — status code, title, tech, IPs ────────
+	// ── 3. Tech-detect — status code, title, tech, IPs ─────────────────────
+	// First try JSONL (httpx -json output)
 	for _, name := range []string{
-		"tech-detect.txt", "tech-detect.json",
+		"tech-detect.json",
 		"httpx.json", "httpx-output.txt",
 	} {
 		raw, _, err := loadFileContent(scanID, name)
@@ -176,8 +177,83 @@ func buildAssets(scanID string) []AssetEntry {
 		}
 	}
 
-	// ── 4. CNAMEs ────────────────────────────────────────────────────────────
-	for _, name := range []string{"cnames.txt", "cname.txt", "cname-results.txt"} {
+	// Fallback: parse tech-detect.txt plain text format written by the tech module:
+	// "https://host.example.com [200] [Page Title] [nginx] [WordPress,PHP]"
+	for _, name := range []string{"tech-detect.txt"} {
+		raw, _, err := loadFileContent(scanID, name)
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(raw))
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			// First token is the URL
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			rawURL := fields[0]
+			host := normalizeHost(rawURL)
+			if host == "" {
+				continue
+			}
+			e := getOrCreate(host)
+			if e == nil {
+				continue
+			}
+			if strings.HasPrefix(strings.ToLower(rawURL), "http") {
+				e.IsLive = true
+				if e.URL == "" {
+					e.URL = rawURL
+				}
+			}
+			// Extract bracketed fields: [statusCode] [title] [server] [techs]
+			// Format: url [200] [Title text] [nginx/1.x] [WordPress,PHP]
+			rest := strings.TrimSpace(strings.TrimPrefix(line, rawURL))
+			var brackets []string
+			for {
+				start := strings.Index(rest, "[")
+				if start < 0 {
+					break
+				}
+				end := strings.Index(rest[start:], "]")
+				if end < 0 {
+					break
+				}
+				val := rest[start+1 : start+end]
+				brackets = append(brackets, strings.TrimSpace(val))
+				rest = rest[start+end+1:]
+			}
+			if len(brackets) >= 1 && e.StatusCode == 0 {
+				var code int
+				if _, err := fmt.Sscanf(brackets[0], "%d", &code); err == nil && code > 0 {
+					e.StatusCode = code
+					if code < 400 {
+						e.IsLive = true
+					}
+				}
+			}
+			if len(brackets) >= 2 && e.Title == "" && brackets[1] != "" {
+				e.Title = brackets[1]
+			}
+			// brackets[2] = server header (skip)
+			// brackets[3] = comma-separated technologies
+			if len(brackets) >= 4 && brackets[3] != "" {
+				for _, t := range strings.Split(brackets[3], ",") {
+					s := strings.TrimSpace(t)
+					if s != "" {
+						e.Technologies = appendUniq(e.Technologies, s)
+					}
+				}
+			}
+		}
+	}
+
+	// ── 4. CNAMEs — plain text + structured JSON ─────────────────────────────
+	for _, name := range []string{"cnames.txt", "cname.txt", "cname-results.txt", "cname-records.txt"} {
 		walkLines(scanID, name, func(line string) {
 			// dnsx format: "sub.domain.com CNAME target.domain.com" OR
 			// "sub.domain.com --> target.domain.com"
@@ -193,6 +269,31 @@ func buildAssets(scanID string) []AssetEntry {
 			}
 		})
 	}
+	// Also parse cname-records.json (structured file written by the cnames module)
+	// Format: {"records": [{"subdomain": "sub.example.com", "cname": "target.example.com", "type": "CNAME"}]}
+	if raw, _, err := loadFileContent(scanID, "cname-records.json"); err == nil && len(raw) > 0 {
+		var wrapper map[string]interface{}
+		if json.Unmarshal(raw, &wrapper) == nil {
+			if records, ok := wrapper["records"].([]interface{}); ok {
+				for _, r := range records {
+					obj, ok := r.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					subdomain := strings.TrimSpace(fmt.Sprint(obj["subdomain"]))
+					cnameVal := strings.TrimSuffix(strings.TrimSpace(fmt.Sprint(obj["cname"])), ".")
+					if subdomain == "" || cnameVal == "" || cnameVal == "<nil>" {
+						continue
+					}
+					host := normalizeHost(subdomain)
+					if e := getOrCreate(host); e != nil && cnameVal != host {
+						e.CNAMEs = appendUniqStr(e.CNAMEs, cnameVal)
+					}
+				}
+			}
+		}
+	}
+
 
 	// ── 5. Build sorted slice ────────────────────────────────────────────────
 	result := make([]AssetEntry, 0, len(byHost))

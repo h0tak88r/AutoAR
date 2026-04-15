@@ -1085,6 +1085,58 @@ function renderScans() {
   container.innerHTML = html;
 }
 
+
+/**
+ * Return a human-friendly badge label + optional icon for a raw scan_type string.
+ * Falls back to capitalising the raw value if no mapping exists.
+ */
+function scanTypeLabel(rawType) {
+  const t = String(rawType || '').toLowerCase().trim();
+  const map = {
+    'domain_run':       '🌍 Full Domain',
+    'subdomain_run':    '🔬 Subdomain',
+    'lite':             '⚡ Lite Workflow',
+    'fastlook':         '👁 Fast Look',
+    'subdomains':       '🔍 Subdomains',
+    'livehosts':        '🌐 Live Hosts',
+    'cnames':           '🔗 CNAMEs',
+    'urls':             '🔗 URLs',
+    'js':               '📜 JS Scan',
+    'jsscan':           '📜 JS Scan',
+    'reflection':       '⚡  Reflection',
+    'gf':               '🎯 GF Patterns',
+    'nuclei':           '☢️ Nuclei',
+    'nuclei-full':      '☢️ Nuclei Full',
+    'nuclei-cves':      '☢️ Nuclei CVEs',
+    'nuclei-panels':    '☢️ Nuclei Panels',
+    'nuclei-vulnerabilities': '☢️ Nuclei Vulns',
+    'nuclei-default-logins':  '☢️ Nuclei Logins',
+    'ports':            '🔌 Ports',
+    'tech':             '🔬 Tech Detect',
+    'dns':              '🔀 DNS Takeover',
+    'dns-takeover':     '🔀 DNS Takeover',
+    'dns-dangling-ip':  '🔀 Dangling IP',
+    'backup':           '💾 Backup Files',
+    'misconfig':        '⚙️ Misconfig',
+    's3':               '🪣 S3 Scan',
+    'github':           '🐙 GitHub',
+    'github_org':       '🐙 GitHub Org',
+    'github_scan':      '🐙 GitHub',
+    'ffuf':             '🎲 FFuf Fuzz',
+    'zerodays':         '🚨 Zero-Days',
+    'apkx':             '📱 APK Scan',
+    'jwt':              '🔑 JWT Scan',
+    'aem':              '🏗 AEM Scan',
+    'aem_scan':         '🏗 AEM Scan',
+    'cleanup':          '🧹 Cleanup',
+    'depconfusion':     '📦 Dep Confusion',
+    'wp_confusion':     '📦 WP Confusion',
+  };
+  if (map[t]) return map[t];
+  // Fallback: capitalise words, replace _ with space
+  return t.replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || rawType;
+}
+
 function scanItemHtml(s) {
   const target     = s.target || s.Target || '';
   const scanType   = s.scan_type || s.ScanType || '';
@@ -1184,7 +1236,7 @@ function scanItemHtml(s) {
         <div style="min-width:0">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span class="scan-target" style="font-size:14px;font-weight:700;color:var(--text-primary)">${esc(target)}</span>
-            <span style="font-size:11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 7px;color:var(--text-secondary)">${esc(scanType)}</span>
+            <span style="font-size:11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 7px;color:var(--text-secondary)" title="${esc(scanType)}">${esc(scanTypeLabel(scanType))}</span>
             ${badge}
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Started ${elapsed} ago</div>
@@ -1230,7 +1282,7 @@ function scanRowHtml(s) {
   return `<tr class="clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})'>
     <td onclick="event.stopPropagation()">${rowSelect}</td>
     <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(target)}</span></td>
-    <td><span class="scan-type">${esc(scanType)}</span></td>
+    <td><span class="scan-type" title="${esc(scanType)}">${esc(scanTypeLabel(scanType))}</span></td>
     <td>${badge}</td>
     <td>${phaseCol}</td>
     <td style="font-size:11px;color:var(--text-muted)">${fmtDate(startedAt)}</td>
@@ -3342,23 +3394,25 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   for (const r of allRows) _kindCounts[r.kind || 'other'] = (_kindCounts[r.kind || 'other'] || 0) + 1;
   const TAB_LABELS = {
     subdomains: 'Subdomains', urls: 'Links', js_urls: 'JS URLs',
-    tech: 'Tech', ffuf: 'FFUF', buckets: 'Buckets',
-    nuclei: 'Vulnerabilities', vuln: 'Vulnerabilities',
-    zerodays: '0-Days', misconfig: 'Misconfig', dns: 'DNS',
+    ffuf: 'FFUF', buckets: 'Buckets',
+    vuln: 'Vulnerabilities', zerodays: '0-Days',
+    misconfig: 'Misconfig', dns: 'DNS',
     backup: 'Backup', s3: 'S3', ports: 'Ports',
     reflection: 'Reflection', gf: 'GF Patterns',
     other: 'Other',
   };
+  // Kinds that are hidden from standalone tabs (merged into Assets or suppressed)
+  const HIDDEN_KINDS = new Set(['logs', 'log', 'tech']);
   // Merge nuclei + vuln + reflection into same display key so they share a single tab
   for (const r of allRows) {
     if (r.kind === 'nuclei' || r.kind === 'reflection') r.kind = 'vuln';
   }
-  // Show Assets tab first, then All, then data tabs that have rows
+  // Show Assets tab first, then All, then data tabs that have rows (excluding hidden kinds)
   const DATASET_TABS = [
     ['assets', '🏠 Assets'],  // always present
     ['all', 'All'],
     ...Object.entries(_kindCounts)
-      .filter(([, c]) => c > 0)
+      .filter(([k, c]) => c > 0 && !HIDDEN_KINDS.has(k))
       .sort((a, b) => b[1] - a[1])
       .map(([k]) => [k, TAB_LABELS[k] || k]),
   ];
@@ -3406,32 +3460,31 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   root.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);overflow:hidden">
       <div id="recon-top-tabs" style="display:flex;gap:2px;overflow:auto;padding:0 10px;background:rgba(2,6,23,.6);border-bottom:1px solid var(--border)"></div>
-      <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(180px,1fr) 130px minmax(160px,1fr) minmax(140px,1fr);gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
-        <input id="recon-filter-host" type="search" placeholder="Filter by target..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+      <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
+        <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <select id="recon-filter-severity" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
           <option value="any">Any Severity</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-          <option value="info">Info</option>
+          <option value="critical">🔴 Critical</option>
+          <option value="high">🟠 High</option>
+          <option value="medium">🟡 Medium</option>
+          <option value="low">🔵 Low</option>
+          <option value="info">🟢 Info</option>
         </select>
-        <input id="recon-filter-title" type="search" placeholder="Filter by finding..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
-        <div style="display:flex;align-items:center;justify-content:flex-end;font-size:11px;color:var(--text-muted)">
+        <input id="recon-filter-title" type="search" placeholder="🔍 Filter by type / finding..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:11px;color:var(--text-muted);white-space:nowrap">
           <span id="recon-unified-shown">0</span>&nbsp;rows
         </div>
       </div>
       <!-- Standard findings table -->
       <div id="recon-standard-view">
         <div class="result-table-wrap" style="max-height:640px;overflow:auto">
-          <table class="dashboard-table" style="margin:0">
-            <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.95)">
+          <table class="dashboard-table" style="margin:0;table-layout:fixed;width:100%">
+            <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.97);backdrop-filter:blur(4px)">
               <tr>
-                <th>TARGET</th>
-                <th>TYPE / SEV</th>
-                <th>FINDING</th>
-                <th>MODULE</th>
-                <th>SOURCE</th>
+                <th style="width:32%">TARGET</th>
+                <th style="width:8%;text-align:center">SEV</th>
+                <th style="width:44%">VULNERABILITY TYPE</th>
+                <th style="width:16%">MODULE</th>
               </tr>
             </thead>
             <tbody id="recon-unified-tbody"></tbody>
@@ -3465,56 +3518,89 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   };
 
   const renderBody = () => {
-    if (activeKind === 'assets') return; // handled separately
-    // Filter out log/noise rows when not explicitly viewing them
+    if (activeKind === 'assets') return;
+    // Filter out hidden kinds (logs, tech) from all tabs including 'all'
     const filtered = allRows.filter(r => {
       if (!rowMatch(r)) return false;
-      if (activeKind === 'all' && (r.kind === 'logs' || r.kind === 'log')) return false;
+      if (HIDDEN_KINDS.has(r.kind)) return false; // always hide logs + tech rows
       return true;
     });
     const slice = filtered.slice(0, maxRows);
     const tbody = root.querySelector('#recon-unified-tbody');
     const shown = root.querySelector('#recon-unified-shown');
-    const cap = root.querySelector('#recon-unified-cap');
+    const cap   = root.querySelector('#recon-unified-cap');
     if (shown) shown.textContent = String(filtered.length);
     if (tbody) {
       tbody.innerHTML = slice.length ? slice.map((r, idx) => {
+        // ── Severity ───────────────────────────────────────────────────
         const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
-        // Severity color for badge background
-        const sevColor = sev === 'critical' ? '#e53e3e'
-          : sev === 'high'     ? '#dd6b20'
-          : sev === 'medium'   ? '#d69e2e'
-          : sev === 'low'      ? '#3182ce'
-          : sev === 'info'     ? '#2d9a6e'
-          : sev === 'warning'  ? '#d69e2e'
-          : '#4a5568';
-        // The "type" value: vuln name / template-id → shown in the TYPE/SEV column
-        const vulnName = String(r.title || r.finding || '—').trim();
-        // Truncate long vuln names for the badge
-        const vulnLabel = vulnName.length > 48 ? vulnName.slice(0, 46) + '…' : vulnName;
-        const sevLabel = sev ? sev.toUpperCase() : '—';
+        const sevMeta = {
+          critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' },
+          high:     { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' },
+          medium:   { color: '#f6e05e', bg: '#f6e05e20', label: 'MED'  },
+          low:      { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW'  },
+          info:     { color: '#68d391', bg: '#68d39120', label: 'INFO' },
+          warning:  { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' },
+        }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
+
+        // ── Vuln type / template-id ─────────────────────────────────────
+        // r.finding = template-id from nuclei JSON (e.g. "graphql-get")
+        // r.title   = same or parsed name
+        const vulnType = String(r.title || r.finding || '—').trim();
+        // Detect if it's a URL-only finding (no real type name)
+        const isURL = vulnType.startsWith('http://') || vulnType.startsWith('https://');
+        const typeDisplay = isURL ? '—' : vulnType;
+        const typeLabel   = typeDisplay.length > 72 ? typeDisplay.slice(0, 70) + '…' : typeDisplay;
+
+        // ── Module badge ───────────────────────────────────────────────
         const modInfo = getModuleDisplayInfo(r.module);
-        // Target URL is host/target
-        const targetDisplay = String(r.host || r.target || '-');
-        return `<tr style="${idx % 2 ? 'background:rgba(255,255,255,.015)' : ''}">
-          <td class="table-cell-mono" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            <a href="${esc(targetDisplay.startsWith('http') ? targetDisplay : '#')}" target="_blank" rel="noopener" style="color:var(--accent-cyan);text-decoration:none" title="${esc(targetDisplay)}">${esc(targetDisplay)}</a>
+
+        // ── Target URL ─────────────────────────────────────────────────
+        const target = String(r.host || r.target || '-');
+        const href   = target.startsWith('http') ? target : '#';
+
+        return `<tr class="findings-row" style="${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+          <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            <a href="${esc(href)}" target="_blank" rel="noopener"
+               title="${esc(target)}"
+               style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(target)}</a>
           </td>
-          <td style="white-space:nowrap;min-width:120px">
-            <div style="display:flex;flex-direction:column;gap:3px">
-              <span style="display:inline-block;background:${sevColor}22;border:1px solid ${sevColor}55;color:${sevColor};font-size:9px;padding:1px 7px;border-radius:4px;font-weight:700;letter-spacing:.5px">${esc(sevLabel)}</span>
-              ${vulnName && vulnName !== '—' ? `<span style="font-size:10px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(vulnName)}">${esc(vulnLabel)}</span>` : ''}
-            </div>
+          <td style="padding:7px 8px;text-align:center;white-space:nowrap">
+            <span style="
+              display:inline-block;
+              background:${sevMeta.bg};
+              border:1px solid ${sevMeta.color}44;
+              color:${sevMeta.color};
+              font-size:9px;
+              font-weight:800;
+              letter-spacing:.7px;
+              padding:2px 7px;
+              border-radius:4px;
+              min-width:34px;
+            ">${esc(sevMeta.label)}</span>
           </td>
-          <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-secondary)">${esc(vulnName)}</td>
-          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:${modInfo.color};font-size:11px">${modInfo.icon} ${esc(modInfo.name)}</span></td>
-          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:11px">${esc(r.source || r.file || '-')}</td>
+          <td style="padding:7px 10px;max-width:0;overflow:hidden">
+            ${typeDisplay !== '—' ? `
+            <span title="${esc(typeDisplay)}" style="
+              display:inline-block;
+              max-width:100%;
+              overflow:hidden;
+              text-overflow:ellipsis;
+              white-space:nowrap;
+              font-family:var(--font-mono,monospace);
+              font-size:11.5px;
+              color:var(--text-primary);
+            ">${esc(typeLabel)}</span>` : `<span style="color:var(--text-muted);font-size:11px">—</span>`}
+          </td>
+          <td style="padding:7px 10px;white-space:nowrap;max-width:0;overflow:hidden;text-overflow:ellipsis">
+            <span style="color:${modInfo.color};font-size:11px;font-weight:500">${modInfo.icon} ${esc(modInfo.name)}</span>
+          </td>
         </tr>`;
-      }).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">No rows for this filter.</td></tr>';
+      }).join('') : '<tr><td colspan="4" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
     }
     if (cap) {
       cap.style.display = filtered.length > maxRows ? 'block' : 'none';
-      cap.textContent = filtered.length > maxRows ? `Showing first ${maxRows} of ${filtered.length} rows.` : '';
+      cap.textContent   = filtered.length > maxRows ? `Showing first ${maxRows} of ${filtered.length} rows.` : '';
     }
   };
 
