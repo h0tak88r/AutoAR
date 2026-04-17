@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # --- Builder stage: install Go-based security tools and build AutoAR bot ---
-FROM golang:1.24-bullseye AS builder
+FROM golang:1.26-bullseye AS builder
 
 WORKDIR /app
 
