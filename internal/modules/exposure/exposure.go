@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // ---- probe lists -----------------------------------------------------------
@@ -119,6 +121,41 @@ func Run(opts Options) (*Result, error) {
 	outPath, err := writeOutput(opts, findings)
 	if err != nil {
 		log.Printf("[exposure] Warning: could not write output: %v", err)
+	}
+
+	// Write structured JSON for the dashboard (JSON-only pipeline).
+	// Each Finding maps to: TARGET=host+path, VULN TYPE=category+path, SEV=derived, MODULE=Exposure.
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(findings) > 0 {
+		type exposureFinding struct {
+			TemplateID string `json:"template-id"` // VULN TYPE column: "api-docs: /swagger.json"
+			MatchedAt  string `json:"matched-at"`  // TARGET column: full URL
+			Severity   string `json:"severity"`
+			Category   string `json:"category"`
+			Evidence   string `json:"evidence"`
+			StatusCode int    `json:"status_code"`
+		}
+		severityMap := map[string]string{
+			"api-docs": "medium",
+			"docker":   "high",
+		}
+		var jfindings []exposureFinding
+		for _, f := range findings {
+			sev := severityMap[f.Category]
+			if sev == "" {
+				sev = "medium"
+			}
+			jfindings = append(jfindings, exposureFinding{
+				TemplateID: f.Category + ": " + f.Path,
+				MatchedAt:  f.Host + f.Path,
+				Severity:   sev,
+				Category:   f.Category,
+				Evidence:   f.Evidence,
+				StatusCode: f.StatusCode,
+			})
+		}
+		if err := utils.WriteJSONToScanDir(scanID, "exposure-vulnerabilities.json", jfindings); err != nil {
+			log.Printf("[exposure] Warning: could not write JSON output: %v", err)
+		}
 	}
 
 	log.Printf("[exposure] Done. Found %d exposure(s)", len(findings))

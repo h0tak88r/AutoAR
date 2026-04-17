@@ -9,6 +9,9 @@ import (
 	"strings"
 	"sync"
 
+	"net/url"
+
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/projectdiscovery/httpx/runner"
@@ -129,12 +132,24 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	var count int
 	var mu sync.Mutex
 
+	// techResult is a structured finding for the dashboard (recon / assets table).
+	type techResult struct {
+		URL          string   `json:"matched-at"`   // TARGET column
+		TemplateID   string   `json:"template-id"`  // VULN TYPE column (tech summary)
+		Severity     string   `json:"severity"`
+		StatusCode   int      `json:"status_code"`
+		Title        string   `json:"title,omitempty"`
+		WebServer    string   `json:"web_server,omitempty"`
+		Technologies []string `json:"technologies,omitempty"`
+	}
+	var techResults []techResult
+
 	// Set callback in options
 	options.OnResult = func(result runner.Result) {
 		if result.URL != "" {
 			mu.Lock()
 			count++
-			// Write tech detection result
+			// Write human-readable text line to file
 			line := fmt.Sprintf("%s [%d] [%s] [%s] [%s]\n",
 				result.URL,
 				result.StatusCode,
@@ -142,6 +157,31 @@ func DetectTech(domain string, threads int) (*Result, error) {
 				result.WebServer,
 				strings.Join(result.Technologies, ","))
 			writer.WriteString(line)
+			// Accumulate structured result for JSON output
+			techLabel := strings.Join(result.Technologies, ", ")
+			if techLabel == "" {
+				techLabel = result.WebServer
+			}
+			if techLabel == "" {
+				techLabel = fmt.Sprintf("HTTP %d", result.StatusCode)
+			}
+			techResults = append(techResults, techResult{
+				URL:          result.URL,
+				TemplateID:   techLabel,
+				Severity:     "info",
+				StatusCode:   result.StatusCode,
+				Title:        result.Title,
+				WebServer:    result.WebServer,
+				Technologies: result.Technologies,
+			})
+			
+			// Also sync to core database Subdomains table
+			subdomain := result.URL
+			if parsed, err := url.Parse(result.URL); err == nil && parsed.Hostname() != "" {
+				subdomain = parsed.Hostname()
+			}
+			go db.UpdateSubdomainTech(domain, subdomain, strings.Join(result.Technologies, ","))
+			
 			mu.Unlock()
 		}
 	}
@@ -158,35 +198,10 @@ func DetectTech(domain string, threads int) (*Result, error) {
 
 	log.Printf("[OK] Technology detection completed for %d hosts", count)
 
-	// Write JSON results to scan directory (local-first)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && count > 0 {
-		data, readErr := os.ReadFile(outFile)
-		if readErr == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			var nonEmpty []string
-			for _, l := range lines {
-				if strings.TrimSpace(l) != "" {
-					nonEmpty = append(nonEmpty, l)
-				}
-			}
-			if err := utils.WriteLinesAsJSON(scanID, domain, "tech", "tech-detect.json", nonEmpty); err != nil {
-				log.Printf("[WARN] Failed to write tech JSON: %v", err)
-			}
-		}
-	}
-
-	// Send result files to Discord webhook if configured (only when not running under bot)
-	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
-	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" {
-			// Send tech-detect.txt if it exists and has content
-			if info, err := os.Stat(outFile); err == nil && info.Size() > 0 {
-				utils.SendWebhookFileAsync(outFile, fmt.Sprintf("Technology Detection Results: %d hosts analyzed for %s", count, domain))
-			} else if count == 0 {
-				// Send "no findings" message if no hosts detected
-				utils.SendWebhookLogAsync(fmt.Sprintf("Technology detection completed for %s: 0 hosts analyzed", domain))
-			}
+	// Write structured JSON for the dashboard (recon / tech assets).
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(techResults) > 0 {
+		if err := utils.WriteJSONToScanDir(scanID, "tech-detect.json", techResults); err != nil {
+			log.Printf("[WARN] Failed to write tech JSON: %v", err)
 		}
 	}
 

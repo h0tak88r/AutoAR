@@ -2960,7 +2960,7 @@ func handleDNSCommand(args []string) error {
 			Domain:  domain,
 			Threads: 100,
 		}
-		// -s/--subdomain: scan a single subdomain directly (no live-subs.txt required)
+		// -s/--subdomain: scan a single subdomain directly (no enumeration required)
 		if subdomain != "" {
 			tmpFile, err := os.CreateTemp("", "cf1016-sub-*.txt")
 			if err != nil {
@@ -2977,6 +2977,45 @@ func handleDNSCommand(args []string) error {
 			// Fall back to subdomain as domain label for output path
 			if opts.Domain == "" {
 				opts.Domain = subdomain
+			}
+		} else if domain != "" {
+			// -d domain: check for existing live-subs.txt, if not present
+			// enumerate subdomains on-the-fly and write to a temp file.
+			resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+			if resultsDir == "" {
+				resultsDir = "new-results"
+			}
+			liveSubs := filepath.Join(resultsDir, domain, "subs", "live-subs.txt")
+			allSubs := filepath.Join(resultsDir, domain, "subs", "all-subs.txt")
+			hasFile := false
+			for _, candidate := range []string{liveSubs, allSubs} {
+				if _, err := os.Stat(candidate); err == nil {
+					opts.SubdomainsFile = candidate
+					hasFile = true
+					break
+				}
+			}
+			if !hasFile {
+				// Auto-enumerate subdomains for the domain.
+				fmt.Printf("[cf1016] No subdomains file found for %s — enumerating subdomains first...\n", domain)
+				subs, err := subdomains.EnumerateSubdomains(domain, 100)
+				if err != nil || len(subs) == 0 {
+					// Fall back: just scan the domain root itself.
+					fmt.Printf("[cf1016] Enumeration returned no results — scanning root domain %s directly.\n", domain)
+					subs = []string{domain}
+				}
+				tmpFile, err := os.CreateTemp("", "cf1016-enum-*.txt")
+				if err != nil {
+					return fmt.Errorf("cf1016: failed to create temp file: %w", err)
+				}
+				tmpPath := tmpFile.Name()
+				defer os.Remove(tmpPath)
+				for _, s := range subs {
+					fmt.Fprintln(tmpFile, s)
+				}
+				tmpFile.Close()
+				opts.SubdomainsFile = tmpPath
+				fmt.Printf("[cf1016] Scanning %d enumerated subdomains for Cloudflare 1016 records...\n", len(subs))
 			}
 		}
 		result, err := cf1016mod.Run(opts)
