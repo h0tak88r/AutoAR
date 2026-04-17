@@ -179,7 +179,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'monitor', 'r2', 'logs', 'settings'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'monitor', 'r2', 'settings'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -241,7 +241,7 @@ async function openScanResultsPage(scanId, opts = {}) {
 function viewTitle(v) {
   return { overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
            targets: 'Bug Bounty Targets',
-           monitor: 'Monitor', r2: 'R2 Storage', logs: 'System Logs', settings: 'Settings' }[v] || v;
+           monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings' }[v] || v;
 }
 
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
@@ -1121,7 +1121,6 @@ function refreshCurrentView() {
     case 'targets':  loadTargetsPlatforms(); break;
     case 'monitor':  loadMonitor(); break;
     case 'r2':       loadR2(state.r2.prefix); break;
-    case 'logs':     loadLogs(); break;
     case 'settings': loadConfig(); break;
     case 'scan-detail':
       if (state.scanDetailId) renderScanDetailView(state.scanDetailId);
@@ -1129,63 +1128,6 @@ function refreshCurrentView() {
   }
 }
 
-async function loadLogs() {
-  if (state.view !== 'logs') return;
-  const container = document.getElementById('logs-container');
-  if (!container) return;
-  
-  if (!state.logsLoaded) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Fetching system logs…</div></div>';
-  }
-  
-  try {
-    const res = await apiFetch('/api/logs');
-    if (state.view !== 'logs') return; // User navigated away
-    state.logsLoaded = true;
-    
-    if (!res.logs) {
-      container.textContent = 'No logs available.';
-      return;
-    }
-
-    const formatted = res.logs.split('\n').map(line => {
-      line = line.trim();
-      if (!line) return '';
-      if (line.startsWith('{') && line.endsWith('}')) {
-        try {
-          const j = JSON.parse(line);
-          const time = j.time ? `[${j.time}] ` : '';
-          const lvl = j.level ? j.level.toUpperCase().padEnd(5) : 'INFO ';
-          let color = 'var(--text-primary)';
-          if (lvl.includes('WARN')) color = '#f59e0b';
-          if (lvl.includes('ERR')) color = '#ef4444';
-          if (lvl.includes('DEBUG')) color = 'var(--text-muted)';
-          
-          let extras = [];
-          for (const k in j) {
-            if (!['time', 'level', 'msg'].includes(k)) {
-              let v = j[k];
-              if (typeof v === 'object') v = JSON.stringify(v);
-              extras.push(`${k}=${v}`);
-            }
-          }
-          const extStr = extras.length > 0 ? ` <span style="color:var(--text-muted)">${esc(extras.join(', '))}</span>` : '';
-          
-          return `<span style="color:var(--text-muted)">${esc(time)}</span><span style="color:${color};font-weight:bold">${esc(lvl)}</span> <span style="color:var(--text-secondary)">${esc(j.msg || '')}</span>${extStr}`;
-        } catch(e) {}
-      }
-      return esc(line);
-    }).filter(Boolean).join('<br/>');
-
-    container.innerHTML = formatted || 'No logs available.';
-    
-    // Auto scroll to bottom
-    container.scrollTop = container.scrollHeight;
-  } catch(e) {
-    if (state.view !== 'logs') return;
-    container.innerHTML = `<div style="text-align:center;padding:40px;color:rgba(239,68,68,0.8)">Error loading logs: ${esc(e.message)}</div>`;
-  }
-}
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
 

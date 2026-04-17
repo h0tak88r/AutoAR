@@ -1666,35 +1666,3 @@ func buildR2Client(accountID, accessKey, secretKey string) (*s3.Client, error) {
 	}), nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/logs — returns the last N lines of application logs
-// ─────────────────────────────────────────────────────────────────────────────
-
-func apiSystemLogs(c *gin.Context) {
-	logPaths := []string{"autoar-bot.log", "api.log"}
-	var content = ""
-
-	for _, p := range logPaths {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			data, err := os.ReadFile(p)
-			if err == nil {
-				// Get last 2000 lines max to prevent huge payload
-				lines := strings.Split(string(data), "\n")
-				if len(lines) > 2000 {
-					lines = lines[len(lines)-2000:]
-				}
-				content += fmt.Sprintf("==== %s ====\n", p)
-				content += strings.Join(lines, "\n")
-				content += "\n\n"
-			}
-		}
-	}
-
-	if content == "" {
-		content = "No local log files found (checked autoar-bot.log, api.log)."
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"logs": content,
-	})
-}
