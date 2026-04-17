@@ -46,44 +46,37 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 	resultsDir := utils.GetResultsDir()
 	domainDir := filepath.Join(resultsDir, opts.Domain)
 	var urlsFile string
-	
+	var urlsCleanup func()
+
 	if opts.URLsFile != "" {
 		// Use provided URLs file directly (e.g., from subdomain workflow)
 		urlsFile = opts.URLsFile
+		urlsCleanup = func() {} // caller owns this file
 		log.Printf("[INFO] Using provided URLs file: %s", urlsFile)
 	} else {
-		// Use default location
-		urlsFile = filepath.Join(domainDir, "urls", "all-urls.txt")
+		// Obtain an ephemeral temp file from the URL corpus.
+		// WriteTempURLFile falls back to the on-disk all-urls.txt if found.
+		var tmpErr error
+		urlsFile, urlsCleanup, tmpErr = utils.WriteTempURLFile(opts.Domain)
+		if tmpErr != nil {
+			// No existing URLs corpus — run fastlook to build one, then retry.
+			if !opts.SkipCheck {
+				log.Printf("[INFO] No URLs found for %s, running fastlook first", opts.Domain)
+				if _, flErr := fastlook.RunFastlook(opts.Domain, nil); flErr != nil {
+					return nil, fmt.Errorf("failed to run fastlook: %w", flErr)
+				}
+				urlsFile, urlsCleanup, tmpErr = utils.WriteTempURLFile(opts.Domain)
+			}
+			if tmpErr != nil {
+				return nil, fmt.Errorf("URLs not available for %s: %w", opts.Domain, tmpErr)
+			}
+		}
 	}
-	
-	baseDir := filepath.Join(domainDir, "vulnerabilities")
+	defer urlsCleanup()
 
+	baseDir := filepath.Join(domainDir, "vulnerabilities")
 	if err := utils.EnsureDir(baseDir); err != nil {
 		return nil, fmt.Errorf("failed to create base dir: %w", err)
-	}
-
-	// Only check/regenerate URLs if not skipping check and URLs file not provided
-	if !opts.SkipCheck && opts.URLsFile == "" {
-		// Check if URLs file exists and is valid
-		if info, err := os.Stat(urlsFile); err != nil || info.Size() == 0 {
-			log.Printf("[INFO] No URLs found for %s, running fastlook first", opts.Domain)
-			if _, err := fastlook.RunFastlook(opts.Domain, nil); err != nil {
-				return nil, fmt.Errorf("failed to run fastlook: %w", err)
-			}
-		}
-
-		// Validate URLs file
-		if err := validateURLsFile(urlsFile); err != nil {
-			log.Printf("[WARN] URLs file appears corrupted, regenerating: %v", err)
-			log.Printf("[INFO] Regenerating URLs for %s via fastlook", opts.Domain)
-			if _, err := fastlook.RunFastlook(opts.Domain, nil); err != nil {
-				log.Printf("[WARN] Failed to regenerate URLs via fastlook: %v", err)
-			}
-		}
-	}
-
-	if _, err := os.Stat(urlsFile); err != nil {
-		return nil, fmt.Errorf("URLs file not found: %s", urlsFile)
 	}
 
 	patterns := []string{"debug_logic", "idor", "iext", "img-traversal", "iparams", "isubs", "jsvar", "lfi", "rce", "redirect", "sqli", "ssrf", "ssti", "xss"}

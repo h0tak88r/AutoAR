@@ -97,23 +97,7 @@ func RunNuclei(opts Options) (*Result, error) {
 			return nil, err
 		}
 		
-		// Send result files to Discord webhook if configured (only when not running under bot)
-		// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
-		if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-			webhookURL := os.Getenv("DISCORD_WEBHOOK")
-			if webhookURL != "" && len(resultFiles) > 0 {
-				// Send each result file
-				for _, file := range resultFiles {
-					if info, err := os.Stat(file); err == nil && info.Size() > 0 {
-						fileName := filepath.Base(file)
-						utils.SendWebhookFileAsync(file, fmt.Sprintf("Nuclei Scan Results (%s mode): %s for %s", opts.Mode, fileName, targetName))
-					}
-				}
-			} else if len(resultFiles) == 0 {
-				// Send "no findings" message if no results
-				utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei scan completed (%s mode) for %s: 0 findings", opts.Mode, targetName))
-			}
-		}
+
 
 		// Index each JSONL result file into the scan directory so the dashboard can find them.
 		// We preserve the nuclei JSONL format rather than re-wrapping lines, so template-id,
@@ -171,39 +155,26 @@ func RunNuclei(opts Options) (*Result, error) {
 		}
 	}
 
-	// Get live hosts file (checks file first, then database)
-	liveSubsFile := filepath.Join(subsDir, "live-subs.txt")
-	
-	// Check if live-subs.txt already exists from previous phases
-	if info, err := os.Stat(liveSubsFile); err == nil && info.Size() > 0 {
-		log.Printf("[INFO] Using existing live hosts file from previous phase (size: %d bytes)", info.Size())
-		targetFile = liveSubsFile
-	} else {
-		// File doesn't exist, try to get from database or create it
-		dbFile, err := livehosts.GetLiveHostsFile(opts.Domain)
-		if err != nil {
-			log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", opts.Domain, err)
-			// Fallback: try to create it by running livehosts
-			_, err2 := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, true)
-			if err2 != nil {
-				log.Printf("[WARN] Live host detection failed: %v", err2)
-				return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
-			}
-			// Re-check after creation
-			if info, err := os.Stat(liveSubsFile); err != nil || info.Size() == 0 {
-				return nil, fmt.Errorf("no live hosts found for %s", opts.Domain)
-			}
-			log.Printf("[INFO] Created live hosts file for %s", opts.Domain)
-			targetFile = liveSubsFile
-		} else {
-			// Got file from database
-			log.Printf("[INFO] Using live hosts file from database")
-			targetFile = dbFile
+	// Get live hosts via DB-backed temp file (ephemeral — deleted after scan).
+	// WriteTempHostFile queries the DB first, falls back to the on-disk live-subs.txt.
+	tmpPath, cleanupTmp, tmpErr := utils.WriteTempHostFile(opts.Domain)
+	if tmpErr != nil {
+		// Last resort: run the livehosts phase to populate the DB
+		log.Printf("[WARN] No live hosts available for %s (%v), running live host detection", opts.Domain, tmpErr)
+		_, lhErr := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, true)
+		if lhErr != nil {
+			return nil, fmt.Errorf("no live hosts found for %s: %v", opts.Domain, lhErr)
+		}
+		tmpPath, cleanupTmp, tmpErr = utils.WriteTempHostFile(opts.Domain)
+		if tmpErr != nil {
+			return nil, fmt.Errorf("no live hosts found for %s after detection: %v", opts.Domain, tmpErr)
 		}
 	}
+	defer cleanupTmp()
+	targetFile = tmpPath
 
 	targetCount, _ := countLines(targetFile)
-	log.Printf("[INFO] Running Nuclei in %s mode on %d live targets from %s", opts.Mode, targetCount, liveSubsFile)
+	log.Printf("[INFO] Running Nuclei in %s mode on %d live targets (temp=%s)", opts.Mode, targetCount, tmpPath)
 
 	resultFiles, err := runNucleiScan(targetFile, outputDir, opts.Mode, opts.Threads, targetName, root)
 	if err != nil {
@@ -230,20 +201,7 @@ func RunNuclei(opts Options) (*Result, error) {
 		}
 	}
 
-	// Send result files to Discord webhook (only when not running under bot)
-	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
-		if webhookURL != "" && len(resultFiles) > 0 {
-			for _, file := range resultFiles {
-				if info, err := os.Stat(file); err == nil && info.Size() > 0 {
-					fileName := filepath.Base(file)
-					utils.SendWebhookFileAsync(file, fmt.Sprintf("Nuclei Scan Results (%s mode): %s for %s", opts.Mode, fileName, targetName))
-				}
-			}
-		} else if len(resultFiles) == 0 {
-			utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei scan completed (%s mode) for %s: 0 findings", opts.Mode, targetName))
-		}
-	}
+
 
 	return &Result{TargetName: targetName, Mode: opts.Mode, ResultFiles: resultFiles}, nil
 }

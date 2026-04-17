@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
 )
@@ -82,32 +83,36 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 			return nil, fmt.Errorf("failed to create subs dir: %w", err)
 		}
 
-		allSubs := filepath.Join(subsDir, "all-subs.txt")
-
-		// Ensure we have subdomains – reuse Go subdomains module
-		// Check if file exists AND has content
-		needsEnum := false
-		if info, err := os.Stat(allSubs); err != nil {
-			needsEnum = true
-		} else if info.Size() == 0 {
-			needsEnum = true
-		}
-		
-		if needsEnum {
-			log.Printf("[INFO] all-subs.txt missing or empty, enumerating subdomains for %s", domain)
-			subs, err := subdomains.EnumerateSubdomains(domain, 100)
-			if err != nil {
-				return nil, fmt.Errorf("failed to enumerate subdomains: %w", err)
+		// Load subdomains via DB-backed temp file (DB first, then disk fallback)
+		tmpPath, cleanupTmp, tmpErr := utils.WriteTempSubsFile(domain)
+		if tmpErr != nil {
+			log.Printf("[INFO] No subdomains in DB, enumerating for %s", domain)
+			subs, enumErr := subdomains.EnumerateSubdomains(domain, 100)
+			if enumErr != nil {
+				return nil, fmt.Errorf("failed to enumerate subdomains: %w", enumErr)
 			}
-			if err := writeLines(allSubs, subs); err != nil {
-				return nil, fmt.Errorf("failed to write %s: %w", allSubs, err)
+			// Write freshly enumerated subs as temp file
+			var retryErr error
+			tmpPath, cleanupTmp, retryErr = utils.WriteTempSubsFile(domain)
+			if retryErr != nil {
+				// Fallback: write inline to a manual temp file
+				f, fErr := os.CreateTemp("", "autoar-cnames-subs-*.txt")
+				if fErr != nil {
+					return nil, fmt.Errorf("failed to create temp subs file: %w", fErr)
+				}
+				tmpPath = f.Name()
+				cleanupTmp = func() { os.Remove(tmpPath) }
+				for _, s := range subs {
+					fmt.Fprintln(f, s)
+				}
+				f.Close()
 			}
 		}
+		defer cleanupTmp()
 
-		// Read subdomains from file
-		file, err := os.Open(allSubs)
+		file, err := os.Open(tmpPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open %s: %w", allSubs, err)
+			return nil, fmt.Errorf("failed to open subs file: %w", err)
 		}
 		defer file.Close()
 
@@ -121,6 +126,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		if err := scanner.Err(); err != nil {
 			return nil, fmt.Errorf("failed to read subdomains file: %w", err)
 		}
+
 	} else {
 		return nil, fmt.Errorf("either Domain, Subdomain, or Targets must be provided")
 	}
@@ -199,6 +205,9 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 						cnameRecords = append(cnameRecords, fmt.Sprintf("%s CNAME %s", target, cname))
 					}
 					recordsMutex.Unlock()
+					
+					// Sync to core database Subdomains table
+					go db.UpdateSubdomainCNAME(opts.Domain, target, strings.Join(results.CNAME, ","))
 				}
 			}
 		}()

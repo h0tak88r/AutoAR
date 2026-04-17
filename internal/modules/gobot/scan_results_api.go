@@ -78,6 +78,8 @@ func paginateFileEntries(entries []fileEntry, page, perPage int) (pageItems []fi
 func inferModuleFromFileName(name string) string {
 	n := strings.ToLower(strings.TrimSpace(name))
 	switch {
+	case strings.Contains(n, "cf1016") || strings.Contains(n, "cf-1016") || strings.Contains(n, "cloudflare-1016"):
+		return "cf1016"
 	case strings.Contains(n, "nuclei"):
 		return "nuclei"
 	case strings.Contains(n, "sub") && strings.Contains(n, "domain"):
@@ -123,6 +125,7 @@ func inferCategoryFromFileName(name string) string {
 	n := strings.ToLower(strings.TrimSpace(name))
 	// Vulnerability outputs
 	if strings.Contains(n, "nuclei") || strings.HasPrefix(n, "gf-") || strings.Contains(n, "gf-") ||
+		strings.Contains(n, "cf1016") || strings.Contains(n, "cf-1016") ||
 		strings.Contains(n, "misconfig") || strings.Contains(n, "zeroday") ||
 		strings.Contains(n, "dalfox") || strings.Contains(n, "sqlmap") || strings.Contains(n, "vuln") ||
 		strings.Contains(n, "xss") || strings.Contains(n, "kxss") || strings.Contains(n, "reflection") ||
@@ -660,6 +663,9 @@ func inferReconKind(fileName string) string {
 		strings.Contains(b, "dalfox") || strings.Contains(b, "kxss") || strings.Contains(b, "xss") ||
 		strings.Contains(b, "reflection") || strings.Contains(b, "confusion") || strings.Contains(b, "depconf"):
 		return "vuln"
+	// CF1016 dangling — must be checked before generic cloudflare/dangling catch below
+	case strings.Contains(b, "cf1016") || strings.Contains(b, "cf-1016"):
+		return "dns"
 	// DNS / cloud takeover
 	case strings.Contains(b, "dns") || strings.Contains(b, "takeover") || strings.Contains(b, "dnsreap") ||
 		strings.Contains(b, "aws-") || strings.Contains(b, "azure-") || strings.Contains(b, "gcp-") ||
@@ -676,53 +682,12 @@ func inferReconKind(fileName string) string {
 	}
 }
 
-// isHostOrIP returns true for bare hostnames / IPs / host:port that are
-// NOT full URLs (those are handled separately by the http prefix check).
-func isHostOrIP(s string) bool {
-	// Strip optional port
-	host := s
-	if idx := strings.LastIndexByte(s, ':'); idx > 0 {
-		// Make sure it is not an IPv6 address
-		if !strings.Contains(s[:idx], ":") {
-			host = s[:idx]
-		}
-	}
-	// IP address (v4)
-	parts := strings.Split(host, ".")
-	if len(parts) == 4 {
-		allDigits := true
-		for _, p := range parts {
-			if len(p) == 0 || len(p) > 3 {
-				allDigits = false
-				break
-			}
-			for _, c := range p {
-				if c < '0' || c > '9' {
-					allDigits = false
-					break
-				}
-			}
-		}
-		if allDigits {
-			return true
-		}
-	}
-	// Hostname: must contain a dot and consist of valid label chars
-	if !strings.Contains(host, ".") {
-		return false
-	}
-	for _, c := range host {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_') {
-			return false
-		}
-	}
-	return len(host) > 3
-}
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
+		v = strings.TrimSpace(v)
+		if v != "" && v != "<nil>" && v != "\u003cnil\u003e" {
+			return v
 		}
 	}
 	return ""
@@ -736,6 +701,74 @@ func minInt(a, b int) int {
 }
 
 func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFinding {
+	// CF1016 structured finding: {target, subdomain, cloudflare_ips, http_status, type, severity, description}
+	if cfType, ok := v["cloudflare_ips"]; ok && cfType != nil {
+		subdomain := strings.TrimSpace(fmt.Sprint(v["target"]))
+		if subdomain == "" {
+			subdomain = strings.TrimSpace(fmt.Sprint(v["subdomain"]))
+		}
+		ipsRaw, _ := v["cloudflare_ips"].([]interface{})
+		ipStrs := make([]string, 0, len(ipsRaw))
+		for _, ip := range ipsRaw {
+			if s := strings.TrimSpace(fmt.Sprint(ip)); s != "" {
+				ipStrs = append(ipStrs, s)
+			}
+		}
+		status := fmt.Sprint(v["http_status"])
+		findingLabel := "Dangling Record (CF-1016)"
+		if len(ipStrs) > 0 {
+			findingLabel += " — IPs: " + strings.Join(ipStrs, ", ")
+		}
+		if status != "" && status != "<nil>" && status != "0" {
+			findingLabel += " [HTTP " + status + "]"
+		}
+		sev := strings.TrimSpace(fmt.Sprint(v["severity"]))
+		if sev == "" || sev == "<nil>" {
+			sev = "high"
+		}
+		return parsedFinding{
+			Severity: sev,
+			Target:   subdomain,
+			Finding:  findingLabel,
+		}
+	}
+
+	// DNS takeover structured finding: {target, type, status, details, subdomains}
+	// Written by utils.WriteDNSTakeoverJSON
+	if dnsType, ok := v["type"].(string); ok && v["target"] != nil {
+		target := strings.TrimSpace(fmt.Sprint(v["target"]))
+		status := strings.TrimSpace(fmt.Sprint(v["status"]))
+		details := strings.TrimSpace(fmt.Sprint(v["details"]))
+		if target != "" && target != "<nil>" {
+			// Map type to a user-friendly finding label
+			typeLabel := map[string]string{
+				"dangling-ip":       "Dangling IP",
+				"azure-takeover":    "Azure Takeover",
+				"aws-takeover":      "AWS Takeover",
+				"ns-takeover":       "NS Takeover",
+				"cloudflare-tunnel": "Cloudflare Tunnel Error",
+				"dns-takeover":      "DNS Takeover",
+				"dns-candidate":     "DNS Candidate",
+			}[strings.ToLower(dnsType)]
+			if typeLabel == "" {
+				typeLabel = dnsType
+			}
+			if status != "" && status != "<nil>" {
+				typeLabel += " [" + status + "]"
+			}
+			sev := "—"
+			if strings.Contains(strings.ToLower(dnsType), "vulnerable") || strings.Contains(strings.ToLower(dnsType), "takeover") {
+				sev = "medium"
+			}
+			_ = details
+			return parsedFinding{
+				Severity: sev,
+				Target:   target,
+				Finding:  typeLabel,
+			}
+		}
+	}
+
 	template := firstNonEmpty(
 		fmt.Sprint(v["template-id"]),
 		fmt.Sprint(v["template_id"]),
@@ -854,8 +887,15 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			}
 			switch t := x.(type) {
 			case map[string]interface{}:
+				// ZeroDays summary-only guard: TotalVulnerable==0 with no findings -> skip.
+				if tv, hasTV := t["TotalVulnerable"]; hasTV {
+					if n, ok := tv.(float64); ok && n == 0 {
+						return
+					}
+				}
 				// Prefer known array fields for result objects.
-				for _, key := range []string{"results", "findings", "matches", "issues", "vulnerabilities", "data", "items"} {
+				// React2ShellVulns / MongoDBVulns are the ZeroDays module array keys.
+				for _, key := range []string{"findings", "React2ShellVulns", "MongoDBVulns", "results", "matches", "issues", "vulnerabilities", "data", "items"} {
 					if arr, ok := t[key].([]interface{}); ok && len(arr) > 0 {
 						for _, it := range arr {
 							walk(it)
@@ -875,10 +915,11 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 					}
 				}
 			default:
-				s := strings.TrimSpace(fmt.Sprint(t))
-				if s != "" {
-					appendRow(parsedFinding{Finding: s, Target: "—", Severity: "—"})
-				}
+				// Plain string reached the walker — this comes from WriteLinesAsJSON
+				// envelopes (e.g. urls.json items array). These files should have been
+				// caught by shouldSkipArtifact or rawToJSON. Drop silently rather than
+				// producing garbage rows with Finding=raw_string, Target="—".
+				// If you see missing findings, ensure the module emits structured JSON.
 			}
 		}
 		walk(top)
@@ -886,88 +927,15 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			return out
 		}
 	}
-
-	// Text fallback — smart line classification.
-	lines := strings.Split(string(raw), "\n")
-	for _, ln := range lines {
-		if len(out) >= maxRows {
-			break
-		}
-		line := strings.TrimSpace(ln)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		// Try JSONL (each line is a JSON object)
-		if strings.HasPrefix(line, "{") {
-			var obj map[string]interface{}
-			if json.Unmarshal([]byte(line), &obj) == nil {
-				appendRow(parseFindingFromObject(obj, module))
-				continue
-			}
-		}
-		// Nuclei/tool bracket-style: [template-id] [proto] [severity] url
-		// Example: [graphql-get] [http] [info] https://example.com/graphql
-		// Example: [http-missing-security-headers:cross-origin-embedder-policy] [http] [info] https://example.com
-		if strings.HasPrefix(line, "[") {
-			templateID, severity, target := parseNucleiTextLine(line)
-			if templateID != "" {
-				appendRow(parsedFinding{Finding: templateID, Target: target, Severity: severity})
-				continue
-			}
-		}
-		// HTTP/HTTPS URL → Target column
-		if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
-			appendRow(parsedFinding{Finding: module, Target: line, Severity: "—"})
-			continue
-		}
-		// Hostname or IP (with optional port) → Target column
-		if isHostOrIP(line) {
-			appendRow(parsedFinding{Finding: module, Target: line, Severity: "—"})
-			continue
-		}
-		// Everything else is a plain-text finding
-		appendRow(parsedFinding{Finding: line, Target: "—", Severity: "—"})
-	}
+	// All current modules write structured JSON. If JSON parsing ran (jsonHandled)
+	// but produced 0 rows (e.g. ZeroDays with no vulns), return empty — do NOT
+	// fall through to a text line parser which would render raw JSON source as findings.
+	// If JSON parsing didn't run (not a JSON file), return empty — all such files
+	// are now in shouldSkipArtifact and will never reach this function.
 	return out
 }
 
-// parseNucleiTextLine parses the nuclei text output format:
-//
-//	[template-id] [proto] [severity] url [extra...]
-//
-// Returns templateID, severity, target URL.
-func parseNucleiTextLine(line string) (templateID, severity, target string) {
-	// Extract all bracket groups first
-	type bracket struct{ content string }
-	var brackets []string
-	remainder := line
-	for strings.HasPrefix(remainder, "[") {
-		end := strings.Index(remainder, "]")
-		if end < 0 {
-			break
-		}
-		brackets = append(brackets, remainder[1:end])
-		remainder = strings.TrimSpace(remainder[end+1:])
-	}
-	if len(brackets) < 2 {
-		return "", "", ""
-	}
-	// brackets[0] = template-id  (may contain colon for sub-checks)
-	// brackets[1] = protocol      (http, dns, tcp, …)
-	// brackets[2] = severity      (if present)
-	templateID = brackets[0]
-	if len(brackets) >= 3 {
-		severity = strings.ToLower(brackets[2])
-	} else {
-		severity = "info"
-	}
-	// The remainder after all brackets is the target URL/host
-	target = strings.TrimSpace(remainder)
-	if target == "" {
-		target = "—"
-	}
-	return templateID, severity, target
-}
+
 
 // GET /api/scans/:id/results/parsed — flattened parsed findings for dashboard tables.
 func apiScanParsedResults(c *gin.Context) {
@@ -1015,7 +983,56 @@ func apiScanParsedResults(c *gin.Context) {
 		}
 	}
 
+	// Build set of all indexed file basenames so we can detect when both a raw .txt
+	// and its structured JSON replacement are present (old scans indexed both).
+	// In that case, skip the raw file to avoid duplicate / un-parsed rows.
+	presentFiles := map[string]bool{}
 	for _, e := range entries {
+		presentFiles[strings.ToLower(e.FileName)] = true
+	}
+	// rawToJSON maps a raw shadowed filename to the JSON that supersedes it.
+	// Also maps pipeline input files (subdomains/URLs) to a sentinel "" to mark
+	// them as "always skip" — the sentinel is never present so they are dropped.
+	rawToJSON := map[string]string{
+		"misconfig-scan-results.txt":    "misconfig-vulnerabilities.json",
+		"ffuf-results.txt":              "ffuf-results.json",
+		"ffuf-webhook-messages.txt":     "ffuf-results.json",
+		"kxss-results.txt":              "xss-reflection-vulnerabilities.json",
+		"exposure-findings.txt":         "exposure-vulnerabilities.json",
+		// URL corpus files — never findings, always skip
+		"urls.json":                      "__pipeline_input__",
+		"js-urls.json":                   "__pipeline_input__",
+		// Subdomain / port list envelopes — raw line lists, not structured findings
+		"subdomains.json":                "__pipeline_input__",
+		"ports.json":                     "__pipeline_input__",
+		// Live hosts — served by /assets, never by /parsed findings
+		"livehosts.json":                 "__pipeline_input__",
+		// CNAME recon — served by DNS section, not findings
+		"cname-records.json":             "__pipeline_input__",
+		// Pipeline input files — never findings, always skip
+		"all-subs.txt":                  "__pipeline_input__",
+		"live-subs.txt":                 "__pipeline_input__",
+		"live-hosts.txt":                "__pipeline_input__",
+		"all-urls.txt":                  "__pipeline_input__",
+		"subdomains.txt":                "__pipeline_input__",
+		"enumerated-subs.txt":           "__pipeline_input__",
+		"nuclei-summary.txt":            "__pipeline_input__",
+		// DNS raw intermediate files
+		"dangling-ip.txt":               "dns-takeover-vulnerabilities.json",
+		"ns-takeover-raw.txt":           "dns-takeover-vulnerabilities.json",
+		"ns-servers-vuln.txt":           "dns-takeover-vulnerabilities.json",
+		"azure-takeover.txt":            "dns-takeover-vulnerabilities.json",
+		"aws-takeover.txt":              "dns-takeover-vulnerabilities.json",
+		"gcp-takeover.txt":              "dns-takeover-vulnerabilities.json",
+		"cloudflare-tunnel-errors.txt":  "dns-takeover-vulnerabilities.json",
+		"cname-takeover-raw.txt":        "dns-takeover-vulnerabilities.json",
+		"cname-takeover-vulnerable.txt": "dns-takeover-vulnerabilities.json",
+		// CF1016 text report is superseded by the structured JSON twin
+		"cf1016-dangling.txt":           "cf1016-dangling.json",
+	}
+
+	for _, e := range entries {
+
 		if len(rows) >= limit {
 			break
 		}
@@ -1025,8 +1042,21 @@ func apiScanParsedResults(c *gin.Context) {
 		if section == "recon" && e.Category != "recon" {
 			continue
 		}
+		// Skip raw files that are superseded by their structured JSON equivalent
+		// (handles existing scans indexed before the shouldSkipArtifact fix).
+		// Files mapped to "__pipeline_input__" are always skipped (they are tool
+		// inputs like all-subs.txt, never dashboard findings).
+		if jsonReplacement, isRaw := rawToJSON[strings.ToLower(e.FileName)]; isRaw {
+			if jsonReplacement == "__pipeline_input__" {
+				continue
+			}
+			if presentFiles[strings.ToLower(jsonReplacement)] {
+				continue
+			}
+		}
 		// Read from local file
 		raw, _, loadErr := loadFileContent(scanID, e.FileName)
+
 		if loadErr != nil || len(raw) == 0 {
 			continue
 		}

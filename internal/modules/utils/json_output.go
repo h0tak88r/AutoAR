@@ -139,3 +139,137 @@ func WriteLinesAsJSON(scanID, target, scanType, fileName string, lines []string)
 	payload := LinesToJSON(scanID, target, scanType, lines)
 	return WriteJSONToScanDir(scanID, fileName, payload)
 }
+
+// dnsTakeoverFinding is one structured finding from the DNS takeover module.
+type dnsTakeoverFinding struct {
+	Target     string `json:"target"`           // IP or subdomain
+	Type       string `json:"type"`             // "dangling-ip", "azure-takeover", "aws-takeover", "ns-takeover", "cloudflare-tunnel"
+	Status     string `json:"status,omitempty"` // "inactive", "NXDOMAIN", etc.
+	Details    string `json:"details"`          // original raw line
+	Subdomains int    `json:"subdomains,omitempty"`
+}
+
+// parseDNSTakeoverLine parses bracket-format lines from the DNS module into a structured finding.
+//
+// Supported formats:
+//   [CANDIDATE] [IP:104.26.7.206] [STATUS:inactive] [SUBDOMAINS:3] [EXAMPLES:...]
+//   [VULNERABLE] [SUBDOMAIN:sub.example.com] [CNAME:x.cloudapp.net] [SERVICE:Azure] [STATUS:NXDOMAIN]
+//   [VULNERABLE] [SUBDOMAIN:sub.example.com] [NS:ns1.example.com] [PROVIDER:DigitalOcean]
+func parseDNSTakeoverLine(line string) *dnsTakeoverFinding {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil
+	}
+	// Extract all [KEY:VALUE] or [KEYWORD] bracket groups
+	fields := map[string]string{}
+	var keywords []string
+	rest := line
+	for {
+		start := strings.Index(rest, "[")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(rest[start:], "]")
+		if end < 0 {
+			break
+		}
+		content := rest[start+1 : start+end]
+		rest = rest[start+end+1:]
+		if idx := strings.Index(content, ":"); idx >= 0 {
+			k := strings.ToUpper(strings.TrimSpace(content[:idx]))
+			v := strings.TrimSpace(content[idx+1:])
+			fields[k] = v
+		} else {
+			keywords = append(keywords, strings.ToUpper(strings.TrimSpace(content)))
+		}
+	}
+
+	if len(keywords) == 0 && len(fields) == 0 {
+		return nil
+	}
+
+	f := &dnsTakeoverFinding{Details: line}
+
+	// Determine the primary keyword: CANDIDATE or VULNERABLE
+	keyword := ""
+	if len(keywords) > 0 {
+		keyword = keywords[0]
+	}
+
+	// Determine type
+	switch {
+	case fields["SERVICE"] == "Azure":
+		f.Type = "azure-takeover"
+	case fields["SERVICE"] == "AWS":
+		f.Type = "aws-takeover"
+	case fields["NS"] != "":
+		f.Type = "ns-takeover"
+	case fields["IP"] != "" && keyword == "CANDIDATE":
+		f.Type = "dangling-ip"
+	case keyword == "VULNERABLE":
+		f.Type = "dns-takeover"
+	default:
+		f.Type = "dns-candidate"
+	}
+
+	// Extract primary target
+	switch {
+	case fields["IP"] != "":
+		f.Target = fields["IP"]
+	case fields["SUBDOMAIN"] != "":
+		f.Target = fields["SUBDOMAIN"]
+	case fields["HOST"] != "":
+		f.Target = fields["HOST"]
+	default:
+		// Bare line that doesn't match — use the line itself
+		f.Target = line
+	}
+
+	f.Status = fields["STATUS"]
+
+	// Parse subdomains count
+	if s := fields["SUBDOMAINS"]; s != "" {
+		n := 0
+		for _, c := range s {
+			if c >= '0' && c <= '9' {
+				n = n*10 + int(c-'0')
+			}
+		}
+		f.Subdomains = n
+	}
+
+	return f
+}
+
+// WriteDNSTakeoverJSON parses raw bracket-format DNS finding lines into structured JSON
+// and writes it to the scan results directory. This replaces WriteLinesAsJSON for DNS
+// findings so the dashboard parser gets proper target/type fields instead of raw strings.
+func WriteDNSTakeoverJSON(scanID, domain string, lines []string) error {
+	findings := make([]dnsTakeoverFinding, 0, len(lines))
+	seen := map[string]struct{}{}
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		if _, dup := seen[l]; dup {
+			continue
+		}
+		seen[l] = struct{}{}
+		if f := parseDNSTakeoverLine(l); f != nil {
+			findings = append(findings, *f)
+		}
+	}
+	if len(findings) == 0 {
+		return nil
+	}
+	payload := map[string]interface{}{
+		"scan_id":   scanID,
+		"target":    domain,
+		"scan_type": "dns-takeover",
+		"generated": time.Now().UTC().Format(time.RFC3339),
+		"findings":  findings,
+		"count":     len(findings),
+	}
+	return WriteJSONToScanDir(scanID, "dns-takeover-vulnerabilities.json", payload)
+}

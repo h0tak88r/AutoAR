@@ -3100,3 +3100,7 @@ input[type="search"]::-webkit-search-results-decoration {
   font-size: 13px;
   color: var(--text-muted);
 }
+
+.cname-cell:hover .cname-tooltip {
+  display: block !important;
+}

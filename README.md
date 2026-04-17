@@ -27,7 +27,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | 🌐 **Subdomains**      | Enumerate using 15+ sources: Subfinder, CertSpotter, SecurityTrails, Chaos, crt.sh, OTX, VirusTotal, and more                          |
 | 🔍 **Live Hosts**      | Detect alive hosts using httpx with follow-redirects and status detection                                                              |
-| 🕳️ **DNS Takeovers**  | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, and dangling-IP takeover opportunities                                                   |
+| 🕳️ **DNS Takeovers**  | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, dangling-IP, and **CF-1016 Cloudflare dangling record** vulnerabilities                  |
 | 💥 **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting                                                             |
 | 🧠 **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                     |
 | ☁️ **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
@@ -35,12 +35,12 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | 🐙 **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
 | 📱 **Mobile Apps**     | APK/IPA analysis with MobSF + MITM traffic interception                                                                                |
 | ⚙️ **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
-| 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack, Immunefi                                                                   |
+| 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
 | 🔄 **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
 | 🤖 **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required     |
 | 📤 **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 | 🔔 **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
-| 🖥️ **Web dashboard**  | **v4.0+** — Single-page UI at `/ui` for stats, scans, domains, URL/subdomain monitors, R2 files, and settings (optional Supabase auth) |
+| 🖥️ **Web dashboard**  | **v4.0+** — Stats, scans, domains, monitors, R2 browser, Targets page (BB scope fetch), Rescan button, structured CF-1016 findings     |
 
 
 ---
@@ -110,7 +110,11 @@ autoar dns ns          -d <domain>            Nameserver takeover detection
 autoar dns azure-aws   -d <domain>            Azure/AWS cloud service takeover
 autoar dns dnsreaper   -d <domain>            DNSReaper-based detection
 autoar dns dangling-ip -d <domain>            Dangling IP detection
-autoar dns cf1016      -s <subdomain>         Cloudflare 1016 Dangling DNS detection
+autoar dns cf1016      -d <domain>            Cloudflare 1016 Dangling DNS — auto-enumerates subdomains,
+                                               then scans all for CF-1016 dangling records.
+                                               Saves structured JSON findings + writes live status to DB.
+                       -s <subdomain>         Scan a single subdomain directly
+                       -l <file>              Scan subdomains from a file
 autoar dns all         -d <domain>            Run all DNS checks simultaneously
 ```
 
@@ -219,12 +223,14 @@ autoar wpDepConf scan  -d <domain>            WordPress plugin dependency confus
 
 ### Bug Bounty Platform Scope Fetching
 
+**CLI:**
+
 ```
 autoar scope -p h1  -u <username> -t <token>        HackerOne
-autoar scope -p bc  -e <email> -P <password>         Bugcrowd
-autoar scope -p it  -t <token>                        Intigriti
-autoar scope -p ywh -e <email> -P <password>         YesWeHack
-autoar scope -p immunefi                              Immunefi
+autoar scope -p bc  -t <token>                       Bugcrowd
+autoar scope -p it  -t <token>                       Intigriti
+autoar scope -p ywh -t <token>                       YesWeHack (JWT token — no email/password needed)
+autoar scope -p immunefi                             Immunefi (no auth required)
 
 Options:
   --bbp-only         Only programs offering monetary rewards
@@ -233,6 +239,16 @@ Options:
   --extract-roots    Extract root domains (default: true)
   -o <output>        Save output to a file
 ```
+
+**Dashboard — 🎯 Targets page:**
+
+The web dashboard includes a dedicated **Targets** page (sidebar → Targets) that:
+- Shows color-coded cards for each platform with credential status
+- Lets you paste credentials or relies on env vars (`H1_TOKEN`, `BUGCROWD_TOKEN`, `YWH_TOKEN`, `INTIGRITI_TOKEN`)
+- Fetches all in-scope root domains with one click
+- Provides per-domain **+ Add** (saves to Domains DB) and **▶ Scan** (opens new scan)
+- **+ Add All** saves all domains in one bulk request
+- **Copy List** copies to clipboard (works on both HTTP and HTTPS)
 
 ### Subdomain Monitoring
 
@@ -397,10 +413,10 @@ See **Docker & Compose** below for API-only, full stack, optional local Postgres
 
 ## ⚙️ Configuration
 
-Copy `env.example` to `.env` and fill in your values:
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
 ### Core Config
@@ -516,7 +532,7 @@ git clone https://github.com/h0tak88r/AutoAR.git && cd AutoAR
 go build -tags netgo -o autoar ./cmd/autoar/
 
 # 2. Configure
-cp env.example .env
+cp .env.example .env
 # Edit .env with your credentials
 
 # 3. Install required tools
@@ -589,7 +605,7 @@ The repository includes a multi-stage `**Dockerfile`** (Go build + Debian runtim
 
 ### Prerequisites
 
-1. Copy and edit environment: `cp env.example .env`
+1. Copy and edit environment: `cp .env.example .env`
   Compose loads `**.env**` from the project root (create it before `docker compose up` or the `env_file` step will fail).
 2. Paths inside the image use `**/app**` (`AUTOAR_RESULTS_DIR=/app/new-results`, templates under `/app/nuclei_templates`, etc.) — already set in `env.example`.
 
