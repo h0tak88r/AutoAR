@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # --- Builder stage: install Go-based security tools and build AutoAR bot ---
-FROM golang:1.25.7-bullseye AS builder
+FROM golang:1.26-bookworm AS builder
 
 WORKDIR /app
 
@@ -52,7 +52,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar-entrypoint
 WORKDIR /app
 
 # --- Runtime stage: minimal Debian image ---
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 ENV AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar \
     AUTOAR_CONFIG_FILE=/app/autoar.yaml \
