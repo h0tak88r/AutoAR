@@ -216,7 +216,6 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiResumeMonitorSubdomainTarget)
 		apiGroup.GET("/r2/files", apiR2Files)
 		apiGroup.POST("/r2/delete", apiR2Delete)
-		apiGroup.GET("/logs", apiSystemLogs)
 		// Bug bounty scope / target fetch endpoints
 		apiGroup.POST("/scope/fetch", apiFetchScope)
 		apiGroup.GET("/scope/platforms", apiScopePlatforms)
