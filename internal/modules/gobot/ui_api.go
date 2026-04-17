@@ -22,6 +22,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitorsuggest"
+	"github.com/h0tak88r/AutoAR/internal/modules/brain"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
@@ -1666,3 +1667,64 @@ func buildR2Client(accountID, accessKey, secretKey string) (*s3.Client, error) {
 	}), nil
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/findings/validate — AI validates a single finding
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiValidateFinding(c *gin.Context) {
+	var body struct {
+		Target      string `json:"target"`
+		FindingType string `json:"finding_type"`
+		Severity    string `json:"severity"`
+		Module      string `json:"module"`
+		RawFinding  string `json:"raw_finding"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if strings.TrimSpace(body.Target) == "" && strings.TrimSpace(body.FindingType) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target and finding_type are required"})
+		return
+	}
+
+	prompt := "You are an expert bug bounty hunter and penetration tester.\n" +
+		"A security scanner (AutoAR) found the following finding. Validate it and provide actionable next steps.\n\n" +
+		"Finding Details:\n" +
+		fmt.Sprintf("- Target: %s\n", body.Target) +
+		fmt.Sprintf("- Finding Type: %s\n", body.FindingType) +
+		fmt.Sprintf("- Severity: %s\n", body.Severity) +
+		fmt.Sprintf("- Module/Scanner: %s\n", body.Module) +
+		fmt.Sprintf("- Raw Finding: %s\n\n", body.RawFinding) +
+		"Provide:\n" +
+		"1. **Validation Assessment** (Real or false positive? Confidence %).\n" +
+		"2. **Explanation** of the vulnerability and its impact.\n" +
+		"3. **Proof of Concept** — specific curl/tool commands to validate this finding.\n" +
+		"4. **Exploitation Steps** — how to exploit for maximum impact.\n" +
+		"5. **Remediation** — one-line fix.\n" +
+		"6. **Recommended Report Title** if worth reporting.\n\n" +
+		"Be concise, technical, and actionable. Use markdown headers."
+
+	orKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	geminiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	if orKey == "" && geminiKey == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No AI key configured (OPENROUTER_API_KEY or GEMINI_API_KEY required)"})
+		return
+	}
+
+	_, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+	defer cancel()
+
+	analysis, err := brain.ChatWithAI(nil, prompt, "You are an expert bug bounty hunter. Provide clear, actionable security analysis.")
+	if err != nil {
+		log.Printf("[API] AI validate finding error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("AI analysis failed: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"analysis": analysis,
+		"target":   body.Target,
+		"finding":  body.FindingType,
+	})
+}
