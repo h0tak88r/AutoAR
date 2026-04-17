@@ -39,6 +39,7 @@ const LAUNCH_SCAN_TYPES = {
   dns:          { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'takeover' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   dns_dangling: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'dangling-ip' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   dns_takeover: { path: 'dns-takeover', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  dns_cf1016:   { path: 'dns-cf1016', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
   s3:           { path: 's3', modes: ['bucket', 'bucket_list'], placeholders: { bucket: 'bucket-name', bucket_list: 'one bucket per line' } },
   github:       { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository', repo_list: 'one owner/repo per line' } },
   github_org:   { path: 'github_org', modes: ['repo', 'repo_list'], placeholders: { repo: 'org-name', repo_list: 'one org per line' } },
@@ -115,6 +116,35 @@ const SCAN_FLAG_DEFS = {
   ],
 };
 
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch(e) {}
+  }
+  
+  // Fallback
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  // Position out of view
+  textArea.style.position = 'fixed';
+  textArea.style.top = '0';
+  textArea.style.left = '0';
+  textArea.style.opacity = '0';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  try {
+    const successful = document.execCommand('copy');
+    if (!successful) throw new Error('execCommand returned false');
+  } finally {
+    document.body.removeChild(textArea);
+  }
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const state = {
@@ -149,7 +179,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'monitor', 'r2', 'settings'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'monitor', 'r2', 'logs', 'settings'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -209,8 +239,9 @@ async function openScanResultsPage(scanId, opts = {}) {
 
 
 function viewTitle(v) {
-  return { overview: 'Overview', scans: 'Scans', domains: 'Domains',
-           monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings' }[v] || v;
+  return { overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
+           targets: 'Bug Bounty Targets',
+           monitor: 'Monitor', r2: 'R2 Storage', logs: 'System Logs', settings: 'Settings' }[v] || v;
 }
 
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
@@ -327,6 +358,19 @@ async function deleteScan(scanID, target = '') {
     loadScans();
   } catch (e) {
     showToast('error', 'Delete failed', e.message);
+  }
+}
+
+async function rescanScan(scanID) {
+  try {
+    const result = await apiPost(`/api/scans/${encodeURIComponent(scanID)}/rescan`, {});
+    showToast('success', '🔁 Rescan started', `New scan queued (ID: ${result.new_scan_id || ''})`);
+    loadScans();
+    if (result.new_scan_id) {
+      setTimeout(() => goToScanResultsPage(result.new_scan_id), 900);
+    }
+  } catch(e) {
+    showToast('error', 'Rescan failed', e.message);
   }
 }
 
@@ -484,6 +528,17 @@ function wireShellOnce() {
   const dsearch = document.getElementById('domain-search');
   if (dsearch) dsearch.addEventListener('input', renderDomainGrid);
 
+  const ssearch = document.getElementById('subdomains-search');
+  if (ssearch) {
+    let subSearchDebounce;
+    ssearch.addEventListener('input', (e) => {
+      clearTimeout(subSearchDebounce);
+      subSearchDebounce = setTimeout(() => loadSubdomains(1, e.target.value.trim()), 300);
+    });
+  }
+  const copyAllSubsBtn = document.getElementById('copy-all-subs-btn');
+  if (copyAllSubsBtn) copyAllSubsBtn.addEventListener('click', () => copyAllSubdomainsMatching());
+
   const launchBtn = document.getElementById('launch-btn');
   if (launchBtn) launchBtn.addEventListener('click', triggerScan);
   const launchType = document.getElementById('launch-type');
@@ -598,6 +653,86 @@ async function loadDomains() {
   await loadResource('domains', '/api/domains', 'domains');
   if (state.view === 'domains' && !state.selectedDomain) renderDomainGrid();
   if (state.view === 'overview') renderStats();
+}
+
+async function loadSubdomains(page = 1, search = '') {
+  const reqId = Date.now();
+  state._subdomainsReqId = reqId;
+  state.subdomainsPage = page;
+  
+  const searchInput = document.getElementById('subdomains-search');
+  const actualSearch = searchInput && document.activeElement === searchInput ? searchInput.value : search;
+  state.subdomainsSearch = actualSearch;
+  
+  const st = document.getElementById('subdomains-status-filter')?.value || '0';
+  const tc = document.getElementById('subdomains-tech-filter')?.value || '';
+  const cn = document.getElementById('subdomains-cname-filter')?.value || '';
+  
+  state.subdStatus = st;
+  state.subdTech = tc;
+  state.subdCname = cn;
+  state.subdomainsLimit = 30;
+  state.loading.subdomains = true;
+  state.error.subdomains = null;
+  if (state.view === 'subdomains') {
+    const container = document.getElementById('subdomains-container');
+    if (container) container.innerHTML = emptyState('⏳', 'Loading subdomains…', 'Fetching paginated rows from database.');
+  }
+  
+  if (!state.domains || !state.domains.length) {
+    await loadResource('domains', '/api/domains', 'domains');
+  }
+  
+  try {
+    const q = encodeURIComponent(state.subdomainsSearch);
+    const qs = `page=${page}&limit=${state.subdomainsLimit}&search=${q}&status=${state.subdStatus}&tech=${encodeURIComponent(state.subdTech)}&cname=${encodeURIComponent(state.subdCname)}`;
+    const data = await apiFetch(`/api/subdomains?${qs}`);
+    if (state._subdomainsReqId !== reqId) return;
+    state.allSubdomains = data.subdomains || [];
+    state.allSubdomainsTotal = data.total || 0;
+    
+    const badge = document.getElementById('subdomains-badge');
+    if (badge) { 
+      badge.textContent = state.allSubdomainsTotal; 
+      badge.style.display = state.allSubdomainsTotal ? '' : 'none'; 
+    }
+  } catch(e) {
+    if (state._subdomainsReqId !== reqId) return;
+    state.allSubdomains = [];
+    state.allSubdomainsTotal = 0;
+    state.error.subdomains = e?.message || String(e);
+    showToast('error', 'Subdomains load failed', state.error.subdomains);
+  } finally {
+    if (state._subdomainsReqId === reqId) state.loading.subdomains = false;
+  }
+  if (state.view === 'subdomains') renderSubdomainsPage();
+}
+
+/** Copy every subdomain string matching the current search (paginates at API max page size). */
+async function copyAllSubdomainsMatching() {
+  try {
+    const q = encodeURIComponent(state.subdomainsSearch || '');
+    const pageSize = 500;
+    let page = 1;
+    const all = [];
+    for (;;) {
+      const data = await apiFetch(`/api/subdomains?page=${page}&limit=${pageSize}&search=${q}`);
+      const batch = data.subdomains || [];
+      all.push(...batch);
+      const total = data.total || 0;
+      if (!batch.length || all.length >= total) break;
+      page += 1;
+      if (page > 2000) break;
+    }
+    if (!all.length) {
+      showToast('error', 'Nothing to copy', 'No subdomains match the current search.');
+      return;
+    }
+    await copyToClipboard(all.map(s => s.subdomain).join('\n'));
+    showToast('success', 'Copied!', `${all.length} subdomains copied to clipboard`);
+  } catch (e) {
+    showToast('error', 'Copy failed', e.message || String(e));
+  }
 }
 
 async function loadScans() {
@@ -931,7 +1066,7 @@ async function browseR2ForScan(target, scanType) {
   showToast('info', 'R2', `Opened ${chosen}`);
 }
 
-async function loadSubdomains(domain) {
+async function loadDomainSubdomains(domain) {
   state.selectedDomain = domain;
   state.loading.subdomains = true;
   try {
@@ -982,12 +1117,73 @@ function refreshCurrentView() {
     case 'overview': loadStats(); loadDomains(); loadScans(); break;
     case 'scans':    loadScans(); break;
     case 'domains':  loadDomains(); break;
+    case 'subdomains': loadSubdomains(); break;
+    case 'targets':  loadTargetsPlatforms(); break;
     case 'monitor':  loadMonitor(); break;
     case 'r2':       loadR2(state.r2.prefix); break;
+    case 'logs':     loadLogs(); break;
     case 'settings': loadConfig(); break;
     case 'scan-detail':
       if (state.scanDetailId) renderScanDetailView(state.scanDetailId);
       break;
+  }
+}
+
+async function loadLogs() {
+  if (state.view !== 'logs') return;
+  const container = document.getElementById('logs-container');
+  if (!container) return;
+  
+  if (!state.logsLoaded) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Fetching system logs…</div></div>';
+  }
+  
+  try {
+    const res = await apiFetch('/api/logs');
+    if (state.view !== 'logs') return; // User navigated away
+    state.logsLoaded = true;
+    
+    if (!res.logs) {
+      container.textContent = 'No logs available.';
+      return;
+    }
+
+    const formatted = res.logs.split('\n').map(line => {
+      line = line.trim();
+      if (!line) return '';
+      if (line.startsWith('{') && line.endsWith('}')) {
+        try {
+          const j = JSON.parse(line);
+          const time = j.time ? `[${j.time}] ` : '';
+          const lvl = j.level ? j.level.toUpperCase().padEnd(5) : 'INFO ';
+          let color = 'var(--text-primary)';
+          if (lvl.includes('WARN')) color = '#f59e0b';
+          if (lvl.includes('ERR')) color = '#ef4444';
+          if (lvl.includes('DEBUG')) color = 'var(--text-muted)';
+          
+          let extras = [];
+          for (const k in j) {
+            if (!['time', 'level', 'msg'].includes(k)) {
+              let v = j[k];
+              if (typeof v === 'object') v = JSON.stringify(v);
+              extras.push(`${k}=${v}`);
+            }
+          }
+          const extStr = extras.length > 0 ? ` <span style="color:var(--text-muted)">${esc(extras.join(', '))}</span>` : '';
+          
+          return `<span style="color:var(--text-muted)">${esc(time)}</span><span style="color:${color};font-weight:bold">${esc(lvl)}</span> <span style="color:var(--text-secondary)">${esc(j.msg || '')}</span>${extStr}`;
+        } catch(e) {}
+      }
+      return esc(line);
+    }).filter(Boolean).join('<br/>');
+
+    container.innerHTML = formatted || 'No logs available.';
+    
+    // Auto scroll to bottom
+    container.scrollTop = container.scrollHeight;
+  } catch(e) {
+    if (state.view !== 'logs') return;
+    container.innerHTML = `<div style="text-align:center;padding:40px;color:rgba(239,68,68,0.8)">Error loading logs: ${esc(e.message)}</div>`;
   }
 }
 
@@ -1116,6 +1312,8 @@ function scanTypeLabel(rawType) {
     'dns':              '🔀 DNS Takeover',
     'dns-takeover':     '🔀 DNS Takeover',
     'dns-dangling-ip':  '🔀 Dangling IP',
+    'dns_cf1016':       '☁️ CF1016 Dangling',
+    'dns-cf1016':       '☁️ CF1016 Dangling',
     'backup':           '💾 Backup Files',
     'misconfig':        '⚙️ Misconfig',
     's3':               '🪣 S3 Scan',
@@ -1262,9 +1460,30 @@ function scanRowHtml(s) {
   const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
   const resultURL = s.result_url || s.ResultURL || '';
   const done = ['completed', 'done'].includes(statusLc);
+  
+  const compPhases = s.completed_phases || s.CompletedPhases || [];
+  const failPhases = s.failed_phases || s.FailedPhases || [];
+  
+  // Clean up phase names: strip "[Stage N]" prefix for display
+  const cleanName = n => n.replace(/^\[Stage \d+\]\s*/i, '').replace(/^\[.*?\]\s*/, '');
+  
   let phaseCol = '';
-  if (done && pct === 0 && !phaseName) {
-    phaseCol = '<span style="font-size:11px;color:var(--accent-emerald);font-weight:600">Done</span>';
+  if (done) {
+    const skipped = Math.max(0, totalPhases - (compPhases.length + failPhases.length));
+    
+    // Build rich tooltip sections
+    const compList  = compPhases.length  ? compPhases.map(p  => `✓ ${cleanName(p)}`).join('\n')  : 'None';
+    const failList  = failPhases.length  ? failPhases.map(p  => `✗ ${cleanName(p)}`).join('\n')  : 'None';
+    const skipCount = skipped > 0 ? `${skipped} stage(s) did not run (timeout/skipped/unlaunched)` : 'All stages accounted for';
+    
+    const tooltipText = `Completed (${compPhases.length}):\n${compList}\n\nFailed (${failPhases.length}):\n${failList}\n\nSkipped: ${skipCount}`;
+    if (pct < 100 && skipped > 0) {
+      const failPart = failPhases.length ? ` · ${failPhases.length} failed` : '';
+      phaseCol = `<span style="font-size:11px;color:var(--text-muted);border-bottom:1px dashed var(--text-muted);cursor:help" title="${esc(tooltipText)}">Ended at ${pct}% · ${compPhases.length} done${failPart} · ${skipped} skipped</span>`;
+    } else {
+      const failPart = failPhases.length ? ` · <span style="color:#ef4444">${failPhases.length} failed</span>` : '';
+      phaseCol = `<span style="font-size:11px;color:var(--accent-emerald);font-weight:600;border-bottom:1px dashed var(--accent-emerald);cursor:help" title="${esc(tooltipText)}">Done · ${compPhases.length} stages${failPart}</span>`;
+    }
   } else {
     phaseCol = `<span style="font-size:11px;color:var(--text-muted)">${pct}%${phaseName ? ` — ${esc(phaseName)}` : ''}</span>`;
   }
@@ -1277,6 +1496,10 @@ function scanRowHtml(s) {
   const resultsCell = resultURL
     ? `<a href="${esc(resultURL)}" target="_blank" onclick="event.stopPropagation()" class="scan-result-link">Download</a>`
     : `<button type="button" class="scan-control-btn-r2" onclick='event.stopPropagation();browseR2ForScan(${JSON.stringify(target)}, ${JSON.stringify(scanType)})'>Browse R2</button>`;
+  const running = ['running', 'starting', 'paused'].includes(statusLc);
+  const rescanBtn = !running
+    ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.35);color:var(--accent-emerald)" onclick='event.stopPropagation();rescanScan(${JSON.stringify(scanID)})' title="Re-run with same command">🔁 Rescan</button>`
+    : '';
   const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" onclick='event.stopPropagation();deleteScan(${JSON.stringify(scanID)}, ${JSON.stringify(target)})'>Delete</button>`;
   const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${esc(scanID)}" onclick="event.stopPropagation()" aria-label="Select scan" />`;
   return `<tr class="clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})'>
@@ -1287,7 +1510,7 @@ function scanRowHtml(s) {
     <td>${phaseCol}</td>
     <td style="font-size:11px;color:var(--text-muted)">${fmtDate(startedAt)}</td>
     <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted)">${elapsed}</td>
-    <td onclick="event.stopPropagation()">${resultsCell}${deleteBtn}</td>
+    <td onclick="event.stopPropagation()">${resultsCell}${rescanBtn}${deleteBtn}</td>
   </tr>`;
 }
 
@@ -2582,7 +2805,7 @@ async function copyAllScanResults(scanId) {
       allContent += '\n\n';
     }
     
-    await navigator.clipboard.writeText(allContent);
+    await copyToClipboard(allContent);
     showToast('success', 'Results copied!', `${files.length} files copied to clipboard`);
   } catch (e) {
     showToast('error', 'Copy failed', e.message);
@@ -2629,6 +2852,19 @@ async function renderScanDetailView(scanId) {
     if (apiA) {
       apiA.href = `/api/scans/${encodeURIComponent(scanId)}`;
       apiA.style.display = 'inline-flex';
+    }
+
+    // Wire Rescan button — only show for completed/failed scans, not running ones.
+    const rescanDetailBtn = document.getElementById('scan-detail-rescan-btn');
+    if (rescanDetailBtn) {
+      const isActive = /running|starting|paused|cancelling/i.test(stat);
+      if (!isActive) {
+        rescanDetailBtn.style.display = 'inline-flex';
+        rescanDetailBtn._rescan = () => rescanScan(scanId);
+      } else {
+        rescanDetailBtn.style.display = 'none';
+        rescanDetailBtn._rescan = null;
+      }
     }
 
     const files = sum.files || [];
@@ -3704,42 +3940,52 @@ function renderAssetsGrid(container, assets) {
       `<span style="background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);border-radius:4px;padding:1px 7px;font-size:10px;color:#818cf8;white-space:nowrap">${esc(t)}</span>`
     ).join('') + ((a.technologies || []).length > 5
       ? `<span style="font-size:10px;color:var(--text-muted)"> +${(a.technologies || []).length - 5}</span>` : '');
-    const cnames = (a.cnames || []).map(c =>
-      `<span style="display:block;color:var(--accent-cyan);font-size:11px;font-family:'JetBrains Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px" title="${esc(c)}">${esc(c)}</span>`
-    ).join('') || `<span style="color:var(--text-muted)">—</span>`;
-    const ips = (a.ips || []).slice(0, 3).map(ip =>
-      `<span style="display:block;color:var(--text-secondary);font-size:11px;font-family:'JetBrains Mono',monospace">${esc(ip)}</span>`
-    ).join('') || `<span style="color:var(--text-muted)">—</span>`;
+    // IP column was removed, old cnames variable replaced with cnameCell
     const hostDisplay = a.url
       ? `<a href="${esc(a.url)}" target="_blank" rel="noopener" style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;font-size:12px;text-decoration:none;word-break:break-all">${esc(a.host)}</a>`
       : `<span style="color:var(--text-secondary);font-family:'JetBrains Mono',monospace;font-size:12px;word-break:break-all">${esc(a.host)}</span>`;
     const title = a.title ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px" title="${esc(a.title)}">${esc(a.title.length > 60 ? a.title.slice(0, 60) + '…' : a.title)}</div>` : '';
+    const cnames = (a.cnames || []);
+    const cnameCell = cnames.length === 0
+      ? `<span style="color:var(--text-muted)">—</span>`
+      : `<div style="position:relative;display:inline-block" class="cname-cell">
+          <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--accent-cyan)">
+            ${esc(cnames[0])}${cnames.length > 1 ? `<span style="color:var(--text-muted);font-size:10px"> +${cnames.length - 1}</span>` : ''}
+          </div>
+          ${cnames.length > 1 ? `<div class="cname-tooltip" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:260px;max-width:380px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+            ${cnames.map(c => `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--accent-cyan);word-break:break-all;padding:2px 0">${esc(c)}</div>`).join('')}
+          </div>` : ''}
+        </div>`;
     return `<tr class="dashboard-table-row" style="border-bottom:1px solid rgba(255,255,255,.04)">
       <td style="padding:11px 14px">${liveIcon}</td>
       <td style="padding:11px 14px;max-width:295px">${hostDisplay}${title}</td>
       <td style="padding:11px 14px;text-align:center">${codeEl}</td>
       <td style="padding:11px 14px"><div style="display:flex;flex-wrap:wrap;gap:4px">${techBadges || '<span style="color:var(--text-muted);font-size:12px">—</span>'}</div></td>
-      <td style="padding:11px 14px">${cnames}</td>
-      <td style="padding:11px 14px">${ips}</td>
+      <td style="padding:11px 14px">${cnameCell}</td>
     </tr>`;
   }).join('');
 
   container.innerHTML = `
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
-      <div style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px">
-        <span style="width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 6px #10b981;display:inline-block"></span>
-        <span style="font-size:14px;font-weight:700;color:#10b981">${liveCount}</span>
-        <span style="font-size:12px;color:var(--text-secondary)">Alive</span>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;align-items:center;justify-content:space-between">
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 6px #10b981;display:inline-block"></span>
+          <span style="font-size:14px;font-weight:700;color:#10b981">${liveCount}</span>
+          <span style="font-size:12px;color:var(--text-secondary)">Alive</span>
+        </div>
+        <div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block"></span>
+          <span style="font-size:14px;font-weight:700;color:#ef4444">${deadCount}</span>
+          <span style="font-size:12px;color:var(--text-secondary)">Dead / Unknown</span>
+        </div>
+        <div style="background:rgba(6,182,212,.08);border:1px solid rgba(6,182,212,.25);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:700;color:var(--accent-cyan)">${assets.length}</span>
+          <span style="font-size:12px;color:var(--text-secondary)">Total Hosts</span>
+        </div>
       </div>
-      <div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px">
-        <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block"></span>
-        <span style="font-size:14px;font-weight:700;color:#ef4444">${deadCount}</span>
-        <span style="font-size:12px;color:var(--text-secondary)">Dead / Unknown</span>
-      </div>
-      <div style="background:rgba(6,182,212,.08);border:1px solid rgba(6,182,212,.25);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:14px;font-weight:700;color:var(--accent-cyan)">${assets.length}</span>
-        <span style="font-size:12px;color:var(--text-secondary)">Total Hosts</span>
-      </div>
+      <button class="btn btn-ghost" id="copy-all-assets-btn" style="font-size:12px;padding:6px 12px;height:auto">
+        📋 Copy All Assets
+      </button>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
       <input id="asset-search" type="search" placeholder="🔍 Filter hosts, technologies, titles…"
@@ -3762,7 +4008,6 @@ function renderAssetsGrid(container, assets) {
             <th style="width:65px;text-align:center">CODE</th>
             <th>TECHNOLOGIES</th>
             <th style="width:155px">CNAMES</th>
-            <th style="width:115px">IPs</th>
           </tr>
         </thead>
         <tbody id="asset-tbody">${renderRows(assets)}</tbody>
@@ -3791,6 +4036,21 @@ function renderAssetsGrid(container, assets) {
   };
   if (searchEl) searchEl.addEventListener('input', applyFilter);
   if (statusEl) statusEl.addEventListener('change', applyFilter);
+  
+  const copyBtn = container.querySelector('#copy-all-assets-btn');
+  if (copyBtn) copyBtn.addEventListener('click', async () => {
+    try {
+      const texts = Array.from(tbody.querySelectorAll('.dashboard-table-row'))
+        .map(tr => {
+          const aTag = tr.querySelector('td:nth-child(2) a') || tr.querySelector('td:nth-child(2) span');
+          return aTag ? aTag.textContent.trim() : '';
+        }).filter(Boolean);
+      await copyToClipboard(texts.join('\n'));
+      showToast('success', 'Copied!', `${texts.length} visible hosts copied to clipboard`);
+    } catch(e) {
+      showToast('error', 'Copy failed', e.message);
+    }
+  });
 }
 
 /** Toggle module group collapse */
@@ -4009,7 +4269,7 @@ function renderDomainGrid() {
   container.innerHTML = `
     <div class="domain-grid">
       ${filtered.map(d => `
-        <div class="domain-card" style="position:relative" onclick="loadSubdomains('${esc(d.domain)}')">
+        <div class="domain-card" style="position:relative" onclick="loadDomainSubdomains('${esc(d.domain)}')">
           <button type="button" class="btn btn-ghost" style="position:absolute;top:8px;right:8px;z-index:1;padding:4px 10px;font-size:11px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick='event.stopPropagation();deleteDomainRecord(${JSON.stringify(d.domain)})'>Delete</button>
           <div class="domain-name" style="padding-right:76px">${esc(d.domain)}</div>
           <div class="domain-stats">
@@ -4039,11 +4299,19 @@ function renderSubdomainView(domain) {
   const searchInput = document.getElementById('subdomain-search');
   const q = searchInput ? searchInput.value.toLowerCase() : '';
   const filtered = q ? subs.filter(s => (s.Subdomain || s.subdomain || '').toLowerCase().includes(q)) : subs;
+  const allSubNames = subs.map(s => s.Subdomain || s.subdomain || '').filter(Boolean);
 
   container.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
       <div onclick="backToDomains()" class="back-btn" style="margin:0">← Back to Domains</div>
-      <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick='deleteDomainRecord(${JSON.stringify(domain)})'>Delete domain…</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" id="copy-domain-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
+          📋 Copy All (${allSubNames.length})
+        </button>
+        <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick='deleteDomainRecord(${JSON.stringify(domain)})'>
+          Delete domain…
+        </button>
+      </div>
     </div>
     <div class="view-header">
       <div class="view-title">${esc(domain)}</div>
@@ -4057,18 +4325,29 @@ function renderSubdomainView(domain) {
       <div class="card-body">
         <table class="data-table">
           <thead><tr>
-            <th>Subdomain</th><th>Status</th><th>HTTP</th><th>HTTPS</th>
+            <th>Subdomain</th><th>Technology</th><th>CNAME</th><th>Status</th><th>HTTP</th><th>HTTPS</th>
           </tr></thead>
           <tbody>
             ${!filtered.length
               ? `<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--text-muted)">No results</td></tr>`
               : filtered.map(s => {
-                  const sub = s.Subdomain || s.subdomain || '';
+                  const subN = s.Subdomain || s.subdomain || '';
                   const live = s.IsLive || s.is_live;
                   const httpS = s.HTTPStatus || s.http_status || 0;
                   const httpsS = s.HTTPSStatus || s.https_status || 0;
+                  
+                  const techsHtml = s.techs 
+                    ? s.techs.split(',').filter(x=>x).slice(0, 4).map(t => `<span style="display:inline-block;padding:2px 6px;margin:2px;background:rgba(255,255,255,0.08);border-radius:4px;font-size:10px;white-space:nowrap">${esc(t.trim())}</span>`).join('') 
+                    : '<span style="color:var(--text-muted)">—</span>';
+                    
+                  const cnamesHtml = s.cnames 
+                    ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(180,180,180,0.8);word-break:break-all">${esc(s.cnames)}</div>`
+                    : '<span style="color:var(--text-muted)">—</span>';
+                    
                   return `<tr>
-                    <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px">${esc(sub)}</span></td>
+                    <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px">${esc(subN)}</span></td>
+                    <td><div style="display:flex;flex-wrap:wrap;min-width:140px">${techsHtml}</div></td>
+                    <td>${cnamesHtml}</td>
                     <td>${live ? `<span class="badge badge-live">● live</span>` : `<span class="badge badge-dead">dead</span>`}</td>
                     <td><span style="font-size:12px;color:${httpColor(httpS)}">${httpS || '—'}</span></td>
                     <td><span style="font-size:12px;color:${httpColor(httpsS)}">${httpsS || '—'}</span></td>
@@ -4078,6 +4357,143 @@ function renderSubdomainView(domain) {
         </table>
       </div>
     </div>`;
+
+  // Wire copy button
+  const copyDomainBtn = document.getElementById('copy-domain-subs-btn');
+  if (copyDomainBtn) {
+    copyDomainBtn.addEventListener('click', async () => {
+      try {
+        await copyToClipboard(allSubNames.join('\n'));
+        showToast('success', 'Copied!', `${allSubNames.length} subdomains copied to clipboard`);
+      } catch(e) {
+        showToast('error', 'Copy failed', e.message);
+      }
+    });
+  }
+}
+
+function renderSubdomainsPage() {
+  const container = document.getElementById('subdomains-container');
+  if (!container) return;
+  if (state.loading.subdomains) {
+    container.innerHTML = emptyState('⏳', 'Loading subdomains…', 'Please wait while paginated results are loaded.');
+    return;
+  }
+  if (state.error.subdomains) {
+    container.innerHTML = emptyState('⚠️', 'Failed to load subdomains', esc(state.error.subdomains));
+    return;
+  }
+  const subs = state.allSubdomains || [];
+  const total = state.allSubdomainsTotal || 0;
+  const page = state.subdomainsPage || 1;
+  const limit = state.subdomainsLimit || 30;
+  const pages = Math.max(1, Math.ceil(total / limit));
+
+  if (!subs.length && !state.subdomainsSearch) {
+    container.innerHTML = emptyState('🔗', 'No subdomains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
+    return;
+  }
+
+  const codeColor = (code) => {
+    if (!code) return 'var(--text-muted)';
+    if (code < 300) return '#10b981';
+    if (code < 400) return '#f59e0b';
+    if (code < 500) return '#ef4444';
+    return '#8b5cf6';
+  };
+
+  const renderRows = (list) => list.map(s => {
+    const isLive = s.is_live;
+    const dom = s.domain || '';
+    const subN = s.subdomain || '';
+    const httpS = s.http_status || 0;
+    const httpsS = s.https_status || 0;
+    
+    const liveIcon = isLive
+      ? `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.4);border-radius:20px;padding:3px 10px;font-size:11px;color:#10b981;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;box-shadow:0 0 5px #10b981;flex-shrink:0"></span>Alive</span>`
+      : `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:20px;padding:3px 10px;font-size:11px;color:#ef4444;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:#ef4444;flex-shrink:0"></span>Dead</span>`;
+    
+    const httpEl = httpS ? `<code style="font-size:13px;font-weight:700;color:${codeColor(httpS)}">${httpS}</code>` : `<span style="color:var(--text-muted)">—</span>`;
+    const httpsEl = httpsS ? `<code style="font-size:13px;font-weight:700;color:${codeColor(httpsS)}">${httpsS}</code>` : `<span style="color:var(--text-muted)">—</span>`;
+
+    const techsHtml = s.techs 
+      ? s.techs.split(',').filter(x=>x).slice(0, 5).map(t => `<span style="display:inline-block;padding:2px 6px;margin:2px;background:rgba(255,255,255,0.08);border-radius:4px;font-size:10px;white-space:nowrap">${esc(t.trim())}</span>`).join('') 
+      : '<span style="color:var(--text-muted)">—</span>';
+      
+    const cnamesHtml = s.cnames 
+      ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(180,180,180,0.8);word-break:break-all">${esc(s.cnames)}</div>`
+      : '<span style="color:var(--text-muted)">—</span>';
+
+    return `<tr class="dashboard-table-row" style="border-bottom:1px solid rgba(255,255,255,.04)">
+      <td style="padding:11px 14px">${liveIcon}</td>
+      <td style="padding:11px 14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-secondary)">${esc(dom)}</span></td>
+      <td style="padding:11px 14px;max-width:260px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);word-break:break-all">${esc(subN)}</span></td>
+      <td style="padding:11px 14px"><div style="display:flex;flex-wrap:wrap;min-width:140px">${techsHtml}</div></td>
+      <td style="padding:11px 14px;max-width:200px">${cnamesHtml}</td>
+      <td style="padding:11px 14px;text-align:center">${httpEl}</td>
+      <td style="padding:11px 14px;text-align:center">${httpsEl}</td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:12px;margin-bottom:14px">
+      <div style="background:rgba(6,182,212,.08);border:1px solid rgba(6,182,212,.25);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:14px;font-weight:700;color:var(--accent-cyan)">${total}</span>
+        <span style="font-size:12px;color:var(--text-secondary)">Total Subdomains Match</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table class="dashboard-table" style="width:100%;border-collapse:collapse;min-width:700px">
+          <thead>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.05);background:rgba(0,0,0,.15)">
+              <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;width:70px">Status</th>
+              <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;width:130px">Domain</th>
+              <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;width:240px">Subdomain</th>
+              <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Technology</th>
+              <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;width:180px">CNAME</th>
+              <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;width:60px">HTTP</th>
+              <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;width:60px">HTTPS</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${!subs.length ? `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted)">No subdomains match search</td></tr>` : renderRows(subs)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    <div style="display:flex;justify-content:center;gap:12px;align-items:center;margin-bottom:24px">
+      <button type="button" class="btn btn-ghost" id="subd-prev" ${page <= 1 ? 'disabled' : ''}>← Previous</button>
+      <div style="font-size:12px;color:var(--text-muted)">Page ${page} of ${pages}</div>
+      <button type="button" class="btn btn-ghost" id="subd-next" ${page >= pages ? 'disabled' : ''}>Next →</button>
+    </div>
+  `;
+
+  const searchBar = document.getElementById('subdomains-search');
+  if (searchBar && document.activeElement !== searchBar) {
+    searchBar.value = state.subdomainsSearch || '';
+  }
+
+  // Rewire Pagination buttons
+  const bp = document.getElementById('subd-prev');
+  const bn = document.getElementById('subd-next');
+  if (bp && page > 1) {
+    bp.onclick = () => loadSubdomains(page - 1, state.subdomainsSearch);
+  }
+  if (bn && page < pages) {
+    bn.onclick = () => loadSubdomains(page + 1, state.subdomainsSearch);
+  }
+  
+  // Bind real-time input event listeners for advanced filters
+  const fStatus = document.getElementById('subdomains-status-filter');
+  const fTech = document.getElementById('subdomains-tech-filter');
+  const fCname = document.getElementById('subdomains-cname-filter');
+  
+  if (fStatus) fStatus.onchange = () => loadSubdomains(1, state.subdomainsSearch);
+  if (fTech) fTech.oninput = () => { clearTimeout(state._subdebounce); state._subdebounce = setTimeout(() => loadSubdomains(1, state.subdomainsSearch), 500); };
+  if (fCname) fCname.oninput = () => { clearTimeout(state._subdebounce); state._subdebounce = setTimeout(() => loadSubdomains(1, state.subdomainsSearch), 500); };
 }
 
 function backToDomains() {
@@ -4535,6 +4951,16 @@ function renderSettings() {
       ${row('Status', cfg.auth_enabled ? 'Enabled' : 'Disabled (open access)', cfg.auth_enabled ? 'ok' : 'warn')}
     </div>
     <div class="setting-card">
+      <div class="setting-card-header">🔔 Webhooks</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <span class="setting-key" style="margin-bottom:4px;">Monitor Webhook URL (Discord / Generic)</span>
+        <div style="display:flex;width:100%;gap:10px;">
+          <input type="text" id="monitor-webhook-input" value="${esc(cfg.monitor_webhook || '')}" placeholder="https://discord.com/api/webhooks/..." class="form-control" style="flex:1;">
+          <button class="btn btn-primary" onclick="saveWebhookSettings()">Save</button>
+        </div>
+      </div>
+    </div>
+    <div class="setting-card">
       <div class="setting-card-header">☁️ Cloudflare R2</div>
       ${row('Enabled', cfg.r2_enabled ? 'Yes' : 'No', cfg.r2_enabled ? 'ok' : 'warn')}
       ${row('Bucket', cfg.r2_bucket || '—', cfg.r2_bucket ? 'ok' : 'warn')}
@@ -4551,6 +4977,27 @@ function renderSettings() {
     </div>
   </div>`;
 }
+
+window.saveWebhookSettings = async function() {
+  const url = document.getElementById('monitor-webhook-input').value.trim();
+  const btn = document.querySelector('button[onclick="saveWebhookSettings()"]');
+  if (btn) btn.innerHTML = '<span class="loading-spinner"></span>';
+  try {
+    const headers = await buildAuthHeaders({'Content-Type': 'application/json'});
+    const res = await fetch(`${API}/api/settings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ monitor_webhook: url })
+    });
+    if (!res.ok) throw new Error('Failed to update config');
+    showToast('success', 'Saved!', 'Webhook settings updated successfully.');
+    // Keep it in state so it doesn't revert visually
+    if (state.config) state.config.monitor_webhook = url;
+  } catch(e) {
+    showToast('error', 'Error', e.message);
+  }
+  if (btn) btn.textContent = 'Save';
+};
 
 function updateStatusDot() {
   const dot  = document.getElementById('status-dot');
@@ -5020,3 +5467,307 @@ async function boot() {
 }
 
 document.addEventListener('DOMContentLoaded', boot);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Bug Bounty Targets Page
+// ══════════════════════════════════════════════════════════════════════════════
+
+const PLATFORM_COLORS = {
+  h1:       { bg: '#1a2e1a', border: '#2a5a2a', accent: '#2ecc71', text: '#2ecc71' },
+  bc:       { bg: '#2e1e10', border: '#5a3820', accent: '#e67e22', text: '#e67e22' },
+  ywh:      { bg: '#10182e', border: '#1e2e5a', accent: '#3498db', text: '#3498db' },
+  it:       { bg: '#1e1028', border: '#3c1e55', accent: '#9b59b6', text: '#9b59b6' },
+  immunefi: { bg: '#1a1a2e', border: '#2a2a55', accent: '#667eea', text: '#667eea' },
+};
+
+// State for the targets page
+const targetsState = {
+  platforms: [],
+  selectedPlatform: null,
+  credentials: {},   // {platform: {token, username, email, password}}
+  domains: [],       // last fetched root domains
+  filtered: [],      // after filter
+};
+
+async function loadTargetsPlatforms() {
+  if (state.view !== 'targets') return;
+  try {
+    const data = await apiFetch('/api/scope/platforms');
+    targetsState.platforms = data.platforms || [];
+    renderTargetsPlatforms();
+  } catch(e) {
+    showToast('error', 'Scope Error', e.message);
+  }
+}
+
+function renderTargetsPlatforms() {
+  const grid = document.getElementById('targets-platforms-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (const p of targetsState.platforms) {
+    const colors = PLATFORM_COLORS[p.id] || PLATFORM_COLORS['immunefi'];
+    const isSelected = targetsState.selectedPlatform === p.id;
+    const card = document.createElement('div');
+    card.id = `targets-platform-${p.id}`;
+    card.style.cssText = `
+      background:${colors.bg};border:2px solid ${isSelected ? colors.accent : colors.border};
+      border-radius:16px;padding:20px;cursor:pointer;transition:all 0.2s;
+      ${isSelected ? `box-shadow:0 0 24px ${colors.accent}33;` : ''}
+    `;
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <span style="font-size:28px">${p.logo}</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:${colors.text}">${p.name}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+            ${p.env_configured
+              ? `<span style="color:#2ecc71">✓ Credentials configured</span>`
+              : `<span style="color:#e74c3c">⚠ Credentials needed</span>`}
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:14px">${p.description}</div>
+      ${renderPlatformCredFields(p, colors)}
+      <button onclick="targetsSelectPlatform('${p.id}')"
+        style="width:100%;margin-top:14px;padding:9px;border-radius:10px;border:none;
+               background:${isSelected ? colors.accent : colors.border};
+               color:${isSelected ? '#fff' : colors.text};font-weight:600;font-size:13px;cursor:pointer;transition:all 0.2s;">
+        ${isSelected ? '✓ Selected' : 'Select'}
+      </button>
+    `;
+    card.addEventListener('mouseenter', () => {
+      if (!isSelected) card.style.borderColor = colors.accent;
+    });
+    card.addEventListener('mouseleave', () => {
+      if (!isSelected) card.style.borderColor = colors.border;
+    });
+    grid.appendChild(card);
+  }
+}
+
+function renderPlatformCredFields(p, colors) {
+  if (!p.auth_fields || p.auth_fields.length === 0) return '';
+  const creds = targetsState.credentials[p.id] || {};
+  return p.auth_fields.map(field => {
+    const label = field.charAt(0).toUpperCase() + field.slice(1);
+    const isPass = field === 'password' || field === 'token';
+    return `
+      <div style="margin-bottom:8px;">
+        <label style="font-size:11px;font-weight:600;color:${colors.text};text-transform:uppercase;letter-spacing:0.05em;">${label}</label>
+        <input type="${isPass ? 'password' : 'text'}"
+          id="targets-cred-${p.id}-${field}"
+          value="${escapeSafe(creds[field] || '')}"
+          placeholder="${field === 'token' ? 'API Token' : field === 'username' ? 'Username' : field}"
+          oninput="targetsUpdateCred('${p.id}','${field}',this.value)"
+          style="width:100%;box-sizing:border-box;background:rgba(0,0,0,0.3);border:1px solid ${colors.border};
+                 border-radius:8px;padding:7px 10px;color:#fff;font-size:12px;margin-top:4px;outline:none;" />
+      </div>
+    `;
+  }).join('');
+}
+
+function escapeSafe(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+function targetsUpdateCred(platformId, field, value) {
+  if (!targetsState.credentials[platformId]) targetsState.credentials[platformId] = {};
+  targetsState.credentials[platformId][field] = value;
+}
+
+function targetsSelectPlatform(id) {
+  targetsState.selectedPlatform = id;
+  renderTargetsPlatforms();
+  const p = targetsState.platforms.find(x => x.id === id);
+  const fetchCard = document.getElementById('targets-fetch-card');
+  if (fetchCard) {
+    fetchCard.style.display = 'block';
+    const titleEl = document.getElementById('targets-fetch-card-title');
+    if (titleEl && p) titleEl.textContent = `Fetch from ${p.name}`;
+  }
+  // Hide previous results
+  const resultsCard = document.getElementById('targets-results-card');
+  if (resultsCard) resultsCard.style.display = 'none';
+}
+
+async function targetsDoFetch() {
+  const platformId = targetsState.selectedPlatform;
+  if (!platformId) { showToast('warning', 'No platform', 'Select a platform first'); return; }
+
+  const creds = targetsState.credentials[platformId] || {};
+  const btn = document.getElementById('targets-fetch-btn');
+  if (btn) { btn.textContent = 'Fetching…'; btn.disabled = true; }
+
+  try {
+    const body = {
+      platform:    platformId,
+      username:    creds.username || '',
+      token:       creds.token    || '',
+      email:       creds.email    || '',
+      password:    creds.password || '',
+      bbp_only:    document.getElementById('targets-bbp-only')?.checked  || false,
+      pvt_only:    document.getElementById('targets-pvt-only')?.checked  || false,
+      public_only: document.getElementById('targets-public-only')?.checked || false,
+      include_oos: document.getElementById('targets-include-oos')?.checked || false,
+      extract_roots: true,
+    };
+    const data = await apiPost('/api/scope/fetch', body);
+    targetsState.domains  = data.root_domains || [];
+    targetsState.filtered = [...targetsState.domains];
+
+    const p = targetsState.platforms.find(x => x.id === platformId);
+    const header = document.getElementById('targets-result-header');
+    if (header) header.textContent = `${data.domain_count} root domains from ${p?.name || platformId} (${data.programs} programs)`;
+
+    const resultsCard = document.getElementById('targets-results-card');
+    if (resultsCard) resultsCard.style.display = 'block';
+
+    targetsRenderDomainList(targetsState.filtered);
+    showToast('success', 'Done', `Fetched ${data.domain_count} root domains from ${data.programs} programs`);
+  } catch(e) {
+    showToast('error', 'Fetch failed', e.message);
+  } finally {
+    if (btn) { btn.textContent = 'Fetch Targets'; btn.disabled = false; }
+  }
+}
+
+function targetsApplyFilter() {
+  const q = (document.getElementById('targets-filter-input')?.value || '').toLowerCase();
+  targetsState.filtered = q
+    ? targetsState.domains.filter(d => d.toLowerCase().includes(q))
+    : [...targetsState.domains];
+  targetsRenderDomainList(targetsState.filtered);
+}
+
+function targetsRenderDomainList(domains) {
+  const container = document.getElementById('targets-domain-list');
+  if (!container) return;
+  if (!domains.length) {
+    container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">No domains found.</div>`;
+    return;
+  }
+  const colors = PLATFORM_COLORS[targetsState.selectedPlatform] || PLATFORM_COLORS['immunefi'];
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:8px 12px;color:var(--text-muted);font-weight:600;">#</th>
+          <th style="text-align:left;padding:8px 12px;color:var(--text-muted);font-weight:600;">Root Domain</th>
+          <th style="text-align:right;padding:8px 12px;color:var(--text-muted);font-weight:600;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${domains.map((d, i) => `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.15s;"
+              onmouseenter="this.style.background='rgba(255,255,255,0.03)'"
+              onmouseleave="this.style.background='transparent'">
+            <td style="padding:9px 12px;color:var(--text-muted);width:40px">${i + 1}</td>
+            <td style="padding:9px 12px;">
+              <span style="color:${colors.text};font-family:monospace">${escapeSafe(d)}</span>
+            </td>
+            <td style="padding:9px 12px;text-align:right;">
+              <div style="display:flex;gap:6px;justify-content:flex-end;">
+                <button onclick="targetsAddDomain('${escapeSafe(d)}')"
+                  style="padding:4px 12px;border-radius:8px;border:1px solid ${colors.border};
+                         background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
+                  + Add
+                </button>
+                <button onclick="targetsLaunchScan('${escapeSafe(d)}')"
+                  style="padding:4px 12px;border-radius:8px;border:none;
+                         background:${colors.accent};color:#fff;font-size:11px;cursor:pointer;font-weight:600;">
+                  ▶ Scan
+                </button>
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function targetsAddDomain(domain) {
+  try {
+    await apiPost('/api/domains', { domain });
+    showToast('success', 'Added', `${domain} added to Domains DB`);
+  } catch(e) {
+    showToast('error', 'Add failed', e.message);
+  }
+}
+
+async function targetsAddAllDomains() {
+  const domains = targetsState.filtered;
+  if (!domains.length) return;
+  const btn = document.getElementById('targets-add-all-btn');
+  if (btn) { btn.textContent = 'Adding…'; btn.disabled = true; }
+  try {
+    // Use the bulk endpoint — one HTTP request for all domains
+    const data = await apiPost('/api/domains/bulk', { domains });
+    showToast('success', 'Bulk Add', `Added ${data.added} domains${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
+  } catch(e) {
+    showToast('error', 'Bulk add failed', e.message);
+  } finally {
+    if (btn) { btn.textContent = '+ Add All to Domains DB'; btn.disabled = false; }
+  }
+}
+
+function targetsLaunchScan(domain) {
+  // Navigate to scans page with a pre-filled new scan modal if available,
+  // or navigate to scans and open a full domain scan.
+  navigateTo('scans');
+  setTimeout(() => {
+    if (typeof openNewScanModal === 'function') {
+      openNewScanModal({ target: domain, scanType: 'domain_run' });
+    } else {
+      showToast('info', 'Launch Scan', `Start a scan for ${domain} from the Scans page`);
+    }
+  }, 300);
+}
+
+async function targetsCopyAll() {
+  const domains = targetsState.filtered;
+  if (!domains.length) return;
+  const text = domains.join('\n');
+
+  // Try the modern Clipboard API first (requires HTTPS or localhost)
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('success', 'Copied', `${domains.length} domains copied to clipboard`);
+      return;
+    } catch { /* fall through to textarea fallback */ }
+  }
+
+  // Textarea fallback for HTTP (non-secure) contexts
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok) {
+      showToast('success', 'Copied', `${domains.length} domains copied to clipboard`);
+    } else {
+      showToast('warning', 'Manual copy needed', 'Auto-copy failed — open the text in the toast');
+    }
+  } catch(e) {
+    showToast('error', 'Copy failed', e.message);
+  }
+}
+
+// Helper: POST with JSON body (reuses auth headers like apiFetch)
+async function apiPost(path, body) {
+  const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+  const res = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401 && state.config?.auth_enabled) { handleAuthError(); throw new Error('Unauthorized'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}

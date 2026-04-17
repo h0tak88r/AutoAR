@@ -25,63 +25,83 @@ const (
 	findingsDirName = "vulnerabilities/dns-takeover"
 )
 
-// ensureSubdomains makes sure we have a fresh all-subs.txt for the domain
-// and returns its path and the domain results directory.
-func ensureSubdomains(domain string) (domainDir string, subsFile string, err error) {
+// ensureSubdomains returns an ephemeral temp file populated with subdomains for
+// the domain.  The caller MUST call the returned cleanup() after use.
+// Sources (in priority order): DB → on-disk all-subs.txt → live enumeration.
+func ensureSubdomains(domain string) (domainDir string, subsFile string, cleanup func(), err error) {
+	cleanup = func() {}
 	if domain == "" {
-		return "", "", fmt.Errorf("domain is required")
+		return "", "", cleanup, fmt.Errorf("domain is required")
 	}
 
 	resultsRoot := utils.GetResultsDir()
 	domainDir = filepath.Join(resultsRoot, domain)
-	subsDir := filepath.Join(domainDir, "subs")
-	if err = utils.EnsureDir(subsDir); err != nil {
-		return "", "", fmt.Errorf("failed to create subs dir: %w", err)
-	}
 
-	subsFile = filepath.Join(subsDir, "all-subs.txt")
+	var subs []string
 
 	// Step 1: Check database first
-	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
-		if err := db.Init(); err == nil {
-			_ = db.InitSchema()
-			count, err := db.CountSubdomains(domain)
-			if err == nil && count > 0 {
-				log.Printf("[INFO] Found %d subdomains in database for %s (dns module), using them", count, domain)
-				// Load subdomains from database and write to file
-				subs, err := db.ListSubdomains(domain)
-				if err == nil && len(subs) > 0 {
-					if err := writeLines(subsFile, subs); err != nil {
-						log.Printf("[WARN] Failed to write subdomains from DB to file: %v", err)
-					}
-					return domainDir, subsFile, nil
-				}
-			}
+	if dbErr := db.Init(); dbErr == nil {
+		_ = db.InitSchema()
+		if dbSubs, dbErr := db.ListSubdomains(domain); dbErr == nil && len(dbSubs) > 0 {
+			log.Printf("[INFO] Found %d subdomains in database for %s (dns module)", len(dbSubs), domain)
+			subs = dbSubs
 		}
 	}
 
-	// Step 2: If we already have a reasonably-sized file, reuse it, but refresh if tiny.
-	if info, statErr := os.Stat(subsFile); statErr == nil && info.Size() > 0 {
-		count, cErr := countLines(subsFile)
-		if cErr == nil && count >= 5 {
-			log.Printf("[INFO] Using existing subdomains from %s (%d subdomains)", subsFile, count)
-			return domainDir, subsFile, nil
+	// Step 2: Fallback to on-disk file
+	if len(subs) == 0 {
+		subsDir := filepath.Join(domainDir, "subs")
+		diskFile := filepath.Join(subsDir, "all-subs.txt")
+		if diskSubs, readErr := readNonEmptyLines(diskFile); readErr == nil && len(diskSubs) >= 5 {
+			log.Printf("[INFO] Using existing subdomains from %s (%d subdomains)", diskFile, len(diskSubs))
+			subs = diskSubs
 		}
-		log.Printf("[WARN] Only %d subdomains in %s, refreshing enumeration", count, subsFile)
 	}
 
-	// Step 3: Collect subdomains (not in database and no valid file)
-	log.Printf("[INFO] Collecting subdomains for %s (dns module)", domain)
-	subs, err := subdomains.EnumerateSubdomains(domain, 100)
+	// Step 3: Live enumeration if still empty
+	if len(subs) == 0 {
+		log.Printf("[INFO] Collecting subdomains for %s (dns module)", domain)
+		var enumErr error
+		subs, enumErr = subdomains.EnumerateSubdomains(domain, 100)
+		if enumErr != nil {
+			return "", "", cleanup, fmt.Errorf("subdomain enumeration failed: %w", enumErr)
+		}
+		log.Printf("[OK] Found %d unique subdomains for %s", len(subs), domain)
+	}
+
+	// Write to ephemeral temp file
+	f, tmpErr := os.CreateTemp("", "autoar-dns-subs-*.txt")
+	if tmpErr != nil {
+		return "", "", cleanup, fmt.Errorf("failed to create temp subs file: %w", tmpErr)
+	}
+	subsFile = f.Name()
+	cleanup = func() { os.Remove(subsFile) }
+
+	if err = writeLines(subsFile, subs); err != nil {
+		f.Close()
+		os.Remove(subsFile)
+		return "", "", func() {}, fmt.Errorf("failed to write temp subs file: %w", err)
+	}
+	f.Close()
+	return domainDir, subsFile, cleanup, nil
+}
+
+// readNonEmptyLines reads a file and returns non-empty, non-comment lines.
+func readNonEmptyLines(path string) ([]string, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return "", "", fmt.Errorf("subdomain enumeration failed: %w", err)
+		return nil, err
 	}
-	if err := writeLines(subsFile, subs); err != nil {
-		return "", "", fmt.Errorf("failed to write %s: %w", subsFile, err)
+	defer f.Close()
+	var lines []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line != "" && !strings.HasPrefix(line, "#") {
+			lines = append(lines, line)
+		}
 	}
-	log.Printf("[OK] Found %d unique subdomains for %s", len(subs), domain)
-
-	return domainDir, subsFile, nil
+	return lines, sc.Err()
 }
 
 // TakeoverOptions for DNS takeover scan
@@ -177,10 +197,12 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		log.Printf("[INFO] Using %d subdomain(s) from live hosts file (processing domain: %s, saving results to: %s)", len(subdomains), opts.Domain, outputDir)
 	} else {
 		// Standard enumeration - use root domain directory
-		domainDir, subsFile, err = ensureSubdomains(opts.Domain)
+		var subsCleanup func()
+		domainDir, subsFile, subsCleanup, err = ensureSubdomains(opts.Domain)
 		if err != nil {
 			return err
 		}
+		defer subsCleanup()
 		outputDir = domainDir // Use domain directory for standard enumeration
 	}
 	
@@ -246,16 +268,14 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
 
 
-	// Index all result files into the scan directory for the dashboard.
-	// Nuclei output is JSONL (.json), everything else is plain text.
+	// Index results into the scan directory for the dashboard.
+	// Only the combined structured JSON is written here — raw .txt files stay
+	// in findingsDir on disk (for Discord/webhook) but are NOT copied into the
+	// scan results dir to avoid duplication with the summary JSON.
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
-		// All files produced by this scan phase
-		allOutputFiles := append(txtFiles,
-			"nuclei-takeover-public.json",
-			"nuclei-takeover-custom.json",
-		)
+		// Collect lines from all non-empty plain text output files
 		var allTextFindings []string
-		for _, name := range allOutputFiles {
+		for _, name := range txtFiles {
 			p := filepath.Join(findingsDir, name)
 			info, err := os.Stat(p)
 			if err != nil || info.Size() == 0 {
@@ -265,26 +285,34 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 			if err != nil {
 				continue
 			}
-			// Copy into scan dir and index it
-			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), name)
-			if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
-				if _, idxErr := utils.IndexExistingResultFile(scanID, scanFile); idxErr != nil {
-					log.Printf("[WARN] Failed to index DNS file %s: %v", name, idxErr)
-				}
-			}
-			// For plain text files, also collect lines for a combined JSON
-			if !strings.HasSuffix(name, ".json") {
-				for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-					if strings.TrimSpace(l) != "" {
-						allTextFindings = append(allTextFindings, l)
-					}
+			for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				if strings.TrimSpace(l) != "" {
+					allTextFindings = append(allTextFindings, l)
 				}
 			}
 		}
-		// Write combined text findings as JSON summary for the dashboard
+		// Write combined text findings as structured JSON for the dashboard
 		if len(allTextFindings) > 0 {
-			if err := utils.WriteLinesAsJSON(scanID, opts.Domain, "dns-takeover", "dns-takeover-vulnerabilities.json", allTextFindings); err != nil {
+			if err := utils.WriteDNSTakeoverJSON(scanID, opts.Domain, allTextFindings); err != nil {
 				log.Printf("[WARN] Failed to write DNS takeover JSON: %v", err)
+			}
+		}
+		// Index nuclei JSONL files (they have clean per-line JSON objects)
+		for _, name := range []string{"nuclei-takeover-public.json", "nuclei-takeover-custom.json"} {
+			p := filepath.Join(findingsDir, name)
+			info, err := os.Stat(p)
+			if err != nil || info.Size() == 0 {
+				continue
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), name)
+			if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
+				if _, idxErr := utils.IndexExistingResultFile(scanID, scanFile); idxErr != nil {
+					log.Printf("[WARN] Failed to index nuclei DNS file %s: %v", name, idxErr)
+				}
 			}
 		}
 	}
@@ -295,10 +323,11 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 
 // CNAME runs the CNAME-focused DNS takeover workflow.
 func CNAME(domain string) error {
-	domainDir, subsFile, err := ensureSubdomains(domain)
+	domainDir, subsFile, subsCleanup, err := ensureSubdomains(domain)
 	if err != nil {
 		return err
 	}
+	defer subsCleanup()
 	findingsDir := filepath.Join(domainDir, findingsDirName)
 	if err := utils.EnsureDir(findingsDir); err != nil {
 		return fmt.Errorf("failed to create findings dir: %w", err)
@@ -317,10 +346,11 @@ func CNAME(domain string) error {
 
 // NS runs the NS-focused DNS takeover workflow.
 func NS(domain string) error {
-	domainDir, subsFile, err := ensureSubdomains(domain)
+	domainDir, subsFile, subsCleanup, err := ensureSubdomains(domain)
 	if err != nil {
 		return err
 	}
+	defer subsCleanup()
 	findingsDir := filepath.Join(domainDir, findingsDirName)
 	if err := utils.EnsureDir(findingsDir); err != nil {
 		return fmt.Errorf("failed to create findings dir: %w", err)
@@ -330,10 +360,11 @@ func NS(domain string) error {
 
 // AzureAWS runs the Azure/AWS cloud takeover detection workflow.
 func AzureAWS(domain string) error {
-	domainDir, subsFile, err := ensureSubdomains(domain)
+	domainDir, subsFile, subsCleanup, err := ensureSubdomains(domain)
 	if err != nil {
 		return err
 	}
+	defer subsCleanup()
 	findingsDir := filepath.Join(domainDir, findingsDirName)
 	if err := utils.EnsureDir(findingsDir); err != nil {
 		return fmt.Errorf("failed to create findings dir: %w", err)
@@ -343,10 +374,11 @@ func AzureAWS(domain string) error {
 
 // DNSReaper runs only the DNSReaper workflow.
 func DNSReaper(domain string) error {
-	domainDir, subsFile, err := ensureSubdomains(domain)
+	domainDir, subsFile, subsCleanup, err := ensureSubdomains(domain)
 	if err != nil {
 		return err
 	}
+	defer subsCleanup()
 	findingsDir := filepath.Join(domainDir, findingsDirName)
 	if err := utils.EnsureDir(findingsDir); err != nil {
 		return fmt.Errorf("failed to create findings dir: %w", err)
@@ -356,10 +388,11 @@ func DNSReaper(domain string) error {
 
 // DanglingIP runs only the dangling IP detection workflow.
 func DanglingIP(domain string) error {
-	domainDir, subsFile, err := ensureSubdomains(domain)
+	domainDir, subsFile, subsCleanup, err := ensureSubdomains(domain)
 	if err != nil {
 		return err
 	}
+	defer subsCleanup()
 	findingsDir := filepath.Join(domainDir, findingsDirName)
 	if err := utils.EnsureDir(findingsDir); err != nil {
 		return fmt.Errorf("failed to create findings dir: %w", err)
