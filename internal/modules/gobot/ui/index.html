@@ -61,6 +61,12 @@
           <span class="nav-icon">🌐</span>
           <span>Domains</span>
         </div>
+
+        <div class="nav-item" id="nav-subdomains">
+          <span class="nav-icon">🔗</span>
+          <span>Subdomains</span>
+          <span class="nav-badge" id="subdomains-badge" style="display:none"></span>
+        </div>
       </div>
 
       <div class="nav-section">
@@ -71,6 +77,11 @@
           <span>Monitor</span>
         </div>
 
+        <div class="nav-item" id="nav-targets">
+          <span class="nav-icon">🎯</span>
+          <span>Targets</span>
+        </div>
+
         <div class="nav-item" id="nav-r2">
           <span class="nav-icon">☁️</span>
           <span>R2 Storage</span>
@@ -79,6 +90,10 @@
 
       <div class="nav-section">
         <div class="nav-section-label">System</div>
+        <div class="nav-item" id="nav-logs">
+          <span class="nav-icon">📝</span>
+          <span>Logs</span>
+        </div>
         <div class="nav-item" id="nav-settings">
           <span class="nav-icon">⚙️</span>
           <span>Settings</span>
@@ -186,6 +201,7 @@
                 <option value="dns">dns (takeover)</option>
                 <option value="dns_dangling">dns (dangling-ip)</option>
                 <option value="dns_takeover">dns-takeover (legacy)</option>
+                <option value="dns_cf1016">dns-cf1016 (Cloudflare 1016)</option>
               </optgroup>
               <optgroup label="Cloud &amp; source">
                 <option value="s3">s3 (bucket)</option>
@@ -279,8 +295,11 @@
             <h1 class="view-title" id="scan-detail-title">Scan results</h1>
             <div class="view-subtitle" id="scan-detail-sub"></div>
           </div>
-          <a class="btn btn-ghost" id="scan-detail-api" href="#" style="display:none;font-size:12px" target="_blank" rel="noopener">API</a>
-        </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <a class="btn btn-ghost" id="scan-detail-api" href="#" style="display:none;font-size:12px" target="_blank" rel="noopener">API</a>
+            <button type="button" class="btn btn-ghost" id="scan-detail-rescan-btn" style="display:none;font-size:12px;border-color:rgba(52,211,153,.4);color:var(--accent-emerald)" onclick="document.getElementById('scan-detail-rescan-btn')._rescan && document.getElementById('scan-detail-rescan-btn')._rescan()">🔁 Rescan</button>
+          </div>
+        </div><!-- /view-header -->
         <div id="scan-detail-container">
           <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
         </div>
@@ -306,6 +325,92 @@
         </div>
 
       </div><!-- /view-domains -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Subdomains                                                    -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-subdomains">
+        <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <h1 class="view-title">Subdomains</h1>
+            <div class="view-subtitle">All discovered subdomains across every domain</div>
+          </div>
+          <button id="copy-all-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center">
+            📋 Copy All Subdomains
+          </button>
+        </div>
+        <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap">
+          <input class="search-input" id="subdomains-search" placeholder="Search by subdomain or root…" autocomplete="off" style="flex:2;min-width:200px" />
+          <select class="search-input" id="subdomains-status-filter" style="flex:1;min-width:120px;cursor:pointer">
+            <option value="0" selected>Any Status</option>
+            <option value="200">200 OK</option>
+            <option value="301">301 / 302 Redirect</option>
+            <option value="403">403 Forbidden</option>
+            <option value="404">404 Not Found</option>
+            <option value="500">50x Error</option>
+          </select>
+          <input class="search-input" id="subdomains-tech-filter" placeholder="Filter Tech (e.g. React)…" autocomplete="off" style="flex:1;min-width:140px" />
+          <input class="search-input" id="subdomains-cname-filter" placeholder="Filter CNAME…" autocomplete="off" style="flex:1;min-width:140px" />
+        </div>
+        <div id="subdomains-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-subdomains -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Bug Bounty Targets                                           -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-targets">
+        <div class="view-header">
+          <h1 class="view-title">🎯 Bug Bounty Targets</h1>
+          <div class="view-subtitle">Fetch in-scope root domains from HackerOne, Bugcrowd, YesWeHack, Intigriti &amp; Immunefi</div>
+        </div>
+
+        <!-- Platform Cards -->
+        <div id="targets-platforms-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:28px;"></div>
+
+        <!-- Fetch Controls -->
+        <div class="card" id="targets-fetch-card" style="margin-bottom:20px;display:none;">
+          <div class="card-title"><span class="card-title-icon">⚙️</span><span id="targets-fetch-card-title">Fetch Options</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding-top:8px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-bbp-only"> BBP Only
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-pvt-only"> Private Only
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-public-only"> Public Only
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-include-oos"> Include OOS
+            </label>
+            <button class="btn btn-primary" id="targets-fetch-btn" onclick="targetsDoFetch()" style="margin-left:auto;">
+              Fetch Targets
+            </button>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="card" id="targets-results-card" style="display:none;">
+          <div class="card-title" style="justify-content:space-between;">
+            <span><span class="card-title-icon">📋</span><span id="targets-result-header">Results</span></span>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="targets-filter-input" placeholder="Filter domains…" oninput="targetsApplyFilter()"
+                style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;width:220px;">
+              <button class="btn btn-primary" id="targets-add-all-btn" onclick="targetsAddAllDomains()" style="font-size:12px;padding:6px 14px;">
+                + Add All to Domains DB
+              </button>
+              <button class="btn" id="targets-copy-btn" onclick="targetsCopyAll()" style="font-size:12px;padding:6px 14px;background:var(--bg-tertiary);">
+                Copy List
+              </button>
+            </div>
+          </div>
+          <div id="targets-domain-list" style="margin-top:12px;max-height:520px;overflow-y:auto;"></div>
+        </div>
+      </div><!-- /view-targets -->
 
 
       <!-- ══════════════════════════════════════════════════════════════════ -->
@@ -457,6 +562,23 @@
 
       </div><!-- /view-r2 -->
 
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Logs                                                           -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-logs">
+
+        <div class="view-header">
+          <h1 class="view-title">System Logs</h1>
+          <div class="view-subtitle">Live output of internal scanners and gobot APIs</div>
+        </div>
+
+        <div id="logs-container" style="background:#0f172a;border:1px solid var(--border);border-radius:12px;padding:16px;height:calc(100vh - 180px);overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(200,200,200,0.9);white-space:pre-wrap;line-height:1.5">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading logs…</div></div>
+        </div>
+
+      </div><!-- /view-logs -->
 
       <!-- ══════════════════════════════════════════════════════════════════ -->
       <!-- VIEW: Settings                                                       -->

@@ -86,6 +86,38 @@ func buildAssets(scanID string) []AssetEntry {
 			getOrCreate(line)
 		})
 	}
+	// Also read the new JSON envelope format (WriteLinesAsJSON: {items: ["sub1", ...]})
+	if raw, _, err := loadFileContent(scanID, "subdomains.json"); err == nil && len(raw) > 0 {
+		var wrapper map[string]interface{}
+		if json.Unmarshal(raw, &wrapper) == nil {
+			if items, ok := wrapper["items"].([]interface{}); ok {
+				for _, it := range items {
+					if s, ok := it.(string); ok {
+						getOrCreate(s)
+					}
+				}
+			}
+		}
+	}
+	// Also read from DB if available — most complete source.
+	// Only do this for scan types that actually enumerate subdomains; otherwise
+	// we'd bleed subdomains from a different scan context into e.g. a DNS scan.
+	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
+		st := scan.ScanType
+		subdomainScanTypes := map[string]bool{
+			"domain_run": true, "subdomain_run": true, "lite": true,
+			"subdomains": true, "livehosts": true,
+			// CF1016 enumerates subdomains as part of -d domain flow
+			"dns_cf1016": true, "dns-cf1016": true,
+		}
+		if subdomainScanTypes[st] {
+			if dbSubs, err := db.ListSubdomains(scan.Target); err == nil {
+				for _, s := range dbSubs {
+					getOrCreate(s)
+				}
+			}
+		}
+	}
 
 	// ── 2. Live subdomains ───────────────────────────────────────────────────
 	for _, name := range []string{
@@ -102,17 +134,111 @@ func buildAssets(scanID string) []AssetEntry {
 			}
 		})
 	}
+	// Also read livehosts.json — {"results": [{"URL":"https://...", "StatusCode":200, ...}]}
+	if raw, _, err := loadFileContent(scanID, "livehosts.json"); err == nil && len(raw) > 0 {
+		var wrapper map[string]interface{}
+		if json.Unmarshal(raw, &wrapper) == nil {
+			if results, ok := wrapper["results"].([]interface{}); ok {
+				for _, r := range results {
+					obj, ok := r.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					rawURL := strPick(obj, "URL", "url", "Host", "host")
+					host := normalizeHost(rawURL)
+					if e := getOrCreate(host); e != nil {
+						e.IsLive = true
+						if strings.HasPrefix(strings.ToLower(rawURL), "http") && e.URL == "" {
+							e.URL = rawURL
+						}
+						if sc := intPick(obj, "StatusCode", "status_code", "statusCode"); sc > 0 && e.StatusCode == 0 {
+							e.StatusCode = sc
+						}
+					}
+				}
+			}
+		}
+	}
+	// Also read live host status from DB — SubdomainStatus has IsLive + URL + status codes.
+	// Same guard: only for scan types that perform live-host enumeration.
+	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
+		st := scan.ScanType
+		subdomainScanTypes := map[string]bool{
+			"domain_run": true, "subdomain_run": true, "lite": true,
+			"subdomains": true, "livehosts": true,
+			// CF1016 enumerates subdomains as part of -d domain flow
+			"dns_cf1016": true, "dns-cf1016": true,
+		}
+		if subdomainScanTypes[st] {
+			if liveHosts, err := db.ListLiveSubdomains(scan.Target); err == nil {
+				for _, h := range liveHosts {
+					host := normalizeHost(h.Subdomain)
+					e := getOrCreate(host)
+					if e == nil {
+						continue
+					}
+					e.IsLive = h.IsLive
+					// Prefer HTTPS URL, fall back to HTTP
+					if h.HTTPSURL != "" && e.URL == "" {
+						e.URL = h.HTTPSURL
+					} else if h.HTTPURL != "" && e.URL == "" {
+						e.URL = h.HTTPURL
+					}
+					if h.HTTPSStatus > 0 && e.StatusCode == 0 {
+						e.StatusCode = h.HTTPSStatus
+					} else if h.HTTPStatus > 0 && e.StatusCode == 0 {
+						e.StatusCode = h.HTTPStatus
+					}
+				}
+			}
+		}
+	}
 
-	// ── 3. Tech-detect — status code, title, tech, IPs ─────────────────────
-	// First try JSONL (httpx -json output)
-	for _, name := range []string{
-		"tech-detect.json",
-		"httpx.json", "httpx-output.txt",
-	} {
+	// ── 3. Tech-detect — status code, title, tech ────────────────────────────
+	// First try the new structured JSON array format (written by tech.go WriteJSONToScanDir):
+	// [{"matched-at":"https://host", "status_code":200, "title":"...", "technologies":[...]}]
+	for _, name := range []string{"tech-detect.json"} {
 		raw, _, err := loadFileContent(scanID, name)
 		if err != nil || len(raw) == 0 {
 			continue
 		}
+		// Try JSON array first (new format)
+		var arr []map[string]interface{}
+		if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
+			for _, obj := range arr {
+				rawURL := strPick(obj, "matched-at", "url", "input", "host")
+				host := normalizeHost(rawURL)
+				if host == "" {
+					continue
+				}
+				e := getOrCreate(host)
+				if e == nil {
+					continue
+				}
+				if strings.HasPrefix(strings.ToLower(rawURL), "http") {
+					e.IsLive = true
+					if e.URL == "" {
+						e.URL = rawURL
+					}
+				}
+				if sc := intPick(obj, "status_code", "status-code", "statusCode"); sc > 0 && e.StatusCode == 0 {
+					e.StatusCode = sc
+					if sc < 400 {
+						e.IsLive = true
+					}
+				}
+				if t := strPick(obj, "title"); t != "" && e.Title == "" {
+					e.Title = t
+				}
+				if techs, ok := obj["technologies"].([]interface{}); ok {
+					for _, t := range techs {
+						e.Technologies = appendUniq(e.Technologies, strings.TrimSpace(fmt.Sprint(t)))
+					}
+				}
+			}
+			continue // Array parsed — skip JSONL attempt
+		}
+		// Fallback: try JSONL format (legacy httpx -json output — one object per line)
 		scanner := bufio.NewScanner(bytes.NewReader(raw))
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
@@ -123,55 +249,38 @@ func buildAssets(scanID string) []AssetEntry {
 			if json.Unmarshal([]byte(line), &obj) != nil {
 				continue
 			}
-
-			// Determine host from several possible fields
 			rawURL := strPick(obj, "url", "input", "host")
 			host := normalizeHost(rawURL)
 			if host == "" {
 				continue
 			}
-
 			e := getOrCreate(host)
 			if e == nil {
 				continue
 			}
-
-			// URL
 			if strings.HasPrefix(strings.ToLower(rawURL), "http") {
 				e.IsLive = true
 				if e.URL == "" {
 					e.URL = rawURL
 				}
 			}
-			// Status code
 			if sc := intPick(obj, "status-code", "status_code", "statusCode"); sc > 0 {
 				e.StatusCode = sc
 				if sc < 400 {
 					e.IsLive = true
 				}
 			}
-			// Title
 			if t := strPick(obj, "title"); t != "" && e.Title == "" {
 				e.Title = t
 			}
-			// Technologies
 			if techs, ok := obj["tech"].([]interface{}); ok {
 				for _, t := range techs {
-					s := strings.TrimSpace(fmt.Sprint(t))
-					e.Technologies = appendUniq(e.Technologies, s)
+					e.Technologies = appendUniq(e.Technologies, strings.TrimSpace(fmt.Sprint(t)))
 				}
 			}
-			// technologies (alternative key)
 			if techs, ok := obj["technologies"].([]interface{}); ok {
 				for _, t := range techs {
-					s := strings.TrimSpace(fmt.Sprint(t))
-					e.Technologies = appendUniq(e.Technologies, s)
-				}
-			}
-			// IPs from "a" field (httpx DNS A records)
-			if ips, ok := obj["a"].([]interface{}); ok {
-				for _, ip := range ips {
-					e.IPs = appendUniq(e.IPs, strings.TrimSpace(fmt.Sprint(ip)))
+					e.Technologies = appendUniq(e.Technologies, strings.TrimSpace(fmt.Sprint(t)))
 				}
 			}
 		}

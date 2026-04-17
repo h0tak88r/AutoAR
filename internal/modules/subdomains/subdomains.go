@@ -81,6 +81,10 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
 		if err := db.Init(); err == nil {
 			_ = db.InitSchema()
+			// Ensure the domain row exists first — BatchInsertSubdomains requires it.
+			if _, domainErr := db.InsertOrGetDomain(domain); domainErr != nil {
+				log.Printf("[WARN] Failed to upsert domain %s before saving subdomains: %v", domain, domainErr)
+			}
 			if err := db.BatchInsertSubdomains(domain, results, false); err != nil {
 				log.Printf("[WARN] Failed to save subdomains to database: %v", err)
 			} else {

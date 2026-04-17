@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitorsuggest"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
@@ -43,9 +44,34 @@ func apiConfigHandler(c *gin.Context) {
 		"auth_provider": "local",
 		"db_type":       getEnv("DB_TYPE", "postgresql"),
 		"mode":          getEnv("AUTOAR_MODE", "discord"),
+		"monitor_webhook": os.Getenv("MONITOR_WEBHOOK_URL"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/settings — update dashboard configurations
+// ─────────────────────────────────────────────────────────────────────────────
+
+type UpdateSettingsBody struct {
+	MonitorWebhook string `json:"monitor_webhook"`
+}
+
+func apiUpdateSettingsHandler(c *gin.Context) {
+	var body UpdateSettingsBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+	
+	err := envloader.UpdateEnv("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update settings file"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully"})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,6 +180,71 @@ func apiListDomains(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"domains": result, "total": len(result)})
 }
 
+// POST /api/domains — add a single domain to the database
+func apiAddDomain(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	var body struct {
+		Domain string `json:"domain"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	domain := strings.TrimSpace(body.Domain)
+	if domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain is required"})
+		return
+	}
+	id, err := db.InsertOrGetDomain(domain)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"domain": domain, "id": id, "ok": true})
+}
+
+// POST /api/domains/bulk — add multiple domains in a single request
+func apiAddDomainsBulk(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	var body struct {
+		Domains []string `json:"domains"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if len(body.Domains) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domains list is required"})
+		return
+	}
+
+	added := 0
+	skipped := 0
+	errors := []string{}
+	for _, raw := range body.Domains {
+		d := strings.TrimSpace(raw)
+		if d == "" {
+			skipped++
+			continue
+		}
+		if _, err := db.InsertOrGetDomain(d); err != nil {
+			errors = append(errors, d+": "+err.Error())
+		} else {
+			added++
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"added":   added,
+		"skipped": skipped,
+		"errors":  errors,
+		"ok":      len(errors) == 0,
+	})
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/domains/:domain/subdomains — list subdomains with status
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,6 +269,50 @@ func apiListSubdomains(c *gin.Context) {
 		"domain":     domain,
 		"subdomains": subs,
 		"total":      len(subs),
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/subdomains — globally fetch subdomains matching search with pagination
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiAllSubdomainsPaginated(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit < 1 {
+		limit = 50
+	}
+	// Guard against accidental huge requests that can starve the dashboard.
+	if limit > 500 {
+		limit = 500
+	}
+	search := strings.TrimSpace(c.Query("search"))
+	techFilter := strings.TrimSpace(c.Query("tech"))
+	cnameFilter := strings.TrimSpace(c.Query("cname"))
+	statusFilter, _ := strconv.Atoi(c.Query("status"))
+
+	offset := (page - 1) * limit
+
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	subs, total, err := db.ListAllSubdomainsPaginated(search, techFilter, cnameFilter, statusFilter, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if subs == nil {
+		subs = make([]db.GlobalSubdomain, 0)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"subdomains": subs,
+		"total":      total,
+		"page":       page,
+		"limit":      limit,
 	})
 }
 
@@ -635,6 +770,56 @@ func apiResumeScan(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "resumed"})
+}
+
+// POST /api/scans/:id/rescan — re-run a completed/failed scan with the same command.
+func apiRescan(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+
+	_ = db.Init()
+	record, err := db.GetScan(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scan not found: " + err.Error()})
+		return
+	}
+	if record.Command == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan has no stored command — cannot rescan"})
+		return
+	}
+	// Only rescan completed or failed scans (not running/paused ones).
+	st := strings.ToLower(record.Status)
+	if st == "running" || st == "starting" || st == "paused" {
+		c.JSON(http.StatusConflict, gin.H{"error": "scan is still active — cancel it first before rescanning"})
+		return
+	}
+
+	// Parse the stored command string back into a slice.
+	// The command is stored as a shell-joined string (space-separated tokens; the binary path
+	// is always the first element).
+	parts := strings.Fields(record.Command)
+	if len(parts) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "could not parse stored command"})
+		return
+	}
+	// Replace the binary path with the current binary to handle path changes.
+	parts[0] = getAutoarScriptPath()
+
+	newScanID := generateScanID()
+	go executeScan(newScanID, parts, record.ScanType)
+
+	log.Printf("[rescan] Re-running scan for %s (original: %s) → new scan ID: %s", record.Target, id, newScanID)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":          true,
+		"new_scan_id": newScanID,
+		"target":      record.Target,
+		"scan_type":   record.ScanType,
+		"command":     strings.Join(parts, " "),
+		"message":     "Rescan started",
+	})
 }
 
 // mergeActiveScansFromMemory overlays in-memory API state (activeScans) on DB rows so live
@@ -1479,4 +1664,37 @@ func buildR2Client(accountID, accessKey, secretKey string) (*s3.Client, error) {
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
 	}), nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/logs — returns the last N lines of application logs
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiSystemLogs(c *gin.Context) {
+	logPaths := []string{"autoar-bot.log", "api.log"}
+	var content = ""
+
+	for _, p := range logPaths {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			data, err := os.ReadFile(p)
+			if err == nil {
+				// Get last 2000 lines max to prevent huge payload
+				lines := strings.Split(string(data), "\n")
+				if len(lines) > 2000 {
+					lines = lines[len(lines)-2000:]
+				}
+				content += fmt.Sprintf("==== %s ====\n", p)
+				content += strings.Join(lines, "\n")
+				content += "\n\n"
+			}
+		}
+	}
+
+	if content == "" {
+		content = "No local log files found (checked autoar-bot.log, api.log)."
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"logs": content,
+	})
 }

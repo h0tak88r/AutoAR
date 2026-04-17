@@ -12,6 +12,7 @@ package cf1016
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -22,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/modules/db"
 )
 
 // cloudflareCIDRs is the list of Cloudflare's published IPv4 CIDR ranges.
@@ -118,6 +121,38 @@ func Run(opts Options) (*Result, error) {
 	outputPath, err := writeOutput(opts, findings)
 	if err != nil {
 		log.Printf("[cf1016] Warning: could not write output file: %v", err)
+	}
+
+	// Write structured JSON alongside the text report for the dashboard.
+	if outputPath != "" {
+		jsonPath := strings.TrimSuffix(outputPath, ".txt") + ".json"
+		if jErr := writeJSONOutput(jsonPath, findings); jErr != nil {
+			log.Printf("[cf1016] Warning: could not write JSON output: %v", jErr)
+		}
+	}
+
+	// Mark vulnerable subdomains as live in the DB.
+	// CF1016 findings DID get an HTTP response (530), so they are alive.
+	if len(findings) > 0 && (os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true") {
+		if dbErr := db.Init(); dbErr == nil {
+			rootDomain := opts.Domain
+			if rootDomain == "" {
+				rootDomain = "unknown"
+			}
+			for _, f := range findings {
+				httpsURL := "https://" + f.Subdomain
+				if uErr := db.InsertSubdomain(
+					rootDomain, f.Subdomain,
+					true,          // is_live = true (got HTTP 530 from Cloudflare)
+					httpsURL, httpsURL,
+					f.StatusCode, f.StatusCode,
+				); uErr != nil {
+					log.Printf("[cf1016] Warning: failed to update live status for %s: %v", f.Subdomain, uErr)
+				} else {
+					log.Printf("[cf1016] Marked %s as live (HTTP %d)", f.Subdomain, f.StatusCode)
+				}
+			}
+		}
 	}
 
 	log.Printf("[cf1016] Done. Found %d dangling Cloudflare 1016 records", len(findings))
@@ -309,7 +344,7 @@ func writeOutput(opts Options, findings []Finding) (string, error) {
 		if domain == "" {
 			domain = "unknown"
 		}
-		outDir = filepath.Join(resultsDir, domain, "vulnerabilities", "dns-takeover")
+		outDir = filepath.Join(resultsDir, domain, "vulnerabilities", "cf1016")
 	}
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -386,4 +421,45 @@ Remove the A/CNAME records for %s from your DNS zone to clean up the dangling re
 
 	log.Printf("[cf1016] Wrote %d findings to %s", len(findings), outputPath)
 	return outputPath, nil
+}
+
+// writeJSONOutput writes a structured JSON file suitable for the dashboard
+// parsedFindings pipeline. One JSON object per vulnerable subdomain.
+func writeJSONOutput(path string, findings []Finding) error {
+	type jsonFinding struct {
+		Target      string   `json:"target"`
+		Subdomain   string   `json:"subdomain"`
+		IPs         []string `json:"cloudflare_ips"`
+		StatusCode  int      `json:"http_status"`
+		Type        string   `json:"type"`
+		Severity    string   `json:"severity"`
+		Description string   `json:"description"`
+	}
+
+	out := make([]jsonFinding, 0, len(findings))
+	for _, f := range findings {
+		desc := fmt.Sprintf(
+			"Subdomain %s resolves to Cloudflare IPs (%s) but returns HTTP %d (CF Error 1016 - Origin DNS Error). "+
+				"The backend origin has been removed/misconfigured while the DNS record still routes traffic through Cloudflare. "+
+				"An attacker who claims the abandoned origin could hijack this subdomain.",
+			f.Subdomain,
+			strings.Join(f.IPs, ", "),
+			f.StatusCode,
+		)
+		out = append(out, jsonFinding{
+			Target:      f.Subdomain,
+			Subdomain:   f.Subdomain,
+			IPs:         f.IPs,
+			StatusCode:  f.StatusCode,
+			Type:        "DNS Misconfiguration / Dangling Record (CF-1016)",
+			Severity:    "high",
+			Description: desc,
+		})
+	}
+
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }

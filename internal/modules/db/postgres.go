@@ -147,6 +147,19 @@ func (p *PostgresDB) InitSchema() error {
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
+
+	-- Safely migrate techs and cnames columns if they don't exist
+	DO $$
+	BEGIN
+		ALTER TABLE subdomains ADD COLUMN techs TEXT DEFAULT '';
+	EXCEPTION WHEN duplicate_column THEN END;
+	$$;
+
+	DO $$
+	BEGIN
+		ALTER TABLE subdomains ADD COLUMN cnames TEXT DEFAULT '';
+	EXCEPTION WHEN duplicate_column THEN END;
+	$$;
 	
 	-- Create unique index if it doesn't exist, handling duplicates
 	DO $$ 
@@ -475,9 +488,11 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 	const batchSQL = `
 		INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status)
 		VALUES ($1, $2, $3, '', '', 0, 0)
-		ON CONFLICT (subdomain) DO UPDATE SET 
+		ON CONFLICT (subdomain) DO UPDATE SET
 			updated_at = $4,
-			domain_id = EXCLUDED.domain_id;
+			domain_id  = EXCLUDED.domain_id,
+			-- Never downgrade is_live from true→false; only upgrade false→true
+			is_live    = CASE WHEN EXCLUDED.is_live = true THEN true ELSE subdomains.is_live END;
 	`
 
 	count := 0
@@ -740,13 +755,18 @@ func (p *PostgresDB) ListSubdomains(domain string) ([]string, error) {
 
 // ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain.
 func (p *PostgresDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
-	rows, err := p.pool.Query(p.ctx, `
+	ctx, cancel := context.WithTimeout(p.ctx, 6*time.Second)
+	defer cancel()
+
+	rows, err := p.pool.Query(ctx, `
 		SELECT s.subdomain, 
 		       COALESCE(s.http_url, ''), 
 		       COALESCE(s.https_url, ''), 
 		       COALESCE(s.http_status, 0), 
 		       COALESCE(s.https_status, 0),
-		       COALESCE(s.is_live, false)
+		       COALESCE(s.is_live, false),
+		       COALESCE(s.techs, ''),
+		       COALESCE(s.cnames, '')
 		FROM subdomains s
 		JOIN domains d ON s.domain_id = d.id
 		WHERE d.domain = $1
@@ -760,7 +780,7 @@ func (p *PostgresDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus,
 	var subs []SubdomainStatus
 	for rows.Next() {
 		var s SubdomainStatus
-		if err := rows.Scan(&s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &s.IsLive); err != nil {
+		if err := rows.Scan(&s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &s.IsLive, &s.Techs, &s.CNAMEs); err != nil {
 			return nil, fmt.Errorf("failed to scan subdomain status: %v", err)
 		}
 		subs = append(subs, s)
@@ -769,6 +789,75 @@ func (p *PostgresDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus,
 		return nil, fmt.Errorf("failed to iterate subdomains: %v", rows.Err())
 	}
 	return subs, nil
+}
+
+// ListAllSubdomainsPaginated returns a subset of all tracked subdomains across all domains.
+func (p *PostgresDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	searchStr := "%" + search + "%"
+	techStr := "%" + techFilter + "%"
+	cnameStr := "%" + cnameFilter + "%"
+	
+	ctx, cancel := context.WithTimeout(p.ctx, 6*time.Second)
+	defer cancel()
+	var total int
+	err := p.pool.QueryRow(ctx, `
+		SELECT COUNT(s.id)
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE ($1 = '%%' OR s.subdomain ILIKE $1 OR d.domain ILIKE $1)
+		  AND ($2 = '%%' OR s.techs ILIKE $2)
+		  AND ($3 = '%%' OR s.cnames ILIKE $3)
+		  AND ($4 = 0 OR s.http_status = $4 OR s.https_status = $4)
+	`, searchStr, techStr, cnameStr, statusFilter).Scan(&total)
+
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count global subdomains: %v", err)
+	}
+
+	rows, err := p.pool.Query(ctx, `
+		SELECT d.domain, s.subdomain, 
+		       COALESCE(s.http_url, ''), 
+		       COALESCE(s.https_url, ''), 
+		       COALESCE(s.http_status, 0), 
+		       COALESCE(s.https_status, 0),
+		       COALESCE(s.is_live, false),
+		       COALESCE(s.techs, ''),
+		       COALESCE(s.cnames, '')
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE ($1 = '%%' OR s.subdomain ILIKE $1 OR d.domain ILIKE $1)
+		  AND ($2 = '%%' OR s.techs ILIKE $2)
+		  AND ($3 = '%%' OR s.cnames ILIKE $3)
+		  AND ($4 = 0 OR s.http_status = $4 OR s.https_status = $4)
+		ORDER BY d.domain ASC, s.subdomain ASC
+		LIMIT $5 OFFSET $6;
+	`, searchStr, techStr, cnameStr, statusFilter, limit, offset)
+
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query global subdomains paginated: %v", err)
+	}
+	defer rows.Close()
+
+	var subs []GlobalSubdomain
+	for rows.Next() {
+		var s GlobalSubdomain
+		if err := rows.Scan(&s.Domain, &s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &s.IsLive, &s.Techs, &s.CNAMEs); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan global subdomain: %v", err)
+		}
+		subs = append(subs, s)
+	}
+
+	if rows.Err() != nil {
+		return nil, 0, fmt.Errorf("failed to iterate global subdomains: %v", rows.Err())
+	}
+	return subs, total, nil
 }
 
 // ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain.
@@ -1244,8 +1333,8 @@ func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) e
 			total_phases = $2,
 			phase_name = $3,
 			phase_start_time = $4,
-			completed_phases = $5,
-			failed_phases = $6,
+			completed_phases = CASE WHEN $5 = '[]' THEN completed_phases ELSE $5 END,
+			failed_phases = CASE WHEN $6 = '[]' THEN failed_phases ELSE $6 END,
 			files_uploaded = $7,
 			error_count = $8,
 			last_update = $9,
@@ -1257,6 +1346,37 @@ func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) e
 	
 	if err != nil {
 		return fmt.Errorf("failed to update scan progress: %v", err)
+	}
+	return nil
+}
+
+// AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
+func (p *PostgresDB) AppendScanPhase(scanID, phaseName string, failed bool) error {
+	col := "completed_phases"
+	if failed {
+		col = "failed_phases"
+	}
+	// Read current value, append, write back
+	var raw []byte
+	err := p.pool.QueryRow(p.ctx, fmt.Sprintf(`SELECT %s FROM scans WHERE scan_id = $1`, col), scanID).Scan(&raw)
+	if err != nil {
+		return fmt.Errorf("AppendScanPhase read: %v", err)
+	}
+	var phases []string
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &phases)
+	}
+	// Avoid duplicates
+	for _, ph := range phases {
+		if ph == phaseName {
+			return nil
+		}
+	}
+	phases = append(phases, phaseName)
+	data, _ := json.Marshal(phases)
+	_, err = p.pool.Exec(p.ctx, fmt.Sprintf(`UPDATE scans SET %s = $1, last_update = NOW(), updated_at = NOW() WHERE scan_id = $2`, col), string(data), scanID)
+	if err != nil {
+		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
 	return nil
 }
@@ -1603,6 +1723,36 @@ func (p *PostgresDB) AddVulnerableDNSProvider(name, fingerprint string) error {
 		return fmt.Errorf("failed to add dns provider: %v", err)
 	}
 	return nil
+}
+
+// UpdateSubdomainTech updates the technology stack string for a resolved subdomain
+func (p *PostgresDB) UpdateSubdomainTech(domain, subdomain, techs string) error {
+	domainID, err := p.InsertOrGetDomain(domain)
+	if err != nil {
+		return err
+	}
+	
+	_, err = p.pool.Exec(p.ctx, `
+		UPDATE subdomains 
+		SET techs = $1, updated_at = NOW() 
+		WHERE domain_id = $2 AND subdomain = $3
+	`, techs, domainID, subdomain)
+	return err
+}
+
+// UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
+func (p *PostgresDB) UpdateSubdomainCNAME(domain, subdomain, cnames string) error {
+	domainID, err := p.InsertOrGetDomain(domain)
+	if err != nil {
+		return err
+	}
+	
+	_, err = p.pool.Exec(p.ctx, `
+		UPDATE subdomains 
+		SET cnames = $1, updated_at = NOW() 
+		WHERE domain_id = $2 AND subdomain = $3
+	`, cnames, domainID, subdomain)
+	return err
 }
 
 // Close closes the database connection pool

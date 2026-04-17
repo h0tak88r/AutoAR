@@ -103,3 +103,50 @@ func findEnvFile() string {
 
 	return ""
 }
+
+// UpdateEnv updates a specific key in the .env file, or appends it if missing.
+func UpdateEnv(key, value string) error {
+	os.Setenv(key, value)
+	envPath := findEnvFile()
+	if envPath == "" {
+		// Create .env in current directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		envPath = filepath.Join(cwd, ".env")
+		os.WriteFile(envPath, []byte(fmt.Sprintf("%s=\"%s\"\n", key, value)), 0644)
+		return nil
+	}
+
+	content, err := os.ReadFile(envPath)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(content), "\n")
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "=", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
+			lines[i] = fmt.Sprintf("%s=\"%s\"", key, value)
+			found = true
+			break
+		}
+	}
+	if !found {
+		if len(lines) > 0 && lines[len(lines)-1] != "" {
+			lines = append(lines, "")
+		}
+		lines = append(lines, fmt.Sprintf("%s=\"%s\"", key, value))
+	}
+	
+	newContent := strings.Join(lines, "\n")
+	if !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+	return os.WriteFile(envPath, []byte(newContent), 0644)
+}

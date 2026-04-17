@@ -223,23 +223,32 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
-	// Write JSON results to scan directory (local-first)
+	// Write structured JSON for the dashboard — one finding per discovered backup URL.
+	// template-id = "Exposed Backup File", matched-at = URL, severity = high
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && res.FoundCount > 0 {
 		data, readErr := os.ReadFile(res.ResultsFile)
 		if readErr == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			var nonEmpty []string
-			for _, l := range lines {
-				if strings.TrimSpace(l) != "" {
-					nonEmpty = append(nonEmpty, l)
+			type backupFinding struct {
+				TemplateID string `json:"template-id"`
+				MatchedAt  string `json:"matched-at"`
+				Severity   string `json:"severity"`
+			}
+			var findings []backupFinding
+			for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				l = strings.TrimSpace(l)
+				if l == "" || !strings.Contains(l, "http") {
+					continue
 				}
+				findings = append(findings, backupFinding{
+					TemplateID: "Exposed Backup File",
+					MatchedAt:  l,
+					Severity:   "high",
+				})
 			}
-			target := opts.Domain
-			if target == "" {
-				target = "backup-scan"
-			}
-			if err := utils.WriteLinesAsJSON(scanID, target, "backup", "backup-vulnerabilities.json", nonEmpty); err != nil {
-				log.Printf("[WARN] Failed to write backup JSON: %v", err)
+			if len(findings) > 0 {
+				if err := utils.WriteJSONToScanDir(scanID, "backup-vulnerabilities.json", findings); err != nil {
+					log.Printf("[WARN] Failed to write backup JSON: %v", err)
+				}
 			}
 		}
 	}
