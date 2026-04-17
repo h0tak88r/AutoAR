@@ -219,6 +219,8 @@ func setupAPI() *gin.Engine {
 		// Bug bounty scope / target fetch endpoints
 		apiGroup.POST("/scope/fetch", apiFetchScope)
 		apiGroup.GET("/scope/platforms", apiScopePlatforms)
+		// AI finding validation
+		apiGroup.POST("/findings/validate", apiValidateFinding)
 	}
 
 	// Scan endpoints

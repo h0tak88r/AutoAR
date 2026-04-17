@@ -3735,11 +3735,17 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
 
         // ── Target URL ─────────────────────────────────────────────────
         const target = String(r.host || r.target || '-');
-        const href   = target.startsWith('http') ? target : '#';
+        let href = '#';
+        if (target.startsWith('http://') || target.startsWith('https://')) {
+          href = target;
+        } else if (target && target !== '-' && target !== '—') {
+          href = 'https://' + target;
+        }
 
-        return `<tr class="findings-row" style="${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+        return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(vulnType)}" data-severity="${escAttr(sev)}" data-module="${escAttr(r.module||'')}" data-href="${escAttr(href)}" style="${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}" title="Right-click for options">
           <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
             <a href="${esc(href)}" target="_blank" rel="noopener"
+               onclick="event.stopPropagation()"
                title="${esc(target)}"
                style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(target)}</a>
           </td>
@@ -3842,8 +3848,124 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   if (hostInput) hostInput.addEventListener('input', applyFiltersDebounced);
   if (titleInput) titleInput.addEventListener('input', applyFiltersDebounced);
   if (severitySel) severitySel.addEventListener('change', applyFilters);
+
+  // ── Right-click context menu on findings rows ──────────────────────────────
+  let _ctxMenu = document.getElementById('findings-ctx-menu');
+  if (!_ctxMenu) {
+    _ctxMenu = document.createElement('div');
+    _ctxMenu.id = 'findings-ctx-menu';
+    _ctxMenu.style.cssText = 'position:fixed;z-index:9999;background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:4px 0;min-width:190px;box-shadow:0 8px 32px rgba(0,0,0,.6);display:none';
+    _ctxMenu.innerHTML = `
+      <div class="ctx-item" id="ctx-copy-target" style="padding:9px 16px;font-size:12px;cursor:pointer;color:var(--text-primary);display:flex;align-items:center;gap:8px">📋 Copy Target</div>
+      <div class="ctx-item" id="ctx-copy-finding" style="padding:9px 16px;font-size:12px;cursor:pointer;color:var(--text-primary);display:flex;align-items:center;gap:8px">📝 Copy Finding</div>
+      <div class="ctx-item" id="ctx-open-url" style="padding:9px 16px;font-size:12px;cursor:pointer;color:var(--accent-cyan);display:flex;align-items:center;gap:8px">🌐 Open in Browser</div>
+      <div style="border-top:1px solid var(--border);margin:4px 0"></div>
+      <div class="ctx-item" id="ctx-validate-ai" style="padding:9px 16px;font-size:12px;cursor:pointer;color:#a78bfa;display:flex;align-items:center;gap:8px">🤖 Validate with AI</div>`;
+    document.body.appendChild(_ctxMenu);
+    // Hover styles
+    _ctxMenu.querySelectorAll('.ctx-item').forEach(el => {
+      el.addEventListener('mouseenter', () => el.style.background = 'rgba(255,255,255,.06)');
+      el.addEventListener('mouseleave', () => el.style.background = '');
+    });
+  }
+  let _ctxRow = null;
+  const closeCtx = () => { _ctxMenu.style.display = 'none'; _ctxRow = null; };
+  document.addEventListener('click', closeCtx, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCtx(); });
+
+  root.addEventListener('contextmenu', e => {
+    const row = e.target.closest('.findings-row');
+    if (!row || !root.contains(row)) return;
+    e.preventDefault();
+    _ctxRow = row;
+    // Position menu
+    const x = Math.min(e.clientX, window.innerWidth - 210);
+    const y = Math.min(e.clientY, window.innerHeight - 160);
+    _ctxMenu.style.left = x + 'px';
+    _ctxMenu.style.top = y + 'px';
+    _ctxMenu.style.display = 'block';
+  });
+
+  _ctxMenu.querySelector('#ctx-copy-target')?.addEventListener('click', async () => {
+    if (!_ctxRow) return; closeCtx();
+    await copyToClipboard(_ctxRow.dataset.target || '').catch(() => {});
+    showToast('success', 'Copied', _ctxRow.dataset.target || '');
+  });
+  _ctxMenu.querySelector('#ctx-copy-finding')?.addEventListener('click', async () => {
+    if (!_ctxRow) return; closeCtx();
+    await copyToClipboard(_ctxRow.dataset.finding || '').catch(() => {});
+    showToast('success', 'Copied', _ctxRow.dataset.finding || '');
+  });
+  _ctxMenu.querySelector('#ctx-open-url')?.addEventListener('click', () => {
+    if (!_ctxRow) return; closeCtx();
+    const href = _ctxRow.dataset.href;
+    if (href && href !== '#') window.open(href, '_blank', 'noopener');
+    else showToast('error', 'No URL', 'Target has no valid URL.');
+  });
+  _ctxMenu.querySelector('#ctx-validate-ai')?.addEventListener('click', () => {
+    if (!_ctxRow) return; closeCtx();
+    openValidateModal(_ctxRow.dataset.target, _ctxRow.dataset.finding, _ctxRow.dataset.severity, _ctxRow.dataset.module);
+  });
 }
 
+// ── AI Validate Finding Modal ─────────────────────────────────────────────────
+function openValidateModal(target, findingType, severity, module_) {
+  let modal = document.getElementById('validate-finding-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'validate-finding-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.innerHTML = `
+      <div style="background:var(--bg-card,#1e293b);border:1px solid var(--border);border-radius:16px;max-width:780px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.8)">
+        <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+          <div>
+            <div style="font-size:16px;font-weight:700;color:var(--text-primary)">🤖 AI Finding Validation</div>
+            <div id="validate-modal-sub" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+          </div>
+          <button id="validate-modal-close" style="background:transparent;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px 8px">✕</button>
+        </div>
+        <div id="validate-modal-body" style="padding:24px;overflow-y:auto;flex:1;font-size:13px;line-height:1.7;color:var(--text-secondary)">
+          <div style="text-align:center;padding:40px">
+            <div style="font-size:32px;margin-bottom:12px">⏳</div>
+            <div style="color:var(--text-muted)">Asking AI to validate this finding…</div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    modal.querySelector('#validate-modal-close').addEventListener('click', () => { modal.style.display = 'none'; });
+  }
+  modal.style.display = 'flex';
+  modal.querySelector('#validate-modal-sub').textContent = `${target || '—'} · ${findingType || '—'}`;
+  const body = modal.querySelector('#validate-modal-body');
+  body.innerHTML = `<div style="text-align:center;padding:40px"><div style="font-size:32px;margin-bottom:12px">⏳</div><div style="color:var(--text-muted)">Asking AI to validate this finding…</div></div>`;
+
+  // ── Call backend validate endpoint ──────────────────────────────────────────
+  apiPost('/api/findings/validate', {
+    target: target || '',
+    finding_type: findingType || '',
+    severity: severity || '',
+    module: module_ || '',
+    raw_finding: `${target} - ${findingType}`,
+  }).then(res => {
+    // Render markdown-ish response
+    const html = (res.analysis || 'No analysis returned.')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^#{1,3}\s(.+)$/gm, '<div style="font-size:14px;font-weight:700;color:var(--accent-cyan);margin:16px 0 6px">$1</div>')
+      .replace(/^(\d+)\.\s/gm, '<br><strong>$1.</strong> ')
+      .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,.08);border-radius:4px;padding:1px 6px;font-family:monospace;font-size:11px">$1</code>')
+      .replace(/\n/g, '<br>');
+    body.innerHTML = `<div style="padding:4px 0">${html}</div>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap">
+        <button onclick="copyToClipboard(document.getElementById('validate-finding-modal').querySelector('#validate-modal-body').innerText).then(()=>showToast('success','Copied','Analysis copied to clipboard'))" class="btn btn-ghost" style="font-size:12px;padding:6px 14px">📋 Copy Analysis</button>
+      </div>`;
+  }).catch(err => {
+    body.innerHTML = `<div style="color:#ef4444;padding:20px">❌ AI validation failed: ${esc(err.message)}</div>`;
+  });
+}
+
+// ── Find module file content helper (existing) ───────────────────────────────
 /** Find module file content container by file_name */
 function findModuleFileContent(container, r2Key) {
   const allContent = container.querySelectorAll('.module-file-content[data-r2-key]');
@@ -3937,6 +4059,14 @@ function renderAssetsGrid(container, assets) {
         <option value="live">Alive Only</option>
         <option value="dead">Dead / Unknown</option>
       </select>
+      <select id="asset-code-filter" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:12px">
+        <option value="all">Any HTTP Code</option>
+        <option value="200">2xx Success</option>
+        <option value="301">3xx Redirect</option>
+        <option value="403">403 Forbidden</option>
+        <option value="404">404 Not Found</option>
+        <option value="500">5xx Error</option>
+      </select>
       <div style="display:flex;align-items:center;font-size:12px;color:var(--text-muted);padding:0 6px">
         <span id="asset-count-shown">${assets.length}</span>&nbsp;hosts shown
       </div>
@@ -3959,14 +4089,24 @@ function renderAssetsGrid(container, assets) {
   // Live filter wiring
   const searchEl = container.querySelector('#asset-search');
   const statusEl = container.querySelector('#asset-status-filter');
+  const codeEl   = container.querySelector('#asset-code-filter');
   const countEl  = container.querySelector('#asset-count-shown');
   const tbody    = container.querySelector('#asset-tbody');
   const applyFilter = () => {
     const q  = (searchEl?.value || '').toLowerCase().trim();
     const st = statusEl?.value || 'all';
+    const cd = codeEl?.value || 'all';
     const filtered = assets.filter(a => {
       if (st === 'live' && !a.is_live) return false;
       if (st === 'dead' && a.is_live) return false;
+      if (cd !== 'all') {
+        const code = a.status_code || 0;
+        if (cd === '200' && !(code >= 200 && code < 300)) return false;
+        if (cd === '301' && !(code >= 300 && code < 400)) return false;
+        if (cd === '403' && code !== 403) return false;
+        if (cd === '404' && code !== 404) return false;
+        if (cd === '500' && !(code >= 500)) return false;
+      }
       if (q) {
         const haystack = [a.host, a.title || '', ...(a.technologies || []), ...(a.cnames || [])].join(' ').toLowerCase();
         if (!haystack.includes(q)) return false;
@@ -3978,6 +4118,7 @@ function renderAssetsGrid(container, assets) {
   };
   if (searchEl) searchEl.addEventListener('input', applyFilter);
   if (statusEl) statusEl.addEventListener('change', applyFilter);
+  if (codeEl)   codeEl.addEventListener('change', applyFilter);
   
   const copyBtn = container.querySelector('#copy-all-assets-btn');
   if (copyBtn) copyBtn.addEventListener('click', async () => {
