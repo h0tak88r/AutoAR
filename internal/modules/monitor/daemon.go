@@ -177,7 +177,8 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 		"🔔 **URL Monitor Alert**\n**URL**: %s\n**Change**: content hash changed\n**Old hash**: `%s`\n**New hash**: `%s`\n**Timestamp**: %s",
 		t.URL, oldShort, newShort, time.Now().Format(time.RFC3339),
 	)
-	utils.SendWebhookLogAsync(msg)
+	log.Printf("[URL-MONITOR] Alert: %s", msg)
+	utils.SendMonitorWebhook(msg)
 }
 
 // looksLikeSHA256Hex reports whether s is a 64-char hex string (legacy hash baseline).
@@ -263,5 +264,6 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 		"🔔 **URL Monitor Alert** (regex)\n**URL**: %s\n**Change**: matched text changed\n**Old**: `%s`\n**New**: `%s`\n**Timestamp**: %s",
 		t.URL, oldDisp, newDisp, time.Now().Format(time.RFC3339),
 	)
-	utils.SendWebhookLogAsync(msg)
+	log.Printf("[URL-MONITOR] Alert: %s", msg)
+	utils.SendMonitorWebhook(msg)
 }

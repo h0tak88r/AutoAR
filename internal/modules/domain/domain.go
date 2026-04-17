@@ -101,6 +101,9 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	liveHostsFile := filepath.Join(domainDir, "subs", "live-subs.txt")
 
 	totalSteps := 19
+	if opts.SkipFFuf {
+		totalSteps = 18
+	}
 	var currentStep int32
 
 	// Helper to get next step safely
@@ -318,6 +321,12 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		}()
 	} else {
 		log.Printf("[INFO] Skipping FFuf fuzzing (requested)")
+		// Record as a skipped/unlaunched phase so it counts correctly in the UI
+		scanIDForSkip := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+		if scanIDForSkip != "" {
+			// Don't add to completed or failed; just don't add it — totalSteps accounts for it
+			log.Printf("[DEBUG] FFuf phase not launched; totalSteps adjusted to %d", totalSteps)
+		}
 	}
 
 	wgPhase4.Add(1)
@@ -514,6 +523,12 @@ func runDomainPhase(phaseKey string, step, total int, description, domain string
 
 	if err != nil {
 		log.Printf("[ERROR] Step %d/%d: %s failed: %v (duration: %s)", step, total, description, err, phaseDuration)
+		// Record as failed phase in DB
+		if scanID != "" {
+			if appendErr := db.AppendScanPhase(scanID, description, true); appendErr != nil {
+				log.Printf("[WARN] Failed to append failed phase to DB: %v", appendErr)
+			}
+		}
 		// Send error message to webhook (but avoid sending files in bot context)
 		utils.SendWebhookLogAsync(fmt.Sprintf("[ERROR] %s failed: %v", description, err))
 		if phaseKey != "" && os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
@@ -535,6 +550,12 @@ func runDomainPhase(phaseKey string, step, total int, description, domain string
 	}
 
 	log.Printf("[OK] %s completed in %s", description, phaseDuration)
+	// Record as completed phase in DB
+	if scanID != "" {
+		if appendErr := db.AppendScanPhase(scanID, description, false); appendErr != nil {
+			log.Printf("[WARN] Failed to append completed phase to DB: %v", appendErr)
+		}
+	}
 
 	// Upload phase files to R2 if enabled (always, regardless of bot context)
 	// This ensures files are uploaded to R2 for tracking and bot response

@@ -38,6 +38,13 @@ type DB interface {
 	ListSubdomains(domain string) ([]string, error)
 	// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain
 	ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error)
+	// ListAllSubdomainsPaginated returns a paginated global list of subdomains matching a search and filters
+	ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error)
+	
+	// UpdateSubdomainTech updates the technology stack string for a resolved subdomain
+	UpdateSubdomainTech(domain, subdomain, techs string) error
+	// UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
+	UpdateSubdomainCNAME(domain, subdomain, cnames string) error
 	// ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain
 	ListLiveSubdomains(domain string) ([]SubdomainStatus, error)
 	// CountSubdomains returns the count of subdomains for a given domain
@@ -111,6 +118,8 @@ type DB interface {
 	DeleteScan(scanID string) error
 	// CountScansWithTargetExcluding counts rows with the same target excluding one scan_id.
 	CountScansWithTargetExcluding(excludeScanID, target string) (int, error)
+	// AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
+	AppendScanPhase(scanID, phaseName string, failed bool) error
 	// ListAllScanIDs returns every scan_id in the scans table (newest first).
 	ListAllScanIDs() ([]string, error)
 	// ListScanIDsForDomainRoot returns scan IDs whose target is the root domain or a host under it (sub.example.com for example.com).
@@ -226,11 +235,20 @@ type MonitorChange struct {
 
 // SubdomainStatus represents a subdomain with its status information
 type SubdomainStatus struct {
-	Subdomain   string
-	HTTPURL     string
-	HTTPSURL    string
-	HTTPStatus  int
-	HTTPSStatus int
-	IsLive      bool
+	Subdomain   string `json:"subdomain"`
+	HTTPURL     string `json:"http_url"`
+	HTTPSURL    string `json:"https_url"`
+	HTTPStatus  int    `json:"http_status"`
+	HTTPSStatus int    `json:"https_status"`
+	IsLive      bool   `json:"is_live"`
+	Techs       string `json:"techs,omitempty"`
+	CNAMEs      string `json:"cnames,omitempty"`
 }
+
+// GlobalSubdomain extends SubdomainStatus with the root domain
+type GlobalSubdomain struct {
+	SubdomainStatus
+	Domain string `json:"domain"`
+}
+
 

@@ -181,7 +181,9 @@ func persistAndNotifyChanges(t db.SubdomainMonitorTarget, result *MonitorResult)
 		}
 	}
 
-	utils.SendWebhookLogAsync(formatChangeAlert(t.Domain, result))
+	msg := formatChangeAlert(t.Domain, result)
+	log.Printf("[SUBDOMAIN-MONITOR] Alert: %s", msg)
+	utils.SendMonitorWebhook(msg)
 }
 
 // formatChangeAlert returns a Discord-ready markdown summary of detected changes.

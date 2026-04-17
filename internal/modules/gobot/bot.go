@@ -371,6 +371,22 @@ func StartAPI() error {
 	apiHostEnv := getEnv("API_HOST", "0.0.0.0")
 	apiPortEnv := getEnv("API_PORT", "8000")
 
+	// Initialize Logger
+	logConfig := utils.LogConfig{
+		Level:      "info",
+		FilePath:   "api.log",
+		MaxSize:    100,
+		MaxAge:     7,
+		MaxBackups: 3,
+		Compress:   true,
+		JSONFormat: true,
+	}
+	if err := utils.InitLogger(logConfig); err != nil {
+		log.Printf("[WARN] Failed to initialize API logger: %v", err)
+	} else {
+		log.Printf("[INFO] API Logger initialized")
+	}
+
 	// Initialize database if configured
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err != nil {

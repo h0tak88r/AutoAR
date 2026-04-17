@@ -580,9 +580,6 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 			log.Printf("[OK] MongoDB CVE-2025-14847: Vulnerable! Leaked %d bytes from %s", len(leakedData), address)
 		}
 		
-		// Send real-time webhook notification for MongoDB vulnerability
-		message := fmt.Sprintf("🔴 **Zerodays Vulnerability Found**\n**Host:** `%s:%d`\n**CVE:** CVE-2025-14847 (MongoDB Memory Leak)\n**Leaked:** %d bytes\n**Severity:** HIGH", host, port, len(leakedData))
-		utils.SendWebhookLogAsync(message)
 	} else {
 		if !silent {
 			log.Printf("[INFO] MongoDB CVE-2025-14847: Not vulnerable or patched on %s", address)
@@ -713,20 +710,12 @@ func runNext88Scan(ctx context.Context, hosts []string, args []string, requested
 		return nil, fmt.Errorf("next88 scan failed: %w", err)
 	}
 	
-	// Convert results to map and send real-time webhook notifications
+	// Convert results to map
 	for _, result := range scanResults {
 		if result.Vulnerable != nil && *result.Vulnerable {
 			mu.Lock()
 			results[result.Host] = result.VulnType
 			mu.Unlock()
-			
-			// Send real-time webhook notification for this vulnerability
-			vulnType := result.VulnType
-			if vulnType == "" {
-				vulnType = "React2Shell"
-			}
-			message := fmt.Sprintf("🔴 **Zerodays Vulnerability Found**\n**Host:** `%s`\n**CVE:** CVE-2025-55182 (React2Shell RCE)\n**Type:** `%s`\n**Severity:** HIGH", result.Host, vulnType)
-			utils.SendWebhookLogAsync(message)
 		}
 	}
 

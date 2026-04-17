@@ -146,6 +146,7 @@ func reconcileStaleScansOnStartup() {
 // Setup API routes
 func setupAPI() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
+	gin.DefaultWriter = utils.GetLogger().Out
 	r := gin.Default()
 
 	reconcileStaleScansOnStartup()
@@ -171,6 +172,7 @@ func setupAPI() *gin.Engine {
 
 	// Public: SPA reads these before login (no JWT).
 	r.GET("/api/config", apiConfigHandler)
+	r.POST("/api/settings", auth, apiUpdateSettingsHandler)
 	r.POST("/api/auth/login", apiLocalAuthLogin)
 
 	// ── Dashboard data API (protected when DASHBOARD_USER/PASSWORD is set) ───
@@ -179,8 +181,11 @@ func setupAPI() *gin.Engine {
 	{
 		apiGroup.GET("/dashboard/stats", apiDashboardStats)
 		apiGroup.GET("/domains", apiListDomains)
+		apiGroup.POST("/domains", apiAddDomain)          // single add
+		apiGroup.POST("/domains/bulk", apiAddDomainsBulk) // batch add
 		apiGroup.DELETE("/domains/:domain", apiDeleteDomain)
 		apiGroup.GET("/domains/:domain/subdomains", apiListSubdomains)
+		apiGroup.GET("/subdomains", apiAllSubdomainsPaginated)
 		apiGroup.GET("/scans", apiListScans)
 		apiGroup.GET("/scans/:id/results/summary", apiScanResultsSummary)
 		apiGroup.GET("/scans/:id/results/files", apiScanResultFiles)
@@ -195,6 +200,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/scans/:id/cancel", apiCancelScan)
 		apiGroup.POST("/scans/:id/pause", apiPauseScan)
 		apiGroup.POST("/scans/:id/resume", apiResumeScan)
+		apiGroup.POST("/scans/:id/rescan", apiRescan)
 		apiGroup.GET("/monitor/targets", apiMonitorTargets)
 		apiGroup.GET("/monitor/subdomain-targets", apiSubdomainMonitorTargets)
 		apiGroup.GET("/monitor/changes", apiMonitorChanges)
@@ -210,6 +216,10 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiResumeMonitorSubdomainTarget)
 		apiGroup.GET("/r2/files", apiR2Files)
 		apiGroup.POST("/r2/delete", apiR2Delete)
+		apiGroup.GET("/logs", apiSystemLogs)
+		// Bug bounty scope / target fetch endpoints
+		apiGroup.POST("/scope/fetch", apiFetchScope)
+		apiGroup.GET("/scope/platforms", apiScopePlatforms)
 	}
 
 	// Scan endpoints
@@ -230,6 +240,7 @@ func setupAPI() *gin.Engine {
 		api.POST("/gf", scanGF)
 		api.POST("/dns-takeover", scanDNSTakeover)
 		api.POST("/dns", scanDNS) // New unified DNS endpoint (supports takeover and dangling-ip)
+		api.POST("/dns-cf1016", scanDNSCF1016) // Cloudflare 1016 dangling DNS scan
 		api.POST("/s3", scanS3)
 		api.POST("/github", scanGitHub)
 		api.POST("/github_org", scanGitHubOrg)
@@ -1110,6 +1121,56 @@ func scanDNS(c *gin.Context) {
 	})
 }
 
+// scanDNSCF1016 handles Cloudflare 1016 dangling DNS scan requests.
+// Accepts domain or subdomain (list mode is handled by the UI dispatching individual requests).
+func scanDNSCF1016(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	scanID := generateScanID()
+	var command []string
+	var target string
+
+	switch {
+	case req.Domain != nil && *req.Domain != "":
+		target = *req.Domain
+		command = []string{getAutoarScriptPath(), "dns", "cf1016", "-d", target}
+	case req.Subdomain != nil && *req.Subdomain != "":
+		target = *req.Subdomain
+		command = []string{getAutoarScriptPath(), "dns", "cf1016", "-s", target}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain is required"})
+		return
+	}
+
+	go executeScan(scanID, command, "dns_cf1016")
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("Cloudflare 1016 dangling DNS scan started for %s", target),
+		Command: strings.Join(command, " "),
+	})
+}
+
+// extractRootDomain strips subdomains to return the root domain (e.g. "api.example.com" → "example.com").
+// Returns an empty string if the input is itself a root domain or invalid.
+func extractRootDomain(host string) string {
+	host = strings.TrimSpace(host)
+	host = strings.TrimPrefix(strings.TrimPrefix(host, "http://"), "https://")
+	if i := strings.Index(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) <= 2 {
+		return "" // Already a root domain — return empty so caller keeps original
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
+
 // scanFFuf handles FFuf fuzzing requests
 func scanFFuf(c *gin.Context) {
 	var req ScanRequest
@@ -1729,12 +1790,22 @@ func executeScan(scanID string, command []string, scanType string) {
 	// #8: db.Init() is idempotent (guarded by nil-check in db.go); EnsureSchema is sync.Once.
 	_ = db.Init()
 	_ = db.EnsureSchema()
+	// Set initial total phases based on scan type.
+	// Workflow scans (domain_run / subdomain_run) track ~19 sub-phases via the
+	// subprocess; atomic one-shot scans (cf1016, misconfig, s3, …) are a single
+	// indivisible step and should show 0 phases so the UI never shows phantom
+	// "skipped" stages.
+	initialTotalPhases := 0 // default: no sub-phase tracking
+	switch scanType {
+	case "domain_run", "subdomain_run":
+		initialTotalPhases = 19
+	}
 	dbRecord := &db.ScanRecord{
 		ScanID:      scanID,
 		ScanType:    scanType,
 		Target:      target,
 		Status:      "running",
-		TotalPhases: 1,
+		TotalPhases: initialTotalPhases,
 		StartedAt:   startedAt,
 		LastUpdate:  startedAt,
 		Command:     strings.Join(command, " "),
@@ -1801,6 +1872,57 @@ func executeScan(scanID string, command []string, scanType string) {
 	if dbErr := db.UpdateScanResult(scanID, finalStatus, resultURL); dbErr != nil {
 		log.Printf("[executeScan] Failed to update DB status for %s: %v", scanID, dbErr)
 	}
+
+	// For atomic one-shot scans: mark the scan's single task as completed/failed
+	// so the dashboard shows a clean result instead of "0 done · N skipped".
+	if initialTotalPhases == 0 {
+		scanLabel := map[string]string{
+			"dns_cf1016": "CF1016 Dangling DNS", "dns-cf1016": "CF1016 Dangling DNS",
+			"misconfig": "Misconfiguration", "s3": "S3 Bucket",
+			"github": "GitHub Recon", "github_org": "GitHub Org Recon",
+			"jwt": "JWT Scan", "apkx": "APK Analysis",
+			"dns-takeover": "DNS Takeover", "dns-dangling-ip": "Dangling IP",
+			"nuclei": "Nuclei Scan", "tech": "Tech Detection",
+			"ports": "Port Scan", "gf": "GF Patterns",
+		}[scanType]
+		if scanLabel == "" {
+			scanLabel = scanType
+		}
+		phaseEntry := scanLabel + " scan"
+		phaseFailed := finalStatus == "failed"
+		_ = db.AppendScanPhase(scanID, phaseEntry, phaseFailed)
+		// Also update total_phases to 1 so the UI can compute 100%.
+		progress := &db.ScanProgress{
+			CurrentPhase:    1,
+			TotalPhases:     1,
+			PhaseName:       phaseEntry,
+			CompletedPhases: []string{phaseEntry},
+		}
+		if phaseFailed {
+			progress.CompletedPhases = nil
+		}
+		_ = db.UpdateScanProgress(scanID, progress)
+	}
+
+	// For subdomain_run: index the scanned subdomain into the domain DB so it
+	// appears in the Subdomains tab under the correct root domain.
+	if scanType == "subdomain_run" && finalStatus == "completed" && target != "" {
+		go func(sub string) {
+			rootDomain := extractRootDomain(sub)
+			if rootDomain == "" {
+				rootDomain = sub
+			}
+			if _, err := db.InsertOrGetDomain(rootDomain); err != nil {
+				log.Printf("[executeScan] failed to upsert domain %s for subdomain_run: %v", rootDomain, err)
+				return
+			}
+			if err := db.InsertSubdomain(rootDomain, sub, true, "https://"+sub, "", 200, 0); err != nil {
+				log.Printf("[executeScan] failed to insert subdomain %s under %s: %v", sub, rootDomain, err)
+			} else {
+				log.Printf("[executeScan] indexed subdomain %s under root domain %s", sub, rootDomain)
+			}
+		}(target)
+	}
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
 	indexScanArtifacts(scanID, scanType, target)
 	// domain_run / subdomain_run delete local results after upload — backfill from R2 for the UI table.
@@ -1854,13 +1976,27 @@ func indexScanArtifacts(scanID, scanType, target string) {
 		return
 	}
 	roots := make([]string, 0, 8)
-	if target != "" {
+
+	// Scan types that write to new-results/<target>/ (the full domain dir).
+	// These are workflow scans that own the entire target directory.
+	domainRootTypes := map[string]bool{
+		"domain_run": true, "subdomain_run": true, "lite": true,
+		"subdomains": true, "livehosts": true, "cnames": true,
+		"urls": true, "js": true, "jsscan": true, "reflection": true,
+		"nuclei": true, "tech": true, "ports": true, "gf": true,
+		"backup": true, "aem": true, "depconfusion": true, "wp_confusion": true,
+		"zerodays": true,
+	}
+
+	if domainRootTypes[scanType] && target != "" {
 		roots = append(roots, filepath.Join(resultsDir, target))
 	}
+
 	switch scanType {
 	case "misconfig":
 		if target != "" {
 			roots = append(roots, filepath.Join(resultsDir, "misconfig", target))
+			roots = append(roots, filepath.Join(resultsDir, target, "misconfig"))
 		}
 	case "s3":
 		if target != "" {
@@ -1878,6 +2014,21 @@ func indexScanArtifacts(scanID, scanType, target string) {
 		roots = append(roots, filepath.Join(resultsDir, "jwt-scan"))
 	case "apkx":
 		roots = append(roots, filepath.Join(resultsDir, "apkx"))
+	// DNS-specific scans: only index from their specific output dir, never the whole domain root.
+	case "dns-takeover", "dns-dangling-ip":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover"))
+		}
+	case "dns_cf1016", "dns-cf1016":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, target, "vulnerabilities", "cf1016"))
+			// Also pick up enumerated subdomains file (all-subs.txt / live-subs.txt written by the enumeration step)
+			roots = append(roots, filepath.Join(resultsDir, target, "subs"))
+		}
+	case "dns-takeover-legacy", "dns_takeover_legacy":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover"))
+		}
 	}
 
 	// Ensure scan results directory exists for local-first file storage
@@ -2042,6 +2193,54 @@ func shouldSkipArtifact(path string) bool {
 	}
 	if strings.EqualFold(name, "temp-url.txt") {
 		return true
+	}
+	// Raw .txt files that are superseded by structured JSON equivalents:
+	// misconfig-scan-results.txt → misconfig-vulnerabilities.json
+	// ffuf-results.txt / ffuf-webhook-messages.txt → ffuf-results.json
+	// kxss-results.txt → xss-reflection-vulnerabilities.json
+	// exposure-findings.txt → exposure-vulnerabilities.json
+	skipByName := []string{
+		"misconfig-scan-results.txt",
+		"ffuf-results.txt",
+		"ffuf-webhook-messages.txt",
+		"kxss-results.txt",
+		"exposure-findings.txt",
+		// Local debug-only summaries — not findings
+		"nuclei-summary.txt",
+		// Pipeline input files — subdomains/URLs are never findings
+		"all-subs.txt",
+		"live-subs.txt",
+		"live-hosts.txt",
+		"all-urls.txt",
+		"subdomains.txt",
+		"enumerated-subs.txt",
+		// URL corpus JSON envelopes (WriteLinesAsJSON format) — recon, not vulns
+		"urls.json",
+		"js-urls.json",
+		// Subdomain and port list envelopes — raw line lists, not findings
+		"subdomains.json",
+		"ports.json",
+		// Live hosts — already served by /assets endpoint
+		"livehosts.json",
+		// CNAME recon — served by DNS/cnames section, not findings
+		"cname-records.json",
+	}
+	for _, skip := range skipByName {
+		if strings.EqualFold(name, skip) {
+			return true
+		}
+	}
+	// DNS raw intermediate files → superseded by dns-takeover-vulnerabilities.json
+	rawDNSFiles := []string{
+		"dangling-ip.txt", "ns-takeover-raw.txt", "ns-servers-vuln.txt",
+		"ns-filtered-vulns.txt", "azure-takeover.txt", "aws-takeover.txt",
+		"gcp-takeover.txt", "cloudflare-tunnel-errors.txt",
+		"cname-takeover-raw.txt", "cname-takeover.txt", "cname-takeover-vulnerable.txt",
+	}
+	for _, skip := range rawDNSFiles {
+		if strings.EqualFold(name, skip) {
+			return true
+		}
 	}
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {

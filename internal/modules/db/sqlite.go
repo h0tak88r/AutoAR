@@ -263,6 +263,13 @@ func (s *SQLiteDB) InitSchema() error {
 			return fmt.Errorf("failed to migrate scans.result_url: %v", merr)
 		}
 	}
+	// Migrate techs/cnames back to SQLite database subdomains
+	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN techs TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		log.Printf("[WARN] Failed to add subdomains.techs column: %v", merr)
+	}
+	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN cnames TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		log.Printf("[WARN] Failed to add subdomains.cnames column: %v", merr)
+	}
 	// Migrate scan_artifacts table: add module and category columns
 	if _, merr := s.db.Exec(`ALTER TABLE scan_artifacts ADD COLUMN module TEXT`); merr != nil {
 		low := strings.ToLower(merr.Error())
@@ -355,9 +362,11 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 	stmt, err := tx.Prepare(`
 		INSERT INTO subdomains (domain_id, subdomain, is_live, http_url, https_url, http_status, https_status, updated_at)
 		VALUES (?, ?, ?, '', '', 0, 0, ?)
-		ON CONFLICT (subdomain) DO UPDATE SET 
+		ON CONFLICT (subdomain) DO UPDATE SET
 			updated_at = ?,
-			domain_id = excluded.domain_id;
+			domain_id  = excluded.domain_id,
+			-- Never downgrade is_live from true→false
+			is_live    = CASE WHEN excluded.is_live = 1 THEN 1 ELSE subdomains.is_live END;
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %v", err)
@@ -636,7 +645,9 @@ func (s *SQLiteDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, e
 		       COALESCE(s.https_url, ''), 
 		       COALESCE(s.http_status, 0), 
 		       COALESCE(s.https_status, 0),
-		       COALESCE(s.is_live, 0)
+		       COALESCE(s.is_live, 0),
+		       COALESCE(s.techs, ''),
+		       COALESCE(s.cnames, '')
 		FROM subdomains s
 		JOIN domains d ON s.domain_id = d.id
 		WHERE d.domain = ?
@@ -651,7 +662,7 @@ func (s *SQLiteDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, e
 	for rows.Next() {
 		var s SubdomainStatus
 		var isLiveInt int
-		if err := rows.Scan(&s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &isLiveInt); err != nil {
+		if err := rows.Scan(&s.Subdomain, &s.HTTPURL, &s.HTTPSURL, &s.HTTPStatus, &s.HTTPSStatus, &isLiveInt, &s.Techs, &s.CNAMEs); err != nil {
 			return nil, fmt.Errorf("failed to scan subdomain status: %v", err)
 		}
 		s.IsLive = isLiveInt != 0
@@ -661,6 +672,73 @@ func (s *SQLiteDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, e
 		return nil, fmt.Errorf("failed to iterate subdomains: %v", rows.Err())
 	}
 	return subs, nil
+}
+
+// ListAllSubdomainsPaginated returns a subset of all tracked subdomains across all domains.
+func (s *SQLiteDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	searchStr := "%" + search + "%"
+	techStr := "%" + techFilter + "%"
+	cnameStr := "%" + cnameFilter + "%"
+	
+	var total int
+	err := s.db.QueryRow(`
+		SELECT COUNT(s.id)
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE (? = '%%' OR s.subdomain LIKE ? OR d.domain LIKE ?)
+		  AND (? = '%%' OR COALESCE(s.techs, '') LIKE ?)
+		  AND (? = '%%' OR COALESCE(s.cnames, '') LIKE ?)
+		  AND (? = 0 OR COALESCE(s.http_status, 0) = ? OR COALESCE(s.https_status, 0) = ?)
+	`, searchStr, searchStr, searchStr, techStr, techStr, cnameStr, cnameStr, statusFilter, statusFilter, statusFilter).Scan(&total)
+
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count global subdomains: %v", err)
+	}
+
+	rows, err := s.db.Query(`
+		SELECT d.domain, s.subdomain,
+		       COALESCE(s.http_url, ''),
+		       COALESCE(s.https_url, ''),
+		       COALESCE(s.http_status, 0),
+		       COALESCE(s.https_status, 0),
+		       COALESCE(s.is_live, 0),
+		       COALESCE(s.techs, ''),
+		       COALESCE(s.cnames, '')
+		FROM subdomains s
+		JOIN domains d ON s.domain_id = d.id
+		WHERE (? = '%%' OR s.subdomain LIKE ? OR d.domain LIKE ?)
+		  AND (? = '%%' OR COALESCE(s.techs, '') LIKE ?)
+		  AND (? = '%%' OR COALESCE(s.cnames, '') LIKE ?)
+		  AND (? = 0 OR COALESCE(s.http_status, 0) = ? OR COALESCE(s.https_status, 0) = ?)
+		ORDER BY d.domain ASC, s.subdomain ASC
+		LIMIT ? OFFSET ?;
+	`, searchStr, searchStr, searchStr, techStr, techStr, cnameStr, cnameStr, statusFilter, statusFilter, statusFilter, limit, offset)
+
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query global subdomains paginated: %v", err)
+	}
+	defer rows.Close()
+
+	var subs []GlobalSubdomain
+	for rows.Next() {
+		var sub GlobalSubdomain
+		if err := rows.Scan(&sub.Domain, &sub.Subdomain, &sub.HTTPURL, &sub.HTTPSURL, &sub.HTTPStatus, &sub.HTTPSStatus, &sub.IsLive, &sub.Techs, &sub.CNAMEs); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan global subdomain: %v", err)
+		}
+		subs = append(subs, sub)
+	}
+
+	if rows.Err() != nil {
+		return nil, 0, fmt.Errorf("failed to iterate global subdomains: %v", rows.Err())
+	}
+	return subs, total, nil
 }
 
 // ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain.
@@ -1180,19 +1258,48 @@ func (s *SQLiteDB) UpdateScanProgress(scanID string, progress *ScanProgress) err
 			total_phases = ?,
 			phase_name = ?,
 			phase_start_time = ?,
-			completed_phases = ?,
-			failed_phases = ?,
+			completed_phases = CASE WHEN ? = '[]' THEN completed_phases ELSE ? END,
+			failed_phases = CASE WHEN ? = '[]' THEN failed_phases ELSE ? END,
 			files_uploaded = ?,
 			error_count = ?,
 			last_update = ?,
 			updated_at = datetime('now')
 		WHERE scan_id = ?;
 	`, progress.CurrentPhase, progress.TotalPhases, progress.PhaseName, progress.PhaseStartTime,
-		completedPhasesJSON, failedPhasesJSON, progress.FilesUploaded, progress.ErrorCount,
+		completedPhasesJSON, completedPhasesJSON, failedPhasesJSON, failedPhasesJSON, progress.FilesUploaded, progress.ErrorCount,
 		time.Now(), scanID)
 	
 	if err != nil {
 		return fmt.Errorf("failed to update scan progress: %v", err)
+	}
+	return nil
+}
+
+// AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
+func (s *SQLiteDB) AppendScanPhase(scanID, phaseName string, failed bool) error {
+	col := "completed_phases"
+	if failed {
+		col = "failed_phases"
+	}
+	var raw string
+	err := s.db.QueryRow(fmt.Sprintf(`SELECT %s FROM scans WHERE scan_id = ?`, col), scanID).Scan(&raw)
+	if err != nil {
+		return fmt.Errorf("AppendScanPhase read: %v", err)
+	}
+	var phases []string
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &phases)
+	}
+	for _, ph := range phases {
+		if ph == phaseName {
+			return nil
+		}
+	}
+	phases = append(phases, phaseName)
+	data, _ := json.Marshal(phases)
+	_, err = s.db.Exec(fmt.Sprintf(`UPDATE scans SET %s = ?, last_update = ?, updated_at = datetime('now') WHERE scan_id = ?`, col), string(data), time.Now(), scanID)
+	if err != nil {
+		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
 	return nil
 }
@@ -1553,10 +1660,39 @@ func (s *SQLiteDB) AddVulnerableDNSProvider(name, fingerprint string) error {
 	return nil
 }
 
+// UpdateSubdomainTech updates the technology stack string for a resolved subdomain
+func (s *SQLiteDB) UpdateSubdomainTech(domain, subdomain, techs string) error {
+	domainID, err := s.InsertOrGetDomain(domain)
+	if err != nil {
+		return err
+	}
+	
+	_, err = s.db.Exec(`
+		UPDATE subdomains 
+		SET techs = ?, updated_at = datetime('now')
+		WHERE domain_id = ? AND subdomain = ?
+	`, techs, domainID, subdomain)
+	return err
+}
+
+// UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
+func (s *SQLiteDB) UpdateSubdomainCNAME(domain, subdomain, cnames string) error {
+	domainID, err := s.InsertOrGetDomain(domain)
+	if err != nil {
+		return err
+	}
+	
+	_, err = s.db.Exec(`
+		UPDATE subdomains 
+		SET cnames = ?, updated_at = datetime('now')
+		WHERE domain_id = ? AND subdomain = ?
+	`, cnames, domainID, subdomain)
+	return err
+}
+
 // Close closes the database connection
 func (s *SQLiteDB) Close() {
 	if s.db != nil {
 		s.db.Close()
 	}
 }
-
