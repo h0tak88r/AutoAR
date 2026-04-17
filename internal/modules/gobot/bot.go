@@ -308,7 +308,7 @@ func StartBot() error {
 	// Start HTTP API server in background BEFORE command registration
 	// This ensures the API is available immediately for subprocesses (like lite scan)
 	// Command registration can take 2+ minutes, so we start the API first
-	apiHostEnv := getEnv("API_HOST", "localhost")
+	apiHostEnv := getEnv("API_HOST", "0.0.0.0")
 	apiPortEnv := getEnv("API_PORT", "8000")
 	router := setupAPI()
 	apiAddr := fmt.Sprintf("%s:%s", apiHostEnv, apiPortEnv)
