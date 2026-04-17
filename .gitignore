@@ -94,4 +94,4 @@ autoar
 
 /backups/
 nuclei-templates/
-Rules.yml
+Rules.ymlsupabase_export.sql
