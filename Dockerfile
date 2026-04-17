@@ -11,17 +11,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install external Go-based CLI tools used by AutoAR (nuclei, trufflehog)
-# Install Nuclei
-RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+# Install external Go-based CLI tools used by AutoAR
+RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    GOBIN=/go/bin go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+    GOBIN=/go/bin go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    GOBIN=/go/bin go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
+    GOBIN=/go/bin go install -v github.com/projectdiscovery/katana/cmd/katana@latest && \
+    GOBIN=/go/bin go install -v github.com/ffuf/ffuf/v2@latest && \
+    GOBIN=/go/bin go install -v github.com/lc/gau/v2/cmd/gau@latest && \
+    GOBIN=/go/bin go install -v github.com/tomnomnom/waybackurls@latest && \
+    GOBIN=/go/bin go install -v github.com/hahwul/dalfox/v2@latest && \
+    GOBIN=/go/bin go install -v github.com/tomnomnom/anew@latest && \
+    GOBIN=/go/bin go install -v github.com/codingo/interlace@latest && \
+    GOBIN=/go/bin go install -v github.com/deletescape/goop@latest && \
+    GOBIN=/go/bin go install -v github.com/h0tak88r/misconfig-mapper@latest || true
 
-# Install TruffleHog
+# Install TruffleHog (binary handled via custom build)
 RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
     cd /tmp/trufflehog && go build -o /go/bin/trufflehog . && \
     rm -rf /tmp/trufflehog
-
-# Install Goop
-RUN go install github.com/deletescape/goop@latest
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
 
@@ -57,6 +65,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
     postgresql-client docker.io \
     openjdk-17-jre-headless unzip \
+    python3 python3-pip sqlmap nmap \
     && rm -rf /var/lib/apt/lists/*
 
 # Install jadx decompiler for apkX analysis
