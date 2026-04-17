@@ -78,40 +78,23 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 
 	resultsDir := utils.GetResultsDir()
 	domainDir := filepath.Join(resultsDir, opts.Domain)
-	urlsDir := filepath.Join(domainDir, "urls")
-	urlsFile := filepath.Join(urlsDir, "all-urls.txt")
 	outFile := filepath.Join(domainDir, "vulnerabilities", "kxss-results.txt")
 
 	if err := utils.EnsureDir(filepath.Dir(outFile)); err != nil {
 		return nil, fmt.Errorf("failed to create output dir: %w", err)
 	}
 
-	// Check if URLs file already exists before collecting (with retry logic)
-	maxRetries := 5
-	retryDelay := 500 * time.Millisecond
-	urlsFileExists := false
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		if info, err := os.Stat(urlsFile); err == nil && info.Size() > 0 {
-			urlsFileExists = true
-			break
-		}
-		if attempt < maxRetries {
-			time.Sleep(retryDelay)
-		}
-	}
-	
-	if !urlsFileExists {
+	// Get an ephemeral temp file with the URL corpus for this domain.
+	urlsFile, cleanupURLs, urlErr := utils.WriteTempURLFile(opts.Domain)
+	if urlErr != nil {
 		log.Printf("[INFO] URLs file missing, collecting URLs for %s (threads: %d)", target, opts.URLThreads)
 		urlCtx, urlCancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer urlCancel()
-		
-		// Run URL collection in goroutine with context
 		urlErrChan := make(chan error, 1)
 		go func() {
 			_, err := urls.CollectURLs(target, opts.URLThreads, skipSubdomainEnum)
 			urlErrChan <- err
 		}()
-		
 		select {
 		case err := <-urlErrChan:
 			if err != nil {
@@ -122,34 +105,17 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 			log.Printf("[WARN] URL collection timed out after 10 minutes")
 			return nil, fmt.Errorf("URL collection timed out for %s", target)
 		}
-		
-		// Wait for file to be written with retry logic
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			if info, err := os.Stat(urlsFile); err == nil && info.Size() > 0 {
-				urlsFileExists = true
-				break
+		// Retry after collection
+		urlsFile, cleanupURLs, urlErr = utils.WriteTempURLFile(opts.Domain)
+		if urlErr != nil {
+			if mkErr := os.MkdirAll(filepath.Dir(outFile), 0755); mkErr != nil {
+				return nil, fmt.Errorf("failed to create output directory: %w", mkErr)
 			}
-			if attempt < maxRetries {
-				time.Sleep(retryDelay)
-			}
+			_ = utils.WriteFile(outFile, []byte(""))
+			return &Result{Domain: opts.Domain, Reflections: 0, OutputFile: outFile}, nil
 		}
 	}
-
-	if !urlsFileExists {
-		log.Printf("[WARN] URLs file not found or empty after collection: %s. Creating empty result file.", urlsFile)
-		// Ensure output directory exists
-		if err := os.MkdirAll(filepath.Dir(outFile), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create output directory: %w", err)
-		}
-		if err := utils.WriteFile(outFile, []byte("")); err != nil {
-			return nil, fmt.Errorf("failed to create empty output file: %w", err)
-		}
-		return &Result{
-			Domain:      opts.Domain,
-			Reflections: 0,
-			OutputFile:  outFile,
-		}, nil
-	}
+	defer cleanupURLs()
 
 	// Read URLs from file
 	urlLines, err := readLines(urlsFile)
@@ -205,18 +171,34 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		log.Printf("[INFO] No reflection points found")
 	}
 
-	// Write JSON results to scan directory (local-first)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && count > 0 {
-		data, readErr := os.ReadFile(outFile)
-		if readErr == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			var nonEmpty []string
-			for _, l := range lines {
-				if strings.TrimSpace(l) != "" {
-					nonEmpty = append(nonEmpty, l)
-				}
+	// Write structured JSON for the dashboard — one object per kxss finding.
+	// Template: TARGET=url, VULN TYPE='xss @ param | Unfiltered: [chars]', SEV=medium.
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(kxssResults) > 0 {
+		type xssFinding struct {
+			TemplateID  string   `json:"template-id"` // VULN TYPE column
+			MatchedAt   string   `json:"matched-at"`  // TARGET column
+			Severity    string   `json:"severity"`
+			Param       string   `json:"param"`
+			Unfiltered  []string `json:"unfiltered"`
+		}
+		var findings []xssFinding
+		for _, r := range kxssResults {
+			if r.URL == "" || r.Param == "" {
+				continue
 			}
-			if err := utils.WriteLinesAsJSON(scanID, opts.Domain, "reflection", "xss-reflection-vulnerabilities.json", nonEmpty); err != nil {
+			// Format: xss @ category | Unfiltered: [$ | ( ) ` : ; { }]
+			charsStr := fmt.Sprintf("%v", r.Chars)
+			label := fmt.Sprintf("xss @ %s | Unfiltered: %s", r.Param, charsStr)
+			findings = append(findings, xssFinding{
+				TemplateID: label,
+				MatchedAt:  r.URL,
+				Severity:   "medium",
+				Param:      r.Param,
+				Unfiltered: r.Chars,
+			})
+		}
+		if len(findings) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "xss-reflection-vulnerabilities.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write reflection JSON: %v", err)
 			}
 		}

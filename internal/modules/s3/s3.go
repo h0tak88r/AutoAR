@@ -180,21 +180,6 @@ func handleEnum(opts Options, resultsDir string) error {
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
 	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
 	
-	// Note: Webhook sending is handled by the calling workflow (subdomain/domain)
-	// Only send webhooks if NOT called from a workflow (check for workflow indicator)
-	// When called from workflow, the workflow's SendPhaseFiles will handle webhook messages
-	if os.Getenv("AUTOAR_CURRENT_CHANNEL_ID") == "" && os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-		// Standalone mode - send webhooks directly
-		if foundCount > 0 {
-			log.Printf("[INFO] S3 enumeration: Sending results to Discord webhook (if configured)")
-			utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("S3 Enumeration Results - %s (%d buckets found)", opts.Root, foundCount))
-			utils.SendWebhookLogAsync(fmt.Sprintf("[ + ]S3 enumeration completed for: `%s`\n**Buckets found:** %d out of %d tested", opts.Root, foundCount, len(bucketPatterns)))
-		} else {
-			log.Printf("[INFO] S3 enumeration: No buckets found, sending status message to Discord webhook (if configured)")
-			utils.SendWebhookLogAsync(fmt.Sprintf("[-] S3 enumeration completed for: `%s`\n**Buckets found:** 0 out of %d tested", opts.Root, len(bucketPatterns)))
-		}
-	}
-	
 	log.Printf("[OK] S3 enumeration completed for %s (results: %s, log: %s)", opts.Root, outputFile, logFile)
 	return nil
 }
@@ -215,7 +200,6 @@ func handleScan(opts Options, resultsDir string) error {
 	log.Printf("[INFO] S3 scan: Starting scan for bucket: %s", opts.Bucket)
 	log.Printf("[INFO] S3 scan: Output directory: %s", outputDir)
 	log.Printf("[INFO] S3 scan: Results will be saved to: %s", outputFile)
-	utils.SendWebhookLogAsync(fmt.Sprintf("🔍 Starting S3 scan for bucket: `%s`", opts.Bucket))
 
 	outFile, err := os.Create(outputFile)
 	if err != nil {
@@ -340,24 +324,12 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 	}
 
-	// Check if results file has content
+	// Check if results file has content (for logging)
 	fileInfo, err := os.Stat(outputFile)
-	hasResults := err == nil && fileInfo.Size() > 0
+	_ = err
+	_ = fileInfo
 
-	// Note: Webhook sending is handled by the calling workflow (subdomain/domain)
-	// Only send webhooks if NOT called from a workflow (check for workflow indicator)
-	// When called from workflow, the workflow's SendPhaseFiles will handle webhook messages
-	if os.Getenv("AUTOAR_CURRENT_CHANNEL_ID") == "" && os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-		// Standalone mode - send webhooks directly
-		if hasResults {
-			log.Printf("[INFO] S3 scan: Sending results to Discord webhook (if configured)")
-			utils.SendWebhookFileAsync(outputFile, fmt.Sprintf("S3 Scan Results - %s (%s, %d objects)", opts.Bucket, scanMethod, objectCount))
-			utils.SendWebhookLogAsync(fmt.Sprintf("[ + ]S3 scan completed for bucket: `%s`\n**Method:** %s\n**Objects found:** %d", opts.Bucket, scanMethod, objectCount))
-		} else {
-			log.Printf("[INFO] S3 scan: No results found, sending status message to Discord webhook (if configured)")
-			utils.SendWebhookLogAsync(fmt.Sprintf("[-] S3 scan completed for bucket: `%s`\n**Method:** %s\n**Objects found:** 0", opts.Bucket, scanMethod))
-		}
-	}
+
 
 	fmt.Printf("[OK] S3 scan completed for bucket: %s\n", opts.Bucket)
 	fmt.Printf("[INFO] Scan method: %s\n", scanMethod)
@@ -366,20 +338,28 @@ func handleScan(opts Options, resultsDir string) error {
 	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
 	log.Printf("[OK] S3 scan completed for bucket: %s (method: %s, objects: %d, results: %s, log: %s)", opts.Bucket, scanMethod, objectCount, outputFile, logFile)
 
-	// Write JSON results to scan directory (local-first)
+	// Write structured JSON for the dashboard — the vulnerability is the publicly
+	// accessible bucket. One finding = one accessible bucket + object count as evidence.
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && objectCount > 0 {
-		data, readErr := os.ReadFile(outputFile)
-		if readErr == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			var nonEmpty []string
-			for _, l := range lines {
-				if strings.TrimSpace(l) != "" {
-					nonEmpty = append(nonEmpty, l)
-				}
-			}
-			if err := utils.WriteLinesAsJSON(scanID, opts.Bucket, "s3", "s3-vulnerabilities.json", nonEmpty); err != nil {
-				log.Printf("[WARN] Failed to write S3 JSON: %v", err)
-			}
+		bucketURL := fmt.Sprintf("https://%s.s3.amazonaws.com", opts.Bucket)
+		type s3Finding struct {
+			TemplateID  string `json:"template-id"`
+			MatchedAt   string `json:"matched-at"`
+			Severity    string `json:"severity"`
+			ObjectCount int    `json:"object_count"`
+			ScanMethod  string `json:"scan_method"`
+		}
+		findings := []s3Finding{
+			{
+				TemplateID:  "Public S3 Bucket",
+				MatchedAt:   bucketURL,
+				Severity:    "high",
+				ObjectCount: objectCount,
+				ScanMethod:  scanMethod,
+			},
+		}
+		if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", findings); err != nil {
+			log.Printf("[WARN] Failed to write S3 JSON: %v", err)
 		}
 	}
 

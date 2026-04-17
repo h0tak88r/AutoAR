@@ -171,6 +171,36 @@ func ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
 	return dbInstance.ListSubdomainsWithStatus(domain)
 }
 
+// ListAllSubdomainsPaginated returns a paginated global list of subdomains matching a search.
+func ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, 0, err
+		}
+	}
+	return dbInstance.ListAllSubdomainsPaginated(search, techFilter, cnameFilter, statusFilter, limit, offset)
+}
+
+// UpdateSubdomainTech updates the technology stack string for a resolved subdomain
+func UpdateSubdomainTech(domain, subdomain, techs string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateSubdomainTech(domain, subdomain, techs)
+}
+
+// UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
+func UpdateSubdomainCNAME(domain, subdomain, cnames string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateSubdomainCNAME(domain, subdomain, cnames)
+}
+
 // ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain.
 func ListLiveSubdomains(domain string) ([]SubdomainStatus, error) {
 	if dbInstance == nil {
@@ -400,6 +430,16 @@ func UpdateScanStatus(scanID string, status string) error {
 		}
 	}
 	return dbInstance.UpdateScanStatus(scanID, status)
+}
+
+// AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
+func AppendScanPhase(scanID, phaseName string, failed bool) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.AppendScanPhase(scanID, phaseName, failed)
 }
 
 // UpdateScanResult updates scan status and result URL

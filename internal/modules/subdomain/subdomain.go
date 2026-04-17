@@ -472,6 +472,12 @@ func runSubdomainPhase(phaseKey string, step, total int, description, subdomain 
 	
 	if err != nil {
 		log.Printf("[ERROR] Step %d/%d: %s failed: %v (duration: %s)", step, total, description, err, phaseDuration)
+		// Record as failed phase in DB
+		if scanID != "" {
+			if appendErr := db.AppendScanPhase(scanID, description, true); appendErr != nil {
+				log.Printf("[WARN] Failed to append failed phase to DB: %v", appendErr)
+			}
+		}
 		// Send error message to webhook (but avoid sending files in bot context)
 		utils.SendWebhookLogAsync(fmt.Sprintf("[ERROR] %s failed: %v", description, err))
 		if phaseKey != "" && os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
@@ -493,6 +499,12 @@ func runSubdomainPhase(phaseKey string, step, total int, description, subdomain 
 	}
 
 	log.Printf("[OK] %s completed in %s", description, phaseDuration)
+	// Record as completed phase in DB
+	if scanID != "" {
+		if appendErr := db.AppendScanPhase(scanID, description, false); appendErr != nil {
+			log.Printf("[WARN] Failed to append completed phase to DB: %v", appendErr)
+		}
+	}
 	
 	// Upload phase files to R2 if enabled (always, regardless of bot context)
 	// This ensures files are uploaded to R2 for tracking and bot response
