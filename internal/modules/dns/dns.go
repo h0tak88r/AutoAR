@@ -18,6 +18,8 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
 	"regexp"
+	"net"
+	"errors"
 )
 
 // Paths and filenames used by the legacy bash dns_takeover.sh script.
@@ -989,11 +991,12 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 
 	log.Printf("[INFO] Found %d unique IP addresses, checking if they're active...", len(ipToSubdomains))
 
-	// Step 2: Check if IPs are still active using httpx (if available)
-	// We'll check a sample of subdomains pointing to each IP
-	hasHttpx := false
-	if _, err := exec.LookPath("httpx"); err == nil {
-		hasHttpx = true
+	// Step 2: Check if IPs are still active using standard net/http and net packages natively
+	client := &http.Client{
+		Timeout: 4 * time.Second,
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+		},
 	}
 
 	// Create a temporary file with IPs to check
@@ -1014,55 +1017,44 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 		isActive := false
 		status := "unknown"
 
-		// Try to check if IP responds via HTTP/HTTPS
-		if hasHttpx {
-			// Check one of the subdomains pointing to this IP
-			if len(subdomains) > 0 {
-				testSubdomain := subdomains[0]
-				// Use httpx to check if the subdomain responds
-				cmd := exec.Command("httpx", "-u", fmt.Sprintf("http://%s", testSubdomain), "-silent", "-status-code", "-timeout", "5", "-no-color")
-				output, err := cmd.CombinedOutput()
-				if err == nil && len(output) > 0 {
-					// If we get a status code, the IP is likely active
-					outputStr := strings.TrimSpace(string(output))
-					if strings.Contains(outputStr, "http://") || strings.Contains(outputStr, "https://") {
-						isActive = true
-						status = "active"
-					}
-				}
-			}
-		}
-
-		// Also try direct IP check (some IPs might respond directly)
-		if !isActive && hasHttpx {
-			cmd := exec.Command("httpx", "-u", fmt.Sprintf("http://%s", ip), "-silent", "-status-code", "-timeout", "3", "-no-color")
-			output, err := cmd.CombinedOutput()
-			if err == nil && len(output) > 0 {
-				outputStr := strings.TrimSpace(string(output))
-				if strings.Contains(outputStr, "http://") || strings.Contains(outputStr, "https://") {
-					isActive = true
-					status = "active"
-				}
-			}
-		}
-
-		// If we couldn't verify with httpx, try a simple DNS reverse lookup
-		if !isActive {
-			// Check if IP has reverse DNS (PTR record)
-			cmd := exec.Command("dig", "+short", "-x", ip)
-			output, err := cmd.CombinedOutput()
-			if err == nil {
-				ptrRecord := strings.TrimSpace(string(output))
-				if ptrRecord != "" && !strings.Contains(ptrRecord, "NXDOMAIN") {
-					// Has PTR record, likely still in use
-					status = "active"
-					isActive = true
-				} else {
-					// No PTR record, might be dangling
-					status = "inactive"
-				}
+		// Try to check if IP responds via HTTP/HTTPS securely Native
+		if len(subdomains) > 0 {
+			testSubdomain := subdomains[0]
+			resp, err := client.Get(fmt.Sprintf("http://%s", testSubdomain))
+			if err == nil && resp != nil && resp.StatusCode > 0 {
+				resp.Body.Close()
+				isActive = true
+				status = "active"
 			} else {
-				status = "unknown"
+				resp, err := client.Get(fmt.Sprintf("https://%s", testSubdomain))
+				if err == nil && resp != nil && resp.StatusCode > 0 {
+					resp.Body.Close()
+					isActive = true
+					status = "active"
+				}
+			}
+		}
+
+		// Also try direct IP check natively
+		if !isActive {
+			resp, err := client.Get(fmt.Sprintf("http://%s", ip))
+			if err == nil && resp != nil && resp.StatusCode > 0 {
+				resp.Body.Close()
+				isActive = true
+				status = "active"
+			}
+		}
+
+		// If we couldn't verify with HTTP, try a pure Go native reverse PTR resolution
+		if !isActive {
+			names, err := net.LookupAddr(ip)
+			if err == nil && len(names) > 0 {
+				// Has PTR record, likely still in use natively
+				status = "active"
+				isActive = true
+			} else {
+				// No PTR record, might be dangling natively
+				status = "inactive"
 			}
 		}
 
@@ -1355,42 +1347,37 @@ func hasSuffix(s string, suffixes []string) bool {
 }
 
 func lookupCNAMEStatus(name string) (string, string) {
-	// Use `dig` as in the legacy script
-	if _, err := exec.LookPath("dig"); err != nil {
-		return "", ""
+	// Native PURE GO DNS replacement for 'dig +short CNAME' and 'dig status'
+	cnames, err := net.LookupCNAME(name)
+	cname := ""
+	if err == nil && cnames != "" {
+		// net natively returns fully qualified domains ending with '.' 
+		cname = strings.TrimSuffix(cnames, ".")
 	}
 
-	// CNAME lookup
-	cmd := exec.Command("dig", "+short", name, "CNAME")
-	b, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", ""
-	}
-	cname := strings.TrimSpace(string(b))
-	if strings.Contains(cname, "\n") {
-		// If multiple CNAMEs, take the last one
-		lines := strings.Split(cname, "\n")
-		cname = strings.TrimSpace(lines[len(lines)-1])
+	if cname == name {
+		cname = "" // Not essentially a CNAME if it points exactly to itself
 	}
 
-	// Full status lookup
-	// Remove +noall because it suppresses the status line we need
-	cmd = exec.Command("dig", name)
-	b, err = cmd.CombinedOutput()
-	if err != nil {
-		return cname, "ERROR"
-	}
-	
-	out := string(b)
 	status := "UNKNOWN"
-	if strings.Contains(out, "status: NXDOMAIN") {
-		status = "NXDOMAIN"
-	} else if strings.Contains(out, "status: NOERROR") {
+	
+	// Perform pure Go lookup to test NOERROR/NXDOMAIN natively
+	_, errA := net.LookupHost(name)
+	if errA == nil {
 		status = "NOERROR"
-	} else if strings.Contains(out, "status: SERVFAIL") {
-		status = "SERVFAIL"
-	} else if strings.Contains(out, "status: REFUSED") {
-		status = "REFUSED"
+	} else {
+		var dnsErr *net.DNSError
+		if errors.As(errA, &dnsErr) {
+			if dnsErr.IsNotFound {
+				status = "NXDOMAIN"
+			} else if dnsErr.Timeout() {
+				status = "SERVFAIL"
+			} else {
+				status = "REFUSED"
+			}
+		} else {
+			status = "ERROR"
+		}
 	}
 	
 	return cname, status
