@@ -3659,9 +3659,12 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
           <table class="dashboard-table" style="margin:0;table-layout:fixed;width:100%">
             <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.97);backdrop-filter:blur(4px)">
               <tr>
-                <th style="width:32%">TARGET</th>
+                <th style="width:36px;text-align:center;padding-left:10px">
+                  <input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer">
+                </th>
+                <th style="width:31%">TARGET</th>
                 <th style="width:8%;text-align:center">SEV</th>
-                <th style="width:44%">VULNERABILITY TYPE</th>
+                <th style="width:43%">VULNERABILITY TYPE</th>
                 <th style="width:16%">MODULE</th>
               </tr>
             </thead>
@@ -3742,7 +3745,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
           href = 'https://' + target;
         }
 
-        return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(vulnType)}" data-severity="${escAttr(sev)}" data-module="${escAttr(r.module||'')}" data-href="${escAttr(href)}" style="${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}" title="Right-click for options">
+        return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(vulnType)}" data-severity="${escAttr(sev)}" data-module="${escAttr(r.module||'')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+          <td style="padding:7px 10px;width:36px;text-align:center">
+            <input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()">
+          </td>
           <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
             <a href="${esc(href)}" target="_blank" rel="noopener"
                onclick="event.stopPropagation()"
@@ -3780,7 +3786,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
             <span style="color:${modInfo.color};font-size:11px;font-weight:500">${modInfo.icon} ${esc(modInfo.name)}</span>
           </td>
         </tr>`;
-      }).join('') : '<tr><td colspan="4" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
+      }).join('') : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
     }
     if (cap) {
       cap.style.display = filtered.length > maxRows ? 'block' : 'none';
@@ -3849,69 +3855,122 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   if (titleInput) titleInput.addEventListener('input', applyFiltersDebounced);
   if (severitySel) severitySel.addEventListener('change', applyFilters);
 
-  // ── Right-click context menu on findings rows ──────────────────────────────
-  let _ctxMenu = document.getElementById('findings-ctx-menu');
-  if (!_ctxMenu) {
-    _ctxMenu = document.createElement('div');
-    _ctxMenu.id = 'findings-ctx-menu';
-    _ctxMenu.style.cssText = 'position:fixed;z-index:9999;background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:4px 0;min-width:190px;box-shadow:0 8px 32px rgba(0,0,0,.6);display:none';
-    _ctxMenu.innerHTML = `
-      <div class="ctx-item" id="ctx-copy-target" style="padding:9px 16px;font-size:12px;cursor:pointer;color:var(--text-primary);display:flex;align-items:center;gap:8px">📋 Copy Target</div>
-      <div class="ctx-item" id="ctx-copy-finding" style="padding:9px 16px;font-size:12px;cursor:pointer;color:var(--text-primary);display:flex;align-items:center;gap:8px">📝 Copy Finding</div>
-      <div class="ctx-item" id="ctx-open-url" style="padding:9px 16px;font-size:12px;cursor:pointer;color:var(--accent-cyan);display:flex;align-items:center;gap:8px">🌐 Open in Browser</div>
-      <div style="border-top:1px solid var(--border);margin:4px 0"></div>
-      <div class="ctx-item" id="ctx-validate-ai" style="padding:9px 16px;font-size:12px;cursor:pointer;color:#a78bfa;display:flex;align-items:center;gap:8px">🤖 Validate with AI</div>`;
-    document.body.appendChild(_ctxMenu);
-    // Hover styles
-    _ctxMenu.querySelectorAll('.ctx-item').forEach(el => {
-      el.addEventListener('mouseenter', () => el.style.background = 'rgba(255,255,255,.06)');
-      el.addEventListener('mouseleave', () => el.style.background = '');
+  // ── Selection toolbar ─────────────────────────────────────────────────────
+  // Build the floating toolbar (once, outside the root so it stays on DOM)
+  let _selToolbar = document.getElementById('findings-sel-toolbar');
+  if (!_selToolbar) {
+    _selToolbar = document.createElement('div');
+    _selToolbar.id = 'findings-sel-toolbar';
+    _selToolbar.style.cssText = [
+      'position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(80px)',
+      'z-index:9000;background:var(--bg-card,#1e293b)',
+      'border:1px solid var(--accent-cyan,#22d3ee)44',
+      'border-radius:14px;padding:10px 18px',
+      'display:flex;align-items:center;gap:12px',
+      'box-shadow:0 8px 40px rgba(0,0,0,.7)',
+      'transition:transform .25s cubic-bezier(.34,1.56,.64,1),opacity .2s',
+      'opacity:0;pointer-events:none;white-space:nowrap',
+    ].join(';');
+    _selToolbar.innerHTML = `
+      <span id="sel-count-badge" style="background:var(--accent-cyan,#22d3ee);color:#0f172a;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;min-width:22px;text-align:center">0</span>
+      <span style="font-size:12px;color:var(--text-secondary)">selected</span>
+      <div style="width:1px;height:20px;background:var(--border)"></div>
+      <button id="sel-copy-targets" title="Copy all selected targets" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--text-primary);cursor:pointer">📋 Copy Targets</button>
+      <button id="sel-copy-findings" title="Copy all selected finding types" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--text-primary);cursor:pointer">📝 Copy Findings</button>
+      <button id="sel-open-urls" title="Open all selected targets in new tabs" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--accent-cyan,#22d3ee);cursor:pointer">🌐 Open URLs</button>
+      <button id="sel-validate-ai" title="AI-validate the first selected finding" style="background:rgba(167,139,250,.15);border:1px solid #a78bfa44;border-radius:8px;padding:5px 12px;font-size:12px;color:#a78bfa;cursor:pointer">🤖 Validate with AI</button>
+      <button id="sel-clear" title="Clear selection" style="background:transparent;border:none;font-size:17px;color:var(--text-muted);cursor:pointer;padding:0 2px;line-height:1">✕</button>`;
+    document.body.appendChild(_selToolbar);
+
+    // Hover effect on toolbar buttons
+    _selToolbar.querySelectorAll('button').forEach(b => {
+      if (b.id === 'sel-clear') return;
+      b.addEventListener('mouseenter', () => b.style.opacity = '0.8');
+      b.addEventListener('mouseleave', () => b.style.opacity = '1');
     });
   }
-  let _ctxRow = null;
-  const closeCtx = () => { _ctxMenu.style.display = 'none'; };
-  document.addEventListener('click', e => {
-    if (!_ctxMenu.contains(e.target)) {
-       closeCtx();
-       _ctxRow = null;
+
+  const _getSelectedRows = () => Array.from(root.querySelectorAll('.finding-chk:checked')).map(cb => cb.closest('.findings-row')).filter(Boolean);
+
+  const _updateToolbar = () => {
+    const rows = _getSelectedRows();
+    const n = rows.length;
+    const badge = _selToolbar.querySelector('#sel-count-badge');
+    if (badge) badge.textContent = String(n);
+    if (n > 0) {
+      _selToolbar.style.opacity = '1';
+      _selToolbar.style.pointerEvents = 'auto';
+      _selToolbar.style.transform = 'translateX(-50%) translateY(0)';
+    } else {
+      _selToolbar.style.opacity = '0';
+      _selToolbar.style.pointerEvents = 'none';
+      _selToolbar.style.transform = 'translateX(-50%) translateY(80px)';
+    }
+  };
+
+  // Delegate checkbox change events from the findings table
+  root.addEventListener('change', e => {
+    if (e.target.classList.contains('finding-chk') || e.target.id === 'findings-select-all') {
+      if (e.target.id === 'findings-select-all') {
+        root.querySelectorAll('.finding-chk').forEach(cb => cb.checked = e.target.checked);
+      }
+      _updateToolbar();
     }
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCtx(); _ctxRow = null; } });
 
-  root.addEventListener('contextmenu', e => {
+  // Clicking a row (not a link/checkbox) toggles its checkbox
+  root.addEventListener('click', e => {
     const row = e.target.closest('.findings-row');
-    if (!row || !root.contains(row)) return;
-    e.preventDefault();
-    _ctxRow = row;
-    // Position menu
-    const x = Math.min(e.clientX, window.innerWidth - 210);
-    const y = Math.min(e.clientY, window.innerHeight - 160);
-    _ctxMenu.style.left = x + 'px';
-    _ctxMenu.style.top = y + 'px';
-    _ctxMenu.style.display = 'block';
+    if (!row) return;
+    if (e.target.tagName === 'A' || e.target.tagName === 'INPUT') return;
+    const chk = row.querySelector('.finding-chk');
+    if (chk) { chk.checked = !chk.checked; _updateToolbar(); }
   });
 
-  _ctxMenu.querySelector('#ctx-copy-target')?.addEventListener('click', async () => {
-    if (!_ctxRow) return; closeCtx();
-    await copyToClipboard(_ctxRow.dataset.target || '').catch(() => {});
-    showToast('success', 'Copied', _ctxRow.dataset.target || '');
+  // Toolbar actions
+  _selToolbar.querySelector('#sel-copy-targets').addEventListener('click', async () => {
+    const rows = _getSelectedRows();
+    if (!rows.length) return;
+    const text = rows.map(r => r.dataset.target || '').filter(Boolean).join('\n');
+    await copyToClipboard(text).catch(() => {});
+    showToast('success', 'Copied', `${rows.length} target(s) copied`);
   });
-  _ctxMenu.querySelector('#ctx-copy-finding')?.addEventListener('click', async () => {
-    if (!_ctxRow) return; closeCtx();
-    await copyToClipboard(_ctxRow.dataset.finding || '').catch(() => {});
-    showToast('success', 'Copied', _ctxRow.dataset.finding || '');
+
+  _selToolbar.querySelector('#sel-copy-findings').addEventListener('click', async () => {
+    const rows = _getSelectedRows();
+    if (!rows.length) return;
+    const text = rows.map(r => r.dataset.finding || '').filter(Boolean).join('\n');
+    await copyToClipboard(text).catch(() => {});
+    showToast('success', 'Copied', `${rows.length} finding type(s) copied`);
   });
-  _ctxMenu.querySelector('#ctx-open-url')?.addEventListener('click', () => {
-    if (!_ctxRow) return; closeCtx();
-    const href = _ctxRow.dataset.href;
-    if (href && href !== '#') window.open(href, '_blank', 'noopener');
-    else showToast('error', 'No URL', 'Target has no valid URL.');
+
+  _selToolbar.querySelector('#sel-open-urls').addEventListener('click', () => {
+    const rows = _getSelectedRows();
+    if (!rows.length) return;
+    let opened = 0;
+    rows.forEach(r => {
+      const href = r.dataset.href;
+      if (href && href !== '#') { window.open(href, '_blank', 'noopener'); opened++; }
+    });
+    if (!opened) showToast('error', 'No URLs', 'None of the selected rows have valid URLs.');
+    else showToast('success', 'Opened', `${opened} URL(s) opened in new tabs`);
   });
-  _ctxMenu.querySelector('#ctx-validate-ai')?.addEventListener('click', () => {
-    if (!_ctxRow) return; closeCtx();
-    openValidateModal(_ctxRow.dataset.target, _ctxRow.dataset.finding, _ctxRow.dataset.severity, _ctxRow.dataset.module);
+
+  _selToolbar.querySelector('#sel-validate-ai').addEventListener('click', () => {
+    const rows = _getSelectedRows();
+    if (!rows.length) return;
+    const r = rows[0]; // validate the first selected row
+    openValidateModal(r.dataset.target, r.dataset.finding, r.dataset.severity, r.dataset.module);
+  });
+
+  _selToolbar.querySelector('#sel-clear').addEventListener('click', () => {
+    root.querySelectorAll('.finding-chk').forEach(cb => cb.checked = false);
+    const sa = root.querySelector('#findings-select-all');
+    if (sa) sa.checked = false;
+    _updateToolbar();
   });
 }
+
 
 // ── AI Validate Finding Modal ─────────────────────────────────────────────────
 function openValidateModal(target, findingType, severity, module_) {
