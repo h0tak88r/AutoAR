@@ -668,7 +668,8 @@ func inferReconKind(fileName string) string {
 	case strings.Contains(b, "nuclei") || strings.HasPrefix(b, "gf-") || strings.Contains(b, "gf-") ||
 		strings.Contains(b, "misconfig") || strings.Contains(b, "zeroday") ||
 		strings.Contains(b, "dalfox") || strings.Contains(b, "kxss") || strings.Contains(b, "xss") ||
-		strings.Contains(b, "reflection") || strings.Contains(b, "confusion") || strings.Contains(b, "depconf"):
+		strings.Contains(b, "reflection") || strings.Contains(b, "confusion") || strings.Contains(b, "depconf") ||
+		strings.Contains(b, "aem"):
 		return "vuln"
 	// CF1016 dangling — must be checked before generic cloudflare/dangling catch below
 	case strings.Contains(b, "cf1016") || strings.Contains(b, "cf-1016"):
