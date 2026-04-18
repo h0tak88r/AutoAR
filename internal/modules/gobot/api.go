@@ -2668,11 +2668,12 @@ func generateMockResults(scanID, target, scanType string, startedAt time.Time, c
 	// Add remaining simulation payloads
 	_ = os.WriteFile(filepath.Join(resultsDir, "ffuf-results.json"), []byte(fmt.Sprintf("[{\"url\": \"https://%[1]s/secret-dir\", \"status\": 200, \"length\": 1024, \"finding\": \"Hidden Directory\", \"severity\": \"medium\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "dalfox-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/?q=test\", \"finding\": \"Reflected XSS in 'q' parameter\", \"severity\": \"high\"}]", target)), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "kxss-results.txt"), []byte(fmt.Sprintf("URL: https://%[1]s/?id=test Param: id Reflection: true", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "sqlmap-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/?id=1\", \"finding\": \"Time-based blind SQLi (MySQL)\", \"severity\": \"critical\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "gf-xss.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/?action=test\", \"finding\": \"Potential XSS Endpoint\", \"severity\": \"info\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "cname-takeover-vulnerable.txt"), []byte(fmt.Sprintf("https://test.%[1]s", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "cf1016-dangling.json"), []byte(fmt.Sprintf("[{\"target\": \"cloud.%[1]s\", \"finding\": \"Cloudflare Error 1016 (Dangling Record)\", \"cloudflare_ips\": [\"104.21.XX.XX\"], \"severity\": \"high\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "github-scan.json"), []byte(fmt.Sprintf("[{\"target\": \"https://github.com/org/repo\", \"finding\": \"Leaked Stripe API Key in commit\", \"severity\": \"critical\"}]")), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "github-scan.json"), []byte("[{\"target\": \"https://github.com/org/repo\", \"finding\": \"Leaked Stripe API Key in commit\", \"severity\": \"critical\"}]"), 0644)
 
 	completedAt := time.Now()
 	_ = db.UpdateScanResult(scanID, "completed", "")
