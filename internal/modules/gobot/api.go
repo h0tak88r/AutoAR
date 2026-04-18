@@ -1816,7 +1816,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		log.Printf("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
 	}
 
-	if target == "demo.autoar.com" || target == "keyword.com" {
+	if target == "demo.autoar.com" || target == "keyword.com" || target == "0x88.autoar" {
 		log.Printf("[executeScan] DEMO intercepted. Generating mock artifacts for %s", target)
 		go generateMockResults(scanID, target, scanType, startedAt, command)
 		return
@@ -2663,7 +2663,7 @@ func generateMockResults(scanID, target, scanType string, startedAt time.Time, c
 	_ = os.WriteFile(filepath.Join(resultsDir, "aem-scan.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/aem\", \"finding\": \"AEM Default Credentials\", \"severity\": \"critical\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "misconfig-mapper.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/.git\", \"finding\": \"Exposed Git Directory\", \"severity\": \"medium\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "wp-confusion-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/wp-content\", \"finding\": \"WordPress Missing Theme\", \"severity\": \"medium\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "depconf-scan.json"), []byte(fmt.Sprintf("[{\"target\": \"package.json\", \"finding\": \"Dependency Confusion in 'internal-core'\", \"severity\": \"high\"}]", target)), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "depconf-scan.json"), []byte("[{\"target\": \"package.json\", \"finding\": \"Dependency Confusion in 'internal-core'\", \"severity\": \"high\"}]"), 0644)
 
 	completedAt := time.Now()
 	_ = db.UpdateScanResult(scanID, "completed", "")
