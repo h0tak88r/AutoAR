@@ -108,6 +108,8 @@ func inferModuleFromFileName(name string) string {
 		return "tech-detect"
 	case strings.Contains(n, "port") || strings.Contains(n, "nmap") || strings.Contains(n, "masscan"):
 		return "port-scan"
+	case strings.Contains(n, "aem"):
+		return "aem-scan"
 	case strings.Contains(n, "github") || strings.Contains(n, "repo"):
 		return "github-scan"
 	case strings.Contains(n, "backup") || strings.Contains(n, "fuzzuli"):
@@ -132,7 +134,8 @@ func inferCategoryFromFileName(name string) string {
 		strings.Contains(n, "secret") || strings.Contains(n, "exposure") || strings.Contains(n, "js-secret") ||
 		strings.Contains(n, "aws-") || strings.Contains(n, "azure-") || strings.Contains(n, "gcp-") ||
 		strings.Contains(n, "takeover") || strings.Contains(n, "dangling") || strings.Contains(n, "dnsreap") ||
-		strings.Contains(n, "confusion") || strings.Contains(n, "depconf") || strings.Contains(n, "backup") {
+		strings.Contains(n, "confusion") || strings.Contains(n, "depconf") || strings.Contains(n, "backup") ||
+		strings.Contains(n, "aem") {
 		return "vulnerability"
 	}
 	// Recon outputs
@@ -769,7 +772,42 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 		}
 	}
 
+	// JS Secrets
+	if secType, ok := v["type"].(string); ok && v["secret"] != nil && v["file"] != nil {
+		return parsedFinding{
+			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "high"),
+			Target:   firstNonEmpty(fmt.Sprint(v["file"])),
+			Finding:  fmt.Sprintf("[%s]: %s", secType, v["secret"]),
+		}
+	}
+
+	// S3 Buckets
+	if bucketStatus, ok := v["status"].(string); ok && (v["bucket"] != nil || v["target"] != nil) && v["type"] == nil {
+		targetField := firstNonEmpty(fmt.Sprint(v["target"]), fmt.Sprint(v["bucket"]))
+		isVuln, _ := v["vulnerable"].(bool)
+		findType := "s3-enum"
+		if isVuln {
+			findType = "s3-scan-" + strings.ToLower(bucketStatus)
+		}
+		return parsedFinding{
+			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
+			Target:   targetField,
+			Finding:  findType,
+		}
+	}
+
+	// Port Scanner
+	if port, ok := v["port"]; ok && v["host"] != nil {
+		svc := firstNonEmpty(fmt.Sprint(v["service"]))
+		return parsedFinding{
+			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
+			Target:   firstNonEmpty(fmt.Sprint(v["host"])),
+			Finding:  fmt.Sprintf("Open Port %v (%s)", port, svc),
+		}
+	}
+
 	template := firstNonEmpty(
+		fmt.Sprint(v["finding"]),
 		fmt.Sprint(v["template-id"]),
 		fmt.Sprint(v["template_id"]),
 		fmt.Sprint(v["template"]),
