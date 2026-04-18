@@ -1,7 +1,9 @@
 package gobot
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -22,7 +24,6 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitorsuggest"
-	"github.com/h0tak88r/AutoAR/internal/modules/brain"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
@@ -1668,6 +1669,78 @@ func buildR2Client(accountID, accessKey, secretKey string) (*s3.Client, error) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// openRouterChat — calls OpenRouter chat/completions directly.
+// Key priority: X-OpenRouter-Key header → OPENROUTER_API_KEY env var.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func openRouterChat(c *gin.Context, systemPrompt, userPrompt string) (string, error) {
+	key := strings.TrimSpace(c.GetHeader("X-OpenRouter-Key"))
+	if key == "" {
+		key = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	}
+	if key == "" {
+		return "", fmt.Errorf("No OpenRouter API key configured. Add it in Settings → AI Configuration.")
+	}
+
+	type orMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type orReq struct {
+		Model    string  `json:"model"`
+		Messages []orMsg `json:"messages"`
+	}
+	type orChoice struct {
+		Message orMsg `json:"message"`
+	}
+	type orResp struct {
+		Choices []orChoice `json:"choices"`
+		Error   *struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+
+	payload := orReq{
+		Model: "openai/gpt-4o-mini",
+		Messages: []orMsg{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(payloadBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HTTP-Referer", "https://autoar.tool")
+	req.Header.Set("X-Title", "AutoAR")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("OpenRouter request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result orResp
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to parse OpenRouter response: %w", err)
+	}
+	if result.Error != nil {
+		return "", fmt.Errorf("OpenRouter error: %s", result.Error.Message)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("OpenRouter returned no choices")
+	}
+	return result.Choices[0].Message.Content, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/findings/validate — AI validates a single finding
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1688,37 +1761,33 @@ func apiValidateFinding(c *gin.Context) {
 		return
 	}
 
-	prompt := "You are an expert bug bounty hunter and penetration tester.\n" +
-		"A security scanner (AutoAR) found the following finding. Validate it and provide actionable next steps.\n\n" +
-		"Finding Details:\n" +
-		fmt.Sprintf("- Target: %s\n", body.Target) +
-		fmt.Sprintf("- Finding Type: %s\n", body.FindingType) +
-		fmt.Sprintf("- Severity: %s\n", body.Severity) +
-		fmt.Sprintf("- Module/Scanner: %s\n", body.Module) +
-		fmt.Sprintf("- Raw Finding: %s\n\n", body.RawFinding) +
-		"Provide:\n" +
-		"1. **Validation Assessment** (Real or false positive? Confidence %).\n" +
-		"2. **Explanation** of the vulnerability and its impact.\n" +
-		"3. **Proof of Concept** — specific curl/tool commands to validate this finding.\n" +
-		"4. **Exploitation Steps** — how to exploit for maximum impact.\n" +
-		"5. **Remediation** — one-line fix.\n" +
-		"6. **Recommended Report Title** if worth reporting.\n\n" +
-		"Be concise, technical, and actionable. Use markdown headers."
+	systemPrompt := "You are a senior bug bounty hunter and penetration tester. Be concise, technical, and direct. Use markdown headers."
 
-	orKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
-	geminiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
-	if orKey == "" && geminiKey == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No AI key configured (OPENROUTER_API_KEY or GEMINI_API_KEY required)"})
-		return
-	}
+	userPrompt := fmt.Sprintf(`Analyze this security finding and tell me:
 
-	_, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
-	defer cancel()
+**Finding:**
+- Target: %s
+- Type: %s
+- Severity: %s
+- Scanner: %s
 
-	analysis, err := brain.ChatWithAI(nil, prompt, "You are an expert bug bounty hunter. Provide clear, actionable security analysis.")
+**Respond with:**
+## Validity
+Is this real or a false positive? Confidence %%. Why?
+
+## How to Reproduce
+Exact steps / curl commands / tool commands to confirm this vulnerability.
+
+## Impact
+What can an attacker do? Be specific.
+
+## Quick Fix
+One-line remediation.`, body.Target, body.FindingType, body.Severity, body.Module)
+
+	analysis, err := openRouterChat(c, systemPrompt, userPrompt)
 	if err != nil {
-		log.Printf("[API] AI validate finding error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("AI analysis failed: %v", err)})
+		log.Printf("[API] validate finding error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -1726,5 +1795,69 @@ func apiValidateFinding(c *gin.Context) {
 		"analysis": analysis,
 		"target":   body.Target,
 		"finding":  body.FindingType,
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/findings/report — AI generates a structured vuln report
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiReportFinding(c *gin.Context) {
+	var body struct {
+		Target      string `json:"target"`
+		FindingType string `json:"finding_type"`
+		Severity    string `json:"severity"`
+		Module      string `json:"module"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if strings.TrimSpace(body.FindingType) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "finding_type is required"})
+		return
+	}
+
+	systemPrompt := `You are an experienced bug bounty hunter writing a vulnerability report. 
+Rules:
+- Write like a human, not an AI. Short sentences. Direct.
+- No filler phrases like "I found", "It is worth noting", "In conclusion".
+- Technical but readable.
+- Title must be ≤80 chars and specific.
+- Keep the whole report under 400 words.`
+
+	userPrompt := fmt.Sprintf(`Write a bug bounty report for this finding:
+
+Target: %s
+Vulnerability: %s  
+Severity: %s
+Scanner: %s
+
+Use EXACTLY this structure (markdown):
+## Title
+[specific vulnerability title]
+
+## Summary
+[2-3 sentences: what it is, why it matters]
+
+## Steps to Reproduce
+1. ...
+2. ...
+3. ...
+
+## Impact
+[1-2 sentences: what an attacker can do]`, body.Target, body.FindingType, body.Severity, body.Module)
+
+	report, err := openRouterChat(c, systemPrompt, userPrompt)
+	if err != nil {
+		log.Printf("[API] report finding error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"report":  report,
+		"target":  body.Target,
+		"finding": body.FindingType,
 	})
 }
