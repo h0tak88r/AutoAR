@@ -118,6 +118,10 @@ func inferModuleFromFileName(name string) string {
 		return "xss-detection"
 	case strings.Contains(n, "confusion") || strings.Contains(n, "depconf"):
 		return "dependency-confusion"
+	case strings.Contains(n, "js-url") || strings.Contains(n, "js_url"):
+		return "JS-Enum"
+	case n == "urls.txt" || n == "all-urls.txt" || strings.Contains(n, "wayback"):
+		return "url-enum"
 	default:
 		return "autoar"
 	}
