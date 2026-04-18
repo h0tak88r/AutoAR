@@ -1094,21 +1094,30 @@ function startPolling() {
       await loadStats();
       await loadScans();
       if (state.view === 'monitor') await loadMonitor();
-      // If on scan detail AND there's an active scan, also refresh that view
+
+      // If on scan detail, only trigger refresh if the scan being viewed is actually active
       if (state.view === 'scan-detail' && state.scanDetailId) {
-        const n = state.stats?.active_scans ?? 0;
-        if (n > 0) {
-          // Only do a lightweight status check, not a full re-render
+        const activeIds = (state.scans?.active_scans || []).map(s => String(s.id || s.Id || ''));
+        if (activeIds.includes(String(state.scanDetailId))) {
           refreshScanDetailIfRunning(state.scanDetailId);
         }
       }
     } catch (e) { /* ignore */ }
+
     const n = state.stats?.active_scans ?? 0;
     const onScans = state.view === 'scans';
-    const onDetail = state.view === 'scan-detail';
+
+    // Only fast-poll if on Scans list or viewing a scan that is actually running
+    let isViewingActiveScan = false;
+    if (state.view === 'scan-detail' && state.scanDetailId) {
+      const activeIds = (state.scans?.active_scans || []).map(s => String(s.id || s.Id || ''));
+      if (activeIds.includes(String(state.scanDetailId))) isViewingActiveScan = true;
+    }
+
     let ms = POLL_INTERVAL;
-    if ((onScans || onDetail) && n > 0) ms = POLL_FAST_SCANS;
+    if ((onScans || isViewingActiveScan) && n > 0) ms = POLL_FAST_SCANS;
     else if (n > 0) ms = POLL_FAST_ANY;
+
     state.pollTimer = setTimeout(tick, ms);
   };
   state.pollTimer = setTimeout(tick, 600);
@@ -1662,6 +1671,9 @@ function detectModuleFromFileName(fileName, existingModule) {
   // S3 bucket scanning
   if (n.includes('s3') || n.includes('bucket')) return 's3-scan';
 
+  // AEM (Adobe Experience Manager)
+  if (n.includes('aem')) return 'aem';
+
   // DNS takeover
   if (n.includes('dns') || n.includes('takeover')) return 'dns-takeover';
 
@@ -2016,7 +2028,12 @@ function detectResultType(items, file) {
 
   // Misconfiguration
   if (module === 'misconfig') {
-    if (first.url || first.service || first.config) return 'misconfig-findings';
+    if (first.url || first.service || first.service_name || first.service_id || first.config || first['matched-at']) return 'misconfig-findings';
+  }
+
+  // AEM findings
+  if (module === 'aem' || fileName.includes('aem')) {
+    if (first.url || first.vulnerable || first.reason) return 'aem-findings';
   }
 
   // Port scan
@@ -2101,6 +2118,9 @@ function renderResultTable(items, type, file) {
 
     case 'dns-findings':
       return header + renderDNSFindingsTable(items);
+
+    case 'aem-findings':
+      return header + renderAEMTable(items);
 
     case 'tech-findings':
       return header + renderTechFindingsTable(items);
@@ -2453,8 +2473,8 @@ function renderBackupFindingsTable(items) {
 function renderMisconfigTable(items) {
   const rows = items.map(item => {
     const url = item.url || '—';
-    const service = item.service || '—';
-    const config = item.config || item.setting || '—';
+    const service = item.service_name || item.service_id || item.service || '—';
+    const config = item['matched-at'] || item.matched_at || item.config || item.setting || '—';
     const severity = item.severity || 'medium';
 
     return `
@@ -2471,9 +2491,42 @@ function renderMisconfigTable(items) {
       <table class="result-table">
         <thead>
           <tr>
-            <th>URL</th>
+            <th>URL / TARGET</th>
             <th>SERVICE</th>
-            <th>CONFIG</th>
+            <th>MATCHED AT / CONFIG</th>
+            <th>SEVERITY</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+/** Render AEM findings */
+function renderAEMTable(items) {
+  const rows = items.map(item => {
+    const url = item.url || '—';
+    const vulnerable = item.vulnerable ? '<span class="badge badge-live">VULNERABLE</span>' : '<span class="badge badge-dead">INFO</span>';
+    const reason = item.reason || '—';
+    const severity = item.severity || (item.vulnerable ? 'high' : 'info');
+
+    return `
+      <tr>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(url))}</td>
+        <td>${vulnerable}</td>
+        <td style="font-size:12px;color:var(--text-muted)">${esc(String(reason))}</td>
+        <td><span class="severity-${severity.toLowerCase()}">${severity.toUpperCase()}</span></td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <div class="result-table-wrap">
+      <table class="result-table">
+        <thead>
+          <tr>
+            <th>URL</th>
+            <th>STATUS</th>
+            <th>REASON / EVIDENCE</th>
             <th>SEVERITY</th>
           </tr>
         </thead>
@@ -3055,8 +3108,17 @@ function scheduleScanDetailRefresh(scanId, ms = 4000) {
 }
 
 async function refreshScanDetailIfRunning(scanId) {
-  // Called by startPolling; only act if scan detail page is active
+  // Called by startPolling; only act if scan detail page is active for THIS scan
   if (state.view !== 'scan-detail' || state.scanDetailId !== scanId) return;
+
+  // Double check it's actually in our active scans list to avoid polling completed scans
+  const activeIds = (state.scans?.active_scans || []).map(s => String(s.id || s.Id || ''));
+  if (!activeIds.includes(String(scanId))) {
+    // If not active anymore, ensure we stop any detail timers
+    clearScanDetailRefreshTimer();
+    return;
+  }
+
   await doScanDetailRefresh(scanId);
 }
 
@@ -3080,7 +3142,10 @@ async function doScanDetailRefresh(scanId) {
 
     // Refresh the file-count badge
     const badge = document.getElementById('unified-parsed-badge');
-    if (badge && files.length) badge.textContent = `${files.length} files`;
+    if (badge) {
+      const countStr = `${files.length} files`;
+      if (badge.textContent !== countStr) badge.textContent = countStr;
+    }
 
     // Find newly indexed files (not seen before) and append to Findings table
     const newFiles = files.filter(f => !_scanDetailKnownFiles.has(f.file_name));
@@ -3089,15 +3154,14 @@ async function doScanDetailRefresh(scanId) {
       // Trigger a lightweight re-render of just the unified table
       const unifiedRoot = document.getElementById('unified-parsed-results');
       if (unifiedRoot) {
-        // Don't re-render from scratch if already built — just re-load with full file list
+        // Optimization: only re-render if we actually have a DOM container
         loadReconUnifiedTable(scanId, files, 'unified-parsed-results');
-        // Also refresh assets cache
         _assetsCache = null;
       }
     }
 
     if (stillRunning) {
-      scheduleScanDetailRefresh(scanId, 4000);
+      scheduleScanDetailRefresh(scanId, 4500); // slightly slower refresh for local timer
     } else {
       clearScanDetailRefreshTimer();
       // Do a final full re-render once scan completes
@@ -3283,9 +3347,9 @@ function previewDataToFlatRows(data, file) {
   const module = detectModuleFromFileName(file.file_name, file.module);
   const pushObj = (obj) => {
     if (!obj || typeof obj !== 'object') return;
-    const severity = obj.info?.severity || obj.severity || obj.level || '—';
+    const severity = obj.info?.severity || obj.severity || obj.level || (obj.vulnerable ? 'high' : '—');
     const target = obj['matched-at'] || obj.matched_at || obj.url || obj.host || obj.domain || obj.target || '—';
-    const finding = obj['template-id'] || obj.template_id || obj.template || obj.name || obj.title || obj.issue || obj.vulnerability || obj.message || normalizeFindingText(obj);
+    const finding = obj['template-id'] || obj.template_id || obj.template || obj.name || obj.title || obj.issue || obj.vulnerability || obj.service_name || obj.reason || obj.message || normalizeFindingText(obj);
     rows.push({
       file: file.file_name,
       module,
@@ -3582,7 +3646,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   }));
 
   const maxRows = 2500;
-  const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github', 'sqlmap']);
+  const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github', 'sqlmap', 'aem-findings']);
   const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
 
   let activeKind = totalVuln > 0 ? 'vuln' : 'assets';
