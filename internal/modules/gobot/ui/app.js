@@ -1680,6 +1680,9 @@ function detectModuleFromFileName(fileName, existingModule) {
   // Reflection/parameter detection
   if (n.includes('reflection') || n.includes('param')) return 'reflection';
 
+  // URLs
+  if (n.includes('urls.txt') || n.includes('all-urls')) return 'url-enum';
+
   return 'autoar';
 }
 
@@ -1705,6 +1708,9 @@ function getModuleDisplayInfo(module) {
     'github-scan': { icon: '🐙', name: 'GitHub Scan', color: '#6366f1' },
     'ffuf-fuzzing': { icon: '🎲', name: 'FFUF Fuzzing', color: '#f43f5e' },
     'reflection': { icon: '🔎', name: 'Reflection', color: '#0ea5e9' },
+    'aem-scan': { icon: '🧱', name: 'AEM Enum', color: '#f97316' },
+    'url-enum': { icon: '🔗', name: 'URL Enum', color: '#06b6d4' },
+    'JS-Enum': { icon: '📜', name: 'JS URL Enum', color: '#818cf8' },
     'autoar': { icon: '🎯', name: 'AutoAR', color: '#06b6d4' },
     'unknown': { icon: '❓', name: 'Unknown', color: '#64748b' },
   };
