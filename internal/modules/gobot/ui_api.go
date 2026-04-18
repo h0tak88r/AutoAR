@@ -1675,12 +1675,15 @@ func buildR2Client(accountID, accessKey, secretKey string) (*s3.Client, error) {
 
 func openRouterChat(c *gin.Context, systemPrompt, userPrompt string) (string, error) {
 	key := strings.TrimSpace(c.GetHeader("X-OpenRouter-Key"))
+	source := "UI Header"
 	if key == "" {
 		key = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+		source = "Environment Variable"
 	}
 	if key == "" {
 		return "", fmt.Errorf("No OpenRouter API key configured. Add it in Settings → AI Configuration.")
 	}
+	log.Printf("[API] Using OpenRouter key from %s (starts with: %s, length: %d)", source, key[:min(4, len(key))], len(key))
 
 	type orMsg struct {
 		Role    string `json:"role"`
