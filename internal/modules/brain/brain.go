@@ -51,6 +51,8 @@ const (
 	DefaultModel         = "nvidia/nemotron-3-nano-30b-a3b:free"
 	OpenRouterEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
 	GeminiDirectEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+	ZAIEndpoint          = "https://api.z.ai/api/coding/paas/v4/chat/completions"
+	ZAIDefaultModel      = "glm-4.6"
 	MaxAgentIterations   = 20 // increased from 8 — complex hunts need subdomains+live+ports+nuclei+js+gf+validations
 )
 
@@ -468,14 +470,24 @@ Command Outputs:
 	return finalAnalysis, nil
 }
 
-// callAI routes to OpenRouter or direct Gemini
+// callAI routes to OpenRouter, Z.ai or direct Gemini
 func callAI(prompt, orKey, geminiKey string) (string, error) {
+	zaiKey := os.Getenv("ZHIPU_API_KEY")
+
 	if orKey != "" {
 		res, err := callOpenRouter(prompt, orKey)
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[BRAIN] OpenRouter failed, falling back to direct Gemini if available: %v", err)
+		log.Printf("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
+	}
+
+	if zaiKey != "" {
+		res, err := callZAI(prompt, zaiKey)
+		if err == nil {
+			return res, nil
+		}
+		log.Printf("[BRAIN] Z.ai failed, falling back to direct Gemini: %v", err)
 	}
 
 	if geminiKey != "" {
@@ -637,7 +649,16 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[BRAIN] OpenRouter failed, falling back to direct Gemini if available: %v", err)
+		log.Printf("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
+	}
+
+	zaiKey := os.Getenv("ZHIPU_API_KEY")
+	if zaiKey != "" {
+		res, err := callZAIMulti(messages, zaiKey)
+		if err == nil {
+			return res, nil
+		}
+		log.Printf("[BRAIN] Z.ai failed, falling back to Gemini: %v", err)
 	}
 
 	if geminiKey != "" {
@@ -768,4 +789,103 @@ func callGeminiDirectMulti(messages []Message, apiKey string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid response from Gemini Direct")
+}
+
+func callZAI(prompt, apiKey string) (string, error) {
+	reqBody := OpenRouterRequest{
+		Model: ZAIDefaultModel,
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", ZAIEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := utils.CreateCustomHTTPClient(60 * time.Second)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Z.ai API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var orResp OpenRouterResponse
+	if err := json.Unmarshal(body, &orResp); err != nil {
+		return "", err
+	}
+
+	if orResp.Error != nil {
+		return "", fmt.Errorf("Z.ai error: %s", orResp.Error.Message)
+	}
+
+	if len(orResp.Choices) > 0 {
+		return orResp.Choices[0].Message.Content, nil
+	}
+
+	return "", fmt.Errorf("invalid response from Z.ai")
+}
+
+func callZAIMulti(messages []Message, apiKey string) (string, error) {
+	reqBody := OpenRouterRequest{
+		Model:    ZAIDefaultModel,
+		Messages: messages,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", ZAIEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := utils.CreateCustomHTTPClient(90 * time.Second)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Z.ai Multi API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var orResp OpenRouterResponse
+	if err := json.Unmarshal(body, &orResp); err != nil {
+		return "", err
+	}
+
+	if orResp.Error != nil {
+		return "", fmt.Errorf("Z.ai error: %s", orResp.Error.Message)
+	}
+
+	if len(orResp.Choices) > 0 {
+		return orResp.Choices[0].Message.Content, nil
+	}
+
+	return "", fmt.Errorf("invalid response from Z.ai")
 }
