@@ -25,24 +25,18 @@ The following items explicitly describe what is returned when the internal test 
 | **Vulnerabilities** | **Misconfig** | `https://0x88.autoar/.git` | `Exposed Git Directory` | **MEDIUM** |
 | **Vulnerabilities** | **Dep Confusion** | `https://0x88.autoar/wp-content` | `WordPress Missing Theme` | **MEDIUM** |
 | **Vulnerabilities** | **Dep Confusion** | `package.json` | `Dependency Confusion in 'internal-core'` | **HIGH** |
+| **Vulnerabilities** | **FFUF Fuzzing** | `https://0x88.autoar/secret-dir` | `Hidden Directory` | **MEDIUM** |
+| **Vulnerabilities** | **XSS Detection** | `https://0x88.autoar/?q=test` | `Reflected XSS in 'q' parameter` | **HIGH** |
+| **Vulnerabilities** | **XSS Detection** | `https://0x88.autoar/?id=test` | `Reflection: true (kxss)` | **HIGH** |
+| **Vulnerabilities** | **SQL Injection** | `https://0x88.autoar/?id=1` | `Time-based blind SQLi (MySQL)` | **CRITICAL** |
+| **Vulnerabilities** | **GF Patterns** | `https://0x88.autoar/?action=test` | `Potential XSS Endpoint` | **INFO** |
+| **Vulnerabilities** | **DNS Takeover** | `https://test.0x88.autoar` | `Dangling CNAME` | **CRITICAL** |
+| **Vulnerabilities** | **Cloudflare DNS** | `cloud.0x88.autoar` | `Cloudflare Error 1016 (Dangling Record)` | **HIGH** |
+| **Vulnerabilities** | **Github Scan** | `https://github.com/org/repo` | `Leaked Stripe API Key in commit` | **CRITICAL** |
 
 ---
 
-## 2. Active Production Modules (Not Mocked)
-These modules are invoked dynamically during legitimate attack surface mapping. They do not trigger artificial simulation results on the demo endpoints, but evaluate payloads rigorously across production targets:
-
-| Module Identifier | System Role / Engine | Principal UI Mapping |
-| :--- | :--- | :--- |
-| **Subdomain Enum** | `subfinder` & active bruteforce variants | **Assets** |
-| **Tech Detect** | `wappalyzer` HTTP structure scanning | **Assets** |
-| **FFuf Fuzzing** | `ffuf` (dictionary enumeration / recursion) | **Vulnerabilities** *(paths/secrets)* |
-| **XSS Detection** | `dalfox` / `kxss` parameter fuzzing | **Vulnerabilities** |
-| **SQL Injection** | `sqlmap` (threaded over sync.WaitGroup pool) | **Vulnerabilities** |
-| **GF Patterns** | `gf` pattern clustering & structural mapping | **Vulnerabilities** |
-| **DNS Takeover** | Orphaned record identification (`dnsreap`) | **Vulnerabilities** |
-| **Cloudflare DNS** | `cf1016` edge-server routing evaluation | **Vulnerabilities** |
-| **Github Scan** | `trufflehog` live repository scraping | **Vulnerabilities** / Log DB |
-
----
+## 2. Active Production Modules
+These modules execute the active payloads listed above dynamically against real targets dynamically mapping to exactly the identical panels displayed.
 
 > *Maintained natively by AutoAR's structural parser backend (`inferModuleFromFileName`).*
