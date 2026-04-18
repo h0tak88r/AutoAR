@@ -3597,9 +3597,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   const HIDDEN_KINDS = new Set(['logs', 'log', 'tech']);
   // Merge parsing kinds into broader display groups (vuln, urls, etc.)
   for (const r of allRows) {
-    if (['nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf'].includes(r.kind)) {
-      r.kind = 'vuln';
-    }
     if (r.kind === 'js_urls') {
       r.kind = 'urls';
       r.is_js = true;
@@ -3646,8 +3643,15 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
 
   let searchJsOnly = false;
 
+  const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf']);
+
   const rowMatch = (r) => {
-    if (activeKind !== 'all' && (r.kind || 'other') !== activeKind) return false;
+    const k = r.kind || 'other';
+    if (activeKind === 'vuln') {
+      if (!VULN_KINDS.has(k)) return false;
+    } else if (activeKind !== 'all' && k !== activeKind) {
+      return false;
+    }
     if (activeKind === 'urls' && searchJsOnly && !r.is_js) return false;
     if (searchHost && !String(r.host || r.target || '').toLowerCase().includes(searchHost)) return false;
     if (searchTitle && !String(r.title || r.finding || '').toLowerCase().includes(searchTitle)) return false;
