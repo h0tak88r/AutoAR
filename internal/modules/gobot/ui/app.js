@@ -14,39 +14,39 @@ const BASE = '/ui';
 
 // Scan detail real-time refresh state (declared early so openScanResultsPage can use them)
 let _scanDetailRefreshTimer = null;
-let _scanDetailRefreshId    = null;
-let _scanDetailKnownFiles   = new Set();
-let _assetsCache            = null;
+let _scanDetailRefreshId = null;
+let _scanDetailKnownFiles = new Set();
+let _assetsCache = null;
 
 
 /** Maps launcher <select> values → POST /scan/:path body shape (must match api.go handlers). */
 const LAUNCH_SCAN_TYPES = {
-  domain_scan:    { path: 'domain_run', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  domain_scan: { path: 'domain_run', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   subdomain_scan: { path: 'subdomain_run', modes: ['subdomain', 'subdomain_list'], placeholders: { subdomain: 'api.example.com', subdomain_list: 'one subdomain per line' } },
-  lite:         { path: 'lite', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  subdomains:   { path: 'subdomains', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  livehosts:    { path: 'livehosts', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  urls:         { path: 'urls', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  cnames:       { path: 'cnames', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  js:           { path: 'js', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
-  reflection:   { path: 'reflection', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  nuclei:       { path: 'nuclei', modes: ['domain', 'subdomain', 'url', 'domain_list', 'subdomain_list', 'url_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', url: 'https://target.tld/', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line', url_list: 'one URL per line' } },
-  tech:         { path: 'tech', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  ports:        { path: 'ports', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  gf:           { path: 'gf', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  backup:       { path: 'backup', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  misconfig:    { path: 'misconfig', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  dns:          { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'takeover' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  lite: { path: 'lite', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  subdomains: { path: 'subdomains', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  livehosts: { path: 'livehosts', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  urls: { path: 'urls', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  cnames: { path: 'cnames', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  js: { path: 'js', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
+  reflection: { path: 'reflection', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  nuclei: { path: 'nuclei', modes: ['domain', 'subdomain', 'url', 'domain_list', 'subdomain_list', 'url_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', url: 'https://target.tld/', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line', url_list: 'one URL per line' } },
+  tech: { path: 'tech', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  ports: { path: 'ports', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  gf: { path: 'gf', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  backup: { path: 'backup', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  misconfig: { path: 'misconfig', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  dns: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'takeover' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   dns_dangling: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'dangling-ip' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   dns_takeover: { path: 'dns-takeover', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  dns_cf1016:   { path: 'dns-cf1016', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
-  s3:           { path: 's3', modes: ['bucket', 'bucket_list'], placeholders: { bucket: 'bucket-name', bucket_list: 'one bucket per line' } },
-  github:       { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository', repo_list: 'one owner/repo per line' } },
-  github_org:   { path: 'github_org', modes: ['repo', 'repo_list'], placeholders: { repo: 'org-name', repo_list: 'one org per line' } },
-  zerodays:     { path: 'zerodays', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-  ffuf:         { path: 'ffuf', modes: ['target', 'target_list'], placeholders: { target: 'https://example.com/FUZZ', target_list: 'one FUZZ URL per line' } },
-  jwt:          { path: 'jwt', modes: ['token'], placeholders: { token: 'JWT token' } },
-  apkx:         { path: 'apkx', modes: ['file_path'], placeholders: { file_path: '/absolute/path/to/app.apk' } },
+  dns_cf1016: { path: 'dns-cf1016', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
+  s3: { path: 's3', modes: ['bucket', 'bucket_list'], placeholders: { bucket: 'bucket-name', bucket_list: 'one bucket per line' } },
+  github: { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository', repo_list: 'one owner/repo per line' } },
+  github_org: { path: 'github_org', modes: ['repo', 'repo_list'], placeholders: { repo: 'org-name', repo_list: 'one org per line' } },
+  zerodays: { path: 'zerodays', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  ffuf: { path: 'ffuf', modes: ['target', 'target_list'], placeholders: { target: 'https://example.com/FUZZ', target_list: 'one FUZZ URL per line' } },
+  jwt: { path: 'jwt', modes: ['token'], placeholders: { token: 'JWT token' } },
+  apkx: { path: 'apkx', modes: ['file_path'], placeholders: { file_path: '/absolute/path/to/app.apk' } },
 };
 
 const LAUNCH_MODE_LABELS = {
@@ -123,9 +123,9 @@ async function copyToClipboard(text) {
     try {
       await navigator.clipboard.writeText(text);
       return;
-    } catch(e) {}
+    } catch (e) { }
   }
-  
+
   // Fallback
   const textArea = document.createElement('textarea');
   textArea.value = text;
@@ -216,7 +216,7 @@ async function openScanResultsPage(scanId, opts = {}) {
     // Reset real-time refresh state for the new scan
     clearScanDetailRefreshTimer();
     _scanDetailKnownFiles = new Set();
-    _scanDetailRefreshId  = scanId;
+    _scanDetailRefreshId = scanId;
   }
   state.scanDetailId = scanId;
   state.view = 'scan-detail';
@@ -239,9 +239,11 @@ async function openScanResultsPage(scanId, opts = {}) {
 
 
 function viewTitle(v) {
-  return { overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
-           targets: 'Bug Bounty Targets',
-           monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings' }[v] || v;
+  return {
+    overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
+    targets: 'Bug Bounty Targets',
+    monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings'
+  }[v] || v;
 }
 
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
@@ -285,8 +287,8 @@ async function apiFetch(path) {
   return res.json();
 }
 
-async function apiPost(path, body) {
-  const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+async function apiPost(path, body, customHeaders = {}) {
+  const headers = await buildAuthHeaders({ 'Content-Type': 'application/json', ...customHeaders });
   const res = await fetch(`${API}${path}`, {
     method: 'POST',
     headers,
@@ -369,7 +371,7 @@ async function rescanScan(scanID) {
     if (result.new_scan_id) {
       setTimeout(() => goToScanResultsPage(result.new_scan_id), 900);
     }
-  } catch(e) {
+  } catch (e) {
     showToast('error', 'Rescan failed', e.message);
   }
 }
@@ -659,15 +661,15 @@ async function loadSubdomains(page = 1, search = '') {
   const reqId = Date.now();
   state._subdomainsReqId = reqId;
   state.subdomainsPage = page;
-  
+
   const searchInput = document.getElementById('subdomains-search');
   const actualSearch = searchInput && document.activeElement === searchInput ? searchInput.value : search;
   state.subdomainsSearch = actualSearch;
-  
+
   const st = document.getElementById('subdomains-status-filter')?.value || '0';
   const tc = document.getElementById('subdomains-tech-filter')?.value || '';
   const cn = document.getElementById('subdomains-cname-filter')?.value || '';
-  
+
   state.subdStatus = st;
   state.subdTech = tc;
   state.subdCname = cn;
@@ -678,11 +680,11 @@ async function loadSubdomains(page = 1, search = '') {
     const container = document.getElementById('subdomains-container');
     if (container) container.innerHTML = emptyState('⏳', 'Loading subdomains…', 'Fetching paginated rows from database.');
   }
-  
+
   if (!state.domains || !state.domains.length) {
     await loadResource('domains', '/api/domains', 'domains');
   }
-  
+
   try {
     const q = encodeURIComponent(state.subdomainsSearch);
     const qs = `page=${page}&limit=${state.subdomainsLimit}&search=${q}&status=${state.subdStatus}&tech=${encodeURIComponent(state.subdTech)}&cname=${encodeURIComponent(state.subdCname)}`;
@@ -690,13 +692,13 @@ async function loadSubdomains(page = 1, search = '') {
     if (state._subdomainsReqId !== reqId) return;
     state.allSubdomains = data.subdomains || [];
     state.allSubdomainsTotal = data.total || 0;
-    
+
     const badge = document.getElementById('subdomains-badge');
-    if (badge) { 
-      badge.textContent = state.allSubdomainsTotal; 
-      badge.style.display = state.allSubdomainsTotal ? '' : 'none'; 
+    if (badge) {
+      badge.textContent = state.allSubdomainsTotal;
+      badge.style.display = state.allSubdomainsTotal ? '' : 'none';
     }
-  } catch(e) {
+  } catch (e) {
     if (state._subdomainsReqId !== reqId) return;
     state.allSubdomains = [];
     state.allSubdomainsTotal = 0;
@@ -715,7 +717,7 @@ async function copyAllSubdomainsMatching() {
     const pageSize = 500;
     let page = 1;
     const all = [];
-    for (;;) {
+    for (; ;) {
       const data = await apiFetch(`/api/subdomains?page=${page}&limit=${pageSize}&search=${q}`);
       const batch = data.subdomains || [];
       all.push(...batch);
@@ -747,9 +749,9 @@ async function loadMonitor() {
     apiFetch('/api/monitor/subdomain-targets'),
     apiFetch('/api/monitor/changes'),
   ]);
-  state.monitorTargets    = targets.status === 'fulfilled'    ? (targets.value.targets    || []) : [];
-  state.subMonitorTargets = subTargets.status === 'fulfilled' ? (subTargets.value.targets  || []) : [];
-  state.monitorChanges    = changes.status === 'fulfilled'    ? (changes.value.changes    || []) : [];
+  state.monitorTargets = targets.status === 'fulfilled' ? (targets.value.targets || []) : [];
+  state.subMonitorTargets = subTargets.status === 'fulfilled' ? (subTargets.value.targets || []) : [];
+  state.monitorChanges = changes.status === 'fulfilled' ? (changes.value.changes || []) : [];
   if (state.view === 'monitor') renderMonitor();
 }
 
@@ -1102,8 +1104,8 @@ function startPolling() {
       }
     } catch (e) { /* ignore */ }
     const n = state.stats?.active_scans ?? 0;
-    const onScans   = state.view === 'scans';
-    const onDetail  = state.view === 'scan-detail';
+    const onScans = state.view === 'scans';
+    const onDetail = state.view === 'scan-detail';
     let ms = POLL_INTERVAL;
     if ((onScans || onDetail) && n > 0) ms = POLL_FAST_SCANS;
     else if (n > 0) ms = POLL_FAST_ANY;
@@ -1115,12 +1117,12 @@ function startPolling() {
 function refreshCurrentView() {
   switch (state.view) {
     case 'overview': loadStats(); loadDomains(); loadScans(); break;
-    case 'scans':    loadScans(); break;
-    case 'domains':  loadDomains(); break;
+    case 'scans': loadScans(); break;
+    case 'domains': loadDomains(); break;
     case 'subdomains': loadSubdomains(); break;
-    case 'targets':  loadTargetsPlatforms(); break;
-    case 'monitor':  loadMonitor(); break;
-    case 'r2':       loadR2(state.r2.prefix); break;
+    case 'targets': loadTargetsPlatforms(); break;
+    case 'monitor': loadMonitor(); break;
+    case 'r2': loadR2(state.r2.prefix); break;
     case 'settings': loadConfig(); break;
     case 'scan-detail':
       if (state.scanDetailId) renderScanDetailView(state.scanDetailId);
@@ -1138,12 +1140,12 @@ function renderStats() {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
   };
-  set('stat-domains',    s.domains ?? 0);
+  set('stat-domains', s.domains ?? 0);
   set('stat-subdomains', s.subdomains ?? 0);
-  set('stat-live',       s.live_subdomains ?? 0);
-  set('stat-monitors',   s.monitor_targets ?? 0);
-  set('stat-active',     s.active_scans ?? 0);
-  set('stat-completed',  s.completed_scans ?? 0);
+  set('stat-live', s.live_subdomains ?? 0);
+  set('stat-monitors', s.monitor_targets ?? 0);
+  set('stat-active', s.active_scans ?? 0);
+  set('stat-completed', s.completed_scans ?? 0);
 }
 
 function renderOverviewActiveScans() {
@@ -1231,46 +1233,46 @@ function renderScans() {
 function scanTypeLabel(rawType) {
   const t = String(rawType || '').toLowerCase().trim();
   const map = {
-    'domain_run':       '🌍 Full Domain',
-    'subdomain_run':    '🔬 Subdomain',
-    'lite':             '⚡ Lite Workflow',
-    'fastlook':         '👁 Fast Look',
-    'subdomains':       '🔍 Subdomains',
-    'livehosts':        '🌐 Live Hosts',
-    'cnames':           '🔗 CNAMEs',
-    'urls':             '🔗 URLs',
-    'js':               '📜 JS Scan',
-    'jsscan':           '📜 JS Scan',
-    'reflection':       '⚡  Reflection',
-    'gf':               '🎯 GF Patterns',
-    'nuclei':           '☢️ Nuclei',
-    'nuclei-full':      '☢️ Nuclei Full',
-    'nuclei-cves':      '☢️ Nuclei CVEs',
-    'nuclei-panels':    '☢️ Nuclei Panels',
+    'domain_run': '🌍 Full Domain',
+    'subdomain_run': '🔬 Subdomain',
+    'lite': '⚡ Lite Workflow',
+    'fastlook': '👁 Fast Look',
+    'subdomains': '🔍 Subdomains',
+    'livehosts': '🌐 Live Hosts',
+    'cnames': '🔗 CNAMEs',
+    'urls': '🔗 URLs',
+    'js': '📜 JS Scan',
+    'jsscan': '📜 JS Scan',
+    'reflection': '⚡  Reflection',
+    'gf': '🎯 GF Patterns',
+    'nuclei': '☢️ Nuclei',
+    'nuclei-full': '☢️ Nuclei Full',
+    'nuclei-cves': '☢️ Nuclei CVEs',
+    'nuclei-panels': '☢️ Nuclei Panels',
     'nuclei-vulnerabilities': '☢️ Nuclei Vulns',
-    'nuclei-default-logins':  '☢️ Nuclei Logins',
-    'ports':            '🔌 Ports',
-    'tech':             '🔬 Tech Detect',
-    'dns':              '🔀 DNS Takeover',
-    'dns-takeover':     '🔀 DNS Takeover',
-    'dns-dangling-ip':  '🔀 Dangling IP',
-    'dns_cf1016':       '☁️ CF1016 Dangling',
-    'dns-cf1016':       '☁️ CF1016 Dangling',
-    'backup':           '💾 Backup Files',
-    'misconfig':        '⚙️ Misconfig',
-    's3':               '🪣 S3 Scan',
-    'github':           '🐙 GitHub',
-    'github_org':       '🐙 GitHub Org',
-    'github_scan':      '🐙 GitHub',
-    'ffuf':             '🎲 FFuf Fuzz',
-    'zerodays':         '🚨 Zero-Days',
-    'apkx':             '📱 APK Scan',
-    'jwt':              '🔑 JWT Scan',
-    'aem':              '🏗 AEM Scan',
-    'aem_scan':         '🏗 AEM Scan',
-    'cleanup':          '🧹 Cleanup',
-    'depconfusion':     '📦 Dep Confusion',
-    'wp_confusion':     '📦 WP Confusion',
+    'nuclei-default-logins': '☢️ Nuclei Logins',
+    'ports': '🔌 Ports',
+    'tech': '🔬 Tech Detect',
+    'dns': '🔀 DNS Takeover',
+    'dns-takeover': '🔀 DNS Takeover',
+    'dns-dangling-ip': '🔀 Dangling IP',
+    'dns_cf1016': '☁️ CF1016 Dangling',
+    'dns-cf1016': '☁️ CF1016 Dangling',
+    'backup': '💾 Backup Files',
+    'misconfig': '⚙️ Misconfig',
+    's3': '🪣 S3 Scan',
+    'github': '🐙 GitHub',
+    'github_org': '🐙 GitHub Org',
+    'github_scan': '🐙 GitHub',
+    'ffuf': '🎲 FFuf Fuzz',
+    'zerodays': '🚨 Zero-Days',
+    'apkx': '📱 APK Scan',
+    'jwt': '🔑 JWT Scan',
+    'aem': '🏗 AEM Scan',
+    'aem_scan': '🏗 AEM Scan',
+    'cleanup': '🧹 Cleanup',
+    'depconfusion': '📦 Dep Confusion',
+    'wp_confusion': '📦 WP Confusion',
   };
   if (map[t]) return map[t];
   // Fallback: capitalise words, replace _ with space
@@ -1278,40 +1280,40 @@ function scanTypeLabel(rawType) {
 }
 
 function scanItemHtml(s) {
-  const target     = s.target || s.Target || '';
-  const scanType   = s.scan_type || s.ScanType || '';
-  const statusRaw  = (s.status || s.Status || 'running').toLowerCase();
-  const currentPhase   = s.current_phase   || s.CurrentPhase   || 0;
-  const totalPhases    = s.total_phases    || s.TotalPhases    || 0;
-  const startedAt      = s.started_at      || s.StartedAt      || '';
-  const phaseName      = s.phase_name      || s.PhaseName      || '';
+  const target = s.target || s.Target || '';
+  const scanType = s.scan_type || s.ScanType || '';
+  const statusRaw = (s.status || s.Status || 'running').toLowerCase();
+  const currentPhase = s.current_phase || s.CurrentPhase || 0;
+  const totalPhases = s.total_phases || s.TotalPhases || 0;
+  const startedAt = s.started_at || s.StartedAt || '';
+  const phaseName = s.phase_name || s.PhaseName || '';
   const phaseStartTime = s.phase_start_time || s.PhaseStartTime || '';
   const completedPhases = s.completed_phases || s.CompletedPhases || [];
-  const failedPhases    = s.failed_phases   || s.FailedPhases   || [];
-  const filesUploaded   = s.files_uploaded  || s.FilesUploaded  || 0;
-  const errorCount      = s.error_count     || s.ErrorCount     || 0;
-  const lastUpdate      = s.last_update     || s.LastUpdate     || '';
-  const scanID          = s.scan_id || s.ScanID || '';
+  const failedPhases = s.failed_phases || s.FailedPhases || [];
+  const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
+  const errorCount = s.error_count || s.ErrorCount || 0;
+  const lastUpdate = s.last_update || s.LastUpdate || '';
+  const scanID = s.scan_id || s.ScanID || '';
 
-  const pct      = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
-  const elapsed  = elapsedStr(startedAt);
+  const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
+  const elapsed = elapsedStr(startedAt);
   const isActive = ['running', 'starting', 'paused', 'cancelling'].includes(statusRaw);
   const showProgress = ['running', 'starting'].includes(statusRaw);
   const noPhaseYet = showProgress && currentPhase === 0 && !phaseName;
 
   // Status badge
   let badge = '';
-  if (statusRaw === 'paused')     badge = '<span class="badge badge-starting">⏸ paused</span>';
+  if (statusRaw === 'paused') badge = '<span class="badge badge-starting">⏸ paused</span>';
   else if (statusRaw === 'cancelling') badge = '<span class="badge badge-starting">⋯ stopping</span>';
-  else if (isActive)              badge = '<span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">● live</span>';
+  else if (isActive) badge = '<span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">● live</span>';
 
   // Action buttons
   const actions = isActive ? `
     <div class="scan-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center" onclick="event.stopPropagation()">
       ${statusRaw !== 'paused' && statusRaw !== 'cancelling'
-        ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseScan('${esc(scanID)}')">⏸ Pause</button>` : ''}
+      ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseScan('${esc(scanID)}')">⏸ Pause</button>` : ''}
       ${statusRaw === 'paused'
-        ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeScan('${esc(scanID)}')">▶ Resume</button>` : ''}
+      ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeScan('${esc(scanID)}')">▶ Resume</button>` : ''}
       <button type="button" class="btn btn-ghost scan-btn-stop" style="font-size:11px;padding:4px 10px" onclick="cancelScan('${esc(scanID)}')">■ Stop</button>
       <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="goToScanResultsPage('${esc(scanID)}');event.stopPropagation()">→ View</button>
     </div>` : '';
@@ -1322,28 +1324,28 @@ function scanItemHtml(s) {
   // Build completed phases list for timeline
   const phaseSteps = completedPhases.length || phaseName
     ? [
-        ...completedPhases.map(p => ({ name: p, state: failedPhases.includes(p) ? 'failed' : 'done' })),
-        ...(phaseName ? [{ name: phaseName, state: 'active' }] : []),
-      ]
+      ...completedPhases.map(p => ({ name: p, state: failedPhases.includes(p) ? 'failed' : 'done' })),
+      ...(phaseName ? [{ name: phaseName, state: 'active' }] : []),
+    ]
     : [];
 
   const phaseTimeline = phaseSteps.length ? `
     <div style="display:flex;flex-direction:column;gap:4px;margin-top:10px;margin-bottom:6px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:8px;border:1px solid rgba(255,255,255,.05)">
       ${phaseSteps.map((step, i) => {
-        const isLast = i === phaseSteps.length - 1;
-        const icon = step.state === 'done'   ? '<span style="color:#10b981;font-size:11px">✓</span>'
-                   : step.state === 'failed' ? '<span style="color:#ef4444;font-size:11px">✗</span>'
-                   : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-cyan);box-shadow:0 0 6px var(--accent-cyan);animation:pulse 1s ease-in-out infinite;vertical-align:middle"></span>';
-        const color = step.state === 'done'   ? 'var(--text-muted)'
-                    : step.state === 'failed' ? '#ef4444'
-                    : 'var(--text-primary)';
-        const weight = isLast ? '600' : '400';
-        const timer = (isLast && phaseElapsed) ? `<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${phaseElapsed}</span>` : '';
-        return `<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:${color};font-weight:${weight}">
+    const isLast = i === phaseSteps.length - 1;
+    const icon = step.state === 'done' ? '<span style="color:#10b981;font-size:11px">✓</span>'
+      : step.state === 'failed' ? '<span style="color:#ef4444;font-size:11px">✗</span>'
+        : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-cyan);box-shadow:0 0 6px var(--accent-cyan);animation:pulse 1s ease-in-out infinite;vertical-align:middle"></span>';
+    const color = step.state === 'done' ? 'var(--text-muted)'
+      : step.state === 'failed' ? '#ef4444'
+        : 'var(--text-primary)';
+    const weight = isLast ? '600' : '400';
+    const timer = (isLast && phaseElapsed) ? `<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${phaseElapsed}</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:${color};font-weight:${weight}">
           <div style="width:16px;text-align:center;flex-shrink:0">${icon}</div>
           <span style="flex:1">${esc(step.name)}</span>${timer}
         </div>`;
-      }).join('')}
+  }).join('')}
     </div>` : '';
 
   // Progress bar
@@ -1370,7 +1372,7 @@ function scanItemHtml(s) {
     }
   }
 
-  return `<div class="scan-item clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})' style="padding:14px 16px;border-radius:10px;border:1px solid ${statusRaw==='paused'?'rgba(251,191,36,.25)':'rgba(6,182,212,.2)'};background:${statusRaw==='paused'?'rgba(251,191,36,.04)':'rgba(6,182,212,.04)'};margin-bottom:12px">
+  return `<div class="scan-item clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})' style="padding:14px 16px;border-radius:10px;border:1px solid ${statusRaw === 'paused' ? 'rgba(251,191,36,.25)' : 'rgba(6,182,212,.2)'};background:${statusRaw === 'paused' ? 'rgba(251,191,36,.04)' : 'rgba(6,182,212,.04)'};margin-bottom:12px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0">
         <div style="min-width:0">
@@ -1402,22 +1404,22 @@ function scanRowHtml(s) {
   const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
   const resultURL = s.result_url || s.ResultURL || '';
   const done = ['completed', 'done'].includes(statusLc);
-  
+
   const compPhases = s.completed_phases || s.CompletedPhases || [];
   const failPhases = s.failed_phases || s.FailedPhases || [];
-  
+
   // Clean up phase names: strip "[Stage N]" prefix for display
   const cleanName = n => n.replace(/^\[Stage \d+\]\s*/i, '').replace(/^\[.*?\]\s*/, '');
-  
+
   let phaseCol = '';
   if (done) {
     const skipped = Math.max(0, totalPhases - (compPhases.length + failPhases.length));
-    
+
     // Build rich tooltip sections
-    const compList  = compPhases.length  ? compPhases.map(p  => `✓ ${cleanName(p)}`).join('\n')  : 'None';
-    const failList  = failPhases.length  ? failPhases.map(p  => `✗ ${cleanName(p)}`).join('\n')  : 'None';
+    const compList = compPhases.length ? compPhases.map(p => `✓ ${cleanName(p)}`).join('\n') : 'None';
+    const failList = failPhases.length ? failPhases.map(p => `✗ ${cleanName(p)}`).join('\n') : 'None';
     const skipCount = skipped > 0 ? `${skipped} stage(s) did not run (timeout/skipped/unlaunched)` : 'All stages accounted for';
-    
+
     const tooltipText = `Completed (${compPhases.length}):\n${compList}\n\nFailed (${failPhases.length}):\n${failList}\n\nSkipped: ${skipCount}`;
     if (pct < 100 && skipped > 0) {
       const failPart = failPhases.length ? ` · ${failPhases.length} failed` : '';
@@ -1483,7 +1485,7 @@ function getFileTypeIcon(fileType) {
 function toggleCollapsible(header) {
   const content = header.nextElementSibling;
   const isExpanded = content.classList.contains('expanded');
-  
+
   // Toggle current
   content.classList.toggle('expanded');
   header.classList.toggle('active');
@@ -1517,10 +1519,10 @@ function formatJSONWithHighlighting(jsonObj) {
 /** Apply syntax highlighting to JSON string */
 function syntaxHighlightJSON(json) {
   if (!json) return '';
-  
+
   // Escape HTML first
   let escaped = esc(json);
-  
+
   // Apply syntax highlighting using regex
   return escaped
     // Keys
@@ -1620,64 +1622,64 @@ function categorizeScanArtifactFile(fileName) {
 /** Detect module from filename */
 function detectModuleFromFileName(fileName, existingModule) {
   if (existingModule) return existingModule;
-  
+
   const n = String(fileName || '').toLowerCase();
   if (!n) return 'unknown';
-  
+
   // Nuclei vulnerability scanner
   if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
-  
+
   // Subdomain enumeration tools
   if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
-  
+
   // HTTP status checking
   if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';
-  
+
   // JavaScript analysis
   if (n.includes('js-urls') || n.includes('javascript') || n.includes('js-')) return 'js-analysis';
-  
+
   // XSS/Reflection
   if (n.includes('kxss') || n.includes('dalfox') || n.includes('reflection')) return 'xss-detection';
-  
+
   // SQL injection
   if (n.includes('sqlmap') || n.includes('sqli')) return 'sql-detection';
-  
+
   // GF pattern matching
   if (n.startsWith('gf-') || n.includes('gf-')) return 'gf-patterns';
-  
+
   // Zero-days/CVE scanning
   if (n.includes('zerodays') || n.includes('cve')) return 'zerodays';
-  
+
   // Backup files detection
   if (n.includes('backup') || n.includes('fuzzuli')) return 'backup-detection';
-  
+
   // Misconfiguration
   if (n.includes('misconfig')) return 'misconfig';
-  
+
   // Dependency confusion
   if (n.includes('depconfusion') || n.includes('confused')) return 'dependency-confusion';
-  
+
   // S3 bucket scanning
   if (n.includes('s3') || n.includes('bucket')) return 's3-scan';
-  
+
   // DNS takeover
   if (n.includes('dns') || n.includes('takeover')) return 'dns-takeover';
-  
+
   // Technology detection
   if (n.includes('tech-detect') || n.includes('wappalyzer')) return 'tech-detect';
-  
+
   // Port scanning
   if (n.includes('port') || n.includes('nmap')) return 'port-scan';
-  
+
   // GitHub/Source code
   if (n.includes('github') || n.includes('repo')) return 'github-scan';
-  
+
   // URL/FFUF fuzzing
   if (n.includes('ffuf') || n.includes('fuzz')) return 'ffuf-fuzzing';
-  
+
   // Reflection/parameter detection
   if (n.includes('reflection') || n.includes('param')) return 'reflection';
-  
+
   return 'autoar';
 }
 
@@ -1706,7 +1708,7 @@ function getModuleDisplayInfo(module) {
     'autoar': { icon: '🎯', name: 'AutoAR', color: '#06b6d4' },
     'unknown': { icon: '❓', name: 'Unknown', color: '#64748b' },
   };
-  
+
   return modules[mod] || modules['autoar'];
 }
 
@@ -1720,7 +1722,7 @@ function getCategoryDisplayInfo(category) {
     'output': { icon: '📊', name: 'Output', badge: 'badge-done' },
     'log': { icon: '📝', name: 'Log', badge: 'badge-monitor-off' },
   };
-  
+
   return categories[cat] || { icon: '📄', name: 'File', badge: '' };
 }
 
@@ -1900,7 +1902,7 @@ function groupFilesByModule(files) {
 async function parseAndRenderResults(scanId, file, container) {
   try {
     const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?file_name=${encodeURIComponent(file.file_name)}&page=1&per_page=500`);
-    
+
     let items = [];
     let resultType = 'generic-json';
     if (data.format === 'json-array') {
@@ -1936,16 +1938,16 @@ async function parseAndRenderResults(scanId, file, container) {
       }
       resultType = detectResultType(items, file);
     }
-    
+
     if (!items.length) {
       container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">No parseable results in this file</div>';
       return;
     }
-    
+
     // Detect result type and render appropriate table
     const html = renderResultTable(items, resultType, file);
     container.innerHTML = html;
-    
+
   } catch (e) {
     container.innerHTML = `<div style="padding:20px;color:var(--accent-red)">Error loading results: ${esc(e.message)}</div>`;
   }
@@ -1954,87 +1956,87 @@ async function parseAndRenderResults(scanId, file, container) {
 /** Detect what type of results we're dealing with */
 function detectResultType(items, file) {
   if (!items.length) return 'unknown';
-  
+
   const first = items[0];
   const fileName = (file.file_name || '').toLowerCase();
   const module = file.module || detectModuleFromFileName(file.file_name);
-  
+
   // Subdomain results
   if (module === 'subdomain-enum' || fileName.includes('subdomain') || fileName.includes('subs')) {
     if (typeof first === 'string') return 'subdomain-list';
     if (first.subdomain || first.domain || first.host) return 'subdomain-object';
   }
-  
+
   // HTTPX/Live hosts results
   if (module === 'httpx' || fileName.includes('live') || fileName.includes('httpx')) {
     if (first.url || first.status_code || first.status || first.title) return 'httpx-results';
   }
-  
+
   // Nuclei vulnerability results
   if (module === 'nuclei' || fileName.includes('nuclei')) {
     if (first['template-id'] || first.template_id || first.template || first.severity || first['matched-at']) return 'nuclei-findings';
   }
-  
+
   // Zerodays results
   if (module === 'zerodays' || fileName.includes('zeroday')) {
     if (first.cve || first.vulnerability || first.exploit) return 'zerodays-findings';
   }
-  
+
   // JS analysis results
   if (module === 'js-analysis' || fileName.includes('js-')) {
     if (first.url || first.endpoint || first.secret || first.key) return 'js-findings';
   }
-  
+
   // XSS/Dalfox results
   if (module === 'xss-detection' || fileName.includes('dalfox') || fileName.includes('kxss')) {
     if (first.url && (first.payload || first.parameter)) return 'xss-findings';
   }
-  
+
   // SQL injection results
   if (module === 'sql-detection' || fileName.includes('sqlmap')) {
     if (first.url && (first.parameter || first.type)) return 'sqli-findings';
   }
-  
+
   // GF pattern results
   if (module === 'gf-patterns' || fileName.startsWith('gf-')) {
     if (typeof first === 'string') return 'url-list';
     if (first.url) return 'url-list';
   }
-  
+
   // Backup files
   if (module === 'backup-detection' || fileName.includes('backup')) {
     if (first.url || first.path) return 'backup-findings';
   }
-  
+
   // Misconfiguration
   if (module === 'misconfig') {
     if (first.url || first.service || first.config) return 'misconfig-findings';
   }
-  
+
   // Port scan
   if (module === 'port-scan' || fileName.includes('port') || fileName.includes('nmap')) {
     if (first.port || first.protocol || first.service) return 'port-results';
   }
-  
+
   // S3 buckets
   if (module === 's3-scan' || fileName.includes('s3') || fileName.includes('bucket')) {
     if (first.bucket || first.key || first.url) return 's3-findings';
   }
-  
+
   // DNS takeover
   if (module === 'dns-takeover' || fileName.includes('dns')) {
     if (first.domain || first.cname || first.fingerprint) return 'dns-findings';
   }
-  
+
   // Tech detect
   if (module === 'tech-detect') {
     if (first.url && (first.tech || first.technology || first.framework)) return 'tech-findings';
   }
-  
+
   // URLs
   if (typeof first === 'string') return 'url-list';
   if (first.url) return 'url-list';
-  
+
   return 'generic-json';
 }
 
@@ -2042,7 +2044,7 @@ function detectResultType(items, file) {
 function renderResultTable(items, type, file) {
   const module = file.module || detectModuleFromFileName(file.file_name);
   const moduleInfo = getModuleDisplayInfo(module);
-  
+
   const header = `
     <div class="result-table-header">
       <div class="result-table-title">
@@ -2050,56 +2052,56 @@ function renderResultTable(items, type, file) {
         <span style="font-size:12px;color:var(--text-muted);margin-left:8px">(${items.length} items)</span>
       </div>
     </div>`;
-  
+
   switch (type) {
     case 'subdomain-list':
       return header + renderSubdomainListTable(items);
-    
+
     case 'subdomain-object':
       return header + renderSubdomainObjectTable(items);
-    
+
     case 'httpx-results':
       return header + renderHTTPXTable(items);
-    
+
     case 'nuclei-findings':
       return header + renderNucleiTable(items);
-    
+
     case 'zerodays-findings':
       return header + renderZeroDaysTable(items);
-    
+
     case 'js-findings':
       return header + renderJSFindingsTable(items);
-    
+
     case 'xss-findings':
       return header + renderXSSFindingsTable(items);
-    
+
     case 'sqli-findings':
       return header + renderSQLiFindingsTable(items);
-    
+
     case 'url-list':
       return header + renderURLListTable(items);
-    
+
     case 'backup-findings':
       return header + renderBackupFindingsTable(items);
-    
+
     case 'misconfig-findings':
       return header + renderMisconfigTable(items);
-    
+
     case 'port-results':
       return header + renderPortResultsTable(items);
-    
+
     case 's3-findings':
       return header + renderS3FindingsTable(items);
-    
+
     case 'dns-findings':
       return header + renderDNSFindingsTable(items);
-    
+
     case 'tech-findings':
       return header + renderTechFindingsTable(items);
-    
+
     case 'generic-json':
       return header + renderGenericJSONTable(items);
-    
+
     default:
       return header + renderGenericJSONTable(items);
   }
@@ -2116,7 +2118,7 @@ function renderSubdomainListTable(items) {
       <td style="color:var(--text-muted)">—</td>
       <td style="color:var(--text-muted)">—</td>
     </tr>`).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2140,7 +2142,7 @@ function renderSubdomainObjectTable(items) {
     const isLive = item.is_live || item.live || item.status === 'live';
     const httpStatus = item.http_status || item.http || null;
     const httpsStatus = item.https_status || item.https || null;
-    
+
     return `
       <tr>
         <td>
@@ -2159,7 +2161,7 @@ function renderSubdomainObjectTable(items) {
         </td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2183,7 +2185,7 @@ function renderHTTPXTable(items) {
     const status = item.status_code || item.status || '—';
     const title = item.title || '—';
     const tech = item.tech || item.technologies || '—';
-    
+
     return `
       <tr>
         <td>
@@ -2202,7 +2204,7 @@ function renderHTTPXTable(items) {
         </td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2226,7 +2228,7 @@ function renderNucleiTable(items) {
     const severity = item.info?.severity || item.severity || 'info';
     const matchedAt = item['matched-at'] || item.matched_at || item.url || item.host || '—';
     const description = item.info?.name || item.name || '—';
-    
+
     return `
       <tr>
         <td>
@@ -2245,7 +2247,7 @@ function renderNucleiTable(items) {
         </td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2269,7 +2271,7 @@ function renderZeroDaysTable(items) {
     const host = item.host || item.url || '—';
     const status = item.status || item.result || '—';
     const details = item.details || item.description || '—';
-    
+
     return `
       <tr>
         <td><span class="severity-high">${esc(String(cve))}</span></td>
@@ -2278,7 +2280,7 @@ function renderZeroDaysTable(items) {
         <td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(details))}</td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2301,7 +2303,7 @@ function renderJSFindingsTable(items) {
     const url = item.url || item.endpoint || '—';
     const secret = item.secret || item.key || item.type || '—';
     const details = item.details || item.description || '—';
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td>
@@ -2309,7 +2311,7 @@ function renderJSFindingsTable(items) {
         <td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(details))}</td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2331,7 +2333,7 @@ function renderXSSFindingsTable(items) {
     const url = item.url || '—';
     const parameter = item.parameter || item.param || '—';
     const payload = item.payload || '—';
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td>
@@ -2339,7 +2341,7 @@ function renderXSSFindingsTable(items) {
         <td style="font-size:11px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace">${esc(String(payload))}</td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2362,7 +2364,7 @@ function renderSQLiFindingsTable(items) {
     const parameter = item.parameter || item.param || '—';
     const type = item.type || '—';
     const db = item.dbms || item.database || '—';
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td>
@@ -2371,7 +2373,7 @@ function renderSQLiFindingsTable(items) {
         <td style="font-size:12px;color:var(--text-muted)">${esc(String(db))}</td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2397,7 +2399,7 @@ function renderURLListTable(items) {
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);word-break:break-all">${esc(String(url))}</td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2417,7 +2419,7 @@ function renderBackupFindingsTable(items) {
     const url = item.url || '—';
     const path = item.path || item.file || '—';
     const size = item.size || '—';
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td>
@@ -2425,7 +2427,7 @@ function renderBackupFindingsTable(items) {
         <td style="font-size:12px;color:var(--text-muted)">${esc(String(size))}</td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2448,7 +2450,7 @@ function renderMisconfigTable(items) {
     const service = item.service || '—';
     const config = item.config || item.setting || '—';
     const severity = item.severity || 'medium';
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td>
@@ -2457,7 +2459,7 @@ function renderMisconfigTable(items) {
         <td><span class="severity-${severity.toLowerCase()}">${severity.toUpperCase()}</span></td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2482,7 +2484,7 @@ function renderPortResultsTable(items) {
     const protocol = item.protocol || 'tcp';
     const service = item.service || item.name || '—';
     const state = item.state || item.status || 'open';
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(host))}</td>
@@ -2492,7 +2494,7 @@ function renderPortResultsTable(items) {
         <td><span class="badge ${state === 'open' ? 'badge-live' : 'badge-dead'}">${esc(String(state))}</span></td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2517,7 +2519,7 @@ function renderS3FindingsTable(items) {
     const url = item.url || '—';
     const keys = item.keys || item.objects || '—';
     const public_ = item.public || item.open || false;
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(bucket))}</td>
@@ -2526,7 +2528,7 @@ function renderS3FindingsTable(items) {
         <td><span class="badge ${public_ ? 'badge-failed' : 'badge-done'}">${public_ ? 'PUBLIC' : 'PRIVATE'}</span></td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2550,7 +2552,7 @@ function renderDNSFindingsTable(items) {
     const cname = item.cname || '—';
     const fingerprint = item.fingerprint || item.provider || '—';
     const vulnerable = item.vulnerable || item.takoverable || false;
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(domain))}</td>
@@ -2559,7 +2561,7 @@ function renderDNSFindingsTable(items) {
         <td><span class="badge ${vulnerable ? 'badge-failed' : 'badge-done'}">${vulnerable ? 'VULNERABLE' : 'SAFE'}</span></td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2583,7 +2585,7 @@ function renderTechFindingsTable(items) {
     const tech = item.tech || item.technology || item.name || '—';
     const version = item.version || '—';
     const category = item.category || '—';
-    
+
     return `
       <tr>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td>
@@ -2592,7 +2594,7 @@ function renderTechFindingsTable(items) {
         <td style="font-size:12px;color:var(--text-secondary)">${esc(String(category))}</td>
       </tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2613,7 +2615,7 @@ function renderTechFindingsTable(items) {
 function renderGenericJSONTable(items) {
   const headers = Object.keys(items[0] || {});
   const headerRow = headers.map(h => `<th style="text-transform:uppercase">${esc(h)}</th>`).join('');
-  
+
   const rows = items.slice(0, 100).map(item => {
     const cells = headers.map(h => {
       const val = item[h];
@@ -2622,7 +2624,7 @@ function renderGenericJSONTable(items) {
     }).join('');
     return `<tr>${cells}</tr>`;
   }).join('');
-  
+
   return `
     <div class="result-table-wrap">
       <table class="result-table">
@@ -2654,18 +2656,18 @@ function isLiveStatus(status) {
 /** Filter files based on search query and filters */
 function filterScanFiles(files, searchQuery, filters = {}) {
   let filtered = files;
-  
+
   // Apply search query
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
-    filtered = filtered.filter(f => 
+    filtered = filtered.filter(f =>
       f.file_name.toLowerCase().includes(q) ||
       (f.source && f.source.toLowerCase().includes(q)) ||
       (f.module && f.module.toLowerCase().includes(q)) ||
       (f.category && f.category.toLowerCase().includes(q))
     );
   }
-  
+
   // Apply module filter
   if (filters.module) {
     filtered = filtered.filter(f => {
@@ -2673,7 +2675,7 @@ function filterScanFiles(files, searchQuery, filters = {}) {
       return mod === filters.module;
     });
   }
-  
+
   // Apply category filter
   if (filters.category) {
     filtered = filtered.filter(f => {
@@ -2681,7 +2683,7 @@ function filterScanFiles(files, searchQuery, filters = {}) {
       return cat === filters.category;
     });
   }
-  
+
   // Apply type filter (JSON/Text)
   if (filters.type) {
     filtered = filtered.filter(f => {
@@ -2690,7 +2692,7 @@ function filterScanFiles(files, searchQuery, filters = {}) {
       return true;
     });
   }
-  
+
   return filtered;
 }
 
@@ -2714,21 +2716,21 @@ function renderCategoryBadge(category) {
 async function copyAllScanResults(scanId) {
   try {
     showToast('info', 'Copying results...', 'Fetching all file contents');
-    
+
     const sum = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=200`);
     const files = sum.files || [];
-    
+
     let allContent = `AutoAR Scan Results - ${scanId}\n`;
     allContent += `Generated: ${new Date().toISOString()}\n`;
     allContent += `${'='.repeat(80)}\n\n`;
-    
+
     for (const f of files) {
       allContent += `\n${'='.repeat(80)}\n`;
       allContent += `FILE: ${f.file_name}\n`;
       allContent += `MODULE: ${detectModuleFromFileName(f.file_name, f.module)}\n`;
       allContent += `SOURCE: ${f.source}\n`;
       allContent += `${'='.repeat(80)}\n\n`;
-      
+
       try {
         const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?file_name=${encodeURIComponent(f.file_name)}&page=1&per_page=500`);
         if (data.format === 'text' && data.lines) {
@@ -2743,10 +2745,10 @@ async function copyAllScanResults(scanId) {
       } catch (e) {
         allContent += `[Error loading file: ${e.message}]`;
       }
-      
+
       allContent += '\n\n';
     }
-    
+
     await copyToClipboard(allContent);
     showToast('success', 'Results copied!', `${files.length} files copied to clipboard`);
   } catch (e) {
@@ -2761,12 +2763,12 @@ async function renderScanDetailView(scanId) {
   const apiA = document.getElementById('scan-detail-api');
   if (!container) return;
   const ui = state.scanDetailUI;
-  
+
   // Show modern loading skeleton
   container.innerHTML = `
     <div class="scan-detail-modern">
       <div class="scan-summary-stats">
-        ${[1,2,3,4].map(() => `
+        ${[1, 2, 3, 4].map(() => `
           <div class="skeleton-card">
             <div class="skeleton-line skeleton-title"></div>
             <div class="skeleton-line skeleton-text"></div>
@@ -2779,7 +2781,7 @@ async function renderScanDetailView(scanId) {
         <div class="skeleton-line skeleton-text"></div>
       </div>
     </div>`;
-  
+
   try {
     const sum = await apiFetch(
       `/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=${ui.filesPerPage}`
@@ -2935,12 +2937,12 @@ async function renderScanDetailView(scanId) {
             </thead>
             <tbody>
               ${files.map((f, idx) => {
-                const fileType = getFileTypeFromName(f.file_name);
-                const icon = getFileTypeIcon(fileType);
-                const module = detectModuleFromFileName(f.file_name, f.module);
-                const moduleInfo = getModuleDisplayInfo(module);
+      const fileType = getFileTypeFromName(f.file_name);
+      const icon = getFileTypeIcon(fileType);
+      const module = detectModuleFromFileName(f.file_name, f.module);
+      const moduleInfo = getModuleDisplayInfo(module);
 
-                return `
+      return `
                   <tr class="dashboard-table-row" data-file-name="${encodeURIComponent(f.file_name)}" onclick="loadScanFilePreview('${scanId}', '${esc(f.file_name)}'))">
                     <td style="color:var(--text-muted);font-size:12px">${idx + 1}</td>
                     <td class="table-cell-icon">${icon}</td>
@@ -2955,7 +2957,7 @@ async function renderScanDetailView(scanId) {
                       <span class="badge badge-${f.is_json ? 'done' : 'neutral'}">${f.is_json ? 'JSON' : 'TXT'}</span>
                     </td>
                   </tr>`;
-              }).join('')}
+    }).join('')}
             </tbody>
           </table>
         </div>
@@ -2998,13 +3000,13 @@ async function renderScanDetailView(scanId) {
     }
 
     container.innerHTML = html;
-    
+
     // Wire up file clicks for legacy table rows if any
     wireScanFileRows(container, scanId);
-    
+
     // Wire up search and filter functionality
     wireScanDetailFilters(scanId, files);
-    
+
     // Load unified findings table (all files in one table with sub-tabs)
     loadReconUnifiedTable(scanId, files, 'unified-parsed-results');
 
@@ -3057,7 +3059,7 @@ async function doScanDetailRefresh(scanId) {
   if (state.view !== 'scan-detail' || state.scanDetailId !== scanId) return;
 
   try {
-    const sum  = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=200`);
+    const sum = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=200`);
     const scan = sum.scan || {};
     const stat = String(scan.status || scan.Status || '').toLowerCase();
     const files = sum.files || [];
@@ -3111,9 +3113,9 @@ function updatePhaseBanner(scan) {
     return;
   }
 
-  const phaseName    = scan.phase_name    || scan.PhaseName    || '';
+  const phaseName = scan.phase_name || scan.PhaseName || '';
   const currentPhase = scan.current_phase || scan.CurrentPhase || 0;
-  const totalPhases  = scan.total_phases  || scan.TotalPhases  || 0;
+  const totalPhases = scan.total_phases || scan.TotalPhases || 0;
   const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
   const phaseText = phaseName
     ? `${currentPhase}/${totalPhases} — ${phaseName}`
@@ -3148,19 +3150,19 @@ function updatePhaseBanner(scan) {
 async function loadModuleResults(scanId, files) {
   const container = document.getElementById('module-results-container');
   if (!container) return;
-  
+
   // Parse both JSON and text artifacts (many modules output text).
   const parseableFiles = files.filter(f => {
     const n = (f.file_name || '').toLowerCase();
     if (n.endsWith('.json') || n.endsWith('.txt') || n.endsWith('.log') || n.endsWith('.csv')) return true;
     return false;
   });
-  
+
   if (!parseableFiles.length) {
     container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted)">No parseable result files found</div>';
     return;
   }
-  
+
   // Group files by module
   const modules = {};
   parseableFiles.forEach(f => {
@@ -3168,12 +3170,12 @@ async function loadModuleResults(scanId, files) {
     if (!modules[mod]) modules[mod] = [];
     modules[mod].push(f);
   });
-  
+
   // Build HTML for each module
   let html = '';
   for (const [module, modFiles] of Object.entries(modules)) {
     const moduleInfo = getModuleDisplayInfo(module);
-    
+
     html += `
       <div class="module-results-group" style="margin-bottom:20px">
         <div class="module-group-header" style="padding:14px 20px;background:var(--bg-surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
@@ -3189,7 +3191,7 @@ async function loadModuleResults(scanId, files) {
           </button>
         </div>
         <div class="module-group-content">`;
-    
+
     // Render each file's results
     for (const file of modFiles) {
       html += `
@@ -3214,14 +3216,14 @@ async function loadModuleResults(scanId, files) {
             </div>
           </div>`;
     }
-    
+
     html += `
         </div>
       </div>`;
   }
-  
+
   container.innerHTML = html;
-  
+
   // Load results for each file
   for (const file of parseableFiles) {
     const contentEl = findModuleFileContent(container, file.file_name);
@@ -3331,11 +3333,15 @@ function previewDataToFlatRows(data, file) {
       for (const line of lines) {
         const p = parseNucleiFindingLine(line);
         if (p) {
-          rows.push({ file: file.file_name, module, source: file.source || '—',
-            severity: p.severity || '—', target: p.url || '—', finding: p.template || '—' });
+          rows.push({
+            file: file.file_name, module, source: file.source || '—',
+            severity: p.severity || '—', target: p.url || '—', finding: p.template || '—'
+          });
         } else if (line) {
-          rows.push({ file: file.file_name, module, source: file.source || '—',
-            severity: '—', target: '—', finding: line });
+          rows.push({
+            file: file.file_name, module, source: file.source || '—',
+            severity: '—', target: '—', finding: line
+          });
         }
       }
       if (rows.length) return rows;
@@ -3346,14 +3352,20 @@ function previewDataToFlatRows(data, file) {
       const isHost = /^[\w.-]+\.\w{2,}(:\d+)?$/.test(line);
       const isIP = /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(line);
       if (isURL) {
-        rows.push({ file: file.file_name, module, source: file.source || '—',
-          severity: '—', target: line, finding: module });
+        rows.push({
+          file: file.file_name, module, source: file.source || '—',
+          severity: '—', target: line, finding: module
+        });
       } else if (isHost || isIP) {
-        rows.push({ file: file.file_name, module, source: file.source || '—',
-          severity: '—', target: line, finding: module });
+        rows.push({
+          file: file.file_name, module, source: file.source || '—',
+          severity: '—', target: line, finding: module
+        });
       } else {
-        rows.push({ file: file.file_name, module, source: file.source || '—',
-          severity: '—', target: '—', finding: line });
+        rows.push({
+          file: file.file_name, module, source: file.source || '—',
+          severity: '—', target: '—', finding: line
+        });
       }
     }
     return rows;
@@ -3482,8 +3494,8 @@ function inferKindFromFileName(fileName) {
   if (b.includes('misconfig')) return 'misconfig';
   // DNS / cloud takeover (including aws, azure, cloudflare, gcp)
   if (b.includes('dns') || b.includes('takeover') || b.includes('dnsreap') ||
-      b.includes('aws-') || b.includes('azure-') || b.includes('gcp-') ||
-      b.includes('cloudflare') || b.includes('dangling')) return 'dns';
+    b.includes('aws-') || b.includes('azure-') || b.includes('gcp-') ||
+    b.includes('cloudflare') || b.includes('dangling')) return 'dns';
   // Backup
   if (b.includes('backup') || b.includes('fuzzuli')) return 'backup';
   // Ports
@@ -3709,7 +3721,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     const slice = filtered.slice(0, maxRows);
     const tbody = root.querySelector('#recon-unified-tbody');
     const shown = root.querySelector('#recon-unified-shown');
-    const cap   = root.querySelector('#recon-unified-cap');
+    const cap = root.querySelector('#recon-unified-cap');
     if (shown) shown.textContent = String(filtered.length);
     if (tbody) {
       tbody.innerHTML = slice.length ? slice.map((r, idx) => {
@@ -3717,11 +3729,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
         const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
         const sevMeta = {
           critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' },
-          high:     { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' },
-          medium:   { color: '#f6e05e', bg: '#f6e05e20', label: 'MED'  },
-          low:      { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW'  },
-          info:     { color: '#68d391', bg: '#68d39120', label: 'INFO' },
-          warning:  { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' },
+          high: { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' },
+          medium: { color: '#f6e05e', bg: '#f6e05e20', label: 'MED' },
+          low: { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW' },
+          info: { color: '#68d391', bg: '#68d39120', label: 'INFO' },
+          warning: { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' },
         }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
 
         // ── Vuln type / template-id ─────────────────────────────────────
@@ -3731,7 +3743,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
         // Detect if it's a URL-only finding (no real type name)
         const isURL = vulnType.startsWith('http://') || vulnType.startsWith('https://');
         const typeDisplay = isURL ? '—' : vulnType;
-        const typeLabel   = typeDisplay.length > 72 ? typeDisplay.slice(0, 70) + '…' : typeDisplay;
+        const typeLabel = typeDisplay.length > 72 ? typeDisplay.slice(0, 70) + '…' : typeDisplay;
 
         // ── Module badge ───────────────────────────────────────────────
         const modInfo = getModuleDisplayInfo(r.module);
@@ -3745,7 +3757,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
           href = 'https://' + target;
         }
 
-        return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(vulnType)}" data-severity="${escAttr(sev)}" data-module="${escAttr(r.module||'')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+        return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(vulnType)}" data-severity="${escAttr(sev)}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
           <td style="padding:7px 10px;width:36px;text-align:center">
             <input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()">
           </td>
@@ -3790,7 +3802,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     }
     if (cap) {
       cap.style.display = filtered.length > maxRows ? 'block' : 'none';
-      cap.textContent   = filtered.length > maxRows ? `Showing first ${maxRows} of ${filtered.length} rows.` : '';
+      cap.textContent = filtered.length > maxRows ? `Showing first ${maxRows} of ${filtered.length} rows.` : '';
     }
   };
 
@@ -3876,9 +3888,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
       <span style="font-size:12px;color:var(--text-secondary)">selected</span>
       <div style="width:1px;height:20px;background:var(--border)"></div>
       <button id="sel-copy-targets" title="Copy all selected targets" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--text-primary);cursor:pointer">📋 Copy Targets</button>
-      <button id="sel-copy-findings" title="Copy all selected finding types" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--text-primary);cursor:pointer">📝 Copy Findings</button>
+      <button id="sel-copy-findings" title="Copy full details for selected findings" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--text-primary);cursor:pointer">📝 Copy Findings</button>
       <button id="sel-open-urls" title="Open all selected targets in new tabs" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--accent-cyan,#22d3ee);cursor:pointer">🌐 Open URLs</button>
       <button id="sel-validate-ai" title="AI-validate the first selected finding" style="background:rgba(167,139,250,.15);border:1px solid #a78bfa44;border-radius:8px;padding:5px 12px;font-size:12px;color:#a78bfa;cursor:pointer">🤖 Validate with AI</button>
+      <button id="sel-report-ai" title="Generate a bug report for the first selected finding" style="background:rgba(52,211,153,.12);border:1px solid #34d39944;border-radius:8px;padding:5px 12px;font-size:12px;color:#34d399;cursor:pointer">📄 Report with AI</button>
       <button id="sel-clear" title="Clear selection" style="background:transparent;border:none;font-size:17px;color:var(--text-muted);cursor:pointer;padding:0 2px;line-height:1">✕</button>`;
     document.body.appendChild(_selToolbar);
 
@@ -3889,6 +3902,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
       b.addEventListener('mouseleave', () => b.style.opacity = '1');
     });
   }
+
 
   const _getSelectedRows = () => Array.from(root.querySelectorAll('.finding-chk:checked')).map(cb => cb.closest('.findings-row')).filter(Boolean);
 
@@ -3932,16 +3946,22 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     const rows = _getSelectedRows();
     if (!rows.length) return;
     const text = rows.map(r => r.dataset.target || '').filter(Boolean).join('\n');
-    await copyToClipboard(text).catch(() => {});
+    await copyToClipboard(text).catch(() => { });
     showToast('success', 'Copied', `${rows.length} target(s) copied`);
   });
 
   _selToolbar.querySelector('#sel-copy-findings').addEventListener('click', async () => {
     const rows = _getSelectedRows();
     if (!rows.length) return;
-    const text = rows.map(r => r.dataset.finding || '').filter(Boolean).join('\n');
-    await copyToClipboard(text).catch(() => {});
-    showToast('success', 'Copied', `${rows.length} finding type(s) copied`);
+    // Copy full details: TARGET | SEV | VULNERABILITY TYPE | MODULE
+    const text = rows.map(r => [
+      r.dataset.target || '',
+      (r.dataset.severity || '').toUpperCase(),
+      r.dataset.finding || '',
+      r.dataset.module || ''
+    ].join(' | ')).join('\n');
+    await copyToClipboard(text).catch(() => { });
+    showToast('success', 'Copied', `${rows.length} finding(s) — full details copied`);
   });
 
   _selToolbar.querySelector('#sel-open-urls').addEventListener('click', () => {
@@ -3959,8 +3979,15 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   _selToolbar.querySelector('#sel-validate-ai').addEventListener('click', () => {
     const rows = _getSelectedRows();
     if (!rows.length) return;
-    const r = rows[0]; // validate the first selected row
+    const r = rows[0];
     openValidateModal(r.dataset.target, r.dataset.finding, r.dataset.severity, r.dataset.module);
+  });
+
+  _selToolbar.querySelector('#sel-report-ai').addEventListener('click', () => {
+    const rows = _getSelectedRows();
+    if (!rows.length) return;
+    const r = rows[0];
+    openReportModal(r.dataset.target, r.dataset.finding, r.dataset.severity, r.dataset.module);
   });
 
   _selToolbar.querySelector('#sel-clear').addEventListener('click', () => {
@@ -4009,9 +4036,8 @@ function openValidateModal(target, findingType, severity, module_) {
     target: target || '',
     finding_type: findingType || '',
     severity: severity || '',
-    module: module_ || '',
-    raw_finding: `${target} - ${findingType}`,
-  }).then(res => {
+    module: module_ || ''
+  }, { 'X-OpenRouter-Key': localStorage.getItem('autoar_or_key') || '' }).then(res => {
     // Render markdown-ish response
     const html = (res.analysis || 'No analysis returned.')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -4028,6 +4054,67 @@ function openValidateModal(target, findingType, severity, module_) {
     body.innerHTML = `<div style="color:#ef4444;padding:20px">❌ AI validation failed: ${esc(err.message)}</div>`;
   });
 }
+
+// ── AI Report Generation Modal ───────────────────────────────────────────────
+function openReportModal(target, findingType, severity, module_) {
+  let modal = document.getElementById('report-finding-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'report-finding-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.innerHTML = `
+      <div style="background:var(--bg-card,#1e293b);border:1px solid var(--border);border-radius:16px;max-width:850px;width:100%;height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.8)">
+        <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+          <div>
+            <div style="font-size:16px;font-weight:700;color:var(--text-primary)">📄 Bug Bounty Report</div>
+            <div id="report-modal-sub" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+          </div>
+          <button id="report-modal-close" style="background:transparent;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px 8px">✕</button>
+        </div>
+        <div id="report-modal-body" style="padding:24px;overflow-y:auto;flex:1;font-size:13.5px;line-height:1.7;color:var(--text-secondary)">
+          <div style="text-align:center;padding:40px">
+            <div style="font-size:32px;margin-bottom:12px">⏳</div>
+            <div style="color:var(--text-muted)">Generating report with AI…</div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    modal.querySelector('#report-modal-close').addEventListener('click', () => { modal.style.display = 'none'; });
+  }
+  modal.style.display = 'flex';
+  modal.querySelector('#report-modal-sub').textContent = `${target || '—'} · ${findingType || '—'}`;
+  const body = modal.querySelector('#report-modal-body');
+  body.innerHTML = `<div style="text-align:center;padding:40px"><div style="font-size:32px;margin-bottom:12px">⏳</div><div style="color:var(--text-muted)">Generating report with AI…</div></div>`;
+
+  apiPost('/api/findings/report', {
+    target: target || '',
+    finding_type: findingType || '',
+    severity: severity || '',
+    module: module_ || ''
+  }, { 'X-OpenRouter-Key': localStorage.getItem('autoar_or_key') || '' }).then(res => {
+    // Basic Markdown conversion
+    const html = (res.report || 'No report generated.')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^#{1,3}\s(.+)$/gm, '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin:24px 0 8px;border-bottom:1px solid var(--border);padding-bottom:6px">$1</div>')
+      .replace(/^(\d+)\.\s(.+)$/gm, '<div style="margin-left:14px;display:flex"><strong style="margin-right:6px">$1.</strong><span>$2</span></div>')
+      .replace(/^- (.+)$/gm, '<div style="margin-left:14px">• $1</div>')
+      .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,.08);border-radius:4px;padding:1px 6px;font-family:monospace;font-size:12px">$1</code>')
+      .replace(/\n/g, '<br>');
+    
+    body.innerHTML = `<div style="padding:4px 0;font-family:var(--font-sans);color:#e2e8f0">${html}</div>
+      <div style="margin-top:30px;padding-top:16px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="copyToClipboard(document.getElementById('report-finding-modal').querySelector('#report-modal-body > div').innerText).then(()=>showToast('success','Copied','Report copied to clipboard'))" class="btn btn-primary" style="font-size:13px;padding:8px 18px">📋 Copy Report</button>
+      </div>`;
+  }).catch(err => {
+    body.innerHTML = `<div style="color:#ef4444;padding:20px;background:rgba(239,68,68,0.1);border-radius:8px;border:1px solid rgba(239,68,68,0.2)">
+      <div style="font-weight:700;margin-bottom:8px">❌ AI Report Generation Failed</div>
+      <div>${esc(err.message)}</div>
+    </div>`;
+  });
+}
+
 
 // ── Find module file content helper (existing) ───────────────────────────────
 /** Find module file content container by file_name */
@@ -4153,11 +4240,11 @@ function renderAssetsGrid(container, assets) {
   // Live filter wiring
   const searchEl = container.querySelector('#asset-search');
   const statusEl = container.querySelector('#asset-status-filter');
-  const codeEl   = container.querySelector('#asset-code-filter');
-  const countEl  = container.querySelector('#asset-count-shown');
-  const tbody    = container.querySelector('#asset-tbody');
+  const codeEl = container.querySelector('#asset-code-filter');
+  const countEl = container.querySelector('#asset-count-shown');
+  const tbody = container.querySelector('#asset-tbody');
   const applyFilter = () => {
-    const q  = (searchEl?.value || '').toLowerCase().trim();
+    const q = (searchEl?.value || '').toLowerCase().trim();
     const st = statusEl?.value || 'all';
     const cd = codeEl?.value || 'all';
     const filtered = assets.filter(a => {
@@ -4182,8 +4269,8 @@ function renderAssetsGrid(container, assets) {
   };
   if (searchEl) searchEl.addEventListener('input', applyFilter);
   if (statusEl) statusEl.addEventListener('change', applyFilter);
-  if (codeEl)   codeEl.addEventListener('change', applyFilter);
-  
+  if (codeEl) codeEl.addEventListener('change', applyFilter);
+
   const copyBtn = container.querySelector('#copy-all-assets-btn');
   if (copyBtn) copyBtn.addEventListener('click', async () => {
     try {
@@ -4194,7 +4281,7 @@ function renderAssetsGrid(container, assets) {
         }).filter(Boolean);
       await copyToClipboard(texts.join('\n'));
       showToast('success', 'Copied!', `${texts.length} visible hosts copied to clipboard`);
-    } catch(e) {
+    } catch (e) {
       showToast('error', 'Copy failed', e.message);
     }
   });
@@ -4233,11 +4320,11 @@ function wireScanDetailFilters(scanId, allFiles) {
   const categoryFilter = document.getElementById('scan-category-filter');
   const typeFilter = document.getElementById('scan-type-filter');
   const copyBtn = document.getElementById('copy-all-results-btn');
-  
+
   if (copyBtn) {
     copyBtn.addEventListener('click', () => copyAllScanResults(scanId));
   }
-  
+
   function applyFilters() {
     const query = searchInput ? searchInput.value : '';
     const filters = {
@@ -4245,11 +4332,11 @@ function wireScanDetailFilters(scanId, allFiles) {
       category: categoryFilter ? categoryFilter.value : '',
       type: typeFilter ? typeFilter.value : '',
     };
-    
+
     const filtered = filterScanFiles(allFiles, query, filters);
     renderFilteredFileGrid(filtered, scanId);
   }
-  
+
   if (searchInput) searchInput.addEventListener('input', applyFilters);
   if (moduleFilter) moduleFilter.addEventListener('change', applyFilters);
   if (categoryFilter) categoryFilter.addEventListener('change', applyFilters);
@@ -4260,18 +4347,18 @@ function wireScanDetailFilters(scanId, allFiles) {
 function renderFilteredFileGrid(files, scanId) {
   const container = document.getElementById('filtered-file-grid');
   if (!container) return;
-  
+
   if (!files.length) {
     container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted)">No files match your filters</div>';
     return;
   }
-  
+
   container.innerHTML = files.map(f => {
     const fileType = getFileTypeFromName(f.file_name);
     const icon = getFileTypeIcon(fileType);
     const module = detectModuleFromFileName(f.file_name, f.module);
     const moduleInfo = getModuleDisplayInfo(module);
-    
+
     return `
       <div class="file-grid-item" data-file-name="${encodeURIComponent(f.file_name)}" onclick="loadScanFilePreview('${scanId}', '${esc(f.file_name)}'))">
         <div class="file-grid-header">
@@ -4289,7 +4376,7 @@ function renderFilteredFileGrid(files, scanId) {
         </div>
       </div>`;
   }).join('');
-  
+
   // Update count
   const countEl = document.getElementById('filtered-file-count');
   if (countEl) countEl.textContent = files.length;
@@ -4476,22 +4563,22 @@ function renderSubdomainView(domain) {
           </tr></thead>
           <tbody>
             ${!filtered.length
-              ? `<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--text-muted)">No results</td></tr>`
-              : filtered.map(s => {
-                  const subN = s.Subdomain || s.subdomain || '';
-                  const live = s.IsLive || s.is_live;
-                  const httpS = s.HTTPStatus || s.http_status || 0;
-                  const httpsS = s.HTTPSStatus || s.https_status || 0;
-                  
-                  const techsHtml = s.techs 
-                    ? s.techs.split(',').filter(x=>x).slice(0, 4).map(t => `<span style="display:inline-block;padding:2px 6px;margin:2px;background:rgba(255,255,255,0.08);border-radius:4px;font-size:10px;white-space:nowrap">${esc(t.trim())}</span>`).join('') 
-                    : '<span style="color:var(--text-muted)">—</span>';
-                    
-                  const cnamesHtml = s.cnames 
-                    ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(180,180,180,0.8);word-break:break-all">${esc(s.cnames)}</div>`
-                    : '<span style="color:var(--text-muted)">—</span>';
-                    
-                  return `<tr>
+      ? `<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--text-muted)">No results</td></tr>`
+      : filtered.map(s => {
+        const subN = s.Subdomain || s.subdomain || '';
+        const live = s.IsLive || s.is_live;
+        const httpS = s.HTTPStatus || s.http_status || 0;
+        const httpsS = s.HTTPSStatus || s.https_status || 0;
+
+        const techsHtml = s.techs
+          ? s.techs.split(',').filter(x => x).slice(0, 4).map(t => `<span style="display:inline-block;padding:2px 6px;margin:2px;background:rgba(255,255,255,0.08);border-radius:4px;font-size:10px;white-space:nowrap">${esc(t.trim())}</span>`).join('')
+          : '<span style="color:var(--text-muted)">—</span>';
+
+        const cnamesHtml = s.cnames
+          ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(180,180,180,0.8);word-break:break-all">${esc(s.cnames)}</div>`
+          : '<span style="color:var(--text-muted)">—</span>';
+
+        return `<tr>
                     <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px">${esc(subN)}</span></td>
                     <td><div style="display:flex;flex-wrap:wrap;min-width:140px">${techsHtml}</div></td>
                     <td>${cnamesHtml}</td>
@@ -4499,7 +4586,7 @@ function renderSubdomainView(domain) {
                     <td><span style="font-size:12px;color:${httpColor(httpS)}">${httpS || '—'}</span></td>
                     <td><span style="font-size:12px;color:${httpColor(httpsS)}">${httpsS || '—'}</span></td>
                   </tr>`;
-                }).join('')}
+      }).join('')}
           </tbody>
         </table>
       </div>
@@ -4512,7 +4599,7 @@ function renderSubdomainView(domain) {
       try {
         await copyToClipboard(allSubNames.join('\n'));
         showToast('success', 'Copied!', `${allSubNames.length} subdomains copied to clipboard`);
-      } catch(e) {
+      } catch (e) {
         showToast('error', 'Copy failed', e.message);
       }
     });
@@ -4555,19 +4642,19 @@ function renderSubdomainsPage() {
     const subN = s.subdomain || '';
     const httpS = s.http_status || 0;
     const httpsS = s.https_status || 0;
-    
+
     const liveIcon = isLive
       ? `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.4);border-radius:20px;padding:3px 10px;font-size:11px;color:#10b981;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;box-shadow:0 0 5px #10b981;flex-shrink:0"></span>Alive</span>`
       : `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:20px;padding:3px 10px;font-size:11px;color:#ef4444;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:#ef4444;flex-shrink:0"></span>Dead</span>`;
-    
+
     const httpEl = httpS ? `<code style="font-size:13px;font-weight:700;color:${codeColor(httpS)}">${httpS}</code>` : `<span style="color:var(--text-muted)">—</span>`;
     const httpsEl = httpsS ? `<code style="font-size:13px;font-weight:700;color:${codeColor(httpsS)}">${httpsS}</code>` : `<span style="color:var(--text-muted)">—</span>`;
 
-    const techsHtml = s.techs 
-      ? s.techs.split(',').filter(x=>x).slice(0, 5).map(t => `<span style="display:inline-block;padding:2px 6px;margin:2px;background:rgba(255,255,255,0.08);border-radius:4px;font-size:10px;white-space:nowrap">${esc(t.trim())}</span>`).join('') 
+    const techsHtml = s.techs
+      ? s.techs.split(',').filter(x => x).slice(0, 5).map(t => `<span style="display:inline-block;padding:2px 6px;margin:2px;background:rgba(255,255,255,0.08);border-radius:4px;font-size:10px;white-space:nowrap">${esc(t.trim())}</span>`).join('')
       : '<span style="color:var(--text-muted)">—</span>';
-      
-    const cnamesHtml = s.cnames 
+
+    const cnamesHtml = s.cnames
       ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(180,180,180,0.8);word-break:break-all">${esc(s.cnames)}</div>`
       : '<span style="color:var(--text-muted)">—</span>';
 
@@ -4632,12 +4719,12 @@ function renderSubdomainsPage() {
   if (bn && page < pages) {
     bn.onclick = () => loadSubdomains(page + 1, state.subdomainsSearch);
   }
-  
+
   // Bind real-time input event listeners for advanced filters
   const fStatus = document.getElementById('subdomains-status-filter');
   const fTech = document.getElementById('subdomains-tech-filter');
   const fCname = document.getElementById('subdomains-cname-filter');
-  
+
   if (fStatus) fStatus.onchange = () => loadSubdomains(1, state.subdomainsSearch);
   if (fTech) fTech.oninput = () => { clearTimeout(state._subdebounce); state._subdebounce = setTimeout(() => loadSubdomains(1, state.subdomainsSearch), 500); };
   if (fCname) fCname.oninput = () => { clearTimeout(state._subdebounce); state._subdebounce = setTimeout(() => loadSubdomains(1, state.subdomainsSearch), 500); };
@@ -4916,8 +5003,8 @@ function formatMonitorDetailPreview(detail) {
 }
 
 function renderMonitor() {
-  const urlContainer  = document.getElementById('monitor-url-container');
-  const subContainer  = document.getElementById('monitor-sub-container');
+  const urlContainer = document.getElementById('monitor-url-container');
+  const subContainer = document.getElementById('monitor-sub-container');
   const feedContainer = document.getElementById('monitor-changes-feed');
   if (!urlContainer || !subContainer || !feedContainer) return;
 
@@ -4929,12 +5016,12 @@ function renderMonitor() {
     urlContainer.innerHTML = `<table class="data-table">
       <thead><tr><th>URL</th><th>Strategy</th><th>Status</th><th>Changes</th><th>Last Run</th><th>Actions</th></tr></thead>
       <tbody>${targets.map((t) => {
-        const id = t.ID ?? t.id;
-        const running = !!(t.IsRunning || t.is_running);
-        const pauseResume = running
-          ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseUrlMonitor(${id})">Pause</button>`
-          : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeUrlMonitor(${id})">Resume</button>`;
-        return `<tr>
+      const id = t.ID ?? t.id;
+      const running = !!(t.IsRunning || t.is_running);
+      const pauseResume = running
+        ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseUrlMonitor(${id})">Pause</button>`
+        : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeUrlMonitor(${id})">Resume</button>`;
+      return `<tr>
         <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(t.URL || t.url || '')}</span></td>
         <td><span class="scan-type">${esc(t.Strategy || t.strategy || 'hash')}</span></td>
         <td>${running
@@ -4945,7 +5032,7 @@ function renderMonitor() {
         <td style="white-space:nowrap">${pauseResume}
           <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="deleteUrlMonitor(${id})">Delete</button></td>
       </tr>`;
-      }).join('')}</tbody>
+    }).join('')}</tbody>
     </table>`;
   }
 
@@ -4957,12 +5044,12 @@ function renderMonitor() {
     subContainer.innerHTML = `<table class="data-table">
       <thead><tr><th>Domain</th><th>Interval</th><th>Status</th><th>Last Run</th><th>Actions</th></tr></thead>
       <tbody>${subTargets.map((t) => {
-        const id = t.ID ?? t.id;
-        const running = !!(t.IsRunning || t.is_running);
-        const pauseResume = running
-          ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseSubdomainMonitor(${id})">Pause</button>`
-          : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeSubdomainMonitor(${id})">Resume</button>`;
-        return `<tr>
+      const id = t.ID ?? t.id;
+      const running = !!(t.IsRunning || t.is_running);
+      const pauseResume = running
+        ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseSubdomainMonitor(${id})">Pause</button>`
+        : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeSubdomainMonitor(${id})">Resume</button>`;
+      return `<tr>
         <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-purple)">${esc(t.Domain || t.domain || '')}</span></td>
         <td style="font-size:12px;color:var(--text-muted)">${fmtInterval(t.Interval || t.interval)}</td>
         <td>${running
@@ -4972,7 +5059,7 @@ function renderMonitor() {
         <td style="white-space:nowrap">${pauseResume}
           <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="deleteSubdomainMonitor(${id})">Delete</button></td>
       </tr>`;
-      }).join('')}</tbody>
+    }).join('')}</tbody>
     </table>`;
   }
 
@@ -5006,9 +5093,9 @@ function changeItemHtml(c) {
 }
 
 function renderR2() {
-  const treeEl  = document.getElementById('r2-tree-list');
+  const treeEl = document.getElementById('r2-tree-list');
   const filesEl = document.getElementById('r2-files-list');
-  const pathEl  = document.getElementById('r2-path');
+  const pathEl = document.getElementById('r2-path');
   if (!treeEl || !filesEl) return;
 
   const { prefix, dirs, files } = state.r2;
@@ -5060,7 +5147,7 @@ function renderR2() {
   // Files
   (files || []).forEach(f => {
     const name = f.key.replace(prefix, '');
-    const ext  = name.split('.').pop().toLowerCase();
+    const ext = name.split('.').pop().toLowerCase();
     html += `<div class="r2-file-row" data-file-name="${escAttr(f.key)}">
       <input type="checkbox" class="r2-row-cb" data-file-name="${escAttr(f.key)}" onclick="event.stopPropagation()" title="Select for bulk delete" />
       <span class="r2-file-icon">${fileIcon(ext)}</span>
@@ -5098,6 +5185,20 @@ function renderSettings() {
       ${row('Status', cfg.auth_enabled ? 'Enabled' : 'Disabled (open access)', cfg.auth_enabled ? 'ok' : 'warn')}
     </div>
     <div class="setting-card">
+      <div class="setting-card-header">🤖 AI Configuration</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <span class="setting-key" style="margin-bottom:4px">OpenRouter API Key <span style="font-size:10px;color:var(--text-muted)">(stored locally in your browser)</span></span>
+        <div style="display:flex;width:100%;gap:10px">
+          <input type="password" id="or-key-input"
+            value="${esc(localStorage.getItem('autoar_or_key') || '')}"
+            placeholder="sk-or-v1-…"
+            class="form-control" style="flex:1;font-family:var(--font-mono);font-size:12px">
+          <button class="btn btn-primary" onclick="saveOpenRouterKey()">Save</button>
+        </div>
+        <span style="font-size:11px;color:var(--text-muted)">Used for <strong>Validate with AI</strong> and <strong>Report with AI</strong>. Get a key at <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent-cyan)">openrouter.ai/keys</a> — free tier available.</span>
+      </div>
+    </div>
+    <div class="setting-card">
       <div class="setting-card-header">🔔 Webhooks</div>
       <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <span class="setting-key" style="margin-bottom:4px;">Monitor Webhook URL (Discord / Generic)</span>
@@ -5112,8 +5213,8 @@ function renderSettings() {
       ${row('Enabled', cfg.r2_enabled ? 'Yes' : 'No', cfg.r2_enabled ? 'ok' : 'warn')}
       ${row('Bucket', cfg.r2_bucket || '—', cfg.r2_bucket ? 'ok' : 'warn')}
       ${row('Public URL', cfg.r2_public_url
-        ? cfg.r2_public_url.slice(0, 35) + (cfg.r2_public_url.length > 35 ? '…' : '')
-        : '—', cfg.r2_public_url ? 'ok' : 'warn')}
+    ? cfg.r2_public_url.slice(0, 35) + (cfg.r2_public_url.length > 35 ? '…' : '')
+    : '—', cfg.r2_public_url ? 'ok' : 'warn')}
     </div>
     <div class="setting-card">
       <div class="setting-card-header">📡 API Endpoints</div>
@@ -5125,12 +5226,25 @@ function renderSettings() {
   </div>`;
 }
 
-window.saveWebhookSettings = async function() {
+window.saveOpenRouterKey = function () {
+  const input = document.getElementById('or-key-input');
+  if (!input) return;
+  const key = input.value.trim();
+  if (key) {
+    localStorage.setItem('autoar_or_key', key);
+    showToast('success', 'Saved!', 'OpenRouter key stored in your browser.');
+  } else {
+    localStorage.removeItem('autoar_or_key');
+    showToast('info', 'Cleared', 'OpenRouter key removed.');
+  }
+};
+
+window.saveWebhookSettings = async function () {
   const url = document.getElementById('monitor-webhook-input').value.trim();
   const btn = document.querySelector('button[onclick="saveWebhookSettings()"]');
   if (btn) btn.innerHTML = '<span class="loading-spinner"></span>';
   try {
-    const headers = await buildAuthHeaders({'Content-Type': 'application/json'});
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
     const res = await fetch(`${API}/api/settings`, {
       method: 'POST',
       headers,
@@ -5140,14 +5254,14 @@ window.saveWebhookSettings = async function() {
     showToast('success', 'Saved!', 'Webhook settings updated successfully.');
     // Keep it in state so it doesn't revert visually
     if (state.config) state.config.monitor_webhook = url;
-  } catch(e) {
+  } catch (e) {
     showToast('error', 'Error', e.message);
   }
   if (btn) btn.textContent = 'Save';
 };
 
 function updateStatusDot() {
-  const dot  = document.getElementById('status-dot');
+  const dot = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
   if (!dot || !text) return;
   if (state.config) {
@@ -5443,10 +5557,10 @@ function timeAgo(d) {
   try {
     const diff = Date.now() - new Date(d).getTime();
     if (isNaN(diff)) return '—';
-    if (diff < 60000)   return 'just now';
-    if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
-    return `${Math.floor(diff/86400000)}d ago`;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
   } catch { return '—'; }
 }
 
@@ -5486,21 +5600,21 @@ function fmtSize(bytes) {
 
 function fmtInterval(secs) {
   if (!secs) return '—';
-  if (secs < 60)     return `${secs}s`;
-  if (secs < 3600)   return `${Math.floor(secs / 60)}m`;
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
   return `${Math.floor(secs / 3600)}h`;
 }
 
 function statusBadge(status) {
   const map = {
-    running:    'badge-running',
-    starting:   'badge-starting',
-    paused:     'badge-starting',
-    done:       'badge-done',
-    completed:  'badge-done',
-    failed:     'badge-failed',
-    error:      'badge-failed',
-    cancelled:  'badge-starting',
+    running: 'badge-running',
+    starting: 'badge-starting',
+    paused: 'badge-starting',
+    done: 'badge-done',
+    completed: 'badge-done',
+    failed: 'badge-failed',
+    error: 'badge-failed',
+    cancelled: 'badge-starting',
   };
   const cls = map[status] || 'badge-done';
   return `<span class="badge ${cls}">${esc(status)}</span>`;
@@ -5516,19 +5630,21 @@ function httpColor(code) {
 }
 
 function fileIcon(ext) {
-  const map = { txt:'📄', log:'📋', json:'📊', zip:'📦', gz:'📦', html:'🌐',
-                pdf:'📑', png:'🖼', jpg:'🖼', jpeg:'🖼', apk:'📱', ipa:'📱',
-                db:'🗄', sql:'🗄', md:'📝' };
+  const map = {
+    txt: '📄', log: '📋', json: '📊', zip: '📦', gz: '📦', html: '🌐',
+    pdf: '📑', png: '🖼', jpg: '🖼', jpeg: '🖼', apk: '📱', ipa: '📱',
+    db: '🗄', sql: '🗄', md: '📝'
+  };
   return map[ext] || '📄';
 }
 
 function humanChangeType(t) {
   const map = {
-    new_subdomain:   'New Subdomain',
-    became_live:     'Host Came Online',
-    became_dead:     'Host Went Down',
+    new_subdomain: 'New Subdomain',
+    became_live: 'Host Came Online',
+    became_dead: 'Host Went Down',
     content_changed: 'Content Changed',
-    status_changed:  'Status Changed',
+    status_changed: 'Status Changed',
   };
   return map[t] || t;
 }
@@ -5620,10 +5736,10 @@ document.addEventListener('DOMContentLoaded', boot);
 // ══════════════════════════════════════════════════════════════════════════════
 
 const PLATFORM_COLORS = {
-  h1:       { bg: '#1a2e1a', border: '#2a5a2a', accent: '#2ecc71', text: '#2ecc71' },
-  bc:       { bg: '#2e1e10', border: '#5a3820', accent: '#e67e22', text: '#e67e22' },
-  ywh:      { bg: '#10182e', border: '#1e2e5a', accent: '#3498db', text: '#3498db' },
-  it:       { bg: '#1e1028', border: '#3c1e55', accent: '#9b59b6', text: '#9b59b6' },
+  h1: { bg: '#1a2e1a', border: '#2a5a2a', accent: '#2ecc71', text: '#2ecc71' },
+  bc: { bg: '#2e1e10', border: '#5a3820', accent: '#e67e22', text: '#e67e22' },
+  ywh: { bg: '#10182e', border: '#1e2e5a', accent: '#3498db', text: '#3498db' },
+  it: { bg: '#1e1028', border: '#3c1e55', accent: '#9b59b6', text: '#9b59b6' },
   immunefi: { bg: '#1a1a2e', border: '#2a2a55', accent: '#667eea', text: '#667eea' },
 };
 
@@ -5642,7 +5758,7 @@ async function loadTargetsPlatforms() {
     const data = await apiFetch('/api/scope/platforms');
     targetsState.platforms = data.platforms || [];
     renderTargetsPlatforms();
-  } catch(e) {
+  } catch (e) {
     showToast('error', 'Scope Error', e.message);
   }
 }
@@ -5668,8 +5784,8 @@ function renderTargetsPlatforms() {
           <div style="font-weight:700;font-size:15px;color:${colors.text}">${p.name}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
             ${p.env_configured
-              ? `<span style="color:#2ecc71">✓ Credentials configured</span>`
-              : `<span style="color:#e74c3c">⚠ Credentials needed</span>`}
+        ? `<span style="color:#2ecc71">✓ Credentials configured</span>`
+        : `<span style="color:#e74c3c">⚠ Credentials needed</span>`}
           </div>
         </div>
       </div>
@@ -5714,7 +5830,7 @@ function renderPlatformCredFields(p, colors) {
 }
 
 function escapeSafe(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 function targetsUpdateCred(platformId, field, value) {
@@ -5747,19 +5863,19 @@ async function targetsDoFetch() {
 
   try {
     const body = {
-      platform:    platformId,
-      username:    creds.username || '',
-      token:       creds.token    || '',
-      email:       creds.email    || '',
-      password:    creds.password || '',
-      bbp_only:    document.getElementById('targets-bbp-only')?.checked  || false,
-      pvt_only:    document.getElementById('targets-pvt-only')?.checked  || false,
+      platform: platformId,
+      username: creds.username || '',
+      token: creds.token || '',
+      email: creds.email || '',
+      password: creds.password || '',
+      bbp_only: document.getElementById('targets-bbp-only')?.checked || false,
+      pvt_only: document.getElementById('targets-pvt-only')?.checked || false,
       public_only: document.getElementById('targets-public-only')?.checked || false,
       include_oos: document.getElementById('targets-include-oos')?.checked || false,
       extract_roots: true,
     };
     const data = await apiPost('/api/scope/fetch', body);
-    targetsState.domains  = data.root_domains || [];
+    targetsState.domains = data.root_domains || [];
     targetsState.filtered = [...targetsState.domains];
 
     const p = targetsState.platforms.find(x => x.id === platformId);
@@ -5771,7 +5887,7 @@ async function targetsDoFetch() {
 
     targetsRenderDomainList(targetsState.filtered);
     showToast('success', 'Done', `Fetched ${data.domain_count} root domains from ${data.programs} programs`);
-  } catch(e) {
+  } catch (e) {
     showToast('error', 'Fetch failed', e.message);
   } finally {
     if (btn) { btn.textContent = 'Fetch Targets'; btn.disabled = false; }
@@ -5837,7 +5953,7 @@ async function targetsAddDomain(domain) {
   try {
     await apiPost('/api/domains', { domain });
     showToast('success', 'Added', `${domain} added to Domains DB`);
-  } catch(e) {
+  } catch (e) {
     showToast('error', 'Add failed', e.message);
   }
 }
@@ -5851,7 +5967,7 @@ async function targetsAddAllDomains() {
     // Use the bulk endpoint — one HTTP request for all domains
     const data = await apiPost('/api/domains/bulk', { domains });
     showToast('success', 'Bulk Add', `Added ${data.added} domains${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
-  } catch(e) {
+  } catch (e) {
     showToast('error', 'Bulk add failed', e.message);
   } finally {
     if (btn) { btn.textContent = '+ Add All to Domains DB'; btn.disabled = false; }
@@ -5900,7 +6016,7 @@ async function targetsCopyAll() {
     } else {
       showToast('warning', 'Manual copy needed', 'Auto-copy failed — open the text in the toast');
     }
-  } catch(e) {
+  } catch (e) {
     showToast('error', 'Copy failed', e.message);
   }
 }
