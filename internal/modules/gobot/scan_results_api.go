@@ -953,9 +953,17 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 					}
 				}
 			case string:
+				fT := "URL-Enum"
+				if module == "JS-Enum" {
+					fT = "JS-Enum"
+				} else if module == "url-enum" {
+					fT = "URL-Enum"
+				} else {
+					fT = module
+				}
 				appendRow(parsedFinding{
 					Target:   t,
-					Finding:  module,
+					Finding:  fT,
 					Severity: "info",
 				})
 			default:
@@ -973,9 +981,17 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
+			fT := "URL-Enum"
+			if module == "JS-Enum" {
+				fT = "JS-Enum"
+			} else if module == "url-enum" {
+				fT = "URL-Enum"
+			} else {
+				fT = module
+			}
 			appendRow(parsedFinding{
 				Target:   line,
-				Finding:  module,
+				Finding:  fT,
 				Severity: "info",
 			})
 		}
