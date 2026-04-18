@@ -3869,9 +3869,14 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     });
   }
   let _ctxRow = null;
-  const closeCtx = () => { _ctxMenu.style.display = 'none'; _ctxRow = null; };
-  document.addEventListener('click', closeCtx, true);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCtx(); });
+  const closeCtx = () => { _ctxMenu.style.display = 'none'; };
+  document.addEventListener('click', e => {
+    if (!_ctxMenu.contains(e.target)) {
+       closeCtx();
+       _ctxRow = null;
+    }
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCtx(); _ctxRow = null; } });
 
   root.addEventListener('contextmenu', e => {
     const row = e.target.closest('.findings-row');
