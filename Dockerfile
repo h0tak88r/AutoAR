@@ -11,20 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install external Go-based CLI tools used by AutoAR
+# Install external Go-based CLI tools used by AutoAR (only those requested explicitly by subshells)
 RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    GOBIN=/go/bin go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
     GOBIN=/go/bin go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
-    GOBIN=/go/bin go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
-    GOBIN=/go/bin go install -v github.com/projectdiscovery/katana/cmd/katana@latest && \
-    GOBIN=/go/bin go install -v github.com/ffuf/ffuf/v2@latest && \
-    GOBIN=/go/bin go install -v github.com/lc/gau/v2/cmd/gau@latest && \
-    GOBIN=/go/bin go install -v github.com/tomnomnom/waybackurls@latest && \
-    GOBIN=/go/bin go install -v github.com/hahwul/dalfox/v2@latest && \
-    GOBIN=/go/bin go install -v github.com/tomnomnom/anew@latest && \
-    GOBIN=/go/bin go install -v github.com/codingo/interlace@latest && \
-    GOBIN=/go/bin go install -v github.com/deletescape/goop@latest && \
-    GOBIN=/go/bin go install -v github.com/h0tak88r/misconfig-mapper@latest || true
+    GOBIN=/go/bin go install -v github.com/codingo/interlace@latest || true
 
 # Install TruffleHog (binary handled via custom build)
 RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
@@ -116,8 +106,6 @@ RUN ln -sf /usr/local/bin/autoar /app/main.sh && \
 # Install Nuclei templates to a known location
 RUN nuclei -update-templates -ud /app/nuclei-templates || true
 
-# Update misconfig-mapper templates
-RUN misconfig-mapper -update-templates || true
 
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
