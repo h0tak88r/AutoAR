@@ -3581,6 +3581,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     kind: String(r.kind || inferKindFromFileName(r.file) || 'other').toLowerCase(),
   }));
 
+  const maxRows = 2500;
   const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf']);
   const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
 
