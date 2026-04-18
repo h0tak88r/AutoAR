@@ -10,10 +10,10 @@ import (
 func main() {
 	fmt.Println("[entrypoint] AutoAR starting...")
 
-	// Get the mode from environment variable (default: discord)
+	// Get the mode from environment variable (default: api)
 	mode := os.Getenv("AUTOAR_MODE")
 	if mode == "" {
-		mode = "discord"
+		mode = "api"
 	}
 
 	fmt.Printf("[entrypoint] Mode: %s\n", mode)
