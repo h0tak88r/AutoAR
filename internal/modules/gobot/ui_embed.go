@@ -1,7 +1,9 @@
 package gobot
 
 import (
+	"crypto/md5"
 	"embed"
+	"fmt"
 	"mime"
 	"net/http"
 	"path"
@@ -49,6 +51,22 @@ func serveDashboardUI(c *gin.Context) {
 			ct = "text/html; charset=utf-8"
 		default:
 			ct = "text/plain; charset=utf-8"
+		}
+	}
+
+	// Cache control: JS/CSS must never be served stale — no-store forces a fresh
+	// fetch every time. HTML gets an ETag so back-nav is fast but content is fresh.
+	switch ext {
+	case ".js", ".css":
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+	case ".html":
+		etag := fmt.Sprintf(`"%x"`, md5.Sum(content))
+		c.Header("Cache-Control", "no-cache")
+		c.Header("ETag", etag)
+		if c.GetHeader("If-None-Match") == etag {
+			c.Status(http.StatusNotModified)
+			return
 		}
 	}
 
