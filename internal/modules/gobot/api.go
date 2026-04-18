@@ -1816,6 +1816,12 @@ func executeScan(scanID string, command []string, scanType string) {
 		log.Printf("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
 	}
 
+	if target == "demo.autoar.com" {
+		log.Printf("[executeScan] DEMO intercepted. Generating mock artifacts for %s", target)
+		go generateMockResults(scanID, target, scanType, startedAt, command)
+		return
+	}
+
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
@@ -2639,6 +2645,40 @@ func sendMessageToDiscord(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "message sent successfully"})
+}
+
+func generateMockResults(scanID, target, scanType string, startedAt time.Time, command []string) {
+	time.Sleep(2 * time.Second)
+	resultsDir := filepath.Join(os.Getenv("AUTOAR_RESULTS_DIR"), target)
+	_ = os.MkdirAll(resultsDir, 0755)
+
+	_ = os.WriteFile(filepath.Join(resultsDir, "urls.txt"), []byte("https://demo.autoar.com/api\nhttps://demo.autoar.com/admin\nhttps://demo.autoar.com/test"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "js-urls.json"), []byte("[\"https://demo.autoar.com/main.js\",\"https://demo.autoar.com/vendor.chunk.js\"]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "nuclei-results.json"), []byte("[{\"template-id\": \"cve-2023-1000\", \"info\": {\"name\": \"Mock CVE\", \"severity\": \"high\"}, \"host\": \"demo.autoar.com\", \"matched-at\": \"https://demo.autoar.com/api\"}]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "buckets-s3.json"), []byte("[{\"target\": \"demo-bucket\", \"status\": \"Open\", \"vulnerable\": true, \"severity\": \"critical\"}]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "backup-files.json"), []byte("[{\"url\": \"https://demo.autoar.com/backup.zip\", \"size\": 1048576, \"severity\": \"high\"}]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "ports-nmap.json"), []byte("[{\"host\": \"demo.autoar.com\", \"port\": 8080, \"service\": \"http-alt\", \"severity\": \"info\"}]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "js-secrets.json"), []byte("[{\"file\": \"https://demo.autoar.com/main.js\", \"secret\": \"AKIA1234567890\", \"type\": \"AWS API Key\", \"severity\": \"high\"}]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "zeroday-results.json"), []byte("[{\"target\": \"https://demo.autoar.com\", \"finding\": \"ZeroDay Exploit Possible\", \"severity\": \"critical\"}]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "aem-scan.json"), []byte("[{\"target\": \"https://demo.autoar.com/aem\", \"finding\": \"AEM Default Credentials\", \"severity\": \"critical\"}]"), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "misconfig-mapper.json"), []byte("[{\"target\": \"https://demo.autoar.com/.git\", \"finding\": \"Exposed Git Directory\", \"severity\": \"medium\"}]"), 0644)
+
+	completedAt := time.Now()
+	_ = db.UpdateScanResult(scanID, "completed", "")
+
+	scansMutex.Lock()
+	delete(activeScans, scanID)
+	scansMutex.Unlock()
+
+	apiScansMutex.Lock()
+	scanResults[scanID] = &ScanResult{
+		ScanID: scanID, Status: "completed", ScanType: scanType,
+		StartedAt: startedAt, CompletedAt: &completedAt, Error: "",
+	}
+	apiScansMutex.Unlock()
+	
+	// Index
+	indexScanArtifacts(scanID, scanType, target)
 }
 
 // getEnv is defined in main.go

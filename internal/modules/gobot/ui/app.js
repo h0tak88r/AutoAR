@@ -3492,6 +3492,8 @@ function inferKindFromFileName(fileName) {
   if (b.includes('zeroday') || b.includes('0day')) return 'zerodays';
   // Misconfig
   if (b.includes('misconfig')) return 'misconfig';
+  // AEM
+  if (b.includes('aem')) return 'aem';
   // DNS / cloud takeover (including aws, azure, cloudflare, gcp)
   if (b.includes('dns') || b.includes('takeover') || b.includes('dnsreap') ||
     b.includes('aws-') || b.includes('azure-') || b.includes('gcp-') ||
@@ -3593,9 +3595,15 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   };
   // Kinds that are hidden from standalone tabs (merged into Assets or suppressed)
   const HIDDEN_KINDS = new Set(['logs', 'log', 'tech']);
-  // Merge nuclei + vuln + reflection into same display key so they share a single tab
+  // Merge parsing kinds into broader display groups (vuln, urls, etc.)
   for (const r of allRows) {
-    if (r.kind === 'nuclei' || r.kind === 'reflection') r.kind = 'vuln';
+    if (['nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf'].includes(r.kind)) {
+      r.kind = 'vuln';
+    }
+    if (r.kind === 'js_urls') {
+      r.kind = 'urls';
+      r.is_js = true;
+    }
   }
   // Show Assets tab first, then All, then data tabs that have rows (excluding hidden kinds)
   const DATASET_TABS = [
@@ -3636,8 +3644,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   const datasetCount = (k) => (k === 'all' ? allRows.length : (kindCounts[k] || 0));
 
 
+  let searchJsOnly = false;
+
   const rowMatch = (r) => {
     if (activeKind !== 'all' && (r.kind || 'other') !== activeKind) return false;
+    if (activeKind === 'urls' && searchJsOnly && !r.is_js) return false;
     if (searchHost && !String(r.host || r.target || '').toLowerCase().includes(searchHost)) return false;
     if (searchTitle && !String(r.title || r.finding || '').toLowerCase().includes(searchTitle)) return false;
     if (filterSeverity !== 'any') {
@@ -3661,8 +3672,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
           <option value="info">🟢 Info</option>
         </select>
         <input id="recon-filter-title" type="search" placeholder="🔍 Filter by type / finding..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
-        <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:11px;color:var(--text-muted);white-space:nowrap">
-          <span id="recon-unified-shown">0</span>&nbsp;rows
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--text-muted);white-space:nowrap">
+          <label id="recon-filter-js-wrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:var(--text-primary);cursor:pointer;background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:4px">
+            <input type="checkbox" id="recon-filter-js-only" style="accent-color:var(--accent-cyan)"> Only JS
+          </label>
+          <span><span id="recon-unified-shown">0</span> rows</span>
         </div>
       </div>
       <!-- Standard findings table -->
@@ -3841,6 +3855,19 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     if (!tabBtn || !root.contains(tabBtn)) return;
     activeKind = tabBtn.getAttribute('data-recon-kind') || 'all';
     renderTabs();
+
+    const jsWrap = root.querySelector('#recon-filter-js-wrap');
+    if (jsWrap) {
+      jsWrap.style.display = (activeKind === 'urls') ? 'inline-flex' : 'none';
+      if (activeKind !== 'urls') {
+        const jsChk = root.querySelector('#recon-filter-js-only');
+        if (jsChk && jsChk.checked) {
+          jsChk.checked = false;
+          searchJsOnly = false;
+        }
+      }
+    }
+
     if (activeKind === 'assets') {
       showAssetsView();
     } else {
@@ -3866,6 +3893,14 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   if (hostInput) hostInput.addEventListener('input', applyFiltersDebounced);
   if (titleInput) titleInput.addEventListener('input', applyFiltersDebounced);
   if (severitySel) severitySel.addEventListener('change', applyFilters);
+  
+  const jsChk = root.querySelector('#recon-filter-js-only');
+  if (jsChk) {
+    jsChk.addEventListener('change', (e) => {
+      searchJsOnly = e.target.checked;
+      renderBody();
+    });
+  }
 
   // ── Selection toolbar ─────────────────────────────────────────────────────
   // Build the floating toolbar (once, outside the root so it stays on DOM)
