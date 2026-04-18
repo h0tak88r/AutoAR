@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/gf"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
@@ -64,19 +65,10 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 		return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 	}
 
-	// Run sqlmap
-	if _, err := exec.LookPath("interlace"); err == nil {
-		log.Printf("[INFO] Running sqlmap with %d threads using interlace", threads)
-		cmd := exec.Command("interlace", "-tL", tempURLs, "-threads", fmt.Sprintf("%d", threads), "-c", "sqlmap -u _target_ --batch --dbs --random-agent", "-o", outFile)
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			log.Printf("[WARN] sqlmap scan failed: %v", err)
-		}
-	} else {
-		log.Printf("[INFO] Running sqlmap in single-thread mode (interlace not found)")
-		if err := runSQLMapSingleThread(tempURLs, outFile); err != nil {
-			log.Printf("[WARN] sqlmap scan failed: %v", err)
-		}
+	// Run sqlmap via native Go concurrency (replaces interlace limitation)
+	log.Printf("[INFO] Running sqlmap natively with %d threads", threads)
+	if err := runSQLMapMultiThread(tempURLs, outFile, threads); err != nil {
+		log.Printf("[WARN] sqlmap scan failed: %v", err)
 	}
 
 	count, _ := countLines(outFile)
@@ -122,12 +114,24 @@ func cleanURLs(inFile, outFile string) error {
 	return scanner.Err()
 }
 
-func runSQLMapSingleThread(urlsFile, outFile string) error {
+func runSQLMapMultiThread(urlsFile, outFile string, workers int) error {
 	f, err := os.Open(urlsFile)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+
+	urls := make([]string, 0)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		u := strings.TrimSpace(scanner.Text())
+		if u != "" {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return nil
+	}
 
 	out, err := os.OpenFile(outFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -135,18 +139,31 @@ func runSQLMapSingleThread(urlsFile, outFile string) error {
 	}
 	defer out.Close()
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		url := strings.TrimSpace(scanner.Text())
-		if url == "" {
-			continue
-		}
-		cmd := exec.Command("sqlmap", "-u", url, "--batch", "--random-agent", "--dbs")
-		cmd.Stdout = out
-		cmd.Stderr = os.Stderr
-		_ = cmd.Run() // Continue on error
+	var outMutex sync.Mutex
+	var wg sync.WaitGroup
+	jobs := make(chan string, len(urls))
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for url := range jobs {
+				cmd := exec.Command("sqlmap", "-u", url, "--batch", "--random-agent", "--dbs")
+				output, _ := cmd.CombinedOutput()
+				outMutex.Lock()
+				_, _ = out.Write(output)
+				outMutex.Unlock()
+			}
+		}()
 	}
-	return scanner.Err()
+
+	for _, url := range urls {
+		jobs <- url
+	}
+	close(jobs)
+	wg.Wait()
+
+	return nil
 }
 
 func countLines(path string) (int, error) {
