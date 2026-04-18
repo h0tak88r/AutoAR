@@ -3581,10 +3581,13 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     kind: String(r.kind || inferKindFromFileName(r.file) || 'other').toLowerCase(),
   }));
 
-  const maxRows = 2500;
-  let activeKind = 'all';
+  const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf']);
+  const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
+
+  let activeKind = totalVuln > 0 ? 'vuln' : 'assets';
   let searchHost = '';
   let searchTitle = '';
+  let searchModule = 'all';
   let filterSeverity = 'any';
 
   // Build dynamic tabs from actual data
@@ -3608,15 +3611,12 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
       r.is_js = true;
     }
   }
-  // Show Assets tab first, then All, then data tabs that have rows (excluding hidden kinds)
+  // Enforce requested tab limits: only Assets, Vulnerabilities, Links
   const DATASET_TABS = [
-    ['assets', '🏠 Assets'],  // always present
-    ['all', 'All'],
-    ...Object.entries(_kindCounts)
-      .filter(([k, c]) => c > 0 && !HIDDEN_KINDS.has(k))
-      .sort((a, b) => b[1] - a[1])
-      .map(([k]) => [k, TAB_LABELS[k] || k]),
+    ['assets', '🏠 Assets']
   ];
+  if (totalVuln > 0) DATASET_TABS.push(['vuln', 'Vulnerabilities']);
+  if (_kindCounts['urls'] > 0 || _kindCounts['js_urls'] > 0) DATASET_TABS.push(['urls', 'Links']);
 
   // Cache for assets data (uses global _assetsCache so doScanDetailRefresh can bust it)
   let _assetsLoading = false;
@@ -3649,13 +3649,12 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
 
   let searchJsOnly = false;
 
-  const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf']);
-
   const rowMatch = (r) => {
     const k = r.kind || 'other';
     if (activeKind === 'vuln') {
       if (!VULN_KINDS.has(k)) return false;
-    } else if (activeKind !== 'all' && k !== activeKind) {
+      if (searchModule !== 'all' && (r.module || 'other') !== searchModule) return false;
+    } else if (k !== activeKind) {
       return false;
     }
     if (activeKind === 'urls' && searchJsOnly && !r.is_js) return false;
@@ -3671,7 +3670,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   root.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);overflow:hidden">
       <div id="recon-top-tabs" style="display:flex;gap:2px;overflow:auto;padding:0 10px;background:rgba(2,6,23,.6);border-bottom:1px solid var(--border)"></div>
-      <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
+      <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
         <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <select id="recon-filter-severity" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
           <option value="any">Any Severity</option>
@@ -3680,6 +3679,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
           <option value="medium">🟡 Medium</option>
           <option value="low">🔵 Low</option>
           <option value="info">🟢 Info</option>
+        </select>
+        <select id="recon-filter-module" style="display:${activeKind === 'vuln' ? 'block' : 'none'};padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+          <option value="all">All Modules</option>
         </select>
         <input id="recon-filter-title" type="search" placeholder="🔍 Filter by type / finding..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--text-muted);white-space:nowrap">
@@ -3722,6 +3724,18 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   const standardView = root.querySelector('#recon-standard-view');
   const assetsView = root.querySelector('#recon-assets-view');
   const assetsContent = root.querySelector('#recon-assets-content');
+
+  const modSelect = root.querySelector('#recon-filter-module');
+  if (modSelect) {
+    const usedModules = [...new Set(allRows.map(r => r.module || 'other'))].sort();
+    modSelect.innerHTML = '<option value="all">All Modules</option>' + usedModules.map(m => {
+      return `<option value="${esc(m)}">${esc(getModuleDisplayInfo(m).name)}</option>`;
+    }).join('');
+    modSelect.addEventListener('change', () => {
+      searchModule = modSelect.value;
+      renderBody();
+    });
+  }
 
   const renderTabs = () => {
     if (!tabsEl) return;
@@ -3864,7 +3878,14 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     const tabBtn = e.target.closest('[data-recon-kind]');
     if (!tabBtn || !root.contains(tabBtn)) return;
     activeKind = tabBtn.getAttribute('data-recon-kind') || 'all';
-    renderTabs();
+    const modSelectEl = root.querySelector('#recon-filter-module');
+    if (modSelectEl) {
+      modSelectEl.style.display = activeKind === 'vuln' ? 'block' : 'none';
+      if (activeKind !== 'vuln') {
+        modSelectEl.value = 'all';
+        searchModule = 'all';
+      }
+    }
 
     const jsWrap = root.querySelector('#recon-filter-js-wrap');
     if (jsWrap) {

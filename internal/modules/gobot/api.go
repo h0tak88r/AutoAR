@@ -2659,9 +2659,11 @@ func generateMockResults(scanID, target, scanType string, startedAt time.Time, c
 	_ = os.WriteFile(filepath.Join(resultsDir, "backup-files.json"), []byte(fmt.Sprintf("[{\"url\": \"https://%[1]s/backup.zip\", \"size\": 1048576, \"severity\": \"high\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "ports-nmap.json"), []byte(fmt.Sprintf("[{\"host\": \"%[1]s\", \"port\": 8080, \"service\": \"http-alt\", \"severity\": \"info\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "js-secrets.json"), []byte(fmt.Sprintf("[{\"file\": \"https://%[1]s/main.js\", \"secret\": \"AKIA1234567890\", \"type\": \"AWS API Key\", \"severity\": \"high\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "zeroday-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s\", \"finding\": \"ZeroDay Exploit Possible\", \"severity\": \"critical\"}]", target)), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "zeroday-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s\", \"finding\": \"CVE-2024-XXXX Node.js Remote Code Execution\", \"severity\": \"critical\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "aem-scan.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/aem\", \"finding\": \"AEM Default Credentials\", \"severity\": \"critical\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "misconfig-mapper.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/.git\", \"finding\": \"Exposed Git Directory\", \"severity\": \"medium\"}]", target)), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "wp-confusion-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/wp-content\", \"finding\": \"WordPress Missing Theme\", \"severity\": \"medium\"}]", target)), 0644)
+	_ = os.WriteFile(filepath.Join(resultsDir, "depconf-scan.json"), []byte(fmt.Sprintf("[{\"target\": \"package.json\", \"finding\": \"Dependency Confusion in 'internal-core'\", \"severity\": \"high\"}]", target)), 0644)
 
 	completedAt := time.Now()
 	_ = db.UpdateScanResult(scanID, "completed", "")
