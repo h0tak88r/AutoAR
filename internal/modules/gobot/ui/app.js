@@ -3879,6 +3879,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     const tabBtn = e.target.closest('[data-recon-kind]');
     if (!tabBtn || !root.contains(tabBtn)) return;
     activeKind = tabBtn.getAttribute('data-recon-kind') || 'all';
+    renderTabs();
+
     const modSelectEl = root.querySelector('#recon-filter-module');
     if (modSelectEl) {
       modSelectEl.style.display = activeKind === 'vuln' ? 'block' : 'none';
