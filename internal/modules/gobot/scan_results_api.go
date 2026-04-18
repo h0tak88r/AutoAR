@@ -914,24 +914,35 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 						return
 					}
 				}
+			case string:
+				appendRow(parsedFinding{
+					Target:   t,
+					Finding:  module,
+					Severity: "info",
+				})
 			default:
-				// Plain string reached the walker — this comes from WriteLinesAsJSON
-				// envelopes (e.g. urls.json items array). These files should have been
-				// caught by shouldSkipArtifact or rawToJSON. Drop silently rather than
-				// producing garbage rows with Finding=raw_string, Target="—".
-				// If you see missing findings, ensure the module emits structured JSON.
 			}
 		}
 		walk(top)
 		if len(out) > 0 {
 			return out
 		}
+	} else {
+		// Fallback line-by-line parser for text files (e.g., js-urls.txt, urls.txt)
+		lines := strings.Split(string(raw), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			appendRow(parsedFinding{
+				Target:   line,
+				Finding:  module,
+				Severity: "info",
+			})
+		}
 	}
-	// All current modules write structured JSON. If JSON parsing ran (jsonHandled)
-	// but produced 0 rows (e.g. ZeroDays with no vulns), return empty — do NOT
-	// fall through to a text line parser which would render raw JSON source as findings.
-	// If JSON parsing didn't run (not a JSON file), return empty — all such files
-	// are now in shouldSkipArtifact and will never reach this function.
+	
 	return out
 }
 
@@ -999,23 +1010,23 @@ func apiScanParsedResults(c *gin.Context) {
 		"ffuf-webhook-messages.txt":     "ffuf-results.json",
 		"kxss-results.txt":              "xss-reflection-vulnerabilities.json",
 		"exposure-findings.txt":         "exposure-vulnerabilities.json",
-		// URL corpus files — never findings, always skip
-		"urls.json":                      "__pipeline_input__",
-		"js-urls.json":                   "__pipeline_input__",
+		// URL corpus files — never findings, always skip (uncommented to SHOW in URL tab)
+		// "urls.json":                      "__pipeline_input__",
+		// "js-urls.json":                   "__pipeline_input__",
 		// Subdomain / port list envelopes — raw line lists, not structured findings
-		"subdomains.json":                "__pipeline_input__",
-		"ports.json":                     "__pipeline_input__",
+		// "subdomains.json":                "__pipeline_input__",
+		// "ports.json":                     "__pipeline_input__",
 		// Live hosts — served by /assets, never by /parsed findings
 		"livehosts.json":                 "__pipeline_input__",
 		// CNAME recon — served by DNS section, not findings
 		"cname-records.json":             "__pipeline_input__",
 		// Pipeline input files — never findings, always skip
-		"all-subs.txt":                  "__pipeline_input__",
-		"live-subs.txt":                 "__pipeline_input__",
+		// "all-subs.txt":                  "__pipeline_input__",
+		// "live-subs.txt":                 "__pipeline_input__",
 		"live-hosts.txt":                "__pipeline_input__",
-		"all-urls.txt":                  "__pipeline_input__",
-		"subdomains.txt":                "__pipeline_input__",
-		"enumerated-subs.txt":           "__pipeline_input__",
+		// "all-urls.txt":                  "__pipeline_input__",
+		// "subdomains.txt":                "__pipeline_input__",
+		// "enumerated-subs.txt":           "__pipeline_input__",
 		"nuclei-summary.txt":            "__pipeline_input__",
 		// DNS raw intermediate files
 		"dangling-ip.txt":               "dns-takeover-vulnerabilities.json",
