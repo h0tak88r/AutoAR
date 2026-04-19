@@ -1641,14 +1641,15 @@ function detectModuleFromFileName(fileName, existingModule) {
   // Subdomain enumeration tools
   if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
 
-  // HTTP status checking
+  // HTTP status checking / live hosts
   if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';
 
   // JavaScript analysis
   if (n.includes('js-urls') || n.includes('javascript') || n.includes('js-')) return 'js-analysis';
 
   // XSS/Reflection
-  if (n.includes('kxss') || n.includes('dalfox') || n.includes('reflection')) return 'xss-detection';
+  if (n.includes('kxss') || n.includes('dalfox') || n.includes('xss-reflection')) return 'xss-detection';
+  if (n.includes('reflection')) return 'xss-detection';
 
   // SQL injection
   if (n.includes('sqlmap') || n.includes('sqli')) return 'sql-detection';
@@ -1665,6 +1666,12 @@ function detectModuleFromFileName(fileName, existingModule) {
   // Misconfiguration
   if (n.includes('misconfig')) return 'misconfig';
 
+  // Source exposure (API keys, secrets)
+  if (n.includes('exposure')) return 'exposure';
+
+  // CNAME records (DNS but not takeover)
+  if (n.includes('cname')) return 'dns-takeover';
+
   // Dependency confusion
   if (n.includes('depconfusion') || n.includes('confused')) return 'dependency-confusion';
 
@@ -1673,6 +1680,9 @@ function detectModuleFromFileName(fileName, existingModule) {
 
   // AEM (Adobe Experience Manager)
   if (n.includes('aem')) return 'aem';
+
+  // Gospider URL crawling
+  if (n.includes('gospider')) return 'url-enum';
 
   // DNS takeover
   if (n.includes('dns') || n.includes('takeover')) return 'dns-takeover';
@@ -1702,28 +1712,28 @@ function detectModuleFromFileName(fileName, existingModule) {
 function getModuleDisplayInfo(module) {
   const mod = String(module || '').toLowerCase();
   const modules = {
-    'nuclei': { icon: '☢️', name: 'Nuclei', color: '#f59e0b' },
-    'subdomain-enum': { icon: '🔍', name: 'Subdomain Enum', color: '#06b6d4' },
-    'httpx': { icon: '🌐', name: 'HTTPX', color: '#10b981' },
-    'js-analysis': { icon: '📜', name: 'JS Analysis', color: '#818cf8' },
-    'xss-detection': { icon: '⚡', name: 'XSS Detection', color: '#f59e0b' },
-    'sql-detection': { icon: '💉', name: 'SQL Detection', color: '#ef4444' },
-    'gf-patterns': { icon: '🎯', name: 'GF Patterns', color: '#10b981' },
-    'zerodays': { icon: '🚨', name: 'ZeroDays', color: '#ef4444' },
-    'backup-detection': { icon: '💾', name: 'Backup Files', color: '#8b5cf6' },
-    'misconfig': { icon: '⚙️', name: 'Misconfig', color: '#f97316' },
-    'dependency-confusion': { icon: '📦', name: 'Dep Confusion', color: '#ec4899' },
-    's3-scan': { icon: '🪣', name: 'S3 Scan', color: '#06b6d4' },
-    'dns-takeover': { icon: '🔀', name: 'DNS Takeover', color: '#14b8a6' },
-    'tech-detect': { icon: '🔬', name: 'Tech Detect', color: '#a855f7' },
-    'port-scan': { icon: '🔌', name: 'Port Scan', color: '#64748b' },
-    'github-scan': { icon: '🐙', name: 'GitHub Scan', color: '#6366f1' },
-    'ffuf-fuzzing': { icon: '🎲', name: 'FFUF Fuzzing', color: '#f43f5e' },
-    'reflection': { icon: '🔎', name: 'Reflection', color: '#0ea5e9' },
+    'nuclei': { icon: '🚨', name: 'Nuclei', color: '#ef4444' },
+    'subdomain-enum': { icon: '🔗', name: 'Subdomains', color: '#6366f1' },
+    'httpx': { icon: '🌐', name: 'Live Hosts', color: '#22c55e' },
+    'js-analysis': { icon: '📜', name: 'JS Analysis', color: '#eab308' },
+    'xss-detection': { icon: '💥', name: 'XSS / Reflection', color: '#f97316' },
+    'sql-detection': { icon: '🗻', name: 'SQLi', color: '#dc2626' },
+    'gf-patterns': { icon: '🎯', name: 'GF Patterns', color: '#8b5cf6' },
+    'zerodays': { icon: '💣', name: 'Zero-Days', color: '#dc2626' },
+    'backup-detection': { icon: '📂', name: 'Backup Files', color: '#94a3b8' },
+    'misconfig': { icon: '⚙️', name: 'Misconfig', color: '#f59e0b' },
+    'dependency-confusion': { icon: '🧶', name: 'Dep Confusion', color: '#a855f7' },
+    's3-scan': { icon: '☁️', name: 'S3 Buckets', color: '#0ea5e9' },
+    'aem': { icon: '🧱', name: 'AEM Enum', color: '#f97316' },
     'aem-scan': { icon: '🧱', name: 'AEM Enum', color: '#f97316' },
-    'url-enum': { icon: '🔗', name: 'URL Enum', color: '#06b6d4' },
-    'JS-Enum': { icon: '📜', name: 'JS URL Enum', color: '#818cf8' },
-    'autoar': { icon: '🎯', name: 'AutoAR', color: '#06b6d4' },
+    'dns-takeover': { icon: '📍', name: 'DNS', color: '#06b6d4' },
+    'tech-detect': { icon: '🔬', name: 'Tech Detect', color: '#a855f7' },
+    'port-scan': { icon: '📡', name: 'Port Scan', color: '#64748b' },
+    'github-scan': { icon: '🐦', name: 'GitHub Recon', color: '#94a3b8' },
+    'ffuf-fuzzing': { icon: '🎲', name: 'FFUF Fuzzing', color: '#f43f5e' },
+    'url-enum': { icon: '🔗', name: 'URLs', color: '#38bdf8' },
+    'exposure': { icon: '🔑', name: 'Exposure', color: '#f59e0b' },
+    'autoar': { icon: '🎯', name: 'AutoAR', color: '#4ade80' },
     'unknown': { icon: '❓', name: 'Unknown', color: '#64748b' },
   };
 
@@ -1986,8 +1996,8 @@ function detectResultType(items, file) {
   }
 
   // HTTPX/Live hosts results
-  if (module === 'httpx' || fileName.includes('live') || fileName.includes('httpx')) {
-    if (first.url || first.status_code || first.status || first.title) return 'httpx-results';
+  if (module === 'httpx' || fileName.includes('live') || fileName.includes('httpx') || fileName.includes('livehosts')) {
+    if (first.url || first.URL || first.host || first.Host || first.status_code || first.StatusCode || first.status || first.title) return 'httpx-results';
   }
 
   // Nuclei vulnerability results
@@ -2849,9 +2859,26 @@ async function renderScanDetailView(scanId) {
     const target = scan.target || scan.Target || '';
     const st = scan.scan_type || scan.ScanType || '';
     const stat = scan.status || scan.Status || '';
+    const statLower = stat.toLowerCase();
     const titleEl = document.getElementById('scan-detail-title');
     if (titleEl) titleEl.textContent = target || 'Scan results';
-    if (sub) sub.textContent = `${st} · ${stat}`;
+
+    // Render scan type + status with live badge if running
+    if (sub) {
+      const isActive = /running|starting|paused|cancelling/i.test(stat);
+      if (isActive) {
+        const isCancelling = /cancelling/i.test(stat);
+        const isPaused = /paused/i.test(stat);
+        const liveBadge = isPaused
+          ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⏸ paused</span>`
+          : isCancelling
+            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
+            : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">● live</span>`;
+        sub.innerHTML = `${esc(st)} · ${esc(statLower)}${liveBadge}`;
+      } else {
+        sub.textContent = `${st} · ${statLower}`;
+      }
+    }
     if (apiA) {
       apiA.href = `/api/scans/${encodeURIComponent(scanId)}`;
       apiA.style.display = 'inline-flex';
@@ -3133,9 +3160,23 @@ async function doScanDetailRefresh(scanId) {
     const files = sum.files || [];
     const stillRunning = /^(running|pending|queued|active|in_progress|starting)$/.test(stat);
 
-    // Update the status subtitle
+    // Update the status subtitle with live badge if still running
     const sub = document.getElementById('scan-detail-sub');
-    if (sub) sub.textContent = `${scan.scan_type || ''} · ${stat}`;
+    if (sub) {
+      if (stillRunning) {
+        const isCancelling = /cancelling/.test(stat);
+        const isPaused = /paused/.test(stat);
+        const scanType = scan.scan_type || '';
+        const liveBadge = isPaused
+          ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⏸ paused</span>`
+          : isCancelling
+            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
+            : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">● live</span>`;
+        sub.innerHTML = `${esc(scanType)} · ${esc(stat)}${liveBadge}`;
+      } else {
+        sub.textContent = `${scan.scan_type || ''} · ${stat}`;
+      }
+    }
 
     // Update or inject phase banner
     updatePhaseBanner(scan);
