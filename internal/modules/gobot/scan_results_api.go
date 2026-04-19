@@ -283,6 +283,8 @@ func writeJSONToFile(scanID, fileName string, jsonData interface{}) error {
 // loadFileContent loads content from local file first, then R2
 func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 	scanDir := getScanResultsDir(scanID)
+	// #5: Prevent path traversal by ensuring the filename is just a base name.
+	fileName = filepath.Base(fileName)
 	filePath := filepath.Join(scanDir, fileName)
 
 	// Try local file first — return even if empty (0 bytes = no results found)
