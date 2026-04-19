@@ -438,7 +438,7 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 	if publicDir != "" {
 		out := filepath.Join(findingsDir, "nuclei-takeover-public.json")
 		log.Printf("[INFO] Running Nuclei public takeover templates from %s", publicDir)
-		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(publicDir, "http", "takeovers"), "-json", "-silent", "-o", out)
+		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(publicDir, "http", "takeovers"), "-jsonl", "-silent", "-o", out)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -483,7 +483,7 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 	if customDir != "" {
 		out := filepath.Join(findingsDir, "nuclei-takeover-custom.json")
 		log.Printf("[INFO] Running Nuclei custom takeover templates from %s", customDir)
-		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(customDir, "http", "takeovers"), "-json", "-silent", "-o", out)
+		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(customDir, "http", "takeovers"), "-jsonl", "-silent", "-o", out)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
