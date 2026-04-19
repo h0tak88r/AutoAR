@@ -188,10 +188,40 @@ func Run(opts Options) (*Result, error) {
 	if err := scanJSForSecrets(targetJS, secretsFile, opts.Threads); err != nil {
 		log.Printf("[WARN] JS scan: Secret scanning failed: %v", err)
 	} else {
+		scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
 		if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
 			log.Printf("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
+			
+			if scanID != "" {
+				data, readErr := os.ReadFile(secretsFile)
+				if readErr == nil {
+					type secretFinding struct {
+						TemplateID string `json:"template-id"`
+						MatchedAt  string `json:"matched-at"`
+						Severity   string `json:"severity"`
+						Finding    string `json:"finding"`
+					}
+					var findings []secretFinding
+					for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+						if line == "" { continue }
+						// Format: [PatternName] URL -> Secret
+						findings = append(findings, secretFinding{
+							TemplateID: "JS Secret Exposure",
+							MatchedAt:  line,
+							Severity:   "high",
+							Finding:    line,
+						})
+					}
+					if len(findings) > 0 {
+						_ = utils.WriteJSONToScanDir(scanID, "js-secrets-vulnerabilities.json", findings)
+					}
+				}
+			}
 		} else {
 			log.Printf("[INFO] JS scan: No secrets found in JS files")
+			if scanID != "" {
+				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "js-scan", "js-secrets-vulnerabilities.json")
+			}
 		}
 	}
 	

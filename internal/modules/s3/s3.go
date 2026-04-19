@@ -358,8 +358,12 @@ func handleScan(opts Options, resultsDir string) error {
 				ScanMethod:  scanMethod,
 			},
 		}
-		if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", findings); err != nil {
-			log.Printf("[WARN] Failed to write S3 JSON: %v", err)
+		if objectCount > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", findings); err != nil {
+				log.Printf("[WARN] Failed to write S3 JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Bucket, "s3-scan", "s3-vulnerabilities.json")
 		}
 	}
 

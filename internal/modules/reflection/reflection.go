@@ -201,6 +201,8 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 			if err := utils.WriteJSONToScanDir(scanID, "xss-reflection-vulnerabilities.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write reflection JSON: %v", err)
 			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "xss-detection", "xss-reflection-vulnerabilities.json")
 		}
 	}
 

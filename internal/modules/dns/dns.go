@@ -300,12 +300,14 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 			}
 		}
 		// Index nuclei JSONL files (they have clean per-line JSON objects)
+		foundNuclei := false
 		for _, name := range []string{"nuclei-takeover-public.json", "nuclei-takeover-custom.json"} {
 			p := filepath.Join(findingsDir, name)
 			info, err := os.Stat(p)
 			if err != nil || info.Size() == 0 {
 				continue
 			}
+			foundNuclei = true
 			data, err := os.ReadFile(p)
 			if err != nil {
 				continue
@@ -316,6 +318,10 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 					log.Printf("[WARN] Failed to index nuclei DNS file %s: %v", name, idxErr)
 				}
 			}
+		}
+
+		if len(allTextFindings) == 0 && !foundNuclei {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "dns-takeover", "dns-takeover-vulnerabilities.json")
 		}
 	}
 
