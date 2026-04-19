@@ -1134,11 +1134,29 @@ function refreshCurrentView() {
     case 'r2': loadR2(state.r2.prefix); break;
     case 'settings': loadConfig(); break;
     case 'scan-detail':
-      if (state.scanDetailId) renderScanDetailView(state.scanDetailId);
+      if (state.scanDetailId) {
+        state.scanDetailUI.filesPage = 1;
+        renderScanDetailView(state.scanDetailId);
+      }
       break;
   }
 }
 
+/** Pagination: previous page of files */
+function prevFilesPage(scanId) {
+  if (state.scanDetailUI.filesPage > 1) {
+    state.scanDetailUI.filesPage--;
+    renderScanDetailView(scanId);
+  }
+}
+
+/** Pagination: next page of files */
+function nextFilesPage(scanId, total) {
+  if (state.scanDetailUI.filesPage * state.scanDetailUI.filesPerPage < total) {
+    state.scanDetailUI.filesPage++;
+    renderScanDetailView(scanId);
+  }
+}
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
 
@@ -2855,7 +2873,7 @@ async function renderScanDetailView(scanId) {
 
   try {
     const sum = await apiFetch(
-      `/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=${ui.filesPerPage}`
+      `/api/scans/${encodeURIComponent(scanId)}/results/summary?page=${ui.filesPage}&per_page=${ui.filesPerPage}`
     );
     const scan = sum.scan;
     const target = scan.target || scan.Target || '';
@@ -3049,8 +3067,18 @@ async function renderScanDetailView(scanId) {
             </tbody>
           </table>
         </div>
-        <div id="files-count-footer" style="padding:12px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted)">
-          Showing ${files.length} files
+        <div style="padding:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg-secondary);border-radius:0 0 12px 12px">
+          <div style="font-size:12px;color:var(--text-muted)">
+            Showing ${files.length} of ${total} files (Page ${ui.filesPage})
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="prevFilesPage('${scanId}')" ${ui.filesPage === 1 ? 'disabled' : ''} style="padding:4px 12px;font-size:12px">
+              ← Previous
+            </button>
+            <button class="btn btn-ghost" onclick="nextFilesPage('${scanId}', ${total})" ${ui.filesPage * ui.filesPerPage >= total ? 'disabled' : ''} style="padding:4px 12px;font-size:12px">
+              Next →
+            </button>
+          </div>
         </div>
       </div>` : '';
 
