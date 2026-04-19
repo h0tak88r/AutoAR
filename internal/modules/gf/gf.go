@@ -113,7 +113,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 	//   VULN TYPE = pattern name (e.g. gf-sqli, gf-lfi)
 	//   TARGET    = the vulnerable URL
 	//   SEV       = derived from pattern severity
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && totalMatches > 0 {
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
 		// Map pattern names to rough severity levels
 		patternSeverity := map[string]string{
 			"sqli":       "high",

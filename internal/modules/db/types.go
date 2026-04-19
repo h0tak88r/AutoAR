@@ -124,6 +124,8 @@ type DB interface {
 	ListAllScanIDs() ([]string, error)
 	// ListScanIDsForDomainRoot returns scan IDs whose target is the root domain or a host under it (sub.example.com for example.com).
 	ListScanIDsForDomainRoot(domain string) ([]string, error)
+	// IsPhaseCompleted checks if a specific phase was already successfully completed for a scan.
+	IsPhaseCompleted(scanID, phaseName string) bool
 
 	// Close closes the database connection
 	Close()

@@ -20,6 +20,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.5
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/joeguo/tldextract v0.0.0-20220507100122-d83daa6adef8
+	github.com/joho/godotenv v1.5.1
 	github.com/juju/persistent-cookiejar v1.0.0
 	github.com/majd/ipatool/v2 v2.2.0
 	github.com/projectdiscovery/dnsx v1.2.2
@@ -30,6 +31,7 @@ require (
 	github.com/projectdiscovery/tlsx v1.2.2
 	github.com/sa7mon/s3scanner v0.0.0-20251106040855-9e26bc46e8ee
 	github.com/sirupsen/logrus v1.9.3
+	github.com/spf13/cobra v1.10.2
 	github.com/sw33tLie/bbscope v0.0.0-20251113222800-c453973e83dd
 	golang.org/x/net v0.47.0
 	golang.org/x/time v0.14.0
@@ -150,11 +152,11 @@ require (
 	github.com/hbakhtiyor/strsim v0.0.0-20190107154042-4d2bbb273edf // indirect
 	github.com/hdm/jarm-go v0.0.7 // indirect
 	github.com/iangcarroll/cookiemonster v1.6.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/juju/go4 v0.0.0-20160222163258-40d72ab9641a // indirect
 	github.com/kataras/jwt v0.1.10 // indirect

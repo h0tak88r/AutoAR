@@ -146,10 +146,13 @@ func Run(opts Options) (*Result, error) {
 
 	// Write JSON results to scan directory (local-first)
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && result != nil {
-		if data, readErr := os.ReadFile(result.JSONPath); readErr == nil && len(data) > 0 {
+		data, readErr := os.ReadFile(result.JSONPath)
+		if readErr == nil && len(data) > 0 {
 			if err := utils.WriteTextToScanDir(scanID, "github-secrets.json", data); err != nil {
 				fmt.Printf("[WARN] Failed to write github JSON: %v\n", err)
 			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, target, "github-secrets", "github-secrets.json")
 		}
 	}
 

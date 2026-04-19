@@ -687,6 +687,10 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 
 	if len(targets) == 0 {
 		log.Printf("[WARN] No subdomains found, skipping NS takeover")
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			domain := filepath.Base(domainDir)
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "dns-takeover", "dns-takeover-vulnerabilities.json")
+		}
 		return nil
 	}
 
