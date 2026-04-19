@@ -14,6 +14,8 @@ var (
 		Short: "Scan for backup files",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			ensureDB()
+			setupCurrentScan(domain, "backup")
 			_, err := backup.Run(backup.Options{Domain: domain, Method: "all", Threads: 50})
 			return err
 		},
@@ -29,6 +31,8 @@ var (
 		Short: "Scan a specific bucket",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bucket, _ := cmd.Flags().GetString("bucket")
+			ensureDB()
+			setupCurrentScan(bucket, "s3")
 			return s3.Run(s3.Options{Action: "scan", Bucket: bucket})
 		},
 	}
@@ -38,6 +42,8 @@ var (
 		Short: "JWT token security analysis",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			token, _ := cmd.Flags().GetString("token")
+			ensureDB()
+			setupCurrentScan("jwt-analysis", "jwt")
 			_, err := jwt.RunScan([]string{token})
 			return err
 		},
@@ -48,6 +54,8 @@ var (
 		Short: "Scan for recent Zero-Day vulnerabilities",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			ensureDB()
+			setupCurrentScan(domain, "zerodays")
 			_, err := zerodays.Run(zerodays.Options{Domain: domain})
 			return err
 		},
@@ -61,6 +69,14 @@ var (
 			subdomain, _ := cmd.Flags().GetString("subdomain")
 			threads, _ := cmd.Flags().GetInt("threads")
 			silent, _ := cmd.Flags().GetBool("silent")
+
+			target := domain
+			if target == "" {
+				target = subdomain
+			}
+
+			ensureDB()
+			setupCurrentScan(target, "zerodays")
 
 			opts := zerodays.Options{
 				Domain:    domain,
