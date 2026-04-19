@@ -357,9 +357,13 @@ func getSubdomainsFromSubfinder(domain string, threads int) ([]string, error) {
 		}
 
 		// Write JSON results to scan directory (local-first)
-		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(results) > 0 {
-			if err := utils.WriteLinesAsJSON(scanID, domain, "subdomain", "subdomains.json", results); err != nil {
-				log.Printf("[WARN] Failed to write subdomain JSON: %v", err)
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			if len(results) > 0 {
+				if err := utils.WriteLinesAsJSON(scanID, domain, "subdomain", "subdomains.json", results); err != nil {
+					log.Printf("[WARN] Failed to write subdomain JSON: %v", err)
+				}
+			} else {
+				_ = utils.WriteNoFindingsJSON(scanID, domain, "subdomain", "subdomains.json")
 			}
 		}
 

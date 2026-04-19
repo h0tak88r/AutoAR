@@ -28,7 +28,6 @@ import (
 	s3mod "github.com/h0tak88r/AutoAR/internal/modules/s3"
 	"github.com/h0tak88r/AutoAR/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
-	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	wpconfusion "github.com/h0tak88r/AutoAR/internal/modules/wp-confusion"
 	"github.com/projectdiscovery/httpx/runner"
@@ -107,7 +106,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 
 	// Phase 1: Live Check (Sequential - Critical Path)
-	if err := runSubdomainPhase("livehosts", getNextStep(), totalSteps, "Live host check", subdomain, 0, func() error {
+	if err := utils.RunWorkflowPhase("livehosts", getNextStep(), totalSteps, "Live host check", subdomain, 0, func() error {
 		return checkAndSaveLiveSubdomain(subdomain, liveHostsFile)
 	}); err != nil {
 		log.Printf("[ERROR] Live host check failed: %v", err)
@@ -123,7 +122,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := runSubdomainPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, fn); err != nil {
+			if err := utils.RunWorkflowPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, fn); err != nil {
 				log.Printf("[WARN] %s failed: %v", desc, err)
 			}
 		}()
@@ -437,146 +436,5 @@ func extractDomain(subdomain string) string {
 	return subdomain
 }
 
-// runSubdomainPhase runs a single phase with webhook updates and file sending
-func runSubdomainPhase(phaseKey string, step, total int, description, subdomain string, timeoutSeconds int, fn func() error) error {
-	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
-
-	// Update database with current phase progress
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
-	if scanID != "" {
-		phaseStartTime := time.Now()
-		progress := &db.ScanProgress{
-			CurrentPhase:   step,
-			TotalPhases:    total,
-			PhaseName:      description,
-			PhaseStartTime: phaseStartTime,
-		}
-		if err := db.UpdateScanProgress(scanID, progress); err != nil {
-			log.Printf("[WARN] Failed to update scan progress in database: %v", err)
-		} else {
-			log.Printf("[DEBUG] Updated scan progress: Phase %d/%d - %s", step, total, description)
-		}
-	}
-
-	var err error
-	phaseStartTime := time.Now()
-	if timeoutSeconds > 0 {
-		err = runWithTimeout(fn, time.Duration(timeoutSeconds)*time.Second)
-	} else {
-		err = fn()
-	}
-	phaseDuration := time.Since(phaseStartTime)
-
-	// Use subdomain for directory structure (not root domain)
-	subdomainClean := strings.TrimPrefix(strings.TrimPrefix(subdomain, "http://"), "https://")
-	
-	if err != nil {
-		log.Printf("[ERROR] Step %d/%d: %s failed: %v (duration: %s)", step, total, description, err, phaseDuration)
-		// Record as failed phase in DB
-		if scanID != "" {
-			if appendErr := db.AppendScanPhase(scanID, description, true); appendErr != nil {
-				log.Printf("[WARN] Failed to append failed phase to DB: %v", appendErr)
-			}
-		}
-		// Send error message to webhook (but avoid sending files in bot context)
-		utils.SendWebhookLogAsync(fmt.Sprintf("[ERROR] %s failed: %v", description, err))
-		if phaseKey != "" && os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
-			// Only send phase files when not running under Discord bot
-			phaseFiles := utils.GetPhaseFiles(phaseKey, subdomainClean)
-			if len(phaseFiles) > 0 {
-				var existingFiles []string
-				for _, filePath := range phaseFiles {
-					if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
-						existingFiles = append(existingFiles, filePath)
-					}
-				}
-				if len(existingFiles) > 0 {
-					utils.SendPhaseFiles(phaseKey, subdomainClean, existingFiles)
-				}
-			}
-		}
-		return err
-	}
-
-	log.Printf("[OK] %s completed in %s", description, phaseDuration)
-	// Record as completed phase in DB
-	if scanID != "" {
-		if appendErr := db.AppendScanPhase(scanID, description, false); appendErr != nil {
-			log.Printf("[WARN] Failed to append completed phase to DB: %v", appendErr)
-		}
-	}
-	
-	// Upload phase files to R2 if enabled (always, regardless of bot context)
-	// This ensures files are uploaded to R2 for tracking and bot response
-	if phaseKey != "" {
-		log.Printf("[DEBUG] [SUBDOMAIN] Preparing to upload files for phase: %s", phaseKey)
-		
-		// Get expected file paths for this phase
-		phaseFiles := utils.GetPhaseFiles(phaseKey, subdomainClean)
-		log.Printf("[DEBUG] [SUBDOMAIN] Expected %d file(s) for phase %s", len(phaseFiles), phaseKey)
-		
-		if len(phaseFiles) > 0 {
-			// Retry logic to find files
-			maxRetries := 5
-			retryDelay := 500 * time.Millisecond
-			var existingFiles []string
-			
-			for attempt := 1; attempt <= maxRetries; attempt++ {
-			existingFiles = []string{}
-			for _, filePath := range phaseFiles {
-				if _, err := os.Stat(filePath); err == nil {
-					// Send ALL files, even if empty (size = 0)
-					// This ensures users can see that a phase ran, even if it found nothing
-					existingFiles = append(existingFiles, filePath)
-				}
-			}
-			if len(existingFiles) > 0 {
-				break
-			}
-			if attempt < maxRetries {
-				time.Sleep(retryDelay)
-			}
-		}
-		
-		if len(existingFiles) > 0 {
-			log.Printf("[DEBUG] [SUBDOMAIN] Found %d file(s) for phase %s", len(existingFiles), phaseKey)
-			
-			// Send files to Discord in real-time
-			// When running under bot, utils.SendPhaseFiles will send to thread via HTTP API
-			// When running standalone (CLI), it sends via webhook
-			log.Printf("[DEBUG] [SUBDOMAIN] Sending %d file(s) for phase %s", len(existingFiles), phaseKey)
-			if err := utils.SendPhaseFiles(phaseKey, subdomainClean, existingFiles); err != nil {
-				log.Printf("[DEBUG] [SUBDOMAIN] Failed to send files for phase %s: %v", phaseKey, err)
-			}
-			} else {
-				log.Printf("[DEBUG] [SUBDOMAIN] No files found for phase %s after retries", phaseKey)
-				// Always send "0 findings" message, let the discord utility handle routing
-				utils.SendPhaseFiles(phaseKey, subdomainClean, []string{})
-			}	
-		} else {
-			log.Printf("[DEBUG] [SUBDOMAIN] No expected files for phase %s", phaseKey)
-			// Always send "0 findings" message, let the discord utility handle routing
-			utils.SendPhaseFiles(phaseKey, subdomainClean, []string{})
-		}
-	}
-
-	return nil
-}
-
-// Helper functions
-
-func runWithTimeout(fn func() error, timeout time.Duration) error {
-	done := make(chan error, 1)
-	go func() {
-		done <- fn()
-	}()
-
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(timeout):
-		return fmt.Errorf("operation timed out after %v", timeout)
-	}
-}
 
 

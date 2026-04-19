@@ -1381,6 +1381,25 @@ func (p *PostgresDB) AppendScanPhase(scanID, phaseName string, failed bool) erro
 	return nil
 }
 
+// IsPhaseCompleted checks if a specific phase was already successfully completed for a scan.
+func (p *PostgresDB) IsPhaseCompleted(scanID, phaseName string) bool {
+	var raw []byte
+	err := p.pool.QueryRow(p.ctx, `SELECT completed_phases FROM scans WHERE scan_id = $1`, scanID).Scan(&raw)
+	if err != nil || len(raw) == 0 {
+		return false
+	}
+	var phases []string
+	if err := json.Unmarshal(raw, &phases); err != nil {
+		return false
+	}
+	for _, ph := range phases {
+		if ph == phaseName {
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateScanResult updates scan status and result URL
 func (p *PostgresDB) UpdateScanResult(scanID, status, resultURL string) error {
 	now := time.Now()

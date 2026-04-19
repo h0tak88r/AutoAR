@@ -50,6 +50,9 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 			return nil, fmt.Errorf("failed to collect URLs: %w", err)
 		}
 		if urlRes == nil || urlRes.TotalURLs == 0 {
+			if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+				_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
+			}
 			return nil, fmt.Errorf("no URLs found for domain %s after urlfinder scan", domain)
 		}
 		log.Printf("[OK] Collected %d URLs for %s", urlRes.TotalURLs, domain)
@@ -65,11 +68,17 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 			return nil, fmt.Errorf("failed to run GF scan: %w", err)
 		}
 		if gfRes == nil {
+			if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+				_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
+			}
 			return nil, fmt.Errorf("GF scan returned no results for domain %s", domain)
 		}
 		// Check if XSS pattern file was created
 		if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
 			log.Printf("[WARN] GF scan completed but no XSS patterns found for %s", domain)
+			if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+				_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
+			}
 			return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 		}
 		log.Printf("[OK] GF scan found XSS candidates, proceeding with dalfox...")
@@ -80,6 +89,9 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 	// Validate GF results file exists and has content
 	if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
 		log.Printf("[WARN] No XSS candidate file at %s", inFile)
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
+		}
 		return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 	}
 
