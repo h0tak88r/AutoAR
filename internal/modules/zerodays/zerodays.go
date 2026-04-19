@@ -149,8 +149,12 @@ func Run(opts Options) (*Result, error) {
 		if target == "" {
 			target = "zerodays"
 		}
-		if err := utils.WriteJSONToScanDir(scanID, "zerodays-results.json", result); err != nil {
-			log.Printf("[WARN] Failed to write zerodays JSON: %v", err)
+		if result.TotalVulnerable > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "zerodays-results.json", result); err != nil {
+				log.Printf("[WARN] Failed to write zerodays JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, target, "zerodays", "zerodays-results.json")
 		}
 	}
 
