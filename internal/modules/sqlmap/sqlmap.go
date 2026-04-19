@@ -50,6 +50,9 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 
 	if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
 		log.Printf("[WARN] No SQLi candidate file at %s", inFile)
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "sql-detection", "sqlmap-results.json")
+		}
 		return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 	}
 
@@ -62,6 +65,9 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 
 	if info, err := os.Stat(tempURLs); err != nil || info.Size() == 0 {
 		log.Printf("[WARN] No valid URLs for sqlmap")
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "sql-detection", "sqlmap-results.json")
+		}
 		return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 	}
 

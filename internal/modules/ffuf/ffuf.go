@@ -63,6 +63,9 @@ func RunFFuf(opts Options) (*Result, error) {
 
 	// Single target mode
 	if opts.Target == "" {
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "ffuf", "ffuf-results.json")
+		}
 		return nil, fmt.Errorf("target is required (use -u for URL or -d for domain mode)")
 	}
 
@@ -388,6 +391,8 @@ func RunFFuf(opts Options) (*Result, error) {
 				if err := writeFfufJSON(scanID, captured); err != nil {
 					log.Printf("[WARN] Failed to write FFUF JSON: %v", err)
 				}
+			} else {
+				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "ffuf", "ffuf-results.json")
 			}
 		}
 	}

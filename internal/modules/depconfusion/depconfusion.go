@@ -91,6 +91,23 @@ func runWeb(opts Options, resultsDir string) error {
 		return err
 	}
 
+	// Handle standardized JSON output for dashboard
+	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	if scanID != "" {
+		if res.Findings > 0 {
+			data, _ := os.ReadFile(res.OutputFile)
+			var findings interface{}
+			_ = json.Unmarshal(data, &findings)
+			_ = utils.WriteJSONToScanDir(scanID, "depconfusion-vulnerabilities.json", findings)
+		} else {
+			target := ""
+			if len(opts.Targets) > 0 {
+				target = opts.Targets[0]
+			}
+			_ = utils.WriteNoFindingsJSON(scanID, target, "dependency-confusion", "depconfusion-vulnerabilities.json")
+		}
+	}
+
 	fmt.Printf("[OK] Web dependency confusion scan completed. Findings: %d. Results saved to %s\n", res.Findings, res.OutputFile)
 	return nil
 }
@@ -280,6 +297,19 @@ func runWebFull(opts Options, resultsDir string) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Handle standardized JSON output for dashboard
+	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	if scanID != "" {
+		if res.Findings > 0 {
+			data, _ := os.ReadFile(res.OutputFile)
+			var findings interface{}
+			_ = json.Unmarshal(data, &findings)
+			_ = utils.WriteJSONToScanDir(scanID, "depconfusion-vulnerabilities.json", findings)
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Target, "dependency-confusion", "depconfusion-vulnerabilities.json")
+		}
 	}
 
 	fmt.Printf("[OK] Full web dependency confusion scan completed. Findings: %d. Results saved to %s\n", res.Findings, res.OutputFile)

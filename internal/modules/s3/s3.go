@@ -340,25 +340,24 @@ func handleScan(opts Options, resultsDir string) error {
 
 	// Write structured JSON for the dashboard — the vulnerability is the publicly
 	// accessible bucket. One finding = one accessible bucket + object count as evidence.
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && objectCount > 0 {
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
 		bucketURL := fmt.Sprintf("https://%s.s3.amazonaws.com", opts.Bucket)
 		type s3Finding struct {
-			TemplateID  string `json:"template-id"`
-			MatchedAt   string `json:"matched-at"`
-			Severity    string `json:"severity"`
-			ObjectCount int    `json:"object_count"`
-			ScanMethod  string `json:"scan_method"`
+			TemplateID  string   `json:"template-id"`
+			MatchedAt   string   `json:"matched-at"`
+			Severity    string   `json:"severity"`
+			ObjectCount int      `json:"object_count"`
+			ScanMethod  string   `json:"scan_method"`
 		}
-		findings := []s3Finding{
-			{
+		var findings []s3Finding
+		if objectCount > 0 {
+			findings = append(findings, s3Finding{
 				TemplateID:  "Public S3 Bucket",
 				MatchedAt:   bucketURL,
 				Severity:    "high",
 				ObjectCount: objectCount,
 				ScanMethod:  scanMethod,
-			},
-		}
-		if objectCount > 0 {
+			})
 			if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write S3 JSON: %v", err)
 			}

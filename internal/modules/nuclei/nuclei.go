@@ -103,11 +103,13 @@ func RunNuclei(opts Options) (*Result, error) {
 		// We preserve the nuclei JSONL format rather than re-wrapping lines, so template-id,
 		// matched-at, info.severity etc. remain accessible for clean dashboard parsing.
 		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			foundVulnerabilities := false
 			for _, rf := range resultFiles {
 				info, err := os.Stat(rf)
 				if err != nil || info.Size() == 0 {
 					continue
 				}
+				foundVulnerabilities = true
 				// Copy file into scan dir
 				scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
 				if data, readErr := os.ReadFile(rf); readErr == nil {
@@ -117,6 +119,9 @@ func RunNuclei(opts Options) (*Result, error) {
 						}
 					}
 				}
+			}
+			if !foundVulnerabilities {
+				_ = utils.WriteNoFindingsJSON(scanID, targetName, "nuclei", "nuclei-results.json")
 			}
 		}
 

@@ -68,7 +68,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	log.Printf("[OK] Port scan completed, found %d open ports", count)
 
 	// Write JSON results to scan directory (local-first)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && count > 0 {
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
 		data, readErr := os.ReadFile(outFile)
 		if readErr == nil {
 			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
@@ -78,8 +78,12 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 					nonEmpty = append(nonEmpty, l)
 				}
 			}
-			if err := utils.WriteLinesAsJSON(scanID, domain, "ports", "ports.json", nonEmpty); err != nil {
-				log.Printf("[WARN] Failed to write ports JSON: %v", err)
+			if len(nonEmpty) > 0 {
+				if err := utils.WriteLinesAsJSON(scanID, domain, "ports", "ports.json", nonEmpty); err != nil {
+					log.Printf("[WARN] Failed to write ports JSON: %v", err)
+				}
+			} else {
+				_ = utils.WriteNoFindingsJSON(scanID, domain, "ports", "ports.json")
 			}
 		}
 	}

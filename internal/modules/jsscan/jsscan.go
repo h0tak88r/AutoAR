@@ -14,8 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
@@ -335,29 +333,13 @@ func extractRootDomain(host string) string {
 	return host
 }
 
-// SecretPattern represents a regex pattern for secret detection
-type SecretPattern struct {
-	Name       string   `yaml:"name"`
-	Regex      string   `yaml:"regex"`
-	Regexes    []string `yaml:"regexes"`
-	Confidence string   `yaml:"confidence"`
-}
-
-// PatternConfig represents the YAML structure of regex pattern files
-type PatternConfig struct {
-	Patterns []struct {
-		Pattern SecretPattern `yaml:"pattern"`
-	} `yaml:"patterns"`
-}
-
-// scanJSForSecrets downloads JS files and scans them for secrets using regex patterns
 func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
 	if threads <= 0 {
 		threads = 50
 	}
 
 	// Load regex patterns
-	patterns, err := loadSecretPatterns()
+	patterns, err := utils.LoadSecretPatterns("regexes")
 	if err != nil {
 		return fmt.Errorf("failed to load secret patterns: %w", err)
 	}
@@ -432,56 +414,9 @@ func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
 	return nil
 }
 
-// loadSecretPatterns loads regex patterns from the regexes directory
-func loadSecretPatterns() (map[string][]*regexp.Regexp, error) {
-	patterns := make(map[string][]*regexp.Regexp)
-
-	// Try to load from confident-regexes.yaml first (high confidence patterns)
-	regexesDir := "regexes"
-	confidentFile := filepath.Join(regexesDir, "confident-regexes.yaml")
-	if data, err := os.ReadFile(confidentFile); err == nil {
-		var config PatternConfig
-		if err := yaml.Unmarshal(data, &config); err == nil {
-			for _, p := range config.Patterns {
-				pattern := p.Pattern
-				var regexes []string
-				if pattern.Regex != "" {
-					regexes = []string{pattern.Regex}
-				} else {
-					regexes = pattern.Regexes
-				}
-				for _, regexStr := range regexes {
-					if re, err := regexp.Compile(regexStr); err == nil {
-						patterns[pattern.Name] = append(patterns[pattern.Name], re)
-					}
-				}
-			}
-		}
-	}
-
-	// Also load from risky-regexes.yaml (more patterns)
-	riskyFile := filepath.Join(regexesDir, "risky-regexes.yaml")
-	if data, err := os.ReadFile(riskyFile); err == nil {
-		var config PatternConfig
-		if err := yaml.Unmarshal(data, &config); err == nil {
-			for _, p := range config.Patterns {
-				pattern := p.Pattern
-				var regexes []string
-				if pattern.Regex != "" {
-					regexes = []string{pattern.Regex}
-				} else {
-					regexes = pattern.Regexes
-				}
-				for _, regexStr := range regexes {
-					if re, err := regexp.Compile(regexStr); err == nil {
-						patterns[pattern.Name] = append(patterns[pattern.Name], re)
-					}
-				}
-			}
-		}
-	}
-
-	return patterns, nil
+// scanContentForSecrets scans JS content for secrets using loaded patterns
+func scanContentForSecrets(content, url string, patterns map[string][]*regexp.Regexp) []string {
+	return utils.ScanContentForSecrets(content, url, patterns)
 }
 
 // downloadJSFile downloads a JS file from a URL
@@ -508,29 +443,4 @@ func downloadJSFile(client *http.Client, url string) (string, error) {
 	}
 
 	return string(body), nil
-}
-
-// scanContentForSecrets scans JS content for secrets using loaded patterns
-func scanContentForSecrets(content, url string, patterns map[string][]*regexp.Regexp) []string {
-	var findings []string
-	seen := make(map[string]bool)
-
-	for patternName, regexes := range patterns {
-		for _, re := range regexes {
-			matches := re.FindAllString(content, -1)
-			for _, match := range matches {
-				// Truncate long matches
-				if len(match) > 200 {
-					match = match[:200] + "..."
-				}
-				key := fmt.Sprintf("%s:%s", patternName, match)
-				if !seen[key] {
-					seen[key] = true
-					findings = append(findings, fmt.Sprintf("[%s] %s -> %s", patternName, url, match))
-				}
-			}
-		}
-	}
-
-	return findings
 }

@@ -1304,6 +1304,25 @@ func (s *SQLiteDB) AppendScanPhase(scanID, phaseName string, failed bool) error 
 	return nil
 }
 
+// IsPhaseCompleted checks if a specific phase was already successfully completed for a scan.
+func (s *SQLiteDB) IsPhaseCompleted(scanID, phaseName string) bool {
+	var raw sql.NullString
+	err := s.db.QueryRow(`SELECT completed_phases FROM scans WHERE scan_id = ?`, scanID).Scan(&raw)
+	if err != nil || !raw.Valid || raw.String == "" {
+		return false
+	}
+	var phases []string
+	if err := json.Unmarshal([]byte(raw.String), &phases); err != nil {
+		return false
+	}
+	for _, ph := range phases {
+		if ph == phaseName {
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateScanResult updates scan status and result URL
 func (s *SQLiteDB) UpdateScanResult(scanID, status, resultURL string) error {
 	now := time.Now()

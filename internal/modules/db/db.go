@@ -442,6 +442,16 @@ func AppendScanPhase(scanID, phaseName string, failed bool) error {
 	return dbInstance.AppendScanPhase(scanID, phaseName, failed)
 }
 
+// IsPhaseCompleted checks if a specific phase was already successfully completed for a scan.
+func IsPhaseCompleted(scanID, phaseName string) bool {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return false
+		}
+	}
+	return dbInstance.IsPhaseCompleted(scanID, phaseName)
+}
+
 // UpdateScanResult updates scan status and result URL
 func UpdateScanResult(scanID, status, resultURL string) error {
 	if dbInstance == nil {
