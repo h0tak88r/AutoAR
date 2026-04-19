@@ -1793,14 +1793,14 @@ func executeScan(scanID string, command []string, scanType string) {
 	_ = db.Init()
 	_ = db.EnsureSchema()
 	// Set initial total phases based on scan type.
-	// Workflow scans (domain_run / subdomain_run) track ~19 sub-phases via the
+	// Workflow scans (domain_run / subdomain_run) track ~18 sub-phases via the
 	// subprocess; atomic one-shot scans (cf1016, misconfig, s3, …) are a single
 	// indivisible step and should show 0 phases so the UI never shows phantom
 	// "skipped" stages.
 	initialTotalPhases := 0 // default: no sub-phase tracking
 	switch scanType {
 	case "domain_run", "subdomain_run":
-		initialTotalPhases = 19
+		initialTotalPhases = 18
 	}
 	dbRecord := &db.ScanRecord{
 		ScanID:      scanID,
@@ -2213,6 +2213,7 @@ func shouldSkipArtifact(path string) bool {
 		"ffuf-webhook-messages.txt",
 		"kxss-results.txt",
 		"exposure-findings.txt",
+		"wp-confusion-results.txt",
 		// Local debug-only summaries — not findings
 		"nuclei-summary.txt",
 		// Pipeline input files — subdomains/URLs are never findings
