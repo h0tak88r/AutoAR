@@ -882,6 +882,7 @@ func isNoiseFinding(finding, target string) bool {
 	noisePrefixes := []string{
 		"Nuclei Scan Summary",
 		"No vulnerabilities found",
+		"No findings found",
 		"Target:",
 		"Mode:",
 		"Found ",
@@ -986,8 +987,28 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			return out
 		}
 	} else {
-		// Fallback line-by-line parser for text files (e.g., js-urls.txt, urls.txt)
+		// Try JSONL if single-object JSON Unmarshal failed (common for Nuclei -json output)
 		lines := strings.Split(string(raw), "\n")
+		parsedJSONL := false
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || !strings.HasPrefix(line, "{") {
+				continue
+			}
+			var obj map[string]interface{}
+			if json.Unmarshal([]byte(line), &obj) == nil {
+				parsedJSONL = true
+				appendRow(parseFindingFromObject(obj, module))
+			}
+			if len(out) >= maxRows {
+				break
+			}
+		}
+		if parsedJSONL {
+			return out
+		}
+
+		// Fallback line-by-line parser for text files (e.g., js-urls.txt, urls.txt)
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {

@@ -284,11 +284,12 @@ func runFullScan(targetFile, outputDir string, threads int, targetName, root str
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom templates (nuclei_templates/vulns)...")
 		customOut := filepath.Join(outputDir, "nuclei-custom-others.json")
-		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
-			if count, _ := countLines(customOut); count > 0 {
-				log.Printf("[OK] Found %d findings with custom templates", count)
-				resultFiles = append(resultFiles, customOut)
-			}
+		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err != nil {
+			log.Printf("[WARN] Nuclei custom scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(customOut); count > 0 {
+			log.Printf("[OK] Found %d findings with custom templates", count)
+			resultFiles = append(resultFiles, customOut)
 		}
 	}
 
@@ -297,11 +298,12 @@ func runFullScan(targetFile, outputDir string, threads int, targetName, root str
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public HTTP templates (nuclei-templates/http)...")
 		publicOut := filepath.Join(outputDir, "nuclei-public-http.json")
-		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
-			if count, _ := countLines(publicOut); count > 0 {
-				log.Printf("[OK] Found %d findings with public HTTP templates", count)
-				resultFiles = append(resultFiles, publicOut)
-			}
+		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err != nil {
+			log.Printf("[WARN] Nuclei public scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(publicOut); count > 0 {
+			log.Printf("[OK] Found %d findings with public HTTP templates", count)
+			resultFiles = append(resultFiles, publicOut)
 		}
 	}
 
@@ -325,11 +327,12 @@ func runCVEsScan(targetFile, outputDir string, threads int, targetName, root str
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom CVE templates...")
 		customOut := filepath.Join(outputDir, "nuclei-custom-cves.json")
-		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
-			if count, _ := countLines(customOut); count > 0 {
-				log.Printf("[OK] Found %d CVE findings with custom templates", count)
-				resultFiles = append(resultFiles, customOut)
-			}
+		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err != nil {
+			log.Printf("[WARN] Nuclei custom CVE scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(customOut); count > 0 {
+			log.Printf("[OK] Found %d CVE findings with custom templates", count)
+			resultFiles = append(resultFiles, customOut)
 		}
 	}
 
@@ -338,11 +341,12 @@ func runCVEsScan(targetFile, outputDir string, threads int, targetName, root str
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public CVE templates...")
 		publicOut := filepath.Join(outputDir, "nuclei-public-cves.json")
-		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
-			if count, _ := countLines(publicOut); count > 0 {
-				log.Printf("[OK] Found %d CVE findings with public templates", count)
-				resultFiles = append(resultFiles, publicOut)
-			}
+		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err != nil {
+			log.Printf("[WARN] Nuclei public CVE scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(publicOut); count > 0 {
+			log.Printf("[OK] Found %d CVE findings with public templates", count)
+			resultFiles = append(resultFiles, publicOut)
 		}
 	}
 
@@ -358,11 +362,12 @@ func runPanelsScan(targetFile, outputDir string, threads int, targetName, root s
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom panel templates...")
 		customOut := filepath.Join(outputDir, "nuclei-custom-panels.json")
-		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
-			if count, _ := countLines(customOut); count > 0 {
-				log.Printf("[OK] Found %d panels with custom templates", count)
-				resultFiles = append(resultFiles, customOut)
-			}
+		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err != nil {
+			log.Printf("[WARN] Nuclei custom panels scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(customOut); count > 0 {
+			log.Printf("[OK] Found %d panels with custom templates", count)
+			resultFiles = append(resultFiles, customOut)
 		}
 	}
 
@@ -371,11 +376,12 @@ func runPanelsScan(targetFile, outputDir string, threads int, targetName, root s
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public exposed panels templates...")
 		publicOut := filepath.Join(outputDir, "nuclei-public-panels.json")
-		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
-			if count, _ := countLines(publicOut); count > 0 {
-				log.Printf("[OK] Found %d exposed panels with public templates", count)
-				resultFiles = append(resultFiles, publicOut)
-			}
+		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err != nil {
+			log.Printf("[WARN] Nuclei public panels scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(publicOut); count > 0 {
+			log.Printf("[OK] Found %d exposed panels with public templates", count)
+			resultFiles = append(resultFiles, publicOut)
 		}
 	}
 
@@ -391,11 +397,12 @@ func runDefaultLoginsScan(targetFile, outputDir string, threads int, targetName,
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom default logins templates...")
 		customOut := filepath.Join(outputDir, "nuclei-custom-default-logins.txt")
-		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
-			if count, _ := countLines(customOut); count > 0 {
-				log.Printf("[OK] Found %d default login findings with custom templates", count)
-				resultFiles = append(resultFiles, customOut)
-			}
+		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err != nil {
+			log.Printf("[WARN] Nuclei custom default logins scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(customOut); count > 0 {
+			log.Printf("[OK] Found %d default login findings with custom templates", count)
+			resultFiles = append(resultFiles, customOut)
 		}
 	}
 
@@ -404,11 +411,12 @@ func runDefaultLoginsScan(targetFile, outputDir string, threads int, targetName,
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public default logins templates...")
 		publicOut := filepath.Join(outputDir, "nuclei-public-default-logins.txt")
-		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
-			if count, _ := countLines(publicOut); count > 0 {
-				log.Printf("[OK] Found %d default login findings with public templates", count)
-				resultFiles = append(resultFiles, publicOut)
-			}
+		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err != nil {
+			log.Printf("[WARN] Nuclei public default logins scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(publicOut); count > 0 {
+			log.Printf("[OK] Found %d default login findings with public templates", count)
+			resultFiles = append(resultFiles, publicOut)
 		}
 	}
 
@@ -424,11 +432,12 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom vulnerability templates...")
 		customOut := filepath.Join(outputDir, "nuclei-custom-vulnerabilities.json")
-		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
-			if count, _ := countLines(customOut); count > 0 {
-				log.Printf("[OK] Found %d vulnerability findings with custom templates", count)
-				resultFiles = append(resultFiles, customOut)
-			}
+		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err != nil {
+			log.Printf("[WARN] Nuclei custom vulnerabilities scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(customOut); count > 0 {
+			log.Printf("[OK] Found %d vulnerability findings with custom templates", count)
+			resultFiles = append(resultFiles, customOut)
 		}
 	}
 
@@ -437,11 +446,12 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public vulnerability templates...")
 		publicOut := filepath.Join(outputDir, "nuclei-public-vulnerabilities.json")
-		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
-			if count, _ := countLines(publicOut); count > 0 {
-				log.Printf("[OK] Found %d vulnerability findings with public templates", count)
-				resultFiles = append(resultFiles, publicOut)
-			}
+		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err != nil {
+			log.Printf("[WARN] Nuclei public vulnerabilities scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(publicOut); count > 0 {
+			log.Printf("[OK] Found %d vulnerability findings with public templates", count)
+			resultFiles = append(resultFiles, publicOut)
 		}
 	}
 
@@ -450,11 +460,12 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 	if dirExists(dastDir) {
 		log.Printf("[INFO] Scanning with DAST vulnerability templates...")
 		dastOut := filepath.Join(outputDir, "nuclei-dast-vulnerabilities.json")
-		if err := runNucleiCommand(targetFile, dastDir, threads, dastOut); err == nil {
-			if count, _ := countLines(dastOut); count > 0 {
-				log.Printf("[OK] Found %d vulnerability findings with DAST templates", count)
-				resultFiles = append(resultFiles, dastOut)
-			}
+		if err := runNucleiCommand(targetFile, dastDir, threads, dastOut); err != nil {
+			log.Printf("[WARN] Nuclei DAST vulnerabilities scan returned error: %v (checking output file anyway)", err)
+		}
+		if count, _ := countLines(dastOut); count > 0 {
+			log.Printf("[OK] Found %d vulnerability findings with DAST templates", count)
+			resultFiles = append(resultFiles, dastOut)
 		}
 	}
 
