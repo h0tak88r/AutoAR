@@ -3131,7 +3131,7 @@ async function renderScanDetailView(scanId) {
     wireScanDetailFilters(scanId, files);
 
     // Load unified findings table (all files in one table with sub-tabs)
-    loadReconUnifiedTable(scanId, files, 'unified-parsed-results');
+    loadReconUnifiedTable(scanId, files, 'unified-parsed-results', scan);
 
     // Load vulnerability insights if files exist
     if (files.length) {
@@ -3661,7 +3661,7 @@ function inferKindFromFileName(fileName) {
   return 'other';
 }
 
-async function loadReconUnifiedTable(scanId, allFiles, containerId) {
+async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) {
   const root = document.getElementById(containerId);
   if (!root) return;
   // Support both the unified badge and legacy recon badge
@@ -3727,7 +3727,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github', 'sqlmap', 'aem-findings']);
   const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
 
-  let activeKind = totalVuln > 0 ? 'vuln' : 'assets';
+  const stNorm = (scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
+  const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan';
+  let activeKind = (totalVuln > 0) ? 'vuln' : (isReconScan ? 'assets' : 'vuln');
+  if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
   let searchHost = '';
   let searchTitle = '';
   let searchModule = 'all';
@@ -4034,21 +4037,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     if (assetsView) assetsView.style.display = 'none';
   };
 
-  renderTabs();
-  // #3: Fixed initial view state. If activeKind is 'assets', show assets view.
-  if (activeKind === 'assets') {
-    showAssetsView();
-  } else {
-    showStandardView();
-    renderBody();
-  }
-
-  root.addEventListener('click', (e) => {
-    const tabBtn = e.target.closest('[data-recon-kind]');
-    if (!tabBtn || !root.contains(tabBtn)) return;
-    activeKind = tabBtn.getAttribute('data-recon-kind') || 'all';
+  const switchReconView = (kind) => {
+    activeKind = kind;
     renderTabs();
-
+    
     const modSelectEl = root.querySelector('#recon-filter-module');
     if (modSelectEl) {
       modSelectEl.style.display = activeKind === 'vuln' ? 'block' : 'none';
@@ -4071,12 +4063,27 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     }
 
     if (activeKind === 'assets') {
+      if (filterBar) filterBar.style.display = 'none';
+      if (standardView) standardView.style.display = 'none';
+      if (assetsView) assetsView.style.display = 'block';
       showAssetsView();
     } else {
-      showStandardView();
+      if (filterBar) filterBar.style.display = '';
+      if (standardView) standardView.style.display = 'block';
+      if (assetsView) assetsView.style.display = 'none';
       _currentPage = 1;
       renderBody();
     }
+  };
+
+  // Initial load
+  switchReconView(activeKind);
+
+  root.addEventListener('click', (e) => {
+    const tabBtn = e.target.closest('[data-recon-kind]');
+    if (!tabBtn || !root.contains(tabBtn)) return;
+    const kind = tabBtn.getAttribute('data-recon-kind') || 'all';
+    switchReconView(kind);
   });
 
   const hostInput = root.querySelector('#recon-filter-host');

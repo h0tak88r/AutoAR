@@ -142,21 +142,68 @@ func buildAssets(scanID string) []AssetEntry {
 			}
 		}
 	}
-	// Also read from DB if available — most complete source.
-	// Only do this for scan types that actually enumerate subdomains; otherwise
-	// we'd bleed subdomains from a different scan context into e.g. a DNS scan.
+	// ── 1. Database-first discovery (Most complete source) ──────────────────
+	// For enumeration-style scans, pull the full record from the subdomains table.
 	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
 		st := scan.ScanType
 		subdomainScanTypes := map[string]bool{
 			"domain_run": true, "subdomain_run": true, "recon": true, "lite": true,
-			"subdomains": true, "livehosts": true,
-			// CF1016 enumerates subdomains as part of -d domain flow
-			"dns_cf1016": true, "dns-cf1016": true,
+			"subdomains": true, "livehosts": true, "dns_cf1016": true, "dns-cf1016": true,
 		}
 		if subdomainScanTypes[st] {
-			if dbSubs, err := db.ListSubdomains(scan.Target); err == nil {
-				for _, s := range dbSubs {
-					getOrCreate(s)
+			if dbEntries, err := db.ListSubdomainsWithStatus(scan.Target); err == nil {
+				for _, s := range dbEntries {
+					e := getOrCreate(s.Subdomain)
+					if e == nil { continue }
+					e.IsLive = s.IsLive
+					if s.HTTPSURL != "" {
+						e.URL = s.HTTPSURL
+					} else if s.HTTPURL != "" {
+						e.URL = s.HTTPURL
+					}
+					if s.HTTPSStatus > 0 {
+						e.StatusCode = s.HTTPSStatus
+					} else if s.HTTPStatus > 0 {
+						e.StatusCode = s.HTTPStatus
+					}
+					if s.Techs != "" {
+						for _, t := range strings.Split(s.Techs, ",") {
+							e.Technologies = appendUniq(e.Technologies, t)
+						}
+					}
+					if s.CNAMEs != "" {
+						for _, c := range strings.Split(s.CNAMEs, ",") {
+							e.CNAMEs = appendUniq(e.CNAMEs, c)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// ── 2. Files fallback/enrichment ─────────────────────────────────────────
+	for _, name := range []string{
+		"all-subs.txt", "subdomains.txt", "enumerated-subs.txt",
+	} {
+		walkLines(scanID, name, func(line string) {
+			getOrCreate(line)
+		})
+	}
+	// Also read the new JSON envelope format (WriteLinesAsJSON: {items: ["sub1", ...]})
+	if raw, _, err := loadFileContent(scanID, "subdomains.json"); err == nil && len(raw) > 0 {
+		var wrapper map[string]interface{}
+		if json.Unmarshal(raw, &wrapper) == nil {
+			if items, ok := wrapper["items"].([]interface{}); ok {
+				for _, it := range items {
+					if s, ok := it.(string); ok {
+						getOrCreate(s)
+					}
+				}
+			} else if items, ok := wrapper["subdomains"].([]interface{}); ok {
+				for _, it := range items {
+					if s, ok := it.(string); ok {
+						getOrCreate(s)
+					}
 				}
 			}
 		}
@@ -202,40 +249,7 @@ func buildAssets(scanID string) []AssetEntry {
 			}
 		}
 	}
-	// Also read live host status from DB — SubdomainStatus has IsLive + URL + status codes.
-	// Same guard: only for scan types that perform live-host enumeration.
-	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
-		st := scan.ScanType
-		subdomainScanTypes := map[string]bool{
-			"domain_run": true, "subdomain_run": true, "recon": true, "lite": true,
-			"subdomains": true, "livehosts": true,
-			// CF1016 enumerates subdomains as part of -d domain flow
-			"dns_cf1016": true, "dns-cf1016": true,
-		}
-		if subdomainScanTypes[st] {
-			if liveHosts, err := db.ListLiveSubdomains(scan.Target); err == nil {
-				for _, h := range liveHosts {
-					host := normalizeHost(h.Subdomain)
-					e := getOrCreate(host)
-					if e == nil {
-						continue
-					}
-					e.IsLive = h.IsLive
-					// Prefer HTTPS URL, fall back to HTTP
-					if h.HTTPSURL != "" && e.URL == "" {
-						e.URL = h.HTTPSURL
-					} else if h.HTTPURL != "" && e.URL == "" {
-						e.URL = h.HTTPURL
-					}
-					if h.HTTPSStatus > 0 && e.StatusCode == 0 {
-						e.StatusCode = h.HTTPSStatus
-					} else if h.HTTPStatus > 0 && e.StatusCode == 0 {
-						e.StatusCode = h.HTTPStatus
-					}
-				}
-			}
-		}
-	}
+	// (Database-first discovery above already handled ListLiveSubdomains info)
 
 	// ── 3. Tech-detect — status code, title, tech ────────────────────────────
 	// First try the new structured JSON array format (written by tech.go WriteJSONToScanDir):
