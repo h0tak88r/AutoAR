@@ -246,6 +246,7 @@ func setupAPI() *gin.Engine {
 		api.POST("/s3", scanS3)
 		api.POST("/github", scanGitHub)
 		api.POST("/github_org", scanGitHubOrg)
+		api.POST("/recon", scanRecon)         // Unified asset discovery: subdomains, livehosts, tech, cnames
 		api.POST("/lite", scanLite)
 		api.POST("/apkx", scanApkX)
 		api.POST("/ffuf", scanFFuf)           // FFuf fuzzing
@@ -984,6 +985,31 @@ func scanNuclei(c *gin.Context) {
 		ScanID:  scanID,
 		Status:  "started",
 		Message: fmt.Sprintf("Nuclei %s scan started for %s", mode, target),
+		Command: strings.Join(command, " "),
+	})
+}
+
+func scanRecon(c *gin.Context) {
+	var req ScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Domain == nil || *req.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Domain is required"})
+		return
+	}
+
+	scanID := generateScanID()
+	command := []string{getAutoarScriptPath(), "recon", "run", "-d", *req.Domain}
+
+	go executeScan(scanID, command, "recon")
+
+	c.JSON(http.StatusOK, ScanResponse{
+		ScanID:  scanID,
+		Status:  "started",
+		Message: fmt.Sprintf("Unified asset discovery started for %s", *req.Domain),
 		Command: strings.Join(command, " "),
 	})
 }
