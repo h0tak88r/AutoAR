@@ -808,16 +808,6 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 		}
 	}
 
-	// Port Scanner
-	if port, ok := v["port"]; ok && v["host"] != nil {
-		svc := firstNonEmpty(fmt.Sprint(v["service"]))
-		return parsedFinding{
-			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
-			Target:   firstNonEmpty(fmt.Sprint(v["host"])),
-			Finding:  fmt.Sprintf("Open Port %v (%s)", port, svc),
-		}
-	}
-
 	template := firstNonEmpty(
 		fmt.Sprint(v["finding"]),
 		fmt.Sprint(v["template-id"]),
@@ -848,6 +838,18 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 			template = firstNonEmpty(fmt.Sprint(info["name"]), fmt.Sprint(info["description"]))
 		}
 	}
+	// Port Scanner (Lower priority than specific templates/findings)
+	if template == "" || template == "—" {
+		if port, ok := v["port"]; ok && v["host"] != nil {
+			svc := firstNonEmpty(fmt.Sprint(v["service"]))
+			return parsedFinding{
+				Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
+				Target:   firstNonEmpty(fmt.Sprint(v["host"])),
+				Finding:  fmt.Sprintf("Open Port %v (%s)", port, svc),
+			}
+		}
+	}
+
 	if template == "" {
 		template = fallback
 	}
