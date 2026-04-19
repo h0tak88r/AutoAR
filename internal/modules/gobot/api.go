@@ -1827,8 +1827,10 @@ func executeScan(scanID string, command []string, scanType string) {
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
 	)
 	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
+	// MultiWriter to stream output to console AND capture for R2 URL extraction
+	multi := io.MultiWriter(os.Stdout, &combined)
+	cmd.Stdout = multi
+	cmd.Stderr = multi
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("[executeScan] Failed to start scan %s: %v", scanID, err)
@@ -1931,6 +1933,13 @@ func executeScan(scanID string, command []string, scanType string) {
 			}
 		}(target)
 	}
+	// Always save full console log for the dashboard
+	logPath := filepath.Join(utils.GetScanResultsDir(scanID), "scan.log")
+	_ = os.WriteFile(logPath, output, 0644)
+	if _, err := utils.IndexExistingResultFile(scanID, logPath); err != nil {
+		log.Printf("[executeScan] Failed to index scan.log: %v", err)
+	}
+
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
 	indexScanArtifacts(scanID, scanType, target)
 	// domain_run / subdomain_run delete local results after upload — backfill from R2 for the UI table.
