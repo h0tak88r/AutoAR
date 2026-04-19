@@ -24,6 +24,7 @@ const LAUNCH_SCAN_TYPES = {
   domain_scan: { path: 'domain_run', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   subdomain_scan: { path: 'subdomain_run', modes: ['subdomain', 'subdomain_list'], placeholders: { subdomain: 'api.example.com', subdomain_list: 'one subdomain per line' } },
   lite: { path: 'lite', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+  recon: { path: 'recon', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   subdomains: { path: 'subdomains', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   livehosts: { path: 'livehosts', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   urls: { path: 'urls', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
@@ -1260,6 +1261,7 @@ function renderScans() {
 function scanTypeLabel(rawType) {
   const t = String(rawType || '').toLowerCase().trim();
   const map = {
+    'recon': '🔭 Recon Discovery',
     'domain_run': '🌍 Full Domain',
     'subdomain_run': '🔬 Subdomain',
     'lite': '⚡ Lite Workflow',

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
@@ -8,9 +10,27 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/tech"
 	"github.com/h0tak88r/AutoAR/internal/modules/ports"
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/internal/modules/recon"
 )
 
 var (
+	reconRunCmd = &cobra.Command{
+		Use:   "run",
+		Short: "Run full recon pipeline (subdomains, livehosts, tech, cnames)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			domain, _ := cmd.Flags().GetString("domain")
+			if domain == "" {
+				return fmt.Errorf("domain is required")
+			}
+
+			ensureDB()
+			setupCurrentScan("recon", domain)
+
+			_, err := recon.RunFullRecon(domain, 100)
+			return err
+		},
+	}
+
 	subdomainsCmd = &cobra.Command{
 		Use:   "subdomains",
 		Short: "Enumerate subdomains",
@@ -79,14 +99,13 @@ func init() {
 	}
 	rootCmd.AddCommand(reconCmd)
 
-	subcmds := []*cobra.Command{subdomainsCmd, livehostsCmd, cnamesCmd, techCmd, portsCmd, urlsCmd}
+	subcmds := []*cobra.Command{reconRunCmd, subdomainsCmd, livehostsCmd, cnamesCmd, techCmd, portsCmd, urlsCmd}
 	for _, sc := range subcmds {
 		sc.Flags().StringP("domain", "d", "", "Target domain")
 		sc.MarkFlagRequired("domain")
 		reconCmd.AddCommand(sc)
 	}
 
-	// Also support the original flat structure for compatibility
-	// (e.g., autoar subdomains get -d domain)
-	// For now let's just use the 'recon' grouping for new modularity
+	// For backward compatibility, also add some directly to root if needed
+	// but the user seems to want a cleaner structure.
 }
