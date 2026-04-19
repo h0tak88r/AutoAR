@@ -145,8 +145,8 @@ func WriteLinesAsJSON(scanID, target, scanType, fileName string, lines []string)
 func WriteNoFindingsJSON(scanID, target, scanType, fileName string) error {
 	payload := []map[string]interface{}{
 		{
-			"target":   target,
-			"finding":  "No vulnerabilities found",
+			"target":   nil,
+			"finding":  "No findings found",
 			"severity": "info",
 			"type":     scanType,
 		},
