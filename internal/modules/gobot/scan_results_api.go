@@ -177,6 +177,28 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 				return nil
 			}
 
+			// #4: Unified result deduplication (Prefer JSON over TXT for recon/findings)
+			if strings.HasSuffix(name, ".txt") {
+				base := strings.TrimSuffix(name, ".txt")
+				jsonAlternatives := []string{
+					base + ".json",
+					strings.ReplaceAll(base, "subs", "subdomains") + ".json",
+					strings.ReplaceAll(base, "live-", "live") + ".json",
+					"livehosts.json",      // if name is live-subs.txt
+					"subdomains.json",     // if name is all-subs.txt
+					"urls.json",          // if name is all-urls.txt
+					"js-urls.json",       // if name is js-urls.txt
+					"tech-detect.json",   // if name is tech-detect.txt
+					"cname-records.json", // if name is cnames.txt or cname.txt
+				}
+				for _, alt := range jsonAlternatives {
+					if _, err := os.Stat(filepath.Join(scanDir, alt)); err == nil {
+						// Skip the TXT file because a superior JSON alternative exists
+						return nil
+					}
+				}
+			}
+
 			isJSON := strings.HasSuffix(strings.ToLower(name), ".json")
 			lineCount := 0
 			if !isJSON {

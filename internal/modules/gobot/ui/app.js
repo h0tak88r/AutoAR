@@ -1631,10 +1631,15 @@ function categorizeScanArtifactFile(fileName) {
   const n = String(fileName || '').toLowerCase();
   if (!n) return 'other';
   const recon = new Set([
-    'all-subs.txt', 'live-subs.txt', 'all-urls.txt', 'js-urls.txt', 'interesting-urls.txt',
-    'tech-detect.txt', 'buckets.txt', 'ffuf-results.txt',
+    'subdomains.json', 'livehosts.json', 'urls.json', 'js-urls.json', 'interesting-urls.json',
+    'tech-detect.json', 'cname-records.json', 'buckets.json',
+  ]);
+  const legacyRecon = new Set([
+    'all-subs.txt', 'live-subs.txt', 'all-urls.txt', 'js-urls.txt',
+    'tech-detect.txt', 'cnames.txt', 'buckets.txt',
   ]);
   if (recon.has(n)) return 'recon';
+  if (legacyRecon.has(n)) return 'recon';
   if (n.startsWith('nuclei-')) return 'vuln';
   if (n.includes('zerodays') && n.endsWith('.json')) return 'vuln';
   if ((n.startsWith('gf-') && n.endsWith('.txt')) || n === 'gf-results.txt') return 'vuln';
@@ -4030,7 +4035,13 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   };
 
   renderTabs();
-  renderBody();
+  // #3: Fixed initial view state. If activeKind is 'assets', show assets view.
+  if (activeKind === 'assets') {
+    showAssetsView();
+  } else {
+    showStandardView();
+    renderBody();
+  }
 
   root.addEventListener('click', (e) => {
     const tabBtn = e.target.closest('[data-recon-kind]');

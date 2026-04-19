@@ -148,7 +148,7 @@ func buildAssets(scanID string) []AssetEntry {
 	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
 		st := scan.ScanType
 		subdomainScanTypes := map[string]bool{
-			"domain_run": true, "subdomain_run": true, "lite": true,
+			"domain_run": true, "subdomain_run": true, "recon": true, "lite": true,
 			"subdomains": true, "livehosts": true,
 			// CF1016 enumerates subdomains as part of -d domain flow
 			"dns_cf1016": true, "dns-cf1016": true,
@@ -207,7 +207,7 @@ func buildAssets(scanID string) []AssetEntry {
 	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
 		st := scan.ScanType
 		subdomainScanTypes := map[string]bool{
-			"domain_run": true, "subdomain_run": true, "lite": true,
+			"domain_run": true, "subdomain_run": true, "recon": true, "lite": true,
 			"subdomains": true, "livehosts": true,
 			// CF1016 enumerates subdomains as part of -d domain flow
 			"dns_cf1016": true, "dns-cf1016": true,
