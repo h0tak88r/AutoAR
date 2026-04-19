@@ -881,8 +881,6 @@ func isNoiseFinding(finding, target string) bool {
 	// Nuclei summary file lines
 	noisePrefixes := []string{
 		"Nuclei Scan Summary",
-		"No vulnerabilities found",
-		"No findings found",
 		"Target:",
 		"Mode:",
 		"Found ",

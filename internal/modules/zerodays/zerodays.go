@@ -943,9 +943,10 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 	
 	options := &naaburunner.Options{
 		Host:     goflags.StringSlice(hosts),
+		Ports:    fmt.Sprintf("%d", mongoPort),
 		ScanType: "c", // connect scan
-		Rate:     threads * 100,
-		Timeout:  5,
+		Rate:     threads * 10,
+		Timeout:  2,
 		Retries:  1,
 		OnResult: onResult,
 	}
