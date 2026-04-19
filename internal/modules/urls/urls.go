@@ -207,7 +207,6 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	jsCount := len(jsURLs)
 	log.Printf("[OK] Found %d total URLs; %d JavaScript URLs for %s", total, jsCount, domain)
 
-	// 6) Produce interesting-urls.txt
 	interestingFile := filepath.Join(urlsDir, "interesting-urls.txt")
 	interesting := FilterInterestingURLs(allURLs)
 	_ = utils.WriteLines(interestingFile, interesting)
@@ -222,6 +221,11 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			if len(jsURLs) > 0 {
 				if err := utils.WriteLinesAsJSON(scanID, dirDomain, "js-urls", "js-urls.json", jsURLs); err != nil {
 					log.Printf("[WARN] Failed to write JS URLs JSON: %v", err)
+				}
+			}
+			if len(interesting) > 0 {
+				if err := utils.WriteLinesAsJSON(scanID, dirDomain, "interesting-urls", "interesting-urls.json", interesting); err != nil {
+					log.Printf("[WARN] Failed to write interesting URLs JSON: %v", err)
 				}
 			}
 		} else {
