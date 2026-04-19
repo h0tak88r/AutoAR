@@ -175,12 +175,12 @@ func DetectTech(domain string, threads int) (*Result, error) {
 				Technologies: result.Technologies,
 			})
 			
-			// Also sync to core database Subdomains table
-			subdomain := result.URL
+			// Also sync to core database Subdomains table (tech, title, status, isLive)
+			subhost := result.URL
 			if parsed, err := url.Parse(result.URL); err == nil && parsed.Hostname() != "" {
-				subdomain = parsed.Hostname()
+				subhost = parsed.Hostname()
 			}
-			go db.UpdateSubdomainTech(domain, subdomain, strings.Join(result.Technologies, ","))
+			go db.UpdateSubdomainFull(domain, subhost, strings.Join(result.Technologies, ","), result.Title, result.StatusCode, true)
 			
 			mu.Unlock()
 		}

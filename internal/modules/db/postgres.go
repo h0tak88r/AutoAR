@@ -1759,6 +1759,25 @@ func (p *PostgresDB) UpdateSubdomainTech(domain, subdomain, techs string) error 
 	return err
 }
 
+// UpdateSubdomainFull updates multiple recon fields for a subdomain at once
+func (p *PostgresDB) UpdateSubdomainFull(domain, subdomain string, techs, title string, statusCode int, isLive bool) error {
+	domainID, err := p.InsertOrGetDomain(domain)
+	if err != nil {
+		return err
+	}
+	
+	_, err = p.pool.Exec(p.ctx, `
+		UPDATE subdomains 
+		SET techs = $1, 
+		    http_status = CASE WHEN $2 > 0 THEN $2 ELSE http_status END,
+		    https_status = CASE WHEN $2 > 0 THEN $2 ELSE https_status END,
+		    is_live = CASE WHEN $3 = true THEN true ELSE is_live END,
+		    updated_at = NOW() 
+		WHERE domain_id = $4 AND subdomain = $5
+	`, techs, statusCode, isLive, domainID, subdomain)
+	return err
+}
+
 // UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
 func (p *PostgresDB) UpdateSubdomainCNAME(domain, subdomain, cnames string) error {
 	domainID, err := p.InsertOrGetDomain(domain)

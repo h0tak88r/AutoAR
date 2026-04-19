@@ -191,6 +191,16 @@ func UpdateSubdomainTech(domain, subdomain, techs string) error {
 	return dbInstance.UpdateSubdomainTech(domain, subdomain, techs)
 }
 
+// UpdateSubdomainFull updates multiple recon fields for a subdomain at once
+func UpdateSubdomainFull(domain, subdomain string, techs, title string, statusCode int, isLive bool) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateSubdomainFull(domain, subdomain, techs, title, statusCode, isLive)
+}
+
 // UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
 func UpdateSubdomainCNAME(domain, subdomain, cnames string) error {
 	if dbInstance == nil {

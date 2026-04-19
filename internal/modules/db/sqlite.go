@@ -1694,6 +1694,28 @@ func (s *SQLiteDB) UpdateSubdomainTech(domain, subdomain, techs string) error {
 	return err
 }
 
+// UpdateSubdomainFull updates multiple recon fields for a subdomain at once
+func (s *SQLiteDB) UpdateSubdomainFull(domain, subdomain string, techs, title string, statusCode int, isLive bool) error {
+	domainID, err := s.InsertOrGetDomain(domain)
+	if err != nil {
+		return err
+	}
+	
+	isLiveInt := 0
+	if isLive { isLiveInt = 1 }
+
+	_, err = s.db.Exec(`
+		UPDATE subdomains 
+		SET techs = ?, 
+		    http_status = CASE WHEN ? > 0 THEN ? ELSE http_status END,
+		    https_status = CASE WHEN ? > 0 THEN ? ELSE https_status END,
+		    is_live = CASE WHEN ? = 1 THEN 1 ELSE is_live END,
+		    updated_at = datetime('now')
+		WHERE domain_id = ? AND subdomain = ?
+	`, techs, statusCode, statusCode, statusCode, statusCode, isLiveInt, domainID, subdomain)
+	return err
+}
+
 // UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
 func (s *SQLiteDB) UpdateSubdomainCNAME(domain, subdomain, cnames string) error {
 	domainID, err := s.InsertOrGetDomain(domain)

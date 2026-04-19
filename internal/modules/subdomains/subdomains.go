@@ -77,8 +77,8 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 
 	log.Printf("[OK] Found %d unique subdomains for %s", len(results), domain)
 	
-	// Save to database if configured
-	if os.Getenv("DB_HOST") != "" || os.Getenv("SAVE_TO_DB") == "true" {
+	// Save to database if a DB is clearly available
+	if os.Getenv("DB_HOST") != "" || os.Getenv("DATABASE_URL") != "" || os.Getenv("SAVE_TO_DB") == "true" || os.Getenv("DB_TYPE") == "sqlite" {
 		if err := db.Init(); err == nil {
 			_ = db.InitSchema()
 			// Ensure the domain row exists first — BatchInsertSubdomains requires it.
@@ -90,8 +90,6 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 			} else {
 				log.Printf("[OK] Saved %d subdomains to database for %s", len(results), domain)
 			}
-		} else {
-			log.Printf("[WARN] Database initialization failed, skipping subdomains save: %v", err)
 		}
 	}
 	
