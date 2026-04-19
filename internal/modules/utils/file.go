@@ -104,7 +104,7 @@ func IndexExistingResultFile(scanID, path string) (*db.ScanArtifact, error) {
 		artifact.R2Key = toR2Key(path)
 		artifact.PublicURL = r2storage.UploadResultFileAndLog(path, artifact.R2Key)
 	}
-	if artifact.ScanID != "" && artifact.PublicURL != "" {
+	if artifact.ScanID != "" {
 		if err := db.AppendScanArtifact(artifact); err != nil {
 			return nil, err
 		}
@@ -145,7 +145,7 @@ func writeAndIndexResult(path string, data []byte, lineCount int, contentType st
 	}
 
 	// Persist artifact index for scan UI when scan id and uploaded URL are available.
-	if scanID != "" && artifact.PublicURL != "" {
+	if scanID != "" {
 		if err := db.AppendScanArtifact(artifact); err != nil {
 			log.Printf("[R2] failed to index artifact for scan %s: %v", scanID, err)
 		}
