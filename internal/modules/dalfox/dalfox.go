@@ -112,6 +112,20 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 	count := len(results)
 	log.Printf("[OK] Dalfox scan completed, processed %d targets", count)
 
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if count > 0 {
+			// Results are already in JSONL format in outFile.
+			// Let's copy it to scan results dir and index it.
+			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), "dalfox-results.json")
+			if data, readErr := os.ReadFile(outFile); readErr == nil {
+				_ = os.WriteFile(scanFile, data, 0644)
+				_, _ = utils.IndexExistingResultFile(scanID, scanFile)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
+		}
+	}
+
 	return &Result{
 		Domain:     domain,
 		Findings:   count,

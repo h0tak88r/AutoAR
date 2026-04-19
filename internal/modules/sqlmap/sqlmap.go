@@ -74,6 +74,24 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 	count, _ := countLines(outFile)
 	log.Printf("[OK] SQLMap scan completed, found %d findings", count)
 
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if count > 0 {
+			// For now, if text results exist, emit one summary finding pointing to the log.
+			// In the future, we can parse the sqlmap output more deeply.
+			findings := []map[string]interface{}{
+				{
+					"target":   domain, // Or better, extract first vulnerable URL
+					"finding":  fmt.Sprintf("Potential SQL Injection detected via sqlmap (%d log entries)", count),
+					"severity": "high",
+					"type":     "sql-detection",
+				},
+			}
+			_ = utils.WriteJSONToScanDir(scanID, "sqlmap-results.json", findings)
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "sql-detection", "sqlmap-results.json")
+		}
+	}
+
 	return &Result{
 		Domain:     domain,
 		Findings:   count,

@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 var (
@@ -183,20 +185,44 @@ func ScanWPConfusion(opts ScanOptions) error {
 			log.Printf("[WARN] Failed to create directory for results %s: %v", opts.Output, err)
 		}
 		
+		scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+
 		if len(allVulnerable) > 0 {
 			// Save vulnerabilities to file
 			if err := saveResults(opts.Output, allVulnerable); err != nil {
 				return fmt.Errorf("error saving results: %w", err)
 			}
+			
+			if scanID != "" {
+				type wpFinding struct {
+					TemplateID string `json:"template-id"`
+					MatchedAt  string `json:"matched-at"`
+					Severity   string `json:"severity"`
+				}
+				var findings []wpFinding
+				for _, v := range allVulnerable {
+					findings = append(findings, wpFinding{
+						TemplateID: "WordPress Confusion",
+						MatchedAt:  v,
+						Severity:   "high",
+					})
+				}
+				_ = utils.WriteJSONToScanDir(scanID, "wp-confusion-vulnerabilities.json", findings)
+			}
+
 			if opts.Discord {
 				sendToDiscord(opts.Output, fmt.Sprintf("WordPress Plugin Confusion vulnerabilities across %d targets (%d total found)", processedCount, len(allVulnerable)))
 			}
 		} else {
-			// Create empty file with summary when no vulnerabilities found
-			logContent := fmt.Sprintf("WordPress Plugin Confusion Scan Results\n=====================================\nTargets: %d\nTimestamp: %s\nNo vulnerabilities found across all targets\n", processedCount, time.Now().Format(time.RFC3339))
-			if err := os.WriteFile(opts.Output, []byte(logContent), 0644); err != nil {
-				log.Printf("[WARN] Failed to write empty results to %s: %v", opts.Output, err)
+			// Clean up legacy text summary that causes UI clutter
+			if scanID != "" {
+				_ = utils.WriteNoFindingsJSON(scanID, opts.URL, "dependency-confusion", "wp-confusion-vulnerabilities.json")
+			} else {
+				// Fallback for CLI use: Create empty file with summary
+				logContent := fmt.Sprintf("WordPress Plugin Confusion Scan Results\n=====================================\nTargets: %d\nTimestamp: %s\nNo vulnerabilities found across all targets\n", processedCount, time.Now().Format(time.RFC3339))
+				_ = os.WriteFile(opts.Output, []byte(logContent), 0644)
 			}
+
 			if opts.Discord {
 				sendToDiscord(opts.Output, fmt.Sprintf("WordPress Plugin Confusion scan log for %d targets (no vulnerabilities)", processedCount))
 			}

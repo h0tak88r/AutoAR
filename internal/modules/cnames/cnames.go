@@ -267,15 +267,19 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 				})
 			}
 		}
-		if err := utils.WriteJSONToScanDir(scanID, "cname-records.json", map[string]interface{}{
-			"scan_id":   scanID,
-			"target":    domain,
-			"scan_type": "cnames",
-			"generated": fmt.Sprintf("%v", count),
-			"records":   entries,
-			"count":     len(entries),
-		}); err != nil {
-			log.Printf("[WARN] Failed to write CNAME JSON: %v", err)
+		if len(entries) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "cname-records.json", map[string]interface{}{
+				"scan_id":   scanID,
+				"target":    domain,
+				"scan_type": "cnames",
+				"generated": fmt.Sprintf("%v", count),
+				"records":   entries,
+				"count":     len(entries),
+			}); err != nil {
+				log.Printf("[WARN] Failed to write CNAME JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "dns-takeover", "cname-records.json")
 		}
 	}
 

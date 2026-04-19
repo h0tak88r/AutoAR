@@ -218,8 +218,12 @@ func handleScan(opts Options, resultsDir string) error {
 				Severity:    sev,
 			})
 		}
-		if err := utils.WriteJSONToScanDir(scanID, "misconfig-vulnerabilities.json", findings); err != nil {
-			log.Printf("[WARN] Failed to write misconfig JSON: %v", err)
+		if len(allResults) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "misconfig-vulnerabilities.json", findings); err != nil {
+				log.Printf("[WARN] Failed to write misconfig JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Target, "misconfig", "misconfig-vulnerabilities.json")
 		}
 	}
 

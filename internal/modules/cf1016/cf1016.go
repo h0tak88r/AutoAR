@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // cloudflareCIDRs is the list of Cloudflare's published IPv4 CIDR ranges.
@@ -124,10 +125,14 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// Write structured JSON alongside the text report for the dashboard.
-	if outputPath != "" {
-		jsonPath := strings.TrimSuffix(outputPath, ".txt") + ".json"
-		if jErr := writeJSONOutput(jsonPath, findings); jErr != nil {
-			log.Printf("[cf1016] Warning: could not write JSON output: %v", jErr)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		jsonPath := filepath.Join(utils.GetScanResultsDir(scanID), "cf1016-vulnerabilities.json")
+		if len(findings) > 0 {
+			if jErr := writeJSONOutput(jsonPath, findings); jErr != nil {
+				log.Printf("[cf1016] Warning: could not write JSON output: %v", jErr)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "dns-takeover", "cf1016-vulnerabilities.json")
 		}
 	}
 

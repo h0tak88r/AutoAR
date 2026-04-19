@@ -185,11 +185,13 @@ func RunNuclei(opts Options) (*Result, error) {
 
 	// Index each JSONL result file into the scan dir (preserves nuclei JSON structure)
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		foundVulnerabilities := false
 		for _, rf := range resultFiles {
 			info, err := os.Stat(rf)
 			if err != nil || info.Size() == 0 {
 				continue
 			}
+			foundVulnerabilities = true
 			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
 			if data, readErr := os.ReadFile(rf); readErr == nil {
 				if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
@@ -198,6 +200,10 @@ func RunNuclei(opts Options) (*Result, error) {
 					}
 				}
 			}
+		}
+
+		if !foundVulnerabilities {
+			_ = utils.WriteNoFindingsJSON(scanID, targetName, "nuclei", "nuclei-results.json")
 		}
 	}
 

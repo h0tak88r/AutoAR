@@ -249,6 +249,8 @@ func Run(opts Options) (*Result, error) {
 				if err := utils.WriteJSONToScanDir(scanID, "backup-vulnerabilities.json", findings); err != nil {
 					log.Printf("[WARN] Failed to write backup JSON: %v", err)
 				}
+			} else {
+				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "backup-detection", "backup-vulnerabilities.json")
 			}
 		}
 	}
