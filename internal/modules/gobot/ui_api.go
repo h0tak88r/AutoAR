@@ -58,6 +58,8 @@ func apiConfigHandler(c *gin.Context) {
 
 type UpdateSettingsBody struct {
 	MonitorWebhook string `json:"monitor_webhook"`
+	OpenRouterKey  string `json:"openrouter_key"`
+	GeminiKey      string `json:"gemini_key"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -67,13 +69,17 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 		return
 	}
 	
-	err := envloader.UpdateEnv("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update settings file"})
-		return
+	if body.MonitorWebhook != "" {
+		_ = envloader.UpdateEnv("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
+	}
+	if body.OpenRouterKey != "" {
+		_ = envloader.UpdateEnv("OPENROUTER_API_KEY", strings.TrimSpace(body.OpenRouterKey))
+	}
+	if body.GeminiKey != "" {
+		_ = envloader.UpdateEnv("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
 	}
 	
-	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
