@@ -94,7 +94,6 @@ type Options struct {
 // Result holds the outcome of the scan.
 type Result struct {
 	Findings []Finding
-	Output   string // path to the output file
 }
 
 // Run scans the subdomains for dangling Cloudflare 1016 records.
@@ -122,13 +121,7 @@ func Run(opts Options) (*Result, error) {
 
 	findings := scanConcurrent(subdomains, opts.Threads, opts.Timeout)
 
-	// Write output
-	outputPath, err := writeOutput(opts, findings)
-	if err != nil {
-		log.Printf("[cf1016] Warning: could not write output file: %v", err)
-	}
-
-	// Write structured JSON alongside the text report for the dashboard.
+	// Write structured JSON results for the dashboard.
 	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
 		jsonPath := filepath.Join(utils.GetScanResultsDir(scanID), "cf1016-vulnerabilities.json")
 		if len(findings) > 0 {
@@ -166,7 +159,7 @@ func Run(opts Options) (*Result, error) {
 
 	log.Printf("[cf1016] Done. Found %d dangling Cloudflare 1016 records", len(findings))
 
-	return &Result{Findings: findings, Output: outputPath}, nil
+	return &Result{Findings: findings}, nil
 }
 
 // ------------------------  helpers  ------------------------
@@ -352,96 +345,6 @@ func checkSubdomain(subdomain string, timeout time.Duration) (Finding, bool) {
 		StatusCode: resp.StatusCode,
 		IsError:    true,
 	}, true
-}
-
-func writeOutput(opts Options, findings []Finding) (string, error) {
-	outDir := opts.OutputDir
-	if outDir == "" {
-		resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
-		if resultsDir == "" {
-			resultsDir = "new-results"
-		}
-		domain := opts.Domain
-		if domain == "" {
-			domain = "unknown"
-		}
-		outDir = filepath.Join(resultsDir, domain, "vulnerabilities", "cf1016")
-	}
-
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return "", err
-	}
-
-	outputPath := filepath.Join(outDir, "cf1016-dangling.txt")
-
-	f, err := os.Create(outputPath)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	if len(findings) == 0 {
-		fmt.Fprintln(f, "# No Cloudflare 1016 dangling records found.")
-		return outputPath, nil
-	}
-
-	fmt.Fprintf(f, "# Cloudflare 1016 Dangling DNS Records\n")
-	fmt.Fprintf(f, "# Vulnerability Type: DNS Misconfiguration / Dangling Record\n")
-	fmt.Fprintf(f, "# Found: %d subdomains\n", len(findings))
-	fmt.Fprintf(f, "# Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339))
-
-	fmt.Fprintf(f, "%-60s  %-40s  %s\n", "Subdomain", "Cloudflare IPs", "HTTP Status")
-	fmt.Fprintf(f, "%s  %s  %s\n", strings.Repeat("-", 60), strings.Repeat("-", 40), strings.Repeat("-", 11))
-
-	for _, finding := range findings {
-		fmt.Fprintf(f, "%-60s  %-40s  %d\n",
-			finding.Subdomain,
-			strings.Join(finding.IPs, ", "),
-			finding.StatusCode,
-		)
-	}
-
-	fmt.Fprintf(f, "\n\n# --- Report Template ---\n")
-	for _, finding := range findings {
-		fmt.Fprintf(f, `
-## Dangling DNS Record / Origin Resolution Error (Cloudflare 1016)
-**Subdomain:** %s
-**Cloudflare IPs:** %s
-**HTTP Status:** %d
-
-**Vulnerability Type:** DNS Misconfiguration / Dangling Record
-
-**Summary:**
-The subdomain %s is currently resolving to Cloudflare's edge network, but HTTP
-requests return Cloudflare Error 1016 (Origin DNS Error). The DNS record still
-actively routes traffic through Cloudflare, but the underlying backend origin
-has been deleted, deactivated, or misconfigured.
-
-**Steps To Reproduce:**
-1. dig %s      (resolves to Cloudflare IPs: %s)
-2. curl https://%s/  (observe error code: 1016)
-
-**Impact:**
-If an attacker can claim the abandoned origin resource, they could hijack this
-subdomain via Cloudflare's proxy — enabling phishing, cookie theft, or session
-hijacking against users of the target organization.
-
-**Recommended Mitigation:**
-Remove the A/CNAME records for %s from your DNS zone to clean up the dangling record.
-`,
-			finding.Subdomain,
-			strings.Join(finding.IPs, ", "),
-			finding.StatusCode,
-			finding.Subdomain,
-			finding.Subdomain,
-			strings.Join(finding.IPs, ", "),
-			finding.Subdomain,
-			finding.Subdomain,
-		)
-	}
-
-	log.Printf("[cf1016] Wrote %d findings to %s", len(findings), outputPath)
-	return outputPath, nil
 }
 
 // writeJSONOutput writes a structured JSON file suitable for the dashboard
