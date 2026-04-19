@@ -153,8 +153,12 @@ func Run(opts Options) (*Result, error) {
 				StatusCode: f.StatusCode,
 			})
 		}
-		if err := utils.WriteJSONToScanDir(scanID, "exposure-vulnerabilities.json", jfindings); err != nil {
-			log.Printf("[exposure] Warning: could not write JSON output: %v", err)
+		if len(findings) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "exposure-vulnerabilities.json", jfindings); err != nil {
+				log.Printf("[exposure] Warning: could not write JSON output: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "exposure", "exposure-vulnerabilities.json")
 		}
 	}
 

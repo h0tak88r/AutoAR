@@ -140,6 +140,21 @@ func WriteLinesAsJSON(scanID, target, scanType, fileName string, lines []string)
 	return WriteJSONToScanDir(scanID, fileName, payload)
 }
 
+// WriteNoFindingsJSON writes a JSON artifact indicating that the module ran successfully but found no vulnerabilities.
+// This prevents raw text summary files from being parsed as false positive findings in the UI.
+func WriteNoFindingsJSON(scanID, target, scanType, fileName string) error {
+	payload := []map[string]interface{}{
+		{
+			"target":   nil,
+			"finding":  "No findings found",
+			"severity": "info",
+			"type":     scanType,
+		},
+	}
+	log.Printf("[JSON] Writing 'No findings' result for %s (scan %s)", scanType, scanID)
+	return WriteJSONToScanDir(scanID, fileName, payload)
+}
+
 // dnsTakeoverFinding is one structured finding from the DNS takeover module.
 type dnsTakeoverFinding struct {
 	Target     string `json:"target"`           // IP or subdomain
