@@ -3728,6 +3728,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
 
   // Cache for assets data (uses global _assetsCache so doScanDetailRefresh can bust it)
   let _assetsLoading = false;
+  let _currentPage = 1;
+  const _pageSize = 250;
 
   const parseStatusCode = (v) => {
     const m = String(v || '').match(/\b([1-5][0-9]{2})\b/);
@@ -3818,6 +3820,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
           </table>
         </div>
         <div id="recon-unified-cap" style="display:none;padding:10px 12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border)"></div>
+        <div id="recon-pagination" style="padding:10px 12px;background:rgba(2,6,23,0.3);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
       </div>
       <!-- Assets view (shown when Assets tab active) -->
       <div id="recon-assets-view" style="display:none">
@@ -3857,14 +3860,15 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   };
 
   const renderBody = () => {
-    if (activeKind === 'assets') return;
-    // Filter out hidden kinds (logs, tech) from all tabs including 'all'
     const filtered = allRows.filter(r => {
       if (!rowMatch(r)) return false;
       if (HIDDEN_KINDS.has(r.kind)) return false; // always hide logs + tech rows
       return true;
     });
-    const slice = filtered.slice(0, maxRows);
+    
+    const totalPages = Math.ceil(filtered.length / _pageSize) || 1;
+    if (_currentPage > totalPages) _currentPage = totalPages;
+    const slice = filtered.slice((_currentPage - 1) * _pageSize, _currentPage * _pageSize);
     const tbody = root.querySelector('#recon-unified-tbody');
     const shown = root.querySelector('#recon-unified-shown');
     const cap = root.querySelector('#recon-unified-cap');
@@ -3946,9 +3950,25 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
         </tr>`;
       }).join('') : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
     }
-    if (cap) {
-      cap.style.display = filtered.length > maxRows ? 'block' : 'none';
-      cap.textContent = filtered.length > maxRows ? `Showing first ${maxRows} of ${filtered.length} rows.` : '';
+    const pagContainer = root.querySelector('#recon-pagination');
+    if (pagContainer) {
+      if (totalPages <= 1) {
+        pagContainer.style.display = 'none';
+      } else {
+        pagContainer.style.display = 'flex';
+        pagContainer.innerHTML = `
+          <button id="recon-prev" class="btn btn-sm" ${_currentPage === 1 ? 'disabled' : ''} style="padding:4px 10px;font-size:11px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);cursor:pointer">← Prev</button>
+          <span style="color:var(--text-secondary);font-weight:600">Page ${_currentPage} of ${totalPages}</span>
+          <button id="recon-next" class="btn btn-sm" ${_currentPage === totalPages ? 'disabled' : ''} style="padding:4px 10px;font-size:11px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);cursor:pointer">Next →</button>
+          <span style="color:var(--text-muted);margin-left:auto">${filtered.length} total rows</span>
+        `;
+        pagContainer.querySelector('#recon-prev').onclick = () => {
+          if (_currentPage > 1) { _currentPage--; renderBody(); root.querySelector('.result-table-wrap').scrollTop = 0; }
+        };
+        pagContainer.querySelector('#recon-next').onclick = () => {
+          if (_currentPage < totalPages) { _currentPage++; renderBody(); root.querySelector('.result-table-wrap').scrollTop = 0; }
+        };
+      }
     }
   };
 
@@ -4013,6 +4033,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
       showAssetsView();
     } else {
       showStandardView();
+      _currentPage = 1;
       renderBody();
     }
   });
@@ -4025,6 +4046,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
     searchHost = String(hostInput?.value || '').trim().toLowerCase();
     searchTitle = String(titleInput?.value || '').trim().toLowerCase();
     filterSeverity = String(severitySel?.value || 'any').toLowerCase();
+    _currentPage = 1;
     renderBody();
   };
   const applyFiltersDebounced = () => {
@@ -4039,6 +4061,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId) {
   if (jsChk) {
     jsChk.addEventListener('change', (e) => {
       searchJsOnly = e.target.checked;
+      _currentPage = 1;
       renderBody();
     });
   }
@@ -5363,7 +5386,7 @@ function renderSettings() {
     <div class="setting-card">
       <div class="setting-card-header">🤖 AI Configuration</div>
       <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-        <span class="setting-key" style="margin-bottom:4px">OpenRouter API Key <span style="font-size:10px;color:var(--text-muted)">(stored locally in your browser)</span></span>
+        <span class="setting-key" style="margin-bottom:4px">OpenRouter API Key <span style="font-size:10px;color:var(--text-muted)">(synced with server)</span></span>
         <div style="display:flex;width:100%;gap:10px">
           <input type="password" id="or-key-input"
             value="${esc(localStorage.getItem('autoar_or_key') || '')}"
@@ -5371,7 +5394,17 @@ function renderSettings() {
             class="form-control" style="flex:1;font-family:var(--font-mono);font-size:12px">
           <button class="btn btn-primary" onclick="saveOpenRouterKey()">Save</button>
         </div>
-        <span style="font-size:11px;color:var(--text-muted)">Used for <strong>Validate with AI</strong> and <strong>Report with AI</strong>. Get a key at <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent-cyan)">openrouter.ai/keys</a> — free tier available.</span>
+        <span style="font-size:11px;color:var(--text-muted)">Used for <strong>Validate with AI</strong> and <strong>Report with AI</strong>. Get a key at <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent-cyan)">openrouter.ai/keys</a>.</span>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+        <span class="setting-key" style="margin-bottom:4px">Gemini API Key <span style="font-size:10px;color:var(--text-muted)">(optional fallback)</span></span>
+        <div style="display:flex;width:100%;gap:10px">
+          <input type="password" id="gemini-key-input"
+            value="${esc(localStorage.getItem('autoar_gemini_key') || '')}"
+            placeholder="AIza…"
+            class="form-control" style="flex:1;font-family:var(--font-mono);font-size:12px">
+          <button class="btn btn-primary" onclick="saveGeminiKey()">Save</button>
+        </div>
       </div>
     </div>
     <div class="setting-card">
@@ -5402,17 +5435,54 @@ function renderSettings() {
   </div>`;
 }
 
-window.saveOpenRouterKey = function () {
+window.saveOpenRouterKey = async function () {
   const input = document.getElementById('or-key-input');
   if (!input) return;
   const key = input.value.trim();
-  if (key) {
-    localStorage.setItem('autoar_or_key', key);
-    showToast('success', 'Saved!', 'OpenRouter key stored in your browser.');
-  } else {
-    localStorage.removeItem('autoar_or_key');
-    showToast('info', 'Cleared', 'OpenRouter key removed.');
+  const btn = document.querySelector('button[onclick="saveOpenRouterKey()"]');
+  if (btn) btn.innerHTML = '<span class="loading-spinner"></span>';
+  try {
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`${API}/api/settings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ openrouter_key: key })
+    });
+    if (!res.ok) throw new Error('Failed to update server config');
+    
+    if (key) localStorage.setItem('autoar_or_key', key);
+    else localStorage.removeItem('autoar_or_key');
+    
+    showToast('success', 'Saved!', 'OpenRouter key updated on server.');
+  } catch (e) {
+    showToast('error', 'Error', e.message);
   }
+  if (btn) btn.textContent = 'Save';
+};
+
+window.saveGeminiKey = async function () {
+  const input = document.getElementById('gemini-key-input');
+  if (!input) return;
+  const key = input.value.trim();
+  const btn = document.querySelector('button[onclick="saveGeminiKey()"]');
+  if (btn) btn.innerHTML = '<span class="loading-spinner"></span>';
+  try {
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`${API}/api/settings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ gemini_key: key })
+    });
+    if (!res.ok) throw new Error('Failed to update server config');
+    
+    if (key) localStorage.setItem('autoar_gemini_key', key);
+    else localStorage.removeItem('autoar_gemini_key');
+    
+    showToast('success', 'Saved!', 'Gemini key updated on server.');
+  } catch (e) {
+    showToast('error', 'Error', e.message);
+  }
+  if (btn) btn.textContent = 'Save';
 };
 
 window.saveWebhookSettings = async function () {

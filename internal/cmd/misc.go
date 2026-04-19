@@ -52,6 +52,26 @@ var (
 			return err
 		},
 	}
+
+	zerodaysScanCmd = &cobra.Command{
+		Use:   "scan",
+		Short: "Scan a target for zero-day vulnerabilities",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			domain, _ := cmd.Flags().GetString("domain")
+			subdomain, _ := cmd.Flags().GetString("subdomain")
+			threads, _ := cmd.Flags().GetInt("threads")
+			silent, _ := cmd.Flags().GetBool("silent")
+
+			opts := zerodays.Options{
+				Domain:    domain,
+				Subdomain: subdomain,
+				Threads:   threads,
+				Silent:    silent,
+			}
+			_, err := zerodays.Run(opts)
+			return err
+		},
+	}
 )
 
 func init() {
@@ -60,9 +80,14 @@ func init() {
 	s3Cmd.AddCommand(s3ScanCmd)
 	rootCmd.AddCommand(jwtCmd)
 	rootCmd.AddCommand(zerodaysCmd)
+	zerodaysCmd.AddCommand(zerodaysScanCmd)
 
 	backupCmd.Flags().StringP("domain", "d", "", "Target domain")
 	s3ScanCmd.Flags().StringP("bucket", "b", "", "Bucket name")
 	jwtCmd.Flags().StringP("token", "t", "", "JWT token")
 	zerodaysCmd.Flags().StringP("domain", "d", "", "Target domain")
+	zerodaysScanCmd.Flags().StringP("domain", "d", "", "Target domain")
+	zerodaysScanCmd.Flags().StringP("subdomain", "s", "", "Target subdomain")
+	zerodaysScanCmd.Flags().IntP("threads", "t", 50, "Number of threads")
+	zerodaysScanCmd.Flags().Bool("silent", false, "Silent mode")
 }
