@@ -43,6 +43,8 @@ type DB interface {
 	
 	// UpdateSubdomainTech updates the technology stack string for a resolved subdomain
 	UpdateSubdomainTech(domain, subdomain, techs string) error
+	// UpdateSubdomainFull updates multiple recon fields for a subdomain at once
+	UpdateSubdomainFull(domain, subdomain string, techs, title string, statusCode int, isLive bool) error
 	// UpdateSubdomainCNAME updates the mapped CNAME record for a subdomain
 	UpdateSubdomainCNAME(domain, subdomain, cnames string) error
 	// ListLiveSubdomains returns only live subdomains (is_live=true) with their URLs for a given domain
