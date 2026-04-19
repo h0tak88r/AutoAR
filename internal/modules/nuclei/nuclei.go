@@ -179,7 +179,10 @@ func RunNuclei(opts Options) (*Result, error) {
 	targetFile = tmpPath
 
 	targetCount, _ := countLines(targetFile)
-	log.Printf("[INFO] Running Nuclei in %s mode on %d live targets (temp=%s)", opts.Mode, targetCount, tmpPath)
+	if targetCount == 0 {
+		log.Printf("[WARN] Target file %s is empty, Nuclei will have nothing to scan!", targetFile)
+	}
+	log.Printf("[INFO] Running Nuclei in %s mode on %d live targets (targets file: %s)", opts.Mode, targetCount, targetFile)
 
 	resultFiles, err := runNucleiScan(targetFile, outputDir, opts.Mode, opts.Threads, targetName, root)
 	if err != nil {
@@ -221,6 +224,7 @@ func runNucleiScan(targetFile, outputDir string, mode ScanMode, threads int, tar
 	if err := utils.EnsureDir(outputDir); err != nil {
 		return nil, fmt.Errorf("failed to create output dir: %w", err)
 	}
+	log.Printf("[INFO] Nuclei output directory: %s", outputDir)
 
 	var resultFiles []string
 
@@ -305,7 +309,35 @@ func runFullScan(targetFile, outputDir string, threads int, targetName, root str
 		}
 	}
 
-	// 3. Also run CVEs and Panels scans in full mode
+	// 3. Technologies Discovery
+	techDir := filepath.Join(root, "nuclei-templates", "http", "technologies")
+	if dirExists(techDir) {
+		log.Printf("[INFO] Scanning for technologies...")
+		techOut := filepath.Join(outputDir, "nuclei-technologies.json")
+		if err := runNucleiCommand(targetFile, techDir, threads, techOut); err == nil {
+			if count, _ := countLines(techOut); count > 0 {
+				log.Printf("[OK] Found %d tech findings", count)
+				resultFiles = append(resultFiles, techOut)
+			}
+		}
+	}
+
+	// 4. Network and SSL
+	for _, cat := range []string{"network", "ssl", "dns"} {
+		catDir := filepath.Join(root, "nuclei-templates", cat)
+		if dirExists(catDir) {
+			log.Printf("[INFO] Scanning with public %s templates...", cat)
+			catOut := filepath.Join(outputDir, "nuclei-public-"+cat+".json")
+			if err := runNucleiCommand(targetFile, catDir, threads, catOut); err == nil {
+				if count, _ := countLines(catOut); count > 0 {
+					log.Printf("[OK] Found %d findings with %s templates", count, cat)
+					resultFiles = append(resultFiles, catOut)
+				}
+			}
+		}
+	}
+
+	// 5. Also run CVEs and Panels scans in full mode
 	if cveFiles, err := runCVEsScan(targetFile, outputDir, threads, targetName, root); err == nil {
 		resultFiles = append(resultFiles, cveFiles...)
 	}
@@ -390,7 +422,7 @@ func runDefaultLoginsScan(targetFile, outputDir string, threads int, targetName,
 	customDir := filepath.Join(root, "nuclei_templates", "default-logins")
 	if dirExists(customDir) {
 		log.Printf("[INFO] Scanning with custom default logins templates...")
-		customOut := filepath.Join(outputDir, "nuclei-custom-default-logins.txt")
+		customOut := filepath.Join(outputDir, "nuclei-custom-default-logins.json")
 		if err := runNucleiCommand(targetFile, customDir, threads, customOut); err == nil {
 			if count, _ := countLines(customOut); count > 0 {
 				log.Printf("[OK] Found %d default login findings with custom templates", count)
@@ -403,7 +435,7 @@ func runDefaultLoginsScan(targetFile, outputDir string, threads int, targetName,
 	publicDir := filepath.Join(root, "nuclei-templates", "http", "default-logins")
 	if dirExists(publicDir) {
 		log.Printf("[INFO] Scanning with public default logins templates...")
-		publicOut := filepath.Join(outputDir, "nuclei-public-default-logins.txt")
+		publicOut := filepath.Join(outputDir, "nuclei-public-default-logins.json")
 		if err := runNucleiCommand(targetFile, publicDir, threads, publicOut); err == nil {
 			if count, _ := countLines(publicOut); count > 0 {
 				log.Printf("[OK] Found %d default login findings with public templates", count)
@@ -476,7 +508,12 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 		"-o", outputFile,
 	)
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	log.Printf("[EXEC] Running: %s", strings.Join(cmd.Args, " "))
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("[WARN] Nuclei command failed: %v", err)
+	}
+	return err
 }
 
 func extractDomainFromURL(url string) string {
