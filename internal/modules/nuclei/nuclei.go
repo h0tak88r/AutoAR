@@ -515,7 +515,7 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 		"-c", fmt.Sprintf("%d", threads),
 		"-silent",
 		"-duc",
-		"-json",       // JSONL output: one JSON object per finding
+		"-jsonl",       // JSONL output: one JSON object per finding
 		"-o", outputFile,
 	)
 	cmd.Stderr = os.Stderr
