@@ -1126,8 +1126,8 @@ func apiScanParsedResults(c *gin.Context) {
 		"cloudflare-tunnel-errors.txt":  "dns-takeover-vulnerabilities.json",
 		"cname-takeover-raw.txt":        "dns-takeover-vulnerabilities.json",
 		"cname-takeover-vulnerable.txt": "dns-takeover-vulnerabilities.json",
-		// CF1016 text report is superseded by the structured JSON twin
-		"cf1016-dangling.txt":           "cf1016-dangling.json",
+		// CF1016 text report is for human reading only — skip line-by-line finding parsing
+		"cf1016-dangling.txt":           "__pipeline_input__",
 	}
 
 	for _, e := range entries {
