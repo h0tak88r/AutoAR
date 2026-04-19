@@ -115,13 +115,13 @@ func inferModuleFromFileName(name string) string {
 	case strings.Contains(n, "backup") || strings.Contains(n, "fuzzuli"):
 		return "backup-detection"
 	case strings.Contains(n, "reflection") || strings.Contains(n, "kxss") || strings.Contains(n, "dalfox") || strings.Contains(n, "xss"):
-		return "xss-detection"
+		return "reflection"
 	case strings.Contains(n, "confusion") || strings.Contains(n, "depconf"):
 		return "dependency-confusion"
+	case strings.HasSuffix(n, "urls.txt") || strings.Contains(n, "all-urls.txt") || strings.Contains(n, "wayback"):
+		return "url-collection"
 	case strings.Contains(n, "js-url") || strings.Contains(n, "js_url"):
 		return "JS-Enum"
-	case n == "urls.txt" || n == "all-urls.txt" || strings.Contains(n, "wayback"):
-		return "url-enum"
 	default:
 		return "autoar"
 	}
@@ -145,7 +145,8 @@ func inferCategoryFromFileName(name string) string {
 	// Recon outputs
 	if strings.Contains(n, "subs") || strings.Contains(n, "url") || strings.Contains(n, "tech") ||
 		strings.Contains(n, "port") || strings.Contains(n, "bucket") || strings.Contains(n, "cname") ||
-		strings.Contains(n, "live") || strings.Contains(n, "nmap") || strings.Contains(n, "masscan") {
+		strings.Contains(n, "live") || strings.Contains(n, "nmap") || strings.Contains(n, "masscan") ||
+		strings.Contains(n, "wayback") {
 		return "recon"
 	}
 	if strings.HasSuffix(n, ".log") {
@@ -171,9 +172,15 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 			if err != nil || info.IsDir() {
 				return nil
 			}
-			isJSON := strings.HasSuffix(strings.ToLower(info.Name()), ".json")
+			name := info.Name()
+			if shouldSkipArtifact(name) {
+				return nil
+			}
+
+			isJSON := strings.HasSuffix(strings.ToLower(name), ".json")
 			lineCount := 0
-			if isJSON {
+			if !isJSON {
+				// Fast line count for text files
 				if data, readErr := os.ReadFile(path); readErr == nil {
 					lineCount = strings.Count(string(data), "\n")
 				}
@@ -958,11 +965,11 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 					}
 				}
 			case string:
-				fT := "URL-Enum"
+				fT := "Recon"
 				if module == "JS-Enum" {
 					fT = "JS-Enum"
-				} else if module == "url-enum" {
-					fT = "URL-Enum"
+				} else if module == "url-collection" {
+					fT = "URL-Collection"
 				} else {
 					fT = module
 				}
@@ -986,11 +993,11 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
-			fT := "URL-Enum"
+			fT := "Recon"
 			if module == "JS-Enum" {
 				fT = "JS-Enum"
-			} else if module == "url-enum" {
-				fT = "URL-Enum"
+			} else if module == "url-collection" {
+				fT = "URL-Collection"
 			} else {
 				fT = module
 			}
@@ -1069,6 +1076,7 @@ func apiScanParsedResults(c *gin.Context) {
 		"ffuf-webhook-messages.txt":     "ffuf-results.json",
 		"kxss-results.txt":              "xss-reflection-vulnerabilities.json",
 		"exposure-findings.txt":         "exposure-vulnerabilities.json",
+		"wp-confusion-results.txt":      "wp-confusion-vulnerabilities.json",
 		// URL corpus files — never findings, always skip (uncommented to SHOW in URL tab)
 		// "urls.json":                      "__pipeline_input__",
 		// "js-urls.json":                   "__pipeline_input__",

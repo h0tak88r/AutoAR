@@ -97,7 +97,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 
 
 
-	totalSteps := 19 
+	totalSteps := 18 
 	var currentStep int32
 	
 	// Helper to get next step safely

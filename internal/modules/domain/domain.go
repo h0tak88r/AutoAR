@@ -70,9 +70,9 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 
 	liveHostsFile := filepath.Join(domainDir, "subs", "live-subs.txt")
 
-	totalSteps := 19
+	totalSteps := 18
 	if opts.SkipFFuf {
-		totalSteps = 18
+		totalSteps = 17
 	}
 	var currentStep int32
 
