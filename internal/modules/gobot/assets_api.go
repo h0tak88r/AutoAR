@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,6 @@ type AssetEntry struct {
 	URL          string   `json:"url,omitempty"`
 }
 
-// GET /api/scans/:id/results/assets
 func apiScanAssets(c *gin.Context) {
 	_ = db.Init()
 	_ = db.EnsureSchema()
@@ -40,11 +40,54 @@ func apiScanAssets(c *gin.Context) {
 		return
 	}
 
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "100"))
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 100
+	}
+	if perPage > 1000 {
+		perPage = 1000
+	}
+
 	assets := buildAssets(scanID)
+	total := len(assets)
+
+	// Slice for pagination
+	start := (page - 1) * perPage
+	if start < 0 { start = 0 }
+	end := start + perPage
+	
+	if start >= total {
+		start = 0
+		if total > 0 { end = total } else { end = 0 }
+		pagedAssets := []AssetEntry{}
+		if total > 0 && start < total { // should not happen with start=0
+             // ...
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"scan_id":  scanID,
+			"total":    total,
+			"page":     page,
+			"per_page": perPage,
+			"assets":   pagedAssets,
+		})
+		return
+	}
+
+	if end > total {
+		end = total
+	}
+	pagedAssets := assets[start:end]
+
 	c.JSON(http.StatusOK, gin.H{
-		"scan_id": scanID,
-		"total":   len(assets),
-		"assets":  assets,
+		"scan_id":  scanID,
+		"total":    total,
+		"page":     page,
+		"per_page": perPage,
+		"assets":   pagedAssets,
 	})
 }
 
