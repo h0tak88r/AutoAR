@@ -72,14 +72,18 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 	}
 
 	// 3b. Write JSON results to scan directory (local-first)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && liveCount > 0 {
-		if err := utils.WriteJSONToScanDir(scanID, "livehosts.json", map[string]interface{}{
-			"scan_id": scanID,
-			"target":  domain,
-			"results": liveHostMap,
-			"count":   liveCount,
-		}); err != nil {
-			log.Printf("[WARN] Failed to write livehosts JSON: %v", err)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if liveCount > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "livehosts.json", map[string]interface{}{
+				"scan_id": scanID,
+				"target":  domain,
+				"results": liveHostMap,
+				"count":   liveCount,
+			}); err != nil {
+				log.Printf("[WARN] Failed to write livehosts JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "livehosts", "livehosts.json")
 		}
 	}
 

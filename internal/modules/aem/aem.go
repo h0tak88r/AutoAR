@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // Options controls how the AEM scan runs
@@ -253,6 +255,9 @@ func Run(opts Options) (*Result, error) {
 		}
 		
 		res.Duration = time.Since(startTime)
+		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "aem", "aem-vulnerabilities.json")
+		}
 		return res, nil
 	}
 
@@ -325,6 +330,30 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
+
+	// Write structured JSON for the dashboard
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		type aemFinding struct {
+			TemplateID string `json:"template-id"`
+			MatchedAt  string `json:"matched-at"`
+			Severity   string `json:"severity"`
+		}
+		var findings []aemFinding
+		for _, f := range allFindings {
+			findings = append(findings, aemFinding{
+				TemplateID: f.Name,
+				MatchedAt:  f.URL,
+				Severity:   f.Severity,
+			})
+		}
+		if len(findings) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "aem-vulnerabilities.json", findings); err != nil {
+				log.Printf("[WARN] Failed to write AEM JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "aem", "aem-vulnerabilities.json")
+		}
+	}
 
 	res.Duration = time.Since(startTime)
 	log.Printf("[AEM] Scan completed: %d AEM instances, %d vulnerabilities found", res.DiscoveredCount, res.Vulnerabilities)

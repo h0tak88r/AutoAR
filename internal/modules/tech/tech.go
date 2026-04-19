@@ -199,9 +199,13 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	log.Printf("[OK] Technology detection completed for %d hosts", count)
 
 	// Write structured JSON for the dashboard (recon / tech assets).
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(techResults) > 0 {
-		if err := utils.WriteJSONToScanDir(scanID, "tech-detect.json", techResults); err != nil {
-			log.Printf("[WARN] Failed to write tech JSON: %v", err)
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if len(techResults) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "tech-detect.json", techResults); err != nil {
+				log.Printf("[WARN] Failed to write tech JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "recon", "tech-detect.json")
 		}
 	}
 

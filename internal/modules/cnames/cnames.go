@@ -248,7 +248,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	log.Printf("[OK] Found %d CNAME records for %s", count, domain)
 
 	// Write JSON output to scan directory for dashboard
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" && len(cnameRecords) > 0 {
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
 		// Emit structured objects: {subdomain, cname, type}
 		type cnameEntry struct {
 			Subdomain string `json:"subdomain"`
