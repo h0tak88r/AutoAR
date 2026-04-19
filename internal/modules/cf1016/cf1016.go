@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
@@ -182,6 +183,7 @@ func loadSubdomains(opts Options) ([]string, error) {
 		}
 		candidates := []string{
 			filepath.Join(resultsDir, opts.Domain, "subs", "live-subs.txt"),
+			filepath.Join(resultsDir, opts.Domain, "subs", "all-subs.txt"),
 			filepath.Join(resultsDir, opts.Domain, "subs", "subdomains.txt"),
 		}
 		for _, c := range candidates {
@@ -190,10 +192,20 @@ func loadSubdomains(opts Options) ([]string, error) {
 				break
 			}
 		}
+
+		// Fallback: If no files exist but domain is provided, perform auto-enumeration
+		if filePath == "" {
+			log.Printf("[cf1016] No subdomain file found for %s, performing auto-enumeration...", opts.Domain)
+			subs, err := subdomains.EnumerateSubdomains(opts.Domain, 100)
+			if err == nil && len(subs) > 0 {
+				log.Printf("[cf1016] Auto-enumerated %d subdomains for %s", len(subs), opts.Domain)
+				return subs, nil
+			}
+		}
 	}
 
 	if filePath == "" {
-		return nil, fmt.Errorf("no subdomains file found for domain %q; run livehosts phase first", opts.Domain)
+		return nil, fmt.Errorf("no subdomains found for domain %q; ensure subdomains are enumerated or provide a file", opts.Domain)
 	}
 
 	f, err := os.Open(filePath)
@@ -327,8 +339,9 @@ func checkSubdomain(subdomain string, timeout time.Duration) (Finding, bool) {
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	body := string(bodyBytes)
 
-	// Cloudflare embeds "error code: 1016" in the HTML body.
-	if !strings.Contains(body, "1016") {
+	// Cloudflare embeds "error code: 1016" or "Origin DNS Error" in the HTML body.
+	bodyUpper := strings.ToUpper(body)
+	if !strings.Contains(body, "1016") && !strings.Contains(bodyUpper, "ORIGIN DNS ERROR") {
 		return Finding{}, false
 	}
 
@@ -469,5 +482,5 @@ func writeJSONOutput(path string, findings []Finding) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return utils.WriteFile(path, data)
 }

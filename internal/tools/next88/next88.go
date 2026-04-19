@@ -645,6 +645,11 @@ func checkVulnerabilitySmart(host string, opts ScanOptions) ScanResult {
 
 	// Step 4: Try common paths (if paths file exists)
 	pathsFile := "/app/Wordlists/react-nextjs-paths.txt"
+	if _, err := os.Stat(pathsFile); err != nil {
+		// Fallback for local environment
+		pathsFile = "Wordlists/react-nextjs-paths.txt"
+	}
+
 	if _, err := os.Stat(pathsFile); err == nil {
 		if !opts.Quiet && opts.Verbose {
 			fmt.Fprintf(os.Stderr, "[*] Trying common paths for %s\n", host)
