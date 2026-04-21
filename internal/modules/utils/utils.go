@@ -210,3 +210,17 @@ func IsFileEmpty(filePath string) bool {
 	return len(strings.TrimSpace(string(data))) == 0
 }
 
+// UniqueStrings returns a deduplicated slice preserving order.
+func UniqueStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
