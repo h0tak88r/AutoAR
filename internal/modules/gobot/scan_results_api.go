@@ -673,7 +673,7 @@ func inferReconKind(fileName string) string {
 	case strings.HasSuffix(b, ".log"):
 		return "logs"
 	// JS URLs
-	case strings.Contains(b, "js-url") || strings.Contains(b, "jsurl"):
+	case strings.Contains(b, "js-url") || strings.Contains(b, "jsurl") || strings.Contains(b, "js-enum"):
 		return "js_urls"
 	// JS secrets / exposures → vuln
 	case strings.Contains(b, "js-secret") || strings.Contains(b, "js-exposure") || strings.Contains(b, "secret") || strings.Contains(b, "exposure"):
@@ -684,6 +684,7 @@ func inferReconKind(fileName string) string {
 		return "subdomains"
 	// URLs / cnames
 	case strings.Contains(b, "all-url") || strings.Contains(b, "interesting-url") || strings.Contains(b, "cname") ||
+		strings.Contains(b, "urls.json") || strings.Contains(b, "url-enum") || strings.Contains(b, "url-collection") ||
 		(strings.HasSuffix(b, "urls.txt") && !strings.Contains(b, "js")):
 		return "urls"
 	// Tech detection
