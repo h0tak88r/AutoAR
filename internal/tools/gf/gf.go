@@ -87,14 +87,16 @@ func ScanFile(path string, patternName string) ([]string, error) {
 
 	scanner := bufio.NewScanner(f)
 	var matches []string
+	seen := make(map[string]bool)
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+		if trimmed == "" || seen[trimmed] {
 			continue
 		}
 
 		if lineMatches(trimmed, regexes) {
+			seen[trimmed] = true
 			matches = append(matches, trimmed)
 		}
 	}

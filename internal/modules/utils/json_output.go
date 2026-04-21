@@ -48,6 +48,18 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		return fmt.Errorf("write file: %w", err)
 	}
 
+	category := "other"
+	if strings.Contains(fileName, "vulnerabilities") || strings.Contains(fileName, "vuln") {
+		category = "vulnerability"
+	} else if strings.Contains(fileName, "subs") || strings.Contains(fileName, "tech") || strings.Contains(fileName, "cname") || strings.Contains(fileName, "url") {
+		category = "recon"
+	}
+
+	module := ""
+	if idx := strings.Index(fileName, "-"); idx > 0 {
+		module = fileName[:idx]
+	}
+
 	artifact := &db.ScanArtifact{
 		ScanID:      strings.TrimSpace(scanID),
 		FileName:    fileName,
@@ -55,6 +67,8 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		SizeBytes:   int64(len(raw)),
 		LineCount:   countNonEmptyLines(raw),
 		ContentType: "application/json",
+		Category:    category,
+		Module:      module,
 		CreatedAt:   time.Now().UTC(),
 	}
 

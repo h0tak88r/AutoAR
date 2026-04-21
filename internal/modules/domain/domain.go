@@ -82,7 +82,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 
 	// Phase 1: Reconnaissance
 	if err := utils.RunWorkflowPhase("subdomains", getNextStep(), totalSteps, "Subdomain enumeration", domain, 0, func() error {
-		subs, err := subdomains.EnumerateSubdomains(domain, 200)
+		subs, err := subdomains.EnumerateSubdomains(domain, 150)
 		if err != nil {
 			return err
 		}
@@ -99,14 +99,14 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	go func() {
 		defer wgPhase2.Done()
 		_ = utils.RunWorkflowPhase("cnames", getNextStep(), totalSteps, "CNAME collection", domain, 0, func() error {
-			_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{Domain: domain, Threads: 200, Timeout: 5 * time.Minute})
+			_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{Domain: domain, Threads: 150, Timeout: 5 * time.Minute})
 			return err
 		})
 	}()
 	go func() {
 		defer wgPhase2.Done()
 		_ = utils.RunWorkflowPhase("livehosts", getNextStep(), totalSteps, "Live host filtering", domain, 0, func() error {
-			_, err := livehosts.FilterLiveHosts(domain, 200, true)
+			_, err := livehosts.FilterLiveHosts(domain, 150, true)
 			return err
 		})
 	}()
@@ -119,10 +119,10 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		fn        func() error
 		timeout   int
 	}{
-		{"tech", "Technology detection", func() error { _, err := tech.DetectTech(domain, 200); return err }, 0},
-		{"ports", "Port scanning", func() error { _, err := ports.ScanPorts(domain, 200); return err }, 0},
-		{"urls", "URL collection", func() error { _, err := urls.CollectURLs(domain, 200, false); return err }, 0},
-		{"jsscan", "JavaScript scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: domain, Threads: 200}); return err }, 0},
+		{"tech", "Technology detection", func() error { _, err := tech.DetectTech(domain, 150); return err }, 0},
+		{"ports", "Port scanning", func() error { _, err := ports.ScanPorts(domain, 150); return err }, 0},
+		{"urls", "URL collection", func() error { _, err := urls.CollectURLs(domain, 150, false); return err }, 0},
+		{"jsscan", "JavaScript scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: domain, Threads: 150}); return err }, 0},
 		{"dns", "DNS takeover scan", func() error { return dns.Takeover(domain) }, 0},
 		{"aem", "AEM webapp discovery and scan", func() error {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
@@ -142,12 +142,12 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		{"s3", "S3 bucket enumeration", func() error { return s3.Run(s3.Options{Action: "enum", Root: domain}) }, 0},
 		{"backup", "Backup file discovery", func() error {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
-			_, err := backup.Run(backup.Options{Domain: domain, LiveHostsFile: lh, Threads: 200, Method: "all"})
+			_, err := backup.Run(backup.Options{Domain: domain, LiveHostsFile: lh, Threads: 150, Method: "all"})
 			return err
 		}, 0},
 		{"misconfig", "Cloud misconfiguration scan", func() error {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
-			return misconfig.Run(misconfig.Options{Target: domain, Action: "scan", Threads: 200, LiveHostsFile: lh})
+			return misconfig.Run(misconfig.Options{Target: domain, Action: "scan", Threads: 150, LiveHostsFile: lh})
 		}, 1800},
 	}
 
@@ -171,7 +171,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 
 	go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("reflection", getNextStep(), totalSteps, "Reflection scan", domain, 0, func() error { _, err := reflection.ScanReflection(domain); return err }) }()
 	go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("gf", getNextStep(), totalSteps, "GF pattern matching", domain, 0, func() error { _, err := gf.ScanGFWithOptions(gf.Options{Domain: domain, SkipCheck: true}); return err }) }()
-	go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("nuclei", getNextStep(), totalSteps, "Nuclei scan", domain, 0, func() error { _, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 500}); return err }) }()
+	go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("nuclei", getNextStep(), totalSteps, "Nuclei scan", domain, 0, func() error { _, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 120}); return err }) }()
 	if !opts.SkipFFuf {
 		go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("ffuf", getNextStep(), totalSteps, "FFuf fuzzing", domain, 0, func() error { _, err := ffuf.RunFFuf(ffuf.Options{Domain: domain, Threads: 40, Bypass403: true}); return err }) }()
 	}

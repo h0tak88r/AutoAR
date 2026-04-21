@@ -38,7 +38,7 @@ func ScanReflection(domain string) (*Result, error) {
 		Domain:     domain,
 		Threads:    50,  // Default concurrency for kxss scanning
 		Timeout:    15 * time.Minute, // Default 15 minute timeout
-		URLThreads: 200, // Higher concurrency for URL collection
+		URLThreads: 150, // Higher concurrency for URL collection
 	})
 }
 
@@ -55,7 +55,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		opts.Timeout = 15 * time.Minute
 	}
 	if opts.URLThreads <= 0 {
-		opts.URLThreads = 200
+		opts.URLThreads = 150
 	}
 
 	// Determine which target to use and whether to skip subdomain enumeration
