@@ -169,8 +169,9 @@ const state = {
   scanDetailId: null,
   /** Pagination + selection for /scans/:id page */
   scanDetailUI: { filesPage: 1, filesPerPage: 200, previewPage: 1, previewPerPage: 100, selectedFileName: null },
+  /** Filters for the main /scans page */
+  scanListUI: { search: '', statusFilter: 'all', typeFilter: 'all' },
   _sbClient: null,
-  /** Latest access_token; avoids races right after login before getSession() is consistent. */
   _authAccessToken: null,
   _sbAuthListener: false,
   _dashboardStarted: false,
@@ -1205,6 +1206,25 @@ function renderScans() {
   if (!container) return;
   const scanErr = state.error.scans;
   const { active_scans = [], recent_scans = [] } = state.scans;
+  const sUI = state.scanListUI;
+
+  const filterFn = (s) => {
+    const target = (s.target || s.Target || '').toLowerCase();
+    const type = (s.scan_type || s.ScanType || '').toLowerCase();
+    const status = (s.status || s.Status || '').toLowerCase();
+
+    const matchesSearch = !sUI.search || target.includes(sUI.search.toLowerCase());
+    const matchesType = sUI.typeFilter === 'all' || type === sUI.typeFilter.toLowerCase();
+    let matchesStatus = sUI.statusFilter === 'all' || status === sUI.statusFilter.toLowerCase();
+    if (sUI.statusFilter === 'stopped' && (status === 'cancelled' || status === 'stopped')) {
+      matchesStatus = true;
+    }
+
+    return matchesSearch && matchesType && matchesStatus;
+  };
+
+  const filteredActive = active_scans.filter(filterFn);
+  const filteredRecent = recent_scans.filter(filterFn);
 
   let html = '';
   if (scanErr) {
@@ -1213,20 +1233,60 @@ function renderScans() {
     </div>`;
   }
 
-  if (active_scans.length) {
+  // Filter Bar
+  html += `<div class="card" style="margin-bottom:16px">
+    <div class="card-body" style="padding:12px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <div style="flex:1;min-width:220px">
+          <input type="text" id="scan-search-input" class="input" placeholder="🔍 Search targets..." value="${esc(sUI.search)}" style="width:100%">
+        </div>
+        <div style="min-width:160px">
+          <select id="scan-type-filter" class="input" style="width:100%">
+            <option value="all">All Types</option>
+            <optgroup label="Workflows">
+              <option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option>
+              <option value="lite" ${sUI.typeFilter === 'lite' ? 'selected' : ''}>Lite Workflow</option>
+              <option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option>
+              <option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option>
+            </optgroup>
+            <optgroup label="Modules">
+              <option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option>
+              <option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option>
+              <option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option>
+              <option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option>
+              <option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option>
+              <option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option>
+              <option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option>
+            </optgroup>
+          </select>
+        </div>
+        <div style="min-width:160px">
+          <select id="scan-status-filter" class="input" style="width:100%">
+            <option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option>
+            <option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option>
+            <option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option>
+            <option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option>
+            <option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  if (filteredActive.length) {
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header">
-        <div class="card-title">⚡ Active Scans <span class="badge badge-running">${active_scans.length}</span></div>
+        <div class="card-title">⚡ Active Scans <span class="badge badge-running">${filteredActive.length}</span></div>
       </div>
       <div class="card-body">
-        ${active_scans.map(s => scanItemHtml(s)).join('')}
+        ${filteredActive.map(s => scanItemHtml(s)).join('')}
       </div>
     </div>`;
   }
 
   html += `<div class="card">
     <div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
-      <div class="card-title">🕐 Recent Scans</div>
+      <div class="card-title">🕐 Recent Scans ${filteredRecent.length !== recent_scans.length ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px">(${filteredRecent.length} filtered)</span>` : ''}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="deleteSelectedScans()">Delete selected</button>
         <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick="clearAllScans()">Clear all</button>
@@ -1234,23 +1294,56 @@ function renderScans() {
     </div>
     <div class="card-body">`;
 
-  if (!recent_scans.length && !active_scans.length) {
-    html += scanErr
-      ? emptyState('⚠️', 'Scans unavailable', 'Fix the error above or check that the API is reachable.')
-      : emptyState('📋', 'No scans yet', 'Start a scan from the Overview tab or via the CLI.');
-  } else if (!recent_scans.length) {
-    html += `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No completed scans yet</div>`;
-  } else {
+  if (!filteredRecent.length && !filteredActive.length) {
+    if (sUI.search || sUI.typeFilter !== 'all' || sUI.statusFilter !== 'all') {
+      html += emptyState('🔍', 'No matches found', 'Adjust your filters or search term to see more scans.');
+    } else {
+      html += scanErr
+        ? emptyState('⚠️', 'Scans unavailable', 'Fix the error above or check that the API is reachable.')
+        : emptyState('📋', 'No scans yet', 'Start a scan from the Overview tab or via the CLI.');
+    }
+  } else if (!filteredRecent.length && recent_scans.length > 0) {
+    html += `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No completed scans match the current filter</div>`;
+  } else if (filteredRecent.length > 0) {
     html += `<table class="data-table" id="recent-scans-table">
       <thead><tr>
         <th style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" title="Select all" aria-label="Select all" onclick="event.stopPropagation();toggleSelectAllRecentScans(this)" /></th>
         <th>Target</th><th>Type</th><th>Status</th><th>Phase</th><th>Started</th><th>Elapsed</th><th>Results</th>
       </tr></thead>
-      <tbody>${recent_scans.map(s => scanRowHtml(s)).join('')}</tbody>
+      <tbody>${filteredRecent.map(s => scanRowHtml(s)).join('')}</tbody>
     </table>`;
   }
   html += `</div></div>`;
   container.innerHTML = html;
+
+  const searchIn = container.querySelector('#scan-search-input');
+  if (searchIn) {
+    searchIn.oninput = (e) => {
+      const pos = e.target.selectionStart;
+      state.scanListUI.search = e.target.value;
+      renderScans();
+      // Keep focus and cursor position
+      const inp = document.getElementById('scan-search-input');
+      if (inp) {
+        inp.focus();
+        inp.setSelectionRange(pos, pos);
+      }
+    };
+  }
+  const typeSel = container.querySelector('#scan-type-filter');
+  if (typeSel) {
+    typeSel.onchange = (e) => {
+      state.scanListUI.typeFilter = e.target.value;
+      renderScans();
+    };
+  }
+  const statusSel = container.querySelector('#scan-status-filter');
+  if (statusSel) {
+    statusSel.onchange = (e) => {
+      state.scanListUI.statusFilter = e.target.value;
+      renderScans();
+    };
+  }
 }
 
 
