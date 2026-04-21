@@ -65,7 +65,7 @@ func RunLite(opts Options) (*Result, error) {
 
 	// Step 1: Live host filtering
 	_ = utils.RunWorkflowPhase("livehosts", step, totalSteps, "Live host filtering", opts.Domain, opts.Timeouts["livehosts"], func() error {
-		_, err := livehosts.FilterLiveHosts(opts.Domain, 200, true)
+		_, err := livehosts.FilterLiveHosts(opts.Domain, 150, true)
 		return err
 	})
 	step++
@@ -76,7 +76,7 @@ func RunLite(opts Options) (*Result, error) {
 			Domain:     opts.Domain,
 			Threads:    50,
 			Timeout:    time.Duration(opts.Timeouts["reflection"]) * time.Second,
-			URLThreads: 200,
+			URLThreads: 150,
 		})
 		return err
 	})
@@ -85,7 +85,7 @@ func RunLite(opts Options) (*Result, error) {
 	// Step 3: JS scan
 	if !opts.SkipJS {
 		_ = utils.RunWorkflowPhase("js", step, totalSteps, "JavaScript scanning", opts.Domain, opts.Timeouts["js"], func() error {
-			_, err := jsscan.Run(jsscan.Options{Domain: opts.Domain, Threads: 200})
+			_, err := jsscan.Run(jsscan.Options{Domain: opts.Domain, Threads: 150})
 			return err
 		})
 		step++
@@ -103,7 +103,7 @@ func RunLite(opts Options) (*Result, error) {
 	_ = utils.RunWorkflowPhase("backup", step, totalSteps, "Backup scan", opts.Domain, opts.Timeouts["backup"], func() error {
 		lh := ""
 		if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
-		_, err := backup.Run(backup.Options{Domain: opts.Domain, LiveHostsFile: lh, Threads: 200, Method: "regular"})
+		_, err := backup.Run(backup.Options{Domain: opts.Domain, LiveHostsFile: lh, Threads: 150, Method: "regular"})
 		return err
 	})
 	step++
@@ -130,13 +130,13 @@ func RunLite(opts Options) (*Result, error) {
 
 	// Step 9: Misconfig
 	_ = utils.RunWorkflowPhase("misconfig", step, totalSteps, "Misconfiguration scan", opts.Domain, opts.Timeouts["misconfig"], func() error {
-		return misconfig.Run(misconfig.Options{Target: opts.Domain, Action: "scan", Threads: 200, Timeout: opts.Timeouts["misconfig"]})
+		return misconfig.Run(misconfig.Options{Target: opts.Domain, Action: "scan", Threads: 150, Timeout: opts.Timeouts["misconfig"]})
 	})
 	step++
 
 	// Step 10: Nuclei
 	_ = utils.RunWorkflowPhase("nuclei", step, totalSteps, "Nuclei scan", opts.Domain, opts.Timeouts["nuclei"], func() error {
-		_, err := nuclei.RunNuclei(nuclei.Options{Domain: opts.Domain, Mode: nuclei.ModeFull, Threads: 500})
+		_, err := nuclei.RunNuclei(nuclei.Options{Domain: opts.Domain, Mode: nuclei.ModeFull, Threads: 120})
 		return err
 	})
 
