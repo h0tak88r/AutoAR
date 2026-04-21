@@ -3558,7 +3558,14 @@ function previewDataToFlatRows(data, file) {
         for (const item of obj[k]) {
           if (typeof item === 'object') pushObj(item);
           else {
-            rows.push({ file: file.file_name, module, source: file.source || '—', severity: '—', target: '—', finding: normalizeFindingText(item) });
+            const str = String(item || '').trim();
+            const isURL = str.startsWith('http://') || str.startsWith('https://');
+            rows.push({
+              file: file.file_name, module, source: file.source || '—',
+              severity: '—',
+              target: isURL ? str : '—',
+              finding: isURL ? module : normalizeFindingText(str)
+            });
           }
         }
       }
@@ -3715,10 +3722,10 @@ function inferKindFromFileName(fileName) {
   if (b.includes('live') && (b.includes('host') || b.includes('subs'))) return 'subdomains';
   if (b.includes('httpx') || b.includes('live-hosts')) return 'subdomains';
   // URLs
-  if (b.includes('all-url') || b.includes('interesting-url') || (b.endsWith('urls.txt') && !b.includes('js'))) return 'urls';
+  if (b.includes('all-url') || b.includes('interesting-url') || b.includes('urls.json') || b.includes('url-enum') || b.includes('url-collection') || (b.endsWith('urls.txt') && !b.includes('js'))) return 'urls';
   if (b.includes('cname')) return 'urls';
   // JS URLs
-  if (b.includes('js-url') || b.includes('jsurl') || b === 'js-urls.json') return 'js_urls';
+  if (b.includes('js-url') || b.includes('jsurl') || b.includes('js-enum') || b === 'js-urls.json') return 'js_urls';
   // JS secrets / exposures
   if (b.includes('js-secret') || b.includes('js-exposure') || b.includes('secret') || b.includes('exposure')) return 'vuln';
   // Tech detection
