@@ -1842,6 +1842,9 @@ func executeScan(scanID string, command []string, scanType string) {
 		log.Printf("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
 	}
 
+	// Notify scan start via webhook
+	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
+
 	if target == "demo.autoar.com" || target == "keyword.com" || target == "0x88.autoar" {
 		log.Printf("[executeScan] DEMO intercepted. Generating mock artifacts for %s", target)
 		go generateMockResults(scanID, target, scanType, startedAt, command)
@@ -1908,6 +1911,17 @@ func executeScan(scanID string, command []string, scanType string) {
 	if dbErr := db.UpdateScanResult(scanID, finalStatus, resultURL); dbErr != nil {
 		log.Printf("[executeScan] Failed to update DB status for %s: %v", scanID, dbErr)
 	}
+
+	// Count findings for final notification
+	findingsCount := 0
+	if artifacts, err := db.ListScanArtifacts(scanID); err == nil {
+		for _, a := range artifacts {
+			if a.Category == "vulnerability" {
+				findingsCount += a.LineCount
+			}
+		}
+	}
+	utils.SendScanNotification("finish", scanID, target, scanType, finalStatus, findingsCount)
 
 	// For atomic one-shot scans: mark the scan's single task as completed/failed
 	// so the dashboard shows a clean result instead of "0 done · N skipped".
