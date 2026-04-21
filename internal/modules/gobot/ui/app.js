@@ -3725,7 +3725,7 @@ function inferKindFromFileName(fileName) {
   if (b.includes('all-url') || b.includes('interesting-url') || b.includes('urls.json') || b.includes('url-enum') || b.includes('url-collection') || (b.endsWith('urls.txt') && !b.includes('js'))) return 'urls';
   if (b.includes('cname')) return 'urls';
   // JS URLs
-  if (b.includes('js-url') || b.includes('jsurl') || b.includes('js-enum') || b === 'js-urls.json') return 'js_urls';
+  if (b.includes('js-url') || b.includes('jsurl') || b.includes('js_url') || b.includes('js-enum') || b === 'js-urls.json') return 'js_urls';
   // JS secrets / exposures
   if (b.includes('js-secret') || b.includes('js-exposure') || b.includes('secret') || b.includes('exposure')) return 'vuln';
   // Tech detection
@@ -3828,7 +3828,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
 
   const stNorm = (scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
-  const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan';
+  const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run';
   let activeKind = (totalVuln > 0) ? 'vuln' : (isReconScan ? 'assets' : 'vuln');
   if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
   let searchHost = '';

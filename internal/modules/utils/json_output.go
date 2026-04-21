@@ -56,7 +56,11 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 	}
 
 	module := ""
-	if idx := strings.Index(fileName, "-"); idx > 0 {
+	if strings.Contains(fileName, "url") {
+		module = "url-collection"
+	} else if strings.Contains(fileName, "subdomain") {
+		module = "subdomain-enum"
+	} else if idx := strings.Index(fileName, "-"); idx > 0 {
 		module = fileName[:idx]
 	}
 
