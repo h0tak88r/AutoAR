@@ -136,13 +136,13 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		{"cnames", "[Stage 2] CNAME collection", func() error {
 			// Remove protocol if present for CNAME check
 			subdomainClean := strings.TrimPrefix(strings.TrimPrefix(subdomain, "http://"), "https://")
-			_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{Subdomain: subdomainClean, Threads: 200, Timeout: 5 * time.Minute})
+			_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{Subdomain: subdomainClean, Threads: 150, Timeout: 5 * time.Minute})
 			return err
 		}, 0},
-		{"tech", "[Stage 2] Technology detection", func() error { _, err := tech.DetectTech(subdomainClean, 200); return err }, 0},
-		{"ports", "[Stage 2] Port scan", func() error { _, err := ports.ScanPorts(subdomainClean, 200); return err }, 0},
-		{"urls", "[Stage 2] URL collection", func() error { _, err := urls.CollectURLs(subdomainClean, 200, true); return err }, 0},
-		{"jsscan", "[Stage 2] JS scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: subdomainClean, Subdomain: subdomainClean, Threads: 200}); return err }, 0},
+		{"tech", "[Stage 2] Technology detection", func() error { _, err := tech.DetectTech(subdomainClean, 150); return err }, 0},
+		{"ports", "[Stage 2] Port scan", func() error { _, err := ports.ScanPorts(subdomainClean, 150); return err }, 0},
+		{"urls", "[Stage 2] URL collection", func() error { _, err := urls.CollectURLs(subdomainClean, 150, true); return err }, 0},
+		{"jsscan", "[Stage 2] JS scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: subdomainClean, Subdomain: subdomainClean, Threads: 150}); return err }, 0},
 		{"aem", "[Stage 2] AEM scan", func() error { _, err := aemmod.Run(aemmod.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Threads: 50}); return err }, 0},
 		{"dns", "[Stage 2] DNS scan", func() error { return dns.TakeoverWithOptions(dns.TakeoverOptions{Domain: rootDomain, Subdomain: subdomainClean}) }, 0},
 		{"s3", "[Stage 2] S3 bucket enumeration and scanning", func() error {
@@ -159,7 +159,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 			}
 			return nil
 		}, 0},
-		{"backup", "[Stage 2] Backup scan", func() error { _, err := backup.Run(backup.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Method: "all", Threads: 200}); return err }, 0},
+		{"backup", "[Stage 2] Backup scan", func() error { _, err := backup.Run(backup.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Method: "all", Threads: 150}); return err }, 0},
 		{"zerodays", "[Stage 2] Zerodays scan", func() error {
 			runner := utils.NewCommandRunner(0)
 			return runner.RunSilent(context.Background(), os.Args[0], "zerodays", "scan", "-s", subdomainClean, "-t", "100", "--silent")
@@ -188,7 +188,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 	phases2 = append(phases2, struct{key, desc string; fn func() error; timeout int}{
 		"misconfig", "[Stage 2] Misconfig scan", func() error {
-			err := misconfig.Run(misconfig.Options{Target: subdomainClean, Action: "scan", Threads: 200, LiveHostsFile: liveHostsFile})
+			err := misconfig.Run(misconfig.Options{Target: subdomainClean, Action: "scan", Threads: 150, LiveHostsFile: liveHostsFile})
 			if err != nil && strings.Contains(err.Error(), "no live subdomains found") { return nil }
 			return err
 		}, misconfigTimeout,
@@ -235,7 +235,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		if err != nil { return err }
 		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 		if len(lines) > 0 && lines[0] != "" {
-			_, err := nuclei.RunNuclei(nuclei.Options{URL: strings.TrimSpace(lines[0]), Threads: 200, Mode: nuclei.ModeFull})
+			_, err := nuclei.RunNuclei(nuclei.Options{URL: strings.TrimSpace(lines[0]), Threads: 120, Mode: nuclei.ModeFull})
 			return err
 		}
 		return fmt.Errorf("no live URL found")
@@ -365,7 +365,7 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 	// Configure httpx options
 	options := runner.Options{
 		InputTargetHost: targets,
-		Threads:        200,
+		Threads:        150,
 		Methods:        "GET",
 		FollowRedirects: true,
 		HTTPProxy:      os.Getenv("HTTP_PROXY"),
