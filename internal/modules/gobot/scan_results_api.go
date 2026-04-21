@@ -120,8 +120,10 @@ func inferModuleFromFileName(name string) string {
 		return "dependency-confusion"
 	case strings.HasSuffix(n, "urls.txt") || strings.Contains(n, "all-urls.txt") || strings.Contains(n, "wayback"):
 		return "url-collection"
-	case strings.Contains(n, "js-url") || strings.Contains(n, "js_url"):
+	case strings.Contains(n, "js-url") || strings.Contains(n, "js_url") || strings.Contains(n, "js-enum"):
 		return "JS-Enum"
+	case strings.HasSuffix(n, "urls.json") || strings.HasSuffix(n, "urls.txt") || strings.Contains(n, "all-urls.txt") || strings.Contains(n, "wayback"):
+		return "url-collection"
 	default:
 		return "autoar"
 	}
@@ -682,11 +684,12 @@ func inferReconKind(fileName string) string {
 	case strings.Contains(b, "all-subs") || strings.Contains(b, "live-subs") || strings.HasSuffix(b, "subs.txt") ||
 		strings.Contains(b, "subdomain") || strings.Contains(b, "httpx") || strings.Contains(b, "live-host"):
 		return "subdomains"
-	// URLs / cnames
 	case strings.Contains(b, "all-url") || strings.Contains(b, "interesting-url") || strings.Contains(b, "cname") ||
 		strings.Contains(b, "urls.json") || strings.Contains(b, "url-enum") || strings.Contains(b, "url-collection") ||
 		(strings.HasSuffix(b, "urls.txt") && !strings.Contains(b, "js")):
 		return "urls"
+	case strings.Contains(b, "js-url") || strings.Contains(b, "jsurl") || strings.Contains(b, "js-enum") || strings.Contains(b, "js_url"):
+		return "js_urls"
 	// Tech detection
 	case strings.Contains(b, "tech-detect") || strings.Contains(b, "technologies") || strings.Contains(b, "wappalyzer"):
 		return "tech"
