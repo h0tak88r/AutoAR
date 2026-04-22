@@ -1949,13 +1949,28 @@ function getUnifiedTableColumns(activeKind) {
 function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
   const moduleTab = String(activeKind || '').startsWith('mod:') ? String(activeKind).slice(4) : '';
   const target = String(r.host || r.target || '-');
-  const href = target.startsWith('http') ? target : (target !== '-' ? `https://${target}` : '#');
+  let displayTarget = target;
+  let href = target.startsWith('http') ? target : (target !== '-' ? `https://${target}` : '#');
   const finding = String(r.title || r.finding || '—').trim() || '—';
   const findingShort = finding.length > 88 ? `${finding.slice(0, 86)}...` : finding;
   const source = String(r.file || r.source || '—');
 
+  if (moduleTab === 'js-analysis') {
+    const jsCandidates = [
+      String(r.source_file || ''),
+      String(r.file || ''),
+      String(r.target || ''),
+      String(r.finding || ''),
+    ].join(' ');
+    const jsMatch = jsCandidates.match(/https?:\/\/[^\s"')]+(?:\.js|\.mjs|\.jsx)[^\s"')]*?/i);
+    if (jsMatch && jsMatch[0]) {
+      displayTarget = jsMatch[0];
+      href = jsMatch[0];
+    }
+  }
+
   const tdTarget = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-      <a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(target)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(target)}</a>
+      <a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</a>
     </td>`;
   const tdSev = `<td style="padding:7px 8px;text-align:center;white-space:nowrap">
       <span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span>
@@ -1991,7 +2006,7 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
     c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-primary)">${esc(findingShort)}</span></td>`;
   }
 
-  return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(finding)}" data-severity="${escAttr(r.severity || '')}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+  return `<tr class="findings-row" data-target="${escAttr(displayTarget)}" data-finding="${escAttr(finding)}" data-severity="${escAttr(r.severity || '')}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
     <td style="padding:7px 10px;width:36px;text-align:center">
       <input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()">
     </td>
@@ -4207,7 +4222,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (bi !== -1) return 1;
     return a.localeCompare(b);
   });
-  const moduleTabs = usedModules.map((mod) => {
+  const excludedModuleTabs = new Set(['autoar', 'tech-detect', 'ffuf-fuzzing']);
+  const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
     const info = getModuleDisplayInfo(mod);
     return [`mod:${mod}`, `${info.icon} ${info.name}`];
   });
