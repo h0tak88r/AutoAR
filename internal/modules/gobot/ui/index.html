@@ -99,6 +99,10 @@
           <span class="nav-icon">🛡️</span>
           <span>Nuclei Manager</span>
         </div>
+        <div class="nav-item" id="nav-report-templates">
+          <span class="nav-icon">📝</span>
+          <span>Report Templates</span>
+        </div>
         <div class="nav-item" id="nav-settings">
           <span class="nav-icon">⚙️</span>
           <span>Settings</span>
@@ -641,6 +645,22 @@
         </div>
       </div><!-- /view-nuclei-manager -->
 
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Report Templates                                             -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-report-templates">
+        <div class="view-header">
+          <h1 class="view-title">📝 Report Templates</h1>
+          <div class="view-subtitle">Manage and generate report templates</div>
+        </div>
+        <div class="filter-bar">
+          <input class="search-input" id="report-templates-search" placeholder="Search templates..." autocomplete="off" />
+        </div>
+        <div id="report-templates-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-report-templates -->
+
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /shell -->
@@ -654,6 +674,30 @@
   background-color: rgba(255, 255, 255, 0.05);
 }
 </style>
+
+<!-- Modal: Report Template Editor -->
+<div id="modal-report-template" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
+  <div class="auth-card" style="width: 80%; max-width: 900px; padding: 24px;">
+    <div class="view-header" style="margin-bottom: 20px;">
+      <h2 class="view-title" id="report-template-modal-title">📝 Edit Template</h2>
+      <div class="view-subtitle">Markdown format supported</div>
+    </div>
+    <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px;">
+      <div>
+        <label class="auth-label" for="report-template-name">Template Name</label>
+        <input class="search-input auth-input" id="report-template-name" type="text" placeholder="e.g. pentest-report" required />
+      </div>
+      <div>
+        <label class="auth-label" for="report-template-content">Markdown Content</label>
+        <textarea id="report-template-content" class="search-input auth-input" style="height: 400px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical;" placeholder="# My Report Template..."></textarea>
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px;">
+        <button type="button" class="btn btn-ghost" onclick="closeReportTemplateModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveReportTemplate()">Save Template</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Toast notifications -->
 <div class="toast-container" id="toast-container"></div>
