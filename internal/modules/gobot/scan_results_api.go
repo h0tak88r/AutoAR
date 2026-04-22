@@ -10,11 +10,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"io"
 )
 
 const scanResultMaxBody = 12 * 1024 * 1024
@@ -1200,5 +1203,89 @@ func apiScanParsedResults(c *gin.Context) {
 		"total":   len(rows),
 		"rows":    rows,
 		"limit":   limit,
+	})
+}
+
+// GET /api/scans/:id/logs/stream
+func apiStreamScanLogs(c *gin.Context) {
+	scanID := strings.TrimSpace(c.Param("id"))
+	if scanID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+
+	logFile := filepath.Join(getScanResultsDir(scanID), "module.log")
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		logFile = filepath.Join(getScanResultsDir(scanID), "autoar.log")
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+
+	file, err := os.Open(logFile)
+	if err != nil {
+		c.SSEvent("message", "Log file not yet available")
+		return
+	}
+	defer file.Close()
+
+	file.Seek(0, 2)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-ticker.C:
+			buf := make([]byte, 8192)
+			n, err := file.Read(buf)
+			if n > 0 {
+				c.SSEvent("log", string(buf[:n]))
+				c.Writer.Flush()
+			}
+			if err != nil && err != io.EOF {
+				return
+			}
+		}
+	}
+}
+
+// GET /api/nuclei/templates
+func apiListNucleiTemplates(c *gin.Context) {
+	root := utils.GetRootDir()
+	nucleiDir := filepath.Join(root, "nuclei-templates")
+
+	var templates []string
+	filepath.Walk(nucleiDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".yaml") {
+			rel, _ := filepath.Rel(nucleiDir, path)
+			templates = append(templates, rel)
+		}
+		return nil
+	})
+
+	c.JSON(http.StatusOK, templates)
+}
+
+// GET /api/scans/:id/report
+func apiGetScanReport(c *gin.Context) {
+	scanID := strings.TrimSpace(c.Param("id"))
+	if scanID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	entries, _ := listLocalFiles(scanID)
+	scanRec, _ := db.GetScan(scanID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"scan_id":    scanID,
+		"scan_info":  scanRec,
+		"files":      entries,
+		"generated": time.Now(),
 	})
 }
