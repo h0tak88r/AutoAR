@@ -6900,7 +6900,7 @@ function renderNucleiManager(query = '') {
         </div>
       `).join('')}
     </div>
-  \`;
+  `;
 }
 
 // ── Report Templates ─────────────────────────────────────────────────────────
@@ -6918,22 +6918,22 @@ async function renderReportTemplates(search = '') {
     }
 
     if (!templates || templates.length === 0) {
-      container.innerHTML = \`
+      container.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">📝</div>
           <div class="empty-title">No templates found</div>
           <p class="empty-sub">Create your first markdown report template.</p>
           <button class="btn btn-primary" onclick="openReportTemplateModal()">➕ Create Template</button>
         </div>
-      \`;
+      `;
       return;
     }
 
-    container.innerHTML = \`
+    container.innerHTML = `
       <div class="domain-grid">
-        \${templates.map(name => \`
-          <div class="domain-card" onclick="openReportTemplateModal('\${esc(name)}')">
-            <div class="domain-name">📄 \${esc(name)}</div>
+        ${templates.map(name => `
+          <div class="domain-card" onclick="openReportTemplateModal('${esc(name)}')">
+            <div class="domain-name">📄 ${esc(name)}</div>
             <div class="domain-stats">
               <div class="domain-stat">
                 <div class="domain-stat-label">Format</div>
@@ -6941,14 +6941,14 @@ async function renderReportTemplates(search = '') {
               </div>
             </div>
             <div style="margin-top: 16px; display: flex; gap: 8px;">
-              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplate('\${esc(name)}')">🗑️ Delete</button>
+              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplate('${esc(name)}')">🗑️ Delete</button>
             </div>
           </div>
-        \`).join('')}
+        `).join('')}
       </div>
-    \`;
+    `;
   } catch (err) {
-    container.innerHTML = \`<div class="error-state">❌ \${esc(err.message)}</div>\`;
+    container.innerHTML = `<div class="error-state">❌ ${esc(err.message)}</div>`;
   }
 }
 
@@ -6967,7 +6967,7 @@ async function openReportTemplateModal(name = '') {
 
   if (name) {
     try {
-      const data = await apiFetch(\`/api/report-templates/\${encodeURIComponent(name)}\`);
+      const data = await apiFetch(`/api/report-templates/${encodeURIComponent(name)}`);
       contentInput.value = data.content;
     } catch (err) {
       showToast('error', 'Failed to load template', err.message);
@@ -6993,7 +6993,7 @@ async function saveReportTemplate() {
 
   try {
     const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-    const res = await fetch(\`\${API}/api/report-templates\`, {
+    const res = await fetch(`${API}/api/report-templates`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ name, content })
@@ -7004,7 +7004,7 @@ async function saveReportTemplate() {
       throw new Error(data.error || 'Failed to save template');
     }
 
-    showToast('success', 'Template Saved', \`Template "\${name}" saved successfully\`);
+    showToast('success', 'Template Saved', `Template "${name}" saved successfully`);
     closeReportTemplateModal();
     renderReportTemplates();
   } catch (err) {
@@ -7013,11 +7013,11 @@ async function saveReportTemplate() {
 }
 
 async function deleteReportTemplate(name) {
-  if (!confirm(\`Are you sure you want to delete the template "\${name}"?\`)) return;
+  if (!confirm(`Are you sure you want to delete the template "${name}"?`)) return;
 
   try {
     const headers = await buildAuthHeaders();
-    const res = await fetch(\`\${API}/api/report-templates/\${encodeURIComponent(name)}\`, {
+    const res = await fetch(`${API}/api/report-templates/${encodeURIComponent(name)}`, {
       method: 'DELETE',
       headers
     });
@@ -7027,7 +7027,7 @@ async function deleteReportTemplate(name) {
       throw new Error(data.error || 'Failed to delete template');
     }
 
-    showToast('success', 'Template Deleted', \`Template "\${name}" removed\`);
+    showToast('success', 'Template Deleted', `Template "${name}" removed`);
     renderReportTemplates();
   } catch (err) {
     showToast('error', 'Delete Failed', err.message);
