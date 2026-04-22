@@ -56,6 +56,7 @@ tmp_*
 # Secrets and API keys (but allow keyhack module and scripts)
 *secret**
 *key**
+!internal/modules/gobot/keyhack_api.go
 !modules/keyhack.sh
 !scripts/*.sh
 *token*
