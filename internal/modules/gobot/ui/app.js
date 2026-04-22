@@ -189,7 +189,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'nuclei-manager'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'nuclei-manager', 'report-templates'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -253,7 +253,8 @@ function viewTitle(v) {
     overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
     targets: 'Bug Bounty Targets',
     keyhacks: 'Keyhacks',
-    monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings'
+    monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
+    'report-templates': 'Report Templates'
   }[v] || v;
 }
 
@@ -609,6 +610,15 @@ function wireShellOnce() {
     ntSearch.addEventListener('input', (e) => {
       clearTimeout(ntDebounce);
       ntDebounce = setTimeout(() => renderNucleiManager(e.target.value.trim()), 300);
+    });
+  }
+
+  const rtSearch = document.getElementById('report-templates-search');
+  if (rtSearch) {
+    let rtDebounce;
+    rtSearch.addEventListener('input', (e) => {
+      clearTimeout(rtDebounce);
+      rtDebounce = setTimeout(() => renderReportTemplates(e.target.value.trim()), 300);
     });
   }
 
@@ -1162,6 +1172,7 @@ function refreshCurrentView() {
     case 'monitor': loadMonitor(); break;
     case 'keyhacks': loadKeyhacks(); break;
     case 'nuclei-manager': loadNucleiTemplates(); break;
+    case 'report-templates': renderReportTemplates(); break;
     case 'r2': loadR2(state.r2.prefix); break;
     case 'settings': loadConfig(); break;
     case 'scan-detail':
@@ -6889,5 +6900,136 @@ function renderNucleiManager(query = '') {
         </div>
       `).join('')}
     </div>
-  `;
+  \`;
+}
+
+// ── Report Templates ─────────────────────────────────────────────────────────
+
+async function renderReportTemplates(search = '') {
+  const container = document.getElementById('report-templates-container');
+  if (!container) return;
+
+  try {
+    let templates = await apiFetch('/api/report-templates');
+
+    if (search) {
+      const q = search.toLowerCase();
+      templates = templates.filter(name => name.toLowerCase().includes(q));
+    }
+
+    if (!templates || templates.length === 0) {
+      container.innerHTML = \`
+        <div class="empty-state">
+          <div class="empty-icon">📝</div>
+          <div class="empty-title">No templates found</div>
+          <p class="empty-sub">Create your first markdown report template.</p>
+          <button class="btn btn-primary" onclick="openReportTemplateModal()">➕ Create Template</button>
+        </div>
+      \`;
+      return;
+    }
+
+    container.innerHTML = \`
+      <div class="domain-grid">
+        \${templates.map(name => \`
+          <div class="domain-card" onclick="openReportTemplateModal('\${esc(name)}')">
+            <div class="domain-name">📄 \${esc(name)}</div>
+            <div class="domain-stats">
+              <div class="domain-stat">
+                <div class="domain-stat-label">Format</div>
+                <div class="domain-stat-value" style="font-size: 14px;">Markdown</div>
+              </div>
+            </div>
+            <div style="margin-top: 16px; display: flex; gap: 8px;">
+              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplate('\${esc(name)}')">🗑️ Delete</button>
+            </div>
+          </div>
+        \`).join('')}
+      </div>
+    \`;
+  } catch (err) {
+    container.innerHTML = \`<div class="error-state">❌ \${esc(err.message)}</div>\`;
+  }
+}
+
+async function openReportTemplateModal(name = '') {
+  const modal = document.getElementById('modal-report-template');
+  const title = document.getElementById('report-template-modal-title');
+  const nameInput = document.getElementById('report-template-name');
+  const contentInput = document.getElementById('report-template-content');
+
+  if (!modal || !title || !nameInput || !contentInput) return;
+
+  nameInput.value = name;
+  nameInput.readOnly = name !== '';
+  contentInput.value = '';
+  title.textContent = name ? '📝 Edit Template' : '➕ New Template';
+
+  if (name) {
+    try {
+      const data = await apiFetch(\`/api/report-templates/\${encodeURIComponent(name)}\`);
+      contentInput.value = data.content;
+    } catch (err) {
+      showToast('error', 'Failed to load template', err.message);
+    }
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeReportTemplateModal() {
+  const modal = document.getElementById('modal-report-template');
+  if (modal) modal.style.display = 'none';
+}
+
+async function saveReportTemplate() {
+  const name = document.getElementById('report-template-name').value.trim();
+  const content = document.getElementById('report-template-content').value;
+
+  if (!name || !content) {
+    showToast('error', 'Validation', 'Name and content are required');
+    return;
+  }
+
+  try {
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(\`\${API}/api/report-templates\`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name, content })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to save template');
+    }
+
+    showToast('success', 'Template Saved', \`Template "\${name}" saved successfully\`);
+    closeReportTemplateModal();
+    renderReportTemplates();
+  } catch (err) {
+    showToast('error', 'Save Failed', err.message);
+  }
+}
+
+async function deleteReportTemplate(name) {
+  if (!confirm(\`Are you sure you want to delete the template "\${name}"?\`)) return;
+
+  try {
+    const headers = await buildAuthHeaders();
+    const res = await fetch(\`\${API}/api/report-templates/\${encodeURIComponent(name)}\`, {
+      method: 'DELETE',
+      headers
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to delete template');
+    }
+
+    showToast('success', 'Template Deleted', \`Template "\${name}" removed\`);
+    renderReportTemplates();
+  } catch (err) {
+    showToast('error', 'Delete Failed', err.message);
+  }
 }
