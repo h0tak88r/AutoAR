@@ -236,6 +236,11 @@ func setupAPI() *gin.Engine {
 		apiGroup.GET("/nuclei/templates", apiListNucleiTemplates)
 		// Upload handler
 		apiGroup.POST("/upload", apiUploadHandler)
+		// Report Templates
+		apiGroup.GET("/report-templates", apiListReportTemplates)
+		apiGroup.GET("/report-templates/:name", apiGetReportTemplate)
+		apiGroup.POST("/report-templates", apiSaveReportTemplate)
+		apiGroup.DELETE("/report-templates/:name", apiDeleteReportTemplate)
 	}
 
 	// Scan endpoints
