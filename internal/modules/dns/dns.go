@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/modules/cf1016"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
@@ -263,6 +264,16 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	}
 	if err := checkCloudflareTunnels(processingDir, findingsDir, subsFile); err != nil {
 		log.Printf("[WARN] Cloudflare Tunnel availability check failed: %v", err)
+	}
+	// CF-1016 is part of comprehensive DNS takeover coverage.
+	// Use the same subdomain input set prepared for this DNS scan.
+	if _, err := cf1016.Run(cf1016.Options{
+		Domain:         opts.Domain,
+		SubdomainsFile: subsFile,
+		Threads:        100,
+		Timeout:        10 * time.Second,
+	}); err != nil {
+		log.Printf("[WARN] CF1016 step failed: %v", err)
 	}
 
 	// Summary file generation removed - only raw results are sent
