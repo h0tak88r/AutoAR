@@ -134,6 +134,16 @@ func (s *SQLiteDB) InitSchema() error {
 	
 	-- Create unique index on keyname
 	CREATE UNIQUE INDEX IF NOT EXISTS keyhack_templates_keyname_key ON keyhack_templates (keyname);
+
+	-- Create report_templates table
+	CREATE TABLE IF NOT EXISTS report_templates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		content TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT (datetime('now')),
+		updated_at TIMESTAMP DEFAULT (datetime('now'))
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS report_templates_name_key ON report_templates (name);
 	
 	-- Create updates_targets table for monitoring
 	CREATE TABLE IF NOT EXISTS updates_targets (
@@ -232,6 +242,7 @@ func (s *SQLiteDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
+	CREATE INDEX IF NOT EXISTS idx_report_templates_name ON report_templates(name);
 	CREATE INDEX IF NOT EXISTS idx_updates_targets_url ON updates_targets(url);
 	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_domain ON subdomain_monitor_targets(domain);
 	CREATE INDEX IF NOT EXISTS idx_subdomain_monitor_targets_is_running ON subdomain_monitor_targets(is_running);
@@ -585,6 +596,77 @@ func (s *SQLiteDB) SearchKeyhackTemplates(query string) ([]KeyhackTemplate, erro
 		return nil, fmt.Errorf("failed to iterate keyhack templates: %v", rows.Err())
 	}
 	return out, nil
+}
+
+// UpsertReportTemplate inserts or updates a report template by name.
+func (s *SQLiteDB) UpsertReportTemplate(name, content string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO report_templates (name, content)
+		VALUES (?, ?)
+		ON CONFLICT (name) DO UPDATE SET
+			content = excluded.content,
+			updated_at = datetime('now');
+	`, name, content)
+	if err != nil {
+		return fmt.Errorf("failed to upsert report template: %v", err)
+	}
+	return nil
+}
+
+// GetReportTemplate fetches a report template by name.
+func (s *SQLiteDB) GetReportTemplate(name string) (*ReportTemplate, error) {
+	var t ReportTemplate
+	err := s.db.QueryRow(`
+		SELECT name, content, created_at, updated_at
+		FROM report_templates
+		WHERE name = ?
+		LIMIT 1;
+	`, name).Scan(&t.Name, &t.Content, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report template not found: %s", name)
+		}
+		return nil, fmt.Errorf("failed to get report template: %v", err)
+	}
+	return &t, nil
+}
+
+// ListReportTemplates returns all report templates ordered by name.
+func (s *SQLiteDB) ListReportTemplates() ([]ReportTemplate, error) {
+	rows, err := s.db.Query(`
+		SELECT name, content, created_at, updated_at
+		FROM report_templates
+		ORDER BY name ASC;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list report templates: %v", err)
+	}
+	defer rows.Close()
+
+	var out []ReportTemplate
+	for rows.Next() {
+		var t ReportTemplate
+		if err := rows.Scan(&t.Name, &t.Content, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan report template: %v", err)
+		}
+		out = append(out, t)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate report templates: %v", rows.Err())
+	}
+	return out, nil
+}
+
+// DeleteReportTemplate deletes a report template by name.
+func (s *SQLiteDB) DeleteReportTemplate(name string) error {
+	result, err := s.db.Exec(`DELETE FROM report_templates WHERE name = ?;`, name)
+	if err != nil {
+		return fmt.Errorf("failed to delete report template: %v", err)
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("report template not found: %s", name)
+	}
+	return nil
 }
 
 // ListDomains returns all distinct domains stored in the database.
