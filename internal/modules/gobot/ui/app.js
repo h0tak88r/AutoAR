@@ -1945,7 +1945,8 @@ const MODULE_RENDERERS = {
 };
 
 function getUnifiedTableColumns(activeKind) {
-  const moduleTab = String(activeKind || '').startsWith('mod:') ? String(activeKind).slice(4) : '';
+  const active = String(activeKind || '');
+  const moduleTab = active.startsWith('mod:') ? active.slice(4) : (active === 'misconfig' ? 'misconfig' : '');
   switch (moduleTab) {
     case 'nuclei':
       return ['TARGET', 'SEV', 'TEMPLATE', 'MATCH'];
@@ -1961,7 +1962,8 @@ function getUnifiedTableColumns(activeKind) {
 }
 
 function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
-  const moduleTab = String(activeKind || '').startsWith('mod:') ? String(activeKind).slice(4) : '';
+  const active = String(activeKind || '');
+  const moduleTab = active.startsWith('mod:') ? active.slice(4) : (active === 'misconfig' ? 'misconfig' : '');
   const target = String(r.host || r.target || '-');
   let displayTarget = target;
   let href = target.startsWith('http') ? target : (target !== '-' ? `https://${target}` : '#');
