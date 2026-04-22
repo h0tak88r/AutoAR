@@ -3397,3 +3397,70 @@ input[type="search"]::-webkit-search-results-decoration {
   margin-bottom: 8px;
   word-break: break-all;
 }
+
+/* ── Premium Select & Inputs ────────────────────────────────────────────────── */
+
+select.input, .search-input {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  font-size: 13px;
+  transition: all var(--transition);
+  outline: none;
+}
+
+select.input:hover, .search-input:hover {
+  border-color: var(--border-bright);
+}
+
+select.input:focus, .search-input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px var(--accent-cyan-dim);
+}
+
+/* Custom Select Arrow */
+select.input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding-right: 36px;
+}
+
+/* Markdown Preview Styling */
+#report-template-preview {
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+#report-template-preview h1, #report-template-preview h2, #report-template-preview h3 {
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+  color: var(--accent-cyan);
+}
+#report-template-preview p { margin-bottom: 1em; }
+#report-template-preview code {
+  background: rgba(255,255,255,0.05);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+}
+#report-template-preview pre {
+  background: #010409;
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+#report-template-preview ul, #report-template-preview ol {
+  margin-left: 1.5em;
+  margin-bottom: 1em;
+}
+#report-template-preview hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
+}
