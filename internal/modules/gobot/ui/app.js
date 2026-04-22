@@ -184,7 +184,6 @@ const state = {
   _shellWired: false,
   _r2BrowserWired: false,
   _metricsTimer: null,
-  _terminalSSE: null,
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -1895,6 +1894,8 @@ function normalizeModuleKey(module) {
     'aem-scan': 'aem',
     'ffuf': 'ffuf-fuzzing',
     'dns': 'dns-takeover',
+    'cf1016': 'dns-takeover',
+    'dns-cf1016': 'dns-takeover',
     'dep-confusion': 'dependency-confusion',
     'dependency_confusion': 'dependency-confusion',
   };
@@ -3521,18 +3522,10 @@ async function renderScanDetailView(scanId) {
 
     container.innerHTML = html;
 
-    // Wire Terminal and Report buttons
-    const terminalBtn = document.getElementById('scan-detail-terminal-btn');
-    if (terminalBtn) {
-      terminalBtn.onclick = () => toggleLiveTerminal(scanId);
-    }
-    const reportBtn = document.getElementById('scan-detail-report-btn');
-    if (reportBtn) {
-      reportBtn.onclick = () => generateScanReport(scanId);
-    }
-    const closeTermBtn = document.getElementById('close-terminal-btn');
-    if (closeTermBtn) {
-      closeTermBtn.onclick = () => closeLiveTerminal();
+    // Wire export CSV button
+    const exportCsvBtn = document.getElementById('scan-detail-export-csv-btn');
+    if (exportCsvBtn) {
+      exportCsvBtn.onclick = () => exportScanResultsCSV(scanId);
     }
 
     // Wire up file clicks for legacy table rows if any
@@ -4136,10 +4129,20 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     return;
   }
 
-  allRows = allRows.map((r) => ({
-    ...r,
-    kind: String(r.kind || inferKindFromFileName(r.file) || 'other').toLowerCase(),
-  }));
+  allRows = allRows
+    .map((r) => ({
+      ...r,
+      kind: String(r.kind || inferKindFromFileName(r.file) || 'other').toLowerCase(),
+    }))
+    .filter((r) => {
+      const finding = String(r.title || r.finding || '').trim().toLowerCase();
+      const target = String(r.target || r.host || '').trim();
+      // Drop synthetic placeholder rows emitted for empty result sets.
+      if (finding === 'no findings found' && (target === '' || target === '-' || target === '—')) {
+        return false;
+      }
+      return true;
+    });
 
   const maxRows = 2500;
   const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github', 'sqlmap', 'aem-findings']);
@@ -4147,7 +4150,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   const stNorm = (scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
   const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run';
-  let activeKind = (totalVuln > 0) ? 'vuln' : (isReconScan ? 'assets' : 'vuln');
+  let activeKind = isReconScan ? 'assets' : 'urls';
   if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
   let searchHost = '';
   let searchTitle = '';
@@ -4160,7 +4163,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const HIDDEN_KINDS = new Set(['logs', 'log', 'tech']);
   const TAB_LABELS = {
     assets: '🏠 Assets',
-    vuln: '⚠️ Vulnerabilities',
     urls: '🔗 Links',
     'js-analysis': '📜 JS Analysis',
     'gf-patterns': '🎯 GF Patterns',
@@ -4179,11 +4181,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   // Always add Assets if it's a recon scan or has data
   if (isReconScan || allRows.some(r => r.kind === 'subdomains' || r.kind === 'assets')) {
     DATASET_TABS.push(['assets', TAB_LABELS.assets]);
-  }
-
-  // Add Vulnerabilities if any vuln kind exists
-  if (totalVuln > 0) {
-    DATASET_TABS.push(['vuln', TAB_LABELS.vuln]);
   }
 
   // Add other kinds as their own tabs
@@ -4244,12 +4241,15 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     return [`mod:${mod}`, `${info.icon} ${info.name}`];
   });
   UNIQUE_TABS = [...UNIQUE_TABS, ...moduleTabs].filter((t, i, arr) => arr.findIndex(x => x[0] === t[0]) === i);
-  // Pin only Assets + Vulnerabilities first; keep all other tabs dynamic after.
-  const pinnedKinds = ['assets', 'vuln'];
+  // Pin Assets first; keep all other tabs dynamic after.
+  const pinnedKinds = ['assets'];
   UNIQUE_TABS = [
     ...pinnedKinds.map((k) => UNIQUE_TABS.find((t) => t[0] === k)).filter(Boolean),
     ...UNIQUE_TABS.filter((t) => !pinnedKinds.includes(t[0])),
   ];
+  if (!UNIQUE_TABS.some((t) => t[0] === activeKind)) {
+    activeKind = UNIQUE_TABS[0]?.[0] || 'assets';
+  }
 
   // Cache for assets data (uses global _assetsCache so doScanDetailRefresh can bust it)
   let _assetsLoading = false;
@@ -6922,45 +6922,61 @@ function escapeHTML(str) {
 
 // Keyhacks check
 
-// ── Live Terminal & Reporting ──────────────────────────────────────────────────
+// ── Export ──────────────────────────────────────────────────────────────────────
 
-function toggleLiveTerminal(scanId) {
-  const container = document.getElementById('scan-terminal-container');
-  if (!container) return;
-  
-  if (container.style.display === 'none') {
-    container.style.display = 'block';
-    openLiveTerminal(scanId);
-  } else {
-    container.style.display = 'none';
-    closeLiveTerminal();
-  }
+function csvEscape(value) {
+  const str = String(value ?? '');
+  return `"${str.replace(/"/g, '""')}"`;
 }
 
-function openLiveTerminal(scanId) {
-  closeLiveTerminal(); // ensure clean state
-  const logEl = document.getElementById('scan-terminal-log');
-  if (logEl) logEl.innerHTML = '<div style="color:var(--text-muted)">Connecting to live log stream...</div>';
-  
-  state._terminalSSE = new EventSource(`/api/scans/${encodeURIComponent(scanId)}/logs/stream`);
-  state._terminalSSE.addEventListener('log', (e) => {
-    if (logEl) {
-      const div = document.createElement('div');
-      div.textContent = e.data;
-      logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
+async function exportScanResultsCSV(scanId) {
+  try {
+    showToast('info', 'Exporting CSV', `Preparing scan ${scanId} findings...`);
+    const parsed = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/parsed?section=all&limit=10000`);
+    const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
+    if (!rows.length) {
+      showToast('error', 'No data', 'No findings available to export for this scan.');
+      return;
     }
-  });
-  state._terminalSSE.onerror = () => {
-    if (logEl) logEl.insertAdjacentHTML('beforeend', '<div style="color:var(--accent-red)">[Connection lost]</div>');
-    closeLiveTerminal();
-  };
-}
 
-function closeLiveTerminal() {
-  if (state._terminalSSE) {
-    state._terminalSSE.close();
-    state._terminalSSE = null;
+    const headers = ['target', 'severity', 'finding', 'module', 'kind', 'category', 'file', 'source'];
+    const csvLines = [
+      headers.join(','),
+      ...rows.map((r) => {
+        const target = r.host || r.target || '';
+        const severity = r.severity || '';
+        const finding = r.title || r.finding || '';
+        const module = r.module || '';
+        const kind = r.kind || '';
+        const category = r.category || '';
+        const file = r.file || r.file_name || '';
+        const source = r.source || '';
+        return [
+          csvEscape(target),
+          csvEscape(severity),
+          csvEscape(finding),
+          csvEscape(module),
+          csvEscape(kind),
+          csvEscape(category),
+          csvEscape(file),
+          csvEscape(source),
+        ].join(',');
+      }),
+    ];
+
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    a.href = url;
+    a.download = `scan-${scanId}-results-${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('success', 'CSV exported', `${rows.length} row(s) downloaded.`);
+  } catch (e) {
+    showToast('error', 'CSV export failed', e?.message || String(e));
   }
 }
 
