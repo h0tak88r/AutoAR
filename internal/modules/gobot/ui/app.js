@@ -181,7 +181,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'monitor', 'r2', 'settings'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -244,6 +244,7 @@ function viewTitle(v) {
   return {
     overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
     targets: 'Bug Bounty Targets',
+    keyhacks: 'Keyhacks',
     monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings'
   }[v] || v;
 }
@@ -583,6 +584,14 @@ function wireShellOnce() {
         e.preventDefault();
         quickAddSubdomainMonitor();
       }
+    });
+  }
+  const khSearch = document.getElementById('keyhacks-search');
+  if (khSearch) {
+    let khDebounce;
+    khSearch.addEventListener('input', (e) => {
+      clearTimeout(khDebounce);
+      khDebounce = setTimeout(() => loadKeyhacks(e.target.value.trim()), 300);
     });
   }
 
@@ -1133,6 +1142,7 @@ function refreshCurrentView() {
     case 'subdomains': loadSubdomains(); break;
     case 'targets': loadTargetsPlatforms(); break;
     case 'monitor': loadMonitor(); break;
+    case 'keyhacks': loadKeyhacks(); break;
     case 'r2': loadR2(state.r2.prefix); break;
     case 'settings': loadConfig(); break;
     case 'scan-detail':
@@ -6428,3 +6438,79 @@ async function apiPost(path, body) {
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
+
+// ── Keyhacks ─────────────────────────────────────────────────────────────────
+
+async function loadKeyhacks(query = '') {
+  const container = document.getElementById('keyhacks-container');
+  if (!container) return;
+
+  try {
+    const path = query ? `/api/keyhacks/search?q=${encodeURIComponent(query)}` : '/api/keyhacks';
+    const data = await apiFetch(path);
+    renderKeyhacks(data);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading templates</div><div class="empty-subtitle">${e.message}</div></div>`;
+  }
+}
+
+function renderKeyhacks(templates) {
+  const container = document.getElementById('keyhacks-container');
+  if (!container) return;
+
+  if (!templates || templates.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No templates found</div><div class="empty-subtitle">Try a different search query</div></div>';
+    return;
+  }
+
+  let html = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(400px, 1fr));gap:20px;padding-top:10px">
+  `;
+
+  templates.forEach(t => {
+    const method = t.Method || 'GET';
+    const cmd = t.CommandTemplate || '';
+    
+    html += `
+      <div class="card" style="margin-bottom:0">
+        <div class="card-header" style="justify-content:space-between">
+          <div class="card-title">
+            <span class="card-title-icon">🔑</span>
+            ${escapeHTML(t.Keyname)}
+          </div>
+          <div class="badge badge-info" style="font-family:monospace">${method}</div>
+        </div>
+        <div class="card-body">
+          <div style="font-size:13px;color:var(--text-primary);margin-bottom:12px;line-height:1.5">${escapeHTML(t.Description || 'No description')}</div>
+          
+          <div style="margin-bottom:12px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">Validation Command Template</div>
+            <div style="position:relative">
+              <pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;color:var(--accent-cyan);margin:0;overflow-x:auto;font-family:'JetBrains Mono',monospace">${escapeHTML(cmd)}</pre>
+              <button class="btn btn-ghost" style="position:absolute;top:6px;right:6px;padding:4px 8px;font-size:11px" onclick="copyToClipboard('${cmd.replace(/'/g, "\\'").replace(/\n/g, "\\n")}'); showToast('success', 'Copied to clipboard', '')">📋 Copy</button>
+            </div>
+          </div>
+
+          ${t.Notes ? `
+          <div style="background:rgba(255,255,255,0.03);border-left:3px solid var(--accent-purple);padding:10px 14px;border-radius:0 8px 8px 0">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:600">💡 Usage Notes</div>
+            <div style="font-size:12px;color:var(--text-muted);line-height:1.5">${escapeHTML(t.Notes)}</div>
+          </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function escapeHTML(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// Keyhacks check
