@@ -95,10 +95,6 @@
 
       <div class="nav-section">
         <div class="nav-section-label">System</div>
-        <div class="nav-item" id="nav-nuclei-manager">
-          <span class="nav-icon">🛡️</span>
-          <span>Nuclei Manager</span>
-        </div>
         <div class="nav-item" id="nav-report-templates">
           <span class="nav-icon">📝</span>
           <span>Report Templates</span>
@@ -629,21 +625,6 @@
       </div><!-- /view-settings -->
 
 
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Nuclei Manager                                              -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-nuclei-manager">
-        <div class="view-header">
-          <h1 class="view-title">🛡️ Nuclei Template Manager</h1>
-          <div class="view-subtitle">Browse and manage vulnerability templates</div>
-        </div>
-        <div class="filter-bar">
-          <input class="search-input" id="nuclei-template-search" placeholder="Search templates..." autocomplete="off" />
-        </div>
-        <div id="nuclei-templates-container">
-          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
-        </div>
-      </div><!-- /view-nuclei-manager -->
 
       <!-- ══════════════════════════════════════════════════════════════════ -->
       <!-- VIEW: Report Templates                                             -->
@@ -677,21 +658,33 @@
 
 <!-- Modal: Report Template Editor -->
 <div id="modal-report-template" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
-  <div class="auth-card" style="width: 80%; max-width: 900px; padding: 24px;">
-    <div class="view-header" style="margin-bottom: 20px;">
+  <div class="auth-card" style="width: 95%; max-width: 1200px; padding: 24px; height: 90vh; display: flex; flex-direction: column;">
+    <div class="view-header" style="margin-bottom: 20px; flex-shrink: 0;">
       <h2 class="view-title" id="report-template-modal-title">📝 Edit Template</h2>
-      <div class="view-subtitle">Markdown format supported</div>
+      <div class="view-subtitle">Markdown format supported with real-time preview</div>
     </div>
-    <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px;">
-      <div>
+    
+    <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0;">
+      <div style="flex-shrink: 0;">
         <label class="auth-label" for="report-template-name">Template Name</label>
         <input class="search-input auth-input" id="report-template-name" type="text" placeholder="e.g. pentest-report" required />
       </div>
-      <div>
-        <label class="auth-label" for="report-template-content">Markdown Content</label>
-        <textarea id="report-template-content" class="search-input auth-input" style="height: 400px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical;" placeholder="# My Report Template..."></textarea>
+      
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0;">
+        <div style="display: flex; flex-direction: column;">
+          <label class="auth-label">Markdown Editor</label>
+          <textarea id="report-template-content" class="search-input auth-input" 
+            style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: none; background: #010409;" 
+            placeholder="# My Report Template..." oninput="updateTemplatePreview()"></textarea>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <label class="auth-label">Live Preview</label>
+          <div id="report-template-preview" class="search-input" 
+            style="flex: 1; overflow-y: auto; padding: 16px; background: #0d1117; border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"></div>
+        </div>
       </div>
-      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px;">
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px; flex-shrink: 0;">
         <button type="button" class="btn btn-ghost" onclick="closeReportTemplateModal()">Cancel</button>
         <button type="button" class="btn btn-primary" onclick="saveReportTemplate()">Save Template</button>
       </div>
@@ -701,6 +694,9 @@
 
 <!-- Toast notifications -->
 <div class="toast-container" id="toast-container"></div>
+
+<!-- Markdown parser for previews -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <!-- Local auth: no external SDK needed -->
 <script src="/ui/app.js"></script>
