@@ -194,6 +194,8 @@ func setupAPI() *gin.Engine {
 		apiGroup.GET("/scans/:id/results/assets", apiScanAssets)
 		apiGroup.GET("/scans/:id/artifacts", apiListScanArtifacts)
 		apiGroup.GET("/scans/:id", apiGetScan)
+		apiGroup.GET("/scans/:id/report", apiGetScanReport)
+		apiGroup.GET("/scans/:id/logs/stream", apiStreamScanLogs)
 		apiGroup.POST("/scans/bulk-delete", apiBulkDeleteScans)
 		apiGroup.POST("/scans/clear-all", apiClearAllScans)
 		apiGroup.DELETE("/scans/:id", apiDeleteScan)
@@ -225,6 +227,9 @@ func setupAPI() *gin.Engine {
 		// KeyHack templates
 		apiGroup.GET("/keyhacks", apiListKeyhacks)
 		apiGroup.GET("/keyhacks/search", apiSearchKeyhacks)
+		// System & Templates
+		apiGroup.GET("/system/metrics", apiGetSystemMetrics)
+		apiGroup.GET("/nuclei/templates", apiListNucleiTemplates)
 	}
 
 	// Scan endpoints

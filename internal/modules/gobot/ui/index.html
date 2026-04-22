@@ -95,12 +95,28 @@
 
       <div class="nav-section">
         <div class="nav-section-label">System</div>
+        <div class="nav-item" id="nav-nuclei-manager">
+          <span class="nav-icon">🛡️</span>
+          <span>Nuclei Manager</span>
+        </div>
         <div class="nav-item" id="nav-settings">
           <span class="nav-icon">⚙️</span>
           <span>Settings</span>
         </div>
       </div>
     </nav>
+
+    <div class="sidebar-metrics" id="sidebar-metrics">
+      <div class="metrics-label">📊 Performance</div>
+      <div class="metric-item">
+        <div class="metric-info"><span>CPU</span><span id="metric-cpu">0%</span></div>
+        <div class="metric-bar"><div class="metric-fill" id="metric-cpu-fill" style="width: 0%"></div></div>
+      </div>
+      <div class="metric-item">
+        <div class="metric-info"><span>RAM</span><span id="metric-ram">0%</span></div>
+        <div class="metric-bar"><div class="metric-fill" id="metric-ram-fill" style="width: 0%"></div></div>
+      </div>
+    </div>
 
     <div class="sidebar-footer">
       <div class="status-dot" id="status-dot"></div>
@@ -294,10 +310,21 @@
             <div class="view-subtitle" id="scan-detail-sub"></div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn btn-ghost" id="scan-detail-report-btn" style="font-size:12px;border-color:var(--accent-purple);color:var(--accent-purple)">📝 Report</button>
+            <button type="button" class="btn btn-ghost" id="scan-detail-terminal-btn" style="font-size:12px;border-color:var(--accent-cyan);color:var(--accent-cyan)">🚦 Terminal</button>
             <a class="btn btn-ghost" id="scan-detail-api" href="#" style="display:none;font-size:12px" target="_blank" rel="noopener">API</a>
             <button type="button" class="btn btn-ghost" id="scan-detail-rescan-btn" style="display:none;font-size:12px;border-color:rgba(52,211,153,.4);color:var(--accent-emerald)" onclick="document.getElementById('scan-detail-rescan-btn')._rescan && document.getElementById('scan-detail-rescan-btn')._rescan()">🔁 Rescan</button>
           </div>
         </div><!-- /view-header -->
+
+        <!-- Live Terminal (Collapsible) -->
+        <div id="scan-terminal-container" class="terminal-container" style="display:none">
+          <div class="terminal-header">
+            <span>🚦 Live Scan Terminal</span>
+            <button id="close-terminal-btn" class="terminal-close">×</button>
+          </div>
+          <div id="scan-terminal-log" class="terminal-log"></div>
+        </div>
         <div id="scan-detail-container">
           <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
         </div>
@@ -596,6 +623,23 @@
         </div>
 
       </div><!-- /view-settings -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Nuclei Manager                                              -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-nuclei-manager">
+        <div class="view-header">
+          <h1 class="view-title">🛡️ Nuclei Template Manager</h1>
+          <div class="view-subtitle">Browse and manage vulnerability templates</div>
+        </div>
+        <div class="filter-bar">
+          <input class="search-input" id="nuclei-template-search" placeholder="Search templates..." autocomplete="off" />
+        </div>
+        <div id="nuclei-templates-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-nuclei-manager -->
 
     </div><!-- /content -->
   </div><!-- /main -->

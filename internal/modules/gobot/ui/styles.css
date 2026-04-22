@@ -3266,3 +3266,134 @@ input[type="search"]::-webkit-search-results-decoration {
   color: var(--text-muted);
   line-height: 1.5;
 }
+
+/* ── Sidebar Metrics ──────────────────────────────────────────────────────── */
+.sidebar-metrics {
+  margin-top: auto;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.metrics-label {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.metric-item {
+  margin-bottom: 10px;
+}
+
+.metric-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+}
+
+.metric-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.metric-fill {
+  height: 100%;
+  background: var(--accent-cyan);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* ── Live Terminal ───────────────────────────────────────────────────────── */
+.terminal-container {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 24px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.terminal-header {
+  padding: 10px 16px;
+  background: #161b22;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.terminal-log {
+  padding: 16px;
+  height: 300px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #e6edf3;
+  background: #0d1117;
+}
+
+.terminal-log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-log::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.terminal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.terminal-close:hover {
+  color: var(--accent-red);
+}
+
+/* ── Nuclei Manager ──────────────────────────────────────────────────────── */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.template-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  transition: all 0.2s ease;
+}
+
+.template-card:hover {
+  border-color: var(--accent-cyan);
+  transform: translateY(-2px);
+}
+
+.template-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  margin-bottom: 8px;
+  word-break: break-all;
+}
