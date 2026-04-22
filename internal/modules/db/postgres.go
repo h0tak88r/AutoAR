@@ -125,6 +125,16 @@ func (p *PostgresDB) InitSchema() error {
 			CREATE UNIQUE INDEX domains_domain_key ON domains (domain);
 		END IF;
 	END $$;
+
+	-- Create report_templates table
+	CREATE TABLE IF NOT EXISTS report_templates (
+		id SERIAL PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		content TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT NOW(),
+		updated_at TIMESTAMP DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_report_templates_name ON report_templates(name);
 	
 	-- Ensure updated_at column exists (for backward compatibility)
 	DO $$ 
@@ -701,6 +711,77 @@ func (p *PostgresDB) SearchKeyhackTemplates(query string) ([]KeyhackTemplate, er
 		return nil, fmt.Errorf("failed to iterate keyhack templates: %v", rows.Err())
 	}
 	return out, nil
+}
+
+// UpsertReportTemplate inserts or updates a report template by name.
+func (p *PostgresDB) UpsertReportTemplate(name, content string) error {
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO report_templates (name, content)
+		VALUES ($1, $2)
+		ON CONFLICT (name) DO UPDATE SET
+			content = EXCLUDED.content,
+			updated_at = NOW();
+	`, name, content)
+	if err != nil {
+		return fmt.Errorf("failed to upsert report template: %v", err)
+	}
+	return nil
+}
+
+// GetReportTemplate fetches a report template by name.
+func (p *PostgresDB) GetReportTemplate(name string) (*ReportTemplate, error) {
+	var t ReportTemplate
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT name, content, created_at, updated_at
+		FROM report_templates
+		WHERE name = $1
+		LIMIT 1;
+	`, name).Scan(&t.Name, &t.Content, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("report template not found: %s", name)
+		}
+		return nil, fmt.Errorf("failed to get report template: %v", err)
+	}
+	return &t, nil
+}
+
+// ListReportTemplates returns all report templates ordered by name.
+func (p *PostgresDB) ListReportTemplates() ([]ReportTemplate, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT name, content, created_at, updated_at
+		FROM report_templates
+		ORDER BY name ASC;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list report templates: %v", err)
+	}
+	defer rows.Close()
+
+	var out []ReportTemplate
+	for rows.Next() {
+		var t ReportTemplate
+		if err := rows.Scan(&t.Name, &t.Content, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan report template: %v", err)
+		}
+		out = append(out, t)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate report templates: %v", rows.Err())
+	}
+	return out, nil
+}
+
+// DeleteReportTemplate deletes a report template by name.
+func (p *PostgresDB) DeleteReportTemplate(name string) error {
+	tag, err := p.pool.Exec(p.ctx, `DELETE FROM report_templates WHERE name = $1;`, name)
+	if err != nil {
+		return fmt.Errorf("failed to delete report template: %v", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("report template not found: %s", name)
+	}
+	return nil
 }
 
 // ListDomains returns all distinct domains stored in the database.
