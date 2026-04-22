@@ -2463,18 +2463,46 @@ function renderZeroDaysTable(items) {
     </div>`;
 }
 
-/** Render JS findings */
+/** Render JS findings with enhanced parsing */
 function renderJSFindingsTable(items) {
   const rows = items.map(item => {
-    const url = item.url || item.endpoint || '—';
-    const secret = item.secret || item.key || item.type || '—';
-    const details = item.details || item.description || '—';
+    let url = item.url || item.endpoint || '—';
+    let secret = item.secret || item.key || item.type || '—';
+    let details = item.details || item.description || '—';
+    let tag = '';
+    let matcher = '';
+
+    // If it's a raw string from the JS analysis module, parse it:
+    // Format: [tag] URL -> matcher
+    const rawStr = typeof item === 'string' ? item : (item.url && item.url.includes(' -> ') ? item.url : '');
+    if (rawStr) {
+      const tagMatch = rawStr.match(/^\[(.*?)\]/);
+      if (tagMatch) {
+        tag = tagMatch[1];
+        const rest = rawStr.substring(tagMatch[0].length).trim();
+        if (rest.includes(' -> ')) {
+          const parts = rest.split(' -> ');
+          url = parts[0].trim();
+          matcher = parts[1].trim();
+        } else {
+          url = rest;
+        }
+      }
+    }
 
     return `
       <tr>
-        <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td>
-        <td><span class="badge badge-running">${esc(String(secret))}</span></td>
-        <td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(details))}</td>
+        <td>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(url)}">
+            ${esc(url)}
+          </div>
+        </td>
+        <td>
+          ${tag ? `<span class="badge badge-info" style="background:rgba(56,189,248,0.15);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.3)">${esc(tag)}</span>` : `<span class="badge badge-running">${esc(secret)}</span>`}
+        </td>
+        <td>
+          ${matcher ? `<code style="font-size:11px;background:rgba(234,179,8,0.1);color:#eab308;padding:2px 6px;border-radius:4px;border:1px solid rgba(234,179,8,0.2)">${esc(matcher)}</code>` : `<span style="font-size:12px;color:var(--text-muted)">${esc(details)}</span>`}
+        </td>
       </tr>`;
   }).join('');
 
@@ -2483,9 +2511,9 @@ function renderJSFindingsTable(items) {
       <table class="result-table">
         <thead>
           <tr>
-            <th>URL</th>
-            <th>TYPE</th>
-            <th>DETAILS</th>
+            <th>TARGET (JS FILE)</th>
+            <th>VULN TYPE</th>
+            <th>MATCH / LEAK</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -6463,38 +6491,39 @@ function renderKeyhacks(templates) {
     return;
   }
 
-  let html = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(400px, 1fr));gap:20px;padding-top:10px">
-  `;
+  let html = `<div class="keyhacks-grid">`;
 
   templates.forEach(t => {
-    const method = t.Method || 'GET';
+    const method = (t.Method || 'GET').toUpperCase();
     const cmd = t.CommandTemplate || '';
+    const methodClass = method === 'POST' ? 'method-post' : 'method-get';
     
     html += `
-      <div class="card" style="margin-bottom:0">
-        <div class="card-header" style="justify-content:space-between">
-          <div class="card-title">
-            <span class="card-title-icon">🔑</span>
+      <div class="keyhack-card">
+        <div class="keyhack-header">
+          <div class="keyhack-title">
+            <span class="nav-icon" style="font-size:14px">🔑</span>
             ${escapeHTML(t.Keyname)}
           </div>
-          <div class="badge badge-info" style="font-family:monospace">${method}</div>
+          <div class="keyhack-badge ${methodClass}">${method}</div>
         </div>
-        <div class="card-body">
-          <div style="font-size:13px;color:var(--text-primary);margin-bottom:12px;line-height:1.5">${escapeHTML(t.Description || 'No description')}</div>
+        <div class="keyhack-body">
+          <div class="keyhack-desc">${escapeHTML(t.Description || 'No description available for this template.')}</div>
           
-          <div style="margin-bottom:12px">
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">Validation Command Template</div>
-            <div style="position:relative">
-              <pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;color:var(--accent-cyan);margin:0;overflow-x:auto;font-family:'JetBrains Mono',monospace">${escapeHTML(cmd)}</pre>
-              <button class="btn btn-ghost" style="position:absolute;top:6px;right:6px;padding:4px 8px;font-size:11px" onclick="copyToClipboard('${cmd.replace(/'/g, "\\'").replace(/\n/g, "\\n")}'); showToast('success', 'Copied to clipboard', '')">📋 Copy</button>
+          <div class="keyhack-cmd-section">
+            <div class="keyhack-cmd-label">Validation Command Template</div>
+            <div class="keyhack-cmd-box">
+              <pre class="keyhack-pre">${escapeHTML(cmd)}</pre>
+              <button class="keyhack-copy-btn" title="Copy to clipboard" onclick="copyToClipboard('${cmd.replace(/'/g, "\\'").replace(/\n/g, "\\n")}'); showToast('success', 'Copied to clipboard', '')">
+                <span style="font-size:14px">📋</span>
+              </button>
             </div>
           </div>
 
           ${t.Notes ? `
-          <div style="background:rgba(255,255,255,0.03);border-left:3px solid var(--accent-purple);padding:10px 14px;border-radius:0 8px 8px 0">
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:600">💡 Usage Notes</div>
-            <div style="font-size:12px;color:var(--text-muted);line-height:1.5">${escapeHTML(t.Notes)}</div>
+          <div class="keyhack-notes">
+            <div class="keyhack-notes-label">💡 Usage Notes</div>
+            <div class="keyhack-notes-text">${escapeHTML(t.Notes)}</div>
           </div>
           ` : ''}
         </div>
