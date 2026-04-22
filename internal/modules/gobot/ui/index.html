@@ -310,21 +310,11 @@
             <div class="view-subtitle" id="scan-detail-sub"></div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn btn-ghost" id="scan-detail-report-btn" style="font-size:12px;border-color:var(--accent-purple);color:var(--accent-purple)">📝 Report</button>
-            <button type="button" class="btn btn-ghost" id="scan-detail-terminal-btn" style="font-size:12px;border-color:var(--accent-cyan);color:var(--accent-cyan)">🚦 Terminal</button>
+            <button type="button" class="btn btn-ghost" id="scan-detail-export-csv-btn" style="font-size:12px;border-color:var(--accent-cyan);color:var(--accent-cyan)">📥 Export CSV</button>
             <a class="btn btn-ghost" id="scan-detail-api" href="#" style="display:none;font-size:12px" target="_blank" rel="noopener">API</a>
             <button type="button" class="btn btn-ghost" id="scan-detail-rescan-btn" style="display:none;font-size:12px;border-color:rgba(52,211,153,.4);color:var(--accent-emerald)" onclick="document.getElementById('scan-detail-rescan-btn')._rescan && document.getElementById('scan-detail-rescan-btn')._rescan()">🔁 Rescan</button>
           </div>
         </div><!-- /view-header -->
-
-        <!-- Live Terminal (Collapsible) -->
-        <div id="scan-terminal-container" class="terminal-container" style="display:none">
-          <div class="terminal-header">
-            <span>🚦 Live Scan Terminal</span>
-            <button id="close-terminal-btn" class="terminal-close">×</button>
-          </div>
-          <div id="scan-terminal-log" class="terminal-log"></div>
-        </div>
         <div id="scan-detail-container">
           <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
         </div>
