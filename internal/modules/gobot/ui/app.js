@@ -1888,8 +1888,22 @@ function detectModuleFromFileName(fileName, existingModule) {
 }
 
 /** Get module display name with icon */
+function normalizeModuleKey(module) {
+  const raw = String(module || '').toLowerCase().trim();
+  if (!raw) return 'unknown';
+  const aliases = {
+    'aem-scan': 'aem',
+    'ffuf': 'ffuf-fuzzing',
+    'dns': 'dns-takeover',
+    'dep-confusion': 'dependency-confusion',
+    'dependency_confusion': 'dependency-confusion',
+  };
+  return aliases[raw] || raw;
+}
+
+/** Get module display name with icon */
 function getModuleDisplayInfo(module) {
-  const mod = String(module || '').toLowerCase();
+  const mod = normalizeModuleKey(module);
   const modules = {
     'nuclei': { icon: '🚨', name: 'Nuclei', color: '#ef4444' },
     'subdomain-enum': { icon: '🔗', name: 'Subdomains', color: '#6366f1' },
@@ -1918,7 +1932,7 @@ function getModuleDisplayInfo(module) {
     'unknown': { icon: '❓', name: 'Unknown', color: '#64748b' },
   };
 
-  return modules[mod] || modules['autoar'];
+  return modules[mod] || modules['unknown'];
 }
 
 // ── Module Renderers Registry ────────────────────────────────────────────────
@@ -4213,7 +4227,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     'aem',
     'github-scan',
   ];
-  const usedModulesRaw = [...new Set(allRows.map(r => String(r.module || '').toLowerCase()).filter(Boolean))];
+  const usedModulesRaw = [...new Set(allRows.map(r => normalizeModuleKey(r.module)).filter(Boolean))];
   const usedModules = usedModulesRaw.sort((a, b) => {
     const ai = preferredModuleOrder.indexOf(a);
     const bi = preferredModuleOrder.indexOf(b);
@@ -4222,7 +4236,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (bi !== -1) return 1;
     return a.localeCompare(b);
   });
-  const excludedModuleTabs = new Set(['autoar', 'tech-detect', 'ffuf-fuzzing']);
+  const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing']);
   const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
     const info = getModuleDisplayInfo(mod);
     return [`mod:${mod}`, `${info.icon} ${info.name}`];
@@ -4272,10 +4286,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     const k = r.kind || 'other';
     if (String(activeKind || '').startsWith('mod:')) {
       const moduleKind = String(activeKind).slice(4);
-      if (String(r.module || '').toLowerCase() !== moduleKind) return false;
+      if (normalizeModuleKey(r.module) !== moduleKind) return false;
     } else if (activeKind === 'vuln') {
       if (!VULN_KINDS.has(k)) return false;
-      if (searchModule !== 'all' && (r.module || 'other') !== searchModule) return false;
+      if (searchModule !== 'all' && normalizeModuleKey(r.module) !== searchModule) return false;
     } else if (k !== activeKind) {
       return false;
     }
@@ -4350,7 +4364,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   const modSelect = root.querySelector('#recon-filter-module');
   if (modSelect) {
-    const usedModules = [...new Set(allRows.map(r => r.module || 'other'))].sort();
+    const usedModules = [...new Set(allRows.map(r => normalizeModuleKey(r.module)))]
+      .filter((m) => m && m !== 'unknown')
+      .sort();
     modSelect.innerHTML = '<option value="all">All Modules</option>' + usedModules.map(m => {
       return `<option value="${esc(m)}">${esc(getModuleDisplayInfo(m).name)}</option>`;
     }).join('');
@@ -4367,7 +4383,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       const isModuleTab = String(kind).startsWith('mod:');
       const moduleKind = isModuleTab ? String(kind).slice(4) : '';
       const count = isModuleTab
-        ? allRows.filter(r => String(r.module || '').toLowerCase() === moduleKind).length
+        ? allRows.filter(r => normalizeModuleKey(r.module) === moduleKind).length
         : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
       const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
       return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" style="border:none;border-bottom:2px solid ${isActive ? 'var(--accent-cyan)' : 'transparent'};border-radius:0;padding:11px 12px;white-space:nowrap;background:transparent;color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px">
