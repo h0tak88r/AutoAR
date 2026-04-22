@@ -189,7 +189,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'nuclei-manager', 'report-templates'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -604,14 +604,6 @@ function wireShellOnce() {
     });
   }
 
-  const ntSearch = document.getElementById('nuclei-template-search');
-  if (ntSearch) {
-    let ntDebounce;
-    ntSearch.addEventListener('input', (e) => {
-      clearTimeout(ntDebounce);
-      ntDebounce = setTimeout(() => renderNucleiManager(e.target.value.trim()), 300);
-    });
-  }
 
   const rtSearch = document.getElementById('report-templates-search');
   if (rtSearch) {
@@ -1171,7 +1163,6 @@ function refreshCurrentView() {
     case 'targets': loadTargetsPlatforms(); break;
     case 'monitor': loadMonitor(); break;
     case 'keyhacks': loadKeyhacks(); break;
-    case 'nuclei-manager': loadNucleiTemplates(); break;
     case 'report-templates': renderReportTemplates(); break;
     case 'r2': loadR2(state.r2.prefix); break;
     case 'settings': loadConfig(); break;
@@ -1303,15 +1294,16 @@ function renderScans() {
   }
 
   // Filter Bar
-  html += `<div class="card" style="margin-bottom:16px">
-    <div class="card-body" style="padding:12px">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-        <div style="flex:1;min-width:220px">
-          <input type="text" id="scan-search-input" class="input" placeholder="🔍 Search targets..." value="${esc(sUI.search)}" style="width:100%">
+  html += `<div class="card" style="margin-bottom:20px; border:1px solid var(--border); background:rgba(13,17,23,0.4)">
+    <div class="card-body" style="padding:16px">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+        <div style="flex:1;min-width:280px;position:relative">
+          <input type="text" id="scan-search-input" class="search-input" placeholder="🔍 Search targets or scan types..." value="${esc(sUI.search)}" style="width:100%; padding-left:36px; background:var(--bg-secondary)">
+          <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none"></span>
         </div>
-        <div style="min-width:160px">
-          <select id="scan-type-filter" class="input" style="width:100%">
-            <option value="all">All Types</option>
+        <div style="min-width:180px">
+          <select id="scan-type-filter" class="input" style="width:100%; background:var(--bg-secondary)">
+            <option value="all">All Scan Types</option>
             <optgroup label="Workflows">
               <option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option>
               <option value="lite" ${sUI.typeFilter === 'lite' ? 'selected' : ''}>Lite Workflow</option>
@@ -1329,8 +1321,8 @@ function renderScans() {
             </optgroup>
           </select>
         </div>
-        <div style="min-width:160px">
-          <select id="scan-status-filter" class="input" style="width:100%">
+        <div style="min-width:180px">
+          <select id="scan-status-filter" class="input" style="width:100%; background:var(--bg-secondary)">
             <option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option>
             <option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option>
             <option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option>
@@ -6861,47 +6853,6 @@ async function generateScanReport(scanId) {
 
 // ── Nuclei Template Manager ──────────────────────────────────────────────────
 
-let _nucleiTemplates = [];
-
-async function loadNucleiTemplates() {
-  const container = document.getElementById('nuclei-templates-container');
-  if (!container) return;
-  
-  try {
-    _nucleiTemplates = await apiFetch('/api/nuclei/templates');
-    renderNucleiManager();
-  } catch (e) {
-    container.innerHTML = `<div style="color:var(--accent-red)">Failed to load templates: ${e.message}</div>`;
-  }
-}
-
-function renderNucleiManager(query = '') {
-  const container = document.getElementById('nuclei-templates-container');
-  if (!container) return;
-  
-  const filtered = query 
-    ? _nucleiTemplates.filter(t => t.toLowerCase().includes(query.toLowerCase()))
-    : _nucleiTemplates;
-    
-  if (!filtered.length) {
-    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">No templates found matching your search.</div>';
-    return;
-  }
-  
-  container.innerHTML = `
-    <div class="template-grid">
-      ${filtered.map(t => `
-        <div class="template-card">
-          <div class="template-path">${esc(t)}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">Template ID: ${esc(t.split('/').pop().replace('.yaml', ''))}</div>
-          <div style="margin-top:12px;display:flex;gap:8px">
-            <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="copyToClipboard('${esc(t)}')">Copy Path</button>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
 
 // ── Report Templates ─────────────────────────────────────────────────────────
 
@@ -6975,6 +6926,19 @@ async function openReportTemplateModal(name = '') {
   }
 
   modal.style.display = 'flex';
+  updateTemplatePreview();
+}
+
+function updateTemplatePreview() {
+  const content = document.getElementById('report-template-content').value;
+  const preview = document.getElementById('report-template-preview');
+  if (!preview) return;
+  
+  if (typeof marked !== 'undefined') {
+    preview.innerHTML = marked.parse(content || '*No content yet...*');
+  } else {
+    preview.textContent = content;
+  }
 }
 
 function closeReportTemplateModal() {
