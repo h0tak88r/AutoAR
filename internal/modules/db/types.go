@@ -31,6 +31,12 @@ type DB interface {
 	// SearchKeyhackTemplates searches keyhack templates by keyname or description
 	SearchKeyhackTemplates(query string) ([]KeyhackTemplate, error)
 
+	// Report templates
+	UpsertReportTemplate(name, content string) error
+	GetReportTemplate(name string) (*ReportTemplate, error)
+	ListReportTemplates() ([]ReportTemplate, error)
+	DeleteReportTemplate(name string) error
+
 	// ListDomains returns all distinct domains stored in the database
 	ListDomains() ([]string, error)
 
@@ -196,6 +202,14 @@ type KeyhackTemplate struct {
 	Body            string
 	Notes           string
 	Description     string
+}
+
+// ReportTemplate represents a report template stored in database.
+type ReportTemplate struct {
+	Name      string
+	Content   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // MonitorTarget represents a URL/page monitoring target

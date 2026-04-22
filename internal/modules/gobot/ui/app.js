@@ -1930,6 +1930,78 @@ const MODULE_RENDERERS = {
   'default': renderDefaultRow,
 };
 
+function getUnifiedTableColumns(activeKind) {
+  const moduleTab = String(activeKind || '').startsWith('mod:') ? String(activeKind).slice(4) : '';
+  switch (moduleTab) {
+    case 'nuclei':
+      return ['TARGET', 'SEV', 'TEMPLATE', 'MATCH'];
+    case 'gf-patterns':
+      return ['TARGET', 'PATTERN', 'VALUE', 'SOURCE'];
+    case 'misconfig':
+      return ['TARGET', 'SEV', 'SERVICE', 'FINDING'];
+    case 'ffuf-fuzzing':
+      return ['TARGET', 'STATUS', 'PATH/WORD', 'DETAIL'];
+    default:
+      return ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'];
+  }
+}
+
+function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
+  const moduleTab = String(activeKind || '').startsWith('mod:') ? String(activeKind).slice(4) : '';
+  const target = String(r.host || r.target || '-');
+  const href = target.startsWith('http') ? target : (target !== '-' ? `https://${target}` : '#');
+  const finding = String(r.title || r.finding || '—').trim() || '—';
+  const findingShort = finding.length > 88 ? `${finding.slice(0, 86)}...` : finding;
+  const source = String(r.file || r.source || '—');
+
+  const tdTarget = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(target)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(target)}</a>
+    </td>`;
+  const tdSev = `<td style="padding:7px 8px;text-align:center;white-space:nowrap">
+      <span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span>
+    </td>`;
+  const tdModule = `<td style="padding:7px 10px;white-space:nowrap;max-width:0;overflow:hidden;text-overflow:ellipsis">
+      <span style="color:${modInfo.color};font-size:11px;font-weight:500">${modInfo.icon} ${esc(modInfo.name)}</span>
+    </td>`;
+
+  let c2 = tdSev;
+  let c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);">${esc(findingShort)}</span></td>`;
+  let c4 = tdModule;
+
+  if (moduleTab === 'nuclei') {
+    const templateId = String(r.template_id || finding || '—');
+    const match = String(r.matched_at || r.target || target || '—');
+    c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(templateId)}" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary)">${esc(templateId)}</span></td>`;
+    c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(match)}" style="font-size:11px;color:var(--text-secondary)">${esc(match)}</span></td>`;
+  } else if (moduleTab === 'gf-patterns') {
+    const pattern = String(r.pattern || r.finding_type || 'gf-pattern');
+    const value = String(r.value || r.finding || '—');
+    c2 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:var(--accent-purple);font-size:11px;font-weight:700">${esc(pattern)}</span></td>`;
+    c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(value)}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-primary)">${esc(value)}</span></td>`;
+    c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--text-muted)">${esc(source)}</span></td>`;
+  } else if (moduleTab === 'misconfig') {
+    const service = String(r.service || r.service_name || r.module || 'misconfig');
+    c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--accent-amber)">${esc(service)}</span></td>`;
+    c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-primary)">${esc(findingShort)}</span></td>`;
+  } else if (moduleTab === 'ffuf-fuzzing') {
+    const status = String(r.status || r.status_code || '—');
+    const pathWord = String(r.path || r.word || r.finding_type || '—');
+    c2 = `<td style="padding:7px 10px;text-align:center;white-space:nowrap"><span style="font-size:11px;color:var(--accent-cyan);font-family:var(--font-mono,monospace)">${esc(status)}</span></td>`;
+    c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--accent-purple)">${esc(pathWord)}</span></td>`;
+    c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-primary)">${esc(findingShort)}</span></td>`;
+  }
+
+  return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(finding)}" data-severity="${escAttr(r.severity || '')}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+    <td style="padding:7px 10px;width:36px;text-align:center">
+      <input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()">
+    </td>
+    ${tdTarget}
+    ${c2}
+    ${c3}
+    ${c4}
+  </tr>`;
+}
+
 function renderDefaultRow(r, idx, modInfo, sevMeta) {
   const target = String(r.host || r.target || '-');
   const vulnType = String(r.title || r.finding || '—').trim();
@@ -3333,7 +3405,7 @@ async function renderScanDetailView(scanId) {
         <div style="overflow-x:auto">
           <table class="dashboard-table" id="files-table">
             <thead>
-              <tr>
+              <tr id="recon-unified-headrow">
                 <th style="width:50px">#</th>
                 <th style="width:32px">📄</th>
                 <th>Filename</th>
@@ -4104,11 +4176,48 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   // Deduplicate tabs
   const seenTabs = new Set();
-  const UNIQUE_TABS = DATASET_TABS.filter(t => {
+  let UNIQUE_TABS = DATASET_TABS.filter(t => {
     if (seenTabs.has(t[0])) return false;
     seenTabs.add(t[0]);
     return true;
   });
+
+  const preferredModuleOrder = [
+    'nuclei',
+    'gf-patterns',
+    'misconfig',
+    'ffuf-fuzzing',
+    'dns-takeover',
+    'backup-detection',
+    'js-analysis',
+    'xss-detection',
+    'sql-detection',
+    's3-scan',
+    'port-scan',
+    'zerodays',
+    'aem',
+    'github-scan',
+  ];
+  const usedModulesRaw = [...new Set(allRows.map(r => String(r.module || '').toLowerCase()).filter(Boolean))];
+  const usedModules = usedModulesRaw.sort((a, b) => {
+    const ai = preferredModuleOrder.indexOf(a);
+    const bi = preferredModuleOrder.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+  const moduleTabs = usedModules.map((mod) => {
+    const info = getModuleDisplayInfo(mod);
+    return [`mod:${mod}`, `${info.icon} ${info.name}`];
+  });
+  UNIQUE_TABS = [...UNIQUE_TABS, ...moduleTabs].filter((t, i, arr) => arr.findIndex(x => x[0] === t[0]) === i);
+  // Pin only Assets + Vulnerabilities first; keep all other tabs dynamic after.
+  const pinnedKinds = ['assets', 'vuln'];
+  UNIQUE_TABS = [
+    ...pinnedKinds.map((k) => UNIQUE_TABS.find((t) => t[0] === k)).filter(Boolean),
+    ...UNIQUE_TABS.filter((t) => !pinnedKinds.includes(t[0])),
+  ];
 
   // Cache for assets data (uses global _assetsCache so doScanDetailRefresh can bust it)
   let _assetsLoading = false;
@@ -4145,7 +4254,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   const rowMatch = (r) => {
     const k = r.kind || 'other';
-    if (activeKind === 'vuln') {
+    if (String(activeKind || '').startsWith('mod:')) {
+      const moduleKind = String(activeKind).slice(4);
+      if (String(r.module || '').toLowerCase() !== moduleKind) return false;
+    } else if (activeKind === 'vuln') {
       if (!VULN_KINDS.has(k)) return false;
       if (searchModule !== 'all' && (r.module || 'other') !== searchModule) return false;
     } else if (k !== activeKind) {
@@ -4236,7 +4348,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (!tabsEl) return;
     tabsEl.innerHTML = UNIQUE_TABS.map(([kind, label]) => {
       const isActive = activeKind === kind;
-      const count = (kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0);
+      const isModuleTab = String(kind).startsWith('mod:');
+      const moduleKind = isModuleTab ? String(kind).slice(4) : '';
+      const count = isModuleTab
+        ? allRows.filter(r => String(r.module || '').toLowerCase() === moduleKind).length
+        : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
       const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
       return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" style="border:none;border-bottom:2px solid ${isActive ? 'var(--accent-cyan)' : 'transparent'};border-radius:0;padding:11px 12px;white-space:nowrap;background:transparent;color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px">
         ${esc(label)} ${cntDisplay}
@@ -4255,9 +4371,22 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (_currentPage > totalPages) _currentPage = totalPages;
     const slice = filtered.slice((_currentPage - 1) * _pageSize, _currentPage * _pageSize);
     const tbody = root.querySelector('#recon-unified-tbody');
+    const headRow = root.querySelector('#recon-unified-headrow');
     const shown = root.querySelector('#recon-unified-shown');
     const cap = root.querySelector('#recon-unified-cap');
     if (shown) shown.textContent = String(filtered.length);
+    if (headRow) {
+      const cols = getUnifiedTableColumns(activeKind);
+      headRow.innerHTML = `
+        <th style="width:36px;text-align:center;padding-left:10px">
+          <input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer">
+        </th>
+        <th style="width:31%">${esc(cols[0])}</th>
+        <th style="width:8%;text-align:center">${esc(cols[1])}</th>
+        <th style="width:43%">${esc(cols[2])}</th>
+        <th style="width:16%">${esc(cols[3])}</th>
+      `;
+    }
     if (tbody) {
       tbody.innerHTML = slice.length ? slice.map((r, idx) => {
         const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
@@ -4271,9 +4400,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
 
         const modInfo = getModuleDisplayInfo(r.module);
-        const renderer = MODULE_RENDERERS[r.module] || MODULE_RENDERERS[r.kind] || MODULE_RENDERERS['default'];
-        
-        return renderer(r, idx, modInfo, sevMeta);
+        return renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta);
       }).join('') : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
     }
     const pagContainer = root.querySelector('#recon-pagination');
@@ -4331,8 +4458,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     
     const modSelectEl = root.querySelector('#recon-filter-module');
     if (modSelectEl) {
-      modSelectEl.style.display = activeKind === 'vuln' ? 'block' : 'none';
-      if (activeKind !== 'vuln') {
+      const isModuleTab = String(activeKind || '').startsWith('mod:');
+      modSelectEl.style.display = (activeKind === 'vuln' && !isModuleTab) ? 'block' : 'none';
+      if (activeKind !== 'vuln' || isModuleTab) {
         modSelectEl.value = 'all';
         searchModule = 'all';
       }
@@ -6868,22 +6996,33 @@ async function renderReportTemplates(search = '') {
       templates = templates.filter(name => name.toLowerCase().includes(q));
     }
 
+    const headerBlock = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-ghost" onclick="exportReportTemplates()">⬇️ Export JSON</button>
+          <button class="btn btn-ghost" onclick="triggerImportReportTemplates()">⬆️ Import JSON</button>
+        </div>
+        <button class="btn btn-primary" onclick="openReportTemplateModal()">➕ Add Template</button>
+      </div>
+    `;
+
     if (!templates || templates.length === 0) {
       container.innerHTML = `
+        ${headerBlock}
         <div class="empty-state">
           <div class="empty-icon">📝</div>
           <div class="empty-title">No templates found</div>
           <p class="empty-sub">Create your first markdown report template.</p>
-          <button class="btn btn-primary" onclick="openReportTemplateModal()">➕ Create Template</button>
         </div>
       `;
       return;
     }
 
     container.innerHTML = `
+      ${headerBlock}
       <div class="domain-grid">
         ${templates.map(name => `
-          <div class="domain-card" onclick="openReportTemplateModal('${esc(name)}')">
+          <div class="domain-card" onclick="openReportTemplateModalByName('${encodeURIComponent(name)}')">
             <div class="domain-name">📄 ${esc(name)}</div>
             <div class="domain-stats">
               <div class="domain-stat">
@@ -6892,7 +7031,8 @@ async function renderReportTemplates(search = '') {
               </div>
             </div>
             <div style="margin-top: 16px; display: flex; gap: 8px;">
-              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplate('${esc(name)}')">🗑️ Delete</button>
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openReportTemplateModalByName('${encodeURIComponent(name)}')">✏️ Edit</button>
+              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplateByName('${encodeURIComponent(name)}')">🗑️ Delete</button>
             </div>
           </div>
         `).join('')}
@@ -6901,6 +7041,10 @@ async function renderReportTemplates(search = '') {
   } catch (err) {
     container.innerHTML = `<div class="error-state">❌ ${esc(err.message)}</div>`;
   }
+}
+
+function openReportTemplateModalByName(encodedName) {
+  openReportTemplateModal(decodeURIComponent(encodedName || ''));
 }
 
 async function openReportTemplateModal(name = '') {
@@ -6973,6 +7117,74 @@ async function saveReportTemplate() {
     renderReportTemplates();
   } catch (err) {
     showToast('error', 'Save Failed', err.message);
+  }
+}
+
+function deleteReportTemplateByName(encodedName) {
+  deleteReportTemplate(decodeURIComponent(encodedName || ''));
+}
+
+async function exportReportTemplates() {
+  try {
+    const headers = await buildAuthHeaders();
+    const res = await fetch(`${API}/api/report-templates/export`, { method: 'GET', headers });
+    if (!res.ok) {
+      let msg = 'Failed to export templates';
+      try {
+        const data = await res.json();
+        msg = data.error || msg;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const filename = `report-templates-${ts}.json`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('success', 'Export Ready', `Downloaded ${filename}`);
+  } catch (err) {
+    showToast('error', 'Export Failed', err.message);
+  }
+}
+
+function triggerImportReportTemplates() {
+  const input = document.getElementById('report-templates-import-file');
+  if (!input) return;
+  input.value = '';
+  input.click();
+}
+
+async function handleImportReportTemplatesFile(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+
+  try {
+    const headers = await buildAuthHeaders();
+    const form = new FormData();
+    form.append('file', file);
+    form.append('overwrite', 'true');
+
+    const res = await fetch(`${API}/api/report-templates/import`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to import templates');
+    }
+    showToast('success', 'Import Completed', `Imported ${data.imported || 0}, skipped ${data.skipped || 0}`);
+    renderReportTemplates((document.getElementById('report-templates-search')?.value || '').trim());
+  } catch (err) {
+    showToast('error', 'Import Failed', err.message);
+  } finally {
+    if (event?.target) event.target.value = '';
   }
 }
 

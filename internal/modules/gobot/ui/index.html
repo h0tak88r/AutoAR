@@ -637,6 +637,7 @@
         <div class="filter-bar">
           <input class="search-input" id="report-templates-search" placeholder="Search templates..." autocomplete="off" />
         </div>
+        <input id="report-templates-import-file" type="file" accept="application/json,.json" style="display:none" onchange="handleImportReportTemplatesFile(event)" />
         <div id="report-templates-container">
           <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
         </div>

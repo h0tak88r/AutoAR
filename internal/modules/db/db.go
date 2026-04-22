@@ -141,6 +141,46 @@ func SearchKeyhackTemplates(query string) ([]KeyhackTemplate, error) {
 	return dbInstance.SearchKeyhackTemplates(query)
 }
 
+// UpsertReportTemplate inserts or updates a report template.
+func UpsertReportTemplate(name, content string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpsertReportTemplate(name, content)
+}
+
+// GetReportTemplate returns a report template by name.
+func GetReportTemplate(name string) (*ReportTemplate, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.GetReportTemplate(name)
+}
+
+// ListReportTemplates returns all report templates.
+func ListReportTemplates() ([]ReportTemplate, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListReportTemplates()
+}
+
+// DeleteReportTemplate deletes a report template by name.
+func DeleteReportTemplate(name string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.DeleteReportTemplate(name)
+}
+
 // ListDomains returns all distinct domains stored in the database.
 func ListDomains() ([]string, error) {
 	if dbInstance == nil {
