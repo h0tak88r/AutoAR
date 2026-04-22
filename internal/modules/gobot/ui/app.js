@@ -177,11 +177,13 @@ const state = {
   _dashboardStarted: false,
   _shellWired: false,
   _r2BrowserWired: false,
+  _metricsTimer: null,
+  _terminalSSE: null,
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'nuclei-manager'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -595,6 +597,15 @@ function wireShellOnce() {
     });
   }
 
+  const ntSearch = document.getElementById('nuclei-template-search');
+  if (ntSearch) {
+    let ntDebounce;
+    ntSearch.addEventListener('input', (e) => {
+      clearTimeout(ntDebounce);
+      ntDebounce = setTimeout(() => renderNucleiManager(e.target.value.trim()), 300);
+    });
+  }
+
   wireR2BrowserOnce();
 }
 
@@ -640,6 +651,7 @@ async function startDashboard() {
       }
     });
   }
+  startMetricsPolling();
   await loadStats();
   const deepScan = pathScanId();
   if (deepScan) {
@@ -1143,6 +1155,7 @@ function refreshCurrentView() {
     case 'targets': loadTargetsPlatforms(); break;
     case 'monitor': loadMonitor(); break;
     case 'keyhacks': loadKeyhacks(); break;
+    case 'nuclei-manager': loadNucleiTemplates(); break;
     case 'r2': loadR2(state.r2.prefix); break;
     case 'settings': loadConfig(); break;
     case 'scan-detail':
@@ -1198,6 +1211,35 @@ function renderOverviewActiveScans() {
   }
   card.style.display = 'block';
   body.innerHTML = active.map(s => scanItemHtml(s)).join('');
+}
+
+// ── System Metrics ────────────────────────────────────────────────────────────
+
+function startMetricsPolling() {
+  if (state._metricsTimer) clearInterval(state._metricsTimer);
+  const poll = async () => {
+    try {
+      const data = await apiFetch('/api/system/metrics');
+      updateMetricsUI(data);
+    } catch (e) { console.warn('[metrics] poll failed', e); }
+  };
+  poll();
+  state._metricsTimer = setInterval(poll, 10000);
+}
+
+function updateMetricsUI(data) {
+  const cpu = Math.round(data.cpu_percent || 0);
+  const ram = Math.round(data.memory_percent || 0);
+  
+  const cpuEl = document.getElementById('metric-cpu');
+  const cpuFill = document.getElementById('metric-cpu-fill');
+  const ramEl = document.getElementById('metric-ram');
+  const ramFill = document.getElementById('metric-ram-fill');
+  
+  if (cpuEl) cpuEl.textContent = `${cpu}%`;
+  if (cpuFill) cpuFill.style.width = `${cpu}%`;
+  if (ramEl) ramEl.textContent = `${ram}%`;
+  if (ramFill) ramFill.style.width = `${ram}%`;
 }
 
 function renderRecentChanges() {
@@ -1868,6 +1910,118 @@ function getModuleDisplayInfo(module) {
   };
 
   return modules[mod] || modules['autoar'];
+}
+
+// ── Module Renderers Registry ────────────────────────────────────────────────
+
+const MODULE_RENDERERS = {
+  'js-analysis': renderJSAnalysisRow,
+  'nuclei': renderNucleiRow,
+  'gf-patterns': renderGFPatternsRow,
+  'default': renderDefaultRow,
+};
+
+function renderDefaultRow(r, idx, modInfo, sevMeta) {
+  const target = String(r.host || r.target || '-');
+  const vulnType = String(r.title || r.finding || '—').trim();
+  const typeLabel = vulnType.length > 72 ? vulnType.slice(0, 70) + '…' : vulnType;
+  let href = target.startsWith('http') ? target : (target !== '-' ? 'https://' + target : '#');
+
+  return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(vulnType)}" data-severity="${escAttr(r.severity)}" data-module="${escAttr(r.module || '')}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+    <td style="padding:7px 10px;width:36px;text-align:center">
+      <input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()">
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(target)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(target)}</a>
+    </td>
+    <td style="padding:7px 8px;text-align:center;white-space:nowrap">
+      <span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span>
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden">
+      <span title="${esc(vulnType)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);">${esc(typeLabel)}</span>
+    </td>
+    <td style="padding:7px 10px;white-space:nowrap;max-width:0;overflow:hidden;text-overflow:ellipsis">
+      <span style="color:${modInfo.color};font-size:11px;font-weight:500">${modInfo.icon} ${esc(modInfo.name)}</span>
+    </td>
+  </tr>`;
+}
+
+function renderJSAnalysisRow(r, idx, modInfo, sevMeta) {
+  // Enhanced JS Analysis row: [matcher] - [value]
+  const jsFile = String(r.source_file || r.file || '-');
+  const matcher = r.matcher || r.finding_type || 'Secret';
+  const matchValue = r.finding || r.value || '-';
+  const typeDisplay = `[${matcher}] - [${matchValue}]`;
+  const typeLabel = typeDisplay.length > 72 ? typeDisplay.slice(0, 70) + '…' : typeDisplay;
+
+  return `<tr class="findings-row js-analysis-row" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+    <td style="padding:7px 10px;width:36px;text-align:center">
+      <input type="checkbox" class="finding-chk" onclick="event.stopPropagation()">
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <span title="${esc(jsFile)}" style="color:var(--accent-amber);font-family:var(--font-mono);font-size:11px">${esc(jsFile)}</span>
+    </td>
+    <td style="padding:7px 8px;text-align:center">
+      <span style="background:${sevMeta.bg};color:${sevMeta.color};font-size:9px;padding:2px 6px;border-radius:4px;font-weight:bold">JS</span>
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden">
+      <span title="${esc(typeDisplay)}" style="color:var(--text-primary);font-family:var(--font-mono);font-size:11.5px">${esc(typeLabel)}</span>
+    </td>
+    <td style="padding:7px 10px;white-space:nowrap">
+       <span style="color:${modInfo.color};font-size:11px">${modInfo.icon} JS Analysis</span>
+    </td>
+  </tr>`;
+}
+
+function renderNucleiRow(r, idx, modInfo, sevMeta) {
+  const target = String(r.host || r.target || '-');
+  const templateId = r.template_id || r.finding || '—';
+  const info = r.info || {};
+  const name = info.name || templateId;
+
+  return `<tr class="findings-row nuclei-row" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+    <td style="padding:7px 10px;width:36px;text-align:center">
+      <input type="checkbox" class="finding-chk" onclick="event.stopPropagation()">
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <a href="${target.startsWith('http') ? target : 'https://' + target}" target="_blank" style="color:var(--accent-cyan);font-family:var(--font-mono);font-size:11.5px">${esc(target)}</a>
+    </td>
+    <td style="padding:7px 8px;text-align:center">
+       <span style="background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;">${esc(sevMeta.label)}</span>
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden">
+      <div style="color:var(--text-primary);font-weight:600;font-size:12px">${esc(name)}</div>
+      <div style="color:var(--text-muted);font-size:10px;font-family:var(--font-mono)">${esc(templateId)}</div>
+    </td>
+    <td style="padding:7px 10px;white-space:nowrap">
+      <span style="color:#ef4444;font-size:11px">☢️ Nuclei</span>
+    </td>
+  </tr>`;
+}
+
+function renderGFPatternsRow(r, idx, modInfo, sevMeta) {
+  const target = String(r.host || r.target || '-');
+  const pattern = r.pattern || r.module || '—';
+  const value = r.finding || r.value || '-';
+
+  return `<tr class="findings-row gf-row" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+    <td style="padding:7px 10px;width:36px;text-align:center">
+      <input type="checkbox" class="finding-chk" onclick="event.stopPropagation()">
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <span style="color:var(--accent-cyan);font-family:var(--font-mono);font-size:11.5px">${esc(target)}</span>
+    </td>
+    <td style="padding:7px 8px;text-align:center">
+       <span style="background:rgba(139, 92, 246, 0.1);color:#8b5cf6;font-size:9px;padding:2px 6px;border-radius:4px;font-weight:bold">GF</span>
+    </td>
+    <td style="padding:7px 10px;max-width:0;overflow:hidden">
+      <span style="color:var(--accent-purple);font-weight:700">[${esc(pattern)}]</span>
+      <span style="color:var(--text-secondary);font-family:var(--font-mono);font-size:11px;margin-left:4px">${esc(value)}</span>
+    </td>
+    <td style="padding:7px 10px;white-space:nowrap">
+      <span style="color:#8b5cf6;font-size:11px">🎯 GF Patterns</span>
+    </td>
+  </tr>`;
 }
 
 /** Get category display info */
@@ -3187,7 +3341,7 @@ async function renderScanDetailView(scanId) {
       const moduleInfo = getModuleDisplayInfo(module);
 
       return `
-                  <tr class="dashboard-table-row" data-file-name="${encodeURIComponent(f.file_name)}" onclick="loadScanFilePreview('${scanId}', '${esc(f.file_name)}'))">
+                  <tr class="dashboard-table-row" data-file-name="${encodeURIComponent(f.file_name)}" onclick="loadScanFilePreview('${scanId}', '${esc(f.file_name)}')">
                     <td style="color:var(--text-muted);font-size:12px">${idx + 1}</td>
                     <td class="table-cell-icon">${icon}</td>
                     <td class="table-cell-mono" title="${esc(f.file_name)}">${esc(f.file_name)}</td>
@@ -3254,6 +3408,20 @@ async function renderScanDetailView(scanId) {
     }
 
     container.innerHTML = html;
+
+    // Wire Terminal and Report buttons
+    const terminalBtn = document.getElementById('scan-detail-terminal-btn');
+    if (terminalBtn) {
+      terminalBtn.onclick = () => toggleLiveTerminal(scanId);
+    }
+    const reportBtn = document.getElementById('scan-detail-report-btn');
+    if (reportBtn) {
+      reportBtn.onclick = () => generateScanReport(scanId);
+    }
+    const closeTermBtn = document.getElementById('close-terminal-btn');
+    if (closeTermBtn) {
+      closeTermBtn.onclick = () => closeLiveTerminal();
+    }
 
     // Wire up file clicks for legacy table rows if any
     wireScanFileRows(container, scanId);
@@ -3877,30 +4045,61 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   // Build dynamic tabs from actual data
   const _kindCounts = {};
   for (const r of allRows) _kindCounts[r.kind || 'other'] = (_kindCounts[r.kind || 'other'] || 0) + 1;
-  const TAB_LABELS = {
-    subdomains: 'Subdomains', urls: 'Links', js_urls: 'JS URLs',
-    ffuf: 'FFUF', buckets: 'Buckets',
-    vuln: 'Vulnerabilities', zerodays: '0-Days',
-    misconfig: 'Misconfig', dns: 'DNS',
-    backup: 'Backup', s3: 'S3', ports: 'Ports',
-    reflection: 'Reflection', gf: 'GF Patterns',
-    other: 'Other',
-  };
-  // Kinds that are hidden from standalone tabs (merged into Assets or suppressed)
   const HIDDEN_KINDS = new Set(['logs', 'log', 'tech']);
-  // Merge parsing kinds into broader display groups (vuln, urls, etc.)
-  for (const r of allRows) {
-    if (r.kind === 'js_urls') {
-      r.kind = 'urls';
-      r.is_js = true;
-    }
+  const TAB_LABELS = {
+    assets: '🏠 Assets',
+    vuln: '⚠️ Vulnerabilities',
+    urls: '🔗 Links',
+    'js-analysis': '📜 JS Analysis',
+    'gf-patterns': '🎯 GF Patterns',
+    nuclei: '☢️ Nuclei',
+    ffuf: '🎲 FFUF',
+    buckets: '🪣 Buckets',
+    ports: '📡 Ports',
+    reflection: '🔎 Reflection',
+    other: '📁 Other',
+  };
+
+  // Build dynamic tabs from actual data
+  const dynamicKinds = [...new Set(allRows.map(r => r.kind || 'other'))];
+  const DATASET_TABS = [];
+  
+  // Always add Assets if it's a recon scan or has data
+  if (isReconScan || allRows.some(r => r.kind === 'subdomains' || r.kind === 'assets')) {
+    DATASET_TABS.push(['assets', TAB_LABELS.assets]);
   }
-  // Enforce requested tab limits: only Assets, Vulnerabilities, Links
-  const DATASET_TABS = [
-    ['assets', '🏠 Assets']
-  ];
-  if (totalVuln > 0) DATASET_TABS.push(['vuln', 'Vulnerabilities']);
-  if (_kindCounts['urls'] > 0 || _kindCounts['js_urls'] > 0) DATASET_TABS.push(['urls', 'Links']);
+
+  // Add Vulnerabilities if any vuln kind exists
+  if (totalVuln > 0) {
+    DATASET_TABS.push(['vuln', TAB_LABELS.vuln]);
+  }
+
+  // Add other kinds as their own tabs
+  dynamicKinds.forEach(k => {
+    if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k)) {
+      // Already covered by Assets or Vulnerabilities main tabs for now, 
+      // but let's add specific ones as requested:
+      if (['js-analysis', 'gf-patterns', 'nuclei', 'ffuf', 'reflection'].includes(k)) {
+        DATASET_TABS.push([k, TAB_LABELS[k] || k]);
+      }
+      return;
+    }
+    if (k === 'urls') {
+      DATASET_TABS.push(['urls', TAB_LABELS.urls]);
+      return;
+    }
+    if (!['logs', 'log', 'tech'].includes(k)) {
+       DATASET_TABS.push([k, TAB_LABELS[k] || k]);
+    }
+  });
+
+  // Deduplicate tabs
+  const seenTabs = new Set();
+  const UNIQUE_TABS = DATASET_TABS.filter(t => {
+    if (seenTabs.has(t[0])) return false;
+    seenTabs.add(t[0]);
+    return true;
+  });
 
   // Cache for assets data (uses global _assetsCache so doScanDetailRefresh can bust it)
   let _assetsLoading = false;
@@ -4026,11 +4225,12 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   const renderTabs = () => {
     if (!tabsEl) return;
-    tabsEl.innerHTML = DATASET_TABS.map(([kind, label]) => {
+    tabsEl.innerHTML = UNIQUE_TABS.map(([kind, label]) => {
       const isActive = activeKind === kind;
-      const cnt = kind === 'assets' ? '' : `<span class="tab-count">${datasetCount(kind)}</span>`;
+      const count = (kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0);
+      const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
       return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" style="border:none;border-bottom:2px solid ${isActive ? 'var(--accent-cyan)' : 'transparent'};border-radius:0;padding:11px 12px;white-space:nowrap;background:transparent;color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px">
-        ${esc(label)} ${cnt}
+        ${esc(label)} ${cntDisplay}
       </button>`;
     }).join('');
   };
@@ -4051,7 +4251,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (shown) shown.textContent = String(filtered.length);
     if (tbody) {
       tbody.innerHTML = slice.length ? slice.map((r, idx) => {
-        // ── Severity ───────────────────────────────────────────────────
         const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
         const sevMeta = {
           critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' },
@@ -4062,68 +4261,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           warning: { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' },
         }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
 
-        // ── Vuln type / template-id ─────────────────────────────────────
-        // r.finding = template-id from nuclei JSON (e.g. "graphql-get")
-        // r.title   = same or parsed name
-        const vulnType = String(r.title || r.finding || '—').trim();
-        // Detect if it's a URL-only finding (no real type name)
-        const isURL = vulnType.startsWith('http://') || vulnType.startsWith('https://');
-        const typeDisplay = isURL ? '—' : vulnType;
-        const typeLabel = typeDisplay.length > 72 ? typeDisplay.slice(0, 70) + '…' : typeDisplay;
-
-        // ── Module badge ───────────────────────────────────────────────
         const modInfo = getModuleDisplayInfo(r.module);
-
-        // ── Target URL ─────────────────────────────────────────────────
-        const target = String(r.host || r.target || '-');
-        let href = '#';
-        if (target.startsWith('http://') || target.startsWith('https://')) {
-          href = target;
-        } else if (target && target !== '-' && target !== '—') {
-          href = 'https://' + target;
-        }
-
-        return `<tr class="findings-row" data-target="${escAttr(target)}" data-finding="${escAttr(vulnType)}" data-severity="${escAttr(sev)}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
-          <td style="padding:7px 10px;width:36px;text-align:center">
-            <input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()">
-          </td>
-          <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            <a href="${esc(href)}" target="_blank" rel="noopener"
-               onclick="event.stopPropagation()"
-               title="${esc(target)}"
-               style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(target)}</a>
-          </td>
-          <td style="padding:7px 8px;text-align:center;white-space:nowrap">
-            <span style="
-              display:inline-block;
-              background:${sevMeta.bg};
-              border:1px solid ${sevMeta.color}44;
-              color:${sevMeta.color};
-              font-size:9px;
-              font-weight:800;
-              letter-spacing:.7px;
-              padding:2px 7px;
-              border-radius:4px;
-              min-width:34px;
-            ">${esc(sevMeta.label)}</span>
-          </td>
-          <td style="padding:7px 10px;max-width:0;overflow:hidden">
-            ${typeDisplay !== '—' ? `
-            <span title="${esc(typeDisplay)}" style="
-              display:inline-block;
-              max-width:100%;
-              overflow:hidden;
-              text-overflow:ellipsis;
-              white-space:nowrap;
-              font-family:var(--font-mono,monospace);
-              font-size:11.5px;
-              color:var(--text-primary);
-            ">${esc(typeLabel)}</span>` : `<span style="color:var(--text-muted);font-size:11px">—</span>`}
-          </td>
-          <td style="padding:7px 10px;white-space:nowrap;max-width:0;overflow:hidden;text-overflow:ellipsis">
-            <span style="color:${modInfo.color};font-size:11px;font-weight:500">${modInfo.icon} ${esc(modInfo.name)}</span>
-          </td>
-        </tr>`;
+        const renderer = MODULE_RENDERERS[r.module] || MODULE_RENDERERS[r.kind] || MODULE_RENDERERS['default'];
+        
+        return renderer(r, idx, modInfo, sevMeta);
       }).join('') : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
     }
     const pagContainer = root.querySelector('#recon-pagination');
@@ -4822,13 +4963,13 @@ async function loadScanFilePreview(scanId, fileName, opts = {}) {
       document.getElementById('pv-prev')?.addEventListener('click', () => {
         if (ui.previewPage > 1) {
           ui.previewPage -= 1;
-          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+          loadScanFilePreview(scanId, fileName, { retainPage: true });
         }
       });
       document.getElementById('pv-next')?.addEventListener('click', () => {
         if (ui.previewPage < pages) {
           ui.previewPage += 1;
-          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+          loadScanFilePreview(scanId, fileName, { retainPage: true });
         }
       });
       return;
@@ -4853,13 +4994,13 @@ async function loadScanFilePreview(scanId, fileName, opts = {}) {
       document.getElementById('tx-prev')?.addEventListener('click', () => {
         if (ui.previewPage > 1) {
           ui.previewPage -= 1;
-          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+          loadScanFilePreview(scanId, fileName, { retainPage: true });
         }
       });
       document.getElementById('tx-next')?.addEventListener('click', () => {
         if (ui.previewPage < pages) {
           ui.previewPage += 1;
-          loadScanFilePreview(scanId, r2Key, { retainPage: true });
+          loadScanFilePreview(scanId, fileName, { retainPage: true });
         }
       });
       return;
@@ -6543,3 +6684,138 @@ function escapeHTML(str) {
 }
 
 // Keyhacks check
+
+// ── Live Terminal & Reporting ──────────────────────────────────────────────────
+
+function toggleLiveTerminal(scanId) {
+  const container = document.getElementById('scan-terminal-container');
+  if (!container) return;
+  
+  if (container.style.display === 'none') {
+    container.style.display = 'block';
+    openLiveTerminal(scanId);
+  } else {
+    container.style.display = 'none';
+    closeLiveTerminal();
+  }
+}
+
+function openLiveTerminal(scanId) {
+  closeLiveTerminal(); // ensure clean state
+  const logEl = document.getElementById('scan-terminal-log');
+  if (logEl) logEl.innerHTML = '<div style="color:var(--text-muted)">Connecting to live log stream...</div>';
+  
+  state._terminalSSE = new EventSource(`/api/scans/${encodeURIComponent(scanId)}/logs/stream`);
+  state._terminalSSE.addEventListener('log', (e) => {
+    if (logEl) {
+      const div = document.createElement('div');
+      div.textContent = e.data;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  });
+  state._terminalSSE.onerror = () => {
+    if (logEl) logEl.insertAdjacentHTML('beforeend', '<div style="color:var(--accent-red)">[Connection lost]</div>');
+    closeLiveTerminal();
+  };
+}
+
+function closeLiveTerminal() {
+  if (state._terminalSSE) {
+    state._terminalSSE.close();
+    state._terminalSSE = null;
+  }
+}
+
+async function generateScanReport(scanId) {
+  showToast('info', 'Generating Report', 'Gathering data for scan ' + scanId);
+  try {
+    const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/report`);
+    const reportWindow = window.open('', '_blank');
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>AutoAR Scan Report - ${scanId}</title>
+        <style>
+          body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; padding: 40px; max-width: 900px; margin: auto; }
+          h1 { border-bottom: 2px solid #06b6d4; padding-bottom: 10px; color: #0f172a; }
+          .meta { background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+          .finding-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; page-break-inside: avoid; }
+          .severity-high { border-left: 5px solid #f97316; }
+          .severity-critical { border-left: 5px solid #ef4444; }
+          .badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <h1>Security Scan Report</h1>
+        <div class="meta">
+          <div><strong>Target:</strong> ${data.scan_info?.target || 'N/A'}</div>
+          <div><strong>Type:</strong> ${data.scan_info?.scan_type || 'N/A'}</div>
+          <div><strong>Status:</strong> ${data.scan_info?.status || 'N/A'}</div>
+          <div><strong>Generated:</strong> ${new Date().toLocaleString()}</div>
+        </div>
+        <h2>Summary of Findings</h2>
+        <p>This scan identified ${data.files?.length || 0} result artifacts.</p>
+        <div id="findings">
+          ${data.files?.map(f => `
+            <div class="finding-card">
+              <strong>${f.file_name}</strong> (${f.module})
+              <div style="font-size: 13px; color: #64748b">Size: ${f.size_bytes} bytes</div>
+            </div>
+          `).join('')}
+        </div>
+        <script>window.print();</script>
+      </body>
+      </html>
+    `;
+    reportWindow.document.write(html);
+    reportWindow.document.close();
+  } catch (e) {
+    showToast('error', 'Report Failed', e.message);
+  }
+}
+
+// ── Nuclei Template Manager ──────────────────────────────────────────────────
+
+let _nucleiTemplates = [];
+
+async function loadNucleiTemplates() {
+  const container = document.getElementById('nuclei-templates-container');
+  if (!container) return;
+  
+  try {
+    _nucleiTemplates = await apiFetch('/api/nuclei/templates');
+    renderNucleiManager();
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--accent-red)">Failed to load templates: ${e.message}</div>`;
+  }
+}
+
+function renderNucleiManager(query = '') {
+  const container = document.getElementById('nuclei-templates-container');
+  if (!container) return;
+  
+  const filtered = query 
+    ? _nucleiTemplates.filter(t => t.toLowerCase().includes(query.toLowerCase()))
+    : _nucleiTemplates;
+    
+  if (!filtered.length) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">No templates found matching your search.</div>';
+    return;
+  }
+  
+  container.innerHTML = `
+    <div class="template-grid">
+      ${filtered.map(t => `
+        <div class="template-card">
+          <div class="template-path">${esc(t)}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Template ID: ${esc(t.split('/').pop().replace('.yaml', ''))}</div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="copyToClipboard('${esc(t)}')">Copy Path</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
