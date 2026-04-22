@@ -47,7 +47,7 @@ const LAUNCH_SCAN_TYPES = {
   zerodays: { path: 'zerodays', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
   ffuf: { path: 'ffuf', modes: ['target', 'target_list'], placeholders: { target: 'https://example.com/FUZZ', target_list: 'one FUZZ URL per line' } },
   jwt: { path: 'jwt', modes: ['token'], placeholders: { token: 'JWT token' } },
-  apkx: { path: 'apkx', modes: ['file_path'], placeholders: { file_path: '/absolute/path/to/app.apk' } },
+  apkx: { path: 'apkx', modes: ['file_path', 'package_id', 'upload'], placeholders: { file_path: '/absolute/path/to/app.apk', package_id: 'com.example.app', upload: 'Click to upload APK/IPA' } },
 };
 
 const LAUNCH_MODE_LABELS = {
@@ -65,6 +65,8 @@ const LAUNCH_MODE_LABELS = {
   target_list: 'Target list',
   repo_list: 'Repo/Org list',
   bucket_list: 'Bucket list',
+  package_id: 'Package ID',
+  upload: 'Direct Upload',
 };
 
 const SCAN_FLAG_DEFS = {
@@ -114,6 +116,10 @@ const SCAN_FLAG_DEFS = {
     { key: 'service_id', label: 'Service filter', type: 'text', advanced: false },
     { key: 'delay', label: 'Delay ms', type: 'number', min: 0, advanced: true },
     { key: 'permutations', label: 'Enable permutations', type: 'bool', advanced: true },
+  ],
+  apkx: [
+    { key: 'mitm', label: 'MITM Analysis', type: 'bool', advanced: false },
+    { key: 'platform', label: 'Platform', type: 'select', options: ['android', 'ios'], advanced: false },
   ],
 };
 
@@ -5914,6 +5920,12 @@ function buildScanRequestBodies(spec, mode, rawInput) {
       case 'file_path':
         body.file_path = item;
         break;
+      case 'package_id':
+        body.package_id = item;
+        break;
+      case 'upload':
+        body.file_path = item;
+        break;
       default:
         body.domain = item;
         break;
@@ -5943,11 +5955,32 @@ function syncLaunchPlaceholder(rebuildModes = false) {
   const ph = (spec.placeholders && spec.placeholders[mode]) || 'Target';
   input.placeholder = ph;
   listInput.placeholder = ph;
-  input.style.display = isList ? 'none' : '';
+
+  input.style.display = (isList || mode === 'upload') ? 'none' : '';
   listInput.style.display = isList ? '' : 'none';
   help.textContent = isList
     ? 'Bulk mode: one target per line (comma also supported).'
     : `Single target mode: ${LAUNCH_MODE_LABELS[mode] || mode}.`;
+  // Special UI for upload mode
+  const uploadWrapperId = 'launch-upload-wrapper';
+  let wrapper = document.getElementById(uploadWrapperId);
+  if (mode === 'upload') {
+    input.style.display = 'none';
+    if (!wrapper) {
+      input.insertAdjacentHTML('afterend', `
+        <div id="${uploadWrapperId}" style="display:flex;gap:8px;align-items:center;flex:1">
+          <input type="text" id="launch-upload-path" class="input" placeholder="No file uploaded" readonly style="flex:1">
+          <button type="button" class="btn btn-ghost" onclick="document.getElementById('launch-file-input').click()">📁 Choose</button>
+          <input type="file" id="launch-file-input" style="display:none" onchange="handleLaunchFileUpload(this)">
+        </div>
+      `);
+    } else {
+      wrapper.style.display = 'flex';
+    }
+  } else {
+    if (wrapper) wrapper.style.display = 'none';
+  }
+
   renderLaunchFlags();
   updateLaunchPreview();
 }
@@ -6092,6 +6125,45 @@ async function triggerScan() {
     showToast('error', 'Failed to start scan', e.message);
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function handleLaunchFileUpload(inputEl) {
+  const file = inputEl.files[0];
+  if (!file) return;
+
+  const pathDisplay = document.getElementById('launch-upload-path');
+  const mainInput = document.getElementById('launch-target');
+  
+  if (pathDisplay) pathDisplay.value = `Uploading ${file.name}...`;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const resp = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+      // Note: Don't set Content-Type header when using FormData, 
+      // the browser will set it with the correct boundary.
+      headers: state._authAccessToken ? { 'Authorization': `Bearer ${state._authAccessToken}` } : {}
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || `Upload failed with status ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    if (pathDisplay) pathDisplay.value = file.name;
+    if (mainInput) {
+      mainInput.value = data.file_path;
+      updateLaunchPreview();
+    }
+    showToast('success', 'Upload', `File uploaded to ${data.file_path}`);
+  } catch (e) {
+    if (pathDisplay) pathDisplay.value = 'Upload failed';
+    showToast('error', 'Upload failed', e.message);
   }
 }
 
