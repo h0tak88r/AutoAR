@@ -2011,6 +2011,21 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
     c2 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:var(--accent-purple);font-size:11px;font-weight:700">${esc(pattern)}</span></td>`;
     c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(value)}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-primary)">${esc(value)}</span></td>`;
     c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--text-muted)">${esc(source)}</span></td>`;
+  } else if (moduleTab === 'js-analysis') {
+    let matcher = String(r.matcher || r.finding_type || '').trim();
+    let matched = String(r.value || r.match || '').trim();
+    if (!matcher || !matched) {
+      const m = finding.match(/^\s*\[([^\]]+)\]\s*(?:https?:\/\/\S+)?\s*->\s*(.+)\s*$/i);
+      if (m) {
+        if (!matcher) matcher = String(m[1] || '').trim();
+        if (!matched) matched = String(m[2] || '').trim();
+      }
+    }
+    const vulnType = matcher && matched
+      ? `[${matcher}] ${matched}`
+      : (matcher ? `[${matcher}]` : findingShort);
+    c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);">${esc(vulnType)}</span></td>`;
+    c4 = tdModule;
   } else if (moduleTab === 'misconfig') {
     const service = String(r.service || r.service_name || r.module || 'misconfig');
     c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--accent-amber)">${esc(service)}</span></td>`;
@@ -4240,6 +4255,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
   if (hasUrlsDatasetTab) {
     excludedModuleTabs.add('url-collection');
+  }
+  // JS Analysis can appear as dataset + module; keep only one tab.
+  const hasJsAnalysisDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'js-analysis');
+  if (hasJsAnalysisDatasetTab) {
+    excludedModuleTabs.add('js-analysis');
   }
   const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
     const info = getModuleDisplayInfo(mod);
