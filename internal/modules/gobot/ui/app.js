@@ -1898,6 +1898,7 @@ function normalizeModuleKey(module) {
     'dns-cf1016': 'dns-takeover',
     'dep-confusion': 'dependency-confusion',
     'dependency_confusion': 'dependency-confusion',
+    'unknowns': 'unknown',
   };
   return aliases[raw] || raw;
 }
@@ -4145,10 +4146,32 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   }
 
   allRows = allRows
-    .map((r) => ({
-      ...r,
-      kind: String(r.kind || inferKindFromFileName(r.file) || 'other').toLowerCase(),
-    }))
+    .map((r) => {
+      let kind = String(r.kind || inferKindFromFileName(r.file) || 'other').toLowerCase().trim();
+      const file = String(r.file || '').toLowerCase();
+      const target = String(r.target || r.host || '').toLowerCase();
+      const finding = String(r.title || r.finding || '').trim();
+      const moduleNorm = normalizeModuleKey(r.module);
+
+      if (kind === 'js-urls') kind = 'js_urls';
+      if (kind === 'unknown' || kind === 'unknowns') kind = 'other';
+
+      const looksLikeJSMatcher = /^\s*\[[^\]]+\].*->/i.test(finding) || file.includes('js-secret') || file.includes('js-exposure');
+      const looksLikeJSURL = file.includes('js-url') || /\.m?jsx?(\?|$)/i.test(target);
+
+      if (looksLikeJSMatcher) kind = 'js-analysis';
+      else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
+
+      const normalizedModule = (moduleNorm === 'unknown' && (kind === 'js-analysis' || kind === 'js_urls'))
+        ? 'js-analysis'
+        : moduleNorm;
+
+      return {
+        ...r,
+        kind,
+        module: normalizedModule,
+      };
+    })
     .filter((r) => {
       const finding = String(r.title || r.finding || '').trim().toLowerCase();
       const target = String(r.target || r.host || '').trim();
