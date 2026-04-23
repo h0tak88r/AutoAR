@@ -4236,6 +4236,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     return a.localeCompare(b);
   });
   const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing']);
+  // "Links" (kind urls) already lists URL-collection findings; skip duplicate module tab.
+  const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
+  if (hasUrlsDatasetTab) {
+    excludedModuleTabs.add('url-collection');
+  }
   const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
     const info = getModuleDisplayInfo(mod);
     return [`mod:${mod}`, `${info.icon} ${info.name}`];
@@ -6892,7 +6897,7 @@ function renderKeyhacks(templates) {
             <div class="keyhack-cmd-label">Validation Command Template</div>
             <div class="keyhack-cmd-box">
               <pre class="keyhack-pre">${escapeHTML(cmd)}</pre>
-              <button class="keyhack-copy-btn" title="Copy to clipboard" onclick="copyToClipboard('${cmd.replace(/'/g, "\\'").replace(/\n/g, "\\n")}'); showToast('success', 'Copied to clipboard', '')">
+              <button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}">
                 <span style="font-size:14px">📋</span>
               </button>
             </div>
@@ -6911,6 +6916,17 @@ function renderKeyhacks(templates) {
 
   html += '</div>';
   container.innerHTML = html;
+  container.querySelectorAll('.keyhack-copy-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const cmd = btn.getAttribute('data-cmd') || '';
+      try {
+        await copyToClipboard(cmd);
+        showToast('success', 'Copied to clipboard', '');
+      } catch (e) {
+        showToast('error', 'Copy failed', e?.message || String(e));
+      }
+    });
+  });
 }
 
 function escapeHTML(str) {
