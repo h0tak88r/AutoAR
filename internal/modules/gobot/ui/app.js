@@ -4038,7 +4038,7 @@ function inferKindFromFileName(fileName) {
   // JS URLs
   if (b.includes('js-url') || b.includes('jsurl') || b.includes('js_url') || b.includes('js-enum') || b === 'js-urls.json') return 'js_urls';
   // JS secrets / exposures
-  if (b.includes('js-secret') || b.includes('js-exposure') || b.includes('secret') || b.includes('exposure')) return 'vuln';
+  if (b.includes('js-secret') || b.includes('js-exposure') || ((b.includes('secret') || b.includes('exposure')) && b.includes('js'))) return 'js-analysis';
   // Tech detection
   if (b.includes('tech-detect') || b.includes('technologies') || b.includes('wappalyzer')) return 'tech';
   // FFUF
