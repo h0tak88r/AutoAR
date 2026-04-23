@@ -4179,6 +4179,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const TAB_LABELS = {
     assets: '🏠 Assets',
     urls: '🔗 Links',
+    js_urls: '📄 JS URLs',
     'js-analysis': '📜 JS Analysis',
     'gf-patterns': '🎯 GF Patterns',
     nuclei: '☢️ Nuclei',
@@ -4250,16 +4251,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (bi !== -1) return 1;
     return a.localeCompare(b);
   });
-  const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing']);
+  const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing', 'js-analysis']);
   // "Links" (kind urls) already lists URL-collection findings; skip duplicate module tab.
   const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
   if (hasUrlsDatasetTab) {
     excludedModuleTabs.add('url-collection');
-  }
-  // JS Analysis can appear as dataset + module; keep only one tab.
-  const hasJsAnalysisDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'js-analysis');
-  if (hasJsAnalysisDatasetTab) {
-    excludedModuleTabs.add('js-analysis');
   }
   const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
     const info = getModuleDisplayInfo(mod);
