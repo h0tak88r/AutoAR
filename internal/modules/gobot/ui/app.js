@@ -3354,6 +3354,7 @@ async function renderScanDetailView(scanId) {
     const sum = await apiFetch(
       `/api/scans/${encodeURIComponent(scanId)}/results/summary?page=${ui.filesPage}&per_page=${ui.filesPerPage}`
     );
+    const manifestResp = await fetchScanManifest(scanId);
     const scan = sum.scan;
     const target = scan.target || scan.Target || '';
     const st = scan.scan_type || scan.ScanType || '';
@@ -3422,6 +3423,7 @@ async function renderScanDetailView(scanId) {
           </div>
         </div>`
       : '';
+    const manifestCard = renderScanManifestCard(manifestResp?.manifest || null, scan);
 
     let emptyBanner = '';
     if (!files.length) {
@@ -3570,6 +3572,7 @@ async function renderScanDetailView(scanId) {
       html = `
         <div class="scan-detail-modern">
           ${zipBanner}
+          ${manifestCard}
           ${emptyBanner}
           <div class="modern-card" style="padding:20px">
             <div style="text-align:center;color:var(--text-muted)">No files to preview.</div>
@@ -3579,6 +3582,7 @@ async function renderScanDetailView(scanId) {
       html = `
         <div class="scan-detail-modern">
           ${zipBanner}
+          ${manifestCard}
           ${emptyBanner}
           
           <!-- Unified Findings Card -->
@@ -3695,6 +3699,7 @@ async function doScanDetailRefresh(scanId) {
 
     // Update or inject phase banner
     updatePhaseBanner(scan);
+    await refreshScanManifestCard(scanId, scan);
 
     // Refresh the file-count badge
     const badge = document.getElementById('unified-parsed-badge');
@@ -3727,6 +3732,73 @@ async function doScanDetailRefresh(scanId) {
     // Silently retry on network issues
     scheduleScanDetailRefresh(scanId, 8000);
   }
+}
+
+async function fetchScanManifest(scanId) {
+  try {
+    return await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/manifest`);
+  } catch (e) {
+    return null;
+  }
+}
+
+function formatManifestDuration(ms) {
+  const n = Number(ms || 0);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  const sec = Math.floor(n / 1000);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function manifestStatusBadge(status) {
+  const st = String(status || '').toLowerCase();
+  if (/completed|done|success/.test(st)) return 'badge-done';
+  if (/running|starting|queued|active/.test(st)) return 'badge-running';
+  if (/paused|cancelling/.test(st)) return 'badge-starting';
+  if (/failed|error|cancel/.test(st)) return 'badge-failed';
+  return 'badge-neutral';
+}
+
+function renderScanManifestCard(manifest, scan) {
+  const modules = Array.isArray(manifest?.modules) ? manifest.modules : [];
+  const scanStatus = scan?.status || scan?.Status || '';
+  const fallbackModule = {
+    module: scan?.scan_type || scan?.ScanType || 'scan',
+    status: scanStatus || 'unknown',
+    duration_ms: 0,
+    output_files: [],
+    scanner_version: '—',
+  };
+  const m = modules[0] || fallbackModule;
+  const outputs = Array.isArray(m.output_files) ? m.output_files : [];
+  const outputPreview = outputs.slice(0, 8).map(f => `<code style="font-size:11px">${esc(f)}</code>`).join(' ');
+  return `
+    <div class="modern-card" id="scan-manifest-card" style="padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <strong style="font-size:13px">🧭 Module execution</strong>
+          <span class="badge ${manifestStatusBadge(m.status)}">${esc(String(m.status || 'unknown'))}</span>
+          <span class="badge badge-neutral">${esc(String(m.module || 'scan'))}</span>
+          <span class="badge badge-neutral">⏱ ${esc(formatManifestDuration(m.duration_ms))}</span>
+          <span class="badge badge-neutral">📦 ${outputs.length} outputs</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted)">scanner ${esc(String(m.scanner_version || '—'))}</div>
+      </div>
+      ${outputPreview
+      ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">${outputPreview}${outputs.length > 8 ? `<span style="font-size:11px;color:var(--text-muted)">+${outputs.length - 8} more</span>` : ''}</div>`
+      : `<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">No output files indexed yet.</div>`}
+    </div>`;
+}
+
+async function refreshScanManifestCard(scanId, scan) {
+  const host = document.getElementById('scan-manifest-card');
+  if (!host) return;
+  const manifestResp = await fetchScanManifest(scanId);
+  host.outerHTML = renderScanManifestCard(manifestResp?.manifest || null, scan);
 }
 
 function updatePhaseBanner(scan) {
