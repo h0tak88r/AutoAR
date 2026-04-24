@@ -1825,6 +1825,9 @@ function detectModuleFromFileName(fileName, existingModule) {
   // JavaScript analysis
   if (n.includes('js-urls') || n.includes('javascript') || n.includes('js-')) return 'js-analysis';
 
+  // APK analysis
+  if (n.includes('apk') || n.includes('androidmanifest') || n.includes('jadx') || n.includes('dex')) return 'apkx';
+
   // XSS/Reflection
   if (n.includes('kxss') || n.includes('dalfox') || n.includes('xss-reflection')) return 'xss-detection';
   if (n.includes('reflection')) return 'xss-detection';
@@ -1868,8 +1871,8 @@ function detectModuleFromFileName(fileName, existingModule) {
   // Technology detection
   if (n.includes('tech-detect') || n.includes('wappalyzer')) return 'tech-detect';
 
-  // Port scanning
-  if (n.includes('port') || n.includes('nmap')) return 'port-scan';
+  // Port scanning (strict to avoid matching "report")
+  if (n.includes('port-scan') || n.includes('ports') || n.includes('nmap') || n.includes('masscan')) return 'port-scan';
 
   // GitHub/Source code
   if (n.includes('github') || n.includes('repo')) return 'github-scan';
@@ -1899,6 +1902,8 @@ function normalizeModuleKey(module) {
     'dep-confusion': 'dependency-confusion',
     'dependency_confusion': 'dependency-confusion',
     'unknowns': 'unknown',
+    'apk': 'apkx',
+    'apk-analysis': 'apkx',
   };
   return aliases[raw] || raw;
 }
@@ -1910,6 +1915,7 @@ function getModuleDisplayInfo(module) {
     'nuclei': { icon: '🚨', name: 'Nuclei', color: '#ef4444' },
     'subdomain-enum': { icon: '🔗', name: 'Subdomains', color: '#6366f1' },
     'httpx': { icon: '🌐', name: 'Live Hosts', color: '#22c55e' },
+    'apkx': { icon: '📱', name: 'APK Analysis', color: '#22d3ee' },
     'js-analysis': { icon: '📜', name: 'JS Analysis', color: '#eab308' },
     'xss-detection': { icon: '💥', name: 'XSS / Reflection', color: '#f97316' },
     'sql-detection': { icon: '🗻', name: 'SQLi', color: '#dc2626' },
@@ -4042,6 +4048,8 @@ function inferReconKindFromFileName(fileName) {
 function inferKindFromFileName(fileName) {
   const b = String(fileName || '').split(/[/\\]/).pop().toLowerCase();
   if (!b) return 'other';
+  // APK analysis artifacts
+  if (b.includes('apk') || b.includes('androidmanifest') || b.includes('jadx') || b.includes('dex')) return 'apkx';
   // Log files — separate tab
   if (b.endsWith('.log')) return 'logs';
   // Subdomains
@@ -4075,8 +4083,8 @@ function inferKindFromFileName(fileName) {
     b.includes('cloudflare') || b.includes('dangling')) return 'dns';
   // Backup
   if (b.includes('backup') || b.includes('fuzzuli')) return 'backup';
-  // Ports
-  if (b.includes('port') || b.includes('nmap') || b.includes('masscan')) return 'ports';
+  // Ports (strict to avoid matching "report")
+  if (b.includes('port-scan') || b.includes('ports') || b.includes('nmap') || b.includes('masscan')) return 'ports';
   // GF patterns
   if (b.startsWith('gf-') || b.includes('gf-')) return 'gf';
   // Reflection / XSS
@@ -4203,6 +4211,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     assets: '🏠 Assets',
     urls: '🔗 Links',
     js_urls: '📄 JS URLs',
+    apkx: '📱 APK Analysis',
     'js-analysis': '📜 JS Analysis',
     'gf-patterns': '🎯 GF Patterns',
     nuclei: '☢️ Nuclei',
