@@ -674,6 +674,35 @@ type parsedFinding struct {
 	Severity string `json:"severity"`
 	Target   string `json:"target"`
 	Finding  string `json:"finding"`
+	// Structured fields for richer UI rendering (especially APK findings).
+	Path         string `json:"path,omitempty"`
+	CategoryName string `json:"category_name,omitempty"`
+	MatcherValue string `json:"matcher_value,omitempty"`
+	Context      string `json:"context,omitempty"`
+}
+
+func parseAPKStructuredLine(line string) (path, matcher, ctx string) {
+	s := strings.TrimSpace(line)
+	if s == "" {
+		return "", "", ""
+	}
+	// Typical format: "<path>: <matcher> (Context: ...)"
+	parts := strings.SplitN(s, ": ", 2)
+	if len(parts) == 2 {
+		if strings.Contains(parts[0], "/") || strings.Contains(parts[0], "\\") || strings.Contains(parts[0], ".") {
+			path = strings.TrimSpace(parts[0])
+			matcher = strings.TrimSpace(parts[1])
+		}
+	}
+	if path == "" {
+		matcher = s
+	}
+	if i := strings.LastIndex(strings.ToLower(matcher), "(context:"); i >= 0 {
+		ctx = strings.TrimSpace(matcher[i+len("(context:"):])
+		ctx = strings.TrimSuffix(ctx, ")")
+		matcher = strings.TrimSpace(matcher[:i])
+	}
+	return path, matcher, ctx
 }
 
 // inferReconKind maps artifact filenames to a stable dataset key for unified recon tables.
@@ -1009,10 +1038,15 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 								if line == "" || line == "<nil>" {
 									continue
 								}
+								p, mv, cx := parseAPKStructuredLine(line)
 								appendRow(parsedFinding{
-									Severity: "info",
-									Target:   k,
-									Finding:  line,
+									Severity:     "info",
+									Target:       k,
+									Finding:      line,
+									Path:         p,
+									CategoryName: k,
+									MatcherValue: mv,
+									Context:      cx,
 								})
 							}
 						case string:
@@ -1020,10 +1054,15 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 							if line == "" || line == "<nil>" {
 								continue
 							}
+							p, mv, cx := parseAPKStructuredLine(line)
 							appendRow(parsedFinding{
-								Severity: "info",
-								Target:   k,
-								Finding:  line,
+								Severity:     "info",
+								Target:       k,
+								Finding:      line,
+								Path:         p,
+								CategoryName: k,
+								MatcherValue: mv,
+								Context:      cx,
 							})
 						case float64, bool, int, int64, uint64:
 							line := strings.TrimSpace(fmt.Sprint(vv))
@@ -1031,18 +1070,22 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 								continue
 							}
 							appendRow(parsedFinding{
-								Severity: "info",
-								Target:   k,
-								Finding:  line,
+								Severity:     "info",
+								Target:       k,
+								Finding:      line,
+								CategoryName: k,
+								MatcherValue: line,
 							})
 						case map[string]interface{}:
 							if enc, encErr := json.Marshal(vv); encErr == nil {
 								line := strings.TrimSpace(string(enc))
 								if line != "" && line != "{}" {
 									appendRow(parsedFinding{
-										Severity: "info",
-										Target:   k,
-										Finding:  line,
+										Severity:     "info",
+										Target:       k,
+										Finding:      line,
+										CategoryName: k,
+										MatcherValue: line,
 									})
 								}
 							}
