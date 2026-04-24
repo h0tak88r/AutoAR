@@ -3,6 +3,7 @@ package gobot
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -17,7 +18,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
-	"io"
+	"github.com/h0tak88r/AutoAR/internal/version"
 )
 
 const scanResultMaxBody = 12 * 1024 * 1024
@@ -194,8 +195,8 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 					base + ".json",
 					strings.ReplaceAll(base, "subs", "subdomains") + ".json",
 					strings.ReplaceAll(base, "live-", "live") + ".json",
-					"livehosts.json",      // if name is live-subs.txt
-					"subdomains.json",     // if name is all-subs.txt
+					"livehosts.json",     // if name is live-subs.txt
+					"subdomains.json",    // if name is all-subs.txt
 					"urls.json",          // if name is all-urls.txt
 					"js-urls.json",       // if name is js-urls.txt
 					"tech-detect.json",   // if name is tech-detect.txt
@@ -277,7 +278,6 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 	}
 	return localEntries, nil
 }
-
 
 // writeLocalFile writes content to a local file for a scan
 func writeLocalFile(scanID, fileName string, data []byte) (string, error) {
@@ -375,7 +375,6 @@ func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 
 	return data, "r2", nil
 }
-
 
 // GET /api/scans/:id/results/summary — scan metadata + local file list
 func apiScanResultsSummary(c *gin.Context) {
@@ -516,10 +515,10 @@ func apiScanResultFileContent(c *gin.Context) {
 	if len(raw) > scanResultMaxBody {
 
 		c.JSON(http.StatusOK, gin.H{
-			"format":      "too_large",
-			"error":       "file too large for inline preview",
-			"max_bytes":   scanResultMaxBody,
-			"size_bytes":  len(raw),
+			"format":     "too_large",
+			"error":      "file too large for inline preview",
+			"max_bytes":  scanResultMaxBody,
+			"size_bytes": len(raw),
 		})
 		return
 	}
@@ -675,10 +674,34 @@ type parsedFinding struct {
 	Target   string `json:"target"`
 	Finding  string `json:"finding"`
 	// Structured fields for richer UI rendering (especially APK findings).
-	Path         string `json:"path,omitempty"`
-	CategoryName string `json:"category_name,omitempty"`
-	MatcherValue string `json:"matcher_value,omitempty"`
-	Context      string `json:"context,omitempty"`
+	Path           string `json:"path,omitempty"`
+	CategoryName   string `json:"category_name,omitempty"`
+	MatcherValue   string `json:"matcher_value,omitempty"`
+	Context        string `json:"context,omitempty"`
+	Value          string `json:"value,omitempty"`
+	ScannerVersion string `json:"scanner_version,omitempty"`
+}
+
+func normalizeUnifiedContractRow(r parsedFinding) parsedFinding {
+	if strings.TrimSpace(r.Category) == "" {
+		r.Category = firstNonEmpty(r.CategoryName, "vulnerability")
+	}
+	if strings.TrimSpace(r.Path) == "" {
+		r.Path = strings.TrimSpace(r.Target)
+	}
+	if strings.TrimSpace(r.Value) == "" {
+		r.Value = firstNonEmpty(r.MatcherValue, r.Finding)
+	}
+	if strings.TrimSpace(r.Severity) == "" {
+		r.Severity = "info"
+	}
+	if strings.TrimSpace(r.Context) == "" {
+		r.Context = firstNonEmpty(r.Source, r.File)
+	}
+	if strings.TrimSpace(r.ScannerVersion) == "" {
+		r.ScannerVersion = version.Version
+	}
+	return r
 }
 
 func parseAPKStructuredLine(line string) (path, matcher, ctx string) {
@@ -773,7 +796,6 @@ func inferReconKind(fileName string) string {
 		return "other"
 	}
 }
-
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
@@ -1186,11 +1208,9 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			})
 		}
 	}
-	
+
 	return out
 }
-
-
 
 // GET /api/scans/:id/results/parsed — flattened parsed findings for dashboard tables.
 func apiScanParsedResults(c *gin.Context) {
@@ -1217,7 +1237,6 @@ func apiScanParsedResults(c *gin.Context) {
 	if limit > 5000 {
 		limit = 5000
 	}
-
 
 	// Use local files instead of artifact DB
 	entries, err := listLocalFiles(scanID)
@@ -1261,6 +1280,7 @@ func apiScanParsedResults(c *gin.Context) {
 			r.Module = module
 			r.Category = category
 			r.Kind = kind
+			r = normalizeUnifiedContractRow(r)
 			rows = append(rows, r)
 		}
 	}
@@ -1286,12 +1306,12 @@ func apiScanParsedResults(c *gin.Context) {
 	// Also maps pipeline input files (subdomains/URLs) to a sentinel "" to mark
 	// them as "always skip" — the sentinel is never present so they are dropped.
 	rawToJSON := map[string]string{
-		"misconfig-scan-results.txt":    "misconfig-vulnerabilities.json",
-		"ffuf-results.txt":              "ffuf-results.json",
-		"ffuf-webhook-messages.txt":     "ffuf-results.json",
-		"kxss-results.txt":              "xss-reflection-vulnerabilities.json",
-		"exposure-findings.txt":         "exposure-vulnerabilities.json",
-		"wp-confusion-results.txt":      "wp-confusion-vulnerabilities.json",
+		"misconfig-scan-results.txt": "misconfig-vulnerabilities.json",
+		"ffuf-results.txt":           "ffuf-results.json",
+		"ffuf-webhook-messages.txt":  "ffuf-results.json",
+		"kxss-results.txt":           "xss-reflection-vulnerabilities.json",
+		"exposure-findings.txt":      "exposure-vulnerabilities.json",
+		"wp-confusion-results.txt":   "wp-confusion-vulnerabilities.json",
 		// URL corpus files — never findings, always skip (uncommented to SHOW in URL tab)
 		// "urls.json":                      "__pipeline_input__",
 		// "js-urls.json":                   "__pipeline_input__",
@@ -1299,17 +1319,17 @@ func apiScanParsedResults(c *gin.Context) {
 		// "subdomains.json":                "__pipeline_input__",
 		// "ports.json":                     "__pipeline_input__",
 		// Live hosts — served by /assets, never by /parsed findings
-		"livehosts.json":                 "__pipeline_input__",
+		"livehosts.json": "__pipeline_input__",
 		// CNAME recon — served by DNS section, not findings
-		"cname-records.json":             "__pipeline_input__",
+		"cname-records.json": "__pipeline_input__",
 		// Pipeline input files — never findings, always skip
 		// "all-subs.txt":                  "__pipeline_input__",
 		// "live-subs.txt":                 "__pipeline_input__",
-		"live-hosts.txt":                "__pipeline_input__",
+		"live-hosts.txt": "__pipeline_input__",
 		// "all-urls.txt":                  "__pipeline_input__",
 		// "subdomains.txt":                "__pipeline_input__",
 		// "enumerated-subs.txt":           "__pipeline_input__",
-		"nuclei-summary.txt":            "__pipeline_input__",
+		"nuclei-summary.txt": "__pipeline_input__",
 		// DNS raw intermediate files
 		"dangling-ip.txt":               "dns-takeover-vulnerabilities.json",
 		"ns-takeover-raw.txt":           "dns-takeover-vulnerabilities.json",
@@ -1321,7 +1341,7 @@ func apiScanParsedResults(c *gin.Context) {
 		"cname-takeover-raw.txt":        "dns-takeover-vulnerabilities.json",
 		"cname-takeover-vulnerable.txt": "dns-takeover-vulnerabilities.json",
 		// CF1016 text report is for human reading only — skip line-by-line finding parsing
-		"cf1016-dangling.txt":           "__pipeline_input__",
+		"cf1016-dangling.txt": "__pipeline_input__",
 	}
 
 	for _, e := range entries {
@@ -1457,9 +1477,9 @@ func apiGetScanReport(c *gin.Context) {
 	scanRec, _ := db.GetScan(scanID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"scan_id":    scanID,
-		"scan_info":  scanRec,
-		"files":      entries,
+		"scan_id":   scanID,
+		"scan_info": scanRec,
+		"files":     entries,
 		"generated": time.Now(),
 	})
 }

@@ -2,6 +2,7 @@ package gobot
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -49,6 +50,75 @@ type ScanResult struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	Output      string     `json:"output,omitempty"`
 	Error       string     `json:"error,omitempty"`
+}
+
+type moduleExecutionEntry struct {
+	Module         string    `json:"module"`
+	Status         string    `json:"status"` // started|completed|failed|cancelled
+	StartedAt      time.Time `json:"started_at"`
+	CompletedAt    time.Time `json:"completed_at,omitempty"`
+	DurationMS     int64     `json:"duration_ms,omitempty"`
+	OutputFiles    []string  `json:"output_files,omitempty"`
+	ScannerVersion string    `json:"scanner_version,omitempty"`
+	Command        string    `json:"command,omitempty"`
+}
+
+type scanExecutionManifest struct {
+	ScanID      string                 `json:"scan_id"`
+	ScanType    string                 `json:"scan_type"`
+	Target      string                 `json:"target"`
+	StartedAt   time.Time              `json:"started_at"`
+	CompletedAt time.Time              `json:"completed_at,omitempty"`
+	Modules     []moduleExecutionEntry `json:"modules"`
+}
+
+func writeScanManifest(scanID, scanType, target string, startedAt, completedAt time.Time, module moduleExecutionEntry) {
+	if strings.TrimSpace(scanID) == "" {
+		return
+	}
+	outDir := utils.GetScanResultsDir(scanID)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		log.Printf("[manifest] mkdir failed for %s: %v", scanID, err)
+		return
+	}
+	manifest := scanExecutionManifest{
+		ScanID:      scanID,
+		ScanType:    scanType,
+		Target:      target,
+		StartedAt:   startedAt,
+		CompletedAt: completedAt,
+		Modules:     []moduleExecutionEntry{module},
+	}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		log.Printf("[manifest] marshal failed for %s: %v", scanID, err)
+		return
+	}
+	path := filepath.Join(outDir, "scan-manifest.json")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		log.Printf("[manifest] write failed for %s: %v", scanID, err)
+	}
+}
+
+func collectScanOutputFiles(scanID string) []string {
+	arts, err := db.ListScanArtifacts(scanID)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(arts))
+	seen := make(map[string]struct{}, len(arts))
+	for _, a := range arts {
+		name := strings.TrimSpace(a.FileName)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 type ScanRequest struct {
@@ -185,7 +255,7 @@ func setupAPI() *gin.Engine {
 	{
 		apiGroup.GET("/dashboard/stats", apiDashboardStats)
 		apiGroup.GET("/domains", apiListDomains)
-		apiGroup.POST("/domains", apiAddDomain)          // single add
+		apiGroup.POST("/domains", apiAddDomain)           // single add
 		apiGroup.POST("/domains/bulk", apiAddDomainsBulk) // batch add
 		apiGroup.DELETE("/domains/:domain", apiDeleteDomain)
 		apiGroup.GET("/domains/:domain/subdomains", apiListSubdomains)
@@ -262,12 +332,12 @@ func setupAPI() *gin.Engine {
 		api.POST("/ports", scanPorts)
 		api.POST("/gf", scanGF)
 		api.POST("/dns-takeover", scanDNSTakeover)
-		api.POST("/dns", scanDNS) // New unified DNS endpoint (supports takeover and dangling-ip)
+		api.POST("/dns", scanDNS)              // New unified DNS endpoint (supports takeover and dangling-ip)
 		api.POST("/dns-cf1016", scanDNSCF1016) // Cloudflare 1016 dangling DNS scan
 		api.POST("/s3", scanS3)
 		api.POST("/github", scanGitHub)
 		api.POST("/github_org", scanGitHubOrg)
-		api.POST("/recon", scanRecon)         // Unified asset discovery: subdomains, livehosts, tech, cnames
+		api.POST("/recon", scanRecon) // Unified asset discovery: subdomains, livehosts, tech, cnames
 		api.POST("/lite", scanLite)
 		api.POST("/apkx", scanApkX)
 		api.POST("/ffuf", scanFFuf)           // FFuf fuzzing
@@ -326,12 +396,12 @@ func scanApkX(c *gin.Context) {
 		if req.Platform != nil && *req.Platform != "" {
 			platform = strings.ToLower(*req.Platform)
 		}
-		
+
 		// Use internal/modules/apkx directly for package scans
 		go func(sID, pkg, plat string, m bool) {
 			db.UpdateScanStatus(sID, "starting")
 			log.Printf("[API] [apkx] Starting package-based scan: %s (%s)", pkg, plat)
-			
+
 			// Note: This bypasses executeScan (which runs autoar cli)
 			// to use the Go library directly for package downloads.
 			// This is more efficient and handles store credentials via env vars.
@@ -344,7 +414,7 @@ func scanApkX(c *gin.Context) {
 			}
 			_ = importApkx
 
-			// We'll use the CLI for consistency in executeScan if possible, 
+			// We'll use the CLI for consistency in executeScan if possible,
 			// but the CLI needs to support package names.
 			// Let's check if the CLI 'apkx scan' supports -p.
 			cmd := []string{
@@ -1953,6 +2023,13 @@ func executeScan(scanID string, command []string, scanType string) {
 	if err := db.CreateScan(dbRecord); err != nil {
 		log.Printf("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
 	}
+	writeScanManifest(scanID, scanType, target, startedAt, time.Time{}, moduleExecutionEntry{
+		Module:         scanType,
+		Status:         "started",
+		StartedAt:      startedAt,
+		ScannerVersion: version.Version,
+		Command:        strings.Join(command, " "),
+	})
 
 	// Notify scan start via webhook
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
@@ -2100,6 +2177,18 @@ func executeScan(scanID string, command []string, scanType string) {
 	indexScanArtifacts(scanID, scanType, target)
 	// domain_run / subdomain_run delete local results after upload — backfill from R2 for the UI table.
 	indexWorkflowArtifactsFromR2(scanID, scanType, target)
+	outputFiles := collectScanOutputFiles(scanID)
+	durationMS := completedAt.Sub(startedAt).Milliseconds()
+	writeScanManifest(scanID, scanType, target, startedAt, completedAt, moduleExecutionEntry{
+		Module:         scanType,
+		Status:         finalStatus,
+		StartedAt:      startedAt,
+		CompletedAt:    completedAt,
+		DurationMS:     durationMS,
+		OutputFiles:    outputFiles,
+		ScannerVersion: version.Version,
+		Command:        strings.Join(command, " "),
+	})
 
 	scansMutex.Lock()
 	delete(activeScans, scanID)
@@ -2844,7 +2933,7 @@ func generateMockResults(scanID, target, scanType string, startedAt time.Time, c
 	_ = os.WriteFile(filepath.Join(resultsDir, "misconfig-mapper.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/.git\", \"finding\": \"Exposed Git Directory\", \"severity\": \"medium\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "wp-confusion-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/wp-content\", \"finding\": \"WordPress Missing Theme\", \"severity\": \"medium\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "depconf-scan.json"), []byte("[{\"target\": \"package.json\", \"finding\": \"Dependency Confusion in 'internal-core'\", \"severity\": \"high\"}]"), 0644)
-	
+
 	// Add remaining simulation payloads
 	_ = os.WriteFile(filepath.Join(resultsDir, "ffuf-results.json"), []byte(fmt.Sprintf("[{\"url\": \"https://%[1]s/secret-dir\", \"status\": 200, \"length\": 1024, \"finding\": \"Hidden Directory\", \"severity\": \"medium\"}]", target)), 0644)
 	_ = os.WriteFile(filepath.Join(resultsDir, "dalfox-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/?q=test\", \"finding\": \"Reflected XSS in 'q' parameter\", \"severity\": \"high\"}]", target)), 0644)
@@ -2868,7 +2957,7 @@ func generateMockResults(scanID, target, scanType string, startedAt time.Time, c
 		StartedAt: startedAt, CompletedAt: &completedAt, Error: "",
 	}
 	apiScansMutex.Unlock()
-	
+
 	// Index
 	indexScanArtifacts(scanID, scanType, target)
 }
