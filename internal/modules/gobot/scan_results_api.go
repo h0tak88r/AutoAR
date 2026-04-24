@@ -1142,6 +1142,7 @@ func apiScanParsedResults(c *gin.Context) {
 		return
 	}
 	scanType := strings.ToLower(strings.TrimSpace(scanRec.ScanType))
+	isAPKScan := strings.Contains(scanType, "apkx")
 
 	section := strings.ToLower(strings.TrimSpace(c.DefaultQuery("section", "all")))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "1200"))
@@ -1165,7 +1166,7 @@ func apiScanParsedResults(c *gin.Context) {
 		kind := inferReconKind(e.FileName) // always attach kind for unified table tabs
 		module := e.Module
 		category := e.Category
-		if scanType == "apkx" {
+		if isAPKScan {
 			// APK scans commonly produce generic file names (e.g., results.json/report.html).
 			// Keep APK findings grouped in APK Analysis instead of falling back to autoar/other.
 			if module == "" || module == "autoar" || module == "unknown" || module == "github-scan" {
@@ -1182,7 +1183,7 @@ func apiScanParsedResults(c *gin.Context) {
 			if len(rows) >= limit {
 				return
 			}
-			if scanType == "apkx" {
+			if isAPKScan {
 				// Drop placeholder rows produced by summary objects with no concrete finding fields.
 				f := strings.ToLower(strings.TrimSpace(r.Finding))
 				t := strings.TrimSpace(r.Target)
@@ -1207,7 +1208,7 @@ func apiScanParsedResults(c *gin.Context) {
 		presentFiles[strings.ToLower(e.FileName)] = true
 	}
 	hasApkxJSON := false
-	if scanType == "apkx" {
+	if isAPKScan {
 		for _, e := range entries {
 			n := strings.ToLower(strings.TrimSpace(e.FileName))
 			if strings.HasSuffix(n, ".json") {
@@ -1281,7 +1282,7 @@ func apiScanParsedResults(c *gin.Context) {
 				continue
 			}
 		}
-		if scanType == "apkx" {
+		if isAPKScan {
 			ext := strings.ToLower(filepath.Ext(e.FileName))
 			// Do not parse rendered report assets as findings rows.
 			if ext == ".html" || ext == ".htm" || ext == ".css" || ext == ".js" {
