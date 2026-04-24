@@ -1889,9 +1889,12 @@ func extractScanTargetFromCommand(command []string, scanType string) string {
 			return next
 		case st == "zerodays" && arg == "-f":
 			return "file:" + filepath.Base(next)
-		case st == "apkx" && (arg == "-i" || arg == "--input"):
+		case strings.Contains(st, "apkx") && (arg == "-i" || arg == "--input"):
 			// Return filename only — full paths may contain sensitive directory structure.
 			return filepath.Base(next)
+		case strings.Contains(st, "apkx") && (arg == "-p" || arg == "--package"):
+			// Package-id scans should show the actual package identifier as target.
+			return next
 		case st == "jwt" && (arg == "-t" || arg == "--token"):
 			// Never expose the raw token string in the DB.
 			return "jwt-token"
@@ -2415,7 +2418,7 @@ func shouldSkipArtifact(path string) bool {
 	}
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {
-	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin":
+	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin", ".apk", ".ipa", ".aab":
 		return false
 	default:
 		return true
