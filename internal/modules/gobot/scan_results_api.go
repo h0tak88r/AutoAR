@@ -1092,10 +1092,12 @@ func apiScanParsedResults(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
 		return
 	}
-	if _, err := db.GetScan(scanID); err != nil {
+	scanRec, err := db.GetScan(scanID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	scanType := strings.ToLower(strings.TrimSpace(scanRec.ScanType))
 
 	section := strings.ToLower(strings.TrimSpace(c.DefaultQuery("section", "all")))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "1200"))
@@ -1117,13 +1119,28 @@ func apiScanParsedResults(c *gin.Context) {
 	rows := make([]parsedFinding, 0, minInt(limit, 256))
 	appendRows := func(ps []parsedFinding, e fileEntry) {
 		kind := inferReconKind(e.FileName) // always attach kind for unified table tabs
+		module := e.Module
+		category := e.Category
+		if scanType == "apkx" {
+			// APK scans commonly produce generic file names (e.g., results.json/report.html).
+			// Keep APK findings grouped in APK Analysis instead of falling back to autoar/other.
+			if module == "" || module == "autoar" || module == "unknown" || module == "github-scan" {
+				module = "apkx"
+			}
+			if category == "" || category == "output" || category == "recon" {
+				category = "vulnerability"
+			}
+			if kind == "" || kind == "other" || kind == "vuln" {
+				kind = "apkx"
+			}
+		}
 		for _, r := range ps {
 			if len(rows) >= limit {
 				return
 			}
 			r.File = e.FileName
-			r.Module = e.Module
-			r.Category = e.Category
+			r.Module = module
+			r.Category = category
 			r.Kind = kind
 			rows = append(rows, r)
 		}
@@ -1198,6 +1215,13 @@ func apiScanParsedResults(c *gin.Context) {
 				continue
 			}
 			if presentFiles[strings.ToLower(jsonReplacement)] {
+				continue
+			}
+		}
+		if scanType == "apkx" {
+			ext := strings.ToLower(filepath.Ext(e.FileName))
+			// Do not parse rendered report assets as findings rows.
+			if ext == ".html" || ext == ".htm" || ext == ".css" || ext == ".js" {
 				continue
 			}
 		}
