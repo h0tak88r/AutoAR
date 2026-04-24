@@ -771,12 +771,14 @@ func parseAPKStructuredLine(line string) (path, matcher, ctx string) {
 	if s == "" {
 		return "", "", ""
 	}
-	// Typical format: "<path>: <matcher> (Context: ...)"
-	parts := strings.SplitN(s, ": ", 2)
-	if len(parts) == 2 {
-		if strings.Contains(parts[0], "/") || strings.Contains(parts[0], "\\") || strings.Contains(parts[0], ".") {
-			path = strings.TrimSpace(parts[0])
-			matcher = strings.TrimSpace(parts[1])
+	// Typical format: "<path>: <matcher> (Context: ...)".
+	// Some scanners emit ":" without a trailing space, so accept both.
+	if idx := strings.Index(s, ":"); idx > 0 && idx < len(s)-1 {
+		left := strings.TrimSpace(s[:idx])
+		right := strings.TrimSpace(s[idx+1:])
+		if strings.Contains(left, "/") || strings.Contains(left, "\\") || strings.Contains(left, ".") {
+			path = left
+			matcher = right
 		}
 	}
 	if path == "" {

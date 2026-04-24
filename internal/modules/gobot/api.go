@@ -278,6 +278,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/scans/:id/pause", apiPauseScan)
 		apiGroup.POST("/scans/:id/resume", apiResumeScan)
 		apiGroup.POST("/scans/:id/rescan", apiRescan)
+		apiGroup.POST("/apkx/cache/clear", apiClearAPKXCache)
 		apiGroup.GET("/monitor/targets", apiMonitorTargets)
 		apiGroup.GET("/monitor/subdomain-targets", apiSubdomainMonitorTargets)
 		apiGroup.GET("/monitor/changes", apiMonitorChanges)
@@ -2519,6 +2520,97 @@ func shouldSkipArtifact(path string) bool {
 	default:
 		return true
 	}
+}
+
+type clearApkxCacheRequest struct {
+	Package string `json:"package"`
+	All     *bool  `json:"all,omitempty"`
+}
+
+// apiClearAPKXCache clears local/R2 APKX cache entries.
+// - package provided: clears only that package prefix.
+// - package omitted or all=true: clears all APKX cache.
+func apiClearAPKXCache(c *gin.Context) {
+	var req clearApkxCacheRequest
+	_ = c.ShouldBindJSON(&req)
+
+	pkg := strings.TrimSpace(c.Query("package"))
+	if pkg == "" {
+		pkg = strings.TrimSpace(req.Package)
+	}
+	clearAll := pkg == ""
+	if req.All != nil && *req.All {
+		clearAll = true
+	}
+
+	cacheRoot := filepath.Join(getResultsDir(), "apkx", "cache")
+	_ = os.MkdirAll(cacheRoot, 0o755)
+
+	removedLocal := 0
+	removeR2Prefix := "apkx/cache/"
+	if !clearAll {
+		safePkg := strings.ReplaceAll(pkg, ".", "_")
+		prefix := safePkg + "_"
+		entries, err := os.ReadDir(cacheRoot)
+		if err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				if strings.HasPrefix(strings.ToLower(e.Name()), strings.ToLower(prefix)) {
+					if rmErr := os.RemoveAll(filepath.Join(cacheRoot, e.Name())); rmErr == nil {
+						removedLocal++
+					}
+				}
+			}
+		}
+		removeR2Prefix = "apkx/cache/" + safePkg + "_"
+	} else {
+		entries, err := os.ReadDir(cacheRoot)
+		if err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					if rmErr := os.RemoveAll(filepath.Join(cacheRoot, e.Name())); rmErr == nil {
+						removedLocal++
+					}
+				}
+			}
+		}
+	}
+
+	removedR2 := 0
+	r2ErrMsg := ""
+	if r2storage.IsEnabled() {
+		if objs, err := r2storage.ListObjectsRecursive(removeR2Prefix); err == nil {
+			keys := make([]string, 0, len(objs))
+			for _, o := range objs {
+				if strings.TrimSpace(o.Key) != "" {
+					keys = append(keys, o.Key)
+				}
+			}
+			if len(keys) > 0 {
+				if err := r2storage.DeleteObjects(keys); err != nil {
+					r2ErrMsg = err.Error()
+				} else {
+					removedR2 = len(keys)
+				}
+			}
+		} else {
+			r2ErrMsg = err.Error()
+		}
+	}
+
+	scope := "all"
+	if !clearAll {
+		scope = pkg
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"ok":            true,
+		"scope":         scope,
+		"local_removed": removedLocal,
+		"r2_removed":    removedR2,
+		"r2_error":      r2ErrMsg,
+	})
 }
 
 // CancelScanByID stops a running scan: API process (SIGKILL) or Discord context cancel.
