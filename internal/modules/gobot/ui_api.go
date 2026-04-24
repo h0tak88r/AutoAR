@@ -38,16 +38,18 @@ import (
 func apiConfigHandler(c *gin.Context) {
 	// Must match supabaseJWTAuth / dashboardAPIAuthEnforced (UI sends Bearer only when this is true).
 	authOn := dashboardAPIAuthEnforced()
+	apkxCacheDisabled := strings.EqualFold(strings.TrimSpace(os.Getenv("APKX_DISABLE_CACHE")), "true")
 	c.JSON(http.StatusOK, gin.H{
-		"version":       version.Version,
-		"r2_enabled":    r2storage.IsEnabled(),
-		"r2_public_url": os.Getenv("R2_PUBLIC_URL"),
-		"r2_bucket":     os.Getenv("R2_BUCKET_NAME"),
-		"auth_enabled":  authOn,
-		"auth_provider": "local",
-		"db_type":       getEnv("DB_TYPE", "postgresql"),
-		"mode":          getEnv("AUTOAR_MODE", "discord"),
-		"monitor_webhook": os.Getenv("MONITOR_WEBHOOK_URL"),
+		"version":             version.Version,
+		"r2_enabled":          r2storage.IsEnabled(),
+		"r2_public_url":       os.Getenv("R2_PUBLIC_URL"),
+		"r2_bucket":           os.Getenv("R2_BUCKET_NAME"),
+		"auth_enabled":        authOn,
+		"auth_provider":       "local",
+		"db_type":             getEnv("DB_TYPE", "postgresql"),
+		"mode":                getEnv("AUTOAR_MODE", "discord"),
+		"monitor_webhook":     os.Getenv("MONITOR_WEBHOOK_URL"),
+		"apkx_cache_disabled": apkxCacheDisabled,
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 	})
@@ -58,9 +60,10 @@ func apiConfigHandler(c *gin.Context) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type UpdateSettingsBody struct {
-	MonitorWebhook string `json:"monitor_webhook"`
-	OpenRouterKey  string `json:"openrouter_key"`
-	GeminiKey      string `json:"gemini_key"`
+	MonitorWebhook   string `json:"monitor_webhook"`
+	OpenRouterKey    string `json:"openrouter_key"`
+	GeminiKey        string `json:"gemini_key"`
+	APKXDisableCache *bool  `json:"apkx_disable_cache,omitempty"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -69,7 +72,7 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-	
+
 	if body.MonitorWebhook != "" {
 		_ = envloader.UpdateEnv("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
 	}
@@ -79,7 +82,15 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	if body.GeminiKey != "" {
 		_ = envloader.UpdateEnv("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
 	}
-	
+	if body.APKXDisableCache != nil {
+		v := "false"
+		if *body.APKXDisableCache {
+			v = "true"
+		}
+		_ = envloader.UpdateEnv("APKX_DISABLE_CACHE", v)
+		_ = os.Setenv("APKX_DISABLE_CACHE", v)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})
 }
 
@@ -1949,4 +1960,3 @@ Use EXACTLY this structure (markdown):
 		"finding": body.FindingType,
 	})
 }
-

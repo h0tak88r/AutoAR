@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	apkxanalyzer "github.com/h0tak88r/AutoAR/internal/tools/apkx/analyzer"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
 	iosstore "github.com/h0tak88r/AutoAR/internal/tools/ipatool"
-	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
 
 // Options controls how apkX is invoked from AutoAR.
@@ -33,12 +33,12 @@ type Options struct {
 
 // Result describes where apkX wrote its output.
 type Result struct {
-	ReportDir      string
-	LogFile        string
-	Duration       time.Duration
-	MITMPatchedAPK string // Path to MITM patched APK if MITM was enabled
+	ReportDir       string
+	LogFile         string
+	Duration        time.Duration
+	MITMPatchedAPK  string // Path to MITM patched APK if MITM was enabled
 	OriginalAPKPath string // Path to original downloaded APK (for RunFromPackage)
-	FromCache      bool   // True if this result was loaded from cache
+	FromCache       bool   // True if this result was loaded from cache
 }
 
 // PackageOptions controls apkX scans where AutoAR first downloads the
@@ -58,12 +58,11 @@ type Result struct {
 //
 // Example (Android with gplaycli):
 //
-//   export APKX_ANDROID_DOWNLOAD_CMD='gplaycli -d \"$APKX_PACKAGE\" -f \"$APKX_OUTPUT\"'
+//	export APKX_ANDROID_DOWNLOAD_CMD='gplaycli -d \"$APKX_PACKAGE\" -f \"$APKX_OUTPUT\"'
 //
 // Example (iOS with ipatool):
 //
-//   export APKX_IOS_DOWNLOAD_CMD='ipatool download -b \"$APKX_PACKAGE\" -o \"$APKX_OUTPUT\"'
-//
+//	export APKX_IOS_DOWNLOAD_CMD='ipatool download -b \"$APKX_PACKAGE\" -o \"$APKX_OUTPUT\"'
 type PackageOptions struct {
 	// Package is the Android package name or iOS bundle identifier.
 	Package string
@@ -73,6 +72,15 @@ type PackageOptions struct {
 	OutputDir string
 	// Whether to enable MITM patching where supported.
 	MITM bool
+	// Disable cache lookups/saves for this run.
+	DisableCache bool
+}
+
+func isCacheDisabled(opts PackageOptions) bool {
+	if opts.DisableCache {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("APKX_DISABLE_CACHE")), "true")
 }
 
 // extractXAPK extracts a XAPK file (which is a ZIP archive) and returns
@@ -88,9 +96,9 @@ func extractXAPK(xapkPath, extractDir string) (string, error) {
 
 	// Find all APK files in the archive
 	type apkInfo struct {
-		path     string
-		size     int64
-		isSplit  bool
+		path    string
+		size    int64
+		isSplit bool
 	}
 	var apkFiles []apkInfo
 
@@ -129,7 +137,7 @@ func extractXAPK(xapkPath, extractDir string) (string, error) {
 
 	// Extract the main APK
 	mainAPKPath := filepath.Join(extractDir, filepath.Base(mainAPK.path))
-	
+
 	for _, f := range r.File {
 		if f.Name == mainAPK.path {
 			rc, err := f.Open()
@@ -147,7 +155,7 @@ func extractXAPK(xapkPath, extractDir string) (string, error) {
 			if _, err := io.Copy(outFile, rc); err != nil {
 				return "", fmt.Errorf("failed to extract %s: %w", f.Name, err)
 			}
-			
+
 			if err := outFile.Close(); err != nil {
 				return "", fmt.Errorf("failed to close output file: %w", err)
 			}
@@ -170,7 +178,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	resultsRoot := os.Getenv("AUTOAR_RESULTS_DIR")
-	
+
 	// Check if we're running in Docker by checking if /app exists and is writable
 	isDocker := false
 	if _, err := os.Stat("/app"); err == nil {
@@ -184,7 +192,7 @@ func Run(opts Options) (*Result, error) {
 			}
 		}
 	}
-	
+
 	if resultsRoot == "" {
 		// No env var set - use relative path for native, Docker path for Docker
 		if isDocker {
@@ -238,14 +246,14 @@ func Run(opts Options) (*Result, error) {
 		if workers < 4 {
 			workers = 4 // Minimum 4 workers
 		}
-		
+
 		// Allow override via environment variable
 		if envWorkers := os.Getenv("APKX_WORKERS"); envWorkers != "" {
 			if w, err := strconv.Atoi(envWorkers); err == nil && w > 0 {
 				workers = w
 			}
 		}
-		
+
 		cfg := &apkxanalyzer.Config{
 			APKPath:      opts.InputPath,
 			OutputDir:    outDir,
@@ -262,14 +270,14 @@ func Run(opts Options) (*Result, error) {
 				Duration:  time.Since(start),
 			}, fmt.Errorf("apk analysis failed: %w", err)
 		}
-		
+
 		// If MITM patching was requested, patch the APK using pure Go implementation
 		if opts.MITM {
 			fmt.Printf("[MITM] ========================================\n")
 			fmt.Printf("[MITM] Starting APK patching for MITM inspection...\n")
 			fmt.Printf("[MITM] Input APK: %s\n", opts.InputPath)
 			fmt.Printf("[MITM] Output directory: %s\n", outDir)
-			
+
 			patcher, err := mitm.NewPatcher()
 			if err != nil {
 				fmt.Printf("[ERROR] MITM patcher initialization failed: %v\n", err)
@@ -280,7 +288,7 @@ func Run(opts Options) (*Result, error) {
 				fmt.Printf("[MITM] Patcher initialized successfully\n")
 				fmt.Printf("[MITM] apktool path: %s\n", patcher.GetApktoolPath())
 				fmt.Printf("[MITM] java path: %s\n", patcher.GetJavaPath())
-				
+
 				patchedPath, err := patcher.PatchAPK(opts.InputPath, outDir)
 				if err != nil {
 					fmt.Printf("[ERROR] MITM patching failed: %v\n", err)
@@ -290,7 +298,7 @@ func Run(opts Options) (*Result, error) {
 					// Verify the file exists
 					if info, statErr := os.Stat(patchedPath); statErr == nil {
 						mitmPatchedAPK = patchedPath
-						fmt.Printf("[OK] MITM patched APK created: %s (size: %d bytes, %.2f MB)\n", 
+						fmt.Printf("[OK] MITM patched APK created: %s (size: %d bytes, %.2f MB)\n",
 							patchedPath, info.Size(), float64(info.Size())/1024/1024)
 						fmt.Printf("[MITM] ========================================\n")
 					} else {
@@ -355,13 +363,12 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	return &Result{
-		ReportDir:     outDir,
-		LogFile:       filepath.Join(outDir, "results.json"),
-		Duration:      time.Since(start),
+		ReportDir:      outDir,
+		LogFile:        filepath.Join(outDir, "results.json"),
+		Duration:       time.Since(start),
 		MITMPatchedAPK: mitmPatchedAPK,
 	}, nil
 }
-
 
 // RunFromPackage downloads an APK/IPA for the given package identifier using
 // an external helper command (configured via environment variables) and then
@@ -437,25 +444,30 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		version = "unknown"
 	}
 
+	cacheDisabled := isCacheDisabled(opts)
+	if cacheDisabled {
+		fmt.Printf("[CACHE] 🚫 Cache disabled, forcing fresh scan for %s\n", pkg)
+	}
+
 	// Check cache if we have package name
-	if packageName != "" {
+	if packageName != "" && !cacheDisabled {
 		// Try with version first, then fallback to "latest" if version is empty
 		cacheVersion := version
 		if cacheVersion == "" || cacheVersion == "unknown" {
 			cacheVersion = "latest"
 		}
-		
+
 		cachePath, found := CheckCache(packageName, cacheVersion)
 		if found {
 			fmt.Printf("[CACHE] [ + ]Using cached results for %s v%s (skipping scan)\n", packageName, version)
-			
+
 			// Load cached result
 			if strings.HasPrefix(cachePath, "r2:") {
 				// R2 cache - download to local cache first
 				r2Prefix := strings.TrimPrefix(cachePath, "r2:")
 				localCachePath := getCachePath(packageName, version)
 				fmt.Printf("[CACHE] 📥 Downloading cache from R2: %s\n", r2Prefix)
-				
+
 				if err := r2storage.DownloadDirectory(r2Prefix, localCachePath); err != nil {
 					fmt.Printf("[CACHE] ⚠️  Failed to download cache from R2: %v, doing fresh scan\n", err)
 				} else {
@@ -492,14 +504,14 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		OutputDir: opts.OutputDir,
 		MITM:      opts.MITM,
 	})
-	
+
 	// Store the original APK path in the result
 	if result != nil {
 		result.OriginalAPKPath = inputPath
 	}
 
 	// Save to cache after successful scan
-	if err == nil && result != nil && packageName != "" {
+	if err == nil && result != nil && packageName != "" && !cacheDisabled {
 		// Try to extract version from decompiled AndroidManifest.xml if version extraction failed
 		if version == "" || version == "unknown" || version == "latest" {
 			// Extract from decompiled manifest
@@ -510,13 +522,13 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 					content, readErr := os.ReadFile(manifestPath)
 					if readErr == nil {
 						manifestContent := string(content)
-						
+
 						// Extract version name
 						versionRegex := regexp.MustCompile(`android:versionName\s*=\s*["']([^"']+)["']`)
 						if matches := versionRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
 							version = matches[1]
 						}
-						
+
 						// Extract version code if version name not found
 						if version == "" {
 							versionCodeRegex := regexp.MustCompile(`android:versionCode\s*=\s*["']([^"']+)["']`)
@@ -531,7 +543,7 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 								versionCode = matches[1]
 							}
 						}
-						
+
 						if version != "" {
 							fmt.Printf("[CACHE] [ + ]Extracted version from decompiled manifest: %s v%s\n", packageName, version)
 						}
@@ -539,7 +551,7 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 				}
 			}
 		}
-		
+
 		// Use extracted version if available, otherwise use "latest"
 		cacheVersionToSave := version
 		if cacheVersionToSave == "" || cacheVersionToSave == "unknown" {
