@@ -6743,6 +6743,15 @@ function renderSettings() {
     : '—', cfg.r2_public_url ? 'ok' : 'warn')}
     </div>
     <div class="setting-card">
+      <div class="setting-card-header">📱 APKX Cache</div>
+      ${row('Status', cfg.apkx_cache_disabled ? 'Disabled (fresh scans)' : 'Enabled', cfg.apkx_cache_disabled ? 'warn' : 'ok')}
+      <div class="setting-row" style="margin-top:8px">
+        <button class="btn btn-ghost" onclick="toggleApkxCache(${cfg.apkx_cache_disabled ? 'false' : 'true'})" style="font-size:12px">
+          ${cfg.apkx_cache_disabled ? 'Enable APK cache' : 'Disable APK cache'}
+        </button>
+      </div>
+    </div>
+    <div class="setting-card">
       <div class="setting-card-header">📡 API Endpoints</div>
       ${row('Dashboard', window.location.origin + '/ui')}
       ${row('API Base', window.location.origin + '/api')}
@@ -6821,6 +6830,24 @@ window.saveWebhookSettings = async function () {
     showToast('error', 'Error', e.message);
   }
   if (btn) btn.textContent = 'Save';
+};
+
+window.toggleApkxCache = async function (disable) {
+  const wantDisable = !!disable;
+  try {
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`${API}/api/settings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ apkx_disable_cache: wantDisable })
+    });
+    if (!res.ok) throw new Error('Failed to update APK cache setting');
+    if (state.config) state.config.apkx_cache_disabled = wantDisable;
+    renderSettings();
+    showToast('success', 'Saved!', wantDisable ? 'APK cache disabled.' : 'APK cache enabled.');
+  } catch (e) {
+    showToast('error', 'Error', e.message);
+  }
 };
 
 function updateStatusDot() {
