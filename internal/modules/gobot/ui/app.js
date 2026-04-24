@@ -185,6 +185,7 @@ const state = {
   _r2BrowserWired: false,
   _metricsTimer: null,
   reportTemplateOriginalName: '',
+  apkxCacheStats: null,
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -488,6 +489,7 @@ async function loadConfig() {
     const res = await fetch(`${API}/api/config`);
     if (!res.ok) return;
     state.config = await res.json();
+    await loadApkxCacheStats();
     renderSettings();
     updateStatusDot();
   } catch (e) { /* silent */ }
@@ -6687,6 +6689,14 @@ function renderSettings() {
     <span class="setting-key">${k}</span>
     <span class="setting-val ${cls || ''}">${esc(String(v ?? '—'))}</span>
   </div>`;
+  const cacheStats = state.apkxCacheStats;
+  const localBytes = Number(cacheStats?.local?.bytes || 0);
+  const localDirs = Number(cacheStats?.local?.dirs || 0);
+  const localFiles = Number(cacheStats?.local?.files || 0);
+  const r2Enabled = !!cacheStats?.r2?.enabled;
+  const r2Objects = Number(cacheStats?.r2?.objects || 0);
+  const r2Bytes = Number(cacheStats?.r2?.bytes || 0);
+  const r2Err = String(cacheStats?.r2?.error || '').trim();
 
   el.innerHTML = `<div class="settings-grid">
     <div class="setting-card">
@@ -6745,11 +6755,17 @@ function renderSettings() {
     <div class="setting-card">
       <div class="setting-card-header">📱 APKX Cache</div>
       ${row('Status', cfg.apkx_cache_disabled ? 'Disabled (fresh scans)' : 'Enabled', cfg.apkx_cache_disabled ? 'warn' : 'ok')}
+      ${row('Local cache size', fmtSize(localBytes), localBytes > 0 ? 'warn' : 'ok')}
+      ${row('Local entries', `${localDirs} dirs / ${localFiles} files`, localDirs > 0 ? 'warn' : 'ok')}
+      ${row('R2 cache size', r2Enabled ? fmtSize(r2Bytes) : 'R2 disabled', r2Enabled && r2Bytes > 0 ? 'warn' : 'ok')}
+      ${row('R2 objects', r2Enabled ? String(r2Objects) : '—', r2Enabled && r2Objects > 0 ? 'warn' : 'ok')}
       <div class="setting-row" style="margin-top:8px">
         <button class="btn btn-ghost" onclick="toggleApkxCache(${cfg.apkx_cache_disabled ? 'false' : 'true'})" style="font-size:12px">
           ${cfg.apkx_cache_disabled ? 'Enable APK cache' : 'Disable APK cache'}
         </button>
+        <button class="btn btn-ghost" onclick="refreshApkxCacheStats()" style="font-size:12px">↻ Refresh stats</button>
       </div>
+      ${r2Err ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:8px">R2 stats warning: ${esc(r2Err)}</div>` : ''}
     </div>
     <div class="setting-card">
       <div class="setting-card-header">📡 API Endpoints</div>
@@ -6759,6 +6775,14 @@ function renderSettings() {
       ${row('Scan', window.location.origin + '/scan/*')}
     </div>
   </div>`;
+}
+
+async function loadApkxCacheStats() {
+  try {
+    state.apkxCacheStats = await apiFetch('/api/apkx/cache/stats');
+  } catch (e) {
+    state.apkxCacheStats = null;
+  }
 }
 
 window.saveOpenRouterKey = async function () {
@@ -6848,6 +6872,11 @@ window.toggleApkxCache = async function (disable) {
   } catch (e) {
     showToast('error', 'Error', e.message);
   }
+};
+
+window.refreshApkxCacheStats = async function () {
+  await loadApkxCacheStats();
+  renderSettings();
 };
 
 function updateStatusDot() {

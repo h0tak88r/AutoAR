@@ -278,6 +278,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/scans/:id/pause", apiPauseScan)
 		apiGroup.POST("/scans/:id/resume", apiResumeScan)
 		apiGroup.POST("/scans/:id/rescan", apiRescan)
+		apiGroup.GET("/apkx/cache/stats", apiAPKXCacheStats)
 		apiGroup.POST("/apkx/cache/clear", apiClearAPKXCache)
 		apiGroup.GET("/monitor/targets", apiMonitorTargets)
 		apiGroup.GET("/monitor/subdomain-targets", apiSubdomainMonitorTargets)
@@ -2525,6 +2526,58 @@ func shouldSkipArtifact(path string) bool {
 type clearApkxCacheRequest struct {
 	Package string `json:"package"`
 	All     *bool  `json:"all,omitempty"`
+}
+
+func apiAPKXCacheStats(c *gin.Context) {
+	cacheRoot := filepath.Join(getResultsDir(), "apkx", "cache")
+	_ = os.MkdirAll(cacheRoot, 0o755)
+
+	localDirs := 0
+	localFiles := 0
+	localBytes := int64(0)
+	_ = filepath.Walk(cacheRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			if path != cacheRoot {
+				localDirs++
+			}
+			return nil
+		}
+		localFiles++
+		localBytes += info.Size()
+		return nil
+	})
+
+	r2Objects := 0
+	r2Bytes := int64(0)
+	r2ErrMsg := ""
+	if r2storage.IsEnabled() {
+		if objs, err := r2storage.ListObjectsRecursive("apkx/cache/"); err == nil {
+			r2Objects = len(objs)
+			for _, o := range objs {
+				r2Bytes += o.Size
+			}
+		} else {
+			r2ErrMsg = err.Error()
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok": true,
+		"local": gin.H{
+			"dirs":  localDirs,
+			"files": localFiles,
+			"bytes": localBytes,
+		},
+		"r2": gin.H{
+			"enabled": r2storage.IsEnabled(),
+			"objects": r2Objects,
+			"bytes":   r2Bytes,
+			"error":   r2ErrMsg,
+		},
+	})
 }
 
 // apiClearAPKXCache clears local/R2 APKX cache entries.
