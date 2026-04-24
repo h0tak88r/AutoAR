@@ -4309,6 +4309,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   if (hasUrlsDatasetTab) {
     excludedModuleTabs.add('url-collection');
   }
+  // APK dataset tab already exists; skip duplicate module tab.
+  const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');
+  if (hasApkxDatasetTab) {
+    excludedModuleTabs.add('apkx');
+  }
   const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
     const info = getModuleDisplayInfo(mod);
     return [`mod:${mod}`, `${info.icon} ${info.name}`];
