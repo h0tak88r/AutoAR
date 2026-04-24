@@ -1973,12 +1973,36 @@ function getUnifiedTableColumns(activeKind) {
 function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
   const active = String(activeKind || '');
   const moduleTab = active.startsWith('mod:') ? active.slice(4) : (active === 'misconfig' ? 'misconfig' : '');
+  const isApkCategoryTab = active.startsWith('apkcat:');
+  const isApkUnifiedTab = active === 'apkx' || isApkCategoryTab;
   const target = String(r.host || r.target || '-');
   let displayTarget = target;
   let href = target.startsWith('http') ? target : (target !== '-' ? `https://${target}` : '#');
   const finding = String(r.title || r.finding || '—').trim() || '—';
   const findingShort = finding.length > 88 ? `${finding.slice(0, 86)}...` : finding;
   const source = String(r.file || r.source || '—');
+  let apkCategoryLabel = String(r.apk_category || '').trim();
+  let apkMatcherValue = finding;
+
+  if (isApkUnifiedTab) {
+    if (!apkCategoryLabel && target && target !== '-' && target !== '—') {
+      apkCategoryLabel = target;
+    }
+    let payload = finding;
+    if (apkCategoryLabel && payload.toLowerCase().startsWith(`${apkCategoryLabel.toLowerCase()}:`)) {
+      payload = payload.slice(apkCategoryLabel.length + 1).trim();
+    }
+    const pathMatch = payload.match(/^([^:]+):\s*(.+)$/);
+    if (pathMatch && (pathMatch[1].includes('/') || pathMatch[1].includes('\\') || pathMatch[1].includes('.'))) {
+      displayTarget = pathMatch[1].trim();
+      href = '#';
+      apkMatcherValue = pathMatch[2].trim() || payload;
+    } else {
+      displayTarget = target && target !== '—' ? target : '—';
+      href = '#';
+      apkMatcherValue = payload;
+    }
+  }
 
   if (moduleTab === 'js-analysis') {
     const jsCandidates = [
@@ -1994,10 +2018,18 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
     }
   }
 
-  const tdTarget = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+  const tdTarget = isApkUnifiedTab
+    ? `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <span title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</span>
+    </td>`
+    : `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
       <a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</a>
     </td>`;
-  const tdSev = `<td style="padding:7px 8px;text-align:center;white-space:nowrap">
+  const tdSev = isApkUnifiedTab
+    ? `<td style="padding:7px 8px;text-align:center;white-space:nowrap">
+      <span style="display:inline-block;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.35);color:#67e8f9;font-size:9px;font-weight:800;letter-spacing:.5px;padding:2px 7px;border-radius:4px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(apkCategoryLabel || 'APK Analysis')}">${esc(apkCategoryLabel || 'APK Analysis')}</span>
+    </td>`
+    : `<td style="padding:7px 8px;text-align:center;white-space:nowrap">
       <span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span>
     </td>`;
   const tdModule = `<td style="padding:7px 10px;white-space:nowrap;max-width:0;overflow:hidden;text-overflow:ellipsis">
@@ -2005,7 +2037,7 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
     </td>`;
 
   let c2 = tdSev;
-  let c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);">${esc(findingShort)}</span></td>`;
+  let c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(isApkUnifiedTab ? apkMatcherValue : finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);">${esc((isApkUnifiedTab ? apkMatcherValue : findingShort))}</span></td>`;
   let c4 = tdModule;
 
   if (moduleTab === 'nuclei') {
@@ -2046,7 +2078,7 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
     c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(finding)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-primary)">${esc(findingShort)}</span></td>`;
   }
 
-  return `<tr class="findings-row" data-target="${escAttr(displayTarget)}" data-finding="${escAttr(finding)}" data-severity="${escAttr(r.severity || '')}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+  return `<tr class="findings-row" data-target="${escAttr(displayTarget)}" data-finding="${escAttr(isApkUnifiedTab ? apkMatcherValue : finding)}" data-severity="${escAttr(isApkUnifiedTab ? (apkCategoryLabel || 'APK Analysis') : (r.severity || ''))}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
     <td style="padding:7px 10px;width:36px;text-align:center">
       <input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()">
     </td>
