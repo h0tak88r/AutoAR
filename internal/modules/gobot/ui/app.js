@@ -3902,6 +3902,28 @@ function previewDataToFlatRows(data, file) {
     if ((module === 'autoar' || module === 'unknown') && (String(file.file_name || '').toLowerCase().includes('results.json') || looksLikeApkxObject(obj))) {
       module = 'apkx';
     }
+    // APK results.json is typically map<string, string[]>; flatten each category entry.
+    if (module === 'apkx') {
+      let flattened = 0;
+      Object.entries(obj).forEach(([k, v]) => {
+        if (Array.isArray(v)) {
+          v.forEach((item) => {
+            const str = String(item || '').trim();
+            if (!str) return;
+            rows.push({
+              file: file.file_name,
+              module,
+              source: file.source || '—',
+              severity: 'info',
+              target: '—',
+              finding: `${k}: ${str}`,
+            });
+            flattened += 1;
+          });
+        }
+      });
+      if (flattened > 0) return rows;
+    }
     let foundArray = false;
     for (const k of ['results', 'findings', 'matches', 'issues', 'vulnerabilities', 'data', 'items']) {
       if (Array.isArray(obj[k])) {
@@ -4119,6 +4141,8 @@ function inferKindFromFileName(fileName) {
 async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) {
   const root = document.getElementById(containerId);
   if (!root) return;
+  const stNorm = String(scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
+  const isAPKScan = stNorm.includes('apkx');
   // Support both the unified badge and legacy recon badge
   const badge = document.getElementById('unified-parsed-badge') || document.getElementById('recon-parsed-badge');
 
@@ -4173,6 +4197,13 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     return;
   }
 
+  if (isAPKScan) {
+    const hasJsonRows = allRows.some((r) => String(r.file || '').toLowerCase().endsWith('.json'));
+    if (hasJsonRows) {
+      allRows = allRows.filter((r) => String(r.file || '').toLowerCase().endsWith('.json'));
+    }
+  }
+
   allRows = allRows
     .map((r) => {
       let kind = String(r.kind || inferKindFromFileName(r.file) || 'other').toLowerCase().trim();
@@ -4189,10 +4220,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
       if (looksLikeJSMatcher) kind = 'js-analysis';
       else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
+      if (isAPKScan) kind = 'apkx';
 
       const normalizedModule = (moduleNorm === 'unknown' && (kind === 'js-analysis' || kind === 'js_urls'))
         ? 'js-analysis'
-        : moduleNorm;
+        : (isAPKScan ? 'apkx' : moduleNorm);
 
       return {
         ...r,
@@ -4207,6 +4239,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       if (finding === 'no findings found' && (target === '' || target === '-' || target === '—')) {
         return false;
       }
+      if (isAPKScan) {
+        if ((target === '' || target === '-' || target === '—') && (finding === '' || finding === '—' || finding === 'autoar' || finding === 'apkx')) {
+          return false;
+        }
+      }
       return true;
     });
 
@@ -4214,7 +4251,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github', 'sqlmap', 'aem-findings']);
   const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
 
-  const stNorm = (scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
   const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run';
   let activeKind = isReconScan ? 'assets' : 'urls';
   if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
