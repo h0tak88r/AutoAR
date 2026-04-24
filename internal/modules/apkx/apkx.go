@@ -243,8 +243,8 @@ func Run(opts Options) (*Result, error) {
 	case ".apk":
 		// Keep worker count conservative to reduce OOM risk on large APKs.
 		workers := runtime.NumCPU()
-		if workers > 6 {
-			workers = 6
+		if workers > 3 {
+			workers = 3
 		}
 		if workers < 2 {
 			workers = 2
@@ -331,8 +331,8 @@ func Run(opts Options) (*Result, error) {
 
 		// Process the extracted main APK
 		workers := runtime.NumCPU()
-		if workers > 6 {
-			workers = 6
+		if workers > 3 {
+			workers = 3
 		}
 		if workers < 2 {
 			workers = 2
@@ -355,8 +355,8 @@ func Run(opts Options) (*Result, error) {
 		}
 	case ".ipa":
 		workers := runtime.NumCPU()
-		if workers > 4 {
-			workers = 4
+		if workers > 2 {
+			workers = 2
 		}
 		if workers < 2 {
 			workers = 2
