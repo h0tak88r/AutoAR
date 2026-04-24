@@ -128,9 +128,9 @@ func (s *APKScanner) Run() error {
 			maxFiles = m
 		}
 	}
-	
+
 	if len(filesToProcess) > maxFiles {
-		fmt.Printf("%sWarning: Found %d files, limiting to %d to prevent resource exhaustion%s\n", 
+		fmt.Printf("%sWarning: Found %d files, limiting to %d to prevent resource exhaustion%s\n",
 			utils.ColorWarning, len(filesToProcess), maxFiles, utils.ColorEnd)
 		filesToProcess = filesToProcess[:maxFiles]
 	}
@@ -151,29 +151,25 @@ func (s *APKScanner) Run() error {
 			maxWorkers = 10 // Original default for smaller APKs
 		}
 	}
-	
+
 	// Cap at reasonable maximum to prevent resource exhaustion
 	if maxWorkers > 20 {
 		maxWorkers = 20
 	}
 
-	// Process files in batches to control concurrency
-	semaphore := make(chan struct{}, maxWorkers)
-	
+	// Fixed worker pool (instead of one goroutine per file) to reduce memory pressure.
+	jobs := make(chan string, maxWorkers*2)
+
 	// Progress tracking with throttling (log every 100 files or 5 seconds)
 	processedCount := 0
 	lastLogTime := time.Now()
 	progressMu := sync.Mutex{}
-	
+
 	fmt.Printf("%sUsing %d concurrent workers for processing...%s\n", utils.ColorBlue, maxWorkers, utils.ColorEnd)
 
-	for _, path := range filesToProcess {
-		wg.Add(1)
-		go func(filePath string) {
-			defer wg.Done()
-			semaphore <- struct{}{}        // Acquire
-			defer func() { <-semaphore }() // Release
-
+	workerFn := func() {
+		defer wg.Done()
+		for filePath := range jobs {
 			matches := s.processFile(filePath, patterns)
 			if len(matches) > 0 {
 				resultsMu.Lock()
@@ -184,24 +180,33 @@ func (s *APKScanner) Run() error {
 				}
 				resultsMu.Unlock()
 			}
-			
+
 			// Throttled progress logging
 			progressMu.Lock()
 			processedCount++
 			now := time.Now()
 			if processedCount%100 == 0 || now.Sub(lastLogTime) >= 5*time.Second {
-				fmt.Printf("%sProgress: %d of %d (%.0f%%)%s\n", 
-					utils.ColorBlue, processedCount, len(filesToProcess), 
+				fmt.Printf("%sProgress: %d of %d (%.0f%%)%s\n",
+					utils.ColorBlue, processedCount, len(filesToProcess),
 					float64(processedCount)/float64(len(filesToProcess))*100, utils.ColorEnd)
 				lastLogTime = now
 			}
 			progressMu.Unlock()
-		}(path)
+		}
 	}
 
-	// Wait for all goroutines to complete
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go workerFn()
+	}
+	for _, path := range filesToProcess {
+		jobs <- path
+	}
+	close(jobs)
+
+	// Wait for workers to complete
 	wg.Wait()
-	
+
 	// Final progress message
 	fmt.Printf("%sCompleted analysis of %d files%s\n", utils.ColorGreen, len(filesToProcess), utils.ColorEnd)
 
@@ -250,7 +255,7 @@ func (s *APKScanner) loadPatterns() (map[string][]string, error) {
 
 	if s.config.PatternsPath != "" {
 		data, err = os.ReadFile(s.config.PatternsPath)
-	if err != nil {
+		if err != nil {
 			return nil, fmt.Errorf("failed to read patterns file %s: %v", s.config.PatternsPath, err)
 		}
 	} else {
@@ -313,13 +318,13 @@ func (s *APKScanner) processFile(path string, patterns map[string][]string) map[
 	if err != nil {
 		return nil
 	}
-	
+
 	// Skip files larger than 10MB (they're likely binary and not useful for pattern matching)
 	const maxFileSize = 10 * 1024 * 1024 // 10MB
 	if info.Size() > maxFileSize {
 		return nil
 	}
-	
+
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil
