@@ -491,8 +491,12 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 					// Now load from local cache
 					cachedResult, err := LoadCachedResult(localCachePath)
 					if err == nil {
-						fmt.Printf("[CACHE] [ + ]Loaded cache from R2 for %s v%s\n", packageName, version)
-						return cachedResult, nil
+						if opts.MITM && strings.TrimSpace(cachedResult.MITMPatchedAPK) == "" {
+							fmt.Printf("[CACHE] ⚠️  Cache hit without MITM-patched APK; running fresh MITM scan\n")
+						} else {
+							fmt.Printf("[CACHE] [ + ]Loaded cache from R2 for %s v%s\n", packageName, version)
+							return cachedResult, nil
+						}
 					}
 					fmt.Printf("[CACHE] ⚠️  Failed to load downloaded cache: %v, doing fresh scan\n", err)
 				}
@@ -500,8 +504,12 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 				// Local cache
 				cachedResult, err := LoadCachedResult(cachePath)
 				if err == nil {
-					// Update paths to point to cache
-					return cachedResult, nil
+					if opts.MITM && strings.TrimSpace(cachedResult.MITMPatchedAPK) == "" {
+						fmt.Printf("[CACHE] ⚠️  Local cache has no MITM-patched APK; running fresh MITM scan\n")
+					} else {
+						// Update paths to point to cache
+						return cachedResult, nil
+					}
 				}
 				fmt.Printf("[CACHE] ⚠️  Failed to load cached result: %v, doing fresh scan\n", err)
 			}
