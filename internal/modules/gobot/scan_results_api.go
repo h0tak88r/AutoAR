@@ -40,6 +40,68 @@ func apiGetScan(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"scan": rec})
 }
 
+// GET /api/scans/:id/manifest — module execution manifest for a scan.
+func apiGetScanManifest(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	scanID := strings.TrimSpace(c.Param("id"))
+	if scanID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	rec, err := db.GetScan(scanID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	manifestPath := filepath.Join(utils.GetScanResultsDir(scanID), "scan-manifest.json")
+	raw, readErr := os.ReadFile(manifestPath)
+	if readErr == nil && len(raw) > 0 {
+		var m scanExecutionManifest
+		if err := json.Unmarshal(raw, &m); err == nil {
+			// Keep manifest fresh for running scans by updating status from DB.
+			if len(m.Modules) > 0 && strings.TrimSpace(rec.Status) != "" {
+				m.Modules[0].Status = rec.Status
+				if strings.EqualFold(rec.Status, "running") {
+					m.Modules[0].CompletedAt = time.Time{}
+					m.Modules[0].DurationMS = time.Since(rec.StartedAt).Milliseconds()
+				}
+			}
+			c.JSON(http.StatusOK, gin.H{"scan_id": scanID, "manifest": m})
+			return
+		}
+	}
+
+	// Fallback for older scans without manifest file.
+	now := time.Now()
+	module := moduleExecutionEntry{
+		Module:         strings.TrimSpace(rec.ScanType),
+		Status:         strings.TrimSpace(rec.Status),
+		StartedAt:      rec.StartedAt,
+		ScannerVersion: version.Version,
+		Command:        strings.TrimSpace(rec.Command),
+		OutputFiles:    collectScanOutputFiles(scanID),
+	}
+	if rec.CompletedAt != nil {
+		module.CompletedAt = *rec.CompletedAt
+		module.DurationMS = rec.CompletedAt.Sub(rec.StartedAt).Milliseconds()
+	} else {
+		module.DurationMS = now.Sub(rec.StartedAt).Milliseconds()
+	}
+	manifest := scanExecutionManifest{
+		ScanID:    scanID,
+		ScanType:  strings.TrimSpace(rec.ScanType),
+		Target:    strings.TrimSpace(rec.Target),
+		StartedAt: rec.StartedAt,
+		Modules:   []moduleExecutionEntry{module},
+	}
+	if rec.CompletedAt != nil {
+		manifest.CompletedAt = *rec.CompletedAt
+	}
+	c.JSON(http.StatusOK, gin.H{"scan_id": scanID, "manifest": manifest, "generated": true})
+}
+
 type fileEntry struct {
 	FileName  string `json:"file_name"`
 	LocalPath string `json:"local_path"`
