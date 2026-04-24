@@ -39,7 +39,7 @@ func RunWithTimeout(fn func() error, timeout time.Duration) error {
 // RunWorkflowPhase is a shared helper to run a single workflow step with reporting
 func RunWorkflowPhase(phaseKey string, step, total int, description, target string, timeoutSeconds int, fn func() error) error {
 	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
-	
+
 	// Checkpoint: Skip if phase already completed successfully
 	if scanID != "" && db.IsPhaseCompleted(scanID, description) {
 		log.Printf("[SKIP] Step %d/%d: %s (already completed)", step, total, description)
@@ -48,7 +48,6 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 
 	// Await occupancy in the worker pool
 	phaseSemaphore <- struct{}{}
-	defer func() { <-phaseSemaphore }()
 
 	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
 	if scanID != "" {
@@ -63,9 +62,22 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 
 	var err error
 	if timeoutSeconds > 0 {
-		err = RunWithTimeout(fn, time.Duration(timeoutSeconds)*time.Second)
+		done := make(chan error, 1)
+		go func() { done <- fn() }()
+		select {
+		case err = <-done:
+			<-phaseSemaphore
+		case <-time.After(time.Duration(timeoutSeconds) * time.Second):
+			err = ErrTimeout
+			// Keep slot occupied until underlying work truly exits to avoid runaway parallelism.
+			go func() {
+				<-done
+				<-phaseSemaphore
+			}()
+		}
 	} else {
 		err = fn()
+		<-phaseSemaphore
 	}
 
 	if err != nil {
@@ -74,7 +86,7 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		} else {
 			log.Printf("[ERROR] %s failed: %v", description, err)
 		}
-		
+
 		if scanID != "" {
 			_ = db.AppendScanPhase(scanID, description, true)
 		}
