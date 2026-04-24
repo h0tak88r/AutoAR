@@ -2432,6 +2432,20 @@ func CancelScanByID(scanID string) error {
 	scan.CancelRequested = true
 	if scan.ExecCmd != nil && scan.ExecCmd.Process != nil {
 		if err := scan.ExecCmd.Process.Kill(); err != nil {
+			// Process already exited: reconcile stale in-memory state and avoid surfacing
+			// a hard error to the UI for a scan that has effectively finished.
+			if strings.Contains(err.Error(), "process already finished") {
+				delete(activeScans, scanID)
+				_ = db.Init()
+				// If status is still marked active in DB, transition it to completed.
+				if rec, gErr := db.GetScan(scanID); gErr == nil {
+					st := strings.ToLower(strings.TrimSpace(rec.Status))
+					if st == "running" || st == "starting" || st == "paused" || st == "cancelling" {
+						_ = db.UpdateScanStatus(scanID, "completed")
+					}
+				}
+				return nil
+			}
 			return fmt.Errorf("kill process: %w", err)
 		}
 		return nil
