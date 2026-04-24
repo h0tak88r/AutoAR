@@ -988,7 +988,8 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			case map[string]interface{}:
 				if strings.EqualFold(strings.TrimSpace(module), "apkx") {
 					// apkx results.json is typically map[string][]string where each key is
-					// a category and each array item is one finding line.
+					// a category and each array item is one finding line. It can also
+					// contain scalar metadata fields (package_name, version, etc.).
 					keys := make([]string, 0, len(t))
 					for k := range t {
 						keys = append(keys, k)
@@ -1010,8 +1011,8 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 								}
 								appendRow(parsedFinding{
 									Severity: "info",
-									Target:   "—",
-									Finding:  fmt.Sprintf("%s: %s", k, line),
+									Target:   k,
+									Finding:  line,
 								})
 							}
 						case string:
@@ -1021,9 +1022,30 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 							}
 							appendRow(parsedFinding{
 								Severity: "info",
-								Target:   "—",
-								Finding:  fmt.Sprintf("%s: %s", k, line),
+								Target:   k,
+								Finding:  line,
 							})
+						case float64, bool, int, int64, uint64:
+							line := strings.TrimSpace(fmt.Sprint(vv))
+							if line == "" || line == "<nil>" {
+								continue
+							}
+							appendRow(parsedFinding{
+								Severity: "info",
+								Target:   k,
+								Finding:  line,
+							})
+						case map[string]interface{}:
+							if enc, encErr := json.Marshal(vv); encErr == nil {
+								line := strings.TrimSpace(string(enc))
+								if line != "" && line != "{}" {
+									appendRow(parsedFinding{
+										Severity: "info",
+										Target:   k,
+										Finding:  line,
+									})
+								}
+							}
 						}
 					}
 					if len(out) > 0 {
