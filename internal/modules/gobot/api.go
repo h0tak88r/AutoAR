@@ -40,6 +40,8 @@ var (
 
 	// scanSemaphore limits concurrent child-process scans (#2 rate limiting).
 	scanSemaphore = make(chan struct{}, maxConcurrentScans)
+	// apkxPackageSemaphore serializes heavy package-based apkx scans to reduce OOM risk.
+	apkxPackageSemaphore = make(chan struct{}, 1)
 )
 
 // ScanInfo is defined in commands.go
@@ -491,6 +493,9 @@ func scanApkX(c *gin.Context) {
 		// Use internal/modules/apkx directly for package scans
 		go func(sID, pkg, plat string, m bool) {
 			db.UpdateScanStatus(sID, "starting")
+			log.Printf("[API] [apkx] Waiting for package scan slot: %s (%s)", pkg, plat)
+			apkxPackageSemaphore <- struct{}{}
+			defer func() { <-apkxPackageSemaphore }()
 			log.Printf("[API] [apkx] Starting package-based scan: %s (%s)", pkg, plat)
 
 			// Note: This bypasses executeScan (which runs autoar cli)
