@@ -4595,14 +4595,21 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       <div id="recon-standard-view">
         <div class="result-table-wrap" style="max-height:640px;overflow:auto">
           <table class="dashboard-table" style="margin:0;table-layout:fixed;width:100%">
+            <colgroup id="recon-colgroup">
+              <col style="width:36px">
+              <col style="width:31%">
+              <col style="width:8%">
+              <col style="width:43%">
+              <col style="width:16%">
+            </colgroup>
             <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.97);backdrop-filter:blur(4px)">
-              <tr>
+              <tr id="recon-unified-headrow">
                 <th style="width:36px;text-align:center;padding-left:10px">
                   <input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer">
                 </th>
-                <th style="width:31%">TARGET</th>
-                <th style="width:8%;text-align:center">SEV</th>
-                <th style="width:43%">VULNERABILITY TYPE</th>
+                <th style="position:relative">TARGET<span class="col-resizer" data-col-index="1" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
+                <th style="text-align:center;position:relative">SEV<span class="col-resizer" data-col-index="2" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
+                <th style="position:relative">VULNERABILITY TYPE<span class="col-resizer" data-col-index="3" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
                 <th style="width:16%">MODULE</th>
               </tr>
             </thead>
@@ -4628,6 +4635,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const standardView = root.querySelector('#recon-standard-view');
   const assetsView = root.querySelector('#recon-assets-view');
   const assetsContent = root.querySelector('#recon-assets-content');
+  const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
 
   if (apkMetaBar) {
     if (isAPKScan && apkPackageInfo) {
@@ -4761,9 +4769,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         <th style="width:36px;text-align:center;padding-left:10px">
           <input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer">
         </th>
-        <th style="width:31%">${esc(cols[0])}</th>
-        <th style="width:8%;text-align:center">${esc(cols[1])}</th>
-        <th style="width:43%">${esc(cols[2])}</th>
+        <th style="position:relative">${esc(cols[0])}<span class="col-resizer" data-col-index="1" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
+        <th style="text-align:center;position:relative">${esc(cols[1])}<span class="col-resizer" data-col-index="2" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
+        <th style="position:relative">${esc(cols[2])}<span class="col-resizer" data-col-index="3" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
         <th style="width:16%">${esc(cols[3])}</th>
       `;
     }
@@ -4875,11 +4883,64 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   // Initial load
   switchReconView(activeKind);
 
+  // ── Draggable column widths ───────────────────────────────────────────────
+  const ensureColPixels = () => {
+    const cg = root.querySelector('#recon-colgroup');
+    if (!cg || !standardTable) return;
+    const cols = Array.from(cg.querySelectorAll('col'));
+    if (cols.length < 5) return;
+    const ths = Array.from(root.querySelectorAll('#recon-unified-headrow th'));
+    if (ths.length < 5) return;
+    for (let i = 1; i <= 4; i++) {
+      const w = cols[i].style.width || '';
+      if (w.includes('%')) cols[i].style.width = `${Math.max(70, Math.round(ths[i].getBoundingClientRect().width))}px`;
+    }
+  };
+  const startColumnResize = (colIndex, startX) => {
+    const cg = root.querySelector('#recon-colgroup');
+    if (!cg) return;
+    const cols = Array.from(cg.querySelectorAll('col'));
+    const left = cols[colIndex];
+    const right = cols[colIndex + 1];
+    if (!left || !right) return;
+    ensureColPixels();
+    const leftStart = parseFloat(left.style.width || '0');
+    const rightStart = parseFloat(right.style.width || '0');
+    const minLeft = 90;
+    const minRight = 90;
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      const newLeft = leftStart + dx;
+      const newRight = rightStart - dx;
+      if (newLeft < minLeft || newRight < minRight) return;
+      left.style.width = `${newLeft}px`;
+      right.style.width = `${newRight}px`;
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   root.addEventListener('click', (e) => {
     const tabBtn = e.target.closest('[data-recon-kind]');
     if (!tabBtn || !root.contains(tabBtn)) return;
     const kind = tabBtn.getAttribute('data-recon-kind') || 'all';
     switchReconView(kind);
+  });
+  root.addEventListener('mousedown', (e) => {
+    const handle = e.target.closest('.col-resizer');
+    if (!handle || !root.contains(handle)) return;
+    const idx = Number(handle.getAttribute('data-col-index') || '0');
+    if (!idx) return;
+    e.preventDefault();
+    startColumnResize(idx, e.clientX);
   });
 
   const hostInput = root.querySelector('#recon-filter-host');
