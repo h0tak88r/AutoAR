@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/h0tak88r/AutoAR/internal/modules/apkx"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -25,7 +25,7 @@ var (
 			ensureDB()
 
 			if pkg != "" {
-				setupCurrentScan(pkg, "apkx")
+				setupCurrentScan("apkx", pkg)
 				_, err := apkx.RunFromPackage(apkx.PackageOptions{
 					Package:  pkg,
 					Platform: platform,
@@ -38,7 +38,7 @@ var (
 				return fmt.Errorf("either --input or --package is required")
 			}
 
-			setupCurrentScan(input, "apkx")
+			setupCurrentScan("apkx", input)
 			_, err := apkx.Run(apkx.Options{
 				InputPath: input,
 				MITM:      mitm,

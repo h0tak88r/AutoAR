@@ -10,6 +10,7 @@ import (
 
 var (
 	dbInstance DB
+	initMu     sync.Mutex
 	schemaOnce sync.Once
 	schemaErr  error
 )
@@ -26,6 +27,8 @@ func EnsureSchema() error {
 func Init() error {
 	// Reuse a single pool / connection — calling Init() on every HTTP handler must not
 	// allocate new pools (Supabase and other hosts enforce max connections).
+	initMu.Lock()
+	defer initMu.Unlock()
 	if dbInstance != nil {
 		return nil
 	}
@@ -52,7 +55,7 @@ func Init() error {
 		dbInstance = sqliteDB
 		if os.Getenv("AUTOAR_SILENT") != "true" {
 			log.Printf("[INFO] Using SQLite database")
-	}
+		}
 		return nil
 
 	default:

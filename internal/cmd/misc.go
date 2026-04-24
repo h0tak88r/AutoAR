@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"github.com/spf13/cobra"
 	"github.com/h0tak88r/AutoAR/internal/modules/backup"
-	"github.com/h0tak88r/AutoAR/internal/modules/s3"
 	"github.com/h0tak88r/AutoAR/internal/modules/jwt"
+	"github.com/h0tak88r/AutoAR/internal/modules/s3"
 	"github.com/h0tak88r/AutoAR/internal/modules/zerodays"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -15,7 +15,7 @@ var (
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
 			ensureDB()
-			setupCurrentScan(domain, "backup")
+			setupCurrentScan("backup", domain)
 			_, err := backup.Run(backup.Options{Domain: domain, Method: "all", Threads: 50})
 			return err
 		},
@@ -32,7 +32,7 @@ var (
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bucket, _ := cmd.Flags().GetString("bucket")
 			ensureDB()
-			setupCurrentScan(bucket, "s3")
+			setupCurrentScan("s3", bucket)
 			return s3.Run(s3.Options{Action: "scan", Bucket: bucket})
 		},
 	}
@@ -55,7 +55,7 @@ var (
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
 			ensureDB()
-			setupCurrentScan(domain, "zerodays")
+			setupCurrentScan("zerodays", domain)
 			_, err := zerodays.Run(zerodays.Options{Domain: domain})
 			return err
 		},
@@ -76,7 +76,7 @@ var (
 			}
 
 			ensureDB()
-			setupCurrentScan(target, "zerodays")
+			setupCurrentScan("zerodays", target)
 
 			opts := zerodays.Options{
 				Domain:    domain,
