@@ -4545,8 +4545,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   let searchJsOnly = false;
   let presetMode = 'smart';
   let quickChip = 'none';
+  let railSearch = '';
   let currentRenderedRows = [];
   const presetStorageKey = `autoar.recon.filtersets.${stNorm || 'generic'}`;
+  const uiStateKey = `autoar.recon.uistate.${stNorm || 'generic'}`;
+  const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
   let savedFilterSets = {};
 
   const loadSavedSets = () => {
@@ -4554,6 +4557,37 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   };
   const persistSavedSets = () => {
     try { localStorage.setItem(presetStorageKey, JSON.stringify(savedFilterSets)); } catch (_) { }
+  };
+  const persistUIState = () => {
+    try {
+      localStorage.setItem(uiStateKey, JSON.stringify({
+        activeKind,
+        presetMode,
+        quickChip,
+        searchModule,
+        searchJsOnly,
+      }));
+    } catch (_) { }
+  };
+  const loadUIState = () => {
+    try { return JSON.parse(localStorage.getItem(uiStateKey) || '{}') || {}; } catch { return {}; }
+  };
+  const persistColumnWidths = () => {
+    const cg = root.querySelector('#recon-colgroup');
+    if (!cg) return;
+    const cols = Array.from(cg.querySelectorAll('col')).map((c) => c.style.width || '');
+    try { localStorage.setItem(colStateKey, JSON.stringify(cols)); } catch (_) { }
+  };
+  const applyColumnWidths = () => {
+    const cg = root.querySelector('#recon-colgroup');
+    if (!cg) return;
+    let widths = null;
+    try { widths = JSON.parse(localStorage.getItem(colStateKey) || 'null'); } catch { widths = null; }
+    if (!Array.isArray(widths) || widths.length < 5) return;
+    const cols = Array.from(cg.querySelectorAll('col'));
+    cols.forEach((c, i) => {
+      if (widths[i]) c.style.width = widths[i];
+    });
   };
 
   const rowMatch = (r) => {
@@ -4593,6 +4627,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       <div style="display:grid;grid-template-columns:240px 1fr;min-height:720px">
         <aside style="border-right:1px solid var(--border);background:rgba(2,6,23,.55);display:flex;flex-direction:column;min-width:0">
           <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Findings Views</div>
+          <div style="padding:8px;border-bottom:1px solid var(--border)">
+            <input id="recon-rail-search" type="search" placeholder="Search views..." style="width:100%;padding:7px 9px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px"/>
+          </div>
           <div id="recon-left-rail" style="display:flex;flex-direction:column;gap:6px;padding:8px;overflow-y:auto;overflow-x:hidden;max-height:780px;scrollbar-width:thin"></div>
         </aside>
         <section style="min-width:0;position:relative">
@@ -4679,6 +4716,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     </div>`;
 
   const tabsEl = root.querySelector('#recon-left-rail');
+  const railSearchInput = root.querySelector('#recon-rail-search');
   const apkMetaBar = root.querySelector('#recon-apk-meta');
   const filterBar = root.querySelector('#recon-filter-bar');
   const chipBar = root.querySelector('#recon-quick-chips');
@@ -4840,7 +4878,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   const renderTabs = () => {
     if (!tabsEl) return;
-    tabsEl.innerHTML = UNIQUE_TABS.map(([kind, label]) => {
+    tabsEl.innerHTML = UNIQUE_TABS.filter(([, label]) => {
+      if (!railSearch) return true;
+      return String(label || '').toLowerCase().includes(railSearch);
+    }).map(([kind, label]) => {
       const isActive = activeKind === kind;
       const isModuleTab = String(kind).startsWith('mod:');
       const isApkCategoryTab = String(kind).startsWith('apkcat:');
@@ -4961,6 +5002,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   const switchReconView = (kind) => {
     activeKind = kind;
+    persistUIState();
     renderTabs();
     
     const modSelectEl = root.querySelector('#recon-filter-module');
@@ -5000,10 +5042,26 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   };
 
   // Initial load
+  const uiState = loadUIState();
+  if (uiState && typeof uiState === 'object') {
+    if (uiState.activeKind && UNIQUE_TABS.some((t) => t[0] === uiState.activeKind)) activeKind = uiState.activeKind;
+    if (uiState.presetMode === 'raw' || uiState.presetMode === 'smart') presetMode = uiState.presetMode;
+    if (uiState.quickChip) quickChip = uiState.quickChip;
+    if (uiState.searchModule) searchModule = uiState.searchModule;
+    if (typeof uiState.searchJsOnly === 'boolean') searchJsOnly = uiState.searchJsOnly;
+  }
   loadSavedSets();
   renderSavedFilters();
   renderChips();
   switchReconView(activeKind);
+  applyColumnWidths();
+  if (viewModeSel) viewModeSel.value = presetMode;
+  if (railSearchInput) {
+    railSearchInput.addEventListener('input', () => {
+      railSearch = String(railSearchInput.value || '').trim().toLowerCase();
+      renderTabs();
+    });
+  }
 
   const renderDrawerRow = (r) => {
     if (!drawerBody) return;
@@ -5085,6 +5143,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       window.removeEventListener('mouseup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      persistColumnWidths();
     };
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
@@ -5112,6 +5171,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   if (viewModeSel) {
     viewModeSel.addEventListener('change', () => {
       presetMode = String(viewModeSel.value || 'smart');
+      persistUIState();
       _currentPage = 1;
       renderBody();
     });
@@ -5147,6 +5207,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       applyFilterSet(savedFilterSets[name]);
       renderChips();
       switchReconView(activeKind);
+      persistUIState();
     });
   }
   root.addEventListener('mousedown', (e) => {

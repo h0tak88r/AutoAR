@@ -2085,8 +2085,12 @@ func executeScan(scanID string, command []string, scanType string) {
 	// Always save full console log for the dashboard
 	logPath := filepath.Join(utils.GetScanResultsDir(scanID), "scan.log")
 	_ = os.WriteFile(logPath, output, 0644)
-	if _, err := utils.IndexExistingResultFile(scanID, logPath); err != nil {
-		log.Printf("[executeScan] Failed to index scan.log: %v", err)
+	if _, statErr := os.Stat(logPath); statErr == nil {
+		if _, err := utils.IndexExistingResultFile(scanID, logPath); err != nil {
+			log.Printf("[executeScan] Failed to index scan.log: %v", err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		log.Printf("[executeScan] scan.log stat failed: %v", statErr)
 	}
 
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
