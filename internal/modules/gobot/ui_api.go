@@ -40,16 +40,18 @@ func apiConfigHandler(c *gin.Context) {
 	authOn := dashboardAPIAuthEnforced()
 	apkxCacheDisabled := strings.EqualFold(strings.TrimSpace(os.Getenv("APKX_DISABLE_CACHE")), "true")
 	c.JSON(http.StatusOK, gin.H{
-		"version":             version.Version,
-		"r2_enabled":          r2storage.IsEnabled(),
-		"r2_public_url":       os.Getenv("R2_PUBLIC_URL"),
-		"r2_bucket":           os.Getenv("R2_BUCKET_NAME"),
-		"auth_enabled":        authOn,
-		"auth_provider":       "local",
-		"db_type":             getEnv("DB_TYPE", "postgresql"),
-		"mode":                getEnv("AUTOAR_MODE", "discord"),
-		"monitor_webhook":     os.Getenv("MONITOR_WEBHOOK_URL"),
-		"apkx_cache_disabled": apkxCacheDisabled,
+		"version":                    version.Version,
+		"r2_enabled":                 r2storage.IsEnabled(),
+		"r2_public_url":              os.Getenv("R2_PUBLIC_URL"),
+		"r2_bucket":                  os.Getenv("R2_BUCKET_NAME"),
+		"auth_enabled":               authOn,
+		"auth_provider":              "local",
+		"db_type":                    getEnv("DB_TYPE", "postgresql"),
+		"mode":                       getEnv("AUTOAR_MODE", "discord"),
+		"monitor_webhook":            os.Getenv("MONITOR_WEBHOOK_URL"),
+		"apkx_cache_disabled":        apkxCacheDisabled,
+		"apkx_cache_max_dirs":        getEnv("APKX_CACHE_MAX_DIRS", "30"),
+		"apkx_cache_max_local_bytes": getEnv("APKX_CACHE_MAX_LOCAL_BYTES", "2147483648"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 	})
@@ -60,10 +62,12 @@ func apiConfigHandler(c *gin.Context) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type UpdateSettingsBody struct {
-	MonitorWebhook   string `json:"monitor_webhook"`
-	OpenRouterKey    string `json:"openrouter_key"`
-	GeminiKey        string `json:"gemini_key"`
-	APKXDisableCache *bool  `json:"apkx_disable_cache,omitempty"`
+	MonitorWebhook         string `json:"monitor_webhook"`
+	OpenRouterKey          string `json:"openrouter_key"`
+	GeminiKey              string `json:"gemini_key"`
+	APKXDisableCache       *bool  `json:"apkx_disable_cache,omitempty"`
+	APKXCacheMaxDirs       *int   `json:"apkx_cache_max_dirs,omitempty"`
+	APKXCacheMaxLocalBytes *int64 `json:"apkx_cache_max_local_bytes,omitempty"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -89,6 +93,16 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 		}
 		_ = envloader.UpdateEnv("APKX_DISABLE_CACHE", v)
 		_ = os.Setenv("APKX_DISABLE_CACHE", v)
+	}
+	if body.APKXCacheMaxDirs != nil {
+		v := strconv.Itoa(*body.APKXCacheMaxDirs)
+		_ = envloader.UpdateEnv("APKX_CACHE_MAX_DIRS", v)
+		_ = os.Setenv("APKX_CACHE_MAX_DIRS", v)
+	}
+	if body.APKXCacheMaxLocalBytes != nil {
+		v := strconv.FormatInt(*body.APKXCacheMaxLocalBytes, 10)
+		_ = envloader.UpdateEnv("APKX_CACHE_MAX_LOCAL_BYTES", v)
+		_ = os.Setenv("APKX_CACHE_MAX_LOCAL_BYTES", v)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})

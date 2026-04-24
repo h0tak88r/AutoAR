@@ -6765,6 +6765,14 @@ function renderSettings() {
         </button>
         <button class="btn btn-ghost" onclick="refreshApkxCacheStats()" style="font-size:12px">↻ Refresh stats</button>
       </div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+        <span class="setting-key">Auto-prune limits</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%">
+          <input id="apkx-max-dirs-input" type="number" min="0" class="form-control" style="width:170px" value="${esc(String(cfg.apkx_cache_max_dirs || '30'))}" placeholder="Max dirs (0=off)" />
+          <input id="apkx-max-bytes-input" type="number" min="0" class="form-control" style="width:220px" value="${esc(String(cfg.apkx_cache_max_local_bytes || '2147483648'))}" placeholder="Max local bytes (0=off)" />
+          <button class="btn btn-primary" onclick="saveApkxPruneSettings()">Save limits</button>
+        </div>
+      </div>
       ${r2Err ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:8px">R2 stats warning: ${esc(r2Err)}</div>` : ''}
     </div>
     <div class="setting-card">
@@ -6877,6 +6885,36 @@ window.toggleApkxCache = async function (disable) {
 window.refreshApkxCacheStats = async function () {
   await loadApkxCacheStats();
   renderSettings();
+};
+
+window.saveApkxPruneSettings = async function () {
+  const dirsEl = document.getElementById('apkx-max-dirs-input');
+  const bytesEl = document.getElementById('apkx-max-bytes-input');
+  const dirs = Number(dirsEl?.value || 0);
+  const bytes = Number(bytesEl?.value || 0);
+  if (!Number.isFinite(dirs) || dirs < 0 || !Number.isFinite(bytes) || bytes < 0) {
+    showToast('error', 'Invalid values', 'Use non-negative numbers.');
+    return;
+  }
+  try {
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`${API}/api/settings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        apkx_cache_max_dirs: Math.trunc(dirs),
+        apkx_cache_max_local_bytes: Math.trunc(bytes),
+      })
+    });
+    if (!res.ok) throw new Error('Failed to save prune settings');
+    if (state.config) {
+      state.config.apkx_cache_max_dirs = String(Math.trunc(dirs));
+      state.config.apkx_cache_max_local_bytes = String(Math.trunc(bytes));
+    }
+    showToast('success', 'Saved!', 'APK cache auto-prune limits updated.');
+  } catch (e) {
+    showToast('error', 'Error', e.message || String(e));
+  }
 };
 
 function updateStatusDot() {
