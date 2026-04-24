@@ -2177,11 +2177,9 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
-	// For failed/cancelled apkx runs, keep only scan.log/error context and avoid attaching
-	// stale files from other package directories.
-	if !(scanType == "apkx" && finalStatus != "completed") {
-		indexScanArtifacts(scanID, scanType, target)
-	}
+	// apkx indexing is target-scoped in indexScanArtifacts, so failed scans can still expose
+	// same-target partial outputs/logs without cross-package bleed.
+	indexScanArtifacts(scanID, scanType, target)
 	// domain_run / subdomain_run delete local results after upload — backfill from R2 for the UI table.
 	indexWorkflowArtifactsFromR2(scanID, scanType, target)
 	outputFiles := collectScanOutputFiles(scanID)
