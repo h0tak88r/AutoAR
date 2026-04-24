@@ -4491,7 +4491,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   root.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);overflow:hidden">
-      <div id="recon-top-tabs" style="display:flex;gap:2px;overflow:auto;padding:0 10px;background:rgba(2,6,23,.6);border-bottom:1px solid var(--border)"></div>
+      <div id="recon-top-tabs" style="display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:6px 10px;background:rgba(2,6,23,.6);border-bottom:1px solid var(--border);scrollbar-width:thin"></div>
       <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
         <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <select id="recon-filter-severity" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
@@ -4575,8 +4575,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           ? (apkCategoryCounts[String(kind).slice(7)]?.count || 0)
           : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
       const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
-      return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" style="border:none;border-bottom:2px solid ${isActive ? 'var(--accent-cyan)' : 'transparent'};border-radius:0;padding:11px 12px;white-space:nowrap;background:transparent;color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px">
-        ${esc(label)} ${cntDisplay}
+      const labelText = `${label}`.trim();
+      return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" title="${escAttr(labelText)}" style="display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;border:1px solid ${isActive ? 'rgba(34,211,238,.45)' : 'var(--border)'};border-bottom:1px solid ${isActive ? 'rgba(34,211,238,.45)' : 'var(--border)'};border-radius:8px;padding:7px 10px;white-space:nowrap;background:${isActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis">
+        <span style="display:inline-block;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle">${esc(labelText)}</span> ${cntDisplay}
       </button>`;
     }).join('');
   };
