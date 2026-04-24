@@ -1955,8 +1955,15 @@ const MODULE_RENDERERS = {
 
 function getUnifiedTableColumns(activeKind) {
   const active = String(activeKind || '');
-  const moduleTab = active.startsWith('mod:') ? active.slice(4) : (active === 'misconfig' ? 'misconfig' : '');
+  const moduleTab = active.startsWith('mod:') ? active.slice(4) : (
+    active === 'misconfig' ? 'misconfig'
+      : active === 'nuclei' ? 'nuclei'
+        : active === 'ffuf' ? 'ffuf-fuzzing'
+          : (active === 'apkx' || active.startsWith('apkcat:')) ? 'apkx' : ''
+  );
   switch (moduleTab) {
+    case 'apkx':
+      return ['PATH', 'CATEGORY', 'MATCHER VALUE', 'MODULE'];
     case 'nuclei':
       return ['TARGET', 'SEV', 'TEMPLATE', 'MATCH'];
     case 'gf-patterns':
@@ -1964,7 +1971,7 @@ function getUnifiedTableColumns(activeKind) {
     case 'misconfig':
       return ['TARGET', 'SEV', 'SERVICE', 'FINDING'];
     case 'ffuf-fuzzing':
-      return ['TARGET', 'STATUS', 'PATH/WORD', 'DETAIL'];
+      return ['URL', 'STATUS', 'WORD', 'LENGTH'];
     default:
       return ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'];
   }
@@ -4536,6 +4543,18 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
 
   let searchJsOnly = false;
+  let presetMode = 'smart';
+  let quickChip = 'none';
+  let currentRenderedRows = [];
+  const presetStorageKey = `autoar.recon.filtersets.${stNorm || 'generic'}`;
+  let savedFilterSets = {};
+
+  const loadSavedSets = () => {
+    try { savedFilterSets = JSON.parse(localStorage.getItem(presetStorageKey) || '{}') || {}; } catch { savedFilterSets = {}; }
+  };
+  const persistSavedSets = () => {
+    try { localStorage.setItem(presetStorageKey, JSON.stringify(savedFilterSets)); } catch (_) { }
+  };
 
   const rowMatch = (r) => {
     const k = r.kind || 'other';
@@ -4558,6 +4577,14 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       const sev = String(r.severity || 'info').toLowerCase();
       if (sev !== filterSeverity) return false;
     }
+    const sev = String(r.severity || 'info').toLowerCase();
+    const targetStr = String(r.target || '').toLowerCase();
+    const findingStr = String(r.finding || '').toLowerCase();
+    if (quickChip === 'highplus' && !(sev === 'high' || sev === 'critical')) return false;
+    if (quickChip === 'hasurl' && !(/https?:\/\//i.test(targetStr) || /https?:\/\//i.test(findingStr))) return false;
+    if (quickChip === 'exported' && !(findingStr.includes('exported') || String(r.apk_category || '').toLowerCase().includes('exported'))) return false;
+    if (quickChip === 'secrets' && !/(secret|token|apikey|api key|password|authorization)/i.test(findingStr)) return false;
+    if (quickChip === 'onlyjs' && !(/\.m?jsx?(\?|$)/i.test(targetStr) || findingStr.includes('javascript') || String(r.apk_category || '').toLowerCase().includes('js'))) return false;
     return true;
   };
 
@@ -4568,7 +4595,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Findings Views</div>
           <div id="recon-left-rail" style="display:flex;flex-direction:column;gap:6px;padding:8px;overflow-y:auto;overflow-x:hidden;max-height:780px;scrollbar-width:thin"></div>
         </aside>
-        <section style="min-width:0">
+        <section style="min-width:0;position:relative">
       <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
       <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
         <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
@@ -4589,6 +4616,21 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
             <input type="checkbox" id="recon-filter-js-only" style="accent-color:var(--accent-cyan)"> Only JS
           </label>
           <span><span id="recon-unified-shown">0</span> rows</span>
+        </div>
+      </div>
+      <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.38)">
+        <div id="recon-quick-chips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+          <select id="recon-view-mode" style="padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
+            <option value="smart">Smart columns</option>
+            <option value="raw">Raw columns</option>
+          </select>
+          <select id="recon-saved-filters" style="min-width:160px;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
+            <option value="">Saved filters…</option>
+          </select>
+          <input id="recon-filter-name" type="text" placeholder="Filter name" style="width:130px;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px"/>
+          <button id="recon-save-filter" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(34,211,238,.1);color:var(--accent-cyan);font-size:11px;cursor:pointer">Save</button>
+          <button id="recon-delete-filter" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(248,113,113,.08);color:#fca5a5;font-size:11px;cursor:pointer">Delete</button>
         </div>
       </div>
       <!-- Standard findings table -->
@@ -4625,6 +4667,13 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading assets…</div>
         </div>
       </div>
+      <div id="recon-details-drawer" style="display:none;position:absolute;top:0;right:0;width:420px;height:100%;background:rgba(2,6,23,.98);border-left:1px solid var(--border);z-index:20;box-shadow:-12px 0 40px rgba(0,0,0,.45)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border)">
+          <div style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px">Finding Details</div>
+          <button id="recon-drawer-close" type="button" style="background:transparent;border:none;color:var(--text-muted);font-size:18px;cursor:pointer">✕</button>
+        </div>
+        <div id="recon-drawer-body" style="padding:12px;overflow:auto;height:calc(100% - 52px)"></div>
+      </div>
         </section>
       </div>
     </div>`;
@@ -4632,10 +4681,19 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const tabsEl = root.querySelector('#recon-left-rail');
   const apkMetaBar = root.querySelector('#recon-apk-meta');
   const filterBar = root.querySelector('#recon-filter-bar');
+  const chipBar = root.querySelector('#recon-quick-chips');
+  const viewModeSel = root.querySelector('#recon-view-mode');
+  const savedFiltersSel = root.querySelector('#recon-saved-filters');
+  const saveFilterBtn = root.querySelector('#recon-save-filter');
+  const deleteFilterBtn = root.querySelector('#recon-delete-filter');
+  const filterNameInput = root.querySelector('#recon-filter-name');
   const standardView = root.querySelector('#recon-standard-view');
   const assetsView = root.querySelector('#recon-assets-view');
   const assetsContent = root.querySelector('#recon-assets-content');
   const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
+  const drawer = root.querySelector('#recon-details-drawer');
+  const drawerBody = root.querySelector('#recon-drawer-body');
+  const drawerClose = root.querySelector('#recon-drawer-close');
 
   if (apkMetaBar) {
     if (isAPKScan && apkPackageInfo) {
@@ -4728,6 +4786,58 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     });
   }
 
+  const renderSavedFilters = () => {
+    if (!savedFiltersSel) return;
+    const names = Object.keys(savedFilterSets).sort();
+    savedFiltersSel.innerHTML = '<option value="">Saved filters…</option>' + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  };
+  const readCurrentFilterSet = () => ({
+    activeKind,
+    searchHost,
+    searchTitle,
+    filterSeverity,
+    searchModule,
+    searchJsOnly,
+    quickChip,
+    presetMode,
+  });
+  const applyFilterSet = (fs) => {
+    if (!fs) return;
+    activeKind = fs.activeKind || activeKind;
+    searchHost = String(fs.searchHost || '');
+    searchTitle = String(fs.searchTitle || '');
+    filterSeverity = String(fs.filterSeverity || 'any');
+    searchModule = String(fs.searchModule || 'all');
+    searchJsOnly = !!fs.searchJsOnly;
+    quickChip = String(fs.quickChip || 'none');
+    presetMode = String(fs.presetMode || 'smart');
+    const hostInputEl = root.querySelector('#recon-filter-host');
+    const titleInputEl = root.querySelector('#recon-filter-title');
+    const severitySelEl = root.querySelector('#recon-filter-severity');
+    const jsChkEl = root.querySelector('#recon-filter-js-only');
+    if (hostInputEl) hostInputEl.value = searchHost;
+    if (titleInputEl) titleInputEl.value = searchTitle;
+    if (severitySelEl) severitySelEl.value = filterSeverity;
+    if (modSelect) modSelect.value = searchModule;
+    if (jsChkEl) jsChkEl.checked = searchJsOnly;
+    if (viewModeSel) viewModeSel.value = presetMode;
+  };
+
+  const chipDefs = [
+    { id: 'highplus', label: 'High+' },
+    { id: 'hasurl', label: 'Has URL' },
+    { id: 'exported', label: 'Exported Components' },
+    { id: 'secrets', label: 'Secrets' },
+    { id: 'onlyjs', label: 'Only JS' },
+  ];
+  const renderChips = () => {
+    if (!chipBar) return;
+    chipBar.innerHTML = chipDefs.map((c) => {
+      const active = quickChip === c.id;
+      return `<button type="button" data-chip="${escAttr(c.id)}" style="padding:5px 10px;border:1px solid ${active ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${active ? 'rgba(34,211,238,.13)' : 'rgba(255,255,255,.02)'};color:${active ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">${esc(c.label)}</button>`;
+    }).join('');
+  };
+
   const renderTabs = () => {
     if (!tabsEl) return;
     tabsEl.innerHTML = UNIQUE_TABS.map(([kind, label]) => {
@@ -4764,7 +4874,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     const cap = root.querySelector('#recon-unified-cap');
     if (shown) shown.textContent = String(filtered.length);
     if (headRow) {
-      const cols = getUnifiedTableColumns(activeKind);
+      const cols = presetMode === 'raw'
+        ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE']
+        : getUnifiedTableColumns(activeKind);
       headRow.innerHTML = `
         <th style="width:36px;text-align:center;padding-left:10px">
           <input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer">
@@ -4776,6 +4888,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       `;
     }
     if (tbody) {
+      currentRenderedRows = slice;
       tbody.innerHTML = slice.length ? slice.map((r, idx) => {
         const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
         const sevMeta = {
@@ -4788,8 +4901,14 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
 
         const modInfo = getModuleDisplayInfo(r.module);
+        if (presetMode === 'raw') return renderDefaultRow(r, idx, modInfo, sevMeta);
         return renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta);
       }).join('') : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
+      if (slice.length) {
+        Array.from(tbody.querySelectorAll('.findings-row')).forEach((tr, i) => {
+          tr.setAttribute('data-row-index', String(i));
+        });
+      }
     }
     const pagContainer = root.querySelector('#recon-pagination');
     if (pagContainer) {
@@ -4881,7 +5000,52 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   };
 
   // Initial load
+  loadSavedSets();
+  renderSavedFilters();
+  renderChips();
   switchReconView(activeKind);
+
+  const renderDrawerRow = (r) => {
+    if (!drawerBody) return;
+    const safeJson = esc(JSON.stringify(r, null, 2));
+    drawerBody.innerHTML = `
+      <div style="display:grid;gap:10px">
+        <div><div style="font-size:11px;color:var(--text-muted)">Target</div><div style="font-family:var(--font-mono,monospace);font-size:12px;color:var(--text-primary);word-break:break-all">${esc(String(r.target || r.host || '—'))}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted)">Severity</div><div style="font-size:12px;color:var(--text-primary)">${esc(String(r.severity || '—'))}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted)">Module</div><div style="font-size:12px;color:var(--text-primary)">${esc(String(r.module || '—'))}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted)">Finding</div><div style="font-family:var(--font-mono,monospace);font-size:12px;color:var(--text-primary);word-break:break-word">${esc(String(r.finding || '—'))}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted)">Source File</div><div style="font-family:var(--font-mono,monospace);font-size:12px;color:var(--text-primary);word-break:break-all">${esc(String(r.file || '—'))}</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:4px">
+          <button id="drawer-copy-finding" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(34,211,238,.1);color:var(--accent-cyan);font-size:11px;cursor:pointer">Copy Finding</button>
+          <button id="drawer-copy-json" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.03);color:var(--text-primary);font-size:11px;cursor:pointer">Copy JSON</button>
+          <button id="drawer-export-json" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(52,211,153,.1);color:#34d399;font-size:11px;cursor:pointer">Export JSON</button>
+        </div>
+        <pre style="margin:0;padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02);font-size:11px;line-height:1.45;color:var(--text-muted);overflow:auto;max-height:280px">${safeJson}</pre>
+      </div>`;
+    const copyFinding = drawerBody.querySelector('#drawer-copy-finding');
+    const copyJson = drawerBody.querySelector('#drawer-copy-json');
+    const exportJson = drawerBody.querySelector('#drawer-export-json');
+    if (copyFinding) copyFinding.onclick = async () => { await copyToClipboard(String(r.finding || '')); showToast('success', 'Copied', 'Finding copied'); };
+    if (copyJson) copyJson.onclick = async () => { await copyToClipboard(JSON.stringify(r, null, 2)); showToast('success', 'Copied', 'JSON copied'); };
+    if (exportJson) exportJson.onclick = () => {
+      const blob = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `finding-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    };
+  };
+  const openDrawerForRow = (r) => {
+    if (!drawer) return;
+    renderDrawerRow(r);
+    drawer.style.display = 'block';
+  };
+  const closeDrawer = () => { if (drawer) drawer.style.display = 'none'; };
+  if (drawerClose) drawerClose.addEventListener('click', closeDrawer);
 
   // ── Draggable column widths ───────────────────────────────────────────────
   const ensureColPixels = () => {
@@ -4934,6 +5098,57 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     const kind = tabBtn.getAttribute('data-recon-kind') || 'all';
     switchReconView(kind);
   });
+  if (chipBar) {
+    chipBar.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-chip]');
+      if (!btn) return;
+      const id = String(btn.getAttribute('data-chip') || 'none');
+      quickChip = quickChip === id ? 'none' : id;
+      renderChips();
+      _currentPage = 1;
+      renderBody();
+    });
+  }
+  if (viewModeSel) {
+    viewModeSel.addEventListener('change', () => {
+      presetMode = String(viewModeSel.value || 'smart');
+      _currentPage = 1;
+      renderBody();
+    });
+  }
+  if (saveFilterBtn) {
+    saveFilterBtn.addEventListener('click', () => {
+      const name = String(filterNameInput?.value || '').trim();
+      if (!name) {
+        showToast('error', 'Missing name', 'Enter a filter name first');
+        return;
+      }
+      savedFilterSets[name] = readCurrentFilterSet();
+      persistSavedSets();
+      renderSavedFilters();
+      if (savedFiltersSel) savedFiltersSel.value = name;
+      showToast('success', 'Saved', `Filter "${name}" saved`);
+    });
+  }
+  if (deleteFilterBtn) {
+    deleteFilterBtn.addEventListener('click', () => {
+      const name = String(savedFiltersSel?.value || '').trim();
+      if (!name || !savedFilterSets[name]) return;
+      delete savedFilterSets[name];
+      persistSavedSets();
+      renderSavedFilters();
+      showToast('success', 'Deleted', `Filter "${name}" deleted`);
+    });
+  }
+  if (savedFiltersSel) {
+    savedFiltersSel.addEventListener('change', () => {
+      const name = String(savedFiltersSel.value || '').trim();
+      if (!name || !savedFilterSets[name]) return;
+      applyFilterSet(savedFilterSets[name]);
+      renderChips();
+      switchReconView(activeKind);
+    });
+  }
   root.addEventListener('mousedown', (e) => {
     const handle = e.target.closest('.col-resizer');
     if (!handle || !root.contains(handle)) return;
@@ -5036,13 +5251,14 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     }
   });
 
-  // Clicking a row (not a link/checkbox) toggles its checkbox
+  // Clicking a row opens details drawer (selection stays checkbox-driven)
   root.addEventListener('click', e => {
     const row = e.target.closest('.findings-row');
     if (!row) return;
-    if (e.target.tagName === 'A' || e.target.tagName === 'INPUT') return;
-    const chk = row.querySelector('.finding-chk');
-    if (chk) { chk.checked = !chk.checked; _updateToolbar(); }
+    if (e.target.tagName === 'A' || e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+    const idx = Number(row.getAttribute('data-row-index') || '-1');
+    const data = idx >= 0 ? currentRenderedRows[idx] : null;
+    if (data) openDrawerForRow(data);
   });
 
   // Toolbar actions
