@@ -4390,6 +4390,41 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   allRows = allRows.map(rowToGrid);
 
+  const apkCategoryKey = (r) => {
+    const t = String(r.target || '').trim();
+    if (t && t !== '-' && t !== '—') return t;
+    const f = String(r.finding || '').trim();
+    const idx = f.indexOf(':');
+    if (idx > 0) return f.slice(0, idx).trim();
+    return '';
+  };
+  const slugifyApkCategory = (s) => String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  const apkCategoryCounts = {};
+  if (isAPKScan) {
+    allRows = allRows.map((r) => {
+      const cat = apkCategoryKey(r);
+      const slug = slugifyApkCategory(cat);
+      if (slug) {
+        apkCategoryCounts[slug] = apkCategoryCounts[slug] || { label: cat, count: 0 };
+        apkCategoryCounts[slug].count += 1;
+      }
+      return { ...r, apk_category: cat, apk_category_slug: slug };
+    });
+    const apkCategoryTabs = Object.entries(apkCategoryCounts)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 30)
+      .map(([slug, meta]) => [`apkcat:${slug}`, `🧩 ${meta.label}`]);
+    if (apkCategoryTabs.length) {
+      const baseTabs = UNIQUE_TABS.filter(([k]) => k !== 'apkx');
+      UNIQUE_TABS = [['apkx', TAB_LABELS.apkx], ...apkCategoryTabs, ...baseTabs]
+        .filter((t, i, arr) => arr.findIndex(x => x[0] === t[0]) === i);
+    }
+  }
+
   const kindCounts = {};
   for (const r of allRows) kindCounts[r.kind || 'other'] = (kindCounts[r.kind || 'other'] || 0) + 1;
 
@@ -4403,6 +4438,9 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (String(activeKind || '').startsWith('mod:')) {
       const moduleKind = String(activeKind).slice(4);
       if (normalizeModuleKey(r.module) !== moduleKind) return false;
+    } else if (String(activeKind || '').startsWith('apkcat:')) {
+      const categorySlug = String(activeKind).slice(7);
+      if (String(r.apk_category_slug || '') !== categorySlug) return false;
     } else if (activeKind === 'vuln') {
       if (!VULN_KINDS.has(k)) return false;
       if (searchModule !== 'all' && normalizeModuleKey(r.module) !== searchModule) return false;
@@ -4497,10 +4535,13 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     tabsEl.innerHTML = UNIQUE_TABS.map(([kind, label]) => {
       const isActive = activeKind === kind;
       const isModuleTab = String(kind).startsWith('mod:');
+      const isApkCategoryTab = String(kind).startsWith('apkcat:');
       const moduleKind = isModuleTab ? String(kind).slice(4) : '';
       const count = isModuleTab
         ? allRows.filter(r => normalizeModuleKey(r.module) === moduleKind).length
-        : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
+        : isApkCategoryTab
+          ? (apkCategoryCounts[String(kind).slice(7)]?.count || 0)
+          : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
       const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
       return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" style="border:none;border-bottom:2px solid ${isActive ? 'var(--accent-cyan)' : 'transparent'};border-radius:0;padding:11px 12px;white-space:nowrap;background:transparent;color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px">
         ${esc(label)} ${cntDisplay}
