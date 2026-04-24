@@ -1875,8 +1875,8 @@ function detectModuleFromFileName(fileName, existingModule) {
   // Port scanning (strict to avoid matching "report")
   if (n.includes('port-scan') || n.includes('ports') || n.includes('nmap') || n.includes('masscan')) return 'port-scan';
 
-  // GitHub/Source code
-  if (n.includes('github') || n.includes('repo')) return 'github-scan';
+  // GitHub/Source code (strict to avoid matching "report")
+  if (n.includes('github') || n.includes('github-scan') || n.includes('gh-')) return 'github-scan';
 
   // URL/FFUF fuzzing
   if (n.includes('ffuf') || n.includes('fuzz')) return 'ffuf-fuzzing';
@@ -4111,8 +4111,8 @@ function inferKindFromFileName(fileName) {
   if (b.includes('reflection') || b.includes('kxss') || b.includes('dalfox') || b.includes('xss')) return 'vuln';
   // Dependency confusion / supply chain
   if (b.includes('confusion') || b.includes('depconf')) return 'vuln';
-  // GH / source code scanning
-  if (b.includes('github') || b.includes('repo')) return 'vuln';
+  // GH / source code scanning (strict to avoid matching "report")
+  if (b.includes('github') || b.includes('github-scan') || b.includes('gh-')) return 'vuln';
   return 'other';
 }
 
