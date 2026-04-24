@@ -241,10 +241,13 @@ func Run(opts Options) (*Result, error) {
 	var mitmPatchedAPK string
 	switch ext {
 	case ".apk":
-		// Use adaptive worker count based on CPU cores for faster scanning
+		// Keep worker count conservative to reduce OOM risk on large APKs.
 		workers := runtime.NumCPU()
-		if workers < 4 {
-			workers = 4 // Minimum 4 workers
+		if workers > 6 {
+			workers = 6
+		}
+		if workers < 2 {
+			workers = 2
 		}
 
 		// Allow override via environment variable
@@ -327,11 +330,18 @@ func Run(opts Options) (*Result, error) {
 		}
 
 		// Process the extracted main APK
+		workers := runtime.NumCPU()
+		if workers > 6 {
+			workers = 6
+		}
+		if workers < 2 {
+			workers = 2
+		}
 		cfg := &apkxanalyzer.Config{
 			APKPath:      mainAPKPath,
 			OutputDir:    outDir,
 			PatternsPath: "",
-			Workers:      runtime.NumCPU(),
+			Workers:      workers,
 			HTMLOutput:   true,
 			JanusScan:    true,
 		}
@@ -344,10 +354,17 @@ func Run(opts Options) (*Result, error) {
 			}, fmt.Errorf("apk analysis failed: %w", err)
 		}
 	case ".ipa":
+		workers := runtime.NumCPU()
+		if workers > 4 {
+			workers = 4
+		}
+		if workers < 2 {
+			workers = 2
+		}
 		cfg := &apkxanalyzer.Config{
 			OutputDir:    outDir,
 			PatternsPath: "",
-			Workers:      runtime.NumCPU(),
+			Workers:      workers,
 			HTMLOutput:   true,
 		}
 		ios := apkxanalyzer.NewIOSAnalyzer(cfg)
