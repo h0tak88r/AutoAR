@@ -80,6 +80,9 @@ func paginateFileEntries(entries []fileEntry, page, perPage int) (pageItems []fi
 
 func inferModuleFromFileName(name string) string {
 	n := strings.ToLower(strings.TrimSpace(name))
+	if strings.Contains(n, "/apkx/") || strings.Contains(n, "\\apkx\\") {
+		return "apkx"
+	}
 	switch {
 	case strings.Contains(n, "cf1016") || strings.Contains(n, "cf-1016") || strings.Contains(n, "cloudflare-1016"):
 		return "cf1016"
@@ -214,14 +217,18 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 					lineCount = strings.Count(string(data), "\n")
 				}
 			}
+			relName := info.Name()
+			if rel, rErr := filepath.Rel(scanDir, path); rErr == nil && rel != "" {
+				relName = rel
+			}
 			localEntries = append(localEntries, fileEntry{
 				FileName:  info.Name(),
 				LocalPath: path,
 				SizeBytes: info.Size(),
 				IsJSON:    isJSON,
 				LineCount: lineCount,
-				Module:    inferModuleFromFileName(info.Name()),
-				Category:  inferCategoryFromFileName(info.Name()),
+				Module:    inferModuleFromFileName(relName),
+				Category:  inferCategoryFromFileName(relName),
 			})
 			return nil
 		})
@@ -671,9 +678,13 @@ type parsedFinding struct {
 
 // inferReconKind maps artifact filenames to a stable dataset key for unified recon tables.
 func inferReconKind(fileName string) string {
-	b := strings.ToLower(filepath.Base(strings.TrimSpace(fileName)))
+	full := strings.ToLower(strings.TrimSpace(fileName))
+	b := strings.ToLower(filepath.Base(full))
 	if b == "" {
 		return "other"
+	}
+	if strings.Contains(full, "/apkx/") || strings.Contains(full, "\\apkx\\") {
+		return "apkx"
 	}
 	switch {
 	// Log files
