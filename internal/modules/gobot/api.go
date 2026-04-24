@@ -2375,6 +2375,9 @@ func workflowScanR2Prefixes(target string) []string {
 // isR2KeyIndexableArtifact matches shouldSkipArtifact extension rules for workflow backfill.
 func isR2KeyIndexableArtifact(key string) bool {
 	name := strings.ToLower(filepath.Base(key))
+	if name == "scan-manifest.json" || name == "cache_info.json" || name == "report-table.json" {
+		return false
+	}
 	if strings.HasPrefix(name, ".lite-uploads-") {
 		return false
 	}
@@ -2448,6 +2451,9 @@ func indexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 
 func shouldSkipArtifact(path string) bool {
 	name := strings.ToLower(filepath.Base(path))
+	if name == "scan-manifest.json" || name == "cache_info.json" || name == "report-table.json" {
+		return true
+	}
 	if strings.HasPrefix(name, ".lite-uploads-") {
 		return true
 	}

@@ -1354,12 +1354,12 @@ func apiScanParsedResults(c *gin.Context) {
 	for _, e := range entries {
 		presentFiles[strings.ToLower(e.FileName)] = true
 	}
-	hasApkxJSON := false
+	hasApkxFindingsJSON := false
 	if isAPKScan {
 		for _, e := range entries {
 			n := strings.ToLower(strings.TrimSpace(e.FileName))
-			if strings.HasSuffix(n, ".json") {
-				hasApkxJSON = true
+			if n == "results.json" || strings.Contains(n, "vulnerabilities") || strings.Contains(n, "findings") {
+				hasApkxFindingsJSON = true
 				break
 			}
 		}
@@ -1430,13 +1430,23 @@ func apiScanParsedResults(c *gin.Context) {
 			}
 		}
 		if isAPKScan {
+			name := strings.ToLower(strings.TrimSpace(e.FileName))
+			// Auxiliary metadata files should never be parsed as findings.
+			if name == "scan-manifest.json" || name == "cache_info.json" || name == "report-table.json" {
+				continue
+			}
 			ext := strings.ToLower(filepath.Ext(e.FileName))
 			// Do not parse rendered report assets as findings rows.
 			if ext == ".html" || ext == ".htm" || ext == ".css" || ext == ".js" {
 				continue
 			}
-			// Prefer structured APK JSON when present; skip noisy text sidecars.
-			if hasApkxJSON && ext != ".json" {
+			// Prefer structured APK findings JSON when present; skip noisy text sidecars.
+			if hasApkxFindingsJSON && ext != ".json" {
+				continue
+			}
+			// When findings JSON exists, only parse actual findings JSON files.
+			if hasApkxFindingsJSON && ext == ".json" &&
+				!(name == "results.json" || strings.Contains(name, "vulnerabilities") || strings.Contains(name, "findings")) {
 				continue
 			}
 		}
