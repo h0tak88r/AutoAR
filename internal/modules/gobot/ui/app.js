@@ -4422,6 +4422,75 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   allRows = allRows.map(rowToGrid);
 
+  const extractApkPackageInfo = (rows) => {
+    const info = {};
+    const consumed = new Set();
+    const aliases = {
+      package_name: 'package_name',
+      package: 'package_name',
+      packageid: 'package_name',
+      package_id: 'package_name',
+      applicationid: 'package_name',
+      application_id: 'package_name',
+      appid: 'package_name',
+      app_name: 'app_name',
+      appname: 'app_name',
+      name: 'app_name',
+      version: 'version',
+      version_name: 'version',
+      versionname: 'version',
+      version_code: 'version_code',
+      versioncode: 'version_code',
+      min_sdk: 'min_sdk',
+      minsdk: 'min_sdk',
+      target_sdk: 'target_sdk',
+      targetsdk: 'target_sdk',
+      compile_sdk: 'compile_sdk',
+      compilesdk: 'compile_sdk',
+    };
+    const takeKV = (k, v) => {
+      const key = String(k || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+      const mapped = aliases[key];
+      if (!mapped) return;
+      const val = String(v ?? '').trim();
+      if (!val) return;
+      if (!info[mapped]) info[mapped] = val;
+    };
+
+    rows.forEach((r, idx) => {
+      const target = String(r.target || '');
+      const finding = String(r.finding || '').trim();
+      if (!/[{]/.test(finding) && !/(package|version|sdk|app_name|application_id)/i.test(`${target} ${finding}`)) return;
+
+      let consumedRow = false;
+      try {
+        const parsed = JSON.parse(finding);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          Object.entries(parsed).forEach(([k, v]) => takeKV(k, v));
+          consumedRow = Object.keys(parsed).length > 0;
+        }
+      } catch (_) {
+        // ignore
+      }
+      const kvs = finding.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/g) || [];
+      kvs.forEach((frag) => {
+        const m = frag.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/);
+        if (m) takeKV(m[1], m[2]);
+      });
+      if (kvs.length) consumedRow = true;
+      if (consumedRow) consumed.add(idx);
+    });
+
+    return { info, rows: rows.filter((_, idx) => !consumed.has(idx)) };
+  };
+
+  let apkPackageInfo = null;
+  if (isAPKScan) {
+    const extracted = extractApkPackageInfo(allRows);
+    allRows = extracted.rows;
+    apkPackageInfo = extracted.info;
+  }
+
   const apkCategoryKey = (r) => {
     const t = String(r.target || '').trim();
     if (t && t !== '-' && t !== '—') return t;
@@ -4497,6 +4566,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           <div id="recon-left-rail" style="display:flex;flex-direction:column;gap:6px;padding:8px;overflow-y:auto;overflow-x:hidden;max-height:780px;scrollbar-width:thin"></div>
         </aside>
         <section style="min-width:0">
+      <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
       <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
         <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <select id="recon-filter-severity" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
@@ -4550,10 +4620,42 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     </div>`;
 
   const tabsEl = root.querySelector('#recon-left-rail');
+  const apkMetaBar = root.querySelector('#recon-apk-meta');
   const filterBar = root.querySelector('#recon-filter-bar');
   const standardView = root.querySelector('#recon-standard-view');
   const assetsView = root.querySelector('#recon-assets-view');
   const assetsContent = root.querySelector('#recon-assets-content');
+
+  if (apkMetaBar) {
+    if (isAPKScan && apkPackageInfo) {
+      const ordered = [
+        ['package_name', 'Package ID'],
+        ['app_name', 'App Name'],
+        ['version', 'Version'],
+        ['version_code', 'Version Code'],
+        ['min_sdk', 'Min SDK'],
+        ['target_sdk', 'Target SDK'],
+        ['compile_sdk', 'Compile SDK'],
+      ].filter(([k]) => apkPackageInfo[k]);
+      if (ordered.length) {
+        apkMetaBar.style.display = 'flex';
+        apkMetaBar.style.flexWrap = 'wrap';
+        apkMetaBar.style.gap = '8px';
+        apkMetaBar.innerHTML = ordered.map(([k, label]) => (
+          `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
+            <span style="font-size:11px;color:#67e8f9">${esc(label)}:</span>
+            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(apkPackageInfo[k])}</span>
+          </div>`
+        )).join('');
+      } else {
+        apkMetaBar.style.display = 'none';
+        apkMetaBar.innerHTML = '';
+      }
+    } else {
+      apkMetaBar.style.display = 'none';
+      apkMetaBar.innerHTML = '';
+    }
+  }
 
   const modSelect = root.querySelector('#recon-filter-module');
   if (modSelect) {
