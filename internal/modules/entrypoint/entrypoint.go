@@ -25,7 +25,7 @@ func main() {
 	os.Setenv("AUTOAR_CONFIG_FILE", "/app/autoar.yaml")
 	os.Setenv("AUTOAR_ENV", "docker")
 	fmt.Println("[entrypoint] Configuration loaded successfully")
-	
+
 	// Debug: Print IPATOOL environment variables (masked for security)
 	fmt.Println("[entrypoint] Checking IPATOOL environment variables...")
 	if val := os.Getenv("IPATOOL_EMAIL"); val != "" {
@@ -49,23 +49,9 @@ func main() {
 		fmt.Println("[entrypoint] IPATOOL_AUTH_CODE is not set (optional)")
 	}
 
-	// Initialize database schema when DB_HOST is set (connection string or host) and SAVE_TO_DB is not false
-	dbHost := strings.TrimSpace(os.Getenv("DB_HOST"))
-	saveToDB := strings.TrimSpace(os.Getenv("SAVE_TO_DB"))
-	if dbHost != "" && !strings.EqualFold(saveToDB, "false") {
-		fmt.Println("[entrypoint] Initializing database schema")
-		cmd := exec.Command("/usr/local/bin/autoar", "db", "init-schema")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Env = os.Environ()
-		if err := cmd.Run(); err != nil {
-			fmt.Println("[entrypoint] Database schema initialization completed with warnings")
-		} else {
-			fmt.Println("[entrypoint] Database schema initialized successfully")
-		}
-	} else {
-		fmt.Println("[entrypoint] Database not configured, skipping schema initialization")
-	}
+	// Database schema is initialized by API/Bot startup paths (idempotent EnsureSchema).
+	// Avoid calling a non-existent CLI subcommand here.
+	fmt.Println("[entrypoint] Database schema initialization delegated to API/Bot startup")
 
 	// Optionally run tool check/installation at container start
 	if os.Getenv("RUN_SETUP") == "true" {
@@ -88,6 +74,12 @@ func main() {
 	}
 	if err := os.MkdirAll(resultsDir, 0755); err != nil {
 		fmt.Printf("[entrypoint] Warning: Failed to create results directory: %v\n", err)
+	}
+
+	// Safer defaults for heavy mobile scans to reduce OOM/restart risk.
+	if strings.TrimSpace(os.Getenv("APKX_WORKERS")) == "" {
+		_ = os.Setenv("APKX_WORKERS", "2")
+		fmt.Println("[entrypoint] APKX_WORKERS not set; defaulting to 2 for stability")
 	}
 
 	// Validate mandatory envs and files based on mode
