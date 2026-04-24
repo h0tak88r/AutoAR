@@ -52,6 +52,85 @@ type ScanResult struct {
 	Error       string     `json:"error,omitempty"`
 }
 
+type scanOutputCapture struct {
+	mu        sync.Mutex
+	maxBytes  int
+	buf       bytes.Buffer
+	lineBuf   string
+	resultURL string
+	truncated bool
+}
+
+func newScanOutputCapture(maxBytes int) *scanOutputCapture {
+	if maxBytes < 1 {
+		maxBytes = 256 * 1024
+	}
+	return &scanOutputCapture{maxBytes: maxBytes}
+}
+
+func (s *scanOutputCapture) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Capture only up to maxBytes to avoid unbounded memory growth.
+	if s.buf.Len() < s.maxBytes {
+		remain := s.maxBytes - s.buf.Len()
+		if len(p) <= remain {
+			_, _ = s.buf.Write(p)
+		} else {
+			_, _ = s.buf.Write(p[:remain])
+			s.truncated = true
+		}
+	} else {
+		s.truncated = true
+	}
+
+	// Parse line-by-line for R2 URLs without storing full output.
+	s.lineBuf += string(p)
+	for {
+		idx := strings.IndexByte(s.lineBuf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := strings.TrimSpace(s.lineBuf[:idx])
+		s.lineBuf = s.lineBuf[idx+1:]
+		if s.resultURL == "" && (strings.Contains(line, "Results zip uploaded:") || strings.Contains(line, "Zip file uploaded:")) {
+			if u := extractFirstHTTPURL(line); u != "" {
+				s.resultURL = u
+			}
+		}
+	}
+	return len(p), nil
+}
+
+func (s *scanOutputCapture) OutputString() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.buf.String()
+	if s.truncated {
+		out += "\n[output truncated for memory safety]\n"
+	}
+	return out
+}
+
+func (s *scanOutputCapture) ResultURL() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resultURL != "" {
+		return s.resultURL
+	}
+	// Best-effort: inspect trailing buffered partial line.
+	if s.lineBuf != "" {
+		line := strings.TrimSpace(s.lineBuf)
+		if strings.Contains(line, "Results zip uploaded:") || strings.Contains(line, "Zip file uploaded:") {
+			if u := extractFirstHTTPURL(line); u != "" {
+				s.resultURL = u
+			}
+		}
+	}
+	return s.resultURL
+}
+
 type moduleExecutionEntry struct {
 	Module         string    `json:"module"`
 	Status         string    `json:"status"` // started|completed|failed|cancelled
@@ -2047,9 +2126,9 @@ func executeScan(scanID string, command []string, scanType string) {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
 	)
-	var combined bytes.Buffer
-	// MultiWriter to stream output to console AND capture for R2 URL extraction
-	multi := io.MultiWriter(os.Stdout, &combined)
+	capture := newScanOutputCapture(2 * 1024 * 1024) // 2MB per scan max
+	// Stream output to console while capturing a bounded window.
+	multi := io.MultiWriter(os.Stdout, capture)
 	cmd.Stdout = multi
 	cmd.Stderr = multi
 
@@ -2076,7 +2155,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	scansMutex.Unlock()
 
 	err := cmd.Wait()
-	output := combined.Bytes()
+	output := []byte(capture.OutputString())
 	completedAt := time.Now()
 
 	scansMutex.Lock()
@@ -2094,7 +2173,10 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 
 	// Extract R2 result URL from output if any
-	resultURL := ExtractR2ZipURLFromOutput(string(output))
+	resultURL := capture.ResultURL()
+	if resultURL == "" {
+		resultURL = ExtractR2ZipURLFromOutput(string(output))
+	}
 	if resultURL != "" {
 		log.Printf("[executeScan] Extracted result URL for scan %s: %s", scanID, resultURL)
 	}
