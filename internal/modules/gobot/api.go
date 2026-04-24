@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -468,6 +470,13 @@ func scanApkX(c *gin.Context) {
 	if req.MITM != nil {
 		mitm = *req.MITM
 	}
+	if ok, msg := apkxMemoryPreflightCheck(); !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": msg,
+			"hint":  "increase container memory or lower concurrent heavy scans",
+		})
+		return
+	}
 
 	scanID := generateScanID()
 	var command []string
@@ -547,6 +556,76 @@ func scanApkX(c *gin.Context) {
 		Message: fmt.Sprintf("apkX analysis started for %s", *req.FilePath),
 		Command: strings.Join(command, " "),
 	})
+}
+
+func readInt64FromFile(path string) (int64, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "" || s == "max" {
+		return math.MaxInt64, nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return v, nil
+}
+
+func availableMemoryBytes() int64 {
+	// cgroup v2
+	if lim, err := readInt64FromFile("/sys/fs/cgroup/memory.max"); err == nil {
+		if cur, err2 := readInt64FromFile("/sys/fs/cgroup/memory.current"); err2 == nil {
+			if lim != math.MaxInt64 && lim > cur {
+				return lim - cur
+			}
+		}
+	}
+	// cgroup v1
+	if lim, err := readInt64FromFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); err == nil {
+		if cur, err2 := readInt64FromFile("/sys/fs/cgroup/memory/memory.usage_in_bytes"); err2 == nil {
+			if lim > 0 && lim < (1<<62) && lim > cur {
+				return lim - cur
+			}
+		}
+	}
+	// Host fallback (/proc/meminfo)
+	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "MemAvailable:") {
+				continue
+			}
+			parts := strings.Fields(line)
+			if len(parts) < 2 {
+				continue
+			}
+			if kb, err := strconv.ParseInt(parts[1], 10, 64); err == nil && kb > 0 {
+				return kb * 1024
+			}
+		}
+	}
+	return -1
+}
+
+func apkxMemoryPreflightCheck() (bool, string) {
+	// Default minimum free memory before starting heavy APK scans.
+	minFree := int64(700 * 1024 * 1024) // 700MB
+	if raw := strings.TrimSpace(os.Getenv("APKX_MIN_FREE_MEM_BYTES")); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
+			minFree = v
+		}
+	}
+	avail := availableMemoryBytes()
+	if avail <= 0 {
+		return true, ""
+	}
+	if avail < minFree {
+		return false, fmt.Sprintf("insufficient free memory for apkx scan: available=%dMB required>=%dMB", avail/(1024*1024), minFree/(1024*1024))
+	}
+	return true, ""
 }
 
 // apiUploadHandler handles file uploads for analysis
