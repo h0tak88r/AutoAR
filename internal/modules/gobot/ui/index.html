@@ -649,29 +649,29 @@
 
 <!-- Modal: Report Template Editor -->
 <div id="modal-report-template" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
-  <div class="auth-card" style="width: 95%; max-width: 1200px; padding: 24px; height: 90vh; display: flex; flex-direction: column;">
+  <div class="auth-card" style="width: 95%; max-width: 1200px; padding: 24px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
     <div class="view-header" style="margin-bottom: 20px; flex-shrink: 0;">
       <h2 class="view-title" id="report-template-modal-title">📝 Edit Template</h2>
       <div class="view-subtitle">Markdown format supported with real-time preview</div>
     </div>
     
-    <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0;">
+    <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; overflow: hidden;">
       <div style="flex-shrink: 0;">
         <label class="auth-label" for="report-template-name">Template Name</label>
         <input class="search-input auth-input" id="report-template-name" type="text" placeholder="e.g. pentest-report" required />
       </div>
       
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0;">
-        <div style="display: flex; flex-direction: column;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; overflow: hidden;">
+        <div style="display: flex; flex-direction: column; min-height: 0;">
           <label class="auth-label">Markdown Editor</label>
           <textarea id="report-template-content" class="search-input auth-input" 
-            style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: none; background: #010409;" 
+            style="flex: 1; min-height: 0; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: none; background: #010409;" 
             placeholder="# My Report Template..." oninput="updateTemplatePreview()"></textarea>
         </div>
-        <div style="display: flex; flex-direction: column;">
+        <div style="display: flex; flex-direction: column; min-height: 0;">
           <label class="auth-label">Live Preview</label>
           <div id="report-template-preview" class="search-input" 
-            style="flex: 1; overflow-y: auto; padding: 16px; background: #0d1117; border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"></div>
+            style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px; background: #0d1117; border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"></div>
         </div>
       </div>
 
