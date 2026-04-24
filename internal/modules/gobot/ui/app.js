@@ -1812,6 +1812,7 @@ function detectModuleFromFileName(fileName, existingModule) {
 
   const n = String(fileName || '').toLowerCase();
   if (!n) return 'unknown';
+  if (n.includes('/apkx/') || n.includes('\\apkx\\')) return 'apkx';
 
   // Nuclei vulnerability scanner
   if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
@@ -3848,7 +3849,21 @@ function previewDataToFlatRows(data, file) {
   const rows = [];
   // Empty file — return nothing silently
   if (!data || data.format === 'empty' || data.format === 'too_large') return rows;
-  const module = detectModuleFromFileName(file.file_name, file.module);
+  let module = detectModuleFromFileName(file.file_name, file.module);
+  const looksLikeApkxObject = (obj) => {
+    if (!obj || typeof obj !== 'object') return false;
+    const keys = Object.keys(obj).map((k) => String(k).toLowerCase());
+    return keys.some((k) => (
+      k.includes('apk') ||
+      k.includes('manifest') ||
+      k.includes('permission') ||
+      k.includes('package') ||
+      k.includes('activity') ||
+      k.includes('receiver') ||
+      k.includes('provider') ||
+      k.includes('service')
+    ));
+  };
   const pushObj = (obj) => {
     if (!obj || typeof obj !== 'object') return;
     const severity = obj.info?.severity || obj.severity || obj.level || (obj.vulnerable ? 'high' : '—');
@@ -3884,6 +3899,9 @@ function previewDataToFlatRows(data, file) {
 
   if (data.format === 'json-object' && data.data && typeof data.data === 'object') {
     const obj = data.data;
+    if ((module === 'autoar' || module === 'unknown') && (String(file.file_name || '').toLowerCase().includes('results.json') || looksLikeApkxObject(obj))) {
+      module = 'apkx';
+    }
     let foundArray = false;
     for (const k of ['results', 'findings', 'matches', 'issues', 'vulnerabilities', 'data', 'items']) {
       if (Array.isArray(obj[k])) {
@@ -4046,8 +4064,10 @@ function inferReconKindFromFileName(fileName) {
 
 /** Infer finding kind from any file name (recon + vuln + all other modules). */
 function inferKindFromFileName(fileName) {
-  const b = String(fileName || '').split(/[/\\]/).pop().toLowerCase();
+  const full = String(fileName || '').toLowerCase();
+  const b = full.split(/[/\\]/).pop();
   if (!b) return 'other';
+  if (full.includes('/apkx/') || full.includes('\\apkx\\')) return 'apkx';
   // APK analysis artifacts
   if (b.includes('apk') || b.includes('androidmanifest') || b.includes('jadx') || b.includes('dex')) return 'apkx';
   // Log files — separate tab
