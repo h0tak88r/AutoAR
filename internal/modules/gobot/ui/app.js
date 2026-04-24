@@ -4491,7 +4491,12 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   root.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);overflow:hidden">
-      <div id="recon-top-tabs" style="display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:6px 10px;background:rgba(2,6,23,.6);border-bottom:1px solid var(--border);scrollbar-width:thin"></div>
+      <div style="display:grid;grid-template-columns:240px 1fr;min-height:720px">
+        <aside style="border-right:1px solid var(--border);background:rgba(2,6,23,.55);display:flex;flex-direction:column;min-width:0">
+          <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Findings Views</div>
+          <div id="recon-left-rail" style="display:flex;flex-direction:column;gap:6px;padding:8px;overflow-y:auto;overflow-x:hidden;max-height:780px;scrollbar-width:thin"></div>
+        </aside>
+        <section style="min-width:0">
       <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
         <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <select id="recon-filter-severity" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
@@ -4540,9 +4545,11 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading assets…</div>
         </div>
       </div>
+        </section>
+      </div>
     </div>`;
 
-  const tabsEl = root.querySelector('#recon-top-tabs');
+  const tabsEl = root.querySelector('#recon-left-rail');
   const filterBar = root.querySelector('#recon-filter-bar');
   const standardView = root.querySelector('#recon-standard-view');
   const assetsView = root.querySelector('#recon-assets-view');
@@ -4576,8 +4583,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
       const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
       const labelText = `${label}`.trim();
-      return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" title="${escAttr(labelText)}" style="display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;border:1px solid ${isActive ? 'rgba(34,211,238,.45)' : 'var(--border)'};border-bottom:1px solid ${isActive ? 'rgba(34,211,238,.45)' : 'var(--border)'};border-radius:8px;padding:7px 10px;white-space:nowrap;background:${isActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis">
-        <span style="display:inline-block;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle">${esc(labelText)}</span> ${cntDisplay}
+      return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" title="${escAttr(labelText)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:1px solid ${isActive ? 'rgba(34,211,238,.45)' : 'var(--border)'};border-radius:8px;padding:8px 10px;background:${isActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px;text-align:left;cursor:pointer">
+        <span style="display:inline-block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle">${esc(labelText)}</span> ${cntDisplay}
       </button>`;
     }).join('');
   };
