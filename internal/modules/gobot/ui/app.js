@@ -184,6 +184,7 @@ const state = {
   _shellWired: false,
   _r2BrowserWired: false,
   _metricsTimer: null,
+  reportTemplateOriginalName: '',
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -7801,7 +7802,9 @@ async function openReportTemplateModal(name = '') {
   if (!modal || !title || !nameInput || !contentInput) return;
 
   nameInput.value = name;
-  nameInput.readOnly = name !== '';
+  // Allow renaming existing templates.
+  nameInput.readOnly = false;
+  state.reportTemplateOriginalName = name || '';
   contentInput.value = '';
   title.textContent = name ? '📝 Edit Template' : '➕ New Template';
 
@@ -7832,12 +7835,14 @@ function updateTemplatePreview() {
 
 function closeReportTemplateModal() {
   const modal = document.getElementById('modal-report-template');
+  state.reportTemplateOriginalName = '';
   if (modal) modal.style.display = 'none';
 }
 
 async function saveReportTemplate() {
   const name = document.getElementById('report-template-name').value.trim();
   const content = document.getElementById('report-template-content').value;
+  const originalName = String(state.reportTemplateOriginalName || '').trim();
 
   if (!name || !content) {
     showToast('error', 'Validation', 'Name and content are required');
@@ -7855,6 +7860,19 @@ async function saveReportTemplate() {
     if (!res.ok) {
       const data = await res.json();
       throw new Error(data.error || 'Failed to save template');
+    }
+
+    // If this was a rename, remove the old template key.
+    if (originalName && originalName !== name) {
+      try {
+        const delHeaders = await buildAuthHeaders();
+        await fetch(`${API}/api/report-templates/${encodeURIComponent(originalName)}`, {
+          method: 'DELETE',
+          headers: delHeaders,
+        });
+      } catch (_) {
+        // Best effort: keep successful save even if old key cleanup fails.
+      }
     }
 
     showToast('success', 'Template Saved', `Template "${name}" saved successfully`);
