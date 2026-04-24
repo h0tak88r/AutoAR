@@ -1995,7 +1995,8 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
   let apkMatcherValue = String(r.matcher_value || finding);
 
   if (isApkUnifiedTab) {
-    const structuredPath = String(r.path || '').trim();
+    const normalizeApkPath = (p) => String(p || '').replace(/^\s*[-*•]\s*/, '').trim();
+    const structuredPath = normalizeApkPath(r.path || '');
     const structuredCategory = String(r.category_name || '').trim();
     const structuredContext = String(r.context || '').trim();
     if (structuredCategory) apkCategoryLabel = structuredCategory;
@@ -2012,13 +2013,20 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
     }
     const pathMatch = payload.match(/^([^:]+):\s*(.+)$/);
     if (pathMatch && (pathMatch[1].includes('/') || pathMatch[1].includes('\\') || pathMatch[1].includes('.'))) {
-      displayTarget = pathMatch[1].trim();
+      displayTarget = normalizeApkPath(pathMatch[1]);
       href = '#';
       apkMatcherValue = pathMatch[2].trim() || payload;
     } else {
-      displayTarget = structuredPath || (target && target !== '—' ? target : '—');
+      // Fallback: try to recover path from matcher_value when backend path is missing.
+      const mPath = String(apkMatcherValue || '').match(/^([^:]+):\s*(.+)$/);
+      if (mPath && (mPath[1].includes('/') || mPath[1].includes('\\') || mPath[1].includes('.'))) {
+        displayTarget = normalizeApkPath(mPath[1]);
+        apkMatcherValue = mPath[2].trim() || apkMatcherValue;
+      } else {
+        displayTarget = structuredPath || (target && target !== '—' ? target : '—');
+        apkMatcherValue = payload;
+      }
       href = '#';
-      apkMatcherValue = payload;
     }
     if (structuredContext && !apkMatcherValue.includes('Context:')) {
       apkMatcherValue = `${apkMatcherValue} (Context: ${structuredContext})`;
@@ -4609,6 +4617,10 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     const extracted = extractApkPackageInfo(allRows);
     allRows = extracted.rows;
     apkPackageInfo = extracted.info;
+    if (!apkPackageInfo.package_name) {
+      const tgt = String(scanRecord?.target || scanRecord?.Target || '').trim();
+      if (tgt) apkPackageInfo.package_name = tgt;
+    }
   }
 
   const apkCategoryKey = (r) => {

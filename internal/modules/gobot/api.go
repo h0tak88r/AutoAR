@@ -2177,7 +2177,11 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
-	indexScanArtifacts(scanID, scanType, target)
+	// For failed/cancelled apkx runs, keep only scan.log/error context and avoid attaching
+	// stale files from other package directories.
+	if !(scanType == "apkx" && finalStatus != "completed") {
+		indexScanArtifacts(scanID, scanType, target)
+	}
 	// domain_run / subdomain_run delete local results after upload — backfill from R2 for the UI table.
 	indexWorkflowArtifactsFromR2(scanID, scanType, target)
 	outputFiles := collectScanOutputFiles(scanID)
@@ -2312,6 +2316,9 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			if shouldSkipArtifact(path) {
 				return nil
 			}
+			if scanType == "apkx" && !shouldIncludeAPKXArtifact(path, resultsDir, target) {
+				return nil
+			}
 			if _, ok := seen[path]; ok {
 				return nil
 			}
@@ -2335,6 +2342,46 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			return nil
 		})
 	}
+}
+
+func shouldIncludeAPKXArtifact(path, resultsDir, target string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	if base == "results.json" || base == "scan.log" || strings.HasSuffix(base, ".apk") || strings.HasSuffix(base, ".ipa") {
+		// further filtered by directory target match below
+	}
+	apkRoot := filepath.Join(resultsDir, "apkx")
+	rel, err := filepath.Rel(apkRoot, path)
+	if err != nil {
+		return false
+	}
+	rel = filepath.Clean(rel)
+	if strings.HasPrefix(rel, "..") {
+		return false
+	}
+	parts := strings.Split(rel, string(os.PathSeparator))
+	if len(parts) == 0 {
+		return false
+	}
+	// top-level cache layout: apkx/cache/<pkg_version>/...
+	top := strings.ToLower(parts[0])
+	if top == "cache" && len(parts) > 1 {
+		top = strings.ToLower(parts[1])
+	}
+	t := strings.TrimSpace(strings.ToLower(target))
+	if t == "" {
+		return false
+	}
+	safeTarget := strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(t)
+	alt := strings.TrimSuffix(t, strings.ToLower(filepath.Ext(t)))
+	altSafe := strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(alt)
+
+	if top == safeTarget || strings.HasPrefix(top, safeTarget+"_") {
+		return true
+	}
+	if altSafe != "" && (top == altSafe || strings.HasPrefix(top, altSafe+"_")) {
+		return true
+	}
+	return false
 }
 
 // targetHostForR2Prefixes mirrors the UI r2PrefixesForScan hostname normalization (app.js).
