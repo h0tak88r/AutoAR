@@ -986,6 +986,50 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 			}
 			switch t := x.(type) {
 			case map[string]interface{}:
+				if strings.EqualFold(strings.TrimSpace(module), "apkx") {
+					// apkx results.json is typically map[string][]string where each key is
+					// a category and each array item is one finding line.
+					keys := make([]string, 0, len(t))
+					for k := range t {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+					for _, k := range keys {
+						if len(out) >= maxRows {
+							return
+						}
+						switch vv := t[k].(type) {
+						case []interface{}:
+							for _, it := range vv {
+								if len(out) >= maxRows {
+									return
+								}
+								line := strings.TrimSpace(fmt.Sprint(it))
+								if line == "" || line == "<nil>" {
+									continue
+								}
+								appendRow(parsedFinding{
+									Severity: "info",
+									Target:   "—",
+									Finding:  fmt.Sprintf("%s: %s", k, line),
+								})
+							}
+						case string:
+							line := strings.TrimSpace(vv)
+							if line == "" || line == "<nil>" {
+								continue
+							}
+							appendRow(parsedFinding{
+								Severity: "info",
+								Target:   "—",
+								Finding:  fmt.Sprintf("%s: %s", k, line),
+							})
+						}
+					}
+					if len(out) > 0 {
+						return
+					}
+				}
 				// ZeroDays summary-only guard: TotalVulnerable==0 with no findings -> skip.
 				if tv, hasTV := t["TotalVulnerable"]; hasTV {
 					if n, ok := tv.(float64); ok && n == 0 {
@@ -1162,6 +1206,16 @@ func apiScanParsedResults(c *gin.Context) {
 	for _, e := range entries {
 		presentFiles[strings.ToLower(e.FileName)] = true
 	}
+	hasApkxJSON := false
+	if scanType == "apkx" {
+		for _, e := range entries {
+			n := strings.ToLower(strings.TrimSpace(e.FileName))
+			if strings.HasSuffix(n, ".json") {
+				hasApkxJSON = true
+				break
+			}
+		}
+	}
 	// rawToJSON maps a raw shadowed filename to the JSON that supersedes it.
 	// Also maps pipeline input files (subdomains/URLs) to a sentinel "" to mark
 	// them as "always skip" — the sentinel is never present so they are dropped.
@@ -1231,6 +1285,10 @@ func apiScanParsedResults(c *gin.Context) {
 			ext := strings.ToLower(filepath.Ext(e.FileName))
 			// Do not parse rendered report assets as findings rows.
 			if ext == ".html" || ext == ".htm" || ext == ".css" || ext == ".js" {
+				continue
+			}
+			// Prefer structured APK JSON when present; skip noisy text sidecars.
+			if hasApkxJSON && ext != ".json" {
 				continue
 			}
 		}
