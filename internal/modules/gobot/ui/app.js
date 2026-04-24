@@ -4443,10 +4443,13 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       versioncode: 'version_code',
       min_sdk: 'min_sdk',
       minsdk: 'min_sdk',
+      minsdkversion: 'min_sdk',
       target_sdk: 'target_sdk',
       targetsdk: 'target_sdk',
+      targetsdkversion: 'target_sdk',
       compile_sdk: 'compile_sdk',
       compilesdk: 'compile_sdk',
+      compilesdkversion: 'compile_sdk',
     };
     const takeKV = (k, v) => {
       const key = String(k || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
@@ -4628,6 +4631,38 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   if (apkMetaBar) {
     if (isAPKScan && apkPackageInfo) {
+      const toInt = (v) => {
+        const m = String(v || '').match(/\d+/);
+        return m ? Number(m[0]) : NaN;
+      };
+      const targetSdk = toInt(apkPackageInfo.target_sdk);
+      const minSdk = toInt(apkPackageInfo.min_sdk);
+      const hasSingleTaskSignals = allRows.some((r) => {
+        const t = String(r.target || '').toLowerCase();
+        const f = String(r.finding || '').toLowerCase();
+        return t.includes('singletasklaunchmode') || f.includes('launchmode: singletask');
+      });
+      const hasTaskAffinitySignals = allRows.some((r) => {
+        const t = String(r.target || '').toLowerCase();
+        const f = String(r.finding || '').toLowerCase();
+        return t.includes('taskaffinity') || f.includes('taskaffinity');
+      });
+      let hijackLabel = 'Unknown';
+      let hijackColor = '#94a3b8';
+      if (!Number.isNaN(targetSdk)) {
+        if (targetSdk <= 28) {
+          hijackLabel = 'Likely';
+          hijackColor = '#f97316';
+        } else if (targetSdk <= 30) {
+          hijackLabel = 'Possible';
+          hijackColor = '#f59e0b';
+        } else {
+          hijackLabel = 'Harder';
+          hijackColor = '#22c55e';
+        }
+      }
+      const signalLabel = `${hasSingleTaskSignals ? 'singleTask' : 'no-singleTask'} / ${hasTaskAffinitySignals ? 'taskAffinity' : 'no-taskAffinity'}`;
+
       const ordered = [
         ['package_name', 'Package ID'],
         ['app_name', 'App Name'],
@@ -4641,12 +4676,26 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         apkMetaBar.style.display = 'flex';
         apkMetaBar.style.flexWrap = 'wrap';
         apkMetaBar.style.gap = '8px';
-        apkMetaBar.innerHTML = ordered.map(([k, label]) => (
+        apkMetaBar.innerHTML = [
+          ...ordered.map(([k, label]) => (
           `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
             <span style="font-size:11px;color:#67e8f9">${esc(label)}:</span>
             <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(apkPackageInfo[k])}</span>
           </div>`
-        )).join('');
+        )),
+          `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${hijackColor}55;border-radius:8px;background:rgba(2,6,23,.45)" title="Heuristic based on targetSdk + detected manifest signals">
+            <span style="font-size:11px;color:${hijackColor}">singleTask Hijack:</span>
+            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(hijackLabel)} (${esc(signalLabel)})</span>
+          </div>`,
+          !Number.isNaN(minSdk) ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
+            <span style="font-size:11px;color:#67e8f9">Min API:</span>
+            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(String(minSdk))}</span>
+          </div>` : '',
+          !Number.isNaN(targetSdk) ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
+            <span style="font-size:11px;color:#67e8f9">Target API:</span>
+            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(String(targetSdk))}</span>
+          </div>` : '',
+        ].join('');
       } else {
         apkMetaBar.style.display = 'none';
         apkMetaBar.innerHTML = '';
