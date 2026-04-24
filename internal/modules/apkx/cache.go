@@ -8,7 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 )
@@ -19,6 +22,120 @@ type CacheInfo struct {
 	Version        string `json:"version"`
 	VersionCode    string `json:"version_code,omitempty"`
 	MITMPatchedAPK string `json:"mitm_patched_apk,omitempty"` // Path to MITM patched APK if exists
+}
+
+type localCacheEntry struct {
+	Name    string
+	Path    string
+	ModTime time.Time
+	Size    int64
+}
+
+func envInt(key string, def int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+func envInt64(key string, def int64) int64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+func dirSizeAndLatestMod(path string) (int64, time.Time) {
+	var total int64
+	latest := time.Time{}
+	_ = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			if info.ModTime().After(latest) {
+				latest = info.ModTime()
+			}
+			return nil
+		}
+		total += info.Size()
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+		return nil
+	})
+	return total, latest
+}
+
+// pruneLocalCache enforces local APK cache retention.
+// Env controls:
+// - APKX_CACHE_MAX_DIRS (default: 30, <=0 disables count pruning)
+// - APKX_CACHE_MAX_LOCAL_BYTES (default: 2147483648 (2 GiB), <=0 disables size pruning)
+func pruneLocalCache() {
+	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
+	if resultsDir == "" {
+		resultsDir = "new-results"
+	}
+	cacheDir := filepath.Join(resultsDir, "apkx", "cache")
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		return
+	}
+
+	maxDirs := envInt("APKX_CACHE_MAX_DIRS", 30)
+	maxBytes := envInt64("APKX_CACHE_MAX_LOCAL_BYTES", 2*1024*1024*1024)
+
+	items := make([]localCacheEntry, 0, len(entries))
+	var totalBytes int64
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(cacheDir, e.Name())
+		size, mod := dirSizeAndLatestMod(p)
+		items = append(items, localCacheEntry{
+			Name:    e.Name(),
+			Path:    p,
+			ModTime: mod,
+			Size:    size,
+		})
+		totalBytes += size
+	}
+	if len(items) == 0 {
+		return
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].ModTime.Before(items[j].ModTime) // oldest first
+	})
+
+	removed := 0
+	for len(items) > 0 {
+		overDirs := maxDirs > 0 && len(items) > maxDirs
+		overBytes := maxBytes > 0 && totalBytes > maxBytes
+		if !overDirs && !overBytes {
+			break
+		}
+		victim := items[0]
+		items = items[1:]
+		if err := os.RemoveAll(victim.Path); err == nil {
+			totalBytes -= victim.Size
+			removed++
+		}
+	}
+	if removed > 0 {
+		log.Printf("[CACHE] 🧹 Auto-pruned %d local APK cache entries", removed)
+	}
 }
 
 // getCacheKey generates a cache key from package and version
@@ -136,20 +253,20 @@ func CheckCache(packageName, version string) (string, bool) {
 		if extractedVersion == "" || extractedVersion == "unknown" {
 			extractedVersion = "latest"
 		}
-		
+
 		// Create a Result object from existing scan
 		existingResult := &Result{
 			ReportDir: existingScanPath,
 			LogFile:   existingResultsJson,
 			Duration:  0, // Unknown duration
 		}
-		
+
 		// Check for MITM patched APK
 		mitmFiles, _ := filepath.Glob(filepath.Join(existingScanPath, "*-mitm-patched*.apk"))
 		if len(mitmFiles) > 0 {
 			existingResult.MITMPatchedAPK = mitmFiles[0]
 		}
-		
+
 		// Save to cache
 		if err := SaveToCache(packageName, extractedVersion, "", existingResult); err == nil {
 			log.Printf("[CACHE] [ + ]Migrated existing scan to cache: %s v%s", packageName, extractedVersion)
@@ -174,14 +291,14 @@ func findAnyCachedVersionInR2(packageName string) (string, bool) {
 	// Search for any cache entry for this package
 	// R2 cache path format: apkx/cache/{package}_{version}/results.json
 	packagePrefix := fmt.Sprintf("apkx/cache/%s_", strings.ReplaceAll(packageName, ".", "_"))
-	
+
 	// Use R2's ListObjects to find all cache entries for this package
 	// We need to access the R2 client directly, so we'll use a helper function
 	foundVersion, err := r2storage.FindCachedVersion(packagePrefix)
 	if err == nil && foundVersion != "" {
 		return foundVersion, true
 	}
-	
+
 	return "", false
 }
 
@@ -192,16 +309,16 @@ func findAnyCachedVersionLocal(packageName string) (string, bool) {
 	if resultsDir == "" {
 		resultsDir = "new-results"
 	}
-	
+
 	cacheDir := filepath.Join(resultsDir, "apkx", "cache")
 	packagePrefix := strings.ReplaceAll(packageName, ".", "_") + "_"
-	
+
 	// List all cache directories
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {
 		return "", false
 	}
-	
+
 	// Find any directory that starts with the package prefix
 	for _, entry := range entries {
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), packagePrefix) {
@@ -215,7 +332,7 @@ func findAnyCachedVersionLocal(packageName string) (string, bool) {
 			}
 		}
 	}
-	
+
 	return "", false
 }
 
@@ -249,11 +366,11 @@ func LoadCachedResult(cachePath string) (*Result, error) {
 
 	// Create Result from cache
 	result := &Result{
-		ReportDir:     cachePath,
-		LogFile:       resultsJson,
-		Duration:      0, // Cached results don't have duration
+		ReportDir:      cachePath,
+		LogFile:        resultsJson,
+		Duration:       0, // Cached results don't have duration
 		MITMPatchedAPK: mitmPatchedAPK,
-		FromCache:     true, // Mark as cached result
+		FromCache:      true, // Mark as cached result
 	}
 
 	return result, nil
@@ -348,6 +465,9 @@ func SaveToCache(packageName, version, versionCode string, result *Result) error
 		}
 	}
 
+	// Auto-prune local cache to cap VPS disk growth.
+	pruneLocalCache()
+
 	return nil
 }
 
@@ -377,7 +497,7 @@ func extractVersionWithAAPT(apkPath string) (packageName, version, versionCode s
 		}
 
 		outputStr := string(output)
-		
+
 		// Extract package name: package: name='com.example.app'
 		pkgRegex := regexp.MustCompile(`package:\s*name=['"]([^'"]+)['"]`)
 		if matches := pkgRegex.FindStringSubmatch(outputStr); len(matches) > 1 {
@@ -518,4 +638,3 @@ func extractVersionWithApktool(apkPath string) (packageName, version, versionCod
 
 	return packageName, version, versionCode, nil
 }
-
