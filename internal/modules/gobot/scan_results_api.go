@@ -93,6 +93,8 @@ func inferModuleFromFileName(name string) string {
 		return "js-analysis"
 	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure") || strings.Contains(n, "secret"):
 		return "js-analysis"
+	case strings.Contains(n, "apk") || strings.Contains(n, "androidmanifest") || strings.Contains(n, "jadx") || strings.Contains(n, "dex"):
+		return "apkx"
 	case strings.HasPrefix(n, "gf-") || strings.Contains(n, "gf-"):
 		return "gf-patterns"
 	case strings.Contains(n, "misconfig"):
@@ -109,7 +111,7 @@ func inferModuleFromFileName(name string) string {
 		return "dns-takeover"
 	case strings.Contains(n, "tech"):
 		return "tech-detect"
-	case strings.Contains(n, "port") || strings.Contains(n, "nmap") || strings.Contains(n, "masscan"):
+	case strings.Contains(n, "port-scan") || strings.Contains(n, "ports") || strings.Contains(n, "nmap") || strings.Contains(n, "masscan"):
 		return "port-scan"
 	case strings.Contains(n, "aem"):
 		return "aem-scan"
@@ -721,8 +723,11 @@ func inferReconKind(fileName string) string {
 	// Backup
 	case strings.Contains(b, "backup") || strings.Contains(b, "fuzzuli"):
 		return "backup"
+	// APK analysis
+	case strings.Contains(b, "apk") || strings.Contains(b, "androidmanifest") || strings.Contains(b, "jadx") || strings.Contains(b, "dex"):
+		return "apkx"
 	// Ports
-	case strings.Contains(b, "port") || strings.Contains(b, "nmap") || strings.Contains(b, "masscan"):
+	case strings.Contains(b, "port-scan") || strings.Contains(b, "ports") || strings.Contains(b, "nmap") || strings.Contains(b, "masscan"):
 		return "ports"
 	default:
 		return "other"
