@@ -1138,6 +1138,15 @@ func apiScanParsedResults(c *gin.Context) {
 			if len(rows) >= limit {
 				return
 			}
+			if scanType == "apkx" {
+				// Drop placeholder rows produced by summary objects with no concrete finding fields.
+				f := strings.ToLower(strings.TrimSpace(r.Finding))
+				t := strings.TrimSpace(r.Target)
+				if (f == "" || f == "—" || f == "autoar" || f == "apkx") &&
+					(t == "" || t == "—" || t == "-") {
+					continue
+				}
+			}
 			r.File = e.FileName
 			r.Module = module
 			r.Category = category
