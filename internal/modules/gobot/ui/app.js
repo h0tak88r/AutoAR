@@ -1990,9 +1990,17 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
   const findingShort = finding.length > 88 ? `${finding.slice(0, 86)}...` : finding;
   const source = String(r.file || r.source || '—');
   let apkCategoryLabel = String(r.apk_category || '').trim();
-  let apkMatcherValue = finding;
+  let apkMatcherValue = String(r.matcher_value || finding);
 
   if (isApkUnifiedTab) {
+    const structuredPath = String(r.path || '').trim();
+    const structuredCategory = String(r.category_name || '').trim();
+    const structuredContext = String(r.context || '').trim();
+    if (structuredCategory) apkCategoryLabel = structuredCategory;
+    if (structuredPath) {
+      displayTarget = structuredPath;
+      href = '#';
+    }
     if (!apkCategoryLabel && target && target !== '-' && target !== '—') {
       apkCategoryLabel = target;
     }
@@ -2006,9 +2014,12 @@ function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
       href = '#';
       apkMatcherValue = pathMatch[2].trim() || payload;
     } else {
-      displayTarget = target && target !== '—' ? target : '—';
+      displayTarget = structuredPath || (target && target !== '—' ? target : '—');
       href = '#';
       apkMatcherValue = payload;
+    }
+    if (structuredContext && !apkMatcherValue.includes('Context:')) {
+      apkMatcherValue = `${apkMatcherValue} (Context: ${structuredContext})`;
     }
   }
 
@@ -4503,6 +4514,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   }
 
   const apkCategoryKey = (r) => {
+    const explicit = String(r.category_name || r.apk_category || '').trim();
+    if (explicit) return explicit;
     const t = String(r.target || '').trim();
     if (t && t !== '-' && t !== '—') return t;
     const f = String(r.finding || '').trim();
@@ -4548,6 +4561,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   let quickChip = 'none';
   let railSearch = '';
   let currentRenderedRows = [];
+  let _virtualScrollTop = 0;
   const presetStorageKey = `autoar.recon.filtersets.${stNorm || 'generic'}`;
   const uiStateKey = `autoar.recon.uistate.${stNorm || 'generic'}`;
   const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
@@ -4914,6 +4928,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     const headRow = root.querySelector('#recon-unified-headrow');
     const shown = root.querySelector('#recon-unified-shown');
     const cap = root.querySelector('#recon-unified-cap');
+    const wrap = root.querySelector('.result-table-wrap');
     if (shown) shown.textContent = String(filtered.length);
     if (headRow) {
       const cols = presetMode === 'raw'
@@ -4931,7 +4946,18 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     }
     if (tbody) {
       currentRenderedRows = slice;
-      tbody.innerHTML = slice.length ? slice.map((r, idx) => {
+      const virtualEnabled = slice.length > 150;
+      const rowHeight = 34;
+      const overscan = 12;
+      const viewportH = Math.max(320, Math.round((wrap?.clientHeight || 640)));
+      const visibleRows = Math.ceil(viewportH / rowHeight) + overscan * 2;
+      const vStart = virtualEnabled ? Math.max(0, Math.floor(_virtualScrollTop / rowHeight) - overscan) : 0;
+      const vEnd = virtualEnabled ? Math.min(slice.length, vStart + visibleRows) : slice.length;
+      const renderSlice = slice.slice(vStart, vEnd);
+      const topPad = virtualEnabled ? vStart * rowHeight : 0;
+      const bottomPad = virtualEnabled ? Math.max(0, (slice.length - vEnd) * rowHeight) : 0;
+      const rowsHtml = renderSlice.map((r, idx) => {
+        const rowIdx = vStart + idx;
         const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
         const sevMeta = {
           critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' },
@@ -4943,12 +4969,17 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
 
         const modInfo = getModuleDisplayInfo(r.module);
-        if (presetMode === 'raw') return renderDefaultRow(r, idx, modInfo, sevMeta);
-        return renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta);
-      }).join('') : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
-      if (slice.length) {
+        if (presetMode === 'raw') return renderDefaultRow(r, rowIdx, modInfo, sevMeta);
+        return renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta);
+      }).join('');
+      if (!slice.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
+      } else {
+        tbody.innerHTML = `${topPad ? `<tr class="virtual-pad-top"><td colspan="5" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="5" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}`;
+      }
+      if (renderSlice.length) {
         Array.from(tbody.querySelectorAll('.findings-row')).forEach((tr, i) => {
-          tr.setAttribute('data-row-index', String(i));
+          tr.setAttribute('data-row-index', String(vStart + i));
         });
       }
     }
@@ -5219,6 +5250,13 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     e.preventDefault();
     startColumnResize(idx, e.clientX);
   });
+  const tableWrap = root.querySelector('.result-table-wrap');
+  if (tableWrap) {
+    tableWrap.addEventListener('scroll', () => {
+      _virtualScrollTop = tableWrap.scrollTop || 0;
+      if (currentRenderedRows.length > 150) renderBody();
+    });
+  }
 
   const hostInput = root.querySelector('#recon-filter-host');
   const titleInput = root.querySelector('#recon-filter-title');
