@@ -3326,42 +3326,11 @@ patterns:
   - name: zopim_account_key
     regex: zopim[_-]?account[_-]?key(=| =|:| :)
 
-  - name: ExportedActivities
-    regex: (?s)<activity[^>]*?android:name="([^"]+)".*?android:exported="true"
-
-  - name: ExportedServices
-    regex: (?s)<service[^>]*?android:name="([^"]+)".*?android:exported="true"
-
-  - name: ExportedBroadcastReceivers
-    regex: (?s)<receiver[^>]*?android:name="([^"]+)".*?android:exported="true"
-
-  - name: ExportedContentProviders
-    regex: (?s)<provider[^>]*?android:name="([^"]+)".*?android:exported="true"
-
-  - name: WebViews
-    regex: (?s)<activity[^>]*?android:name="([^"]+)".*?<intent-filter[^>]*?<action[^>]*?android:name="android\.intent\.action\.VIEW"[^>]*?<category[^>]*?android:name="android\.intent\.category\.BROWSABLE"
-
-  - name: DeepLinks
-    regex: (?s)<activity[^>]*?android:name="([^"]+)".*?<intent-filter[^>]*?<action[^>]*?android:name="android\.intent\.action\.VIEW"[^>]*?<category[^>]*?android:name="android\.intent\.category\.DEFAULT"[^>]*?<data[^>]*?android:scheme="([^"]+)"
-
-  - name: CustomURLSchemes
-    regex: (?s)<data[^>]*?android:scheme="([^"]+)"
-
-  - name: FileProviderExports
-    regex: (?s)<provider[^>]*?android:name="([^"]+)".*?android:exported="true".*?android:authorities="([^"]+)"
-
-  - name: taskAffinity
-    regex: (?s)<activity[^>]*?android:name="([^"]+)".*?android:taskAffinity="([^"]+)"
-
-  - name: SingleTaskLaunchMode
-    regex: (?s)<activity[^>]*?android:name="([^"]+)".*?android:launchMode="singleTask"
-
-  # Security Vulnerabilities
+  # Security Vulnerabilities — these run on Java/Kotlin source files, NOT the manifest.
+  # Manifest-specific checks (ExportedActivities, DeepLinks, taskAffinity, etc.)
+  # are handled by the encoding/xml parser in manifest_parser.go — no regex needed.
   - name: InsecureStorage
     regex: (SharedPreferences\.getSharedPreferences\(|getSharedPreferences\(|MODE_WORLD_READABLE|MODE_WORLD_WRITEABLE|SQLiteDatabase\.openDatabase\(|SQLiteOpenHelper|CREATE TABLE|INSERT INTO)
 
   - name: CertificatePinning
     regex: (CertificatePinner|TrustManager|X509TrustManager|OkHttpClient\.Builder\(\)\.certificatePinner|SSLSocketFactory|TrustManagerFactory)
-
-  - name: DebugMode
-    regex: android:debuggable="true"
