@@ -3,6 +3,7 @@ package decompiler
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/utils"
 )
@@ -28,10 +30,19 @@ func NewJadx() (*Jadx, error) {
 }
 
 func (j *Jadx) Decompile(apkFile, outputDir string, args string) error {
+	// ── Thread count ──────────────────────────────────────────────────────────
+	// jadx default is 3 threads; each thread holds a large DEX parse tree in
+	// memory. On a VPS with no swap, 3 threads can easily OOM. Cap at 2.
+	jadxThreads := "2"
+	if t := os.Getenv("JADX_THREADS"); t != "" {
+		jadxThreads = t
+	}
+
 	// Default arguments to improve decompilation success rate
 	cmdArgs := []string{
 		apkFile,
 		"-d", outputDir,
+		"-j", jadxThreads,
 		"--no-debug-info",
 		"--no-inline-methods",
 		"--no-replace-consts",
@@ -45,11 +56,39 @@ func (j *Jadx) Decompile(apkFile, outputDir string, args string) error {
 		cmdArgs = append(cmdArgs, extraArgs...)
 	}
 
-	cmd := exec.Command(j.BinaryPath, cmdArgs...)
+	// ── JVM heap cap ──────────────────────────────────────────────────────────
+	// jadx's launcher script sets -XX:MaxRAMPercentage=70 by default.
+	// On a 12 GB VPS that's ~8.4 GB JVM heap — way over available memory when
+	// the rest of AutoAR is also running, and there's zero swap.
+	// We override via JAVA_OPTS (the jadx launcher respects it).
+	// Default: 1500 MB. Override with JADX_MAX_HEAP_MB env var.
+	maxHeapMB := "1500"
+	if m := os.Getenv("JADX_MAX_HEAP_MB"); m != "" {
+		maxHeapMB = m
+	}
+	javaOpts := fmt.Sprintf("-Xmx%sm -Xms128m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError", maxHeapMB)
+
+	// ── Timeout ───────────────────────────────────────────────────────────────
+	// Very large APKs can loop forever. Default: 15 minutes. Override with
+	// JADX_TIMEOUT_MINUTES env var.
+	timeoutMins := 15
+	if t := os.Getenv("JADX_TIMEOUT_MINUTES"); t != "" {
+		if n, err := fmt.Sscanf(t, "%d", &timeoutMins); n == 0 || err != nil {
+			timeoutMins = 15
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMins)*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, j.BinaryPath, cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "JAVA_OPTS="+javaOpts)
 
 	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("jadx timed out after %d minutes (set JADX_TIMEOUT_MINUTES to increase)", timeoutMins)
+	}
 	if err != nil {
 		// Check if output directory was created and contains decompiled files
 		if _, statErr := os.Stat(filepath.Join(outputDir, "sources")); statErr == nil {
