@@ -366,11 +366,13 @@ func buildTokenParts(header, claims map[string]interface{}) string {
 	return headerB64 + "." + claimsB64
 }
 
-// mustJSON marshals a map to JSON, panicking on error (should never happen for valid maps).
+// mustJSON marshals a map to JSON. On the extremely unlikely event that
+// marshalling a plain map[string]interface{} fails, it returns an empty
+// object instead of panicking — a panic inside a goroutine kills the process.
 func mustJSON(v map[string]interface{}) []byte {
 	data, err := json.Marshal(v)
 	if err != nil {
-		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
+		return []byte("{}")
 	}
 	return data
 }

@@ -24,6 +24,13 @@ var (
 	isEnabled  bool
 )
 
+// r2ctxBg returns a background context with a 10-minute timeout for R2 I/O.
+func r2ctxBg() context.Context {
+ctx, _ := context.WithTimeout(context.Background(), 10*time.Minute) //nolint:govet
+return ctx
+}
+
+
 // R2Config holds Cloudflare R2 configuration
 type R2Config struct {
 	Enabled      bool
@@ -96,7 +103,7 @@ func initR2Client() error {
 	})
 
 	// Load AWS config with R2 credentials
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(r2ctxBg(),
 		config.WithEndpointResolverWithOptions(customResolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			r2Config.AccessKeyID,
@@ -193,7 +200,7 @@ func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) 
 	log.Printf("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, fileInfo.Size())
 
 	// Upload file
-	_, err = r2Client.PutObject(context.TODO(), &s3.PutObjectInput{
+	_, err = r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
 		Bucket:        aws.String(r2Config.BucketName),
 		Key:           aws.String(objectKey),
 		Body:          file,
@@ -242,7 +249,7 @@ func UploadFileWithReader(reader io.Reader, objectKey string, size int64, conten
 	log.Printf("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, size)
 
 	// Upload file
-	_, err := r2Client.PutObject(context.TODO(), &s3.PutObjectInput{
+	_, err := r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
 		Bucket:        aws.String(r2Config.BucketName),
 		Key:           aws.String(objectKey),
 		Body:          reader,
@@ -341,7 +348,7 @@ func FileExists(objectKey string) (bool, error) {
 	}
 
 	// Check if file exists
-	_, err := r2Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+	_, err := r2Client.HeadObject(r2ctxBg(), &s3.HeadObjectInput{
 		Bucket: aws.String(r2Config.BucketName),
 		Key:    aws.String(objectKey),
 	})
@@ -372,7 +379,7 @@ func FindExistingFile(fileName string) (string, error) {
 
 	paginator := s3.NewListObjectsV2Paginator(r2Client, listInput)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(r2ctxBg())
 		if err != nil {
 			return "", fmt.Errorf("failed to list R2 objects: %w", err)
 		}
@@ -404,7 +411,7 @@ func FindCachedVersion(packagePrefix string) (string, error) {
 
 	paginator := s3.NewListObjectsV2Paginator(r2Client, listInput)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(r2ctxBg())
 		if err != nil {
 			return "", fmt.Errorf("failed to list R2 objects: %w", err)
 		}
@@ -608,7 +615,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 	downloadedCount := 0
 	paginator := s3.NewListObjectsV2Paginator(r2Client, listInput)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(r2ctxBg())
 		if err != nil {
 			return fmt.Errorf("failed to list R2 objects: %w", err)
 		}
@@ -635,7 +642,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 				Key:    obj.Key,
 			}
 
-			result, err := r2Client.GetObject(context.TODO(), getInput)
+			result, err := r2Client.GetObject(r2ctxBg(), getInput)
 			if err != nil {
 				log.Printf("[R2] ⚠️  Failed to download %s: %v", *obj.Key, err)
 				continue
@@ -731,7 +738,7 @@ func ListObjectsRecursive(prefix string) ([]ListedObject, error) {
 	var out []ListedObject
 	paginator := s3.NewListObjectsV2Paginator(r2Client, input)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(r2ctxBg())
 		if err != nil {
 			return nil, err
 		}
@@ -785,7 +792,7 @@ func GetObjectBytes(objectKey string) ([]byte, error) {
 	if key == "" {
 		return nil, fmt.Errorf("empty object key")
 	}
-	out, err := r2Client.GetObject(context.TODO(), &s3.GetObjectInput{
+	out, err := r2Client.GetObject(r2ctxBg(), &s3.GetObjectInput{
 		Bucket: aws.String(r2Config.BucketName),
 		Key:    aws.String(key),
 	})
@@ -817,7 +824,7 @@ func DeleteObjects(keys []string) error {
 		uniq[k] = struct{}{}
 	}
 	for k := range uniq {
-		_, err := r2Client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+		_, err := r2Client.DeleteObject(r2ctxBg(), &s3.DeleteObjectInput{
 			Bucket: aws.String(r2Config.BucketName),
 			Key:    aws.String(k),
 		})
