@@ -37,7 +37,12 @@ var (
 		Short: "Enumerate subdomains",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			if domain == "" {
+				return fmt.Errorf("domain is required")
+			}
+			_, finalize := setupCurrentScanManaged("subdomains", domain)
 			_, err := subdomains.EnumerateSubdomains(domain, 100)
+			finalize(err)
 			return err
 		},
 	}
@@ -47,7 +52,12 @@ var (
 		Short: "Filter live hosts",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			if domain == "" {
+				return fmt.Errorf("domain is required")
+			}
+			_, finalize := setupCurrentScanManaged("livehosts", domain)
 			_, err := livehosts.FilterLiveHosts(domain, 100, true)
+			finalize(err)
 			return err
 		},
 	}
@@ -57,7 +67,12 @@ var (
 		Short: "Collect CNAME records",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			if domain == "" {
+				return fmt.Errorf("domain is required")
+			}
+			_, finalize := setupCurrentScanManaged("cnames", domain)
 			_, err := cnames.CollectCNAMEs(domain)
+			finalize(err)
 			return err
 		},
 	}
@@ -67,7 +82,12 @@ var (
 		Short: "Detect technologies",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			if domain == "" {
+				return fmt.Errorf("domain is required")
+			}
+			_, finalize := setupCurrentScanManaged("tech", domain)
 			_, err := tech.DetectTech(domain, 100)
+			finalize(err)
 			return err
 		},
 	}
@@ -77,7 +97,12 @@ var (
 		Short: "Scan for open ports",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			if domain == "" {
+				return fmt.Errorf("domain is required")
+			}
+			_, finalize := setupCurrentScanManaged("ports", domain)
 			_, err := ports.ScanPorts(domain, 100)
+			finalize(err)
 			return err
 		},
 	}
@@ -87,7 +112,12 @@ var (
 		Short: "Collect URLs and JS files",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, _ := cmd.Flags().GetString("domain")
+			if domain == "" {
+				return fmt.Errorf("domain is required")
+			}
+			_, finalize := setupCurrentScanManaged("urls", domain)
 			_, err := urls.CollectURLs(domain, 100, false)
+			finalize(err)
 			return err
 		},
 	}
