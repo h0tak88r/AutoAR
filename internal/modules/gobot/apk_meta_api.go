@@ -3,32 +3,23 @@ package gobot
 // GET /api/scans/:id/results/apk-meta
 //
 // Returns parsed metadata from the AndroidManifest.xml and cache_info.json
-// for an APK scan, without any row limits or scraping of findings data.
-//
-// Response:
-//   {
-//     "package_name":   "com.example.app",
-//     "version":        "5.1.0",
-//     "version_code":   "510",
-//     "min_sdk":        "21",
-//     "target_sdk":     "34",
-//     "task_hijacking_risk": "possible" | "unlikely" | "unknown"
-//   }
+// for an APK scan.
 //
 // task_hijacking_risk logic (minSdk):
-//   ≤ 28  → "possible"   (Android 9 and earlier — stealBackStack not enforced)
-//   29–30 → "mitigated"  (Android 10/11 — partial fix)
-//   ≥ 31  → "unlikely"   (Android 12+ — stealBackStack=false by default)
+//   ≤ 28  → "possible"   (Android 9 and earlier)
+//   29–30 → "mitigated"  (Android 10/11)
+//   ≥ 31  → "unlikely"   (Android 12+)
 
 import (
 	"encoding/json"
 	"net/http"
-	"regexp"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/tools/apkx/analyzer"
 )
 
 // APKMeta holds parsed APK metadata.
@@ -60,10 +51,30 @@ func apiScanAPKMeta(c *gin.Context) {
 
 	meta := &APKMeta{}
 
-	// ── 1. Try AndroidManifest.xml (richest source) ───────────────────────────
+	// ── 1. Try AndroidManifest.xml via XML parser ─────────────────────────────
 	if raw, _, err := loadFileContent(scanID, "AndroidManifest.xml"); err == nil && len(raw) > 0 {
-		parseManifestInto(string(raw), meta)
-		meta.Source = "manifest"
+		// Write raw bytes to a temp file so ParseManifestXML can read it.
+		// (ParseManifestXML accepts a path; we avoid a copy by writing to /tmp)
+		if tmpPath, tmpErr := writeTemp("autoar-manifest-*.xml", raw); tmpErr == nil {
+			if pm, xmlErr := analyzer.ParseManifestXML(tmpPath); xmlErr == nil {
+				if pm.PackageName != "" {
+					meta.PackageName = pm.PackageName
+				}
+				if pm.VersionName != "" {
+					meta.Version = pm.VersionName
+				}
+				if pm.VersionCode != "" {
+					meta.VersionCode = pm.VersionCode
+					if meta.Version == "" {
+						meta.Version = "v" + pm.VersionCode
+					}
+				}
+				meta.MinSDK = pm.MinSdkVersion
+				meta.TargetSDK = pm.TargetSdkVersion
+				meta.Source = "manifest"
+			}
+			os.Remove(tmpPath)
+		}
 	}
 
 	// ── 2. Fill gaps from cache_info.json ────────────────────────────────────
@@ -106,59 +117,18 @@ func apiScanAPKMeta(c *gin.Context) {
 	c.JSON(http.StatusOK, meta)
 }
 
-// parseManifestInto fills meta fields by scanning the manifest XML text with
-// simple regexes (same approach as reporter.ExtractPackageInfo / ExtractMinSdkVersion).
-func parseManifestInto(content string, m *APKMeta) {
-	tryRE := func(pattern, text string) string {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			return ""
-		}
-		if matches := re.FindStringSubmatch(text); len(matches) > 1 {
-			return strings.TrimSpace(matches[1])
-		}
-		return ""
+// writeTemp writes data to a temporary file and returns its path.
+func writeTemp(pattern string, data []byte) (string, error) {
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
 	}
-
-	if v := tryRE(`package\s*=\s*["']([^"']+)["']`, content); v != "" {
-		m.PackageName = v
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		os.Remove(f.Name())
+		return "", err
 	}
-	if v := tryRE(`android:versionName\s*=\s*["']([^"']+)["']`, content); v != "" {
-		m.Version = v
-	}
-	if m.Version == "" {
-		if v := tryRE(`android:versionName\s*=\s*(\S+)`, content); v != "" {
-			m.Version = strings.Trim(v, `"'`)
-		}
-	}
-	if v := tryRE(`android:versionCode\s*=\s*["']?(\d+)["']?`, content); v != "" {
-		m.VersionCode = v
-		if m.Version == "" {
-			m.Version = "v" + v
-		}
-	}
-	// minSdkVersion — may be in <uses-sdk> or <manifest>
-	for _, pat := range []string{
-		`android:minSdkVersion\s*=\s*["'](\d+)["']`,
-		`android:minSdkVersion\s*=\s*(\d+)`,
-		`minSdkVersion\s*=\s*["']?(\d+)["']?`,
-	} {
-		if v := tryRE(pat, content); v != "" {
-			m.MinSDK = v
-			break
-		}
-	}
-	// targetSdkVersion
-	for _, pat := range []string{
-		`android:targetSdkVersion\s*=\s*["'](\d+)["']`,
-		`android:targetSdkVersion\s*=\s*(\d+)`,
-		`targetSdkVersion\s*=\s*["']?(\d+)["']?`,
-	} {
-		if v := tryRE(pat, content); v != "" {
-			m.TargetSDK = v
-			break
-		}
-	}
+	return f.Name(), nil
 }
 
 // taskHijackingRisk returns a risk label based on minSdkVersion.
