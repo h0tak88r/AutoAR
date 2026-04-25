@@ -210,6 +210,7 @@ func ensureDB() {
 // The returned finalize callback updates DB status and unsets AUTOAR_CURRENT_SCAN_ID
 // only if this command created the scan context.
 func setupCurrentScanManaged(scanType, target string) (string, func(error)) {
+	ensureDB()
 	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
 	created := false
 	if scanID == "" {
