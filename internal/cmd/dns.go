@@ -240,3 +240,11 @@ func setupCurrentScanManaged(scanType, target string) (string, func(error)) {
 	}
 	return scanID, finalize
 }
+
+// setupCurrentScan is a backward-compatible helper used by older command files
+// (e.g. apkx/misc in some deployment branches). It creates/reuses scan context
+// but intentionally does not finalize status; callers that need lifecycle
+// ownership should use setupCurrentScanManaged.
+func setupCurrentScan(scanType, target string) {
+	_, _ = setupCurrentScanManaged(scanType, target)
+}
