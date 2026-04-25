@@ -60,7 +60,12 @@ func runScanInProcess(scanID, scanType, target string, fn func() error) {
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
 	ScanLogf(scanID, "[%s] scan started for %s", scanType, target)
 
+	// Register the scan ID in the goroutine-local registry so that
+	// RunWorkflowPhase (called deep inside module fns) can look it up
+	// without an env var, even in concurrent in-process execution.
+	utils.SetGoroutineScanID(scanID)
 	err := fn()
+	utils.ClearGoroutineScanID()
 
 	completedAt := time.Now()
 	status := "completed"
