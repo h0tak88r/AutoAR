@@ -21,6 +21,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
@@ -585,9 +586,11 @@ func setupAPI() *gin.Engine {
 	return r
 }
 
-// scanApkX performs static analysis on an APK or IPA file using the
-// embedded apkX engine. The request must provide an absolute file_path
-// that is readable by the AutoAR process.
+// scanApkX performs static analysis on an APK/IPA file or downloads one by
+// package ID, using the embedded apkX engine directly in-process.
+//
+// Running in-process (rather than spawning a child "autoar apkx scan" binary)
+// avoids the double-memory cost that was causing Docker OOM restarts.
 func scanApkX(c *gin.Context) {
 	var req ScanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -599,6 +602,7 @@ func scanApkX(c *gin.Context) {
 	if req.MITM != nil {
 		mitm = *req.MITM
 	}
+
 	if ok, msg := apkxMemoryPreflightCheck(); !ok {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": msg,
@@ -608,86 +612,144 @@ func scanApkX(c *gin.Context) {
 	}
 
 	scanID := generateScanID()
-	var command []string
 
+	// ── Package-ID mode ──────────────────────────────────────────────────────
 	if req.PackageID != nil && *req.PackageID != "" {
-		// Package-based scan
+		pkg := *req.PackageID
 		platform := "android"
 		if req.Platform != nil && *req.Platform != "" {
 			platform = strings.ToLower(*req.Platform)
 		}
 
-		// Use internal/modules/apkx directly for package scans
-		go func(sID, pkg, plat string, m bool) {
-			db.UpdateScanStatus(sID, "starting")
-			log.Printf("[API] [apkx] Waiting for package scan slot: %s (%s)", pkg, plat)
+		go runApkXInProcess(scanID, "apkx", pkg, func() (*apkxmod.Result, error) {
 			apkxPackageSemaphore <- struct{}{}
 			defer func() { <-apkxPackageSemaphore }()
-			log.Printf("[API] [apkx] Starting package-based scan: %s (%s)", pkg, plat)
-
-			// Note: This bypasses executeScan (which runs autoar cli)
-			// to use the Go library directly for package downloads.
-			// This is more efficient and handles store credentials via env vars.
-			importApkx := func() {
-				// We use the package options from internal/modules/apkx
-				// but since we are in gobot package, we can't import internal/modules/apkx
-				// due to potential import cycle if apkx imports gobot.
-				// However, apkx.go in this package (gobot) has handleApkXScanFromPackage.
-				// Let's use that logic or the underlying module if possible.
-			}
-			_ = importApkx
-
-			// We'll use the CLI for consistency in executeScan if possible,
-			// but the CLI needs to support package names.
-			// Let's check if the CLI 'apkx scan' supports -p.
-			cmd := []string{
-				getAutoarScriptPath(),
-				"apkx", "scan",
-				"-p", pkg,
-				"--platform", plat,
-			}
-			if m {
-				cmd = append(cmd, "--mitm")
-			}
-			executeScan(sID, cmd, "apkx")
-		}(scanID, *req.PackageID, platform, mitm)
+			log.Printf("[API] [apkx] Starting package-based scan: %s (%s)", pkg, platform)
+			return apkxmod.RunFromPackage(apkxmod.PackageOptions{
+				Package:  pkg,
+				Platform: platform,
+				MITM:     mitm,
+			})
+		})
 
 		c.JSON(http.StatusOK, ScanResponse{
 			ScanID:  scanID,
 			Status:  "started",
-			Message: fmt.Sprintf("apkX package analysis started for %s (%s)", *req.PackageID, platform),
+			Message: fmt.Sprintf("apkX package analysis started for %s (%s)", pkg, platform),
 		})
 		return
 	}
 
+	// ── File-path mode ───────────────────────────────────────────────────────
 	if req.FilePath == nil || *req.FilePath == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file_path or package_id is required"})
 		return
 	}
 
-	// #5: Validate file_path is within an allowed directory to prevent path traversal.
 	if err := validateFilePath(*req.FilePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	command = []string{
-		getAutoarScriptPath(),
-		"apkx", "scan",
-		"-i", *req.FilePath,
-	}
-	if mitm {
-		command = append(command, "--mitm")
-	}
-
-	go executeScan(scanID, command, "apkx")
+	filePath := *req.FilePath
+	go runApkXInProcess(scanID, "apkx", filePath, func() (*apkxmod.Result, error) {
+		log.Printf("[API] [apkx] Starting file-based scan: %s", filePath)
+		return apkxmod.Run(apkxmod.Options{
+			InputPath: filePath,
+			MITM:      mitm,
+		})
+	})
 
 	c.JSON(http.StatusOK, ScanResponse{
 		ScanID:  scanID,
 		Status:  "started",
-		Message: fmt.Sprintf("apkX analysis started for %s", *req.FilePath),
-		Command: strings.Join(command, " "),
+		Message: fmt.Sprintf("apkX analysis started for %s", filePath),
 	})
+}
+
+// runApkXInProcess runs an apkX scan function directly in-process and manages
+// the full scan lifecycle (DB record, manifest, status updates) without
+// spawning a child process — avoiding the memory double-fork that caused OOM
+// crashes in Docker.
+func runApkXInProcess(scanID, scanType, target string, fn func() (*apkxmod.Result, error)) {
+	startedAt := time.Now()
+
+	// Acquire the shared concurrency semaphore (same as executeScan).
+	scanSemaphore <- struct{}{}
+	defer func() { <-scanSemaphore }()
+
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	dbRecord := &db.ScanRecord{
+		ScanID:     scanID,
+		ScanType:   scanType,
+		Target:     target,
+		Status:     "running",
+		StartedAt:  startedAt,
+		LastUpdate: startedAt,
+		Command:    fmt.Sprintf("apkx-inprocess target=%s", target),
+	}
+	if err := db.CreateScan(dbRecord); err != nil {
+		log.Printf("[apkx] Failed to create DB record for %s: %v", scanID, err)
+	}
+
+	scansMutex.Lock()
+	activeScans[scanID] = &ScanInfo{
+		ScanID:    scanID,
+		Status:    "running",
+		ScanType:  scanType,
+		Target:    target,
+		StartedAt: startedAt,
+		Command:   fmt.Sprintf("apkx-inprocess target=%s", target),
+	}
+	scansMutex.Unlock()
+
+	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
+
+	result, err := fn()
+
+	completedAt := time.Now()
+	status := "completed"
+	errMsg := ""
+	if err != nil {
+		status = "failed"
+		errMsg = err.Error()
+		log.Printf("[apkx] Scan %s failed: %v", scanID, err)
+	}
+
+	_ = db.UpdateScanResult(scanID, status, "")
+
+	scansMutex.Lock()
+	delete(activeScans, scanID)
+	scansMutex.Unlock()
+
+	apiScansMutex.Lock()
+	sr := &ScanResult{
+		ScanID:      scanID,
+		Status:      status,
+		ScanType:    scanType,
+		StartedAt:   startedAt,
+		CompletedAt: &completedAt,
+		Error:       errMsg,
+	}
+	if result != nil {
+		sr.Output = result.ReportDir
+	}
+	storeScanResultLocked(scanID, sr)
+	apiScansMutex.Unlock()
+
+	// Index the scan output directory as artifacts.
+	if result != nil && result.ReportDir != "" {
+		indexScanArtifacts(scanID, scanType, target)
+	}
+
+	progress := 0
+	if status == "completed" {
+		progress = 100
+	}
+	utils.SendScanNotification("complete", scanID, target, scanType, status, progress)
+	log.Printf("[apkx] Scan %s (%s) %s in %s", scanID, target, status, completedAt.Sub(startedAt).Round(time.Second))
 }
 
 func readInt64FromFile(path string) (int64, error) {
