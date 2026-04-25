@@ -492,6 +492,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.GET("/keyhacks/search", apiSearchKeyhacks)
 		// System & Templates
 		apiGroup.GET("/system/metrics", apiGetSystemMetrics)
+		apiGroup.GET("/system/limits", apiGetRuntimeLimits)
 		apiGroup.GET("/nuclei/templates", apiListNucleiTemplates)
 		// Upload handler
 		apiGroup.POST("/upload", apiUploadHandler)
