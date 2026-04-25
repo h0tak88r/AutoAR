@@ -1771,6 +1771,8 @@ function scanNoArtifactsMessage(scanType, target) {
       return `[ ⚪ ] CF1016 dangling DNS — No missing Cloudflare origins found for ${t}`;
     case 'lite':
       return `[ ⚪ ] Lite Workflow — No result files were indexed for ${t}. Check Discord (if used) for per-phase summaries, or confirm R2 / artifact indexing.`;
+    case 'apkx':
+      return `[ ⚪ ] Apkx — No files indexed yet for ${t}. Results are stored in R2 — use Browse R2 to view them, or trigger a Rescan.`;
     default: {
       const name = st ? st.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Scan';
       return `[ ⚪ ] ${name} — 0 findings for ${t}`;

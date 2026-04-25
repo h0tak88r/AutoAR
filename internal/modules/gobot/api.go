@@ -1960,7 +1960,7 @@ func isR2KeyIndexableArtifact(key string) bool {
 	}
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {
-	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin":
+	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin", ".xml", ".apk":
 		return true
 	default:
 		return false
