@@ -414,16 +414,21 @@ func StartAPI() error {
 
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	errCh := make(chan error, 1)
 
 	go func() {
 		if err := http.ListenAndServe(addr, router); err != nil {
-			log.Fatalf("API server failed: %v", err)
+			errCh <- fmt.Errorf("api server failed: %w", err)
 		}
 	}()
 
-	<-sc
-	fmt.Println("\nShutting down API server...")
-	return nil
+	select {
+	case sig := <-sc:
+		fmt.Printf("\nShutting down API server after signal: %s...\n", sig)
+		return nil
+	case err := <-errCh:
+		return err
+	}
 }
 
 // StartBoth starts both Discord bot and API server
@@ -459,8 +464,8 @@ func StartBoth() error {
 		}
 	}()
 
-	var wg sync.WaitGroup
 	var botStarted sync.WaitGroup
+	errCh := make(chan error, 2)
 
 	if botTokenEnv == "" {
 		return fmt.Errorf("DISCORD_BOT_TOKEN environment variable is required")
@@ -469,10 +474,7 @@ func StartBoth() error {
 	// Start Discord bot if mode allows
 	if autoarModeEnv == "discord" || autoarModeEnv == "both" {
 		botStarted.Add(1)
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
-
 			// Signal that bot initialization has started
 			// This allows API to wait for the session to be ready
 			go func() {
@@ -482,7 +484,7 @@ func StartBoth() error {
 			}()
 
 			if err := StartBot(); err != nil {
-				log.Printf("Discord bot error: %v", err)
+				errCh <- fmt.Errorf("discord bot exited: %w", err)
 			}
 		}()
 
@@ -494,11 +496,9 @@ func StartBoth() error {
 
 	// Start API server if mode allows
 	if autoarModeEnv == "api" || autoarModeEnv == "both" {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			if err := StartAPI(); err != nil {
-				log.Printf("API server error: %v", err)
+				errCh <- fmt.Errorf("api server exited: %w", err)
 			}
 		}()
 	}
@@ -506,10 +506,13 @@ func StartBoth() error {
 	// Wait for interrupt signal
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
-
-	fmt.Println("\nShutting down...")
-	return nil
+	select {
+	case sig := <-sc:
+		fmt.Printf("\nShutting down after signal: %s...\n", sig)
+		return nil
+	case err := <-errCh:
+		return err
+	}
 }
 
 // Ready is called when the bot is ready
