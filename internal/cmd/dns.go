@@ -226,12 +226,15 @@ func setupCurrentScanManaged(scanType, target string) (string, func(error)) {
 	}
 
 	finalize := func(runErr error) {
-		if runErr != nil {
-			_ = db.UpdateScanStatus(scanID, "failed")
-		} else {
-			_ = db.UpdateScanStatus(scanID, "completed")
-		}
+		// Only finalize status when this helper created the scan context.
+		// If scanID is inherited from a parent workflow, parent ownership
+		// should decide final status to avoid premature transitions.
 		if created {
+			if runErr != nil {
+				_ = db.UpdateScanStatus(scanID, "failed")
+			} else {
+				_ = db.UpdateScanStatus(scanID, "completed")
+			}
 			os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
 		}
 	}
