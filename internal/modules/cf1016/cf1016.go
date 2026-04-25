@@ -111,7 +111,7 @@ func Run(opts Options) (*Result, error) {
 	}
 	if len(subdomains) == 0 {
 		log.Printf("[cf1016] No subdomains to scan")
-		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "dns-takeover", "cf1016-vulnerabilities.json")
 		}
 		return &Result{}, nil
@@ -122,7 +122,7 @@ func Run(opts Options) (*Result, error) {
 	findings := scanConcurrent(subdomains, opts.Threads, opts.Timeout)
 
 	// Write structured JSON results for the dashboard.
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		jsonPath := filepath.Join(utils.GetScanResultsDir(scanID), "cf1016-vulnerabilities.json")
 		if len(findings) > 0 {
 			if jErr := writeJSONOutput(jsonPath, findings); jErr != nil {
