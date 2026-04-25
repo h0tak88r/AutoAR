@@ -3,25 +3,25 @@ package cmd
 import (
 	"log"
 
-	"github.com/spf13/cobra"
-	"github.com/h0tak88r/AutoAR/internal/modules/setup"
 	"github.com/h0tak88r/AutoAR/internal/modules/checktools"
+	"github.com/h0tak88r/AutoAR/internal/modules/setup"
+	"github.com/spf13/cobra"
 )
 
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Install required dependencies",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Println("Starting AutoAR setup...")
-		_ = setup.Run()
+		return setup.Run()
 	},
 }
 
 var checkToolsCmd = &cobra.Command{
 	Use:   "check-tools",
 	Short: "Check if all required tools are installed",
-	Run: func(cmd *cobra.Command, args []string) {
-		_ = checktools.Run()
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return checktools.Run()
 	},
 }
 
