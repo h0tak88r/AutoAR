@@ -125,11 +125,23 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// These modules are mostly independent or read the live-subs.txt file just created.
 	var wgPhase2 sync.WaitGroup
 
+	// Capture the scan ID from the parent goroutine *before* spawning children.
+	// Each child goroutine registers its own entry in the goroutine-local registry
+	// so that RunWorkflowPhase can call db.AppendScanPhase / db.UpdateScanProgress
+	// with the correct scan ID. Without this, child goroutines see an empty ID
+	// and phase tracking is silently skipped.
+	parentScanID := utils.GetCurrentScanID()
+
 	// Helper for parallel phase execution with optional timeout (seconds, 0=none)
 	runParallelPhase := func(wg *sync.WaitGroup, key, desc string, timeout int, fn func() error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Propagate scan ID to this child goroutine.
+			if parentScanID != "" {
+				utils.SetGoroutineScanID(parentScanID)
+				defer utils.ClearGoroutineScanID()
+			}
 			var wrappedFn func() error
 			if timeout > 0 {
 				wrappedFn = func() error {
@@ -209,7 +221,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 				Silent:    true,
 			})
 			return err
-		}, 600}, // 10-minute cap
+		}, zerodaysTimeout()}, // configurable via AUTOAR_TIMEOUT_ZERODAYS (default 600s, 0=unlimited)
 		{"wp_confusion", "[Stage 2] WordPress confusion", func() error {
 			// Check if live hosts file exists with retry logic is not needed if we trust Phase 1 succeeded,
 			// but keeping robust check for safety inside the anonymous func
@@ -296,7 +308,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		log.Printf("[INFO] Skipping FFUF stage for subdomain scan: %s", subdomain)
 	}
 
-	runParallelPhase(&wgPhase3, "nuclei", "[Stage 3] Nuclei scan (final)", 1200 /* 20 min */, func() error {
+	runParallelPhase(&wgPhase3, "nuclei", "[Stage 3] Nuclei scan (final)", nucleiTimeout(), func() error {
 		data, err := os.ReadFile(liveHostsFile)
 		if err != nil {
 			return err

@@ -94,10 +94,13 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	}
 
 	// Phase 2: Host Discovery
+	// Capture the scan ID now so child goroutines can propagate it.
+	parentScanID := utils.GetCurrentScanID()
 	var wgPhase2 sync.WaitGroup
 	wgPhase2.Add(2)
 	go func() {
 		defer wgPhase2.Done()
+		if parentScanID != "" { utils.SetGoroutineScanID(parentScanID); defer utils.ClearGoroutineScanID() }
 		_ = utils.RunWorkflowPhase("cnames", getNextStep(), totalSteps, "CNAME collection", domain, 0, func() error {
 			_, err := cnames.CollectCNAMEsWithOptions(cnames.Options{Domain: domain, Threads: 150, Timeout: 5 * time.Minute})
 			return err
@@ -105,6 +108,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	}()
 	go func() {
 		defer wgPhase2.Done()
+		if parentScanID != "" { utils.SetGoroutineScanID(parentScanID); defer utils.ClearGoroutineScanID() }
 		_ = utils.RunWorkflowPhase("livehosts", getNextStep(), totalSteps, "Live host filtering", domain, 0, func() error {
 			_, err := livehosts.FilterLiveHosts(domain, 150, true)
 			return err
@@ -159,6 +163,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 			timeout   int
 		}) {
 			defer wgPhase3.Done()
+			if parentScanID != "" { utils.SetGoroutineScanID(parentScanID); defer utils.ClearGoroutineScanID() }
 			_ = utils.RunWorkflowPhase(phase.key, getNextStep(), totalSteps, phase.desc, domain, phase.timeout, phase.fn)
 		}(p)
 	}
@@ -169,11 +174,28 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	wgPhase4.Add(3)
 	if !opts.SkipFFuf { wgPhase4.Add(1) }
 
-	go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("reflection", getNextStep(), totalSteps, "Reflection scan", domain, 0, func() error { _, err := reflection.ScanReflection(domain); return err }) }()
-	go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("gf", getNextStep(), totalSteps, "GF pattern matching", domain, 0, func() error { _, err := gf.ScanGFWithOptions(gf.Options{Domain: domain, SkipCheck: true}); return err }) }()
-	go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("nuclei", getNextStep(), totalSteps, "Nuclei scan", domain, 0, func() error { _, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 120}); return err }) }()
+	go func() {
+		defer wgPhase4.Done()
+		if parentScanID != "" { utils.SetGoroutineScanID(parentScanID); defer utils.ClearGoroutineScanID() }
+		_ = utils.RunWorkflowPhase("reflection", getNextStep(), totalSteps, "Reflection scan", domain, 0, func() error { _, err := reflection.ScanReflection(domain); return err })
+	}()
+	go func() {
+		defer wgPhase4.Done()
+		if parentScanID != "" { utils.SetGoroutineScanID(parentScanID); defer utils.ClearGoroutineScanID() }
+		_ = utils.RunWorkflowPhase("gf", getNextStep(), totalSteps, "GF pattern matching", domain, 0, func() error { _, err := gf.ScanGFWithOptions(gf.Options{Domain: domain, SkipCheck: true}); return err })
+	}()
+	go func() {
+		defer wgPhase4.Done()
+		if parentScanID != "" { utils.SetGoroutineScanID(parentScanID); defer utils.ClearGoroutineScanID() }
+		nucleiCap := nucleiTimeoutDomain()
+		_ = utils.RunWorkflowPhase("nuclei", getNextStep(), totalSteps, "Nuclei scan", domain, nucleiCap, func() error { _, err := nuclei.RunNuclei(nuclei.Options{Domain: domain, Mode: nuclei.ModeFull, Threads: 120}); return err })
+	}()
 	if !opts.SkipFFuf {
-		go func() { defer wgPhase4.Done(); _ = utils.RunWorkflowPhase("ffuf", getNextStep(), totalSteps, "FFuf fuzzing", domain, 0, func() error { _, err := ffuf.RunFFuf(ffuf.Options{Domain: domain, Threads: 40, Bypass403: true}); return err }) }()
+		go func() {
+			defer wgPhase4.Done()
+			if parentScanID != "" { utils.SetGoroutineScanID(parentScanID); defer utils.ClearGoroutineScanID() }
+			_ = utils.RunWorkflowPhase("ffuf", getNextStep(), totalSteps, "FFuf fuzzing", domain, 0, func() error { _, err := ffuf.RunFFuf(ffuf.Options{Domain: domain, Threads: 40, Bypass403: true}); return err })
+		}()
 	}
 	wgPhase4.Wait()
 
