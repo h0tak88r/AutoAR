@@ -30,19 +30,29 @@ import (
 const (
 	// maxScanResults caps the in-memory result cache to prevent unbounded growth (#20).
 	maxScanResults = 1000
+	// maxScanResultsBytes caps aggregate cached output bytes across scanResults.
+	maxScanResultsBytes = 128 * 1024 * 1024
 	// maxConcurrentScans limits simultaneous child-process scans (#2).
 	maxConcurrentScans = 15
 )
 
 var (
-	scanResults   = make(map[string]*ScanResult)
-	apiScansMutex sync.RWMutex
+	scanResults           = make(map[string]*ScanResult)
+	scanResultsTotalBytes int64
+	apiScansMutex         sync.RWMutex
 
 	// scanSemaphore limits concurrent child-process scans (#2 rate limiting).
 	scanSemaphore = make(chan struct{}, maxConcurrentScans)
 	// apkxPackageSemaphore serializes heavy package-based apkx scans to reduce OOM risk.
 	apkxPackageSemaphore = make(chan struct{}, 1)
 )
+
+func scanResultSizeBytes(r *ScanResult) int64 {
+	if r == nil {
+		return 0
+	}
+	return int64(len(r.Output) + len(r.Error) + len(r.ScanID) + len(r.ScanType) + len(r.Status))
+}
 
 // ScanInfo is defined in commands.go
 
@@ -2224,10 +2234,15 @@ func executeScan(scanID string, command []string, scanType string) {
 		delete(activeScans, scanID)
 		scansMutex.Unlock()
 		apiScansMutex.Lock()
-		scanResults[scanID] = &ScanResult{
+		newResult := &ScanResult{
 			ScanID: scanID, Status: "failed", ScanType: scanType,
 			StartedAt: startedAt, CompletedAt: &completedAt, Error: err.Error(),
 		}
+		if old, ok := scanResults[scanID]; ok {
+			scanResultsTotalBytes -= scanResultSizeBytes(old)
+		}
+		scanResults[scanID] = newResult
+		scanResultsTotalBytes += scanResultSizeBytes(newResult)
 		apiScansMutex.Unlock()
 		return
 	}
@@ -2385,10 +2400,14 @@ func executeScan(scanID string, command []string, scanType string) {
 		result.Error = "cancelled by user"
 	}
 
+	if old, ok := scanResults[scanID]; ok {
+		scanResultsTotalBytes -= scanResultSizeBytes(old)
+	}
 	scanResults[scanID] = result
+	scanResultsTotalBytes += scanResultSizeBytes(result)
 
 	// #20: Evict oldest entry when the cache exceeds maxScanResults.
-	if len(scanResults) > maxScanResults {
+	for len(scanResults) > maxScanResults || scanResultsTotalBytes > maxScanResultsBytes {
 		var oldest string
 		var oldestTime time.Time
 		for id, r := range scanResults {
@@ -2398,7 +2417,10 @@ func executeScan(scanID string, command []string, scanType string) {
 			}
 		}
 		if oldest != "" {
+			scanResultsTotalBytes -= scanResultSizeBytes(scanResults[oldest])
 			delete(scanResults, oldest)
+		} else {
+			break
 		}
 	}
 }
@@ -2896,11 +2918,11 @@ func CancelScanByID(scanID string) error {
 			if strings.Contains(err.Error(), "process already finished") {
 				delete(activeScans, scanID)
 				_ = db.Init()
-				// If status is still marked active in DB, transition it to completed.
+				// If status is still marked active in DB, transition it to cancelled.
 				if rec, gErr := db.GetScan(scanID); gErr == nil {
 					st := strings.ToLower(strings.TrimSpace(rec.Status))
 					if st == "running" || st == "starting" || st == "paused" || st == "cancelling" {
-						_ = db.UpdateScanStatus(scanID, "completed")
+						_ = db.UpdateScanStatus(scanID, "cancelled")
 					}
 				}
 				return nil

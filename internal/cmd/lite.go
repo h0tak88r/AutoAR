@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
-	"github.com/h0tak88r/AutoAR/internal/modules/lite"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/lite"
+	"github.com/spf13/cobra"
 )
 
 var liteCmd = &cobra.Command{
@@ -26,6 +26,7 @@ var liteRunCmd = &cobra.Command{
 		}
 
 		scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+		finalStatus := "completed"
 		if scanID == "" {
 			scanID = fmt.Sprintf("lite-%d", os.Getpid())
 			_ = db.Init()
@@ -38,7 +39,7 @@ var liteRunCmd = &cobra.Command{
 			})
 			os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
 			defer func() {
-				_ = db.UpdateScanStatus(scanID, "completed")
+				_ = db.UpdateScanStatus(scanID, finalStatus)
 				os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
 			}()
 		}
@@ -50,6 +51,7 @@ var liteRunCmd = &cobra.Command{
 
 		_, err := lite.RunLite(opts)
 		if err != nil {
+			finalStatus = "failed"
 			_ = db.UpdateScanStatus(scanID, "failed")
 		}
 		return err
