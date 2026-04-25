@@ -5,10 +5,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
-	"github.com/h0tak88r/AutoAR/internal/modules/dns"
 	"github.com/h0tak88r/AutoAR/internal/modules/cf1016"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/dns"
+	"github.com/spf13/cobra"
 )
 
 var dnsCmd = &cobra.Command{
@@ -29,7 +29,7 @@ var dnsTakeoverCmd = &cobra.Command{
 		}
 
 		ensureDB()
-		setupCurrentScan("dns-takeover", domain)
+		_, finalize := setupCurrentScanManaged("dns-takeover", domain)
 
 		opts := dns.TakeoverOptions{
 			Domain:        domain,
@@ -37,7 +37,9 @@ var dnsTakeoverCmd = &cobra.Command{
 			LiveHostsFile: liveHosts,
 		}
 
-		return dns.TakeoverWithOptions(opts)
+		err := dns.TakeoverWithOptions(opts)
+		finalize(err)
+		return err
 	},
 }
 
@@ -58,7 +60,7 @@ var dnsCF1016Cmd = &cobra.Command{
 		if target == "" {
 			target = subdomain
 		}
-		setupCurrentScan("dns-cf1016", target)
+		_, finalize := setupCurrentScanManaged("dns-cf1016", target)
 
 		opts := cf1016.Options{
 			Domain:         domain,
@@ -66,7 +68,7 @@ var dnsCF1016Cmd = &cobra.Command{
 			Threads:        threads,
 			Timeout:        10 * time.Second,
 		}
-		
+
 		if subdomain != "" {
 			// Create a temp file with just this subdomain
 			tmpFile, err := os.CreateTemp("", "cf1016-sub-*.txt")
@@ -82,6 +84,7 @@ var dnsCF1016Cmd = &cobra.Command{
 		}
 
 		_, err := cf1016.Run(opts)
+		finalize(err)
 		return err
 	},
 }
@@ -96,9 +99,11 @@ var dnsDanglingIPCmd = &cobra.Command{
 		}
 
 		ensureDB()
-		setupCurrentScan("dns-dangling-ip", domain)
+		_, finalize := setupCurrentScanManaged("dns-dangling-ip", domain)
 
-		return dns.DanglingIP(domain)
+		err := dns.DanglingIP(domain)
+		finalize(err)
+		return err
 	},
 }
 
@@ -112,9 +117,11 @@ var dnsCNAMECmd = &cobra.Command{
 		}
 
 		ensureDB()
-		setupCurrentScan("dns-cname", domain)
+		_, finalize := setupCurrentScanManaged("dns-cname", domain)
 
-		return dns.CNAME(domain)
+		err := dns.CNAME(domain)
+		finalize(err)
+		return err
 	},
 }
 
@@ -128,9 +135,11 @@ var dnsNSCmd = &cobra.Command{
 		}
 
 		ensureDB()
-		setupCurrentScan("dns-ns", domain)
+		_, finalize := setupCurrentScanManaged("dns-ns", domain)
 
-		return dns.NS(domain)
+		err := dns.NS(domain)
+		finalize(err)
+		return err
 	},
 }
 
@@ -144,9 +153,11 @@ var dnsAzureAWSCmd = &cobra.Command{
 		}
 
 		ensureDB()
-		setupCurrentScan("dns-azure-aws", domain)
+		_, finalize := setupCurrentScanManaged("dns-azure-aws", domain)
 
-		return dns.AzureAWS(domain)
+		err := dns.AzureAWS(domain)
+		finalize(err)
+		return err
 	},
 }
 
@@ -160,9 +171,11 @@ var dnsReaperCmd = &cobra.Command{
 		}
 
 		ensureDB()
-		setupCurrentScan("dns-dnsreaper", domain)
+		_, finalize := setupCurrentScanManaged("dns-dnsreaper", domain)
 
-		return dns.DNSReaper(domain)
+		err := dns.DNSReaper(domain)
+		finalize(err)
+		return err
 	},
 }
 
@@ -178,11 +191,11 @@ func init() {
 
 	// Persist flags across subcommands
 	dnsCmd.PersistentFlags().StringP("domain", "d", "", "Target domain")
-	
+
 	// Specific flags
 	dnsTakeoverCmd.Flags().StringP("subdomain", "s", "", "Single subdomain to scan")
 	dnsTakeoverCmd.Flags().StringP("live-hosts", "l", "", "Path to live hosts file")
-	
+
 	dnsCF1016Cmd.Flags().StringP("subdomain", "s", "", "Single subdomain to scan")
 	dnsCF1016Cmd.Flags().IntP("threads", "t", 100, "Number of threads")
 }
@@ -193,19 +206,33 @@ func ensureDB() {
 	_ = db.InitSchema()
 }
 
-// Helper to setup current scan environment and DB record
-func setupCurrentScan(scanType, target string) {
+// setupCurrentScanManaged creates/reuses a current scan and returns a finalizer.
+// The returned finalize callback updates DB status and unsets AUTOAR_CURRENT_SCAN_ID
+// only if this command created the scan context.
+func setupCurrentScanManaged(scanType, target string) (string, func(error)) {
 	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	created := false
 	if scanID == "" {
 		scanID = fmt.Sprintf("%s-%d", scanType, os.Getpid())
 		os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
+		created = true
 		_ = db.CreateScan(&db.ScanRecord{
 			ScanID:   scanID,
 			ScanType: scanType,
 			Target:   target,
 			Status:   "running",
 		})
-		// We don't defer UpdateScanStatus here because the command might run in background 
-		// or be part of a bigger workflow. But for standalone CLI it's better than nothing.
 	}
+
+	finalize := func(runErr error) {
+		if runErr != nil {
+			_ = db.UpdateScanStatus(scanID, "failed")
+		} else {
+			_ = db.UpdateScanStatus(scanID, "completed")
+		}
+		if created {
+			os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
+		}
+	}
+	return scanID, finalize
 }
