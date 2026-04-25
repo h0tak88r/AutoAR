@@ -742,6 +742,10 @@ type parsedFinding struct {
 	Context        string `json:"context,omitempty"`
 	Value          string `json:"value,omitempty"`
 	ScannerVersion string `json:"scanner_version,omitempty"`
+	// Raw carries the original JSON object for modules that emit structured output
+	// (nuclei JSONL, ffuf JSON, etc.). The frontend uses this to render dynamic
+	// columns without the backend needing to enumerate every field.
+	Raw map[string]interface{} `json:"raw,omitempty"`
 }
 
 func normalizeUnifiedContractRow(r parsedFinding) parsedFinding {
@@ -1025,10 +1029,17 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 	if template == "" {
 		template = "—"
 	}
+	// Normalise nuclei hyphenated keys to underscored equivalents so the
+	// frontend can access them consistently (e.g. template-id → template_id).
+	normRaw := make(map[string]interface{}, len(v))
+	for k, val := range v {
+		normRaw[strings.ReplaceAll(k, "-", "_")] = val
+	}
 	return parsedFinding{
 		Severity: sev,
 		Target:   target,
 		Finding:  template,
+		Raw:      normRaw,
 	}
 }
 
