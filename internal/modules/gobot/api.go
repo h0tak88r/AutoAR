@@ -1967,24 +1967,31 @@ func isR2KeyIndexableArtifact(key string) bool {
 	}
 }
 
-// indexWorkflowArtifactsFromR2 populates scan_artifacts from R2 listings for domain_run / subdomain_run.
-// Full-domain and single-subdomain workflows delete local result dirs on completion, so post-scan
+// indexWorkflowArtifactsFromR2 populates scan_artifacts from R2 listings for domain_run / subdomain_run / apkx.
+// These scan types delete local result dirs on completion, so post-scan
 // filesystem indexing finds nothing; uploads still land in R2. Backfilling here makes the scan modal
 // use the same indexed-artifact table as other scans instead of the raw R2 fallback.
 func indexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 	st := strings.ToLower(strings.TrimSpace(scanType))
-	if st != "domain_run" && st != "subdomain_run" {
-		return
+
+	var r2Prefixes []string
+	switch st {
+	case "domain_run", "subdomain_run":
+		r2Prefixes = workflowScanR2Prefixes(target)
+	case "apkx":
+		// After UploadArtifactsAndCleanup, artifacts are at apkx/cache/<pkg>_<ver>/
+		// List the entire apkx/cache/<safepkg>_ prefix to find them.
+		if target != "" {
+			safePkg := strings.ReplaceAll(strings.ReplaceAll(target, ".", "_"), "-", "_")
+			r2Prefixes = append(r2Prefixes, "apkx/cache/"+safePkg+"_")
+		}
 	}
-	if strings.TrimSpace(scanID) == "" || !r2storage.IsEnabled() {
-		return
-	}
-	prefixes := workflowScanR2Prefixes(target)
-	if len(prefixes) == 0 {
+
+	if len(r2Prefixes) == 0 || strings.TrimSpace(scanID) == "" || !r2storage.IsEnabled() {
 		return
 	}
 	seenKey := map[string]struct{}{}
-	for _, prefix := range prefixes {
+	for _, prefix := range r2Prefixes {
 		objs, err := r2storage.ListObjectsRecursive(prefix)
 		if err != nil {
 			log.Printf("[indexWorkflowArtifactsFromR2] list prefix %q: %v", prefix, err)
