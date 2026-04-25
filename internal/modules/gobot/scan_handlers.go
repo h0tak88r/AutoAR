@@ -9,11 +9,15 @@ package gobot
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	backupmod "github.com/h0tak88r/AutoAR/internal/modules/backup"
+	cf1016mod "github.com/h0tak88r/AutoAR/internal/modules/cf1016"
 	cnamesmod "github.com/h0tak88r/AutoAR/internal/modules/cnames"
 	dnsmod "github.com/h0tak88r/AutoAR/internal/modules/dns"
 	domainmod "github.com/h0tak88r/AutoAR/internal/modules/domain"
@@ -355,7 +359,43 @@ func scanDNSCF1016(c *gin.Context) {
 	}
 	scanID := generateScanID()
 	go runScanInProcess(scanID, "dns_cf1016", target, func() error {
-		return dnsmod.CNAME(target)
+		// Determine if target is a single subdomain (has >2 parts) or a root domain.
+		// For a single host we pass it directly as SubdomainsFile so CF1016 doesn't
+		// try to enumerate subdomains of it.
+		clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
+		parts := strings.Split(clean, ".")
+		if len(parts) > 2 {
+			// Single subdomain — write to a temp file and scan only that host.
+			tmp, err := os.CreateTemp("", "autoar-cf1016-*.txt")
+			if err != nil {
+				return fmt.Errorf("cf1016: failed to create temp file: %w", err)
+			}
+			tmpPath := tmp.Name()
+			defer os.Remove(tmpPath)
+			if _, err := fmt.Fprintln(tmp, clean); err != nil {
+				tmp.Close()
+				return err
+			}
+			tmp.Close()
+			// Root domain for DB lookups (last two parts)
+			rootDomain := strings.Join(parts[len(parts)-2:], ".")
+			_, err = cf1016mod.Run(cf1016mod.Options{
+				Domain:         rootDomain,
+				SubdomainsFile: tmpPath,
+				Threads:        100,
+				Timeout:        10 * time.Second,
+				OutputDir:      filepath.Join("new-results", clean, "vulnerabilities", "dns-takeover"),
+			})
+			return err
+		}
+		// Root domain — enumerate subdomains then scan all.
+		_, err := cf1016mod.Run(cf1016mod.Options{
+			Domain:  clean,
+			Threads: 100,
+			Timeout: 10 * time.Second,
+			OutputDir: filepath.Join("new-results", clean, "vulnerabilities", "dns-takeover"),
+		})
+		return err
 	})
 	okStarted(c, scanID, fmt.Sprintf("Cloudflare 1016 dangling DNS scan started for %s", target))
 }

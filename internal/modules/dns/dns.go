@@ -285,7 +285,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	// Only the combined structured JSON is written here — raw .txt files stay
 	// in findingsDir on disk (for Discord/webhook) but are NOT copied into the
 	// scan results dir to avoid duplication with the summary JSON.
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		// Collect lines from all non-empty plain text output files
 		var allTextFindings []string
 		for _, name := range txtFiles {
@@ -698,7 +698,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 
 	if len(targets) == 0 {
 		log.Printf("[WARN] No subdomains found, skipping NS takeover")
-		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			domain := filepath.Base(domainDir)
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "dns-takeover", "dns-takeover-vulnerabilities.json")
 		}
