@@ -1289,6 +1289,9 @@ func scanSubdomainRun(c *gin.Context) {
 	}
 	scanID := generateScanID()
 	command := []string{getAutoarScriptPath(), "subdomain", "run", "-s", *req.Subdomain}
+	if req.SkipFFuf != nil && *req.SkipFFuf {
+		command = append(command, "--skip-ffuf")
+	}
 	go executeScan(scanID, command, "subdomain_run")
 	c.JSON(http.StatusOK, ScanResponse{
 		ScanID:  scanID,
