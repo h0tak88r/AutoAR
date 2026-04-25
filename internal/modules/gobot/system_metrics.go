@@ -20,6 +20,16 @@ type SystemMetrics struct {
 	Timestamp     int64   `json:"timestamp"`
 }
 
+type RuntimeLimitsResponse struct {
+	SmallVPS               bool  `json:"small_vps"`
+	MaxConcurrentScans     int   `json:"max_concurrent_scans"`
+	MaxScanResults         int   `json:"max_scan_results"`
+	MaxScanResultsBytes    int64 `json:"max_scan_results_bytes"`
+	ScanOutputCaptureBytes int   `json:"scan_output_capture_bytes"`
+	MinFreeMemBytes        int64 `json:"min_free_mem_bytes"`
+	EstimatedFreeMemBytes  int64 `json:"estimated_free_mem_bytes"`
+}
+
 // GET /api/system/metrics
 func apiGetSystemMetrics(c *gin.Context) {
 	v, _ := mem.VirtualMemory()
@@ -41,4 +51,18 @@ func apiGetSystemMetrics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, metrics)
+}
+
+// GET /api/system/limits
+func apiGetRuntimeLimits(c *gin.Context) {
+	initRuntimeResourceLimits()
+	c.JSON(http.StatusOK, RuntimeLimitsResponse{
+		SmallVPS:               isTruthyEnv("AUTOAR_SMALL_VPS"),
+		MaxConcurrentScans:     maxConcurrentScans,
+		MaxScanResults:         maxScanResults,
+		MaxScanResultsBytes:    maxScanResultsBytes,
+		ScanOutputCaptureBytes: scanOutputCaptureBytes,
+		MinFreeMemBytes:        minRuntimeFreeMemBytes,
+		EstimatedFreeMemBytes:  availableMemoryBytes(),
+	})
 }
