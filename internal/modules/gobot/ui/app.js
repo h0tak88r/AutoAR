@@ -3393,6 +3393,16 @@ async function renderScanDetailView(scanId) {
       apiA.href = `/api/scans/${encodeURIComponent(scanId)}`;
       apiA.style.display = 'inline-flex';
     }
+    const r2DetailBtn = document.getElementById('scan-detail-r2-btn');
+    if (r2DetailBtn) {
+      if (target && st) {
+        r2DetailBtn.style.display = 'inline-flex';
+        r2DetailBtn.onclick = () => browseR2ForScan(target, st);
+      } else {
+        r2DetailBtn.style.display = 'none';
+        r2DetailBtn.onclick = null;
+      }
+    }
 
     // Wire Rescan button — only show for completed/failed scans, not running ones.
     const rescanDetailBtn = document.getElementById('scan-detail-rescan-btn');
@@ -4774,9 +4784,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         </select>
         <input id="recon-filter-title" type="search" placeholder="🔍 Filter by type / finding..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--text-muted);white-space:nowrap">
-          <label id="recon-filter-js-wrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:var(--text-primary);cursor:pointer;background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:4px">
-            <input type="checkbox" id="recon-filter-js-only" style="accent-color:var(--accent-cyan)"> Only JS
-          </label>
           <span><span id="recon-unified-shown">0</span> rows</span>
         </div>
       </div>
@@ -5157,18 +5164,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       }
     }
 
-    const jsWrap = root.querySelector('#recon-filter-js-wrap');
-    if (jsWrap) {
-      jsWrap.style.display = (activeKind === 'urls') ? 'inline-flex' : 'none';
-      if (activeKind !== 'urls') {
-        const jsChk = root.querySelector('#recon-filter-js-only');
-        if (jsChk && jsChk.checked) {
-          jsChk.checked = false;
-          searchJsOnly = false;
-        }
-      }
-    }
-
     if (activeKind === 'assets') {
       if (filterBar) filterBar.style.display = 'none';
       if (standardView) standardView.style.display = 'none';
@@ -5387,15 +5382,6 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   if (titleInput) titleInput.addEventListener('input', applyFiltersDebounced);
   if (severitySel) severitySel.addEventListener('change', applyFilters);
   
-  const jsChk = root.querySelector('#recon-filter-js-only');
-  if (jsChk) {
-    jsChk.addEventListener('change', (e) => {
-      searchJsOnly = e.target.checked;
-      _currentPage = 1;
-      renderBody();
-    });
-  }
-
   // ── Selection toolbar ─────────────────────────────────────────────────────
   // Build the floating toolbar (once, outside the root so it stays on DOM)
   let _selToolbar = document.getElementById('findings-sel-toolbar');
