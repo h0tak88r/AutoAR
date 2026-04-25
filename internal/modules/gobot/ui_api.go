@@ -39,6 +39,17 @@ func apiConfigHandler(c *gin.Context) {
 	// Must match supabaseJWTAuth / dashboardAPIAuthEnforced (UI sends Bearer only when this is true).
 	authOn := dashboardAPIAuthEnforced()
 	apkxCacheDisabled := strings.EqualFold(strings.TrimSpace(os.Getenv("APKX_DISABLE_CACHE")), "true")
+	getIntEnvOr := func(key string, def int) int {
+		v := os.Getenv(key)
+		if v == "" {
+			return def
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return def
+		}
+		return n
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"version":                    version.Version,
 		"r2_enabled":                 r2storage.IsEnabled(),
@@ -54,6 +65,9 @@ func apiConfigHandler(c *gin.Context) {
 		"apkx_cache_max_local_bytes": getEnv("APKX_CACHE_MAX_LOCAL_BYTES", "2147483648"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
+		// Scan phase timeouts (seconds; 0 = unlimited)
+		"timeout_zerodays": getIntEnvOr("AUTOAR_TIMEOUT_ZERODAYS", 600),
+		"timeout_nuclei":   getIntEnvOr("AUTOAR_TIMEOUT_NUCLEI", 1200),
 	})
 }
 
@@ -68,6 +82,9 @@ type UpdateSettingsBody struct {
 	APKXDisableCache       *bool  `json:"apkx_disable_cache,omitempty"`
 	APKXCacheMaxDirs       *int   `json:"apkx_cache_max_dirs,omitempty"`
 	APKXCacheMaxLocalBytes *int64 `json:"apkx_cache_max_local_bytes,omitempty"`
+	// Scan phase timeouts (seconds; 0 = unlimited, -1 = keep current)
+	TimeoutZerodays *int `json:"timeout_zerodays,omitempty"`
+	TimeoutNuclei   *int `json:"timeout_nuclei,omitempty"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -103,6 +120,17 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 		v := strconv.FormatInt(*body.APKXCacheMaxLocalBytes, 10)
 		_ = envloader.UpdateEnv("APKX_CACHE_MAX_LOCAL_BYTES", v)
 		_ = os.Setenv("APKX_CACHE_MAX_LOCAL_BYTES", v)
+	}
+	// Scan phase timeouts — persist to .env and apply immediately in this process.
+	if body.TimeoutZerodays != nil {
+		v := strconv.Itoa(*body.TimeoutZerodays)
+		_ = envloader.UpdateEnv("AUTOAR_TIMEOUT_ZERODAYS", v)
+		_ = os.Setenv("AUTOAR_TIMEOUT_ZERODAYS", v)
+	}
+	if body.TimeoutNuclei != nil {
+		v := strconv.Itoa(*body.TimeoutNuclei)
+		_ = envloader.UpdateEnv("AUTOAR_TIMEOUT_NUCLEI", v)
+		_ = os.Setenv("AUTOAR_TIMEOUT_NUCLEI", v)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})
