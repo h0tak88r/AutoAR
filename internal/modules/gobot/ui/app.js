@@ -2172,32 +2172,51 @@ function renderJSAnalysisRow(r, idx, modInfo, sevMeta) {
 }
 
 function renderNucleiRow(r, idx, modInfo, sevMeta) {
-  const target = String(r.host || r.target || '-');
-  const templateId = r.template_id || r.finding || '—';
-  const info = r.info || {};
-  const name = info.name || templateId;
-  const matchedAt = String(r.matched_at || r.matched || r.host || '-');
-  const extractedResults = Array.isArray(r.extracted_results) ? r.extracted_results.join(', ') : (r.extracted_results || '');
-  const curlCmd = String(r.curl_command || '');
-  const description = String(info.description || r.description || '');
-  const refs = Array.isArray(info.reference) ? info.reference.join(', ') : (info.reference || '');
-  const tags = Array.isArray(info.tags) ? info.tags.join(', ') : (info.tags || '');
-  const matcherName = String(r.matcher_name || '');
-  const rowId = `nuclei-detail-${idx}-${Date.now()}`;
+  // r.raw = original nuclei JSONL object (all fields, hyphens normalized to underscores).
+  // Falls back to the normalized top-level fields for plain-text nuclei output.
+  const raw = r.raw || {};
+  const info = raw.info || r.info || {};
 
-  // Collect ALL non-empty non-standard fields for the detail panel.
-  const STANDARD = new Set(['host','target','template_id','finding','info','severity','matched_at','matched','extracted_results','curl_command','matcher_name','module','kind','file','source','title','code','status','tech']);
-  const extra = Object.entries(r)
-    .filter(([k, v]) => !STANDARD.has(k) && v !== null && v !== undefined && String(v).trim() !== '' && String(v).trim() !== '—')
+  const target  = String(raw.matched_at || raw.host || r.host || r.target || '-');
+  const templateId = String(raw.template_id || r.template_id || r.finding || '—');
+  const name    = String(info.name || raw.name || templateId);
+  const sev     = String((info.severity) || raw.severity || r.severity || '—');
+  const matchedAt     = String(raw.matched_at || raw.matched || r.target || '-');
+  const matcherName   = String(raw.matcher_name || '');
+  const extractedRaw  = raw.extracted_results;
+  const extractedResults = Array.isArray(extractedRaw) ? extractedRaw.join(', ') : (extractedRaw || '');
+  const curlCmd   = String(raw.curl_command || '');
+  const description = String(info.description || raw.description || '');
+  const refsRaw   = info.reference || raw.reference;
+  const refs = Array.isArray(refsRaw) ? refsRaw.join(', ') : (refsRaw || '');
+  const tagsRaw   = info.tags || raw.tags;
+  const tags = Array.isArray(tagsRaw) ? tagsRaw.join(', ') : (typeof tagsRaw === 'object' && tagsRaw ? Object.values(tagsRaw).join(', ') : (tagsRaw || ''));
+  const rowId = `nuclei-detail-${idx}-${Math.random().toString(36).slice(2)}`;
+
+  // Collect every key from raw that isn't already rendered above.
+  const MAIN_KEYS = new Set(['template_id','matched_at','matched','host','info','severity','matcher_name',
+    'extracted_results','curl_command','description','reference','tags','name','type']);
+  const extraFields = Object.entries(raw)
+    .filter(([k, v]) => !MAIN_KEYS.has(k) && v !== null && v !== undefined) 
     .map(([k, v]) => {
       const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
-      return `<div style="margin-bottom:6px"><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">${esc(label)}</span><br><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-primary);word-break:break-all">${esc(val)}</span></div>`;
-    });
+      const val = (typeof v === 'object') ? JSON.stringify(v, null, 2) : String(v);
+      if (!val || val === 'null' || val === '{}' || val === '[]' || val === '—' || val === '-') return '';
+      const isLong = val.length > 80 || val.includes('\n');
+      return `<div style="${isLong ? 'grid-column:1/-1;' : ''}margin-bottom:6px">
+        <span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">${esc(label)}</span><br>
+        ${isLong
+          ? `<pre style="font-size:10px;color:#a0ffb0;background:rgba(0,0,0,.3);padding:6px 8px;border-radius:5px;overflow-x:auto;margin:3px 0 0;white-space:pre-wrap;word-break:break-all">${esc(val)}</pre>`
+          : `<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-primary);word-break:break-all">${esc(val)}</span>`
+        }
+      </div>`;
+    }).filter(Boolean);
 
-  const detailPanel = `<tr id="${rowId}" style="display:none">
-    <td colspan="5" style="padding:0;border-top:1px solid var(--border)">
-      <div style="padding:14px 20px;background:var(--bg-secondary);display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;border-radius:0 0 8px 8px">
+  const hasDetail = matchedAt !== '-' || matcherName || extractedResults || description || tags || refs || curlCmd || extraFields.length;
+
+  const detailPanel = hasDetail ? `<tr id="${rowId}" style="display:none">
+    <td colspan="5" style="padding:0;border-top:1px solid rgba(255,255,255,.07)">
+      <div style="padding:14px 20px;background:rgba(0,0,0,.25);display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px 20px;border-radius:0 0 8px 8px">
         ${matchedAt !== '-' ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Matched At</span><br><a href="${esc(matchedAt)}" target="_blank" style="font-family:var(--font-mono);font-size:11px;color:var(--accent-cyan);word-break:break-all">${esc(matchedAt)}</a></div>` : ''}
         ${matcherName ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Matcher Name</span><br><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent-amber)">${esc(matcherName)}</span></div>` : ''}
         ${extractedResults ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Extracted Results</span><br><span style="font-family:var(--font-mono);font-size:11px;color:#a3e635;word-break:break-all">${esc(extractedResults)}</span></div>` : ''}
@@ -2205,12 +2224,13 @@ function renderNucleiRow(r, idx, modInfo, sevMeta) {
         ${tags ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Tags</span><br><span style="font-size:11px;color:var(--accent-purple)">${esc(tags)}</span></div>` : ''}
         ${refs ? `<div style="grid-column:1/-1"><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">References</span><br><span style="font-size:11px;color:var(--text-secondary);word-break:break-all">${esc(refs)}</span></div>` : ''}
         ${curlCmd ? `<div style="grid-column:1/-1"><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Curl Command</span><br><pre style="font-size:10px;color:#a0ffb0;background:rgba(0,0,0,.3);padding:8px;border-radius:6px;overflow-x:auto;margin:4px 0 0;white-space:pre-wrap;word-break:break-all">${esc(curlCmd)}</pre></div>` : ''}
-        ${extra.join('')}
+        ${extraFields.join('')}
       </div>
     </td>
-  </tr>`;
+  </tr>` : '';
 
-  const mainRow = `<tr class="findings-row nuclei-row" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}" onclick="(function(el){var d=document.getElementById('${rowId}');if(d)d.style.display=d.style.display==='none'?'table-row':'none';})(this)">
+  const expandIcon = hasDetail ? `<span style="float:right;font-size:10px;color:var(--text-muted);margin-left:4px">&#9660;</span>` : '';
+  const mainRow = `<tr class="findings-row nuclei-row" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}" onclick="(function(){var d=document.getElementById('${rowId}');if(d)d.style.display=d.style.display==='none'?'table-row':'none';})()">
     <td style="padding:7px 10px;width:36px;text-align:center">
       <input type="checkbox" class="finding-chk" onclick="event.stopPropagation()">
     </td>
