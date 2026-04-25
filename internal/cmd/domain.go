@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
-	"github.com/h0tak88r/AutoAR/internal/modules/domain"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/domain"
+	"github.com/spf13/cobra"
 )
 
 var domainCmd = &cobra.Command{
@@ -27,6 +27,7 @@ var domainRunCmd = &cobra.Command{
 
 		// Handle scan ID and DB integration (logic ported from main.go)
 		scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+		finalStatus := "completed"
 		if scanID == "" {
 			scanID = fmt.Sprintf("domain_run-%d", os.Getpid())
 			_ = db.Init()
@@ -39,7 +40,7 @@ var domainRunCmd = &cobra.Command{
 			})
 			os.Setenv("AUTOAR_CURRENT_SCAN_ID", scanID)
 			defer func() {
-				_ = db.UpdateScanStatus(scanID, "completed")
+				_ = db.UpdateScanStatus(scanID, finalStatus)
 				os.Unsetenv("AUTOAR_CURRENT_SCAN_ID")
 			}()
 		}
@@ -48,8 +49,9 @@ var domainRunCmd = &cobra.Command{
 			Domain:   domainName,
 			SkipFFuf: skipFFuf,
 		})
-		
+
 		if err != nil {
+			finalStatus = "failed"
 			_ = db.UpdateScanStatus(scanID, "failed")
 		}
 		return err
