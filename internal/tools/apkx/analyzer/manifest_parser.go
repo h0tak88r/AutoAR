@@ -43,13 +43,15 @@ type xmlUsesSdk struct {
 }
 
 type xmlApp struct {
-	Debuggable      string        `xml:"debuggable,attr"`
-	AllowBackup     string        `xml:"allowBackup,attr"`
-	NetworkSecurity string        `xml:"networkSecurityConfig,attr"`
-	Activities      []xmlActivity `xml:"activity"`
-	Services        []xmlService  `xml:"service"`
-	Receivers       []xmlReceiver `xml:"receiver"`
-	Providers       []xmlProvider `xml:"provider"`
+	Debuggable       string        `xml:"debuggable,attr"`
+	AllowBackup      string        `xml:"allowBackup,attr"`
+	NetworkSecurity  string        `xml:"networkSecurityConfig,attr"`
+	UsesCleartextTraffic string   `xml:"usesCleartextTraffic,attr"`
+	BackupAgent      string        `xml:"backupAgent,attr"`
+	Activities       []xmlActivity `xml:"activity"`
+	Services         []xmlService  `xml:"service"`
+	Receivers        []xmlReceiver `xml:"receiver"`
+	Providers        []xmlProvider `xml:"provider"`
 }
 
 type xmlIntentFilter struct {
@@ -73,18 +75,21 @@ type xmlActivity struct {
 	Exported      string            `xml:"exported,attr"`
 	TaskAffinity  string            `xml:"taskAffinity,attr"`
 	LaunchMode    string            `xml:"launchMode,attr"`
+	Permission    string            `xml:"permission,attr"`
 	IntentFilters []xmlIntentFilter `xml:"intent-filter"`
 }
 
 type xmlService struct {
-	Name     string            `xml:"name,attr"`
-	Exported string            `xml:"exported,attr"`
+	Name          string            `xml:"name,attr"`
+	Exported      string            `xml:"exported,attr"`
+	Permission    string            `xml:"permission,attr"`
 	IntentFilters []xmlIntentFilter `xml:"intent-filter"`
 }
 
 type xmlReceiver struct {
-	Name     string            `xml:"name,attr"`
-	Exported string            `xml:"exported,attr"`
+	Name          string            `xml:"name,attr"`
+	Exported      string            `xml:"exported,attr"`
+	Permission    string            `xml:"permission,attr"`
 	IntentFilters []xmlIntentFilter `xml:"intent-filter"`
 }
 
@@ -92,6 +97,9 @@ type xmlProvider struct {
 	Name        string `xml:"name,attr"`
 	Exported    string `xml:"exported,attr"`
 	Authorities string `xml:"authorities,attr"`
+	Permission  string `xml:"permission,attr"`
+	ReadPermission  string `xml:"readPermission,attr"`
+	WritePermission string `xml:"writePermission,attr"`
 }
 
 // ── ParsedManifest is the result of a full manifest parse ────────────────────
@@ -104,18 +112,26 @@ type ParsedManifest struct {
 	TargetSdkVersion string
 
 	// Component findings (formatted for the existing results map)
-	ExportedActivities         []string
-	ExportedServices           []string
-	ExportedBroadcastReceivers []string
-	ExportedContentProviders   []string
-	DeepLinks                  []string
-	CustomURLSchemes            []string
-	TaskAffinityActivities     []string
-	SingleTaskActivities        []string
-	WebViewActivities           []string
-	FileProviderExports         []string
-	DebugMode                   []string
-	AllowBackup                 []string
+	ExportedActivities              []string
+	ExportedServices                []string
+	ExportedBroadcastReceivers      []string
+	ExportedContentProviders        []string
+	DeepLinks                       []string
+	CustomURLSchemes                 []string
+	TaskAffinityActivities          []string
+	SingleTaskActivities            []string
+	WebViewActivities               []string
+	FileProviderExports             []string
+	DebugMode                       []string
+	AllowBackup                     []string
+
+	// New checks
+	CleartextTrafficAllowed         []string // android:usesCleartextTraffic="true"
+	MissingNetworkSecurityConfig    []string // no networkSecurityConfig set
+	UnprotectedDeepLinks            []string // deep link activity with no permission
+	UnprotectedExportedActivities   []string // exported activity with no permission
+	UnprotectedExportedReceivers    []string // exported receiver with no permission
+	UnsafeContentProvider           []string // exported provider with no read/write permissions
 }
 
 // ── ParseManifestXML parses a decoded AndroidManifest.xml ────────────────────
@@ -155,6 +171,16 @@ func ParseManifestXML(path string) (*ParsedManifest, error) {
 		pm.AllowBackup = []string{"AndroidManifest.xml: android:allowBackup=\"true\" (ADB backup can extract app data without root)"}
 	}
 
+	// ── cleartext traffic ─────────────────────────────────────────────────────
+	if strings.EqualFold(app.UsesCleartextTraffic, "true") {
+		pm.CleartextTrafficAllowed = []string{"AndroidManifest.xml: android:usesCleartextTraffic=\"true\" (HTTP traffic allowed — credentials/tokens may be transmitted in plaintext)"}
+	}
+
+	// ── missing network security config ───────────────────────────────────────
+	if app.NetworkSecurity == "" && !strings.EqualFold(app.UsesCleartextTraffic, "false") {
+		pm.MissingNetworkSecurityConfig = []string{"AndroidManifest.xml: networkSecurityConfig not set — no certificate pinning or cleartext traffic restrictions defined"}
+	}
+
 	// ── Activities ────────────────────────────────────────────────────────────
 	for _, a := range app.Activities {
 		name := a.Name
@@ -165,6 +191,12 @@ func ParseManifestXML(path string) (*ParsedManifest, error) {
 			ctx := buildActivityContext(a)
 			pm.ExportedActivities = append(pm.ExportedActivities,
 				fmt.Sprintf("AndroidManifest.xml: %s (Context: %s)", name, ctx))
+
+			// Exported with no permission = privilege escalation risk
+			if a.Permission == "" {
+				pm.UnprotectedExportedActivities = append(pm.UnprotectedExportedActivities,
+					fmt.Sprintf("AndroidManifest.xml: %s exported with no android:permission (any app can start this activity)", name))
+			}
 		}
 
 		// Task hijacking: custom taskAffinity
@@ -217,6 +249,12 @@ func ParseManifestXML(path string) (*ParsedManifest, error) {
 							pm.DeepLinks = append(pm.DeepLinks,
 								fmt.Sprintf("AndroidManifest.xml: %s -> %s:// (Context: %s)",
 									name, d.Scheme, buildActivityContext(a)))
+							// Unprotected deep link: no permission guard
+							if a.Permission == "" {
+								pm.UnprotectedDeepLinks = append(pm.UnprotectedDeepLinks,
+									fmt.Sprintf("AndroidManifest.xml: %s handles deep link %s:// with no android:permission — open redirect / intent hijacking risk",
+										name, d.Scheme))
+							}
 						}
 					}
 				}
@@ -237,21 +275,31 @@ func ParseManifestXML(path string) (*ParsedManifest, error) {
 		if isExported(recv.Exported, recv.IntentFilters) {
 			pm.ExportedBroadcastReceivers = append(pm.ExportedBroadcastReceivers,
 				fmt.Sprintf("AndroidManifest.xml: %s (Context: exported broadcast receiver)", recv.Name))
+			// No permission guard = intent hijacking / information disclosure
+			if recv.Permission == "" {
+				pm.UnprotectedExportedReceivers = append(pm.UnprotectedExportedReceivers,
+					fmt.Sprintf("AndroidManifest.xml: %s exported broadcast receiver with no android:permission — any app can send intents to it", recv.Name))
+			}
 		}
 	}
 
 	// ── Content providers ─────────────────────────────────────────────────────
 	for _, prov := range app.Providers {
-		// Providers are exported by default (unlike activities/services) in older SDK.
 		exported := strings.EqualFold(prov.Exported, "true")
 		if exported {
 			pm.ExportedContentProviders = append(pm.ExportedContentProviders,
 				fmt.Sprintf("AndroidManifest.xml: %s (Context: exported content provider)", prov.Name))
 
-			// File provider with explicit authorities = more specific finding
+			// File provider with explicit authorities
 			if prov.Authorities != "" {
 				pm.FileProviderExports = append(pm.FileProviderExports,
 					fmt.Sprintf("AndroidManifest.xml: %s (Authority: %s) (Context: exported provider)", prov.Name, prov.Authorities))
+			}
+
+			// No read/write permission = data theft risk
+			if prov.Permission == "" && prov.ReadPermission == "" && prov.WritePermission == "" {
+				pm.UnsafeContentProvider = append(pm.UnsafeContentProvider,
+					fmt.Sprintf("AndroidManifest.xml: %s exported with no read/writePermission — any app can read/write provider data", prov.Name))
 			}
 		}
 	}
@@ -260,7 +308,6 @@ func ParseManifestXML(path string) (*ParsedManifest, error) {
 }
 
 // ── InjectIntoResults merges ParsedManifest into the existing results map ─────
-// Drop-in replacement for the regex-based detectExportedComponents call.
 
 func (pm *ParsedManifest) InjectIntoResults(results map[string][]string, mu *sync.Mutex) {
 	inject := func(key string, vals []string) {
@@ -283,6 +330,13 @@ func (pm *ParsedManifest) InjectIntoResults(results map[string][]string, mu *syn
 	inject("FileProviderExports", pm.FileProviderExports)
 	inject("DebugMode", pm.DebugMode)
 	inject("AllowBackup", pm.AllowBackup)
+	// New checks
+	inject("CleartextTraffic", pm.CleartextTrafficAllowed)
+	inject("MissingNetworkSecurityConfig", pm.MissingNetworkSecurityConfig)
+	inject("UnprotectedDeepLinks", pm.UnprotectedDeepLinks)
+	inject("UnprotectedExportedActivities", pm.UnprotectedExportedActivities)
+	inject("UnprotectedExportedReceivers", pm.UnprotectedExportedReceivers)
+	inject("UnsafeContentProvider", pm.UnsafeContentProvider)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
