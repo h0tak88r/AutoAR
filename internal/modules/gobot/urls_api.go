@@ -5,17 +5,27 @@ package gobot
 // Dedicated, paginated endpoint that serves ALL collected URLs for a scan —
 // bypassing the 250-per-file and 1200-total-row limits of /results/parsed.
 //
-// Sources read (in priority order, deduplicated):
-//   urls.json          → {items:[…]} envelope  (all-urls, all sources merged)
-//   js-urls.json       → {items:[…]} envelope  (JS URLs only)
-//   js-urls.txt        → plain text fallback
-//   interesting-urls.json → {items:[…]} filtered subset
-//   all-urls.txt       → plain text fallback
+// Source priority (all deduplicated into one list):
+//
+//  1. Scan-scoped JSON envelopes (new-results/<scanID>/):
+//     urls.json, js-urls.json, interesting-urls.json
+//     Written by utils.WriteLinesAsJSON during the scan.
+//
+//  2. Domain-scoped plain-text files (new-results/<domain>/urls/):
+//     all-urls.txt   ← 300+ wayback/commoncrawl/alienvault/urlscan/VT URLs
+//     js-urls.txt, interesting-urls.txt
+//     Written by the urls.go module directly to the domain directory.
+//     These are NOT in the scan dir — they live at the domain level.
+//
+//  3. Scan-scoped plain-text fallbacks (older scans before JSON was added).
+//
+//  R2 fallback is attempted for both scan-scoped and domain-scoped files
+//  when local files are absent.
 //
 // Query params:
-//   page    int  (default 1)
-//   limit   int  (default 500, max 5000)
-//   q       string — substring filter applied to the URL
+//   page    int    (default 1)
+//   limit   int    (default 500, max 5000)
+//   q       string — substring filter on URL
 //   type    "all" | "js" | "interesting"  (default "all")
 
 import (
@@ -23,17 +33,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
 // URLEntry is one discovered URL with metadata.
 type URLEntry struct {
-	URL          string `json:"url"`
-	IsJS         bool   `json:"is_js,omitempty"`
+	URL           string `json:"url"`
+	IsJS          bool   `json:"is_js,omitempty"`
 	IsInteresting bool   `json:"is_interesting,omitempty"`
 }
 
@@ -66,10 +80,8 @@ func apiScanURLs(c *gin.Context) {
 		limit = 5000
 	}
 
-	// Collect and deduplicate all URLs from every source file.
 	allURLs := collectAllURLEntries(scanID)
 
-	// Apply type filter.
 	filtered := make([]URLEntry, 0, len(allURLs))
 	for _, e := range allURLs {
 		switch typeFilter {
@@ -99,19 +111,19 @@ func apiScanURLs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"scan_id":  scanID,
-		"total":    total,
-		"page":     page,
-		"limit":    limit,
-		"type":     typeFilter,
-		"urls":     filtered[start:end],
+		"scan_id": scanID,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+		"type":    typeFilter,
+		"urls":    filtered[start:end],
 	})
 }
 
 // collectAllURLEntries reads every URL-producing file for a scan and returns a
 // deduplicated list tagged with is_js and is_interesting flags.
 func collectAllURLEntries(scanID string) []URLEntry {
-	seen := map[string]int{} // url → index in result
+	seen := map[string]int{}
 	result := []URLEntry{}
 
 	add := func(rawURL string, isJS, isInteresting bool) {
@@ -120,7 +132,6 @@ func collectAllURLEntries(scanID string) []URLEntry {
 			return
 		}
 		if idx, exists := seen[u]; exists {
-			// Already known — promote flags only.
 			if isJS {
 				result[idx].IsJS = true
 			}
@@ -130,20 +141,14 @@ func collectAllURLEntries(scanID string) []URLEntry {
 			return
 		}
 		seen[u] = len(result)
-		result = append(result, URLEntry{
-			URL:           u,
-			IsJS:          isJS,
-			IsInteresting: isInteresting,
-		})
+		result = append(result, URLEntry{URL: u, IsJS: isJS, IsInteresting: isInteresting})
 	}
 
-	// Helper: read {items:[...]} JSON envelope.
-	readJSONItems := func(fileName string, isJS, isInteresting bool) {
-		raw, _, err := loadFileContent(scanID, fileName)
-		if err != nil || len(raw) == 0 {
+	// parseAndAdd handles JSON array, JSON envelope, or plain text.
+	parseAndAdd := func(raw []byte, isJS, isInteresting bool) {
+		if len(raw) == 0 {
 			return
 		}
-		// Try array first.
 		var arr []string
 		if json.Unmarshal(raw, &arr) == nil {
 			for _, u := range arr {
@@ -151,30 +156,23 @@ func collectAllURLEntries(scanID string) []URLEntry {
 			}
 			return
 		}
-		// Try envelope {items:[...]} or {urls:[...]}.
 		var wrapper map[string]interface{}
-		if json.Unmarshal(raw, &wrapper) != nil {
-			return
-		}
-		for _, key := range []string{"items", "urls", "url_list"} {
-			if arr, ok := wrapper[key].([]interface{}); ok {
-				for _, v := range arr {
-					if s, ok := v.(string); ok {
-						add(s, isJS, isInteresting)
+		if json.Unmarshal(raw, &wrapper) == nil {
+			for _, key := range []string{"items", "urls", "url_list"} {
+				if list, ok := wrapper[key].([]interface{}); ok {
+					for _, v := range list {
+						if s, ok := v.(string); ok {
+							add(s, isJS, isInteresting)
+						}
 					}
+					return
 				}
-				return
 			}
-		}
-	}
-
-	// Helper: read plain-text file (one URL per line).
-	readTextFile := func(fileName string, isJS, isInteresting bool) {
-		raw, _, err := loadFileContent(scanID, fileName)
-		if err != nil || len(raw) == 0 {
 			return
 		}
+		// Plain text fallback.
 		sc := bufio.NewScanner(bytes.NewReader(raw))
+		sc.Buffer(make([]byte, 1024*1024), 1024*1024)
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
 			if line == "" || strings.HasPrefix(line, "#") {
@@ -184,25 +182,90 @@ func collectAllURLEntries(scanID string) []URLEntry {
 		}
 	}
 
-	// 1. All URLs (main corpus from every OSINT source + spider).
-	readJSONItems("urls.json", false, false)
-	readTextFile("all-urls.txt", false, false)
+	// readScanFile reads from the scan directory or R2 via the artifact index.
+	readScanFile := func(fileName string, isJS, isInteresting bool) {
+		raw, _, err := loadFileContent(scanID, fileName)
+		if err != nil || len(raw) == 0 {
+			return
+		}
+		parseAndAdd(raw, isJS, isInteresting)
+	}
 
-	// 2. JS URLs specifically.
-	readJSONItems("js-urls.json", true, false)
-	readTextFile("js-urls.txt", true, false)
+	// readDomainFile reads directly from the domain-level URL directory.
+	// The urls.go module writes its output to new-results/<domain>/urls/<file>
+	// rather than to the scan directory, so we need to look there.
+	readDomainFile := func(domain, fileName string, isJS, isInteresting bool) {
+		if domain == "" {
+			return
+		}
+		domainDir, err := utils.DomainDirInit(domain)
+		if err != nil {
+			return
+		}
+		localPath := filepath.Join(domainDir, "urls", fileName)
+		if raw, err := os.ReadFile(localPath); err == nil && len(raw) > 0 {
+			parseAndAdd(raw, isJS, isInteresting)
+			return
+		}
+		// Fall back to R2 using the domain-level object key.
+		if r2storage.IsEnabled() {
+			r2Key := "new-results/" + domain + "/urls/" + fileName
+			if raw, err := r2storage.GetObjectBytes(r2Key); err == nil && len(raw) > 0 {
+				parseAndAdd(raw, isJS, isInteresting)
+			}
+		}
+	}
 
-	// 3. Interesting (filtered) subset — promotes the flag on already-seen URLs.
-	readJSONItems("interesting-urls.json", false, true)
-	readTextFile("interesting-urls.txt", false, true)
+	// Resolve the domain from the scan record.
+	// For subdomain_run the target IS the subdomain (e.g. panorapresse.ouest-france.fr)
+	// which is also used as the dirDomain in urls.go (skipSubdomainEnum=true path).
+	var domain string
+	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
+		domain = extractURLScanDomain(scan.Target)
+	}
 
-	// 4. Back-tag JS entries discovered via the is_js heuristic.
+	// ── 1. Scan-scoped JSON envelopes (written by WriteLinesAsJSON) ───────────
+	readScanFile("urls.json", false, false)
+	readScanFile("js-urls.json", true, false)
+	readScanFile("interesting-urls.json", false, true)
+
+	// ── 2. Domain-scoped plain-text files (the authoritative full corpus) ─────
+	readDomainFile(domain, "all-urls.txt", false, false)
+	readDomainFile(domain, "js-urls.txt", true, false)
+	readDomainFile(domain, "interesting-urls.txt", false, true)
+
+	// ── 3. Scan-scoped plain-text fallbacks (pre-JSON older scans) ────────────
+	readScanFile("all-urls.txt", false, false)
+	readScanFile("js-urls.txt", true, false)
+	readScanFile("interesting-urls.txt", false, true)
+
+	// ── 4. JS heuristic back-tagging ─────────────────────────────────────────
 	for i := range result {
 		u := strings.ToLower(result[i].URL)
-		if !result[i].IsJS && (strings.Contains(u, ".js") || strings.HasSuffix(u, ".jsx") || strings.HasSuffix(u, ".mjs")) {
+		if !result[i].IsJS && (strings.HasSuffix(u, ".js") ||
+			strings.Contains(u, ".js?") ||
+			strings.HasSuffix(u, ".jsx") ||
+			strings.HasSuffix(u, ".mjs")) {
 			result[i].IsJS = true
 		}
 	}
 
 	return result
+}
+
+// extractURLScanDomain derives the directory key used by urls.go from a scan target.
+// When skipSubdomainEnum=true (subdomain_run), urls.go uses dirDomain=domain (the
+// full subdomain). When false (domain_run), it strips to root domain.
+// Since we can't know which was used, return the target as-is — the full subdomain
+// is the correct key for subdomain_run, which is the most common case.
+func extractURLScanDomain(target string) string {
+	h := strings.TrimPrefix(target, "https://")
+	h = strings.TrimPrefix(h, "http://")
+	if idx := strings.Index(h, "/"); idx != -1 {
+		h = h[:idx]
+	}
+	if idx := strings.Index(h, ":"); idx != -1 {
+		h = h[:idx]
+	}
+	return strings.ToLower(strings.TrimSpace(h))
 }
