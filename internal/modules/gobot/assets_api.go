@@ -151,7 +151,15 @@ func buildAssets(scanID string) []AssetEntry {
 			"subdomains": true, "livehosts": true, "dns_cf1016": true, "dns-cf1016": true,
 		}
 		if subdomainScanTypes[st] {
-			if dbEntries, err := db.ListSubdomainsWithStatus(scan.Target); err == nil {
+			// The DB stores subdomains under the ROOT domain key, not a subdomain target.
+			// Try the scan target as-is first, then progressively strip labels until we
+			// find the key that exists in the domains table.
+			candidates := domainCandidates(scan.Target)
+			for _, candidate := range candidates {
+				dbEntries, err := db.ListSubdomainsWithStatus(candidate)
+				if err != nil || len(dbEntries) == 0 {
+					continue
+				}
 				for _, s := range dbEntries {
 					e := getOrCreate(s.Subdomain)
 					if e == nil { continue }
@@ -177,6 +185,7 @@ func buildAssets(scanID string) []AssetEntry {
 						}
 					}
 				}
+				break // Found a match — stop trying candidates
 			}
 		}
 	}
@@ -510,6 +519,32 @@ func normalizeHost(s string) string {
 	s = strings.TrimSuffix(s, ".")
 	s = strings.ToLower(strings.TrimSpace(s))
 	return s
+}
+
+// domainCandidates returns the input plus progressively shorter parent domains.
+// e.g. "www.fasttest.com" → ["www.fasttest.com", "fasttest.com"]
+// This lets buildAssets find subdomains stored under a root domain key even when
+// the scan target is a subdomain (e.g. subdomain_run against www.fasttest.com).
+func domainCandidates(target string) []string {
+	h := normalizeHost(target)
+	if h == "" {
+		return nil
+	}
+	var out []string
+	for {
+		out = append(out, h)
+		dot := strings.Index(h, ".")
+		if dot < 0 {
+			break
+		}
+		parent := h[dot+1:]
+		if !strings.Contains(parent, ".") {
+			// Stop before we hit a bare TLD (e.g. "com")
+			break
+		}
+		h = parent
+	}
+	return out
 }
 
 // strPick returns the first non-empty string value from keys in obj.
