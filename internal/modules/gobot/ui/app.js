@@ -4592,7 +4592,15 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
       if (isAPKScan) kind = 'apkx';
 
-      const normalizedModule = (moduleNorm === 'unknown' && (kind === 'js-analysis' || kind === 'js_urls'))
+      // ── Merge js_urls into the Links (urls) tab ──────────────────────────
+      // JS URLs are just URLs — showing them in a separate hidden tab with a
+      // non-zero count badge but an empty table is confusing.
+      // Reclassify them as 'urls' with is_js=true so the "Only JS" preset
+      // filter continues to work, and the Links tab shows the full total.
+      const isJS = kind === 'js_urls' || looksLikeJSURL;
+      if (kind === 'js_urls') kind = 'urls';
+
+      const normalizedModule = (moduleNorm === 'unknown' && (kind === 'js-analysis' || isJS))
         ? 'js-analysis'
         : (isAPKScan ? 'apkx' : moduleNorm);
 
@@ -4600,6 +4608,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         ...r,
         kind,
         module: normalizedModule,
+        is_js: isJS || r.is_js || false,
       };
     })
     .filter((r) => {
@@ -4955,7 +4964,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (quickChip === 'hasurl' && !(/https?:\/\//i.test(targetStr) || /https?:\/\//i.test(findingStr))) return false;
     if (quickChip === 'exported' && !(findingStr.includes('exported') || String(r.apk_category || '').toLowerCase().includes('exported'))) return false;
     if (quickChip === 'secrets' && !/(secret|token|apikey|api key|password|authorization)/i.test(findingStr)) return false;
-    if (quickChip === 'onlyjs' && !(/\.m?jsx?(\?|$)/i.test(targetStr) || findingStr.includes('javascript') || String(r.apk_category || '').toLowerCase().includes('js'))) return false;
+    if (quickChip === 'onlyjs' && !(r.is_js || /\.m?jsx?(\?|$)/i.test(targetStr) || findingStr.includes('javascript') || String(r.apk_category || '').toLowerCase().includes('js'))) return false;
     return true;
   };
 
