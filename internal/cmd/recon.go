@@ -3,14 +3,14 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
-	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
-	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/modules/cnames"
-	"github.com/h0tak88r/AutoAR/internal/modules/tech"
+	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/modules/ports"
-	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/recon"
+	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
+	"github.com/h0tak88r/AutoAR/internal/modules/tech"
+	"github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -24,9 +24,10 @@ var (
 			}
 
 			ensureDB()
-			setupCurrentScan("recon", domain)
+			_, finalize := setupCurrentScanManaged("recon", domain)
 
 			_, err := recon.RunFullRecon(domain, 100)
+			finalize(err)
 			return err
 		},
 	}
