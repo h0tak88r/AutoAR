@@ -473,9 +473,11 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		fmt.Printf("[CACHE] 🚫 Cache disabled, forcing fresh scan for %s\n", pkg)
 	}
 
-	// Check cache if we have package name
+	// ── Cache lookup ─────────────────────────────────────────────────────────
+	// Check R2/local cache. If results.json exists we use it — even if there
+	// is no cached MITM-patched APK. MITM is optional; analysis findings are
+	// what matter and should not trigger a full re-scan.
 	if packageName != "" && !cacheDisabled {
-		// Try with version first, then fallback to "latest" if version is empty
 		cacheVersion := version
 		if cacheVersion == "" || cacheVersion == "unknown" {
 			cacheVersion = "latest"
@@ -483,42 +485,35 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 
 		cachePath, found := CheckCache(packageName, cacheVersion)
 		if found {
-			fmt.Printf("[CACHE] [ + ]Using cached results for %s v%s (skipping scan)\n", packageName, version)
+			fmt.Printf("[CACHE] [ + ]Cache hit for %s v%s\n", packageName, cacheVersion)
 
-			// Load cached result
-			if strings.HasPrefix(cachePath, "r2:") {
-				// R2 cache - download to local cache first
-				r2Prefix := strings.TrimPrefix(cachePath, "r2:")
-				localCachePath := getCachePath(packageName, version)
-				fmt.Printf("[CACHE] 📥 Downloading cache from R2: %s\n", r2Prefix)
-
-				if err := r2storage.DownloadDirectory(r2Prefix, localCachePath); err != nil {
-					fmt.Printf("[CACHE] ⚠️  Failed to download cache from R2: %v, doing fresh scan\n", err)
+			loadAndReturn := func(localPath string) (*Result, bool) {
+				cachedResult, err := LoadCachedResult(localPath)
+				if err != nil {
+					fmt.Printf("[CACHE] ⚠️  Failed to load cached result: %v\n", err)
+					return nil, false
+				}
+				if opts.MITM && strings.TrimSpace(cachedResult.MITMPatchedAPK) == "" {
+					fmt.Printf("[CACHE] ℹ️  Cached results loaded (no MITM APK in cache — MITM will be skipped)\n")
 				} else {
-					// Now load from local cache
-					cachedResult, err := LoadCachedResult(localCachePath)
-					if err == nil {
-						if opts.MITM && strings.TrimSpace(cachedResult.MITMPatchedAPK) == "" {
-							fmt.Printf("[CACHE] ⚠️  Cache hit without MITM-patched APK; running fresh MITM scan\n")
-						} else {
-							fmt.Printf("[CACHE] [ + ]Loaded cache from R2 for %s v%s\n", packageName, version)
-							return cachedResult, nil
-						}
-					}
-					fmt.Printf("[CACHE] ⚠️  Failed to load downloaded cache: %v, doing fresh scan\n", err)
+					fmt.Printf("[CACHE] [ + ]Loaded cached results for %s v%s\n", packageName, cacheVersion)
+				}
+				return cachedResult, true
+			}
+
+			if strings.HasPrefix(cachePath, "r2:") {
+				r2Prefix := strings.TrimPrefix(cachePath, "r2:")
+				localCachePath := getCachePath(packageName, cacheVersion)
+				fmt.Printf("[CACHE] 📥 Downloading results.json + manifest from R2: %s\n", r2Prefix)
+				if dlErr := r2storage.DownloadDirectory(r2Prefix, localCachePath); dlErr != nil {
+					fmt.Printf("[CACHE] ⚠️  Failed to download from R2: %v — doing fresh scan\n", dlErr)
+				} else if result, ok := loadAndReturn(localCachePath); ok {
+					return result, nil
 				}
 			} else {
-				// Local cache
-				cachedResult, err := LoadCachedResult(cachePath)
-				if err == nil {
-					if opts.MITM && strings.TrimSpace(cachedResult.MITMPatchedAPK) == "" {
-						fmt.Printf("[CACHE] ⚠️  Local cache has no MITM-patched APK; running fresh MITM scan\n")
-					} else {
-						// Update paths to point to cache
-						return cachedResult, nil
-					}
+				if result, ok := loadAndReturn(cachePath); ok {
+					return result, nil
 				}
-				fmt.Printf("[CACHE] ⚠️  Failed to load cached result: %v, doing fresh scan\n", err)
 			}
 		}
 	}
