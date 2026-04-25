@@ -1998,11 +1998,11 @@ func indexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 	case "domain_run", "subdomain_run":
 		r2Prefixes = workflowScanR2Prefixes(target)
 	case "apkx":
-		// After UploadArtifactsAndCleanup, artifacts are at apkx/cache/<pkg>_<ver>/
-		// List the entire apkx/cache/<safepkg>_ prefix to find them.
+		// Artifacts are at new-results/apkx/<safepkg>/
+		// (consistent with domain scans at new-results/<target>/).
 		if target != "" {
-			safePkg := strings.ReplaceAll(strings.ReplaceAll(target, ".", "_"), "-", "_")
-			r2Prefixes = append(r2Prefixes, "apkx/cache/"+safePkg+"_")
+			safePkg := strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(target)
+			r2Prefixes = append(r2Prefixes, "new-results/apkx/"+safePkg+"/")
 		}
 	}
 
