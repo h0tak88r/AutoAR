@@ -1969,7 +1969,7 @@ function getUnifiedTableColumns(activeKind) {
     case 'apkx':
       return ['PATH', 'CATEGORY', 'MATCHER VALUE', 'MODULE'];
     case 'nuclei':
-      return ['TARGET', 'SEV', 'TEMPLATE', 'MATCH'];
+      return ['TARGET', 'SEV', 'TEMPLATE', 'MATCHED AT / MATCHER'];
     case 'gf-patterns':
       return ['TARGET', 'PATTERN', 'VALUE', 'SOURCE'];
     case 'misconfig':
@@ -2176,25 +2176,61 @@ function renderNucleiRow(r, idx, modInfo, sevMeta) {
   const templateId = r.template_id || r.finding || '—';
   const info = r.info || {};
   const name = info.name || templateId;
+  const matchedAt = String(r.matched_at || r.matched || r.host || '-');
+  const extractedResults = Array.isArray(r.extracted_results) ? r.extracted_results.join(', ') : (r.extracted_results || '');
+  const curlCmd = String(r.curl_command || '');
+  const description = String(info.description || r.description || '');
+  const refs = Array.isArray(info.reference) ? info.reference.join(', ') : (info.reference || '');
+  const tags = Array.isArray(info.tags) ? info.tags.join(', ') : (info.tags || '');
+  const matcherName = String(r.matcher_name || '');
+  const rowId = `nuclei-detail-${idx}-${Date.now()}`;
 
-  return `<tr class="findings-row nuclei-row" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+  // Collect ALL non-empty non-standard fields for the detail panel.
+  const STANDARD = new Set(['host','target','template_id','finding','info','severity','matched_at','matched','extracted_results','curl_command','matcher_name','module','kind','file','source','title','code','status','tech']);
+  const extra = Object.entries(r)
+    .filter(([k, v]) => !STANDARD.has(k) && v !== null && v !== undefined && String(v).trim() !== '' && String(v).trim() !== '—')
+    .map(([k, v]) => {
+      const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      return `<div style="margin-bottom:6px"><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">${esc(label)}</span><br><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-primary);word-break:break-all">${esc(val)}</span></div>`;
+    });
+
+  const detailPanel = `<tr id="${rowId}" style="display:none">
+    <td colspan="5" style="padding:0;border-top:1px solid var(--border)">
+      <div style="padding:14px 20px;background:var(--bg-secondary);display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;border-radius:0 0 8px 8px">
+        ${matchedAt !== '-' ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Matched At</span><br><a href="${esc(matchedAt)}" target="_blank" style="font-family:var(--font-mono);font-size:11px;color:var(--accent-cyan);word-break:break-all">${esc(matchedAt)}</a></div>` : ''}
+        ${matcherName ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Matcher Name</span><br><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent-amber)">${esc(matcherName)}</span></div>` : ''}
+        ${extractedResults ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Extracted Results</span><br><span style="font-family:var(--font-mono);font-size:11px;color:#a3e635;word-break:break-all">${esc(extractedResults)}</span></div>` : ''}
+        ${description ? `<div style="grid-column:1/-1"><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Description</span><br><span style="font-size:11.5px;color:var(--text-primary)">${esc(description)}</span></div>` : ''}
+        ${tags ? `<div><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Tags</span><br><span style="font-size:11px;color:var(--accent-purple)">${esc(tags)}</span></div>` : ''}
+        ${refs ? `<div style="grid-column:1/-1"><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">References</span><br><span style="font-size:11px;color:var(--text-secondary);word-break:break-all">${esc(refs)}</span></div>` : ''}
+        ${curlCmd ? `<div style="grid-column:1/-1"><span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Curl Command</span><br><pre style="font-size:10px;color:#a0ffb0;background:rgba(0,0,0,.3);padding:8px;border-radius:6px;overflow-x:auto;margin:4px 0 0;white-space:pre-wrap;word-break:break-all">${esc(curlCmd)}</pre></div>` : ''}
+        ${extra.join('')}
+      </div>
+    </td>
+  </tr>`;
+
+  const mainRow = `<tr class="findings-row nuclei-row" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}" onclick="(function(el){var d=document.getElementById('${rowId}');if(d)d.style.display=d.style.display==='none'?'table-row':'none';})(this)">
     <td style="padding:7px 10px;width:36px;text-align:center">
       <input type="checkbox" class="finding-chk" onclick="event.stopPropagation()">
     </td>
     <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-      <a href="${target.startsWith('http') ? target : 'https://' + target}" target="_blank" style="color:var(--accent-cyan);font-family:var(--font-mono);font-size:11.5px">${esc(target)}</a>
+      <a href="${target.startsWith('http') ? target : 'https://' + target}" target="_blank" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-family:var(--font-mono);font-size:11.5px">${esc(target)}</a>
     </td>
-    <td style="padding:7px 8px;text-align:center">
+    <td style="padding:7px 8px;text-align:center;white-space:nowrap">
        <span style="background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;">${esc(sevMeta.label)}</span>
     </td>
     <td style="padding:7px 10px;max-width:0;overflow:hidden">
       <div style="color:var(--text-primary);font-weight:600;font-size:12px">${esc(name)}</div>
       <div style="color:var(--text-muted);font-size:10px;font-family:var(--font-mono)">${esc(templateId)}</div>
     </td>
-    <td style="padding:7px 10px;white-space:nowrap">
-      <span style="color:#ef4444;font-size:11px">☢️ Nuclei</span>
+    <td style="padding:7px 10px;white-space:nowrap;min-width:120px">
+      <span style="color:var(--text-secondary);font-size:11px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;display:inline-block;max-width:200px" title="${esc(matchedAt)}">${esc(matchedAt.length > 40 ? matchedAt.slice(0,38)+'…' : matchedAt)}</span>
+      ${matcherName ? `<div style="color:var(--accent-amber);font-size:9px;margin-top:2px">${esc(matcherName)}</div>` : ''}
     </td>
   </tr>`;
+
+  return mainRow + detailPanel;
 }
 
 function renderGFPatternsRow(r, idx, modInfo, sevMeta) {
@@ -6921,6 +6957,27 @@ function renderSettings() {
       ${r2Err ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:8px">R2 stats warning: ${esc(r2Err)}</div>` : ''}
     </div>
     <div class="setting-card">
+      <div class="setting-card-header">⏱ Scan Phase Timeouts</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Set to <strong>0</strong> to disable the cap entirely (for big / slow targets). Changes take effect for new scans immediately.</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <span class="setting-key">Zerodays phase timeout (seconds)</span>
+        <div style="display:flex;width:100%;gap:10px;align-items:center">
+          <input id="timeout-zerodays-input" type="number" min="0" class="form-control" style="width:180px" value="${esc(String(cfg.timeout_zerodays ?? 600))}" placeholder="600" />
+          <span style="font-size:11px;color:var(--text-muted)">0 = unlimited</span>
+        </div>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:12px">
+        <span class="setting-key">Nuclei phase timeout (seconds)</span>
+        <div style="display:flex;width:100%;gap:10px;align-items:center">
+          <input id="timeout-nuclei-input" type="number" min="0" class="form-control" style="width:180px" value="${esc(String(cfg.timeout_nuclei ?? 1200))}" placeholder="1200" />
+          <span style="font-size:11px;color:var(--text-muted)">0 = unlimited</span>
+        </div>
+      </div>
+      <div class="setting-row" style="margin-top:14px">
+        <button class="btn btn-primary" onclick="saveTimeoutSettings()" id="timeout-save-btn">Save timeouts</button>
+      </div>
+    </div>
+    <div class="setting-card">
       <div class="setting-card-header">📡 API Endpoints</div>
       ${row('Dashboard', window.location.origin + '/ui')}
       ${row('API Base', window.location.origin + '/api')}
@@ -6986,6 +7043,35 @@ window.saveGeminiKey = async function () {
     showToast('error', 'Error', e.message);
   }
   if (btn) btn.textContent = 'Save';
+};
+
+window.saveTimeoutSettings = async function () {
+  const zdInput = document.getElementById('timeout-zerodays-input');
+  const nuInput = document.getElementById('timeout-nuclei-input');
+  const btn = document.getElementById('timeout-save-btn');
+  if (!zdInput || !nuInput) return;
+  const zdVal = parseInt(zdInput.value, 10);
+  const nuVal = parseInt(nuInput.value, 10);
+  if (isNaN(zdVal) || zdVal < 0 || isNaN(nuVal) || nuVal < 0) {
+    showToast('error', 'Invalid value', 'Timeouts must be 0 or a positive integer.');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`${API}/api/settings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ timeout_zerodays: zdVal, timeout_nuclei: nuVal })
+    });
+    if (!res.ok) throw new Error('Failed to update timeout settings');
+    showToast('success', 'Saved!', `Zerodays: ${zdVal}s, Nuclei: ${nuVal}s (0 = unlimited)`);
+    // Refresh config state so the values reflect immediately.
+    try { state.config = await apiFetch('/api/config'); } catch(_) {}
+  } catch (e) {
+    showToast('error', 'Error', e.message);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Save timeouts'; }
 };
 
 window.saveWebhookSettings = async function () {
