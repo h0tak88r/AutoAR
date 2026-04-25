@@ -4632,17 +4632,16 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   // Build dynamic tabs from actual data
   const _kindCounts = {};
   for (const r of allRows) _kindCounts[r.kind || 'other'] = (_kindCounts[r.kind || 'other'] || 0) + 1;
-  const HIDDEN_KINDS = new Set(['logs', 'log', 'tech']);
+  const HIDDEN_KINDS = new Set(['logs', 'log', 'tech', 'js_urls']);
   const TAB_LABELS = {
     assets: '🏠 Assets',
     urls: '🔗 Links',
-    js_urls: '📄 JS URLs',
     apkx: '📱 APK Analysis',
     'js-analysis': '📜 JS Analysis',
     'gf-patterns': '🎯 GF Patterns',
     nuclei: '☢️ Nuclei',
     ffuf: '🎲 FFUF',
-    buckets: '🪣 Buckets',
+    buckets: '🪣 S3 Buckets',
     ports: '📡 Ports',
     reflection: '🔎 Reflection',
     other: '📁 Other',
