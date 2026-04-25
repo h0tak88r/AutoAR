@@ -122,10 +122,41 @@ func Run(opts Options) (*Result, error) {
 	findings := scanConcurrent(subdomains, opts.Threads, opts.Timeout)
 
 	// Write structured JSON results for the dashboard.
+	// WriteJSONToScanDir writes, uploads to R2, and indexes in the DB so the
+	// findings table can discover cf1016-vulnerabilities.json automatically.
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
-		jsonPath := filepath.Join(utils.GetScanResultsDir(scanID), "cf1016-vulnerabilities.json")
 		if len(findings) > 0 {
-			if jErr := writeJSONOutput(jsonPath, findings); jErr != nil {
+			// Build the JSON payload matching the format other modules use.
+			type jsonFinding struct {
+				Target      string   `json:"target"`
+				Subdomain   string   `json:"subdomain"`
+				IPs         []string `json:"cloudflare_ips"`
+				StatusCode  int      `json:"http_status"`
+				Type        string   `json:"type"`
+				Severity    string   `json:"severity"`
+				Description string   `json:"description"`
+			}
+			out := make([]jsonFinding, 0, len(findings))
+			for _, f := range findings {
+				desc := fmt.Sprintf(
+					"Subdomain %s resolves to Cloudflare IPs (%s) but returns HTTP %d (CF Error 1016 - Origin DNS Error). "+
+						"The backend origin has been removed/misconfigured while the DNS record still routes traffic through Cloudflare. "+
+						"An attacker who claims the abandoned origin could hijack this subdomain.",
+					f.Subdomain,
+					strings.Join(f.IPs, ", "),
+					f.StatusCode,
+				)
+				out = append(out, jsonFinding{
+					Target:      f.Subdomain,
+					Subdomain:   f.Subdomain,
+					IPs:         f.IPs,
+					StatusCode:  f.StatusCode,
+					Type:        "DNS Misconfiguration / Dangling Record (CF-1016)",
+					Severity:    "high",
+					Description: desc,
+				})
+			}
+			if jErr := utils.WriteJSONToScanDir(scanID, "cf1016-vulnerabilities.json", out); jErr != nil {
 				log.Printf("[cf1016] Warning: could not write JSON output: %v", jErr)
 			}
 		} else {
