@@ -28,15 +28,22 @@ import (
 )
 
 const (
-	// maxScanResults caps the in-memory result cache to prevent unbounded growth (#20).
-	maxScanResults = 1000
-	// maxScanResultsBytes caps aggregate cached output bytes across scanResults.
-	maxScanResultsBytes = 128 * 1024 * 1024
-	// maxConcurrentScans limits simultaneous child-process scans (#2).
-	maxConcurrentScans = 15
+	// defaultMaxScanResults caps in-memory result entries.
+	defaultMaxScanResults = 1000
+	// defaultMaxScanResultsBytes caps aggregate cached output bytes across scanResults.
+	defaultMaxScanResultsBytes int64 = 128 * 1024 * 1024
+	// defaultMaxConcurrentScans limits simultaneous child-process scans.
+	defaultMaxConcurrentScans = 15
+	// defaultScanOutputCaptureBytes limits per-scan in-memory log capture.
+	defaultScanOutputCaptureBytes = 2 * 1024 * 1024
 )
 
 var (
+	maxScanResults               = defaultMaxScanResults
+	maxScanResultsBytes    int64 = defaultMaxScanResultsBytes
+	maxConcurrentScans           = defaultMaxConcurrentScans
+	scanOutputCaptureBytes       = defaultScanOutputCaptureBytes
+
 	scanResults           = make(map[string]*ScanResult)
 	scanResultsTotalBytes int64
 	apiScansMutex         sync.RWMutex
@@ -45,6 +52,7 @@ var (
 	scanSemaphore = make(chan struct{}, maxConcurrentScans)
 	// apkxPackageSemaphore serializes heavy package-based apkx scans to reduce OOM risk.
 	apkxPackageSemaphore = make(chan struct{}, 1)
+	resourceLimitsOnce   sync.Once
 )
 
 func scanResultSizeBytes(r *ScanResult) int64 {
@@ -52,6 +60,73 @@ func scanResultSizeBytes(r *ScanResult) int64 {
 		return 0
 	}
 	return int64(len(r.Output) + len(r.Error) + len(r.ScanID) + len(r.ScanType) + len(r.Status))
+}
+
+func envIntWithBounds(name string, fallback, minV, maxV int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	if v < minV {
+		return minV
+	}
+	if v > maxV {
+		return maxV
+	}
+	return v
+}
+
+func envInt64WithBounds(name string, fallback, minV, maxV int64) int64 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	if v < minV {
+		return minV
+	}
+	if v > maxV {
+		return maxV
+	}
+	return v
+}
+
+func isTruthyEnv(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func initRuntimeResourceLimits() {
+	resourceLimitsOnce.Do(func() {
+		// Small VPS profile: conservative defaults, still overridable by env vars below.
+		if isTruthyEnv("AUTOAR_SMALL_VPS") {
+			maxConcurrentScans = 3
+			maxScanResults = 250
+			maxScanResultsBytes = 32 * 1024 * 1024
+			scanOutputCaptureBytes = 512 * 1024
+		}
+
+		maxConcurrentScans = envIntWithBounds("AUTOAR_MAX_CONCURRENT_SCANS", maxConcurrentScans, 1, 50)
+		maxScanResults = envIntWithBounds("AUTOAR_MAX_SCAN_RESULTS", maxScanResults, 50, 5000)
+		maxScanResultsBytes = envInt64WithBounds("AUTOAR_MAX_SCAN_RESULTS_BYTES", maxScanResultsBytes, 8*1024*1024, 512*1024*1024)
+		scanOutputCaptureBytes = envIntWithBounds("AUTOAR_SCAN_OUTPUT_CAPTURE_BYTES", scanOutputCaptureBytes, 128*1024, 8*1024*1024)
+
+		// Reinitialize semaphore with final configured capacity.
+		scanSemaphore = make(chan struct{}, maxConcurrentScans)
+		log.Printf("[resource-limits] concurrent=%d, max_results=%d, cache_bytes=%d, output_capture_bytes=%d",
+			maxConcurrentScans, maxScanResults, maxScanResultsBytes, scanOutputCaptureBytes)
+	})
 }
 
 // ScanInfo is defined in commands.go
@@ -312,6 +387,7 @@ func reconcileStaleScansOnStartup() {
 
 // Setup API routes
 func setupAPI() *gin.Engine {
+	initRuntimeResourceLimits()
 	gin.SetMode(gin.ReleaseMode)
 	gin.DefaultWriter = utils.GetLogger().Out
 	r := gin.Default()
@@ -2170,6 +2246,7 @@ func extractScanTargetFromCommand(command []string, scanType string) string {
 }
 
 func executeScan(scanID string, command []string, scanType string) {
+	initRuntimeResourceLimits()
 	// #2: Acquire semaphore slot — blocks if maxConcurrentScans are already running.
 	scanSemaphore <- struct{}{}
 	defer func() { <-scanSemaphore }()
@@ -2240,7 +2317,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
 	)
-	capture := newScanOutputCapture(2 * 1024 * 1024) // 2MB per scan max
+	capture := newScanOutputCapture(scanOutputCaptureBytes)
 	// Stream output to console while capturing a bounded window.
 	multi := io.MultiWriter(os.Stdout, capture)
 	cmd.Stdout = multi
