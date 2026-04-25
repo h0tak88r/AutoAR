@@ -210,24 +210,27 @@ func (s *APKScanner) Run() error {
 	// Final progress message
 	fmt.Printf("%sCompleted analysis of %d files%s\n", utils.ColorGreen, len(filesToProcess), utils.ColorEnd)
 
-	// Special handling for AndroidManifest.xml - detect exported components
-	manifestPath := filepath.Join(s.tempDir, "AndroidManifest.xml")
-	if _, err := os.Stat(manifestPath); err == nil {
-		s.detectExportedComponents(manifestPath, results, &resultsMu)
-	} else {
-		// Try alternative locations for AndroidManifest.xml
-		altPaths := []string{
-			filepath.Join(s.tempDir, "resources", "AndroidManifest.xml"),
-			filepath.Join(s.tempDir, "sources", "AndroidManifest.xml"),
-			filepath.Join(s.tempDir, "res", "AndroidManifest.xml"),
+	// Special handling for AndroidManifest.xml — use XML parser (not regex).
+	// Regex was order-dependent and fragile; encoding/xml handles any attribute order.
+	manifestLocations := []string{
+		filepath.Join(s.tempDir, "AndroidManifest.xml"),
+		filepath.Join(s.tempDir, "resources", "AndroidManifest.xml"),
+		filepath.Join(s.tempDir, "sources", "AndroidManifest.xml"),
+		filepath.Join(s.tempDir, "res", "AndroidManifest.xml"),
+	}
+	for _, mPath := range manifestLocations {
+		if _, err := os.Stat(mPath); err != nil {
+			continue
 		}
-
-		for _, altPath := range altPaths {
-			if _, err := os.Stat(altPath); err == nil {
-				s.detectExportedComponents(altPath, results, &resultsMu)
-				break
-			}
+		pm, parseErr := ParseManifestXML(mPath)
+		if parseErr != nil {
+			// Fall back to regex-based detection if XML parse fails.
+			fmt.Printf("[WARN] XML manifest parse failed (%v), falling back to regex\n", parseErr)
+			s.detectExportedComponents(mPath, results, &resultsMu)
+		} else {
+			pm.InjectIntoResults(results, &resultsMu)
 		}
+		break
 	}
 
 	// Built-in Janus vulnerability detection (pure Go, no external tools)
