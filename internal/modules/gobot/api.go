@@ -485,6 +485,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.GET("/scans/:id/results/file", apiScanResultFileContent)
 		apiGroup.GET("/scans/:id/results/parsed", apiScanParsedResults)
 		apiGroup.GET("/scans/:id/results/assets", apiScanAssets)
+		apiGroup.GET("/scans/:id/results/urls", apiScanURLs)
 		apiGroup.GET("/scans/:id/artifacts", apiListScanArtifacts)
 		apiGroup.GET("/scans/:id/manifest", apiGetScanManifest)
 		apiGroup.GET("/scans/:id", apiGetScan)

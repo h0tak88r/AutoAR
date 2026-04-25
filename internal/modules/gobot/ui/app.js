@@ -5047,6 +5047,23 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
           <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading assets…</div>
         </div>
       </div>
+      <!-- URLs view (shown when Links tab active) — uses dedicated /results/urls endpoint, no row limits -->
+      <div id="recon-urls-view" style="display:none">
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(2,6,23,.5)">
+          <input id="recon-urls-search" type="search" placeholder="🔍 Search URLs…" style="flex:1;min-width:180px;padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+          <select id="recon-urls-type" style="padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+            <option value="all">All URLs</option>
+            <option value="js">JS Only</option>
+            <option value="interesting">Interesting Only</option>
+          </select>
+          <span id="recon-urls-count" style="color:var(--text-muted);font-size:12px;white-space:nowrap"></span>
+          <button id="recon-urls-export" type="button" style="padding:6px 12px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer">⬇ Export</button>
+        </div>
+        <div id="recon-urls-content" style="min-height:200px;max-height:580px;overflow:auto;font-family:var(--font-mono);font-size:12px">
+          <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading URLs…</div>
+        </div>
+        <div id="recon-urls-pagination" style="padding:10px 12px;background:rgba(2,6,23,0.3);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
+      </div>
       <div id="recon-details-drawer" style="display:none;position:absolute;top:0;right:0;width:420px;height:100%;background:rgba(2,6,23,.98);border-left:1px solid var(--border);z-index:20;box-shadow:-12px 0 40px rgba(0,0,0,.45)">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border)">
           <div style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px">Finding Details</div>
@@ -5071,6 +5088,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const standardView = root.querySelector('#recon-standard-view');
   const assetsView = root.querySelector('#recon-assets-view');
   const assetsContent = root.querySelector('#recon-assets-content');
+  const urlsView = root.querySelector('#recon-urls-view');
+  const urlsContent = root.querySelector('#recon-urls-content');
   const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
   const drawer = root.querySelector('#recon-details-drawer');
   const drawerBody = root.querySelector('#recon-drawer-body');
@@ -5333,6 +5352,140 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     }
   };
 
+  // ── URLs view (dedicated endpoint, no row limits) ───────────────────────
+  let _urlsPage = 1;
+  const _urlsLimit = 500;
+  let _urlsType = 'all';
+  let _urlsQ = '';
+  let _urlsTotal = 0;
+  let _urlsLoading = false;
+  let _allURLsForExport = null; // cached for export
+
+  const renderURLsTable = (urls, total, page) => {
+    if (!urlsContent) return;
+    const countEl = root.querySelector('#recon-urls-count');
+    if (countEl) countEl.textContent = `${total.toLocaleString()} URLs`;
+    if (!urls.length) {
+      urlsContent.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted)">No URLs match.</div>';
+    } else {
+      urlsContent.innerHTML = `<table style="width:100%;border-collapse:collapse">
+        <thead><tr style="position:sticky;top:0;background:var(--bg-surface);z-index:1">
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-muted);letter-spacing:.5px;border-bottom:1px solid var(--border);width:50px">#</th>
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-muted);letter-spacing:.5px;border-bottom:1px solid var(--border)">URL</th>
+          <th style="padding:7px 12px;text-align:center;font-size:11px;color:var(--text-muted);letter-spacing:.5px;border-bottom:1px solid var(--border);width:80px">TYPE</th>
+        </tr></thead>
+        <tbody>${urls.map((e, i) => {
+          const n = (_urlsPage - 1) * _urlsLimit + i + 1;
+          const isJS = e.is_js;
+          const isInt = e.is_interesting;
+          const badge = isJS
+            ? '<span style="background:#7c3aed22;border:1px solid #7c3aed44;color:#a78bfa;font-size:9px;padding:1px 5px;border-radius:3px">JS</span>'
+            : isInt
+            ? '<span style="background:#06b6d422;border:1px solid #06b6d444;color:#22d3ee;font-size:9px;padding:1px 5px;border-radius:3px">⭐</span>'
+            : '';
+          return `<tr style="${i % 2 ? 'background:rgba(255,255,255,.012)' : ''}" title="${esc(e.url)}">
+            <td style="padding:5px 12px;color:var(--text-muted);font-size:10px;white-space:nowrap">${n}</td>
+            <td style="padding:5px 12px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              <a href="${esc(e.url)}" target="_blank" style="color:var(--accent-cyan);text-decoration:none;font-size:11.5px">${esc(e.url)}</a>
+            </td>
+            <td style="padding:5px 12px;text-align:center">${badge}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+    }
+    // Pagination
+    const pagEl = root.querySelector('#recon-urls-pagination');
+    if (pagEl) {
+      const totalPages = Math.ceil(total / _urlsLimit) || 1;
+      if (totalPages <= 1) {
+        pagEl.style.display = 'none';
+      } else {
+        pagEl.style.display = 'flex';
+        pagEl.innerHTML = `
+          <button id="urls-prev" style="padding:4px 10px;font-size:11px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;border-radius:4px" ${page === 1 ? 'disabled' : ''}>← Prev</button>
+          <span style="color:var(--text-secondary);font-weight:600">Page ${page} of ${totalPages}</span>
+          <button id="urls-next" style="padding:4px 10px;font-size:11px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;border-radius:4px" ${page >= totalPages ? 'disabled' : ''}>Next →</button>
+          <span style="color:var(--text-muted);margin-left:auto">${total.toLocaleString()} total</span>
+        `;
+        pagEl.querySelector('#urls-prev')?.addEventListener('click', () => { if (_urlsPage > 1) { _urlsPage--; loadURLsView(); } });
+        pagEl.querySelector('#urls-next')?.addEventListener('click', () => { if (_urlsPage < totalPages) { _urlsPage++; loadURLsView(); } });
+      }
+    }
+  };
+
+  const loadURLsView = async () => {
+    if (_urlsLoading) return;
+    _urlsLoading = true;
+    if (urlsContent) urlsContent.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted)">Loading…</div>';
+    try {
+      const qs = new URLSearchParams({ page: _urlsPage, limit: _urlsLimit, type: _urlsType, q: _urlsQ }).toString();
+      const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?${qs}`);
+      _urlsTotal = data.total || 0;
+      renderURLsTable(data.urls || [], _urlsTotal, _urlsPage);
+    } catch (e) {
+      if (urlsContent) urlsContent.innerHTML = `<div style="padding:24px;color:var(--accent-red)">Failed to load URLs: ${esc(e.message)}</div>`;
+    } finally {
+      _urlsLoading = false;
+    }
+  };
+
+  const showURLsView = () => {
+    if (filterBar) filterBar.style.display = 'none';
+    if (standardView) standardView.style.display = 'none';
+    if (assetsView) assetsView.style.display = 'none';
+    if (urlsView) urlsView.style.display = 'block';
+
+    // Wire controls only once.
+    const searchEl = root.querySelector('#recon-urls-search');
+    const typeEl = root.querySelector('#recon-urls-type');
+    const exportBtn = root.querySelector('#recon-urls-export');
+    if (searchEl && !searchEl.dataset.wired) {
+      searchEl.dataset.wired = '1';
+      let debTimer;
+      searchEl.addEventListener('input', () => {
+        clearTimeout(debTimer);
+        debTimer = setTimeout(() => {
+          _urlsQ = String(searchEl.value || '').trim();
+          _urlsPage = 1;
+          loadURLsView();
+        }, 300);
+      });
+    }
+    if (typeEl && !typeEl.dataset.wired) {
+      typeEl.dataset.wired = '1';
+      typeEl.addEventListener('change', () => {
+        _urlsType = typeEl.value;
+        _urlsPage = 1;
+        loadURLsView();
+      });
+    }
+    if (exportBtn && !exportBtn.dataset.wired) {
+      exportBtn.dataset.wired = '1';
+      exportBtn.addEventListener('click', async () => {
+        exportBtn.textContent = '⏳ Loading all…';
+        exportBtn.disabled = true;
+        try {
+          const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?page=1&limit=5000&type=${_urlsType}&q=${encodeURIComponent(_urlsQ)}`);
+          const lines = (data.urls || []).map(e => e.url).join('\n');
+          const blob = new Blob([lines], { type: 'text/plain' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `urls-${scanId}.txt`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          exportBtn.textContent = '⬇ Export';
+          exportBtn.disabled = false;
+        } catch (e) {
+          showToast('error', 'Export failed', e.message);
+          exportBtn.textContent = '⬇ Export';
+          exportBtn.disabled = false;
+        }
+      });
+    }
+
+    loadURLsView();
+  };
+
   // ── Assets tab renderer ──────────────────────────────────────────────────
   const showAssetsView = async () => {
     if (filterBar) filterBar.style.display = 'none';
@@ -5379,11 +5532,16 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       if (filterBar) filterBar.style.display = 'none';
       if (standardView) standardView.style.display = 'none';
       if (assetsView) assetsView.style.display = 'block';
+      if (urlsView) urlsView.style.display = 'none';
       showAssetsView();
+    } else if (activeKind === 'urls') {
+      if (assetsView) assetsView.style.display = 'none';
+      showURLsView();
     } else {
       if (filterBar) filterBar.style.display = '';
       if (standardView) standardView.style.display = 'block';
       if (assetsView) assetsView.style.display = 'none';
+      if (urlsView) urlsView.style.display = 'none';
       _currentPage = 1;
       renderBody();
     }
