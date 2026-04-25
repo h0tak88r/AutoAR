@@ -18,6 +18,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	domainmod "github.com/h0tak88r/AutoAR/internal/modules/domain"
+	litemod "github.com/h0tak88r/AutoAR/internal/modules/lite"
+	subdomainmod "github.com/h0tak88r/AutoAR/internal/modules/subdomain"
 )
 
 var (
@@ -1553,7 +1556,6 @@ func handleScanSubdomain(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func handleLiteScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	domain := ""
-	verbose := false
 	skipJS := false
 	phaseTimeout := 3600
 	var timeoutLivehosts, timeoutReflection, timeoutJS, timeoutNuclei *int
@@ -1562,8 +1564,6 @@ func handleLiteScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		switch opt.Name {
 		case "domain":
 			domain = opt.StringValue()
-		case "verbose":
-			verbose = opt.BoolValue()
 		case "skip_js":
 			skipJS = opt.BoolValue()
 		case "phase_timeout":
@@ -1589,28 +1589,6 @@ func handleLiteScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	scanID := fmt.Sprintf("lite_%d", time.Now().Unix())
-	command := []string{autoarScript, "lite", "run", "-d", domain}
-	if verbose {
-		command = append(command, "-v")
-	}
-	if skipJS {
-		command = append(command, "--skip-js")
-	}
-	if phaseTimeout > 0 {
-		command = append(command, "--phase-timeout", strconv.Itoa(phaseTimeout))
-	}
-	if timeoutLivehosts != nil && *timeoutLivehosts >= 0 {
-		command = append(command, "--timeout-livehosts", strconv.Itoa(*timeoutLivehosts))
-	}
-	if timeoutReflection != nil && *timeoutReflection >= 0 {
-		command = append(command, "--timeout-reflection", strconv.Itoa(*timeoutReflection))
-	}
-	if timeoutJS != nil && *timeoutJS >= 0 {
-		command = append(command, "--timeout-js", strconv.Itoa(*timeoutJS))
-	}
-	if timeoutNuclei != nil && *timeoutNuclei >= 0 {
-		command = append(command, "--timeout-nuclei", strconv.Itoa(*timeoutNuclei))
-	}
 
 	desc := fmt.Sprintf("**Target:** `%s`\n**Default per-phase timeout:** %ds", domain, phaseTimeout)
 	if skipJS {
@@ -1621,21 +1599,30 @@ func handleLiteScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Description: desc,
 		Color:       0x3498db,
 	}
-
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
+		Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}},
 	})
 
-	// Create a thread for scan updates (avoids token expiration issues)
 	threadID := createScanThread(s, i, scanID, "Lite Scan", domain)
-	if threadID != "" {
-		log.Printf("[INFO] Created thread %s for lite scan %s", threadID, scanID)
-	}
 
-	go runScanBackground(scanID, "lite", domain, command, s, i)
+	// Build lite options — copy pointers before goroutine capture.
+	liteOpts := litemod.Options{
+		Domain:              domain,
+		SkipJS:              skipJS,
+		PhaseTimeoutDefault: phaseTimeout,
+		Timeouts:            make(map[string]int),
+	}
+	if timeoutLivehosts != nil { liteOpts.Timeouts["livehosts"] = *timeoutLivehosts }
+	if timeoutReflection != nil { liteOpts.Timeouts["reflection"] = *timeoutReflection }
+	if timeoutJS != nil { liteOpts.Timeouts["js"] = *timeoutJS }
+	if timeoutNuclei != nil { liteOpts.Timeouts["nuclei"] = *timeoutNuclei }
+	_ = threadID // used for context; runScanInProcess manages DB
+
+	go runScanInProcess(scanID, "lite", domain, func() error {
+		_, err := litemod.RunLite(liteOpts)
+		return err
+	})
 }
 
 // Fast Look
@@ -1685,7 +1672,6 @@ func handleFastLook(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func handleDomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	domain := ""
-
 	skipFFuf := false
 	for _, opt := range options {
 		switch opt.Name {
@@ -1695,107 +1681,87 @@ func handleDomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			skipFFuf = opt.BoolValue()
 		}
 	}
-
 	if domain == "" {
 		respond(s, i, "❌ Domain is required", false)
 		return
 	}
 
 	scanID := fmt.Sprintf("domain_run_%d", time.Now().Unix())
-	command := []string{autoarScript, "domain", "run", "-d", domain}
-	if skipFFuf {
-		command = append(command, "--skip-ffuf")
-	}
 
-	// For domain_run, immediately show "running in background" since it takes a long time
 	embed := createScanEmbed("Domain Workflow", domain, "running in background")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
+		Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}},
 	})
 
-	// Create a thread for scan updates (avoids token expiration issues)
 	threadID := createScanThread(s, i, scanID, "Domain Workflow", domain)
-	if threadID != "" {
-		log.Printf("[INFO] Created thread %s for domain_run scan %s", threadID, scanID)
-	}
 
-	// Create database scan record for tracking
+	// Register in DB with in-process command marker.
 	now := time.Now()
-	scanRecord := &db.ScanRecord{
+	_ = db.CreateScan(&db.ScanRecord{
 		ScanID:      scanID,
 		ScanType:    "domain_run",
 		Target:      domain,
 		Status:      "running",
 		ChannelID:   i.ChannelID,
 		ThreadID:    threadID,
-		TotalPhases: 19, // Domain workflow has 19 phases
+		TotalPhases: 19,
 		StartedAt:   now,
 		LastUpdate:  now,
-		Command:     strings.Join(command, " "),
-	}
-	if err := db.CreateScan(scanRecord); err != nil {
-		log.Printf("[ERROR] Failed to create scan record in database: %v", err)
-	}
+		Command:     fmt.Sprintf("inprocess:domain_run target=%s", domain),
+	})
 
-	go runScanBackground(scanID, "domain_run", domain, command, s, i)
+	// Run in-process: no fork, no separate DB record per phase.
+	skip := skipFFuf
+	go runScanInProcess(scanID, "domain_run", domain, func() error {
+		_, err := domainmod.RunDomain(domainmod.ScanOptions{Domain: domain, SkipFFuf: skip})
+		return err
+	})
 }
 
 // Subdomain Run
 func handleSubdomainRun(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	subdomain := ""
-
 	for _, opt := range options {
 		if opt.Name == "subdomain" {
 			subdomain = opt.StringValue()
 		}
 	}
-
 	if subdomain == "" {
 		respond(s, i, "❌ Subdomain is required", false)
 		return
 	}
 
 	scanID := fmt.Sprintf("subdomain_run_%d", time.Now().Unix())
-	command := []string{autoarScript, "subdomain", "run", "-s", subdomain}
 
-	// For subdomain_run, immediately show "running in background" since it takes a long time
 	embed := createScanEmbed("Subdomain Workflow", subdomain, "running in background")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
+		Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}},
 	})
 
-	// Create a thread for scan updates (avoids token expiration issues)
 	threadID := createScanThread(s, i, scanID, "Subdomain Workflow", subdomain)
-	if threadID != "" {
-		log.Printf("[INFO] Created thread %s for subdomain_run scan %s", threadID, scanID)
-	}
 
-	// Create database scan record for tracking
 	now := time.Now()
-	scanRecord := &db.ScanRecord{
+	_ = db.CreateScan(&db.ScanRecord{
 		ScanID:      scanID,
 		ScanType:    "subdomain_run",
 		Target:      subdomain,
 		Status:      "running",
 		ChannelID:   i.ChannelID,
 		ThreadID:    threadID,
-		TotalPhases: 15, // Subdomain workflow has ~15 phases
+		TotalPhases: 15,
 		StartedAt:   now,
 		LastUpdate:  now,
-		Command:     strings.Join(command, " "),
-	}
-	if err := db.CreateScan(scanRecord); err != nil {
-		log.Printf("[ERROR] Failed to create scan record in database: %v", err)
-	}
+		Command:     fmt.Sprintf("inprocess:subdomain_run target=%s", subdomain),
+	})
 
-	go runScanBackground(scanID, "subdomain_run", subdomain, command, s, i)
+	sub := subdomain
+	go runScanInProcess(scanID, "subdomain_run", subdomain, func() error {
+		_, err := subdomainmod.RunSubdomainWithOptions(sub, subdomainmod.RunOptions{})
+		return err
+	})
 }
 
 // handleHelp displays the available commands to the user in a categorized Discord embed.
