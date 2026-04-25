@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -39,6 +38,7 @@ type Result struct {
 	MITMPatchedAPK  string // Path to MITM patched APK if MITM was enabled
 	OriginalAPKPath string // Path to original downloaded APK (for RunFromPackage)
 	FromCache       bool   // True if this result was loaded from cache
+	JadxTempDir     string // Path to jadx decompile temp dir (cleaned up after R2 upload)
 }
 
 // PackageOptions controls apkX scans where AutoAR first downloads the
@@ -262,7 +262,7 @@ func Run(opts Options) (*Result, error) {
 			OutputDir:    outDir,
 			PatternsPath: "",
 			Workers:      workers, // Conservative default to prevent OOM
-			HTMLOutput:   true,
+			HTMLOutput:   false,   // HTML report not needed — dashboard reads results.json
 			JanusScan:    true,
 		}
 		scanner := apkxanalyzer.NewAPKScanner(cfg)
@@ -273,7 +273,13 @@ func Run(opts Options) (*Result, error) {
 				Duration:  time.Since(start),
 			}, fmt.Errorf("apk analysis failed: %w", err)
 		}
-
+		// Expose jadx decompile dir for post-scan cleanup.
+		result := &Result{
+			ReportDir:   outDir,
+			LogFile:     filepath.Join(outDir, "results.json"),
+			Duration:    time.Since(start),
+			JadxTempDir: scanner.JadxCacheDir(),
+		}
 		// If MITM patching was requested, patch the APK using pure Go implementation
 		if opts.MITM {
 			fmt.Printf("[MITM] ========================================\n")
@@ -313,9 +319,10 @@ func Run(opts Options) (*Result, error) {
 					fmt.Printf("[MITM] ========================================\n")
 				}
 			}
-		} else {
-			fmt.Printf("[DEBUG] MITM patching not requested (opts.MITM = false)\n")
 		}
+		// Attach MITM APK path and return.
+		result.MITMPatchedAPK = mitmPatchedAPK
+		return result, nil
 	case ".xapk":
 		// Extract XAPK and find the main APK file
 		extractDir, err := os.MkdirTemp("", "autoar-xapk-extract-*")
@@ -436,9 +443,9 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 	}
 
 	// Extract version from downloaded APK/IPA to check cache
-	var packageName, version, versionCode string
+	var packageName, version string
 	if platform == "android" {
-		packageName, version, versionCode, err = ExtractVersionFromAPK(inputPath)
+		packageName, version, _, err = ExtractVersionFromAPK(inputPath)
 		if err != nil {
 			// If version extraction fails, log warning and try to use package name only
 			fmt.Printf("[WARN] Failed to extract version from APK: %v\n", err)
@@ -535,57 +542,21 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		result.OriginalAPKPath = inputPath
 	}
 
-	// Save to cache after successful scan
+	// Upload artifacts to R2 and clean up all local data.
 	if err == nil && result != nil && packageName != "" && !cacheDisabled {
-		// Try to extract version from decompiled AndroidManifest.xml if version extraction failed
-		if version == "" || version == "unknown" || version == "latest" {
-			// Extract from decompiled manifest
-			if result.ReportDir != "" {
-				manifestPath := filepath.Join(result.ReportDir, "AndroidManifest.xml")
-				if _, err := os.Stat(manifestPath); err == nil {
-					// Read and parse manifest
-					content, readErr := os.ReadFile(manifestPath)
-					if readErr == nil {
-						manifestContent := string(content)
-
-						// Extract version name
-						versionRegex := regexp.MustCompile(`android:versionName\s*=\s*["']([^"']+)["']`)
-						if matches := versionRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
-							version = matches[1]
-						}
-
-						// Extract version code if version name not found
-						if version == "" {
-							versionCodeRegex := regexp.MustCompile(`android:versionCode\s*=\s*["']([^"']+)["']`)
-							if matches := versionCodeRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
-								version = "v" + matches[1]
-								versionCode = matches[1]
-							}
-						} else {
-							// Also extract version code
-							versionCodeRegex := regexp.MustCompile(`android:versionCode\s*=\s*["']([^"']+)["']`)
-							if matches := versionCodeRegex.FindStringSubmatch(manifestContent); len(matches) > 1 {
-								versionCode = matches[1]
-							}
-						}
-
-						if version != "" {
-							fmt.Printf("[CACHE] [ + ]Extracted version from decompiled manifest: %s v%s\n", packageName, version)
-						}
-					}
-				}
-			}
-		}
-
-		// Use extracted version if available, otherwise use "latest"
 		cacheVersionToSave := version
 		if cacheVersionToSave == "" || cacheVersionToSave == "unknown" {
 			cacheVersionToSave = "latest"
 		}
-		if saveErr := SaveToCache(packageName, cacheVersionToSave, versionCode, result); saveErr != nil {
-			fmt.Printf("[CACHE] ⚠️  Failed to save to cache: %v\n", saveErr)
-		} else {
-			fmt.Printf("[CACHE] 💾 Saved to cache: %s v%s\n", packageName, cacheVersionToSave)
+		_, cleanupErr := UploadArtifactsAndCleanup(
+			result,
+			packageName,
+			cacheVersionToSave,
+			tmpDir,            // downloaded APK directory
+			result.JadxTempDir, // jadx decompile temp dir
+		)
+		if cleanupErr != nil {
+			fmt.Printf("[CLEANUP] ⚠  Upload/cleanup error: %v\n", cleanupErr)
 		}
 	}
 

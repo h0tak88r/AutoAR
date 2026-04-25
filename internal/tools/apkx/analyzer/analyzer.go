@@ -78,6 +78,12 @@ func NewAPKScanner(config *Config) *APKScanner {
 	}
 }
 
+// JadxCacheDir returns the directory where jadx decompiled the APK.
+// This is exposed so callers can delete it after uploading artifacts to R2.
+func (s *APKScanner) JadxCacheDir() string {
+	return s.tempDir
+}
+
 func (s *APKScanner) Run() error {
 	// Validate APK file
 	if err := s.validateAPK(); err != nil {
@@ -450,40 +456,16 @@ func (s *APKScanner) getApkHash() (string, error) {
 }
 
 func (s *APKScanner) decompileAPK() error {
-	// Setup cache directory in user's home
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %v", err)
-	}
-
-	s.cacheDir = filepath.Join(homeDir, ".apkx", "cache")
-	if err := os.MkdirAll(s.cacheDir, 0755); err != nil {
-		return fmt.Errorf("failed to create cache directory: %v", err)
-	}
-
-	// Calculate APK hash for cache key
-	hash, err := s.getApkHash()
-	if err != nil {
-		return fmt.Errorf("failed to calculate APK hash: %v", err)
-	}
-
-	// Check if cached version exists
-	cachedDir := filepath.Join(s.cacheDir, hash)
-	if _, err := os.Stat(cachedDir); err == nil {
-		fmt.Printf("%s** Found cached decompiled APK, skipping decompilation...%s\n",
-			utils.ColorBlue, utils.ColorEnd)
-		s.tempDir = cachedDir
-		return nil
-	}
-
-	// If not cached, create temporary directory for decompilation
-	tempDir, err := os.MkdirTemp("", "apkx-*")
+	// Always decompile to a fresh temp directory.
+	// The caller (apkx.RunFromPackage) is responsible for cleanup after uploading
+	// artifacts to R2 via UploadArtifactsAndCleanup.
+	tempDir, err := os.MkdirTemp("", "apkx-decomp-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %v", err)
 	}
 
 	// Initialize decompiler
-	decompiler, err := decompiler.NewJadx()
+	decompilerInst, err := decompiler.NewJadx()
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return fmt.Errorf("failed to initialize jadx: %v", err)
@@ -492,7 +474,7 @@ func (s *APKScanner) decompileAPK() error {
 	// Decompile APK
 	fmt.Printf("%s** Decompiling APK (this may take a while)...%s\n",
 		utils.ColorBlue, utils.ColorEnd)
-	if err := decompiler.Decompile(s.config.APKPath, tempDir, ""); err != nil {
+	if err := decompilerInst.Decompile(s.config.APKPath, tempDir, ""); err != nil {
 		// Check if we have any decompiled files before giving up
 		if _, statErr := os.Stat(filepath.Join(tempDir, "sources")); statErr == nil {
 			fmt.Printf("%s** Some decompilation errors occurred, but continuing with available files...%s\n",
@@ -503,17 +485,7 @@ func (s *APKScanner) decompileAPK() error {
 		}
 	}
 
-	// Move successful decompilation to cache
-	if err := os.Rename(tempDir, cachedDir); err != nil {
-		// If moving fails, try copying
-		if copyErr := copyDir(tempDir, cachedDir); copyErr != nil {
-			os.RemoveAll(tempDir)
-			return fmt.Errorf("failed to cache decompiled APK: %v", copyErr)
-		}
-		os.RemoveAll(tempDir)
-	}
-
-	s.tempDir = cachedDir
+	s.tempDir = tempDir
 	return nil
 }
 
