@@ -38,7 +38,9 @@ func RunWithTimeout(fn func() error, timeout time.Duration) error {
 
 // RunWorkflowPhase is a shared helper to run a single workflow step with reporting
 func RunWorkflowPhase(phaseKey string, step, total int, description, target string, timeoutSeconds int, fn func() error) error {
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	// GetCurrentScanID checks the goroutine-local registry first (in-process scans),
+	// then falls back to AUTOAR_CURRENT_SCAN_ID env var (subprocess compat).
+	scanID := GetCurrentScanID()
 
 	// Checkpoint: Skip if phase already completed successfully
 	if scanID != "" && db.IsPhaseCompleted(scanID, description) {
