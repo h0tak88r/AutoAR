@@ -3616,10 +3616,75 @@ async function renderScanDetailView(scanId) {
           </div>
         </div>`;
     } else {
+      // Build live-log terminal card (shown only while running; collapsed otherwise)
+      const isRunning = /running|starting/i.test(stat);
+      const logCardStyle = isRunning ? '' : 'display:none;';
+      const logTerminalCard = `
+        <div class="modern-card" id="scan-log-terminal-card" style="${logCardStyle}">
+          <div class="card-header" style="cursor:pointer" onclick="document.getElementById('scan-log-body').style.display=document.getElementById('scan-log-body').style.display==='none'?'block':'none'">
+            <div class="card-title"><span class="card-title-icon">📟</span>Live Scan Log</div>
+            <span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">● streaming</span>
+          </div>
+          <div id="scan-log-body" style="padding:0">
+            <pre id="scan-log-output" style="
+              background:var(--bg-secondary,#0d0d14);
+              color:#a0ffb0;
+              font-size:11px;
+              line-height:1.55;
+              padding:16px;
+              margin:0;
+              max-height:340px;
+              overflow-y:auto;
+              border-radius:0 0 12px 12px;
+              white-space:pre-wrap;
+              word-break:break-all;
+            ">Connecting to log stream...</pre>
+          </div>
+        </div>`;
+
+      // Build report generation card
+      const reportCard = `
+        <div class="modern-card" id="scan-report-card">
+          <div class="card-header">
+            <div class="card-title"><span class="card-title-icon">📄</span>Generate Report</div>
+          </div>
+          <div style="padding:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <select id="scan-report-template-sel" style="
+              flex:1;min-width:180px;
+              padding:8px 12px;
+              background:var(--bg-input);
+              border:1px solid var(--border);
+              border-radius:8px;
+              color:var(--text-primary);
+              font-size:13px
+            ">
+              <option value="default">Default template</option>
+            </select>
+            <button id="scan-report-preview-btn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">
+              👁 Preview
+            </button>
+            <a id="scan-report-download-btn" class="btn btn-primary" style="font-size:12px;padding:8px 14px;text-decoration:none" href="#" download>
+              ⬇ Download .md
+            </a>
+          </div>
+          <div id="scan-report-preview" style="
+            display:none;
+            padding:16px;
+            border-top:1px solid var(--border);
+            max-height:400px;
+            overflow-y:auto;
+            font-size:13px;
+            white-space:pre-wrap;
+            color:var(--text-primary)
+          "></div>
+        </div>`;
+
       html = `
         <div class="scan-detail-modern">
           ${zipBanner}
           ${manifestCard}
+          ${logTerminalCard}
+          ${reportCard}
           ${emptyBanner}
           
           <!-- Unified Findings Card -->
@@ -3636,6 +3701,77 @@ async function renderScanDetailView(scanId) {
     }
 
     container.innerHTML = html;
+
+    // ── Wire live log terminal SSE ───────────────────────────────────────────
+    const logOutput = document.getElementById('scan-log-output');
+    const logTermCard = document.getElementById('scan-log-terminal-card');
+    if (logOutput) {
+      let sseLog = null;
+      const connectLogStream = () => {
+        if (sseLog) { sseLog.close(); sseLog = null; }
+        sseLog = new EventSource(`/api/scans/${encodeURIComponent(scanId)}/logs/stream`);
+        sseLog.addEventListener('log', e => {
+          logOutput.textContent += e.data + '\n';
+          logOutput.scrollTop = logOutput.scrollHeight;
+        });
+        sseLog.addEventListener('done', () => {
+          logOutput.textContent += '\n✅ Scan finished.\n';
+          sseLog.close(); sseLog = null;
+          if (logTermCard) logTermCard.querySelector('.badge').textContent = '● finished';
+        });
+        sseLog.onerror = () => { sseLog.close(); sseLog = null; };
+      };
+      connectLogStream();
+      // Clean up when navigating away.
+      window.__currentLogSSE = sseLog;
+    }
+
+    // ── Wire report generation card ──────────────────────────────────────────
+    const reportTemplateSel = document.getElementById('scan-report-template-sel');
+    const reportPreviewBtn  = document.getElementById('scan-report-preview-btn');
+    const reportDownloadBtn = document.getElementById('scan-report-download-btn');
+    const reportPreviewDiv  = document.getElementById('scan-report-preview');
+
+    // Populate template selector from API
+    if (reportTemplateSel) {
+      apiFetch('/api/report-templates').then(resp => {
+        const templates = Array.isArray(resp) ? resp : (resp?.templates || []);
+        templates.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.name || t;
+          opt.textContent = t.name || t;
+          if (opt.value !== 'default') reportTemplateSel.appendChild(opt);
+        });
+      }).catch(() => {/* silently ignore */});
+    }
+
+    if (reportDownloadBtn && reportTemplateSel) {
+      const buildReportUrl = () => {
+        const tmpl = encodeURIComponent(reportTemplateSel.value || 'default');
+        return `/api/scans/${encodeURIComponent(scanId)}/report?template=${tmpl}&format=markdown`;
+      };
+      reportDownloadBtn.href = buildReportUrl();
+      reportTemplateSel.addEventListener('change', () => {
+        reportDownloadBtn.href = buildReportUrl();
+        if (reportPreviewDiv && reportPreviewDiv.style.display !== 'none') {
+          previewReport();
+        }
+      });
+    }
+
+    const previewReport = async () => {
+      if (!reportPreviewDiv || !reportTemplateSel) return;
+      const tmpl = encodeURIComponent(reportTemplateSel.value || 'default');
+      try {
+        const r = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/report?template=${tmpl}&format=json`);
+        reportPreviewDiv.textContent = r.rendered || '(empty)';
+        reportPreviewDiv.style.display = 'block';
+      } catch (e) {
+        reportPreviewDiv.textContent = 'Error loading preview: ' + e.message;
+        reportPreviewDiv.style.display = 'block';
+      }
+    };
+    if (reportPreviewBtn) reportPreviewBtn.addEventListener('click', previewReport);
 
     // Wire export CSV button
     const exportCsvBtn = document.getElementById('scan-detail-export-csv-btn');
