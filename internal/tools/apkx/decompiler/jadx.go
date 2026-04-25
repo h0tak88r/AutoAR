@@ -62,7 +62,7 @@ func (j *Jadx) Decompile(apkFile, outputDir string, args string) error {
 	// the rest of AutoAR is also running, and there's zero swap.
 	// We override via JAVA_OPTS (the jadx launcher respects it).
 	// Default: 1500 MB. Override with JADX_MAX_HEAP_MB env var.
-	maxHeapMB := "1500"
+	maxHeapMB := "2048"
 	if m := os.Getenv("JADX_MAX_HEAP_MB"); m != "" {
 		maxHeapMB = m
 	}
