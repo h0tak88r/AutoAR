@@ -17,7 +17,14 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 )
 
-const reportTemplatesDir = "report_templates"
+// reportTemplatesDir returns the directory for storing report template files.
+// Override with AUTOAR_TEMPLATES_DIR env var to persist across container restarts.
+func reportTemplatesDir() string {
+	if d := os.Getenv("AUTOAR_TEMPLATES_DIR"); d != "" {
+		return d
+	}
+	return "report_templates"
+}
 
 var reportTemplatesMigrateOnce sync.Once
 
@@ -56,7 +63,7 @@ func ensureReportTemplatesMigrated() {
 		}
 
 		// Migrate legacy local templates if present.
-		if entries, err := os.ReadDir(reportTemplatesDir); err == nil {
+		if entries, err := os.ReadDir(reportTemplatesDir()); err == nil {
 			for _, e := range entries {
 				if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
 					continue
@@ -65,7 +72,7 @@ func ensureReportTemplatesMigrated() {
 				if name == "" {
 					continue
 				}
-				path := filepath.Join(reportTemplatesDir, e.Name())
+				path := filepath.Join(reportTemplatesDir(), e.Name())
 				content, readErr := os.ReadFile(path)
 				if readErr != nil {
 					log.Printf("[report-templates] failed reading legacy template %s: %v", path, readErr)
