@@ -18,6 +18,13 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 )
 
+// stdLog re-emits to both the global logger and the scan-local log bus.
+func stdLog(scanID, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	log.Print(msg)
+	ScanLogf(scanID, msg)
+}
+
 // runScanInProcess is the generic in-process scan runner. fn should call the
 // module's Go API directly. target is used for display and notifications.
 func runScanInProcess(scanID, scanType, target string, fn func() error) {
@@ -51,6 +58,7 @@ func runScanInProcess(scanID, scanType, target string, fn func() error) {
 	scansMutex.Unlock()
 
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
+	ScanLogf(scanID, "[%s] scan started for %s", scanType, target)
 
 	err := fn()
 
@@ -60,6 +68,7 @@ func runScanInProcess(scanID, scanType, target string, fn func() error) {
 	if err != nil {
 		status = "failed"
 		errMsg = err.Error()
+		ScanLogf(scanID, "[%s] scan FAILED: %v", scanType, err)
 		log.Printf("[runner] scan %s (%s) failed: %v", scanID, scanType, err)
 	}
 
@@ -88,7 +97,14 @@ func runScanInProcess(scanID, scanType, target string, fn func() error) {
 	if status == "completed" {
 		progress = 100
 	}
+	ScanLogf(scanID, "[%s] scan %s in %s", scanType, status, completedAt.Sub(startedAt).Round(time.Second))
 	utils.SendScanNotification("complete", scanID, target, scanType, status, progress)
 	log.Printf("[runner] scan %s (%s/%s) %s in %s",
 		scanID, scanType, target, status, completedAt.Sub(startedAt).Round(time.Second))
+
+	// Give SSE clients a moment to drain, then close the bus for this scan.
+	go func() {
+		time.Sleep(5 * time.Second)
+		globalLogBus.Close(scanID)
+	}()
 }
