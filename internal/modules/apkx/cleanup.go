@@ -3,13 +3,13 @@ package apkx
 // cleanup.go — Post-scan upload and cleanup.
 //
 // After a successful APK scan this does exactly three things:
-//  1. Upload results.json       → r2: apkx/cache/<pkg>_<ver>/results.json
-//  2. Upload AndroidManifest.xml → r2: apkx/cache/<pkg>_<ver>/AndroidManifest.xml
-//  3. Upload mitm-patched.apk  → r2: apkx/cache/<pkg>_<ver>/<file>.apk  (if present)
+//  1. Upload results.json       → r2: new-results/apkx/<pkg>/results.json
+//  2. Upload AndroidManifest.xml → r2: new-results/apkx/<pkg>/AndroidManifest.xml
+//  3. Upload mitm-patched.apk  → r2: new-results/apkx/<pkg>/<file>.apk  (if present)
 //
 // Then removes from the local server:
-//  - The jadx decompile cache directory (~/.apkx/cache/<hash>/)
-//  - The scan output directory (outDir with results.json, html report, etc.)
+//  - The jadx decompile temp dir
+//  - The scan output directory (with results.json, html report, etc.)
 //  - The downloaded APK file / tmpDir
 //
 // The HTML report is intentionally NOT uploaded — the dashboard reads the
@@ -51,8 +51,10 @@ func UploadArtifactsAndCleanup(
 	}
 
 	// ── Build the R2 prefix ────────────────────────────────────────────────────
-	cacheKey := getCacheKey(packageName, version)
-	r2Prefix = "apkx/cache/" + cacheKey
+	// Use new-results/apkx/<pkg>/ to be consistent with other scan types
+	// (domain scans → new-results/<target>/, apkx → new-results/apkx/<pkg>/).
+	safePkg := strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(packageName)
+	r2Prefix = "new-results/apkx/" + safePkg
 
 	uploadOK := true
 
