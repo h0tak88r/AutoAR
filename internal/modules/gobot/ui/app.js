@@ -3446,10 +3446,7 @@ async function renderScanDetailView(scanId) {
         sub.textContent = `${st} · ${statLower}`;
       }
     }
-    if (apiA) {
-      apiA.href = `/api/scans/${encodeURIComponent(scanId)}`;
-      apiA.style.display = 'inline-flex';
-    }
+    if (apiA) apiA.style.display = 'none'; // API button removed from UI
     const r2DetailBtn = document.getElementById('scan-detail-r2-btn');
     if (r2DetailBtn) {
       if (st) {
@@ -3483,6 +3480,16 @@ async function renderScanDetailView(scanId) {
         rescanDetailBtn._rescan = null;
       }
     }
+    // Wire Delete button.
+    const deleteDetailBtn = document.getElementById('scan-detail-delete-btn');
+    if (deleteDetailBtn) {
+      deleteDetailBtn.onclick = async () => {
+        await deleteScan(scanId, target);
+        // Navigate back to scans list after deletion.
+        navigateTo('scans');
+      };
+    }
+
     const clearCacheBtn = document.getElementById('scan-detail-clear-cache-btn');
     if (clearCacheBtn) {
       const isApkx = /apkx/i.test(String(st || ''));
@@ -5057,6 +5064,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
             <option value="interesting">Interesting Only</option>
           </select>
           <span id="recon-urls-count" style="color:var(--text-muted);font-size:12px;white-space:nowrap"></span>
+          <button id="recon-urls-copy" type="button" style="padding:6px 12px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#a78bfa;font-size:11px;cursor:pointer">📋 Copy</button>
           <button id="recon-urls-export" type="button" style="padding:6px 12px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer">⬇ Export</button>
         </div>
         <div id="recon-urls-content" style="min-height:200px;max-height:580px;overflow:auto;font-family:var(--font-mono);font-size:12px">
@@ -5437,6 +5445,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     // Wire controls only once.
     const searchEl = root.querySelector('#recon-urls-search');
     const typeEl = root.querySelector('#recon-urls-type');
+    const copyBtn = root.querySelector('#recon-urls-copy');
     const exportBtn = root.querySelector('#recon-urls-export');
     if (searchEl && !searchEl.dataset.wired) {
       searchEl.dataset.wired = '1';
@@ -5456,6 +5465,25 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         _urlsType = typeEl.value;
         _urlsPage = 1;
         loadURLsView();
+      });
+    }
+    if (copyBtn && !copyBtn.dataset.wired) {
+      copyBtn.dataset.wired = '1';
+      copyBtn.addEventListener('click', async () => {
+        copyBtn.textContent = '⏳ Copying…';
+        try {
+          // Fetch all filtered URLs (up to 5000) for clipboard.
+          const qs = new URLSearchParams({ page: 1, limit: 5000, type: _urlsType, q: _urlsQ }).toString();
+          const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?${qs}`);
+          const text = (data.urls || []).map(e => e.url).join('\n');
+          await copyToClipboard(text);
+          showToast('success', 'Copied', `${(data.urls || []).length} URLs copied to clipboard`);
+          copyBtn.textContent = '✅ Copied!';
+          setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
+        } catch (e) {
+          showToast('error', 'Copy failed', e.message);
+          copyBtn.textContent = '📋 Copy';
+        }
       });
     }
     if (exportBtn && !exportBtn.dataset.wired) {
