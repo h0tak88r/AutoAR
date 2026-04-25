@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	apkxanalyzer "github.com/h0tak88r/AutoAR/internal/tools/apkx/analyzer"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/downloader"
 	"github.com/h0tak88r/AutoAR/internal/tools/apkx/mitm"
@@ -32,13 +31,14 @@ type Options struct {
 
 // Result describes where apkX wrote its output.
 type Result struct {
-	ReportDir       string
-	LogFile         string
-	Duration        time.Duration
-	MITMPatchedAPK  string // Path to MITM patched APK if MITM was enabled
-	OriginalAPKPath string // Path to original downloaded APK (for RunFromPackage)
-	FromCache       bool   // True if this result was loaded from cache
-	JadxTempDir     string // Path to jadx decompile temp dir (cleaned up after R2 upload)
+	ReportDir        string
+	LogFile          string
+	Duration         time.Duration
+	MITMPatchedAPK   string // Path to MITM patched APK if MITM was enabled
+	OriginalAPKPath  string // Path to original downloaded APK (for RunFromPackage)
+	FromCache        bool   // True if this result was loaded from cache
+	JadxTempDir      string // Path to jadx decompile temp dir (cleaned up after R2 upload)
+	R2ArtifactPrefix string // R2 prefix where results.json + manifest are stored (set after upload)
 }
 
 // PackageOptions controls apkX scans where AutoAR first downloads the
@@ -442,88 +442,25 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		return nil, fmt.Errorf("unsupported platform %q (expected \"android\" or \"ios\")", platform)
 	}
 
-	// Extract version from downloaded APK/IPA to check cache
+	// Extract version from downloaded APK/IPA (used for the R2 upload prefix).
 	var packageName, version string
 	if platform == "android" {
 		packageName, version, _, err = ExtractVersionFromAPK(inputPath)
 		if err != nil {
-			// If version extraction fails, log warning and try to use package name only
-			fmt.Printf("[WARN] Failed to extract version from APK: %v\n", err)
-			// Try to extract at least package name from APK using a simpler method
+			fmt.Printf("[apkx] ⚠  Failed to extract version: %v — using 'latest'\n", err)
 			if packageName == "" {
-				// Fallback: use provided package name
 				packageName = pkg
-				version = "latest" // Use "latest" as fallback version
-				fmt.Printf("[CACHE] Using package name '%s' with fallback version 'latest' for cache lookup\n", packageName)
-			} else {
-				// We got package name but not version, use "latest"
-				version = "latest"
-				fmt.Printf("[CACHE] Got package name '%s' but no version, using 'latest' for cache lookup\n", packageName)
 			}
+			version = "latest"
 		}
 	} else {
-		// For iOS, we'll need to extract from IPA (similar logic)
-		// For now, use package name as version identifier
+		// iOS — use bundle ID as package name; version extracted later from manifest.
 		packageName = pkg
-		version = "unknown"
+		version = "latest"
 	}
 
-	cacheDisabled := isCacheDisabled(opts)
-	if cacheDisabled {
-		fmt.Printf("[CACHE] 🚫 Cache disabled, forcing fresh scan for %s\n", pkg)
-	}
-
-	// ── Cache lookup ─────────────────────────────────────────────────────────
-	// Check R2/local cache. If results.json exists we use it — even if there
-	// is no cached MITM-patched APK. MITM is optional; analysis findings are
-	// what matter and should not trigger a full re-scan.
-	if packageName != "" && !cacheDisabled {
-		cacheVersion := version
-		if cacheVersion == "" || cacheVersion == "unknown" {
-			cacheVersion = "latest"
-		}
-
-		cachePath, found := CheckCache(packageName, cacheVersion)
-		if found {
-			fmt.Printf("[CACHE] [ + ]Cache hit for %s v%s\n", packageName, cacheVersion)
-
-			loadAndReturn := func(localPath string) (*Result, bool) {
-				cachedResult, err := LoadCachedResult(localPath)
-				if err != nil {
-					fmt.Printf("[CACHE] ⚠️  Failed to load cached result: %v\n", err)
-					return nil, false
-				}
-				if opts.MITM && strings.TrimSpace(cachedResult.MITMPatchedAPK) == "" {
-					fmt.Printf("[CACHE] ℹ️  Cached results loaded (no MITM APK in cache — MITM will be skipped)\n")
-				} else {
-					fmt.Printf("[CACHE] [ + ]Loaded cached results for %s v%s\n", packageName, cacheVersion)
-				}
-				return cachedResult, true
-			}
-
-			if strings.HasPrefix(cachePath, "r2:") {
-				r2Prefix := strings.TrimPrefix(cachePath, "r2:")
-				localCachePath := getCachePath(packageName, cacheVersion)
-				fmt.Printf("[CACHE] 📥 Downloading results.json + manifest from R2: %s\n", r2Prefix)
-				if dlErr := r2storage.DownloadDirectory(r2Prefix, localCachePath); dlErr != nil {
-					fmt.Printf("[CACHE] ⚠️  Failed to download from R2: %v — doing fresh scan\n", dlErr)
-				} else if result, ok := loadAndReturn(localCachePath); ok {
-					return result, nil
-				}
-			} else {
-				if result, ok := loadAndReturn(cachePath); ok {
-					return result, nil
-				}
-			}
-		}
-	}
-
-	// No cache found or cache load failed, do fresh scan
-	cacheVersion := version
-	if cacheVersion == "" || cacheVersion == "unknown" {
-		cacheVersion = "latest"
-	}
-	fmt.Printf("[CACHE] 🔍 No cache found for %s v%s, performing fresh scan\n", packageName, cacheVersion)
+	// Always perform a fresh scan — no caching.
+	fmt.Printf("[apkx] 🔍 Starting fresh scan for %s\n", packageName)
 
 	// Reuse the existing Run logic for local file analysis.
 	result, err := Run(Options{
@@ -538,20 +475,24 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 	}
 
 	// Upload artifacts to R2 and clean up all local data.
-	if err == nil && result != nil && packageName != "" && !cacheDisabled {
-		cacheVersionToSave := version
-		if cacheVersionToSave == "" || cacheVersionToSave == "unknown" {
-			cacheVersionToSave = "latest"
+	if err == nil && result != nil {
+		r2Version := version
+		if r2Version == "" || r2Version == "unknown" {
+			r2Version = "latest"
 		}
-		_, cleanupErr := UploadArtifactsAndCleanup(
+		r2Prefix, cleanupErr := UploadArtifactsAndCleanup(
 			result,
 			packageName,
-			cacheVersionToSave,
-			tmpDir,            // downloaded APK directory
+			r2Version,
+			tmpDir,             // downloaded APK directory
 			result.JadxTempDir, // jadx decompile temp dir
 		)
 		if cleanupErr != nil {
 			fmt.Printf("[CLEANUP] ⚠  Upload/cleanup error: %v\n", cleanupErr)
+		}
+		// Store the R2 prefix so api.go can index artifacts from R2.
+		if r2Prefix != "" {
+			result.R2ArtifactPrefix = r2Prefix
 		}
 	}
 
