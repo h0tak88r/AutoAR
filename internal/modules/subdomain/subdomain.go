@@ -30,6 +30,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/modules/urls"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
 	wpconfusion "github.com/h0tak88r/AutoAR/internal/modules/wp-confusion"
+	zerodaysmod "github.com/h0tak88r/AutoAR/internal/modules/zerodays"
 	"github.com/projectdiscovery/httpx/runner"
 )
 
@@ -124,12 +125,30 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// These modules are mostly independent or read the live-subs.txt file just created.
 	var wgPhase2 sync.WaitGroup
 
-	// Helper for parallel phase execution
+	// Helper for parallel phase execution with optional timeout (seconds, 0=none)
 	runParallelPhase := func(wg *sync.WaitGroup, key, desc string, timeout int, fn func() error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := utils.RunWorkflowPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, fn); err != nil {
+			var wrappedFn func() error
+			if timeout > 0 {
+				wrappedFn = func() error {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+					defer cancel()
+					done := make(chan error, 1)
+					go func() { done <- fn() }()
+					select {
+					case err := <-done:
+						return err
+					case <-ctx.Done():
+						log.Printf("[WARN] phase %s timed out after %ds", key, timeout)
+						return fmt.Errorf("phase %s timed out", key)
+					}
+				}
+			} else {
+				wrappedFn = fn
+			}
+			if err := utils.RunWorkflowPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, wrappedFn); err != nil {
 				log.Printf("[WARN] %s failed: %v", desc, err)
 			}
 		}()
@@ -183,9 +202,14 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 			return err
 		}, 0},
 		{"zerodays", "[Stage 2] Zerodays scan", func() error {
-			runner := utils.NewCommandRunner(0)
-			return runner.RunSilent(context.Background(), os.Args[0], "zerodays", "scan", "-s", subdomainClean, "-t", "100", "--silent")
-		}, 0},
+			// Direct in-process call — no subprocess fork, no separate scan DB record.
+			_, err := zerodaysmod.Run(zerodaysmod.Options{
+				Subdomain: subdomainClean,
+				Threads:   100,
+				Silent:    true,
+			})
+			return err
+		}, 600}, // 10-minute cap
 		{"wp_confusion", "[Stage 2] WordPress confusion", func() error {
 			// Check if live hosts file exists with retry logic is not needed if we trust Phase 1 succeeded,
 			// but keeping robust check for safety inside the anonymous func
@@ -272,7 +296,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		log.Printf("[INFO] Skipping FFUF stage for subdomain scan: %s", subdomain)
 	}
 
-	runParallelPhase(&wgPhase3, "nuclei", "[Stage 3] Nuclei scan (final)", 0, func() error {
+	runParallelPhase(&wgPhase3, "nuclei", "[Stage 3] Nuclei scan (final)", 1200 /* 20 min */, func() error {
 		data, err := os.ReadFile(liveHostsFile)
 		if err != nil {
 			return err
