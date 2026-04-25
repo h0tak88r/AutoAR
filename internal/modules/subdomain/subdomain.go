@@ -38,9 +38,18 @@ type Result struct {
 	Subdomain string
 }
 
+type RunOptions struct {
+	SkipFFuf bool
+}
+
 // RunSubdomain runs the full subdomain scan workflow with ALL features on a single subdomain
 // First checks if the subdomain is live, then runs all follow-up phases
 func RunSubdomain(subdomain string) (*Result, error) {
+	return RunSubdomainWithOptions(subdomain, RunOptions{})
+}
+
+// RunSubdomainWithOptions runs the full subdomain workflow with optional toggles.
+func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error) {
 	if subdomain == "" {
 		return nil, fmt.Errorf("subdomain is required")
 	}
@@ -91,15 +100,13 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	}
 
 	liveHostsFile := filepath.Join(subsDir, "live-subs.txt")
-	
+
 	// Extract root domain for modules that need it (e.g., DNS, S3)
 	rootDomain := extractDomain(subdomainClean)
 
-
-
 	totalSteps := 18
 	var currentStep int32
-	
+
 	// Helper to get next step safely
 	getNextStep := func() int {
 		return int(atomic.AddInt32(&currentStep, 1))
@@ -142,33 +149,50 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		{"tech", "[Stage 2] Technology detection", func() error { _, err := tech.DetectTech(subdomainClean, 150); return err }, 0},
 		{"ports", "[Stage 2] Port scan", func() error { _, err := ports.ScanPorts(subdomainClean, 150); return err }, 0},
 		{"urls", "[Stage 2] URL collection", func() error { _, err := urls.CollectURLs(subdomainClean, 150, true); return err }, 0},
-		{"jsscan", "[Stage 2] JS scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: subdomainClean, Subdomain: subdomainClean, Threads: 150}); return err }, 0},
-		{"aem", "[Stage 2] AEM scan", func() error { _, err := aemmod.Run(aemmod.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Threads: 50}); return err }, 0},
-		{"dns", "[Stage 2] DNS scan", func() error { return dns.TakeoverWithOptions(dns.TakeoverOptions{Domain: rootDomain, Subdomain: subdomainClean}) }, 0},
+		{"jsscan", "[Stage 2] JS scan", func() error {
+			_, err := jsscan.Run(jsscan.Options{Domain: subdomainClean, Subdomain: subdomainClean, Threads: 150})
+			return err
+		}, 0},
+		{"aem", "[Stage 2] AEM scan", func() error {
+			_, err := aemmod.Run(aemmod.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Threads: 50})
+			return err
+		}, 0},
+		{"dns", "[Stage 2] DNS scan", func() error {
+			return dns.TakeoverWithOptions(dns.TakeoverOptions{Domain: rootDomain, Subdomain: subdomainClean})
+		}, 0},
 		{"s3", "[Stage 2] S3 bucket enumeration and scanning", func() error {
 			// S3 enumeration on the root domain (S3 works on domain level) but save results under subdomain directory
-			if err := s3mod.Run(s3mod.Options{Action: "enum", Root: rootDomain, Subdomain: subdomainClean, Threads: 100}); err != nil { return err }
+			if err := s3mod.Run(s3mod.Options{Action: "enum", Root: rootDomain, Subdomain: subdomainClean, Threads: 100}); err != nil {
+				return err
+			}
 			// After enumeration, scan found buckets for permissions
 			bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
 			if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
 				data, _ := os.ReadFile(bucketsFile)
 				bucketNames := strings.Split(strings.TrimSpace(string(data)), "\n")
 				for _, bn := range bucketNames {
-					if bn = strings.TrimSpace(bn); bn != "" { s3mod.Run(s3mod.Options{Action: "scan", Bucket: bn, Subdomain: subdomainClean}) }
+					if bn = strings.TrimSpace(bn); bn != "" {
+						s3mod.Run(s3mod.Options{Action: "scan", Bucket: bn, Subdomain: subdomainClean})
+					}
 				}
 			}
 			return nil
 		}, 0},
-		{"backup", "[Stage 2] Backup scan", func() error { _, err := backup.Run(backup.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Method: "all", Threads: 150}); return err }, 0},
+		{"backup", "[Stage 2] Backup scan", func() error {
+			_, err := backup.Run(backup.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Method: "all", Threads: 150})
+			return err
+		}, 0},
 		{"zerodays", "[Stage 2] Zerodays scan", func() error {
 			runner := utils.NewCommandRunner(0)
 			return runner.RunSilent(context.Background(), os.Args[0], "zerodays", "scan", "-s", subdomainClean, "-t", "100", "--silent")
 		}, 0},
 		{"wp_confusion", "[Stage 2] WordPress confusion", func() error {
-			// Check if live hosts file exists with retry logic is not needed if we trust Phase 1 succeeded, 
+			// Check if live hosts file exists with retry logic is not needed if we trust Phase 1 succeeded,
 			// but keeping robust check for safety inside the anonymous func
 			data, err := os.ReadFile(liveHostsFile)
-			if err != nil || len(data) == 0 { return fmt.Errorf("live hosts file empty or check failed") }
+			if err != nil || len(data) == 0 {
+				return fmt.Errorf("live hosts file empty or check failed")
+			}
 			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 			if len(lines) > 0 && lines[0] != "" {
 				return wpconfusion.ScanWPConfusion(wpconfusion.ScanOptions{URL: strings.TrimSpace(lines[0]), Plugins: true, Theme: false})
@@ -176,7 +200,9 @@ func RunSubdomain(subdomain string) (*Result, error) {
 			return nil
 		}, 0},
 		{"depconfusion", "[Stage 2] Dependency confusion", func() error {
-			if _, err := os.Stat(liveHostsFile); err != nil { return fmt.Errorf("live hosts file not found") }
+			if _, err := os.Stat(liveHostsFile); err != nil {
+				return fmt.Errorf("live hosts file not found")
+			}
 			return depconfusion.Run(depconfusion.Options{Mode: "web", TargetFile: liveHostsFile, Workers: 10, Subdomain: subdomainClean})
 		}, 0},
 	}
@@ -184,12 +210,20 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	// Misconfig timeout
 	misconfigTimeout := 1800
 	if val := os.Getenv("AUTOAR_TIMEOUT_MISCONFIG"); val != "" {
-		if t, err := strconv.Atoi(val); err == nil { misconfigTimeout = t }
+		if t, err := strconv.Atoi(val); err == nil {
+			misconfigTimeout = t
+		}
 	}
-	phases2 = append(phases2, struct{key, desc string; fn func() error; timeout int}{
+	phases2 = append(phases2, struct {
+		key, desc string
+		fn        func() error
+		timeout   int
+	}{
 		"misconfig", "[Stage 2] Misconfig scan", func() error {
 			err := misconfig.Run(misconfig.Options{Target: subdomainClean, Action: "scan", Threads: 150, LiveHostsFile: liveHostsFile})
-			if err != nil && strings.Contains(err.Error(), "no live subdomains found") { return nil }
+			if err != nil && strings.Contains(err.Error(), "no live subdomains found") {
+				return nil
+			}
 			return err
 		}, misconfigTimeout,
 	})
@@ -214,25 +248,35 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		return err
 	})
 
-	runParallelPhase(&wgPhase3, "ffuf", "[Stage 3] FFuf fuzzing", 0, func() error {
-		data, err := os.ReadFile(liveHostsFile)
-		if err != nil { return err }
-		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-		if len(lines) > 0 && lines[0] != "" {
-			url := strings.TrimSpace(lines[0])
-			if !strings.Contains(url, "FUZZ") {
-				if !strings.HasSuffix(url, "/") { url += "/" }
-				url += "FUZZ"
+	if !opts.SkipFFuf {
+		runParallelPhase(&wgPhase3, "ffuf", "[Stage 3] FFuf fuzzing", 0, func() error {
+			data, err := os.ReadFile(liveHostsFile)
+			if err != nil {
+				return err
 			}
-			_, err := ffuf.RunFFuf(ffuf.Options{Target: url, Wordlist: "", Threads: 40, FollowRedirects: true})
-			return err
-		}
-		return fmt.Errorf("no live URL found")
-	})
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			if len(lines) > 0 && lines[0] != "" {
+				url := strings.TrimSpace(lines[0])
+				if !strings.Contains(url, "FUZZ") {
+					if !strings.HasSuffix(url, "/") {
+						url += "/"
+					}
+					url += "FUZZ"
+				}
+				_, err := ffuf.RunFFuf(ffuf.Options{Target: url, Wordlist: "", Threads: 40, FollowRedirects: true})
+				return err
+			}
+			return fmt.Errorf("no live URL found")
+		})
+	} else {
+		log.Printf("[INFO] Skipping FFUF stage for subdomain scan: %s", subdomain)
+	}
 
 	runParallelPhase(&wgPhase3, "nuclei", "[Stage 3] Nuclei scan (final)", 0, func() error {
 		data, err := os.ReadFile(liveHostsFile)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 		if len(lines) > 0 && lines[0] != "" {
 			_, err := nuclei.RunNuclei(nuclei.Options{URL: strings.TrimSpace(lines[0]), Threads: 120, Mode: nuclei.ModeFull})
@@ -244,20 +288,20 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	wgPhase3.Wait()
 
 	log.Printf("[OK] Full subdomain scan completed for %s", subdomain)
-	
+
 	// Get subdomain directory path (resultsDir already declared earlier)
 	subdomainDir := filepath.Join(resultsDir, subdomainClean)
-	
+
 	// Convert to absolute path to avoid issues
 	if absPath, err := filepath.Abs(subdomainDir); err == nil {
 		subdomainDir = absPath
 	}
-	
+
 	// Ensure subdomain directory exists (in case it was never created or was deleted)
 	if err := os.MkdirAll(subdomainDir, 0755); err != nil {
 		log.Printf("[WARN] Failed to ensure subdomain directory exists: %s: %v", subdomainDir, err)
 	}
-	
+
 	// Verify directory exists before attempting zip
 	if dirInfo, err := os.Stat(subdomainDir); err != nil {
 		log.Printf("[WARN] Subdomain directory does not exist: %s (resultsDir: %s)", subdomainDir, resultsDir)
@@ -281,19 +325,19 @@ func RunSubdomain(subdomain string) (*Result, error) {
 		})
 		log.Printf("[DEBUG] Subdomain directory contains %d files", fileCount)
 	}
-	
+
 	// R2 upload removed - files are sent directly to Discord threads in real-time
-	
+
 	utils.Log.WithField("subdomain", subdomain).Info("Full subdomain scan completed successfully")
-	
+
 	// Track successful completion
 	metrics.IncrementCompletedScans()
-	
+
 	// Cleanup: Remove local files after all phases complete and files are sent
 	utils.Log.WithField("subdomain", subdomain).Info("Cleaning up subdomain directory")
 	// Wait a moment to ensure all file operations complete
 	time.Sleep(2 * time.Second)
-	
+
 	// Remove subdomain directory contents (preserving apkx directory if exists)
 	if err := filepath.Walk(domainDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -310,7 +354,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 			}
 			return nil
 		}
-		
+
 		// Remove everything else
 		if info.IsDir() {
 			return os.RemoveAll(path)
@@ -321,7 +365,7 @@ func RunSubdomain(subdomain string) (*Result, error) {
 	} else {
 		log.Printf("[OK] Cleaned up subdomain directory: %s", domainDir)
 	}
-	
+
 	// Also cleanup shared module directories that write outside the subdomain directory
 	// Modules like AEM, S3, misconfig write to new-results/aem/, new-results/s3/, etc.
 	sharedDirs := []string{
@@ -339,13 +383,13 @@ func RunSubdomain(subdomain string) (*Result, error) {
 			}
 		}
 	}
-	
+
 	// Remove the subdomain directory itself if it's now empty (excluding apkx)
 	if entries, err := os.ReadDir(domainDir); err == nil && len(entries) == 0 {
 		os.Remove(domainDir)
 		log.Printf("[OK] Removed empty subdomain directory: %s", domainDir)
 	}
-	
+
 	return &Result{Subdomain: subdomain}, nil
 }
 
@@ -365,15 +409,15 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 	// Configure httpx options
 	options := runner.Options{
 		InputTargetHost: targets,
-		Threads:        150,
-		Methods:        "GET",
+		Threads:         150,
+		Methods:         "GET",
 		FollowRedirects: true,
-		HTTPProxy:      os.Getenv("HTTP_PROXY"),
+		HTTPProxy:       os.Getenv("HTTP_PROXY"),
 	}
 
 	// Use a map to track unique URLs and avoid duplicates
 	liveHostsMap := make(map[string]bool)
-	
+
 	// Callback to collect live hosts
 	options.OnResult = func(result runner.Result) {
 		if result.StatusCode > 0 {
@@ -405,12 +449,12 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 	if err := os.MkdirAll(filepath.Dir(liveHostsFile), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for live hosts file: %v", err)
 	}
-	
+
 	// Write live hosts to file (already deduplicated)
 	if err := utils.WriteLines(liveHostsFile, liveHosts); err != nil {
 		return fmt.Errorf("failed to write live hosts file: %v", err)
 	}
-	
+
 	// Verify file was created
 	if info, err := os.Stat(liveHostsFile); err != nil {
 		return fmt.Errorf("live hosts file was not created: %s: %v", liveHostsFile, err)
@@ -427,7 +471,7 @@ func extractDomain(subdomain string) string {
 	// Remove protocol if present
 	subdomain = strings.TrimPrefix(subdomain, "http://")
 	subdomain = strings.TrimPrefix(subdomain, "https://")
-	
+
 	parts := strings.Split(subdomain, ".")
 	if len(parts) >= 2 {
 		// Return last two parts (e.g., example.com)
@@ -435,6 +479,3 @@ func extractDomain(subdomain string) string {
 	}
 	return subdomain
 }
-
-
-
