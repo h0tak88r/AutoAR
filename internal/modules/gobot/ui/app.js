@@ -4842,6 +4842,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   let apkPackageInfo = null;
   if (isAPKScan) {
+    // Prefer fast row-scraping as initial fill (works without an extra network call
+    // for cached data), then overwrite with the authoritative /results/apk-meta.
     const extracted = extractApkPackageInfo(allRows);
     allRows = extracted.rows;
     apkPackageInfo = extracted.info;
@@ -4849,6 +4851,23 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
       const tgt = String(scanRecord?.target || scanRecord?.Target || '').trim();
       if (tgt) apkPackageInfo.package_name = tgt;
     }
+    // Async: fetch real data from AndroidManifest.xml / cache_info.json.
+    // When it resolves, merge into apkPackageInfo — the meta bar re-renders itself
+    // next time switchReconView is called (or we trigger a refresh).
+    apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/apk-meta`)
+      .then((meta) => {
+        if (!meta) return;
+        // Merge — backend data wins over scraped data.
+        if (meta.package_name) apkPackageInfo.package_name = meta.package_name;
+        if (meta.version)      apkPackageInfo.version      = meta.version;
+        if (meta.version_code) apkPackageInfo.version_code = meta.version_code;
+        if (meta.min_sdk)      apkPackageInfo.min_sdk      = meta.min_sdk;
+        if (meta.target_sdk)   apkPackageInfo.target_sdk   = meta.target_sdk;
+        if (meta.task_hijacking_risk) apkPackageInfo.task_hijacking_risk = meta.task_hijacking_risk;
+        // Re-render the APK meta bar with the fresh data.
+        if (apkMetaBar && isAPKScan) renderAPKMetaBar();
+      })
+      .catch(() => {}); // silently ignore — row-scraped data already shown
   }
 
   const apkCategoryKey = (r) => {
@@ -5103,77 +5122,93 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const drawerBody = root.querySelector('#recon-drawer-body');
   const drawerClose = root.querySelector('#recon-drawer-close');
 
+  // ── APK meta bar renderer (called on first render + after async fetch) ─────
+  const renderAPKMetaBar = () => {
+    if (!apkMetaBar || !isAPKScan || !apkPackageInfo) {
+      if (apkMetaBar) { apkMetaBar.style.display = 'none'; apkMetaBar.innerHTML = ''; }
+      return;
+    }
+    const toInt = (v) => { const m = String(v || '').match(/\d+/); return m ? Number(m[0]) : NaN; };
+    const minSdk    = toInt(apkPackageInfo.min_sdk);
+    const targetSdk = toInt(apkPackageInfo.target_sdk);
+
+    // Task hijacking risk — prefer backend computed label, fall back to targetSdk heuristic.
+    const riskFromBackend = String(apkPackageInfo.task_hijacking_risk || '').toLowerCase();
+    let hijackLabel, hijackColor;
+    if (riskFromBackend === 'possible') {
+      hijackLabel = '⚠ Possible (minSdk ≤ 28)';
+      hijackColor = '#f97316';
+    } else if (riskFromBackend === 'mitigated') {
+      hijackLabel = '⚡ Partially mitigated (minSdk 29–30)';
+      hijackColor = '#f59e0b';
+    } else if (riskFromBackend === 'unlikely') {
+      hijackLabel = '✅ Unlikely (minSdk ≥ 31)';
+      hijackColor = '#22c55e';
+    } else {
+      // Fallback: use targetSdk if minSdk not available.
+      if (!Number.isNaN(targetSdk) && targetSdk > 0) {
+        if (targetSdk <= 28)       { hijackLabel = '⚠ Likely (targetSdk ≤ 28)';       hijackColor = '#f97316'; }
+        else if (targetSdk <= 30) { hijackLabel = '⚡ Possible (targetSdk 29–30)';     hijackColor = '#f59e0b'; }
+        else                      { hijackLabel = '✅ Harder (targetSdk ≥ 31)';         hijackColor = '#22c55e'; }
+      } else {
+        hijackLabel = '? Unknown';
+        hijackColor = '#94a3b8';
+      }
+    }
+
+    // Also show manifest signals from findings rows.
+    const hasSingleTaskSignals = allRows.some((r) => {
+      const t = String(r.target || '').toLowerCase();
+      const f = String(r.finding || '').toLowerCase();
+      return t.includes('singletasklaunchmode') || f.includes('launchmode: singletask');
+    });
+    const hasTaskAffinitySignals = allRows.some((r) => {
+      const t = String(r.target || '').toLowerCase();
+      const f = String(r.finding || '').toLowerCase();
+      return t.includes('taskaffinity') || f.includes('taskaffinity');
+    });
+    const signalLabel = `${hasSingleTaskSignals ? '✓ singleTask' : 'no-singleTask'} · ${hasTaskAffinitySignals ? '✓ taskAffinity' : 'no-taskAffinity'}`;
+
+    const fields = [
+      ['package_name',  'Package ID'],
+      ['app_name',      'App Name'],
+      ['version',       'Version'],
+      ['version_code',  'Version Code'],
+      ['min_sdk',       'Min SDK'],
+      ['target_sdk',    'Target SDK'],
+      ['compile_sdk',   'Compile SDK'],
+    ].filter(([k]) => apkPackageInfo[k]);
+
+    if (!fields.length && hijackLabel === '? Unknown') {
+      apkMetaBar.style.display = 'none';
+      apkMetaBar.innerHTML = '';
+      return;
+    }
+
+    apkMetaBar.style.display = 'flex';
+    apkMetaBar.style.flexWrap = 'wrap';
+    apkMetaBar.style.gap = '8px';
+    apkMetaBar.innerHTML = [
+      ...fields.map(([k, label]) =>
+        `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
+           <span style="font-size:11px;color:#67e8f9">${esc(label)}:</span>
+           <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(apkPackageInfo[k])}</span>
+         </div>`
+      ),
+      `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${hijackColor}55;border-radius:8px;background:rgba(2,6,23,.45)" title="Based on minSdkVersion from AndroidManifest.xml">
+         <span style="font-size:11px;color:${hijackColor}">Task Hijack Risk:</span>
+         <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(hijackLabel)}</span>
+       </div>`,
+      `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(100,116,139,.35);border-radius:8px;background:rgba(2,6,23,.45)" title="Manifest component signals">
+         <span style="font-size:11px;color:#94a3b8">Signals:</span>
+         <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(signalLabel)}</span>
+       </div>`,
+    ].join('');
+  };
+
   if (apkMetaBar) {
     if (isAPKScan && apkPackageInfo) {
-      const toInt = (v) => {
-        const m = String(v || '').match(/\d+/);
-        return m ? Number(m[0]) : NaN;
-      };
-      const targetSdk = toInt(apkPackageInfo.target_sdk);
-      const minSdk = toInt(apkPackageInfo.min_sdk);
-      const hasSingleTaskSignals = allRows.some((r) => {
-        const t = String(r.target || '').toLowerCase();
-        const f = String(r.finding || '').toLowerCase();
-        return t.includes('singletasklaunchmode') || f.includes('launchmode: singletask');
-      });
-      const hasTaskAffinitySignals = allRows.some((r) => {
-        const t = String(r.target || '').toLowerCase();
-        const f = String(r.finding || '').toLowerCase();
-        return t.includes('taskaffinity') || f.includes('taskaffinity');
-      });
-      let hijackLabel = 'Unknown';
-      let hijackColor = '#94a3b8';
-      if (!Number.isNaN(targetSdk)) {
-        if (targetSdk <= 28) {
-          hijackLabel = 'Likely';
-          hijackColor = '#f97316';
-        } else if (targetSdk <= 30) {
-          hijackLabel = 'Possible';
-          hijackColor = '#f59e0b';
-        } else {
-          hijackLabel = 'Harder';
-          hijackColor = '#22c55e';
-        }
-      }
-      const signalLabel = `${hasSingleTaskSignals ? 'singleTask' : 'no-singleTask'} / ${hasTaskAffinitySignals ? 'taskAffinity' : 'no-taskAffinity'}`;
-
-      const ordered = [
-        ['package_name', 'Package ID'],
-        ['app_name', 'App Name'],
-        ['version', 'Version'],
-        ['version_code', 'Version Code'],
-        ['min_sdk', 'Min SDK'],
-        ['target_sdk', 'Target SDK'],
-        ['compile_sdk', 'Compile SDK'],
-      ].filter(([k]) => apkPackageInfo[k]);
-      if (ordered.length) {
-        apkMetaBar.style.display = 'flex';
-        apkMetaBar.style.flexWrap = 'wrap';
-        apkMetaBar.style.gap = '8px';
-        apkMetaBar.innerHTML = [
-          ...ordered.map(([k, label]) => (
-          `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
-            <span style="font-size:11px;color:#67e8f9">${esc(label)}:</span>
-            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(apkPackageInfo[k])}</span>
-          </div>`
-        )),
-          `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${hijackColor}55;border-radius:8px;background:rgba(2,6,23,.45)" title="Heuristic based on targetSdk + detected manifest signals">
-            <span style="font-size:11px;color:${hijackColor}">singleTask Hijack:</span>
-            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(hijackLabel)} (${esc(signalLabel)})</span>
-          </div>`,
-          !Number.isNaN(minSdk) ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
-            <span style="font-size:11px;color:#67e8f9">Min API:</span>
-            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(String(minSdk))}</span>
-          </div>` : '',
-          !Number.isNaN(targetSdk) ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)">
-            <span style="font-size:11px;color:#67e8f9">Target API:</span>
-            <span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(String(targetSdk))}</span>
-          </div>` : '',
-        ].join('');
-      } else {
-        apkMetaBar.style.display = 'none';
-        apkMetaBar.innerHTML = '';
-      }
+      renderAPKMetaBar();
     } else {
       apkMetaBar.style.display = 'none';
       apkMetaBar.innerHTML = '';
