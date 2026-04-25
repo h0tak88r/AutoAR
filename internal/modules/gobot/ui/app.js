@@ -71,6 +71,7 @@ const LAUNCH_MODE_LABELS = {
 
 const SCAN_FLAG_DEFS = {
   domain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
+  subdomain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
   lite: [
     { key: 'skip_js', label: 'Skip JS phase', type: 'bool', advanced: false },
     { key: 'phase_timeout', label: 'Phase timeout (sec)', type: 'number', min: 60, advanced: false },
@@ -3395,11 +3396,21 @@ async function renderScanDetailView(scanId) {
     }
     const r2DetailBtn = document.getElementById('scan-detail-r2-btn');
     if (r2DetailBtn) {
-      if (target && st) {
+      if (st) {
         r2DetailBtn.style.display = 'inline-flex';
-        r2DetailBtn.onclick = () => browseR2ForScan(target, st);
+        if (target) {
+          r2DetailBtn.disabled = false;
+          r2DetailBtn.title = 'Browse scan artifacts in R2';
+          r2DetailBtn.onclick = () => browseR2ForScan(target, st);
+        } else {
+          r2DetailBtn.disabled = true;
+          r2DetailBtn.title = 'Target is unavailable for this scan record';
+          r2DetailBtn.onclick = null;
+        }
       } else {
         r2DetailBtn.style.display = 'none';
+        r2DetailBtn.disabled = false;
+        r2DetailBtn.title = '';
         r2DetailBtn.onclick = null;
       }
     }
