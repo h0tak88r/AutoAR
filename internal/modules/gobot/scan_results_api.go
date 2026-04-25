@@ -1474,7 +1474,15 @@ func apiScanParsedResults(c *gin.Context) {
 	})
 }
 
-// GET /api/scans/:id/logs/stream
+// GET /api/scans/:id/logs/stream — SSE live log stream for a scan.
+//
+// For in-process scans (runScanInProcess) the log bus is the primary source:
+//   1. All stored history lines are replayed immediately.
+//   2. New lines are pushed as they arrive until the scan finishes or the
+//      client disconnects.
+//
+// For subprocess scans (executeScan) the log file on disk is tailed as
+// a fallback (existing behaviour).
 func apiStreamScanLogs(c *gin.Context) {
 	scanID := strings.TrimSpace(c.Param("id"))
 	if scanID == "" {
@@ -1482,14 +1490,54 @@ func apiStreamScanLogs(c *gin.Context) {
 		return
 	}
 
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no") // disable nginx buffering
+
+	ctx := c.Request.Context()
+
+	// ── In-process log bus path ──────────────────────────────────────────────
+	history, busCh := globalLogBus.Subscribe(scanID)
+	defer globalLogBus.Unsubscribe(scanID, busCh)
+
+	// Replay stored history first so a late-joining browser catches up.
+	for _, line := range history {
+		c.SSEvent("log", line)
+	}
+	c.Writer.Flush()
+
+	// If the bus has subscribers (scan is still in-process or recently finished),
+	// stream from it until client disconnects or channel closes.
+	if len(history) > 0 || func() bool {
+		// Check if scan is currently active in-process.
+		scansMutex.RLock()
+		_, active := activeScans[scanID]
+		scansMutex.RUnlock()
+		return active
+	}() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case line, ok := <-busCh:
+				if !ok {
+					// Bus closed — scan finished.
+					c.SSEvent("done", "scan finished")
+					c.Writer.Flush()
+					return
+				}
+				c.SSEvent("log", line)
+				c.Writer.Flush()
+			}
+		}
+	}
+
+	// ── Log-file fallback for subprocess scans ───────────────────────────────
 	logFile := filepath.Join(getScanResultsDir(scanID), "module.log")
 	if _, err := os.Stat(logFile); os.IsNotExist(err) {
 		logFile = filepath.Join(getScanResultsDir(scanID), "autoar.log")
 	}
-
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
 
 	file, err := os.Open(logFile)
 	if err != nil {
@@ -1498,22 +1546,23 @@ func apiStreamScanLogs(c *gin.Context) {
 	}
 	defer file.Close()
 
+	// Start from end of existing content; only tail new output.
 	file.Seek(0, 2)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-c.Request.Context().Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			buf := make([]byte, 8192)
-			n, err := file.Read(buf)
+			n, readErr := file.Read(buf)
 			if n > 0 {
 				c.SSEvent("log", string(buf[:n]))
 				c.Writer.Flush()
 			}
-			if err != nil && err != io.EOF {
+			if readErr != nil && readErr != io.EOF {
 				return
 			}
 		}
@@ -1540,20 +1589,114 @@ func apiListNucleiTemplates(c *gin.Context) {
 	c.JSON(http.StatusOK, templates)
 }
 
-// GET /api/scans/:id/report
+// GET /api/scans/:id/report?template=<name>&format=markdown|json
+//
+// Renders a report template with scan-specific variables substituted.
+// Variables recognised in template Markdown:
+//   {{domain}}   — scan target
+//   {{scan_id}}  — scan ID
+//   {{date}}     — ISO-8601 date of scan completion / now
+//   {{status}}   — completed | failed | running
+//   {{scan_type}} — nuclei-full, lite, subdomains, …
+//   {{findings}} — a Markdown table of top findings (from parsed results)
 func apiGetScanReport(c *gin.Context) {
 	scanID := strings.TrimSpace(c.Param("id"))
 	if scanID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
 		return
 	}
-	entries, _ := listLocalFiles(scanID)
-	scanRec, _ := db.GetScan(scanID)
 
-	c.JSON(http.StatusOK, gin.H{
-		"scan_id":   scanID,
-		"scan_info": scanRec,
-		"files":     entries,
-		"generated": time.Now(),
-	})
+	templateName := strings.TrimSpace(c.DefaultQuery("template", "default"))
+	format := strings.ToLower(strings.TrimSpace(c.DefaultQuery("format", "markdown")))
+
+	scanRec, _ := db.GetScan(scanID)
+	target := ""
+	scanType := ""
+	status := "unknown"
+	dateStr := time.Now().UTC().Format("2006-01-02")
+	if scanRec != nil {
+		target = scanRec.Target
+		scanType = scanRec.ScanType
+		status = scanRec.Status
+		if !scanRec.CompletedAt.IsZero() {
+			dateStr = scanRec.CompletedAt.UTC().Format("2006-01-02")
+		}
+	}
+
+	// Build a simple Markdown findings table from parsed results (top 50 rows).
+	var findingsMD strings.Builder
+	findingsMD.WriteString("| Severity | Target | Finding |\n")
+	findingsMD.WriteString("|---|---|---|\n")
+	parsed, _ := listLocalFiles(scanID)
+	rowCount := 0
+	for _, e := range parsed {
+		if rowCount >= 50 {
+			break
+		}
+		raw, _, loadErr := loadFileContent(scanID, e.FileName)
+		if loadErr != nil || len(raw) == 0 {
+			continue
+		}
+		rows := parseArtifactFindings(raw, e.Module, e.Category, 10)
+		for _, r := range rows {
+			if rowCount >= 50 {
+				break
+			}
+			findingsMD.WriteString(fmt.Sprintf("| %s | %s | %s |\n", r.Severity, r.Target, r.Finding))
+			rowCount++
+		}
+	}
+	if rowCount == 0 {
+		findingsMD.WriteString("| — | — | No findings indexed yet |\n")
+	}
+
+	// Fetch and render the template.
+	tmpl, err := db.GetReportTemplate(templateName)
+	if err != nil {
+		// Fallback: generate minimal Markdown without a template.
+		tmpl = &db.ReportTemplate{
+			Name:    templateName,
+			Content: "# Report: {{domain}}\n\n**Date:** {{date}}  \n**Status:** {{status}}  \n**Scan type:** {{scan_type}}\n\n## Findings\n\n{{findings}}\n",
+		}
+	}
+
+	replacer := strings.NewReplacer(
+		"{{domain}}", target,
+		"{{scan_id}}", scanID,
+		"{{date}}", dateStr,
+		"{{status}}", status,
+		"{{scan_type}}", scanType,
+		"{{findings}}", findingsMD.String(),
+	)
+	rendered := replacer.Replace(tmpl.Content)
+
+	if format == "json" {
+		c.JSON(http.StatusOK, gin.H{
+			"scan_id":       scanID,
+			"template":      templateName,
+			"rendered":      rendered,
+			"target":        target,
+			"status":        status,
+			"generated_at":  time.Now().UTC(),
+		})
+		return
+	}
+
+	// Default: return plain Markdown with a download header.
+	fileName := fmt.Sprintf("report-%s-%s.md", sanitizeName(target), dateStr)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(rendered))
+}
+
+// sanitizeName makes a string safe for use in a filename.
+func sanitizeName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
