@@ -748,10 +748,29 @@ func runApkXInProcess(scanID, scanType, target string, fn func() (*apkxmod.Resul
 	storeScanResultLocked(scanID, sr)
 	apiScansMutex.Unlock()
 
-	// Index the scan output directory as artifacts.
-	if result != nil && result.ReportDir != "" {
+	// Index local artifacts first (may find nothing if cleanup already ran).
+	if result != nil {
 		indexScanArtifacts(scanID, scanType, target)
 	}
+
+	// Backfill from R2 — apkx deletes local files after upload, so the above
+	// walk finds nothing. This lists the R2 prefix and inserts into scan_artifacts.
+	indexWorkflowArtifactsFromR2(scanID, scanType, target)
+
+	// Collect indexed files and write the scan manifest (drives the "N outputs" badge).
+	outputFiles := collectScanOutputFiles(scanID)
+	durationMS := completedAt.Sub(startedAt).Milliseconds()
+	scannerVersion := ""
+	writeScanManifest(scanID, scanType, target, startedAt, completedAt, moduleExecutionEntry{
+		Module:         scanType,
+		Status:         status,
+		StartedAt:      startedAt,
+		CompletedAt:    completedAt,
+		DurationMS:     durationMS,
+		OutputFiles:    outputFiles,
+		ScannerVersion: scannerVersion,
+		Command:        fmt.Sprintf("apkx-inprocess target=%s", target),
+	})
 
 	progress := 0
 	if status == "completed" {
