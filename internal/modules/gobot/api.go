@@ -676,6 +676,9 @@ func apiUploadHandler(c *gin.Context) {
 
 // validateFilePath ensures the given path is inside an allowed directory (#5 path traversal protection).
 func validateFilePath(filePath string) error {
+	if strings.TrimSpace(filePath) == "" {
+		return fmt.Errorf("file_path is required")
+	}
 	allowedRoots := []string{
 		getResultsDir(),
 		os.TempDir(),
@@ -685,13 +688,30 @@ func validateFilePath(filePath string) error {
 	if extra := os.Getenv("AUTOAR_ALLOWED_FILE_ROOT"); extra != "" {
 		allowedRoots = append(allowedRoots, extra)
 	}
-	clean := filepath.Clean(filePath)
+
+	resolvedPath, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		return fmt.Errorf("invalid file_path %q: %w", filePath, err)
+	}
+	resolvedPath, err = filepath.Abs(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("invalid file_path %q: %w", filePath, err)
+	}
+
 	for _, root := range allowedRoots {
 		if root == "" {
 			continue
 		}
-		cleanRoot := filepath.Clean(root)
-		if strings.HasPrefix(clean, cleanRoot+string(filepath.Separator)) || clean == cleanRoot {
+		resolvedRoot, rErr := filepath.EvalSymlinks(root)
+		if rErr != nil {
+			resolvedRoot = root // root may not exist in some deployments; keep conservative fallback
+		}
+		resolvedRoot, rErr = filepath.Abs(filepath.Clean(resolvedRoot))
+		if rErr != nil {
+			continue
+		}
+		rel, relErr := filepath.Rel(resolvedRoot, resolvedPath)
+		if relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return nil
 		}
 	}
