@@ -63,6 +63,29 @@ func scanResultSizeBytes(r *ScanResult) int64 {
 	return int64(len(r.Output) + len(r.Error) + len(r.ScanID) + len(r.ScanType) + len(r.Status))
 }
 
+func storeScanResultLocked(scanID string, result *ScanResult) {
+	if old, ok := scanResults[scanID]; ok {
+		scanResultsTotalBytes -= scanResultSizeBytes(old)
+	}
+	scanResults[scanID] = result
+	scanResultsTotalBytes += scanResultSizeBytes(result)
+	for len(scanResults) > maxScanResults || scanResultsTotalBytes > maxScanResultsBytes {
+		var oldest string
+		var oldestTime time.Time
+		for id, r := range scanResults {
+			if oldest == "" || r.StartedAt.Before(oldestTime) {
+				oldest = id
+				oldestTime = r.StartedAt
+			}
+		}
+		if oldest == "" {
+			break
+		}
+		scanResultsTotalBytes -= scanResultSizeBytes(scanResults[oldest])
+		delete(scanResults, oldest)
+	}
+}
+
 func envIntWithBounds(name string, fallback, minV, maxV int) int {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
@@ -2306,11 +2329,7 @@ func executeScan(scanID string, command []string, scanType string) {
 			CompletedAt: &completedAt,
 			Error:       msg,
 		}
-		if old, ok := scanResults[scanID]; ok {
-			scanResultsTotalBytes -= scanResultSizeBytes(old)
-		}
-		scanResults[scanID] = result
-		scanResultsTotalBytes += scanResultSizeBytes(result)
+		storeScanResultLocked(scanID, result)
 		apiScansMutex.Unlock()
 		return
 	}
@@ -2395,11 +2414,7 @@ func executeScan(scanID string, command []string, scanType string) {
 			ScanID: scanID, Status: "failed", ScanType: scanType,
 			StartedAt: startedAt, CompletedAt: &completedAt, Error: err.Error(),
 		}
-		if old, ok := scanResults[scanID]; ok {
-			scanResultsTotalBytes -= scanResultSizeBytes(old)
-		}
-		scanResults[scanID] = newResult
-		scanResultsTotalBytes += scanResultSizeBytes(newResult)
+		storeScanResultLocked(scanID, newResult)
 		apiScansMutex.Unlock()
 		return
 	}
@@ -2557,29 +2572,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		result.Error = "cancelled by user"
 	}
 
-	if old, ok := scanResults[scanID]; ok {
-		scanResultsTotalBytes -= scanResultSizeBytes(old)
-	}
-	scanResults[scanID] = result
-	scanResultsTotalBytes += scanResultSizeBytes(result)
-
-	// #20: Evict oldest entry when the cache exceeds maxScanResults.
-	for len(scanResults) > maxScanResults || scanResultsTotalBytes > maxScanResultsBytes {
-		var oldest string
-		var oldestTime time.Time
-		for id, r := range scanResults {
-			if oldest == "" || r.StartedAt.Before(oldestTime) {
-				oldest = id
-				oldestTime = r.StartedAt
-			}
-		}
-		if oldest != "" {
-			scanResultsTotalBytes -= scanResultSizeBytes(scanResults[oldest])
-			delete(scanResults, oldest)
-		} else {
-			break
-		}
-	}
+	storeScanResultLocked(scanID, result)
 }
 
 func indexScanArtifacts(scanID, scanType, target string) {
@@ -3494,10 +3487,10 @@ func generateMockResults(scanID, target, scanType string, startedAt time.Time, c
 	scansMutex.Unlock()
 
 	apiScansMutex.Lock()
-	scanResults[scanID] = &ScanResult{
+	storeScanResultLocked(scanID, &ScanResult{
 		ScanID: scanID, Status: "completed", ScanType: scanType,
 		StartedAt: startedAt, CompletedAt: &completedAt, Error: "",
-	}
+	})
 	apiScansMutex.Unlock()
 
 	// Index
