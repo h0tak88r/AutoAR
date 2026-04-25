@@ -43,6 +43,7 @@ var (
 	maxScanResultsBytes    int64 = defaultMaxScanResultsBytes
 	maxConcurrentScans           = defaultMaxConcurrentScans
 	scanOutputCaptureBytes       = defaultScanOutputCaptureBytes
+	minRuntimeFreeMemBytes int64 = 0
 
 	scanResults           = make(map[string]*ScanResult)
 	scanResultsTotalBytes int64
@@ -115,18 +116,34 @@ func initRuntimeResourceLimits() {
 			maxScanResults = 250
 			maxScanResultsBytes = 32 * 1024 * 1024
 			scanOutputCaptureBytes = 512 * 1024
+			minRuntimeFreeMemBytes = 256 * 1024 * 1024
 		}
 
 		maxConcurrentScans = envIntWithBounds("AUTOAR_MAX_CONCURRENT_SCANS", maxConcurrentScans, 1, 50)
 		maxScanResults = envIntWithBounds("AUTOAR_MAX_SCAN_RESULTS", maxScanResults, 50, 5000)
 		maxScanResultsBytes = envInt64WithBounds("AUTOAR_MAX_SCAN_RESULTS_BYTES", maxScanResultsBytes, 8*1024*1024, 512*1024*1024)
 		scanOutputCaptureBytes = envIntWithBounds("AUTOAR_SCAN_OUTPUT_CAPTURE_BYTES", scanOutputCaptureBytes, 128*1024, 8*1024*1024)
+		minRuntimeFreeMemBytes = envInt64WithBounds("AUTOAR_MIN_FREE_MEM_BYTES", minRuntimeFreeMemBytes, 0, 8*1024*1024*1024)
 
 		// Reinitialize semaphore with final configured capacity.
 		scanSemaphore = make(chan struct{}, maxConcurrentScans)
-		log.Printf("[resource-limits] concurrent=%d, max_results=%d, cache_bytes=%d, output_capture_bytes=%d",
-			maxConcurrentScans, maxScanResults, maxScanResultsBytes, scanOutputCaptureBytes)
+		log.Printf("[resource-limits] concurrent=%d, max_results=%d, cache_bytes=%d, output_capture_bytes=%d, min_free_mem_bytes=%d",
+			maxConcurrentScans, maxScanResults, maxScanResultsBytes, scanOutputCaptureBytes, minRuntimeFreeMemBytes)
 	})
+}
+
+func runtimeMemoryPreflightCheck() (bool, string) {
+	if minRuntimeFreeMemBytes <= 0 {
+		return true, ""
+	}
+	avail := availableMemoryBytes()
+	if avail <= 0 {
+		return true, ""
+	}
+	if avail < minRuntimeFreeMemBytes {
+		return false, fmt.Sprintf("insufficient free memory to start scan: available=%dMB required>=%dMB", avail/(1024*1024), minRuntimeFreeMemBytes/(1024*1024))
+	}
+	return true, ""
 }
 
 // ScanInfo is defined in commands.go
@@ -2247,10 +2264,6 @@ func extractScanTargetFromCommand(command []string, scanType string) string {
 
 func executeScan(scanID string, command []string, scanType string) {
 	initRuntimeResourceLimits()
-	// #2: Acquire semaphore slot — blocks if maxConcurrentScans are already running.
-	scanSemaphore <- struct{}{}
-	defer func() { <-scanSemaphore }()
-
 	startedAt := time.Now()
 
 	target := extractScanTargetFromCommand(command, scanType)
@@ -2258,6 +2271,52 @@ func executeScan(scanID string, command []string, scanType string) {
 		// #11: Use a descriptive label, never just the raw scanType as if it were a domain.
 		target = "[" + scanType + "]"
 	}
+
+	if ok, msg := runtimeMemoryPreflightCheck(); !ok {
+		log.Printf("[executeScan] refusing to start scan %s (%s): %s", scanID, scanType, msg)
+		completedAt := time.Now()
+		_ = db.Init()
+		_ = db.EnsureSchema()
+		_ = db.CreateScan(&db.ScanRecord{
+			ScanID:     scanID,
+			ScanType:   scanType,
+			Target:     target,
+			Status:     "failed",
+			StartedAt:  startedAt,
+			LastUpdate: completedAt,
+			Command:    strings.Join(command, " "),
+		})
+		_ = db.UpdateScanResult(scanID, "failed", "")
+		writeScanManifest(scanID, scanType, target, startedAt, completedAt, moduleExecutionEntry{
+			Module:         scanType,
+			Status:         "failed",
+			StartedAt:      startedAt,
+			CompletedAt:    completedAt,
+			DurationMS:     completedAt.Sub(startedAt).Milliseconds(),
+			ScannerVersion: version.Version,
+			Command:        strings.Join(command, " "),
+		})
+		apiScansMutex.Lock()
+		result := &ScanResult{
+			ScanID:      scanID,
+			Status:      "failed",
+			ScanType:    scanType,
+			StartedAt:   startedAt,
+			CompletedAt: &completedAt,
+			Error:       msg,
+		}
+		if old, ok := scanResults[scanID]; ok {
+			scanResultsTotalBytes -= scanResultSizeBytes(old)
+		}
+		scanResults[scanID] = result
+		scanResultsTotalBytes += scanResultSizeBytes(result)
+		apiScansMutex.Unlock()
+		return
+	}
+
+	// #2: Acquire semaphore slot — blocks if maxConcurrentScans are already running.
+	scanSemaphore <- struct{}{}
+	defer func() { <-scanSemaphore }()
 
 	scansMutex.Lock()
 	activeScans[scanID] = &ScanInfo{
