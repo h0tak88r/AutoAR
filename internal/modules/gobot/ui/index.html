@@ -353,7 +353,10 @@
             <h1 class="view-title">Subdomains</h1>
             <div class="view-subtitle">All discovered subdomains across every domain</div>
           </div>
-          <div style="display:flex;gap:12px">
+          <div style="display:flex;gap:12px;align-items:center">
+            <div id="cnames-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
+              ⏳ <span id="cnames-progress-text">0/0</span>
+            </div>
             <button id="retry-cnames-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptRetryCnames()">
               ↻ Resolve Missing CNAMEs
             </button>

@@ -8640,7 +8640,44 @@ window.promptRetryCnames = async function() {
 		if (!res.ok) throw new Error(data.error || 'Failed to start CNAME retry');
 		
 		showToast('success', 'Started', data.message || 'CNAME resolution started in background');
+		startCnamesProgressPolling();
 	} catch (err) {
 		showToast('error', 'Error', err.message);
 	}
 }
+
+let cnamesPollInterval = null;
+async function startCnamesProgressPolling() {
+	if (cnamesPollInterval) clearInterval(cnamesPollInterval);
+	
+	const progressDiv = document.getElementById('cnames-progress');
+	const progressText = document.getElementById('cnames-progress-text');
+	if (progressDiv) progressDiv.style.display = 'flex';
+
+	const poll = async () => {
+		try {
+			const headers = await buildAuthHeaders();
+			const res = await fetch(`${API}/api/subdomains/cnames/progress`, { headers });
+			if (!res.ok) return;
+			const data = await res.json();
+			
+			if (progressText) {
+				progressText.textContent = `${data.processed} / ${data.total} (${data.matches} matches)`;
+			}
+			
+			if (!data.is_running) {
+				clearInterval(cnamesPollInterval);
+				cnamesPollInterval = null;
+				setTimeout(() => {
+					if (progressDiv) progressDiv.style.display = 'none';
+				}, 5000);
+			}
+		} catch (e) {}
+	};
+	
+	poll(); // Immediate first fetch
+	cnamesPollInterval = setInterval(poll, 2000);
+}
+
+// Check on startup if it's already running
+setTimeout(startCnamesProgressPolling, 1000);
