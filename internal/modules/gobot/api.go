@@ -479,6 +479,7 @@ func setupAPI() *gin.Engine {
 		apiGroup.DELETE("/domains/:domain", apiDeleteDomain)
 		apiGroup.GET("/domains/:domain/subdomains", apiListSubdomains)
 		apiGroup.GET("/subdomains", apiAllSubdomainsPaginated)
+		apiGroup.POST("/subdomains/cnames/retry", apiRetryCnames)
 		apiGroup.GET("/scans", apiListScans)
 		apiGroup.GET("/scans/:id/results/summary", apiScanResultsSummary)
 		apiGroup.GET("/scans/:id/results/files", apiScanResultFiles)
