@@ -8711,44 +8711,14 @@ window.submitNucleiModal = async function() {
 		
 		showToast('success', 'Started', data.message || 'Global Nuclei scan started');
 		closeNucleiModal();
-		startNucleiProgressPolling();
+		
+		// Redirect to the Scans page so they can watch the live terminal logs
+		if (data.scan_id) {
+			setTimeout(() => {
+				document.getElementById('nav-scans')?.click();
+			}, 1500);
+		}
 	} catch (err) {
 		showToast('error', 'Error', err.message);
 	}
 }
-
-let nucleiPollInterval = null;
-async function startNucleiProgressPolling() {
-	if (nucleiPollInterval) clearInterval(nucleiPollInterval);
-	
-	const progressDiv = document.getElementById('nuclei-progress');
-	const progressText = document.getElementById('nuclei-progress-text');
-	if (progressDiv) progressDiv.style.display = 'flex';
-
-	const poll = async () => {
-		try {
-			const headers = await buildAuthHeaders();
-			const res = await fetch(`${API}/api/subdomains/nuclei/progress`, { headers });
-			if (!res.ok) return;
-			const data = await res.json();
-			
-			if (progressText) {
-				progressText.textContent = `${data.matches} matches (Targets: ${data.total})`;
-			}
-			
-			if (!data.is_running) {
-				clearInterval(nucleiPollInterval);
-				nucleiPollInterval = null;
-				setTimeout(() => {
-					if (progressDiv) progressDiv.style.display = 'none';
-				}, 5000);
-			}
-		} catch (e) {}
-	};
-	
-	poll(); // Immediate first fetch
-	nucleiPollInterval = setInterval(poll, 2000);
-}
-
-// Check on startup if it's already running
-setTimeout(startNucleiProgressPolling, 1500);
