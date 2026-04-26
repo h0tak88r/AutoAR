@@ -135,6 +135,11 @@ type DB interface {
 	// IsPhaseCompleted checks if a specific phase was already successfully completed for a scan.
 	IsPhaseCompleted(scanID, phaseName string) bool
 
+	// Settings key-value store (persists across redeployments)
+	GetSetting(key string) (string, error)
+	SetSetting(key, value string) error
+	GetAllSettings() (map[string]string, error)
+
 	// Close closes the database connection
 	Close()
 }
