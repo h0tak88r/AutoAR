@@ -212,7 +212,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		{"backup", "[Stage 2] Backup scan", func() error {
 			_, err := backup.Run(backup.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Method: "all", Threads: 150})
 			return err
-		}, 0},
+		}, backupTimeout()},
 		{"zerodays", "[Stage 2] Zerodays scan", func() error {
 			// Direct in-process call — no subprocess fork, no separate scan DB record.
 			_, err := zerodaysmod.Run(zerodaysmod.Options{

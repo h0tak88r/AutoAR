@@ -148,7 +148,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
 			_, err := backup.Run(backup.Options{Domain: domain, LiveHostsFile: lh, Threads: 150, Method: "all"})
 			return err
-		}, 0},
+		}, backupTimeoutDomain()},
 		{"misconfig", "Cloud misconfiguration scan", func() error {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
 			return misconfig.Run(misconfig.Options{Target: domain, Action: "scan", Threads: 150, LiveHostsFile: lh})

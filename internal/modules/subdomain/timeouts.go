@@ -13,6 +13,15 @@ func zerodaysTimeout() int {
 	return envTimeoutOr("AUTOAR_TIMEOUT_ZERODAYS", 600)
 }
 
+// backupTimeout returns the backup/fuzzuli phase timeout in seconds.
+// Fuzzuli with method=all generates a very large wordlist per host and
+// can hang for hours on slow/firewalled targets; this cap prevents that.
+// Override with AUTOAR_TIMEOUT_BACKUP env var.
+// Default: 600s (10 minutes).
+func backupTimeout() int {
+	return envTimeoutOr("AUTOAR_TIMEOUT_BACKUP", 600)
+}
+
 // nucleiTimeout returns the nuclei phase timeout in seconds.
 // Override with AUTOAR_TIMEOUT_NUCLEI env var.
 // Set to 0 to disable the cap entirely.
