@@ -8681,3 +8681,61 @@ async function startCnamesProgressPolling() {
 
 // Check on startup if it's already running
 setTimeout(startCnamesProgressPolling, 1000);
+
+window.promptRunGlobalNuclei = async function() {
+	const template = prompt("Enter the Nuclei template path or ID to run against ALL subdomains (e.g. 'cves/2021/CVE-2021-44228.yaml' or 'cves'):", "");
+	if (!template) return; // User cancelled or empty
+
+	try {
+		const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+		const res = await fetch(`${API}/api/subdomains/nuclei/run`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ template: template.trim() })
+		});
+
+		const data = await res.json();
+		if (!res.ok) throw new Error(data.error || 'Failed to start Global Nuclei scan');
+		
+		showToast('success', 'Started', data.message || 'Global Nuclei scan started');
+		startNucleiProgressPolling();
+	} catch (err) {
+		showToast('error', 'Error', err.message);
+	}
+}
+
+let nucleiPollInterval = null;
+async function startNucleiProgressPolling() {
+	if (nucleiPollInterval) clearInterval(nucleiPollInterval);
+	
+	const progressDiv = document.getElementById('nuclei-progress');
+	const progressText = document.getElementById('nuclei-progress-text');
+	if (progressDiv) progressDiv.style.display = 'flex';
+
+	const poll = async () => {
+		try {
+			const headers = await buildAuthHeaders();
+			const res = await fetch(`${API}/api/subdomains/nuclei/progress`, { headers });
+			if (!res.ok) return;
+			const data = await res.json();
+			
+			if (progressText) {
+				progressText.textContent = `${data.matches} matches (Targets: ${data.total})`;
+			}
+			
+			if (!data.is_running) {
+				clearInterval(nucleiPollInterval);
+				nucleiPollInterval = null;
+				setTimeout(() => {
+					if (progressDiv) progressDiv.style.display = 'none';
+				}, 5000);
+			}
+		} catch (e) {}
+	};
+	
+	poll(); // Immediate first fetch
+	nucleiPollInterval = setInterval(poll, 2000);
+}
+
+// Check on startup if it's already running
+setTimeout(startNucleiProgressPolling, 1500);
