@@ -65,9 +65,15 @@ func apiConfigHandler(c *gin.Context) {
 		"apkx_cache_max_local_bytes": getEnv("APKX_CACHE_MAX_LOCAL_BYTES", "2147483648"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
-		// Scan phase timeouts (seconds; 0 = unlimited)
-		"timeout_zerodays": getIntEnvOr("AUTOAR_TIMEOUT_ZERODAYS", 600),
-		"timeout_nuclei":   getIntEnvOr("AUTOAR_TIMEOUT_NUCLEI", 1200),
+		// Scan phase timeouts — read from DB first (survives redeployments), then env, then defaults.
+		// DB key format: timeout_<name>. Env key format: AUTOAR_TIMEOUT_<NAME>.
+		"timeout_zerodays": utils.GetTimeout("zerodays", 600),
+		"timeout_nuclei":   utils.GetTimeout("nuclei", 1200),
+		"timeout_backup":   utils.GetTimeout("backup", 600),
+		"timeout_misconfig": utils.GetTimeout("misconfig", 1800),
+		// Also include raw env fallbacks for legacy callers.
+		"timeout_zerodays_env": getIntEnvOr("AUTOAR_TIMEOUT_ZERODAYS", 600),
+		"timeout_nuclei_env":   getIntEnvOr("AUTOAR_TIMEOUT_NUCLEI", 1200),
 	})
 }
 
@@ -82,9 +88,11 @@ type UpdateSettingsBody struct {
 	APKXDisableCache       *bool  `json:"apkx_disable_cache,omitempty"`
 	APKXCacheMaxDirs       *int   `json:"apkx_cache_max_dirs,omitempty"`
 	APKXCacheMaxLocalBytes *int64 `json:"apkx_cache_max_local_bytes,omitempty"`
-	// Scan phase timeouts (seconds; 0 = unlimited, -1 = keep current)
+	// Scan phase timeouts (seconds; 0 = unlimited, omit to keep current)
 	TimeoutZerodays *int `json:"timeout_zerodays,omitempty"`
 	TimeoutNuclei   *int `json:"timeout_nuclei,omitempty"`
+	TimeoutBackup   *int `json:"timeout_backup,omitempty"`
+	TimeoutMisconfig *int `json:"timeout_misconfig,omitempty"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -121,17 +129,23 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 		_ = envloader.UpdateEnv("APKX_CACHE_MAX_LOCAL_BYTES", v)
 		_ = os.Setenv("APKX_CACHE_MAX_LOCAL_BYTES", v)
 	}
-	// Scan phase timeouts — persist to .env and apply immediately in this process.
-	if body.TimeoutZerodays != nil {
-		v := strconv.Itoa(*body.TimeoutZerodays)
-		_ = envloader.UpdateEnv("AUTOAR_TIMEOUT_ZERODAYS", v)
-		_ = os.Setenv("AUTOAR_TIMEOUT_ZERODAYS", v)
+
+	// Scan phase timeouts — persist to DB (survives redeployments) AND apply
+	// immediately in this process via os.Setenv (fallback for non-DB reads).
+	saveTimeout := func(key, envKey string, val *int) {
+		if val == nil {
+			return
+		}
+		v := strconv.Itoa(*val)
+		// 1. DB (primary, persists across redeployments)
+		_ = db.SetSetting("timeout_"+key, v)
+		// 2. env (immediate effect in this process)
+		_ = os.Setenv(envKey, v)
 	}
-	if body.TimeoutNuclei != nil {
-		v := strconv.Itoa(*body.TimeoutNuclei)
-		_ = envloader.UpdateEnv("AUTOAR_TIMEOUT_NUCLEI", v)
-		_ = os.Setenv("AUTOAR_TIMEOUT_NUCLEI", v)
-	}
+	saveTimeout("zerodays", "AUTOAR_TIMEOUT_ZERODAYS", body.TimeoutZerodays)
+	saveTimeout("nuclei", "AUTOAR_TIMEOUT_NUCLEI", body.TimeoutNuclei)
+	saveTimeout("backup", "AUTOAR_TIMEOUT_BACKUP", body.TimeoutBackup)
+	saveTimeout("misconfig", "AUTOAR_TIMEOUT_MISCONFIG", body.TimeoutMisconfig)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})
 }
@@ -859,6 +873,28 @@ func apiRescan(c *gin.Context) {
 		return
 	}
 
+	// ── In-process scans (domain_run, subdomain_run, …) ──────────────────────
+	// These store "inprocess:<scanType> target=<target>" as their Command.
+	// There is no external binary to re-exec; delegate to runInProcessRescan.
+	if strings.HasPrefix(record.Command, "inprocess:") {
+		newScanID, ok := runInProcessRescan(record.ScanType, record.Target)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "in-process scan type " + record.ScanType + " does not support rescan yet"})
+			return
+		}
+		log.Printf("[rescan] Re-running in-process scan for %s (original: %s) → new scan ID: %s", record.Target, id, newScanID)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":          true,
+			"new_scan_id": newScanID,
+			"target":      record.Target,
+			"scan_type":   record.ScanType,
+			"command":     fmt.Sprintf("inprocess:%s target=%s", record.ScanType, record.Target),
+			"message":     "Rescan started",
+		})
+		return
+	}
+
+	// ── External-binary scans (legacy / apkx / …) ────────────────────────────
 	// Parse the stored command string back into a slice.
 	// The command is stored as a shell-joined string (space-separated tokens; the binary path
 	// is always the first element).

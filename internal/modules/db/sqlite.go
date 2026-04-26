@@ -261,6 +261,13 @@ func (s *SQLiteDB) InitSchema() error {
 	);
 	
 	CREATE INDEX IF NOT EXISTS apk_cache_created_at_idx ON apk_cache (created_at);
+
+	-- Settings key-value store (survives redeployments)
+	CREATE TABLE IF NOT EXISTS settings (
+		key   TEXT NOT NULL PRIMARY KEY,
+		value TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMP DEFAULT (datetime('now'))
+	);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -1811,6 +1818,47 @@ func (s *SQLiteDB) UpdateSubdomainCNAME(domain, subdomain, cnames string) error 
 		WHERE domain_id = ? AND subdomain = ?
 	`, cnames, domainID, subdomain)
 	return err
+}
+
+// GetSetting retrieves a setting value by key. Returns "" if not found.
+func (s *SQLiteDB) GetSetting(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ? LIMIT 1`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+// SetSetting stores a key/value setting, creating or overwriting it.
+func (s *SQLiteDB) SetSetting(key, value string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO settings (key, value, updated_at)
+		VALUES (?, ?, datetime('now'))
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+	`, key, value)
+	return err
+}
+
+// GetAllSettings returns every setting as a key→value map.
+func (s *SQLiteDB) GetAllSettings() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT key, value FROM settings ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			continue
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
 }
 
 // Close closes the database connection
