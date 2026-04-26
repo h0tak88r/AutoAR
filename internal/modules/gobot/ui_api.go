@@ -611,9 +611,35 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		globalNucleiProgress.Total = totalSubs
 		globalNucleiProgress.Unlock()
 
-		utils.SendWebhookLogAsync(fmt.Sprintf("🚀 **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d", template, totalSubs))
+		var templatePath string
+		var cleanupTemplate func()
 
-		cmd := exec.Command("nuclei", "-l", tmpFile.Name(), "-t", template, "-c", "50", "-silent", "-jsonl")
+		// If the template contains newlines or starts with 'id:', assume it's raw YAML content
+		if strings.Contains(template, "\n") || strings.HasPrefix(template, "id:") {
+			tmpTpl, err := os.CreateTemp("", "custom-template-*.yaml")
+			if err != nil {
+				log.Printf("[ERROR] failed to create temp template file: %v", err)
+				return
+			}
+			tmpTpl.WriteString(template)
+			tmpTpl.Close()
+			templatePath = tmpTpl.Name()
+			cleanupTemplate = func() { os.Remove(templatePath) }
+			log.Printf("[INFO] Wrote custom YAML template to %s", templatePath)
+			
+			// Just update the progress template string for UI to something shorter
+			globalNucleiProgress.Lock()
+			globalNucleiProgress.Template = "Custom Raw Template"
+			globalNucleiProgress.Unlock()
+			utils.SendWebhookLogAsync(fmt.Sprintf("🚀 **Global Nuclei Scan Started**\nTemplate: `Custom Raw Template`\nTargets: %d", totalSubs))
+		} else {
+			templatePath = template
+			cleanupTemplate = func() {}
+			utils.SendWebhookLogAsync(fmt.Sprintf("🚀 **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d", template, totalSubs))
+		}
+		defer cleanupTemplate()
+
+		cmd := exec.Command("nuclei", "-l", tmpFile.Name(), "-t", templatePath, "-c", "50", "-silent", "-jsonl")
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			log.Printf("[ERROR] failed to get stdout pipe: %v", err)

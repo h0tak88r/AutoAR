@@ -8682,22 +8682,35 @@ async function startCnamesProgressPolling() {
 // Check on startup if it's already running
 setTimeout(startCnamesProgressPolling, 1000);
 
-window.promptRunGlobalNuclei = async function() {
-	const template = prompt("Enter the Nuclei template path or ID to run against ALL subdomains (e.g. 'cves/2021/CVE-2021-44228.yaml' or 'cves'):", "");
-	if (!template) return; // User cancelled or empty
+window.promptRunGlobalNuclei = function() {
+	document.getElementById('nuclei-template-input').value = "";
+	document.getElementById('nuclei-modal').style.display = 'flex';
+}
+
+window.closeNucleiModal = function() {
+	document.getElementById('nuclei-modal').style.display = 'none';
+}
+
+window.submitNucleiModal = async function() {
+	const template = document.getElementById('nuclei-template-input').value.trim();
+	if (!template) {
+		showToast('error', 'Error', 'Template cannot be empty');
+		return;
+	}
 
 	try {
 		const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
 		const res = await fetch(`${API}/api/subdomains/nuclei/run`, {
 			method: 'POST',
 			headers,
-			body: JSON.stringify({ template: template.trim() })
+			body: JSON.stringify({ template: template })
 		});
 
 		const data = await res.json();
 		if (!res.ok) throw new Error(data.error || 'Failed to start Global Nuclei scan');
 		
 		showToast('success', 'Started', data.message || 'Global Nuclei scan started');
+		closeNucleiModal();
 		startNucleiProgressPolling();
 	} catch (err) {
 		showToast('error', 'Error', err.message);
