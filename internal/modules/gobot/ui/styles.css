@@ -3464,3 +3464,134 @@ select.input {
   border-top: 1px solid var(--border);
   margin: 2em 0;
 }
+
+/* ── Settings View Premium ────────────────────────────────────────────────── */
+
+.settings-container-premium {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-bottom: 60px;
+}
+
+.settings-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.settings-section-header {
+  padding: 16px 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.settings-section-description {
+  padding: 16px 24px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.settings-section-body {
+  padding: 8px 0;
+}
+
+.settings-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  gap: 40px;
+}
+
+.settings-item:last-child {
+  border-bottom: none;
+}
+
+.settings-label {
+  flex: 1;
+}
+
+.settings-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-value {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  text-align: right;
+  word-break: break-all;
+}
+
+.settings-value.ok { color: var(--accent-emerald); }
+.settings-value.warn { color: var(--accent-amber); }
+
+.settings-control {
+  display: flex;
+  gap: 12px;
+  width: 450px;
+  flex-shrink: 0;
+}
+
+.premium-input {
+  background: var(--bg-input) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  color: var(--text-primary) !important;
+  transition: all var(--transition) !important;
+}
+
+.premium-input:focus {
+  border-color: var(--accent-cyan) !important;
+  box-shadow: 0 0 0 2px var(--accent-cyan-dim) !important;
+  outline: none;
+}
+
+.settings-timeout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  padding: 20px 24px;
+}
+
+.timeout-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timeout-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.timeout-field input {
+  width: 100%;
+}
+
+.timeout-field span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
