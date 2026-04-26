@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed ui/index.html ui/styles.css ui/app.js
+//go:embed ui/index.html ui/styles.css ui/app.js ui/logo.png
 var uiFiles embed.FS
 
 // serveDashboardUI serves the embedded SPA.

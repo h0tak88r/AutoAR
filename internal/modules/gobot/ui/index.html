@@ -8,13 +8,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="/ui/styles.css" />
+  <link rel="icon" type="image/png" href="/ui/logo.png" />
 </head>
 <body>
 
 <!-- Login gate — shown when API auth is enabled and there is no valid local session -->
 <div id="auth-gate" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
   <div class="auth-card">
-    <div class="auth-logo">🎯</div>
+    <div class="auth-logo"><img src="/ui/logo.png" style="width:100%;height:100%;border-radius:4px;object-fit:contain" alt="AutoAR"></div>
     <h1 class="auth-title">AutoAR</h1>
     <p class="auth-sub">Sign in to continue</p>
     <form id="auth-form" class="auth-form">
@@ -35,7 +36,7 @@
   <aside class="sidebar">
 
     <div class="sidebar-logo">
-      <div class="logo-icon">🎯</div>
+      <div class="logo-icon"><img src="/ui/logo.png" style="width:100%;height:100%;border-radius:4px;object-fit:contain" alt="AutoAR"></div>
       <div>
         <div class="logo-text">AutoAR</div>
         <div class="logo-version">v4.1.0</div>
@@ -354,6 +355,12 @@
             <div class="view-subtitle">All discovered subdomains across every domain</div>
           </div>
           <div style="display:flex;gap:12px;align-items:center">
+            <div id="nuclei-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
+              ⚡ <span id="nuclei-progress-text">0 matches</span>
+            </div>
+            <button id="run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
+              ⚡ Run Nuclei Template
+            </button>
             <div id="cnames-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
               ⏳ <span id="cnames-progress-text">0/0</span>
             </div>
