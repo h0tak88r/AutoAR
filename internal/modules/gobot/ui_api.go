@@ -523,25 +523,6 @@ type GlobalNucleiReq struct {
 	Template string `json:"template"`
 }
 
-var globalNucleiProgress struct {
-	sync.Mutex
-	IsRunning bool
-	Template  string
-	Total     int
-	Matches   int
-}
-
-func apiGlobalNucleiProgress(c *gin.Context) {
-	globalNucleiProgress.Lock()
-	defer globalNucleiProgress.Unlock()
-	c.JSON(200, gin.H{
-		"is_running": globalNucleiProgress.IsRunning,
-		"template":   globalNucleiProgress.Template,
-		"total":      globalNucleiProgress.Total,
-		"matches":    globalNucleiProgress.Matches,
-	})
-}
-
 func apiRunGlobalNuclei(c *gin.Context) {
 	var req GlobalNucleiReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -555,34 +536,18 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		return
 	}
 
-	globalNucleiProgress.Lock()
-	if globalNucleiProgress.IsRunning {
-		globalNucleiProgress.Unlock()
-		c.JSON(400, gin.H{"error": "A global Nuclei scan is already running"})
-		return
-	}
-	globalNucleiProgress.IsRunning = true
-	globalNucleiProgress.Template = template
-	globalNucleiProgress.Total = 0
-	globalNucleiProgress.Matches = 0
-	globalNucleiProgress.Unlock()
+	scanID := "scan-" + time.Now().Format("20060102150405")
+	target := "global-subdomains"
 
-	c.JSON(200, gin.H{"status": "started", "message": "Global Nuclei scan started in background"})
+	c.JSON(200, gin.H{"status": "started", "message": "Scan started! Redirecting to Scans page...", "scan_id": scanID})
 
-	go func() {
-		defer func() {
-			globalNucleiProgress.Lock()
-			globalNucleiProgress.IsRunning = false
-			globalNucleiProgress.Unlock()
-		}()
-
-		log.Printf("[INFO] Starting global Nuclei scan with template: %s", template)
+	go runScanInProcess(scanID, "nuclei", target, func() error {
+		stdLog(scanID, "[INFO] Starting global Nuclei scan...")
 
 		// 1. Dump all subdomains to a temp file
 		tmpFile, err := os.CreateTemp("", "global-nuclei-targets-*.txt")
 		if err != nil {
-			log.Printf("[ERROR] failed to create temp file: %v", err)
-			return
+			return fmt.Errorf("failed to create temp file: %w", err)
 		}
 		defer os.Remove(tmpFile.Name())
 
@@ -603,55 +568,53 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		tmpFile.Close()
 
 		if totalSubs == 0 {
-			log.Printf("[INFO] No subdomains found for global nuclei scan")
-			return
+			return fmt.Errorf("no subdomains found for global nuclei scan")
 		}
 
-		globalNucleiProgress.Lock()
-		globalNucleiProgress.Total = totalSubs
-		globalNucleiProgress.Unlock()
+		stdLog(scanID, "[INFO] Loaded %d targets for scan", totalSubs)
 
 		var templatePath string
 		var cleanupTemplate func()
+		var templateNameForLog string
 
 		// If the template contains newlines or starts with 'id:', assume it's raw YAML content
 		if strings.Contains(template, "\n") || strings.HasPrefix(template, "id:") {
 			tmpTpl, err := os.CreateTemp("", "custom-template-*.yaml")
 			if err != nil {
-				log.Printf("[ERROR] failed to create temp template file: %v", err)
-				return
+				return fmt.Errorf("failed to create temp template file: %w", err)
 			}
 			tmpTpl.WriteString(template)
 			tmpTpl.Close()
 			templatePath = tmpTpl.Name()
 			cleanupTemplate = func() { os.Remove(templatePath) }
-			log.Printf("[INFO] Wrote custom YAML template to %s", templatePath)
-			
-			// Just update the progress template string for UI to something shorter
-			globalNucleiProgress.Lock()
-			globalNucleiProgress.Template = "Custom Raw Template"
-			globalNucleiProgress.Unlock()
-			utils.SendWebhookLogAsync(fmt.Sprintf("🚀 **Global Nuclei Scan Started**\nTemplate: `Custom Raw Template`\nTargets: %d", totalSubs))
+			stdLog(scanID, "[INFO] Using custom raw YAML template")
+			templateNameForLog = "Custom Raw Template"
 		} else {
 			templatePath = template
 			cleanupTemplate = func() {}
-			utils.SendWebhookLogAsync(fmt.Sprintf("🚀 **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d", template, totalSubs))
+			templateNameForLog = template
 		}
 		defer cleanupTemplate()
 
-		cmd := exec.Command("nuclei", "-l", tmpFile.Name(), "-t", templatePath, "-c", "50", "-silent", "-jsonl")
+		utils.SendWebhookLogAsync(fmt.Sprintf("🚀 **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d\nScan ID: `%s`", templateNameForLog, totalSubs, scanID))
+
+		// create output file so it's indexed
+		outDir := filepath.Join(utils.GetResultsDir(), target, "vulnerabilities")
+		os.MkdirAll(outDir, 0755)
+		outPath := filepath.Join(outDir, "nuclei-global.json")
+
+		cmd := exec.Command("nuclei", "-l", tmpFile.Name(), "-t", templatePath, "-c", "50", "-silent", "-jsonl", "-o", outPath)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			log.Printf("[ERROR] failed to get stdout pipe: %v", err)
-			return
+			return fmt.Errorf("stdout pipe failed: %w", err)
 		}
 		cmd.Stderr = os.Stderr // log errors to console
 
 		if err := cmd.Start(); err != nil {
-			log.Printf("[ERROR] nuclei start failed: %v", err)
-			return
+			return fmt.Errorf("nuclei start failed: %w", err)
 		}
 
+		matches := 0
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -666,25 +629,21 @@ func apiRunGlobalNuclei(c *gin.Context) {
 				} `json:"info"`
 			}
 			if err := json.Unmarshal([]byte(line), &res); err == nil && res.TemplateID != "" {
-				globalNucleiProgress.Lock()
-				globalNucleiProgress.Matches++
-				globalNucleiProgress.Unlock()
-
+				matches++
 				msg := fmt.Sprintf("🎯 **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`", 
 					res.TemplateID, res.Info.Name, res.MatchedAt, res.Info.Severity)
 				utils.SendWebhookLogAsync(msg)
+				stdLog(scanID, "[VULN] %s [%s] on %s", res.Info.Name, res.Info.Severity, res.MatchedAt)
 			}
 		}
 
 		cmd.Wait()
 		
-		globalNucleiProgress.Lock()
-		finalMatches := globalNucleiProgress.Matches
-		globalNucleiProgress.Unlock()
-
-		utils.SendWebhookLogAsync(fmt.Sprintf("✅ **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", template, totalSubs, finalMatches))
-		log.Printf("[INFO] Global Nuclei scan completed. Matches: %d", finalMatches)
-	}()
+		stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches)
+		utils.SendWebhookLogAsync(fmt.Sprintf("✅ **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
+		
+		return nil
+	})
 }
 
 // DELETE /api/domains/:domain — remove domain row, subdomains, related scans/artifacts, monitor rows, subdomain monitor target; R2 cleanup for those scans.
