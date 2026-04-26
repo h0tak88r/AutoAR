@@ -401,6 +401,13 @@ func (p *PostgresDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_scans_started_at ON scans(started_at);
 	CREATE INDEX IF NOT EXISTS idx_scan_artifacts_scan_id ON scan_artifacts(scan_id);
 	CREATE INDEX IF NOT EXISTS idx_scan_artifacts_created_at ON scan_artifacts(created_at);
+
+	-- Settings key-value store (survives redeployments)
+	CREATE TABLE IF NOT EXISTS settings (
+		key   TEXT NOT NULL PRIMARY KEY,
+		value TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMP DEFAULT NOW()
+	);
 	`
 
 	_, err := p.pool.Exec(p.ctx, schema)
@@ -1872,6 +1879,48 @@ func (p *PostgresDB) UpdateSubdomainCNAME(domain, subdomain, cnames string) erro
 		WHERE domain_id = $2 AND subdomain = $3
 	`, cnames, domainID, subdomain)
 	return err
+}
+
+// GetSetting retrieves a setting value by key. Returns "" if not found.
+func (p *PostgresDB) GetSetting(key string) (string, error) {
+	var value string
+	err := p.pool.QueryRow(p.ctx, `SELECT value FROM settings WHERE key = $1 LIMIT 1`, key).Scan(&value)
+	if err != nil {
+		if err.Error() == "no rows in result set" || err.Error() == "context canceled" {
+			return "", nil
+		}
+		// pgx.ErrNoRows check by string (avoids import cycle)
+		return "", nil
+	}
+	return value, nil
+}
+
+// SetSetting stores a key/value setting, creating or overwriting it.
+func (p *PostgresDB) SetSetting(key, value string) error {
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO settings (key, value, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+	`, key, value)
+	return err
+}
+
+// GetAllSettings returns every setting as a key→value map.
+func (p *PostgresDB) GetAllSettings() (map[string]string, error) {
+	rows, err := p.pool.Query(p.ctx, `SELECT key, value FROM settings ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			continue
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
 }
 
 // Close closes the database connection pool

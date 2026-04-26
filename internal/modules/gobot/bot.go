@@ -397,6 +397,9 @@ func StartAPI() error {
 			}
 		}
 	}
+	// Wire DB-backed timeout resolution so scan phase timeouts configured in the
+	// dashboard Settings page persist across redeployments.
+	utils.InitTimeoutDB(db.GetSetting)
 
 	// Ensure scans don't remain "running" across restarts (single-instance mode).
 	reconcileStaleScansOnStartup()

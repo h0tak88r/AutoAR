@@ -7209,23 +7209,44 @@ function renderSettings() {
     </div>
     <div class="setting-card">
       <div class="setting-card-header">⏱ Scan Phase Timeouts</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Set to <strong>0</strong> to disable the cap entirely (for big / slow targets). Changes take effect for new scans immediately.</div>
-      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-        <span class="setting-key">Zerodays phase timeout (seconds)</span>
-        <div style="display:flex;width:100%;gap:10px;align-items:center">
-          <input id="timeout-zerodays-input" type="number" min="0" class="form-control" style="width:180px" value="${esc(String(cfg.timeout_zerodays ?? 600))}" placeholder="600" />
-          <span style="font-size:11px;color:var(--text-muted)">0 = unlimited</span>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Set to <strong>0</strong> to disable the cap entirely. Changes are saved to the database and <strong>persist across redeployments</strong>. Takes effect for new scans immediately.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">⚡ Zerodays (s)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="timeout-zerodays-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_zerodays ?? 600))}" placeholder="600" />
+            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
+          </div>
+          <span style="font-size:10px;color:var(--text-muted)">Default: 600s (10 min)</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">☢️ Nuclei (s)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="timeout-nuclei-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_nuclei ?? 1200))}" placeholder="1200" />
+            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
+          </div>
+          <span style="font-size:10px;color:var(--text-muted)">Default: 1200s (20 min)</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">💾 Backup / Fuzzuli (s)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="timeout-backup-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_backup ?? 600))}" placeholder="600" />
+            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
+          </div>
+          <span style="font-size:10px;color:var(--text-muted)">Default: 600s (10 min) — can stall on slow hosts</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">☁️ Misconfig (s)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="timeout-misconfig-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_misconfig ?? 1800))}" placeholder="1800" />
+            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
+          </div>
+          <span style="font-size:10px;color:var(--text-muted)">Default: 1800s (30 min)</span>
         </div>
       </div>
-      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:12px">
-        <span class="setting-key">Nuclei phase timeout (seconds)</span>
-        <div style="display:flex;width:100%;gap:10px;align-items:center">
-          <input id="timeout-nuclei-input" type="number" min="0" class="form-control" style="width:180px" value="${esc(String(cfg.timeout_nuclei ?? 1200))}" placeholder="1200" />
-          <span style="font-size:11px;color:var(--text-muted)">0 = unlimited</span>
-        </div>
-      </div>
-      <div class="setting-row" style="margin-top:14px">
-        <button class="btn btn-primary" onclick="saveTimeoutSettings()" id="timeout-save-btn">Save timeouts</button>
+      <div class="setting-row" style="margin-top:16px">
+        <button class="btn btn-primary" onclick="saveTimeoutSettings()" id="timeout-save-btn">💾 Save all timeouts</button>
+        <span id="timeout-save-note" style="font-size:11px;color:var(--text-muted)">Saved to database — survives redeployments</span>
       </div>
     </div>
     <div class="setting-card">
@@ -7297,13 +7318,18 @@ window.saveGeminiKey = async function () {
 };
 
 window.saveTimeoutSettings = async function () {
-  const zdInput = document.getElementById('timeout-zerodays-input');
-  const nuInput = document.getElementById('timeout-nuclei-input');
-  const btn = document.getElementById('timeout-save-btn');
-  if (!zdInput || !nuInput) return;
+  const zdInput  = document.getElementById('timeout-zerodays-input');
+  const nuInput  = document.getElementById('timeout-nuclei-input');
+  const buInput  = document.getElementById('timeout-backup-input');
+  const mcInput  = document.getElementById('timeout-misconfig-input');
+  const btn      = document.getElementById('timeout-save-btn');
+  const note     = document.getElementById('timeout-save-note');
+  if (!zdInput || !nuInput || !buInput || !mcInput) return;
   const zdVal = parseInt(zdInput.value, 10);
   const nuVal = parseInt(nuInput.value, 10);
-  if (isNaN(zdVal) || zdVal < 0 || isNaN(nuVal) || nuVal < 0) {
+  const buVal = parseInt(buInput.value, 10);
+  const mcVal = parseInt(mcInput.value, 10);
+  if ([zdVal, nuVal, buVal, mcVal].some(v => isNaN(v) || v < 0)) {
     showToast('error', 'Invalid value', 'Timeouts must be 0 or a positive integer.');
     return;
   }
@@ -7313,16 +7339,22 @@ window.saveTimeoutSettings = async function () {
     const res = await fetch(`${API}/api/settings`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ timeout_zerodays: zdVal, timeout_nuclei: nuVal })
+      body: JSON.stringify({
+        timeout_zerodays: zdVal,
+        timeout_nuclei:   nuVal,
+        timeout_backup:   buVal,
+        timeout_misconfig: mcVal,
+      })
     });
     if (!res.ok) throw new Error('Failed to update timeout settings');
-    showToast('success', 'Saved!', `Zerodays: ${zdVal}s, Nuclei: ${nuVal}s (0 = unlimited)`);
+    showToast('success', 'Saved!', `Zerodays: ${zdVal}s · Nuclei: ${nuVal}s · Backup: ${buVal}s · Misconfig: ${mcVal}s  (0 = unlimited)`);
+    if (note) note.textContent = `✅ Saved to DB at ${new Date().toLocaleTimeString()} — persists across redeployments`;
     // Refresh config state so the values reflect immediately.
     try { state.config = await apiFetch('/api/config'); } catch(_) {}
   } catch (e) {
     showToast('error', 'Error', e.message);
   }
-  if (btn) { btn.disabled = false; btn.textContent = 'Save timeouts'; }
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Save all timeouts'; }
 };
 
 window.saveWebhookSettings = async function () {
