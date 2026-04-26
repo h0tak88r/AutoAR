@@ -490,7 +490,6 @@ async function loadConfig() {
     const res = await fetch(`${API}/api/config`);
     if (!res.ok) return;
     state.config = await res.json();
-    await loadApkxCacheStats();
     renderSettings();
     updateStatusDot();
   } catch (e) { /* silent */ }
@@ -7117,116 +7116,138 @@ function renderSettings() {
   const el = document.getElementById('settings-container');
   if (!el || !cfg) return;
 
-  const row = (k, v, cls) => `<div class="setting-row">
-    <span class="setting-key">${k}</span>
-    <span class="setting-val ${cls || ''}">${esc(String(v ?? '—'))}</span>
-  </div>`;
+  const item = (label, value, hint = '', cls = '') => `
+    <div class="settings-item">
+      <div class="settings-label">
+        <div class="settings-title">${label}</div>
+        ${hint ? `<div class="settings-hint">${hint}</div>` : ''}
+      </div>
+      <div class="settings-value ${cls}">${esc(String(value ?? '—'))}</div>
+    </div>`;
 
-  el.innerHTML = `<div class="settings-grid">
-    <div class="setting-card">
-      <div class="setting-card-header">🔧 AutoAR</div>
-      ${row('Version', cfg.version)}
-      ${row('Mode', cfg.mode)}
-      ${row('DB Type', cfg.db_type)}
-    </div>
-    <div class="setting-card">
-      <div class="setting-card-header">🔐 Authentication</div>
-      ${row('Provider', 'Local (username + password)', 'ok')}
-      ${row('Status', cfg.auth_enabled ? 'Enabled' : 'Disabled (open access)', cfg.auth_enabled ? 'ok' : 'warn')}
-    </div>
-    <div class="setting-card">
-      <div class="setting-card-header">🤖 AI Configuration</div>
-      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-        <span class="setting-key" style="margin-bottom:4px">OpenRouter API Key <span style="font-size:10px;color:var(--text-muted)">(synced with server)</span></span>
-        <div style="display:flex;width:100%;gap:10px">
-          <input type="password" id="or-key-input"
-            value="${esc(localStorage.getItem('autoar_or_key') || '')}"
-            placeholder="sk-or-v1-…"
-            class="form-control" style="flex:1;font-family:var(--font-mono);font-size:12px">
-          <button class="btn btn-primary" onclick="saveOpenRouterKey()">Save</button>
-        </div>
-        <span style="font-size:11px;color:var(--text-muted)">Used for <strong>Validate with AI</strong> and <strong>Report with AI</strong>. Get a key at <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent-cyan)">openrouter.ai/keys</a>.</span>
-      </div>
-      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
-        <span class="setting-key" style="margin-bottom:4px">Gemini API Key <span style="font-size:10px;color:var(--text-muted)">(optional fallback)</span></span>
-        <div style="display:flex;width:100%;gap:10px">
-          <input type="password" id="gemini-key-input"
-            value="${esc(localStorage.getItem('autoar_gemini_key') || '')}"
-            placeholder="AIza…"
-            class="form-control" style="flex:1;font-family:var(--font-mono);font-size:12px">
-          <button class="btn btn-primary" onclick="saveGeminiKey()">Save</button>
-        </div>
-      </div>
-    </div>
-    <div class="setting-card">
-      <div class="setting-card-header">🔔 Webhooks</div>
-      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-        <span class="setting-key" style="margin-bottom:4px;">Monitor Webhook URL (Discord / Generic)</span>
-        <div style="display:flex;width:100%;gap:10px;">
-          <input type="text" id="monitor-webhook-input" value="${esc(cfg.monitor_webhook || '')}" placeholder="https://discord.com/api/webhooks/..." class="form-control" style="flex:1;">
-          <button class="btn btn-primary" onclick="saveWebhookSettings()">Save</button>
-        </div>
-      </div>
-    </div>
-    <div class="setting-card">
-      <div class="setting-card-header">☁️ Cloudflare R2</div>
-      ${row('Enabled', cfg.r2_enabled ? 'Yes' : 'No', cfg.r2_enabled ? 'ok' : 'warn')}
-      ${row('Bucket', cfg.r2_bucket || '—', cfg.r2_bucket ? 'ok' : 'warn')}
-      ${row('Public URL', cfg.r2_public_url
-    ? cfg.r2_public_url.slice(0, 35) + (cfg.r2_public_url.length > 35 ? '…' : '')
-    : '—', cfg.r2_public_url ? 'ok' : 'warn')}
-    </div>
-    </div>
-    <div class="setting-card">
-      <div class="setting-card-header">⏱ Scan Phase Timeouts</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Set to <strong>0</strong> to disable the cap entirely. Changes are saved to the database and <strong>persist across redeployments</strong>. Takes effect for new scans immediately.</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div style="display:flex;flex-direction:column;gap:6px">
-          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">⚡ Zerodays (s)</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="timeout-zerodays-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_zerodays ?? 600))}" placeholder="600" />
-            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
+  el.innerHTML = `
+    <div class="settings-container-premium">
+      <div class="settings-section">
+        <div class="settings-section-header">🔧 System Status</div>
+        <div class="settings-section-body">
+          ${item('Version', cfg.version)}
+          ${item('Deployment Mode', cfg.mode, 'Current operational profile')}
+          ${item('Database Type', cfg.db_type, 'Backend persistence engine')}
+          <div class="settings-item">
+            <div class="settings-label">
+              <div class="settings-title">Authentication</div>
+              <div class="settings-hint">Dashboard API security status</div>
+            </div>
+            <div class="settings-value">
+              <span class="badge ${cfg.auth_enabled ? 'badge-done' : 'badge-failed'}">
+                ${cfg.auth_enabled ? '✅ Active' : '🔓 Public (Warning)'}
+              </span>
+            </div>
           </div>
-          <span style="font-size:10px;color:var(--text-muted)">Default: 600s (10 min)</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">☢️ Nuclei (s)</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="timeout-nuclei-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_nuclei ?? 1200))}" placeholder="1200" />
-            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
-          </div>
-          <span style="font-size:10px;color:var(--text-muted)">Default: 1200s (20 min)</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">💾 Backup / Fuzzuli (s)</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="timeout-backup-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_backup ?? 600))}" placeholder="600" />
-            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
-          </div>
-          <span style="font-size:10px;color:var(--text-muted)">Default: 600s (10 min) — can stall on slow hosts</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          <label style="font-size:12px;color:var(--text-secondary);font-weight:600">☁️ Misconfig (s)</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="timeout-misconfig-input" type="number" min="0" class="form-control" style="flex:1" value="${esc(String(cfg.timeout_misconfig ?? 1800))}" placeholder="1800" />
-            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">0=∞</span>
-          </div>
-          <span style="font-size:10px;color:var(--text-muted)">Default: 1800s (30 min)</span>
         </div>
       </div>
-      <div class="setting-row" style="margin-top:16px">
-        <button class="btn btn-primary" onclick="saveTimeoutSettings()" id="timeout-save-btn">💾 Save all timeouts</button>
-        <span id="timeout-save-note" style="font-size:11px;color:var(--text-muted)">Saved to database — survives redeployments</span>
+
+      <div class="settings-section">
+        <div class="settings-section-header">🤖 AI Intelligence</div>
+        <div class="settings-section-body">
+          <div class="settings-item">
+            <div class="settings-label">
+              <div class="settings-title">OpenRouter API Key</div>
+              <div class="settings-hint">Used for vulnerability validation and reporting.</div>
+            </div>
+            <div class="settings-control">
+              <input type="password" id="or-key-input"
+                value="${esc(localStorage.getItem('autoar_or_key') || '')}"
+                placeholder="sk-or-v1-…"
+                class="form-control premium-input">
+              <button class="btn btn-primary" onclick="saveOpenRouterKey()">Save</button>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-label">
+              <div class="settings-title">Gemini API Key</div>
+              <div class="settings-hint">Secondary fallback for AI analysis.</div>
+            </div>
+            <div class="settings-control">
+              <input type="password" id="gemini-key-input"
+                value="${esc(localStorage.getItem('autoar_gemini_key') || '')}"
+                placeholder="AIza…"
+                class="form-control premium-input">
+              <button class="btn btn-primary" onclick="saveGeminiKey()">Save</button>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="setting-card">
-      <div class="setting-card-header">📡 API Endpoints</div>
-      ${row('Dashboard', window.location.origin + '/ui')}
-      ${row('API Base', window.location.origin + '/api')}
-      ${row('Health', window.location.origin + '/health')}
-      ${row('Scan', window.location.origin + '/scan/*')}
-    </div>
-  </div>`;
+
+      <div class="settings-section">
+        <div class="settings-section-header">⏱ Scan Phase Timeouts</div>
+        <div class="settings-section-description">
+          Define max duration for each scan phase. Set to <strong>0</strong> for unlimited. 
+          Stored in DB, persists across redeployments.
+        </div>
+        <div class="settings-section-body">
+          <div class="settings-timeout-grid">
+            <div class="timeout-field">
+              <label>⚡ Zerodays</label>
+              <input id="timeout-zerodays-input" type="number" min="0" class="form-control premium-input" value="${esc(String(cfg.timeout_zerodays ?? 600))}" />
+              <span>seconds</span>
+            </div>
+            <div class="timeout-field">
+              <label>☢️ Nuclei</label>
+              <input id="timeout-nuclei-input" type="number" min="0" class="form-control premium-input" value="${esc(String(cfg.timeout_nuclei ?? 1200))}" />
+              <span>seconds</span>
+            </div>
+            <div class="timeout-field">
+              <label>💾 Backup / Fuzzuli</label>
+              <input id="timeout-backup-input" type="number" min="0" class="form-control premium-input" value="${esc(String(cfg.timeout_backup ?? 600))}" />
+              <span>seconds</span>
+            </div>
+            <div class="timeout-field">
+              <label>☁️ Misconfig</label>
+              <input id="timeout-misconfig-input" type="number" min="0" class="form-control premium-input" value="${esc(String(cfg.timeout_misconfig ?? 1800))}" />
+              <span>seconds</span>
+            </div>
+          </div>
+          <div style="margin-top: 20px; display: flex; align-items: center; gap: 15px;">
+            <button class="btn btn-primary" onclick="saveTimeoutSettings()" id="timeout-save-btn">💾 Save All Timeouts</button>
+            <div id="timeout-save-note" style="font-size:11px; color:var(--text-muted);">Persistence verified</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-header">🔔 Notifications</div>
+        <div class="settings-section-body">
+          <div class="settings-item">
+            <div class="settings-label">
+              <div class="settings-title">Discord Webhook</div>
+              <div class="settings-hint">Where scan notifications and findings are sent.</div>
+            </div>
+            <div class="settings-control">
+              <input type="text" id="monitor-webhook-input" value="${esc(cfg.monitor_webhook || '')}" placeholder="https://discord.com/api/webhooks/..." class="form-control premium-input">
+              <button class="btn btn-primary" onclick="saveWebhookSettings()">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-header">☁️ Cloudflare R2 Infrastructure</div>
+        <div class="settings-section-body">
+          ${item('R2 Status', cfg.r2_enabled ? 'Connected' : 'Not Configured', 'Cloud artifact storage', cfg.r2_enabled ? 'ok' : 'warn')}
+          ${item('Storage Bucket', cfg.r2_bucket || '—', 'R2 target bucket')}
+          ${item('Public Access URL', cfg.r2_public_url || '—', 'Base URL for indexed assets')}
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-header">📡 API Endpoints</div>
+        <div class="settings-section-body">
+          ${item('API Gateway', window.location.origin + '/api', 'Base endpoint for all requests')}
+          ${item('Health Check', window.location.origin + '/health', 'Service status monitor')}
+        </div>
+      </div>
+    </div>`;
 }
 
 window.saveOpenRouterKey = async function () {
