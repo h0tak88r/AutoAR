@@ -700,6 +700,25 @@
   </div>
 </div>
 
+<!-- Nuclei Global Scan Modal -->
+<div id="nuclei-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
+  <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+    <h2 class="auth-title" style="margin-bottom: 8px;">Run Global Nuclei Scan</h2>
+    <p class="auth-sub" style="margin-bottom: 20px;">Enter a Nuclei template path/ID, OR paste raw YAML template code.</p>
+    
+    <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+      <textarea id="nuclei-template-input" class="search-input auth-input" 
+        style="flex: 1; min-height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical; background: #010409;" 
+        placeholder="cves/2021/CVE-2021-44228.yaml&#10;&#10;-- OR --&#10;&#10;id: custom-template&#10;info:&#10;  name: Custom Scan&#10;  ..."></textarea>
+    </div>
+
+    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
+      <button type="button" class="btn btn-ghost" onclick="closeNucleiModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)">⚡ Run Scan</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast notifications -->
 <div class="toast-container" id="toast-container"></div>
 
