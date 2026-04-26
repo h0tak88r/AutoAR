@@ -353,9 +353,14 @@
             <h1 class="view-title">Subdomains</h1>
             <div class="view-subtitle">All discovered subdomains across every domain</div>
           </div>
-          <button id="copy-all-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center">
-            📋 Copy All Subdomains
-          </button>
+          <div style="display:flex;gap:12px">
+            <button id="retry-cnames-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptRetryCnames()">
+              ↻ Resolve Missing CNAMEs
+            </button>
+            <button id="copy-all-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center">
+              📋 Copy All Subdomains
+            </button>
+          </div>
         </div>
         <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap">
           <input class="search-input" id="subdomains-search" placeholder="Search by subdomain or root…" autocomplete="off" style="flex:2;min-width:200px" />

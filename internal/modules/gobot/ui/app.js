@@ -8619,7 +8619,28 @@ async function deleteReportTemplate(name) {
 
     showToast('success', 'Template Deleted', `Template "${name}" removed`);
     renderReportTemplates();
-  } catch (err) {
-    showToast('error', 'Delete Failed', err.message);
-  }
+	} catch (err) {
+		showToast('error', 'Delete Failed', err.message);
+	}
+}
+
+window.promptRetryCnames = async function() {
+	const matchString = prompt("Enter an optional match string (e.g. 's3.amazonaws.com' or 'phenomepeople') to alert on matches, or leave empty to just resolve all missing CNAMEs:", "");
+	if (matchString === null) return; // User cancelled
+
+	try {
+		const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
+		const res = await fetch(`${API}/api/subdomains/cnames/retry`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ match_string: matchString })
+		});
+
+		const data = await res.json();
+		if (!res.ok) throw new Error(data.error || 'Failed to start CNAME retry');
+		
+		showToast('success', 'Started', data.message || 'CNAME resolution started in background');
+	} catch (err) {
+		showToast('error', 'Error', err.message);
+	}
 }

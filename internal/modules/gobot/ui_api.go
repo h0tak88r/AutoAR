@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
+	"github.com/projectdiscovery/dnsx/libs/dnsx"
 	"github.com/h0tak88r/AutoAR/internal/modules/envloader"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitor"
 	"github.com/h0tak88r/AutoAR/internal/modules/monitorsuggest"
@@ -366,6 +368,106 @@ func apiAllSubdomainsPaginated(c *gin.Context) {
 		"limit":      limit,
 	})
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/subdomains/cnames/retry — Retry CNAME resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RetryCnamesReq struct {
+	MatchString string `json:"match_string"`
+}
+
+func apiRetryCnames(c *gin.Context) {
+	var req RetryCnamesReq
+	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
+		// Ignore EOF to allow empty bodies
+	}
+
+	matchStr := strings.ToLower(strings.TrimSpace(req.MatchString))
+
+	c.JSON(200, gin.H{"status": "started", "message": "CNAME resolution started in background"})
+
+	go func() {
+		log.Println("[INFO] Starting background CNAME retry for subdomains...")
+
+		// Fetch all subdomains
+		var allSubs []db.GlobalSubdomain
+		limit := 10000
+		for offset := 0; ; offset += limit {
+			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", -1, limit, offset)
+			if err != nil {
+				log.Printf("[ERROR] Failed to fetch subdomains: %v", err)
+				break
+			}
+			if len(subs) == 0 {
+				break
+			}
+			allSubs = append(allSubs, subs...)
+		}
+
+		if len(allSubs) == 0 {
+			log.Println("[INFO] No subdomains found for CNAME retry.")
+			return
+		}
+
+		log.Printf("[INFO] Initializing dnsx for %d subdomains...", len(allSubs))
+		dnsClient, err := dnsx.New(dnsx.DefaultOptions)
+		if err != nil {
+			log.Printf("[ERROR] dnsx init failed: %v", err)
+			return
+		}
+
+		var wg sync.WaitGroup
+		jobs := make(chan db.GlobalSubdomain, len(allSubs))
+		threads := 50 // Be gentle
+		var foundMatches int32 = 0
+		var mu sync.Mutex
+
+		for i := 0; i < threads; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for sub := range jobs {
+					// Only resolve if missing, or if a match string is provided, we can re-resolve to search for it.
+					if matchStr == "" && sub.CNAMEs != "" && sub.CNAMEs != "—" {
+						continue 
+					}
+
+					results, err := dnsClient.QueryOne(sub.Subdomain)
+					if err != nil || results == nil || len(results.CNAME) == 0 {
+						continue
+					}
+					
+					cnamesStr := strings.Join(results.CNAME, ",")
+					
+					// Update DB if we actually found something
+					_ = db.UpdateSubdomainCNAME(sub.Domain, sub.Subdomain, cnamesStr)
+					
+					// Check match string
+					if matchStr != "" && strings.Contains(strings.ToLower(cnamesStr), matchStr) {
+						mu.Lock()
+						foundMatches++
+						mu.Unlock()
+						msg := fmt.Sprintf("🚨 **CNAME Match Found!**\nSubdomain: `%s`\nCNAME: `%s`\nMatch: `%s`", sub.Subdomain, cnamesStr, req.MatchString)
+						utils.SendWebhookLogAsync(msg)
+					}
+				}
+			}()
+		}
+
+		for _, s := range allSubs {
+			jobs <- s
+		}
+		close(jobs)
+		wg.Wait()
+		
+		log.Printf("[INFO] Background CNAME retry completed. Matches found: %d", foundMatches)
+		if matchStr != "" {
+			utils.SendWebhookLogAsync(fmt.Sprintf("✅ **CNAME Retry Completed**\nChecked %d subdomains for `%s`.\nFound %d matches.", len(allSubs), req.MatchString, foundMatches))
+		}
+	}()
+}
+
 
 // DELETE /api/domains/:domain — remove domain row, subdomains, related scans/artifacts, monitor rows, subdomain monitor target; R2 cleanup for those scans.
 func apiDeleteDomain(c *gin.Context) {
