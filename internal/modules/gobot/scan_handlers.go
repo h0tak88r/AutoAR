@@ -626,3 +626,25 @@ func keyhackValidate(c *gin.Context) {
 
 // execCommand is a local alias so tests and future refactors can swap it out.
 var execCommand = exec.Command
+
+// runInProcessRescan re-runs an in-process scan (domain_run, subdomain_run, …)
+// using the correct Go module. Returns the new scan ID and true if the scan
+// type is handled; returns "", false if the scan type is not supported.
+func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
+	newScanID = generateScanID()
+	switch scanType {
+	case "domain_run":
+		go runScanInProcess(newScanID, scanType, target, func() error {
+			_, err := domainmod.RunDomain(domainmod.ScanOptions{Domain: target})
+			return err
+		})
+		return newScanID, true
+	case "subdomain_run":
+		go runScanInProcess(newScanID, scanType, target, func() error {
+			_, err := subdomainmod.RunSubdomainWithOptions(target, subdomainmod.RunOptions{})
+			return err
+		})
+		return newScanID, true
+	}
+	return "", false
+}

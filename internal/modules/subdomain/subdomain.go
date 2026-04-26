@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -243,13 +242,8 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		}, 0},
 	}
 
-	// Misconfig timeout
-	misconfigTimeout := 1800
-	if val := os.Getenv("AUTOAR_TIMEOUT_MISCONFIG"); val != "" {
-		if t, err := strconv.Atoi(val); err == nil {
-			misconfigTimeout = t
-		}
-	}
+	// Misconfig timeout — configurable from the dashboard Settings page.
+	misconfigTimeout := utils.GetTimeout("misconfig", 1800)
 	phases2 = append(phases2, struct {
 		key, desc string
 		fn        func() error
