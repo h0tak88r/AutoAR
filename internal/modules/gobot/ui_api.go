@@ -38,7 +38,6 @@ import (
 func apiConfigHandler(c *gin.Context) {
 	// Must match supabaseJWTAuth / dashboardAPIAuthEnforced (UI sends Bearer only when this is true).
 	authOn := dashboardAPIAuthEnforced()
-	apkxCacheDisabled := strings.EqualFold(strings.TrimSpace(os.Getenv("APKX_DISABLE_CACHE")), "true")
 	getIntEnvOr := func(key string, def int) int {
 		v := os.Getenv(key)
 		if v == "" {
@@ -60,9 +59,6 @@ func apiConfigHandler(c *gin.Context) {
 		"db_type":                    getEnv("DB_TYPE", "postgresql"),
 		"mode":                       getEnv("AUTOAR_MODE", "discord"),
 		"monitor_webhook":            os.Getenv("MONITOR_WEBHOOK_URL"),
-		"apkx_cache_disabled":        apkxCacheDisabled,
-		"apkx_cache_max_dirs":        getEnv("APKX_CACHE_MAX_DIRS", "30"),
-		"apkx_cache_max_local_bytes": getEnv("APKX_CACHE_MAX_LOCAL_BYTES", "2147483648"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 		// Scan phase timeouts — read from DB first (survives redeployments), then env, then defaults.
@@ -85,9 +81,6 @@ type UpdateSettingsBody struct {
 	MonitorWebhook         string `json:"monitor_webhook"`
 	OpenRouterKey          string `json:"openrouter_key"`
 	GeminiKey              string `json:"gemini_key"`
-	APKXDisableCache       *bool  `json:"apkx_disable_cache,omitempty"`
-	APKXCacheMaxDirs       *int   `json:"apkx_cache_max_dirs,omitempty"`
-	APKXCacheMaxLocalBytes *int64 `json:"apkx_cache_max_local_bytes,omitempty"`
 	// Scan phase timeouts (seconds; 0 = unlimited, omit to keep current)
 	TimeoutZerodays *int `json:"timeout_zerodays,omitempty"`
 	TimeoutNuclei   *int `json:"timeout_nuclei,omitempty"`
@@ -110,24 +103,6 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	}
 	if body.GeminiKey != "" {
 		_ = envloader.UpdateEnv("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
-	}
-	if body.APKXDisableCache != nil {
-		v := "false"
-		if *body.APKXDisableCache {
-			v = "true"
-		}
-		_ = envloader.UpdateEnv("APKX_DISABLE_CACHE", v)
-		_ = os.Setenv("APKX_DISABLE_CACHE", v)
-	}
-	if body.APKXCacheMaxDirs != nil {
-		v := strconv.Itoa(*body.APKXCacheMaxDirs)
-		_ = envloader.UpdateEnv("APKX_CACHE_MAX_DIRS", v)
-		_ = os.Setenv("APKX_CACHE_MAX_DIRS", v)
-	}
-	if body.APKXCacheMaxLocalBytes != nil {
-		v := strconv.FormatInt(*body.APKXCacheMaxLocalBytes, 10)
-		_ = envloader.UpdateEnv("APKX_CACHE_MAX_LOCAL_BYTES", v)
-		_ = os.Setenv("APKX_CACHE_MAX_LOCAL_BYTES", v)
 	}
 
 	// Scan phase timeouts — persist to DB (survives redeployments) AND apply
