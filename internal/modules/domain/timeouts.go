@@ -20,3 +20,19 @@ func nucleiTimeoutDomain() int {
 	}
 	return n // 0 = unlimited
 }
+
+// backupTimeoutDomain returns the backup/fuzzuli phase timeout in seconds.
+// Fuzzuli with method=all can stall for hours against firewalled hosts;
+// this cap ensures Phase 4 (Nuclei, Reflection, etc.) is never blocked.
+// Override with AUTOAR_TIMEOUT_BACKUP env var. Default: 600s (10 min).
+func backupTimeoutDomain() int {
+	v := os.Getenv("AUTOAR_TIMEOUT_BACKUP")
+	if v == "" {
+		return 600
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 600
+	}
+	return n // 0 = unlimited
+}
