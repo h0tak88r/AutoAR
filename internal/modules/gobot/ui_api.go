@@ -377,6 +377,25 @@ type RetryCnamesReq struct {
 	MatchString string `json:"match_string"`
 }
 
+var cnameProgress struct {
+	sync.Mutex
+	IsRunning bool
+	Total     int
+	Processed int
+	Matches   int
+}
+
+func apiRetryCnamesProgress(c *gin.Context) {
+	cnameProgress.Lock()
+	defer cnameProgress.Unlock()
+	c.JSON(200, gin.H{
+		"is_running": cnameProgress.IsRunning,
+		"total":      cnameProgress.Total,
+		"processed":  cnameProgress.Processed,
+		"matches":    cnameProgress.Matches,
+	})
+}
+
 func apiRetryCnames(c *gin.Context) {
 	var req RetryCnamesReq
 	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
@@ -385,16 +404,34 @@ func apiRetryCnames(c *gin.Context) {
 
 	matchStr := strings.ToLower(strings.TrimSpace(req.MatchString))
 
+	cnameProgress.Lock()
+	if cnameProgress.IsRunning {
+		cnameProgress.Unlock()
+		c.JSON(400, gin.H{"error": "A CNAME resolution task is already running"})
+		return
+	}
+	cnameProgress.IsRunning = true
+	cnameProgress.Total = 0
+	cnameProgress.Processed = 0
+	cnameProgress.Matches = 0
+	cnameProgress.Unlock()
+
 	c.JSON(200, gin.H{"status": "started", "message": "CNAME resolution started in background"})
 
 	go func() {
+		defer func() {
+			cnameProgress.Lock()
+			cnameProgress.IsRunning = false
+			cnameProgress.Unlock()
+		}()
+
 		log.Println("[INFO] Starting background CNAME retry for subdomains...")
 
 		// Fetch all subdomains
 		var allSubs []db.GlobalSubdomain
 		limit := 10000
 		for offset := 0; ; offset += limit {
-			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", -1, limit, offset)
+			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, limit, offset)
 			if err != nil {
 				log.Printf("[ERROR] Failed to fetch subdomains: %v", err)
 				break
@@ -410,6 +447,10 @@ func apiRetryCnames(c *gin.Context) {
 			return
 		}
 
+		cnameProgress.Lock()
+		cnameProgress.Total = len(allSubs)
+		cnameProgress.Unlock()
+
 		log.Printf("[INFO] Initializing dnsx for %d subdomains...", len(allSubs))
 		dnsClient, err := dnsx.New(dnsx.DefaultOptions)
 		if err != nil {
@@ -421,13 +462,16 @@ func apiRetryCnames(c *gin.Context) {
 		jobs := make(chan db.GlobalSubdomain, len(allSubs))
 		threads := 50 // Be gentle
 		var foundMatches int32 = 0
-		var mu sync.Mutex
 
 		for i := 0; i < threads; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				for sub := range jobs {
+					cnameProgress.Lock()
+					cnameProgress.Processed++
+					cnameProgress.Unlock()
+					
 					// Only resolve if missing, or if a match string is provided, we can re-resolve to search for it.
 					if matchStr == "" && sub.CNAMEs != "" && sub.CNAMEs != "—" {
 						continue 
@@ -437,6 +481,7 @@ func apiRetryCnames(c *gin.Context) {
 					if err != nil || results == nil || len(results.CNAME) == 0 {
 						continue
 					}
+
 					
 					cnamesStr := strings.Join(results.CNAME, ",")
 					
@@ -445,9 +490,9 @@ func apiRetryCnames(c *gin.Context) {
 					
 					// Check match string
 					if matchStr != "" && strings.Contains(strings.ToLower(cnamesStr), matchStr) {
-						mu.Lock()
-						foundMatches++
-						mu.Unlock()
+						cnameProgress.Lock()
+						cnameProgress.Matches++
+						cnameProgress.Unlock()
 						msg := fmt.Sprintf("🚨 **CNAME Match Found!**\nSubdomain: `%s`\nCNAME: `%s`\nMatch: `%s`", sub.Subdomain, cnamesStr, req.MatchString)
 						utils.SendWebhookLogAsync(msg)
 					}
