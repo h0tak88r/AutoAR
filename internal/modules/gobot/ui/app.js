@@ -7121,14 +7121,6 @@ function renderSettings() {
     <span class="setting-key">${k}</span>
     <span class="setting-val ${cls || ''}">${esc(String(v ?? '—'))}</span>
   </div>`;
-  const cacheStats = state.apkxCacheStats;
-  const localBytes = Number(cacheStats?.local?.bytes || 0);
-  const localDirs = Number(cacheStats?.local?.dirs || 0);
-  const localFiles = Number(cacheStats?.local?.files || 0);
-  const r2Enabled = !!cacheStats?.r2?.enabled;
-  const r2Objects = Number(cacheStats?.r2?.objects || 0);
-  const r2Bytes = Number(cacheStats?.r2?.bytes || 0);
-  const r2Err = String(cacheStats?.r2?.error || '').trim();
 
   el.innerHTML = `<div class="settings-grid">
     <div class="setting-card">
@@ -7184,28 +7176,6 @@ function renderSettings() {
     ? cfg.r2_public_url.slice(0, 35) + (cfg.r2_public_url.length > 35 ? '…' : '')
     : '—', cfg.r2_public_url ? 'ok' : 'warn')}
     </div>
-    <div class="setting-card">
-      <div class="setting-card-header">📱 APKX Cache</div>
-      ${row('Status', cfg.apkx_cache_disabled ? 'Disabled (fresh scans)' : 'Enabled', cfg.apkx_cache_disabled ? 'warn' : 'ok')}
-      ${row('Local cache size', fmtSize(localBytes), localBytes > 0 ? 'warn' : 'ok')}
-      ${row('Local entries', `${localDirs} dirs / ${localFiles} files`, localDirs > 0 ? 'warn' : 'ok')}
-      ${row('R2 cache size', r2Enabled ? fmtSize(r2Bytes) : 'R2 disabled', r2Enabled && r2Bytes > 0 ? 'warn' : 'ok')}
-      ${row('R2 objects', r2Enabled ? String(r2Objects) : '—', r2Enabled && r2Objects > 0 ? 'warn' : 'ok')}
-      <div class="setting-row" style="margin-top:8px">
-        <button class="btn btn-ghost" onclick="toggleApkxCache(${cfg.apkx_cache_disabled ? 'false' : 'true'})" style="font-size:12px">
-          ${cfg.apkx_cache_disabled ? 'Enable APK cache' : 'Disable APK cache'}
-        </button>
-        <button class="btn btn-ghost" onclick="refreshApkxCacheStats()" style="font-size:12px">↻ Refresh stats</button>
-      </div>
-      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-        <span class="setting-key">Auto-prune limits</span>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%">
-          <input id="apkx-max-dirs-input" type="number" min="0" class="form-control" style="width:170px" value="${esc(String(cfg.apkx_cache_max_dirs || '30'))}" placeholder="Max dirs (0=off)" />
-          <input id="apkx-max-bytes-input" type="number" min="0" class="form-control" style="width:220px" value="${esc(String(cfg.apkx_cache_max_local_bytes || '2147483648'))}" placeholder="Max local bytes (0=off)" />
-          <button class="btn btn-primary" onclick="saveApkxPruneSettings()">Save limits</button>
-        </div>
-      </div>
-      ${r2Err ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:8px">R2 stats warning: ${esc(r2Err)}</div>` : ''}
     </div>
     <div class="setting-card">
       <div class="setting-card-header">⏱ Scan Phase Timeouts</div>
@@ -7257,14 +7227,6 @@ function renderSettings() {
       ${row('Scan', window.location.origin + '/scan/*')}
     </div>
   </div>`;
-}
-
-async function loadApkxCacheStats() {
-  try {
-    state.apkxCacheStats = await apiFetch('/api/apkx/cache/stats');
-  } catch (e) {
-    state.apkxCacheStats = null;
-  }
 }
 
 window.saveOpenRouterKey = async function () {
@@ -7355,80 +7317,6 @@ window.saveTimeoutSettings = async function () {
     showToast('error', 'Error', e.message);
   }
   if (btn) { btn.disabled = false; btn.textContent = '💾 Save all timeouts'; }
-};
-
-window.saveWebhookSettings = async function () {
-  const url = document.getElementById('monitor-webhook-input').value.trim();
-  const btn = document.querySelector('button[onclick="saveWebhookSettings()"]');
-  if (btn) btn.innerHTML = '<span class="loading-spinner"></span>';
-  try {
-    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-    const res = await fetch(`${API}/api/settings`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ monitor_webhook: url })
-    });
-    if (!res.ok) throw new Error('Failed to update config');
-    showToast('success', 'Saved!', 'Webhook settings updated successfully.');
-    // Keep it in state so it doesn't revert visually
-    if (state.config) state.config.monitor_webhook = url;
-  } catch (e) {
-    showToast('error', 'Error', e.message);
-  }
-  if (btn) btn.textContent = 'Save';
-};
-
-window.toggleApkxCache = async function (disable) {
-  const wantDisable = !!disable;
-  try {
-    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-    const res = await fetch(`${API}/api/settings`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ apkx_disable_cache: wantDisable })
-    });
-    if (!res.ok) throw new Error('Failed to update APK cache setting');
-    if (state.config) state.config.apkx_cache_disabled = wantDisable;
-    renderSettings();
-    showToast('success', 'Saved!', wantDisable ? 'APK cache disabled.' : 'APK cache enabled.');
-  } catch (e) {
-    showToast('error', 'Error', e.message);
-  }
-};
-
-window.refreshApkxCacheStats = async function () {
-  await loadApkxCacheStats();
-  renderSettings();
-};
-
-window.saveApkxPruneSettings = async function () {
-  const dirsEl = document.getElementById('apkx-max-dirs-input');
-  const bytesEl = document.getElementById('apkx-max-bytes-input');
-  const dirs = Number(dirsEl?.value || 0);
-  const bytes = Number(bytesEl?.value || 0);
-  if (!Number.isFinite(dirs) || dirs < 0 || !Number.isFinite(bytes) || bytes < 0) {
-    showToast('error', 'Invalid values', 'Use non-negative numbers.');
-    return;
-  }
-  try {
-    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-    const res = await fetch(`${API}/api/settings`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        apkx_cache_max_dirs: Math.trunc(dirs),
-        apkx_cache_max_local_bytes: Math.trunc(bytes),
-      })
-    });
-    if (!res.ok) throw new Error('Failed to save prune settings');
-    if (state.config) {
-      state.config.apkx_cache_max_dirs = String(Math.trunc(dirs));
-      state.config.apkx_cache_max_local_bytes = String(Math.trunc(bytes));
-    }
-    showToast('success', 'Saved!', 'APK cache auto-prune limits updated.');
-  } catch (e) {
-    showToast('error', 'Error', e.message || String(e));
-  }
 };
 
 function updateStatusDot() {

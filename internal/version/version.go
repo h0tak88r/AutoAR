@@ -3,5 +3,5 @@
 package version
 
 // Version is the semantic version without a "v" prefix (e.g. "4.0.0").
-// v4.1.0 — Targets dashboard, Bug Bounty Platforms scope fetch, Rescan, and structured findings.
-const Version = "4.1.0"
+// v4.1.2 — Fixes for Phase 3/4 hangs, backup/fuzzuli timeout handling, stable CLI scan detection, and scan rescan.
+const Version = "4.1.2"
