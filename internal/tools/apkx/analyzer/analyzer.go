@@ -26,6 +26,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+//go:generate python3 convert_regexes.py
 //go:embed regexes.yaml
 var patternsFS embed.FS
 
