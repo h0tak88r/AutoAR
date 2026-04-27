@@ -995,6 +995,26 @@
             }, 50);
         }
 
+        function findMatchesWithContext(text, re){
+            re.lastIndex = 0;
+            const matches = [];
+            const lines = text.split('\n');
+            
+            for(let i=0; i<lines.length; i++){
+                const line = lines[i];
+                re.lastIndex = 0;
+                let match;
+                if((match = re.exec(line)) !== null){
+                    matches.push({
+                        line: i + 1,
+                        content: line,
+                        matchText: match[0]
+                    });
+                }
+            }
+            return matches;
+        }
+
         function renderBulkResultsGrouped(groups){
             const resultsContainer = document.getElementById('bulkScanResults');
             const statusEl = document.getElementById('scanStatus');
