@@ -3291,8 +3291,19 @@
             const subtitle = document.querySelector('.hero-subtitle');
             const dropTitle = document.querySelector('.dropzone-title');
             const fileInput = document.getElementById('fileInput');
+            const orbs = document.querySelectorAll('.orb');
             
+            // Elements to toggle
+            const hero = document.querySelector('.hero');
+            const dropZone = document.getElementById('dropZone');
+            const features = document.getElementById('featuresSection');
+            const adbInterface = document.getElementById('adbInterface');
+
             if (mode === 'android') {
+                document.documentElement.style.setProperty('--accent-primary', '#818cf8');
+                document.documentElement.style.setProperty('--accent-secondary', '#6366f1');
+                orbs[0].style.background = 'radial-gradient(circle, rgba(129,140,248,0.3) 0%, transparent 70%)';
+                
                 badge.textContent = 'Android Security Scanner · 100% In-Browser';
                 title.innerHTML = 'Analyze Any <span class="gradient">Android APK</span><br>In Seconds';
                 subtitle.textContent = 'Drop an APK to decompile DEX, scan for vulns, parse manifests and certs.';
@@ -3300,32 +3311,40 @@
                 fileInput.accept = '.apk';
                 const hbtn = document.getElementById('heroActionBtn');
                 if (hbtn) hbtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:8px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload APK';
-                document.getElementById('adbInterface').classList.add('hidden');
-                document.getElementById('dropZone').classList.remove('hidden');
-                document.getElementById('featuresSection').classList.remove('hidden');
-                document.querySelector('.hero-actions').classList.remove('hidden');
+                
+                hero.classList.remove('hidden');
+                dropZone.classList.remove('hidden');
+                features.classList.remove('hidden');
+                adbInterface.classList.add('hidden');
                 document.getElementById('featuresTitle').innerHTML = 'Everything you need to <span>audit Android apps</span>';
             } else if (mode === 'ios') {
-                badge.textContent = 'iOS Security Scanner · 100% In-Browser';
-                title.innerHTML = 'Audit Any <span class="gradient">iOS IPA</span><br>Securely';
-                subtitle.textContent = 'Professional iOS security auditing. Analyze plists, entitlements, and binary strings.';
+                document.documentElement.style.setProperty('--accent-primary', '#10b981');
+                document.documentElement.style.setProperty('--accent-secondary', '#059669');
+                orbs[0].style.background = 'radial-gradient(circle, rgba(16,185,129,0.3) 0%, transparent 70%)';
+
+                badge.textContent = 'iOS Security Scanner · Professional Grade';
+                title.innerHTML = 'Audit Any <span class="gradient" style="background:linear-gradient(to right, #10b981, #34d399); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">iOS IPA</span><br>Securely';
+                subtitle.textContent = 'Professional iOS security auditing. Analyze plists, entitlements, and binary strings in-browser.';
                 dropTitle.textContent = 'Drop your IPA here';
                 fileInput.accept = '.ipa';
                 const hbtn = document.getElementById('heroActionBtn');
                 if (hbtn) hbtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:8px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload IPA';
-                document.getElementById('adbInterface').classList.add('hidden');
-                document.getElementById('dropZone').classList.remove('hidden');
-                document.getElementById('featuresSection').classList.remove('hidden');
-                document.querySelector('.hero-actions').classList.remove('hidden');
+                
+                hero.classList.remove('hidden');
+                dropZone.classList.remove('hidden');
+                features.classList.remove('hidden');
+                adbInterface.classList.add('hidden');
                 document.getElementById('featuresTitle').innerHTML = 'Everything you need to <span>audit iOS apps</span>';
             } else if (mode === 'adb') {
-                badge.textContent = 'ADB Device Auditor · WebUSB Based';
-                title.innerHTML = 'Direct <span class="gradient">ADB Security</span><br>Assessment';
-                subtitle.textContent = 'Connect your Android device via USB to perform real-time security configuration checks.';
-                document.getElementById('adbInterface').classList.remove('hidden');
-                document.getElementById('dropZone').classList.add('hidden');
-                document.getElementById('featuresSection').classList.add('hidden');
-                document.querySelector('.hero-actions').classList.add('hidden');
+                document.documentElement.style.setProperty('--accent-primary', '#fb923c');
+                document.documentElement.style.setProperty('--accent-secondary', '#f59e0b');
+                orbs[0].style.background = 'radial-gradient(circle, rgba(251,146,60,0.3) 0%, transparent 70%)';
+
+                hero.classList.add('hidden');
+                dropZone.classList.add('hidden');
+                features.classList.add('hidden');
+                adbInterface.classList.remove('hidden');
+                
                 if (window.adbUI) window.adbUI.init();
             }
         }
@@ -3392,8 +3411,10 @@
 
         window.onload = () => {
             const params = new URLSearchParams(window.location.search);
-            const mode = params.get('mode');
-            if (mode) setMode(mode);
+            const mode = params.get('mode') || 
+                         (location.pathname.includes('ipaauditor') ? 'ios' : 
+                          location.pathname.includes('adbauditor') ? 'adb' : 'android');
+            setMode(mode);
             
             if (window.self !== window.top) {
                 const nav = document.querySelector('.top-nav');
