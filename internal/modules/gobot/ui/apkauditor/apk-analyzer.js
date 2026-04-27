@@ -15,7 +15,8 @@ const state = {
     currentViewFqn: null,
     currentViewDexIdx: null,
     javaCache: new Map(),
-    explorerView: 'apk'
+    explorerView: 'apk',
+    regexSearch: false
 };
 
 const esc = s => { if (!s && s !== 0) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
