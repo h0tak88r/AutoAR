@@ -550,6 +550,21 @@
                         <div class="jadx-search" style="display:flex;gap:4px;align-items:center">
                             <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..." oninput="searchFiles(this.value)">
                             <button id="regexToggle" onclick="toggleRegexSearch()" title="Regex Search" style="padding:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:10px;font-weight:700;transition:all .2s">REG</button>
+                            <select id="searchPresets" onchange="applySearchPreset(this.value)" style="padding:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-secondary);font-size:10px;outline:none;cursor:pointer">
+                                <option value="">Presets</option>
+                                <optgroup label="Critical/High findings">
+                                    <option value="firebase">Firebase Database</option>
+                                    <option value="aws_key">AWS Access Key</option>
+                                    <option value="google_api">Google API Key</option>
+                                    <option value="jwt">JWT Token</option>
+                                    <option value="private_key">Private Keys</option>
+                                    <option value="slack_webhook">Slack Webhook</option>
+                                    <option value="generic_secret">Generic Secret</option>
+                                    <option value="ip_address">IP Addresses</option>
+                                    <option value="auth_header">Authorization Headers</option>
+                                    <option value="s3_bucket">S3 Buckets</option>
+                                </optgroup>
+                            </select>
                         </div>
                             <div class="code-search-nav" id="codeSearchNavBar" style="display:none">
                                 <span class="code-search-count" id="codeSearchCount"></span>
@@ -707,6 +722,30 @@
         });
 
 
+
+        function applySearchPreset(val){
+            if(!val) return;
+            const presets = {
+                firebase: '[a-z0-9.-]+\\.firebaseio\\.com',
+                aws_key: '(AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}',
+                google_api: 'AIza[0-9A-Za-z-_]{35}',
+                jwt: 'eyJ[a-zA-Z0-9-]{10,}\\.eyJ[a-zA-Z0-9-]{10,}\\.[a-zA-Z0-9-]{10,}',
+                private_key: '-----BEGIN .* PRIVATE KEY-----',
+                slack_webhook: 'https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}',
+                generic_secret: '[sS][eE][cC][rR][eE][tT].*[\'|"][0-9a-zA-Z]{32,45}[\'|"]',
+                ip_address: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b',
+                auth_header: '(basic|bearer)\\s[a-zA-Z0-9_\\-:\\.=]+',
+                s3_bucket: 's3[_-]?bucket(=|=|:|:)'
+            };
+            const q = presets[val];
+            if(q){
+                if(!state.regexSearch) toggleRegexSearch();
+                const input = document.getElementById('fileSearchInput');
+                input.value = q;
+                searchFiles(q);
+            }
+            document.getElementById('searchPresets').value = '';
+        }
 
         function toggleRegexSearch(){
             state.regexSearch=!state.regexSearch;
