@@ -1643,8 +1643,17 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			if shouldSkipArtifact(path) {
 				return nil
 			}
-			if scanType == "apkx" && !strings.HasSuffix(strings.ToLower(path), ".apk") {
-				return nil
+			if scanType == "apkx" {
+				baseName := filepath.Base(path)
+				isPatched := strings.HasSuffix(baseName, "-mitm.apk")
+				isMainApk := strings.HasSuffix(baseName, ".apk") && 
+				             !strings.HasPrefix(baseName, "config.") && 
+				             !strings.Contains(baseName, "-unsigned") && 
+				             !strings.Contains(baseName, "-aligned")
+				
+				if !isPatched && !isMainApk {
+					return nil
+				}
 			}
 			if _, ok := seen[path]; ok {
 				return nil
