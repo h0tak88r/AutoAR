@@ -914,12 +914,17 @@ function analyzeManifest(manifest) {
                     f('deeplink_scheme', `Custom URL Scheme: ${scheme}://`, 'issue', `Activity "${n}" handles "${scheme}://" scheme. Validate deep link input.`, 'CWE-939', 'M1', 'PLATFORM-3', `<activity> ${short} [scheme="${scheme}://"]`);
             }
         }
-        if (a.launchMode === 'singleTask' || a.launchMode === '2') {
-            f('launch_mode_singletask', 'singleTask Launch Mode', 'issue', `Activity "${n}" uses singleTask launchMode. Improper routing of intents can lead to vulnerabilities.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [launchMode="${a.launchMode}"]`);
+        const lm = String(a.launchMode);
+        if (lm === 'singleTask' || lm === '2') {
+            f('launch_mode_singletask', 'SingleTask LaunchMode (Task Hijack Risk)', 'warning', `Activity "${n}" uses singleTask launchMode. It may be vulnerable to StrandHogg-style task hijacking if taskAffinity is not properly configured.`, 'CWE-1021', 'M1', 'PLATFORM-2', `<activity> ${short} [launchMode="${a.launchMode}"]`);
             
-            if (a.taskAffinity) {
-                f('task_hijack', 'singleTask + taskAffinity (StrandHogg Risk)', 'issue', `Activity "${n}" uses singleTask with taskAffinity, highly vulnerable to StrandHogg task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [singleTask + taskAffinity]`);
+            if (!a.taskAffinity) {
+                f('task_hijack', 'Task Hijacking Risk (singleTask + no-taskAffinity)', 'issue', `Activity "${n}" uses singleTask without a custom taskAffinity, making it highly vulnerable to StrandHogg task hijacking.`, 'CWE-1021', 'M1', 'PLATFORM-2', `<activity> ${short} [singleTask + no-taskAffinity]`);
             }
+        }
+        
+        if (a.taskAffinity && a.taskAffinity !== R.appInfo?.packageName) {
+            f('task_affinity_hijack', 'Task Hijacking Risk (Custom TaskAffinity)', 'issue', `Activity "${n}" has a custom taskAffinity ("${a.taskAffinity}") which can be hijacked by malicious apps.`, 'CWE-1021', 'M1', 'PLATFORM-2', `<activity> ${short} [taskAffinity="${a.taskAffinity}"]`);
         }
     });
 
