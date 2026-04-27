@@ -208,6 +208,17 @@ function navigateTo(view) {
       try { history.pushState({}, '', '/ui'); } catch (e) { /* ignore */ }
     }
   }
+
+  // When entering APK Auditor, stamp a short-lived cookie so the iframe's
+  // request to /ui/apkauditor/ passes the server-side auth guard.
+  if (view === 'apkauditor') {
+    const tok = state._authAccessToken || localTokenGet();
+    if (tok) {
+      // SameSite=Strict, 1 hour TTL, path scoped to /ui/apkauditor
+      document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
+    }
+  }
+
   VIEWS.forEach(v => {
     const el = document.getElementById(`view-${v}`);
     const nav = document.getElementById(`nav-${v}`);
