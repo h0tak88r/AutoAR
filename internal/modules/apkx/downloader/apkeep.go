@@ -160,20 +160,58 @@ func (a *ApkeepDownloader) ListVersions(packageName, source string) ([]string, e
 }
 
 func (a *ApkeepDownloader) findDownloadedAPK(packageName string) (string, error) {
-	// Look for APK files in the output directory
+	// 1. Look for APK files first
+	apk, err := a.searchForAPK(packageName, ".apk")
+	if err == nil {
+		return apk, nil
+	}
+
+	// 2. If no APK, look for XAPK
+	xapk, err := a.searchForAPK(packageName, ".xapk")
+	if err == nil {
+		fmt.Printf("%s[INFO] Found XAPK: %s. Extracting...%s\n", ColorBlue, xapk, ColorEnd)
+		// Extract XAPK (it's just a zip)
+		cmd := exec.Command("unzip", "-o", xapk, "-d", a.OutputDir)
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("failed to extract XAPK: %v", err)
+		}
+		
+		// Search again for APK (often base.apk or <package>.apk)
+		// Try <package>.apk first
+		apk, err = a.searchForAPK(packageName, ".apk")
+		if err == nil {
+			return apk, nil
+		}
+		
+		// Try "base.apk"
+		baseApk := filepath.Join(a.OutputDir, "base.apk")
+		if _, err := os.Stat(baseApk); err == nil {
+			// Rename to something more descriptive if possible
+			newName := filepath.Join(a.OutputDir, packageName+".apk")
+			os.Rename(baseApk, newName)
+			return newName, nil
+		}
+		
+		// Last resort: any APK in the dir
+		return a.searchForAPK("", ".apk")
+	}
+
+	return "", fmt.Errorf("no APK or XAPK file found for package %s", packageName)
+}
+
+func (a *ApkeepDownloader) searchForAPK(packageName, suffix string) (string, error) {
 	entries, err := os.ReadDir(a.OutputDir)
 	if err != nil {
 		return "", err
 	}
 
-	// Find the most recently created APK file
-	var latestAPK string
+	var latestFile string
 	var latestTime time.Time
 
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".apk") {
-			// Check if this APK is related to our package
-			if strings.Contains(entry.Name(), packageName) ||
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), suffix) {
+			// If packageName is empty, just find the latest file with suffix
+			if packageName == "" || strings.Contains(entry.Name(), packageName) ||
 				strings.Contains(entry.Name(), strings.ReplaceAll(packageName, ".", "_")) {
 
 				info, err := entry.Info()
@@ -183,17 +221,16 @@ func (a *ApkeepDownloader) findDownloadedAPK(packageName string) (string, error)
 
 				if info.ModTime().After(latestTime) {
 					latestTime = info.ModTime()
-					latestAPK = filepath.Join(a.OutputDir, entry.Name())
+					latestFile = filepath.Join(a.OutputDir, entry.Name())
 				}
 			}
 		}
 	}
 
-	if latestAPK == "" {
-		return "", fmt.Errorf("no APK file found for package %s", packageName)
+	if latestFile == "" {
+		return "", fmt.Errorf("not found")
 	}
-
-	return latestAPK, nil
+	return latestFile, nil
 }
 
 func (a *ApkeepDownloader) DownloadMultipleAPKs(packages []string, config DownloadConfig) ([]string, error) {
