@@ -1,5 +1,5 @@
 /* IPA Auditor - iOS Security Analysis Tool | By Sandeep (https://www.linkedin.com/in/sandeepwawdane/) */
-const ipaState = {
+window.ipaState = {
     analysisResults: null,
     zipContent: null,
     appPath: null,
@@ -9,6 +9,7 @@ const ipaState = {
     binaryStrings: [],
     debug: true
 };
+const ipaState = window.ipaState;
 
 function log(...args) {
     if (ipaState.debug) console.log('[IPA-Auditor]', ...args);

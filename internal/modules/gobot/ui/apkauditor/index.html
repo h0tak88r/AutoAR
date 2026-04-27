@@ -16,11 +16,13 @@
         rel="stylesheet">
     <script>
         (function() {
-            const mode = new URLSearchParams(window.location.search).get('mode') || 'android';
-            const scripts = ['lib/jszip.min.js', 'lib/jspdf.umd.min.js'];
-            if (mode === 'android') scripts.push('apk-secrets.js', 'apk-analyzer.js');
-            else if (mode === 'ios') scripts.push('ipa-analyzer.js');
-            else if (mode === 'adb') scripts.push('adb-core.js', 'adb-auditor.js', 'adb-ui-bridge.js');
+            const mode = new URLSearchParams(window.location.search).get('mode') || 
+                         (location.pathname.includes('ipaauditor') ? 'ios' : 
+                          location.pathname.includes('adbauditor') ? 'adb' : 'android');
+            const scripts = ['/ui/apkauditor/lib/jszip.min.js', '/ui/apkauditor/lib/jspdf.umd.min.js'];
+            if (mode === 'android') scripts.push('/ui/apkauditor/apk-secrets.js', '/ui/apkauditor/apk-analyzer.js');
+            else if (mode === 'ios') scripts.push('/ui/apkauditor/ipa-analyzer.js');
+            else if (mode === 'adb') scripts.push('/ui/apkauditor/adb-core.js', '/ui/apkauditor/adb-auditor.js', '/ui/apkauditor/adb-ui-bridge.js');
 
             scripts.forEach(src => {
                 const s = document.createElement('script');
@@ -2467,15 +2469,15 @@
             Mobile<span style="color:var(--accent-primary)">Auditor</span>
         </div>
         <div class="auditor-tabs">
-            <div class="auditor-tab active" data-mode="android" onclick="setMode('android')">
+            <div class="auditor-tab active" data-mode="android" onclick="location.href='/ui/apkauditor/'">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path d="M17.5 19l1.5 2M6.5 19L5 21M9 13v.01M15 13v.01M5 10c0-3.87 3.13-7 7-7s7 3.13 7 7v10H5V10z"/></svg>
                 Android (APK)
             </div>
-            <div class="auditor-tab" data-mode="ios" onclick="setMode('ios')">
+            <div class="auditor-tab" data-mode="ios" onclick="location.href='/ui/ipaauditor/'">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path d="M12 20.94c1.88-1.06 3.95-1.06 5.82 0a2 2 0 002.94-1.73v-10.4c0-1.57-.93-3-2.36-3.64l-5.46-2.43a2 2 0 00-1.88 0L5.6 5.17A4 4 0 003.24 8.8v10.41a2 2 0 002.94 1.73c1.88-1.06 3.95-1.06 5.82 0z"/></svg>
                 iOS (IPA)
             </div>
-            <div class="auditor-tab" data-mode="adb" onclick="setMode('adb')">
+            <div class="auditor-tab" data-mode="adb" onclick="location.href='/ui/adbauditor/'">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 ADB Auditor
             </div>
@@ -3048,7 +3050,8 @@
         }
 
         function searchFiles(q) {
-            const state = (window.apkState || window.ipaState || { dexParsed: [], fileContents: new Map(), javaCache: new Map() });
+            const state = window.apkState || window.ipaState;
+            if (!state) return;
             if (!q || q.length < 2) {
                 document.querySelectorAll('.tree-file').forEach(f => f.style.display = '');
                 document.querySelectorAll('#fileTree details').forEach(d => d.open = false);
@@ -3088,7 +3091,9 @@
         }
         function searchCode(q) {
             let rx = null;
-            const state = (window.apkState || window.ipaState || { dexParsed: [], fileContents: new Map(), javaCache: new Map() });
+            const state = window.apkState || window.ipaState;
+            if (!state) return;
+            
             if (state.regexMode) {
                 try { rx = new RegExp(q, 'i'); } catch(e){}
             } else if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
@@ -3096,19 +3101,43 @@
             }
             const lq = q.toLowerCase();
             const results = [];
+            
+            // 1. Search Class Names
             for (let di = 0; di < state.dexParsed.length; di++) {
                 const dex = state.dexParsed[di];
                 for (const cls of (dex.classes || [])) {
                     const fqn = (cls.name || '').replace(/^L/, '').replace(/;$/, '').replace(/\//g, '.');
                     const matchCls = rx ? rx.test(fqn) : fqn.toLowerCase().includes(lq);
-                    if (matchCls) { results.push({ fqn, cls, di, reason: 'class name' }); continue; }
+                    
+                    if (matchCls) { 
+                        results.push({ fqn, cls, di, reason: 'class name' }); 
+                        continue; 
+                    }
+                    
+                    // 2. Search Cached Java Code
                     if (state.javaCache.has(fqn)) {
                         const code = state.javaCache.get(fqn);
                         const matchCode = rx ? rx.test(code) : code.toLowerCase().includes(lq);
-                        if (matchCode) { results.push({ fqn, cls, di, reason: 'code match' }); }
+                        if (matchCode) { 
+                            results.push({ fqn, cls, di, reason: 'code match' }); 
+                            continue;
+                        }
+                    }
+                    
+                    // 3. Search DEX Strings (Global fallback)
+                    // This is fast and tells us which classes reference the string
+                    if (dex.strings && q.length > 3) {
+                        const hasString = dex.strings.some(s => rx ? rx.test(s) : s.toLowerCase().includes(lq));
+                        if (hasString) {
+                             // This is a heuristic: we don't know for SURE which class uses it without full decompilation,
+                             // but it's a good indicator for the user to investigate.
+                             results.push({ fqn, cls, di, reason: 'string match' });
+                        }
                     }
                 }
             }
+            
+            // 4. Search other file contents
             for (const [path, content] of state.fileContents) {
                 if (typeof content === 'string') {
                     const matchFile = rx ? rx.test(content) : content.toLowerCase().includes(lq);
