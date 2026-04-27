@@ -2742,20 +2742,21 @@
                                     oninput="searchFiles(this.value)" style="flex:1;">
                                 <select id="presetSearch" onchange="const v = this.value; if(v) { document.getElementById('fileSearchInput').value = v; searchFiles(v); this.value = ''; }" style="width: auto; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 8px; padding: 0 10px; cursor: pointer;">
                                     <option value="">Preset Keywords...</option>
-                                    <option value="AKIA">AWS Key (AKIA)</option>
-                                    <option value="s3.amazonaws.com">AWS S3 Bucket</option>
-                                    <option value="AIza">Google API Key (AIza)</option>
-                                    <option value="firebaseio.com">Firebase DB</option>
-                                    <option value="xoxb-">Slack Token (xoxb-)</option>
-                                    <option value="-----BEGIN PRIVATE KEY-----">Private Key</option>
-                                    <option value="jdbc:">Database JDBC</option>
-                                    <option value="password=">Password</option>
-                                    <option value="secret=">Secret</option>
-                                    <option value="api_key">API Key</option>
-                                    <option value="token=">Token</option>
-                                    <option value="sk_live_">Stripe Secret</option>
-                                    <option value="sq0csp-">Square Secret</option>
-                                    <option value="eyJh">JWT Token (eyJh)</option>
+                                    <optgroup label="Regular Expressions">
+                                        <option value="/AKIA[0-9A-Z]{16}/">AWS Key (regex)</option>
+                                        <option value="/[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+\.[a-zA-Z]+/">Email Address (regex)</option>
+                                        <option value="/https?:\/\/[^\s&quot;]+/">URLs (regex)</option>
+                                        <option value="/s3[_-]?bucket/i">S3 Bucket (regex)</option>
+                                        <option value="/(password|secret|token)\s*=\s*[&quot;'][^&quot;']+[&quot;']/i">Hardcoded Secret (regex)</option>
+                                    </optgroup>
+                                    <optgroup label="Exact Keywords">
+                                        <option value="AIza">Google API Key (AIza)</option>
+                                        <option value="firebaseio.com">Firebase DB</option>
+                                        <option value="xoxb-">Slack Token (xoxb-)</option>
+                                        <option value="-----BEGIN PRIVATE KEY-----">Private Key</option>
+                                        <option value="jdbc:">Database JDBC</option>
+                                        <option value="eyJh">JWT Token (eyJh)</option>
+                                    </optgroup>
                                 </select>
                             </div>
                             <div class="code-search-nav" id="codeSearchNavBar" style="display:none">
@@ -2954,30 +2955,44 @@
             }
         }
         function searchAPKFiles(q) {
-            q = q.toLowerCase();
+            let rx = null;
+            if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
+                try { rx = new RegExp(q.slice(1, -1), 'i'); } catch(e){}
+            }
+            const lq = q.toLowerCase();
             document.querySelectorAll('#fileTree details').forEach(d => d.open = true);
             document.querySelectorAll('.tree-file').forEach(f => {
-                const n = f.querySelector('.file-name')?.textContent.toLowerCase() || '';
-                f.style.display = n.includes(q) ? '' : 'none';
+                const n = f.querySelector('.file-name')?.textContent || '';
+                const match = rx ? rx.test(n) : n.toLowerCase().includes(lq);
+                f.style.display = match ? '' : 'none';
             });
         }
         function searchCode(q) {
+            let rx = null;
+            if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
+                try { rx = new RegExp(q.slice(1, -1), 'i'); } catch(e){}
+            }
             const lq = q.toLowerCase();
             const results = [];
             for (let di = 0; di < state.dexParsed.length; di++) {
                 const dex = state.dexParsed[di];
                 for (const cls of (dex.classes || [])) {
                     const fqn = (cls.name || '').replace(/^L/, '').replace(/;$/, '').replace(/\//g, '.');
-                    if (fqn.toLowerCase().includes(lq)) { results.push({ fqn, cls, di, reason: 'class name' }); continue; }
+                    const matchCls = rx ? rx.test(fqn) : fqn.toLowerCase().includes(lq);
+                    if (matchCls) { results.push({ fqn, cls, di, reason: 'class name' }); continue; }
                     if (state.javaCache.has(fqn)) {
                         const code = state.javaCache.get(fqn);
-                        if (code.toLowerCase().includes(lq)) { results.push({ fqn, cls, di, reason: 'code match' }); }
+                        const matchCode = rx ? rx.test(code) : code.toLowerCase().includes(lq);
+                        if (matchCode) { results.push({ fqn, cls, di, reason: 'code match' }); }
                     }
                 }
             }
             for (const [path, content] of state.fileContents) {
-                if (typeof content === 'string' && content.toLowerCase().includes(lq)) {
-                    results.push({ fqn: path, file: true, reason: 'file content' });
+                if (typeof content === 'string') {
+                    const matchFile = rx ? rx.test(content) : content.toLowerCase().includes(lq);
+                    if (matchFile) {
+                        results.push({ fqn: path, file: true, reason: 'file content' });
+                    }
                 }
             }
             const el = document.getElementById('smaliTree');
