@@ -98,6 +98,27 @@ func registerAllCommands(s *discordgo.Session) {
 			},
 		},
 		{
+			Name:        "apkx_scan",
+			Description: "Scan APK file",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "APK file to scan", Required: true},
+			},
+		},
+		{
+			Name:        "apkx_scan_package",
+			Description: "Scan APK package name",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionString, Name: "package", Description: "Package name", Required: true},
+			},
+		},
+		{
+			Name:        "apkx_scan_ios",
+			Description: "Scan iOS IPA file",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "IPA file to scan", Required: true},
+			},
+		},
+		{
 			Name:        "subdomain_run",
 			Description: "Run full workflow on a single subdomain (checks if live, then runs all scans)",
 			Options: []*discordgo.ApplicationCommandOption{

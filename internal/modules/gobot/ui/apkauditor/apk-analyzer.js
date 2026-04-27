@@ -913,8 +913,10 @@ function analyzeManifest(manifest) {
                     f('deeplink_scheme', `Custom URL Scheme: ${scheme}://`, 'issue', `Activity "${n}" handles "${scheme}://" scheme. Validate deep link input.`, 'CWE-939', 'M1', 'PLATFORM-3', `<activity> ${short} [scheme="${scheme}://"]`);
             }
         }
-        if ((a.launchMode === 'singleTask' || a.launchMode === 'singleInstance') && a.taskAffinity)
-            f('task_hijack', `${a.launchMode} + taskAffinity (Task Hijacking)`, 'issue', `Activity "${n}" uses ${a.launchMode} with taskAffinity, vulnerable to StrandHogg task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [${a.launchMode} + taskAffinity]`);
+        const lm = String(a.launchMode || '');
+        const isHijackLM = (lm === 'singleTask' || lm === 'singleInstance' || lm === '2' || lm === '3');
+        if (isHijackLM)
+            f('task_hijack', `Vulnerable launchMode (${lm})`, 'issue', `Activity "${n}" uses launchMode="${lm}". If combined with taskAffinity or exported=true, it is vulnerable to Task Hijacking (StrandHogg).`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [launchMode="${lm}"]`);
         if (a.allowTaskReparenting === true || a.allowTaskReparenting === 'true')
             f('task_reparenting', 'allowTaskReparenting Enabled', 'issue', `Activity "${n}" has allowTaskReparenting="true", which can be abused for task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [allowTaskReparenting="true"]`);
     });

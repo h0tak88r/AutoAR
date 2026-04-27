@@ -53,7 +53,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
     postgresql-client docker.io \
     python3 python3-pip sqlmap nmap \
+    default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Apktool and Uber-APK-Signer for MITM patching
+RUN curl -L https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -o /usr/local/bin/apktool && \
+    chmod +x /usr/local/bin/apktool && \
+    curl -L https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar -o /usr/local/bin/apktool.jar && \
+    curl -L https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar -o /usr/local/bin/uber-apk-signer.jar
 
 # Copy minimal application configuration and assets (source not required at runtime)
 COPY regexes/ ./regexes/
