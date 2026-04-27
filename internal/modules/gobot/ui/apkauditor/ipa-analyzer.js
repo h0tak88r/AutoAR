@@ -1675,6 +1675,7 @@ function renderResults(results) {
 
 function renderOverviewTab(results) {
     const grid = document.getElementById('appInfoGrid');
+    if (!grid) return;
     const items = [
         ['Bundle ID', results.appInfo.bundleId],
         ['Version', results.appInfo.version],
@@ -1783,27 +1784,32 @@ function toggleFinding(idx) {
 }
 
 function renderBinaryTab(results) {
+    const grid = document.getElementById('checksecGrid');
+    if (grid) {
+        const checks = [
+            ['PIE (ASLR)', results.checksec.pie, 'Position Independent Executable'],
+            ['ARC', results.checksec.arc, 'Automatic Reference Counting'],
+            ['Stack Canary', results.checksec.canary, 'Buffer overflow protection'],
+            ['64-bit', results.checksec.is64bit, 'Modern architecture']
+        ];
 
-    const checks = [
-        ['PIE (ASLR)', results.checksec.pie, 'Position Independent Executable'],
-        ['ARC', results.checksec.arc, 'Automatic Reference Counting'],
-        ['Stack Canary', results.checksec.canary, 'Buffer overflow protection'],
-        ['64-bit', results.checksec.is64bit, 'Modern architecture']
-    ];
-
-    document.getElementById('checksecGrid').innerHTML = checks.map(([name, ok, desc]) => `
-        <div class="checksec-item ${ok ? 'pass' : 'fail'}">
-            <div class="checksec-status">${ok ? '✓' : '✗'}</div>
-            <div class="checksec-info">
-                <div class="checksec-name">${name}</div>
-                <div class="checksec-desc">${desc}</div>
+        grid.innerHTML = checks.map(([name, ok, desc]) => `
+            <div class="checksec-item ${ok ? 'pass' : 'fail'}">
+                <div class="checksec-status">${ok ? '✓' : '✗'}</div>
+                <div class="checksec-info">
+                    <div class="checksec-name">${name}</div>
+                    <div class="checksec-desc">${desc}</div>
+                </div>
             </div>
-        </div>
-    `).join('');
+        `).join('');
+    }
 
-    document.getElementById('librariesList').innerHTML = results.libraries.length === 0 ?
-        '<div class="no-data">No libraries detected</div>' :
-        results.libraries.map(l => `<div class="library-item">${escapeHtml(l)}</div>`).join('');
+    const libList = document.getElementById('librariesList');
+    if (libList) {
+        libList.innerHTML = results.libraries.length === 0 ?
+            '<div class="no-data">No libraries detected</div>' :
+            results.libraries.map(l => `<div class="library-item">${escapeHtml(l)}</div>`).join('');
+    }
 }
 
 function renderExplorerTab(results) {
@@ -2440,11 +2446,13 @@ function showSearchResults(containerId, results, clickHandler) {
 }
 
 function renderPlistTab(results) {
-    const plistContent = document.getElementById('plistContent');
+    const plistContent = document.getElementById('manifestView') || document.getElementById('plistContent');
+    if (!plistContent) return;
+    
     if (results.plistData) {
-        plistContent.textContent = JSON.stringify(results.plistData, null, 2);
+        plistContent.innerHTML = `<pre style="margin:0; padding:16px; color:var(--text-primary); font-family:var(--font-mono)">${escapeHtml(JSON.stringify(results.plistData, null, 2))}</pre>`;
     } else {
-        plistContent.textContent = 'Unable to parse Info.plist';
+        plistContent.innerHTML = '<div class="no-data">Unable to parse Info.plist</div>';
     }
 }
 
@@ -2486,6 +2494,7 @@ function exportReport() {
     a.click();
 }
 
+/*
 document.addEventListener('DOMContentLoaded', () => {
     const upload = document.getElementById('uploadSection');
     const input = document.getElementById('fileInput');
@@ -2513,6 +2522,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     log('IPA Auditor v2.0 initialized');
 });
+*/
 
 async function startAnalysis(file) {
     if (typeof showLoading === 'function') showLoading('Analyzing IPA...', 'Initializing...');
@@ -2522,11 +2532,10 @@ async function startAnalysis(file) {
         renderResults(results);
         
         // Switch to findings tab automatically
-        const findingsTab = document.querySelector('.auditor-tab[data-mode="ios"]');
-        if (findingsTab) {
-            // If we are in IPA mode, we should show the results panels
+        const appContainer = document.getElementById('appContainer');
+        if (appContainer) {
             document.getElementById('landingContent').classList.add('hidden');
-            document.getElementById('analysisContent').classList.remove('hidden');
+            appContainer.classList.remove('hidden');
             // Select first tab
             const firstTab = document.querySelector('.tab[data-tab="findings"]');
             if (firstTab) firstTab.click();
