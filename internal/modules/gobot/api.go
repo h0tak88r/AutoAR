@@ -389,6 +389,7 @@ type ScanRequest struct {
 	PackageID *string `json:"package_id"` // ApkX package ID
 	MITM      *bool   `json:"mitm"`       // ApkX MITM option
 	Platform  *string `json:"platform"`   // ApkX platform (android/ios)
+	SkipRegex *bool   `json:"skip_regex"` // ApkX skip regex option
 }
 
 type ScanResponse struct {
@@ -617,6 +618,11 @@ func scanApkX(c *gin.Context) {
 		mitm = *req.MITM
 	}
 
+	skipRegex := false
+	if req.SkipRegex != nil {
+		skipRegex = *req.SkipRegex
+	}
+
 	if ok, msg := apkxMemoryPreflightCheck(); !ok {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": msg,
@@ -640,9 +646,10 @@ func scanApkX(c *gin.Context) {
 			defer func() { <-apkxPackageSemaphore }()
 			log.Printf("[API] [apkx] Starting package-based scan: %s (%s)", pkg, platform)
 			return apkxmod.RunFromPackage(apkxmod.PackageOptions{
-				Package:  pkg,
-				Platform: platform,
-				MITM:     mitm,
+				Package:   pkg,
+				Platform:  platform,
+				MITM:      mitm,
+				SkipRegex: skipRegex,
 			})
 		})
 
@@ -671,6 +678,7 @@ func scanApkX(c *gin.Context) {
 		return apkxmod.Run(apkxmod.Options{
 			InputPath: filePath,
 			MITM:      mitm,
+			SkipRegex: skipRegex,
 		})
 	})
 

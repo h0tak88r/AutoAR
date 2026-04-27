@@ -27,6 +27,8 @@ type Options struct {
 	OutputDir string
 	// Whether to enable MITM patching (-mitm flag).
 	MITM bool
+	// Skip the deep regex pattern matching to save time and memory.
+	SkipRegex bool
 }
 
 // Result describes where apkX wrote its output.
@@ -74,6 +76,8 @@ type PackageOptions struct {
 	MITM bool
 	// Disable cache lookups/saves for this run.
 	DisableCache bool
+	// Skip the deep regex pattern matching.
+	SkipRegex bool
 }
 
 func isCacheDisabled(opts PackageOptions) bool {
@@ -257,10 +261,15 @@ func Run(opts Options) (*Result, error) {
 			}
 		}
 
+		patternsPath := ""
+		if opts.SkipRegex {
+			patternsPath = "/dev/null"
+		}
+
 		cfg := &apkxanalyzer.Config{
 			APKPath:      opts.InputPath,
 			OutputDir:    outDir,
-			PatternsPath: "",
+			PatternsPath: patternsPath,
 			Workers:      workers, // Conservative default to prevent OOM
 			HTMLOutput:   false,   // HTML report not needed — dashboard reads results.json
 			JanusScan:    true,
@@ -467,6 +476,7 @@ func RunFromPackage(opts PackageOptions) (*Result, error) {
 		InputPath: inputPath,
 		OutputDir: opts.OutputDir,
 		MITM:      opts.MITM,
+		SkipRegex: opts.SkipRegex,
 	})
 
 	// Store the original APK path in the result
