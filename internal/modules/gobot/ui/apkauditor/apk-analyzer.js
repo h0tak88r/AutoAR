@@ -3406,6 +3406,30 @@ async function startRemoteAnalysis() {
         showToast('APK fetched! Analyzing...', 'success');
         startAnalysis(file);
 
+        // Show completion modal with download link
+        const modalContent = document.querySelector('#remoteScanModal .modal-body');
+        if (modalContent) {
+            const isMitm = apkFile.file_name.includes('-mitm.apk');
+            modalContent.innerHTML = `
+                <div style="text-align: center;">
+                    <i class="fas fa-check-circle" style="font-size: 48px; color: #00ff00; margin-bottom: 15px;"></i>
+                    <h3 style="color: #fff;">Remote Analysis Complete</h3>
+                    <p style="color: #ccc;">The APK has been loaded into the auditor for analysis.</p>
+                    
+                    <div style="margin: 20px 0; padding: 15px; background: rgba(0,255,0,0.1); border: 1px solid #00ff00; border-radius: 8px;">
+                        <h4 style="color: #00ff00; margin-bottom: 10px;">${isMitm ? 'MITM Patched APK Ready' : 'APK Ready'}</h4>
+                        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px;">${apkFile.file_name}</p>
+                        <a href="${downloadUrl}" class="btn btn-primary" download style="background: #00ff00; color: #000; border: none; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; display: inline-block;">
+                            <i class="fas fa-download"></i> Download APK
+                        </a>
+                    </div>
+                    
+                    <button class="btn btn-secondary" onclick="closeRemoteModal()" style="width: 100%;">Continue to Auditor</button>
+                </div>
+            `;
+            document.getElementById('remoteScanModal').style.display = 'block';
+        }
+
     } catch (e) {
         hideLoading();
         showToast('Remote analysis failed: ' + e.message, 'error');
