@@ -2386,6 +2386,8 @@ function downloadManifestFile() {
     a.download = 'AndroidManifest.xml'; a.click();
 }
 
+function ir(k, v) { return `<div class="info-row"><span class="info-key">${esc(k)}</span><span class="info-val">${v}</span></div>`; }
+
 function renderOverviewTab(R) {
     const g = state.groupedFindings;
     
