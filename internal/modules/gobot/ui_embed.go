@@ -24,7 +24,7 @@ func serveDashboardUI(c *gin.Context) {
 
 	if filePath == "" {
 		filePath = "index.html"
-	} else if filePath == "apkauditor" || filePath == "apkauditor/" {
+	} else if filePath == "apkauditor" || filePath == "apkauditor/" || filePath == "ipaauditor" || filePath == "ipaauditor/" || filePath == "adbauditor" || filePath == "adbauditor/" {
 		filePath = "apkauditor/index.html"
 	}
 
@@ -35,7 +35,7 @@ func serveDashboardUI(c *gin.Context) {
 	//
 	// Same-origin iframe requests (Sec-Fetch-Dest: iframe, Sec-Fetch-Site: same-origin)
 	// are explicitly allowed — they come from within the authenticated SPA itself.
-	if strings.HasPrefix(filePath, "apkauditor") &&
+	if (strings.HasPrefix(filePath, "apkauditor") || strings.HasPrefix(filePath, "ipaauditor") || strings.HasPrefix(filePath, "adbauditor")) &&
 		(strings.HasSuffix(filePath, ".html") || filePath == "apkauditor/index.html") &&
 		dashboardAPIAuthEnforced() {
 
