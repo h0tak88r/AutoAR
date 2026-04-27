@@ -648,10 +648,14 @@ func apiScanResultFileDownload(c *gin.Context) {
 	_ = db.Init()
 	_ = db.EnsureSchema()
 	scanID := strings.TrimSpace(c.Param("id"))
-	fileName := strings.TrimSpace(c.Query("file_name"))
+	// Accept both ?file= and ?file_name= for compatibility
+	fileName := strings.TrimSpace(c.Query("file"))
+	if fileName == "" {
+		fileName = strings.TrimSpace(c.Query("file_name"))
+	}
 
 	if scanID == "" || fileName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id and file_name are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id and file (or file_name) are required"})
 		return
 	}
 
@@ -661,15 +665,29 @@ func apiScanResultFileDownload(c *gin.Context) {
 		return
 	}
 
+	// Check DB for R2 public URL first — avoid loading large files into RAM
+	artifacts, _ := db.ListScanArtifacts(scanID)
+	for _, a := range artifacts {
+		if a == nil {
+			continue
+		}
+		if filepath.Base(a.FileName) == filepath.Base(fileName) && a.PublicURL != "" {
+			// Redirect directly to R2 — fast, no memory overhead
+			c.Redirect(http.StatusFound, a.PublicURL)
+			return
+		}
+	}
+
+	// Fallback: serve file from local disk
 	raw, _, err := loadFileContent(scanID, fileName)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("file not found: %v", err)})
 		return
 	}
 
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(fileName)))
 	c.Header("Content-Type", "application/octet-stream")
 	c.Data(http.StatusOK, "application/octet-stream", raw)
 }
