@@ -15,7 +15,14 @@
         href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
     <script src="lib/jszip.min.js"></script>
+    <script src="lib/plist.min.js"></script>
     <script src="lib/jspdf.umd.min.js"></script>
+    <script src="apk-secrets.js"></script>
+    <script src="apk-analyzer.js"></script>
+    <script src="ipa-analyzer.js"></script>
+    <script src="adb-core.js"></script>
+    <script src="adb-auditor.js"></script>
+    <script src="adb-ui-bridge.js"></script>
     <style>
         :root {
             --bg-primary: #030306;
@@ -2397,6 +2404,11 @@
                 gap: 20px;
             }
         }
+        .auditor-tabs { display: flex; justify-content: center; gap: 12px; margin: 0 20px; }
+        .auditor-tab { padding: 8px 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; font-weight: 600; display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .auditor-tab:hover { background: rgba(255,255,255,0.1); border-color: var(--accent-primary); color: var(--text-primary); }
+        .auditor-tab.active { background: var(--accent-subtle); border-color: var(--accent-primary); color: var(--accent-primary); box-shadow: 0 0 15px rgba(129, 140, 248, 0.2); }
+        .hidden { display: none !important; }
     </style>
 </head>
 
@@ -2409,7 +2421,33 @@
     </div>
     <div class="grid-pattern"></div>
 
-    <main>
+    <header class="top-nav" style="position:fixed; top:0; left:0; right:0; z-index:100; padding:20px 40px; display:flex; justify-content:space-between; align-items:center; backdrop-filter:blur(10px); border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div class="logo" style="display:flex; align-items:center; gap:12px; font-weight:800; font-size:22px; letter-spacing:-1px">
+            <div style="width:32px; height:32px; background:var(--accent-primary); border-radius:8px; display:flex; align-items:center; justify-content:center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width:20px; height:20px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            Mobile<span style="color:var(--accent-primary)">Auditor</span>
+        </div>
+        <div class="auditor-tabs">
+            <div class="auditor-tab active" data-mode="android" onclick="setMode('android')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path d="M17.5 19l1.5 2M6.5 19L5 21M9 13v.01M15 13v.01M5 10c0-3.87 3.13-7 7-7s7 3.13 7 7v10H5V10z"/></svg>
+                Android (APK)
+            </div>
+            <div class="auditor-tab" data-mode="ios" onclick="setMode('ios')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path d="M12 20.94c1.88-1.06 3.95-1.06 5.82 0a2 2 0 002.94-1.73v-10.4c0-1.57-.93-3-2.36-3.64l-5.46-2.43a2 2 0 00-1.88 0L5.6 5.17A4 4 0 003.24 8.8v10.41a2 2 0 002.94 1.73c1.88-1.06 3.95-1.06 5.82 0z"/></svg>
+                iOS (IPA)
+            </div>
+            <div class="auditor-tab" data-mode="adb" onclick="setMode('adb')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                ADB Auditor
+            </div>
+        </div>
+        <div class="nav-actions">
+            <a href="https://github.com/h0tak88r/AutoAR" target="_blank" class="btn btn-ghost" style="padding:8px 16px; font-size:13px">GitHub</a>
+        </div>
+    </header>
+
+    <main style="padding-top:100px">
         <div id="landingContent">
             <section class="hero">
                 <div class="hero-badge">Android Security Scanner · 100% In-Browser</div>
@@ -2457,11 +2495,27 @@
                 <div class="dropzone-title">Drop your APK here</div>
                 <div class="dropzone-sub">Or click to browse. Your file never leaves your device.</div>
                 <div class="dropzone-formats">
-                    <span class="fmt-badge">AndroidManifest.xml</span>
-                    <span class="fmt-badge">DEX Decompiler</span>
-                    <span class="fmt-badge">Certificate Analysis</span>
-                    <span class="fmt-badge">80+ Security Rules</span>
+                    <span class="fmt-badge">Security Rules</span>
+                    <span class="fmt-badge">Binary Parsing</span>
+                    <span class="fmt-badge">In-Browser Analysis</span>
                 </div>
+            </div>
+
+            <div id="adbInterface" style="display:none; max-width:700px; margin:0 auto 60px; position:relative; z-index:2; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:24px; padding:40px; text-align:center">
+                <div class="adb-icon" style="width:80px; height:80px; margin:0 auto 24px; color:var(--accent-primary)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <h3 style="font-size:24px; margin-bottom:12px">Connect via WebUSB</h3>
+                <p style="color:var(--text-secondary); margin-bottom:24px">Connect your Android device and enable USB Debugging to perform a live security audit.</p>
+                
+                <div style="display:flex; justify-content:center; gap:12px; margin-bottom:24px">
+                    <select id="adbDeviceSelect" class="btn btn-ghost" style="width:240px; padding:10px; background:var(--bg-elevated)"></select>
+                    <button id="adbConnectBtn" class="btn btn-primary">Connect Device</button>
+                    <button id="adbDisconnectBtn" class="btn btn-danger hidden">Disconnect</button>
+                </div>
+                <div id="adbStatusText" style="font-size:12px; color:var(--text-muted)">Disconnected</div>
+                
+                <div id="adbContentArea" style="margin-top:40px; text-align:left"></div>
             </div>
 
             <section class="features-section">
@@ -3131,6 +3185,116 @@
             const el = document.getElementById('codeSearchCount');
             el.textContent = (_codeSearchIdx + 1) + ' of ' + _codeSearchMatches.length + ' matches';
         }
+        // --- Mode Switching Logic ---
+        let currentMode = 'android';
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.auditor-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+            
+            const badge = document.querySelector('.hero-badge');
+            const title = document.querySelector('.hero-title');
+            const subtitle = document.querySelector('.hero-subtitle');
+            const dropTitle = document.querySelector('.dropzone-title');
+            const fileInput = document.getElementById('fileInput');
+            
+            if (mode === 'android') {
+                badge.textContent = 'Android Security Scanner · 100% In-Browser';
+                title.innerHTML = 'Analyze Any <span class="gradient">Android APK</span><br>In Seconds';
+                subtitle.textContent = 'Drop an APK to decompile DEX, scan for vulns, parse manifests and certs.';
+                dropTitle.textContent = 'Drop your APK here';
+                fileInput.accept = '.apk';
+                document.getElementById('adbInterface').classList.add('hidden');
+                document.getElementById('dropZone').classList.remove('hidden');
+                document.getElementById('featuresSection').classList.remove('hidden');
+            } else if (mode === 'ios') {
+                badge.textContent = 'iOS Security Scanner · 100% In-Browser';
+                title.innerHTML = 'Audit Any <span class="gradient">iOS IPA</span><br>Securely';
+                subtitle.textContent = 'Professional iOS security auditing. Analyze plists, entitlements, and binary strings.';
+                dropTitle.textContent = 'Drop your IPA here';
+                fileInput.accept = '.ipa';
+                document.getElementById('adbInterface').classList.add('hidden');
+                document.getElementById('dropZone').classList.remove('hidden');
+                document.getElementById('featuresSection').classList.remove('hidden');
+            } else if (mode === 'adb') {
+                badge.textContent = 'ADB Device Auditor · WebUSB Based';
+                title.innerHTML = 'Direct <span class="gradient">ADB Security</span><br>Assessment';
+                subtitle.textContent = 'Connect your Android device via USB to perform real-time security configuration checks.';
+                document.getElementById('adbInterface').classList.remove('hidden');
+                document.getElementById('dropZone').classList.add('hidden');
+                document.getElementById('featuresSection').classList.add('hidden');
+                if (window.adbUI) window.adbUI.init();
+            }
+        }
+
+        // --- Utility Functions ---
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        function showLoading(title, sub = '') {
+            document.getElementById('loadingOverlay').classList.add('active');
+            document.getElementById('loadingText').textContent = title;
+            document.getElementById('progressText').textContent = sub;
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('active');
+        }
+
+        function updateProgress(p, text) {
+            const fill = document.getElementById('progressFill');
+            if (fill) fill.style.width = p + '%';
+            const txt = document.getElementById('progressText');
+            if (txt) txt.textContent = text || '';
+        }
+
+        // --- Unified File Handling ---
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.onclick = () => fileInput.click();
+        dropZone.ondragover = e => { e.preventDefault(); dropZone.classList.add('drag-over'); };
+        dropZone.ondragleave = () => dropZone.classList.remove('drag-over');
+        dropZone.ondrop = e => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFileEntry(file);
+        };
+        fileInput.onchange = e => {
+            const file = e.target.files[0];
+            if (file) handleFileEntry(file);
+        };
+
+        async function handleFileEntry(file) {
+            if (currentMode === 'android') {
+                if (!file.name.toLowerCase().endsWith('.apk')) return showToast('Please select an .apk file', 'error');
+                if (typeof handleFile === 'function') await handleFile(file);
+            } else if (currentMode === 'ios') {
+                if (!file.name.toLowerCase().endsWith('.ipa')) return showToast('Please select an .ipa file', 'error');
+                if (typeof startAnalysis === 'function') await startAnalysis(file);
+            }
+        }
+
+        // Particles
+        function createParticles() {
+            const field = document.getElementById('particleField');
+            for (let i = 0; i < 40; i++) {
+                const p = document.createElement('div');
+                p.className = 'particle';
+                p.style.left = Math.random() * 100 + '%';
+                p.style.animationDelay = Math.random() * 10 + 's';
+                p.style.animationDuration = (10 + Math.random() * 10) + 's';
+                field.appendChild(p);
+            }
+        }
+        createParticles();
     </script>
 </body>
 

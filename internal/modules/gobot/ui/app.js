@@ -121,6 +121,7 @@ const SCAN_FLAG_DEFS = {
   apkx: [
     { key: 'mitm', label: 'MITM Analysis', type: 'bool', advanced: false },
     { key: 'platform', label: 'Platform', type: 'select', options: ['android', 'ios'], advanced: false },
+    { key: 'skip_regex', label: 'Skip Secret Scan', type: 'bool', advanced: false },
   ],
 };
 
@@ -3550,6 +3551,29 @@ async function renderScanDetailView(scanId) {
           </div>
         </div>`
       : '';
+
+    let apkxBanner = '';
+    if (st === 'apkx' && files.length > 0) {
+      const originalApk = files.find(f => f.file_name.endsWith('.apk') && !f.file_name.includes('mitm-patched'));
+      const patchedApk = files.find(f => f.file_name.includes('mitm-patched.apk'));
+
+      if (originalApk || patchedApk) {
+        apkxBanner = `
+        <div class="modern-card" style="padding:18px; border-left: 4px solid var(--accent-primary);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">📱 APK Downloads</div>
+              <div style="font-size:12px;color:var(--text-muted)">Install these files directly to your emulator</div>
+            </div>
+            <div style="display:flex;gap:12px">
+              ${originalApk ? `<a href="${esc(originalApk.file_url)}" target="_blank" rel="noopener" class="btn btn-secondary">Download Original APK</a>` : ''}
+              ${patchedApk ? `<a href="${esc(patchedApk.file_url)}" target="_blank" rel="noopener" class="btn btn-primary" style="background:var(--accent-purple)">Download Patched APK</a>` : ''}
+            </div>
+          </div>
+        </div>`;
+      }
+    }
+
     const manifestCard = renderScanManifestCard(manifestResp?.manifest || null, scan);
 
     let emptyBanner = '';
