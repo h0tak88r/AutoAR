@@ -1077,9 +1077,9 @@
         .finding-card {
             background: var(--bg-elevated);
             border: 1px solid var(--border-subtle);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 12px;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 8px;
             transition: border-color .2s;
         }
 
@@ -1091,7 +1091,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
             flex-wrap: wrap;
         }
 
@@ -1116,7 +1116,7 @@
         }
 
         .finding-title {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             flex: 1;
         }
@@ -2714,14 +2714,18 @@
 
             <div class="panel" id="panel-findings">
                 <div class="results-section">
-                    <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path
-                                d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                            <line x1="12" y1="9" x2="12" y2="13" />
-                            <line x1="12" y1="17" x2="12.01" y2="17" />
-                        </svg>Security Findings</div>
-                    <div id="findingsList" style="padding:16px"></div>
+                    <div class="results-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                <line x1="12" y1="9" x2="12" y2="13" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                            Security Findings
+                        </div>
+                        <input type="text" id="findingsSearchInput" placeholder="Search findings..." oninput="filterFindings(this.value)" style="width: 250px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 12px; font-size: 13px;">
+                    </div>
+                    <div id="findingsList" style="padding:12px; display:flex; flex-direction:column; gap:8px; max-height: calc(100vh - 180px); overflow-y: auto;"></div>
                 </div>
             </div>
 
@@ -2920,6 +2924,14 @@
         });
         fi.addEventListener('change', async e => { if (e.target.files[0]) await startAnalysis(e.target.files[0], getOptions()); });
 
+        function filterFindings(q) {
+            const lq = q.toLowerCase();
+            document.querySelectorAll('#findingsList .finding-card').forEach(card => {
+                const text = card.textContent.toLowerCase();
+                card.style.display = text.includes(lq) ? '' : 'none';
+            });
+        }
+
 
         document.querySelectorAll('.tab').forEach(t => {
             t.addEventListener('click', () => {
@@ -3057,28 +3069,60 @@
             }
         }
         function highlightInNode(node, q) {
+            let rx = null;
+            if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
+                try { rx = new RegExp(q.slice(1, -1), 'gi'); } catch(e){}
+            }
             const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
             const textNodes = [];
             while (walker.nextNode()) textNodes.push(walker.currentNode);
-            const lq = q.toLowerCase();
-            for (const tn of textNodes) {
-                const text = tn.textContent;
-                const lt = text.toLowerCase();
-                let idx = lt.indexOf(lq);
-                if (idx === -1) continue;
-                const frag = document.createDocumentFragment();
-                let last = 0;
-                while (idx !== -1) {
-                    if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
-                    const span = document.createElement('span');
-                    span.className = 'search-hl';
-                    span.textContent = text.slice(idx, idx + q.length);
-                    frag.appendChild(span);
-                    last = idx + q.length;
-                    idx = lt.indexOf(lq, last);
+            
+            if (rx) {
+                for (const tn of textNodes) {
+                    const text = tn.textContent;
+                    rx.lastIndex = 0;
+                    let m;
+                    const matches = [];
+                    while ((m = rx.exec(text)) !== null) {
+                        if (m[0].length === 0) { rx.lastIndex++; continue; }
+                        matches.push({ start: m.index, end: m.index + m[0].length });
+                    }
+                    if (!matches.length) continue;
+                    
+                    const frag = document.createDocumentFragment();
+                    let last = 0;
+                    for (const {start, end} of matches) {
+                        frag.appendChild(document.createTextNode(text.substring(last, start)));
+                        const hl = document.createElement('span');
+                        hl.className = 'search-hl';
+                        hl.textContent = text.substring(start, end);
+                        frag.appendChild(hl);
+                        last = end;
+                    }
+                    frag.appendChild(document.createTextNode(text.substring(last)));
+                    tn.parentNode.replaceChild(frag, tn);
                 }
-                if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
-                tn.parentNode.replaceChild(frag, tn);
+            } else {
+                const lq = q.toLowerCase();
+                for (const tn of textNodes) {
+                    const text = tn.textContent;
+                    const lt = text.toLowerCase();
+                    let idx = lt.indexOf(lq);
+                    if (idx === -1) continue;
+                    const frag = document.createDocumentFragment();
+                    let last = 0;
+                    while (idx !== -1) {
+                        frag.appendChild(document.createTextNode(text.substring(last, idx)));
+                        const hl = document.createElement('span');
+                        hl.className = 'search-hl';
+                        hl.textContent = text.substring(idx, idx + q.length);
+                        frag.appendChild(hl);
+                        last = idx + q.length;
+                        idx = lt.indexOf(lq, last);
+                    }
+                    frag.appendChild(document.createTextNode(text.substring(last)));
+                    tn.parentNode.replaceChild(frag, tn);
+                }
             }
         }
         function codeSearchNav(dir) {
