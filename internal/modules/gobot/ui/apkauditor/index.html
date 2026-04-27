@@ -743,26 +743,27 @@
 
 
 
+        const SEARCH_PRESETS = {
+            firebase: { name: 'Firebase Database', regex: '[a-z0-9.-]+\\.firebaseio\\.com' },
+            aws_key: { name: 'AWS Access Key', regex: '(AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}' },
+            google_api: { name: 'Google API Key', regex: 'AIza[0-9A-Za-z-_]{35}' },
+            jwt: { name: 'JWT Token', regex: 'eyJ[a-zA-Z0-9-]{10,}\\.eyJ[a-zA-Z0-9-]{10,}\\.[a-zA-Z0-9-]{10,}' },
+            private_key: { name: 'Private Keys', regex: '-----BEGIN .* PRIVATE KEY-----' },
+            slack_webhook: { name: 'Slack Webhook', regex: 'https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}' },
+            generic_secret: { name: 'Generic Secret', regex: '[sS][eE][cC][rR][eE][tT].*[\'|"][0-9a-zA-Z]{32,45}[\'|"]' },
+            ip_address: { name: 'IP Addresses', regex: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b' },
+            auth_header: { name: 'Authorization Headers', regex: '(basic|bearer)\\s[a-zA-Z0-9_\\-:\\.=]+' },
+            s3_bucket: { name: 'S3 Buckets', regex: 's3[_-]?bucket(=|=|:|:)' }
+        };
+
         function applySearchPreset(val){
             if(!val) return;
-            const presets = {
-                firebase: '[a-z0-9.-]+\\.firebaseio\\.com',
-                aws_key: '(AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}',
-                google_api: 'AIza[0-9A-Za-z-_]{35}',
-                jwt: 'eyJ[a-zA-Z0-9-]{10,}\\.eyJ[a-zA-Z0-9-]{10,}\\.[a-zA-Z0-9-]{10,}',
-                private_key: '-----BEGIN .* PRIVATE KEY-----',
-                slack_webhook: 'https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}',
-                generic_secret: '[sS][eE][cC][rR][eE][tT].*[\'|"][0-9a-zA-Z]{32,45}[\'|"]',
-                ip_address: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b',
-                auth_header: '(basic|bearer)\\s[a-zA-Z0-9_\\-:\\.=]+',
-                s3_bucket: 's3[_-]?bucket(=|=|:|:)'
-            };
-            const q = presets[val];
-            if(q){
+            const p = SEARCH_PRESETS[val];
+            if(p){
                 if(!state.regexSearch) toggleRegexSearch();
                 const input = document.getElementById('fileSearchInput');
-                input.value = q;
-                searchFiles(q);
+                input.value = p.regex;
+                searchFiles(p.regex);
             }
             document.getElementById('searchPresets').value = '';
         }
@@ -934,17 +935,7 @@
             }
         }
         function runBulkRegexScan(){
-            const q = document.getElementById('fileSearchInput').value;
-            if(!q || q.length < 2){
-                alert('Please enter a search query (at least 2 characters)');
-                return;
-            }
-            const re = getSearchRegex(q);
-            if(!re) {
-                alert('Invalid Regular Expression');
-                return;
-            }
-
+            const query = document.getElementById('fileSearchInput').value;
             const resultsContainer = document.getElementById('bulkScanResults');
             const statusEl = document.getElementById('scanStatus');
             const tabBtn = document.getElementById('tab-scan-btn');
@@ -954,107 +945,121 @@
             if(tabBtn) tabBtn.click();
 
             setTimeout(() => {
-                const results = [];
-                // Scan DEX/Java classes
-                for(let di=0; di<state.dexParsed.length; di++){
-                    const dex = state.dexParsed[di];
-                    for(const cls of (dex.classes||[])){
-                        const fqn = (cls.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.');
-                        if(state.javaCache.has(fqn)){
-                            const code = state.javaCache.get(fqn);
-                            const matches = findMatchesWithContext(code, re);
-                            if(matches.length > 0){
-                                results.push({ path: fqn, type: 'java', matches });
+                const finalResults = [];
+                const scanTasks = [];
+
+                if(query && query.length >= 2){
+                    scanTasks.push({ id: 'custom', name: 'Search: ' + query, regex: query });
+                } else {
+                    // No query, scan ALL presets
+                    Object.keys(SEARCH_PRESETS).forEach(key => {
+                        scanTasks.push({ id: key, ...SEARCH_PRESETS[key] });
+                    });
+                }
+
+                scanTasks.forEach(task => {
+                    const re = new RegExp(task.regex, 'gi');
+                    const taskResults = [];
+
+                    // Scan DEX/Java classes
+                    for(let di=0; di<state.dexParsed.length; di++){
+                        const dex = state.dexParsed[di];
+                        for(const cls of (dex.classes||[])){
+                            const fqn = (cls.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.');
+                            if(state.javaCache.has(fqn)){
+                                const code = state.javaCache.get(fqn);
+                                const matches = findMatchesWithContext(code, re);
+                                if(matches.length > 0){
+                                    taskResults.push({ path: fqn, type: 'java', matches });
+                                }
                             }
                         }
                     }
-                }
 
-                // Scan other files (Manifest, XML, etc)
-                for(const [path, content] of state.fileContents){
-                    if(typeof content === 'string'){
-                        const matches = findMatchesWithContext(content, re);
-                        if(matches.length > 0){
-                            results.push({ path: path, type: 'file', matches });
+                    // Scan other files
+                    for(const [path, content] of state.fileContents){
+                        if(typeof content === 'string'){
+                            const matches = findMatchesWithContext(content, re);
+                            if(matches.length > 0){
+                                taskResults.push({ path: path, type: 'file', matches });
+                            }
                         }
                     }
-                }
 
-                renderBulkResults(results, q);
+                    if(taskResults.length > 0){
+                        finalResults.push({ task, results: taskResults });
+                    }
+                });
+
+                renderBulkResultsGrouped(finalResults);
             }, 50);
         }
 
-        function findMatchesWithContext(text, re){
-            re.lastIndex = 0;
-            const matches = [];
-            const lines = text.split('\n');
-            
-            for(let i=0; i<lines.length; i++){
-                const line = lines[i];
-                re.lastIndex = 0;
-                let match;
-                if((match = re.exec(line)) !== null){
-                    matches.push({
-                        line: i + 1,
-                        content: line,
-                        matchText: match[0]
-                    });
-                }
-            }
-            return matches;
-        }
-
-        function renderBulkResults(results, q){
+        function renderBulkResultsGrouped(groups){
             const resultsContainer = document.getElementById('bulkScanResults');
             const statusEl = document.getElementById('scanStatus');
             
-            if(results.length === 0){
-                resultsContainer.innerHTML = '<div class="empty-state">No matches found for "'+esc(q)+'"</div>';
+            if(groups.length === 0){
+                resultsContainer.innerHTML = '<div class="empty-state">No matches found in any file.</div>';
                 statusEl.textContent = '0 results';
                 return;
             }
 
-            statusEl.textContent = results.length + ' files with matches';
+            let totalFiles = 0;
+            groups.forEach(g => totalFiles += g.results.length);
+            statusEl.textContent = groups.length + ' patterns found in ' + totalFiles + ' files';
             resultsContainer.innerHTML = '';
             
-            results.forEach(res => {
-                const item = document.createElement('div');
-                item.className = 'scan-item';
-                item.onclick = () => {
-                    if(res.type === 'java'){
-                        // Find class in dex
-                        for(let di=0; di<state.dexParsed.length; di++){
-                            const dex = state.dexParsed[di];
-                            const cls = dex.classes.find(c => (c.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.') === res.path);
-                            if(cls){
-                                switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
-                                showSmaliClass(cls, res.path, di);
-                                setTimeout(() => applyCodeSearch(q), 300);
-                                return;
-                            }
-                        }
-                    } else {
-                        switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
-                        openFile(res.path);
-                        setTimeout(() => applyCodeSearch(q), 300);
-                    }
-                };
-
-                let matchesHtml = '';
-                res.matches.slice(0, 5).forEach(m => {
-                    const highlighted = esc(m.content).replace(new RegExp(esc(m.matchText), 'gi'), '<b>$&</b>');
-                    matchesHtml += `<div class="scan-match">Line ${m.line}: ${highlighted}</div>`;
-                });
-                if(res.matches.length > 5) matchesHtml += `<div style="font-size:10px;color:var(--text-muted);padding:4px">... and ${res.matches.length - 5} more matches</div>`;
-
-                item.innerHTML = `
-                    <div class="scan-file">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-                        ${esc(res.path)}
+            groups.forEach(group => {
+                const groupEl = document.createElement('div');
+                groupEl.style.marginBottom = '32px';
+                groupEl.innerHTML = `
+                    <div style="font-size:14px;font-weight:700;color:var(--orange);margin-bottom:16px;display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border-default)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        ${esc(group.task.name)}
+                        <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${group.results.length} files)</span>
                     </div>
-                    <div class="scan-matches">${matchesHtml}</div>
                 `;
-                resultsContainer.appendChild(item);
+
+                group.results.forEach(res => {
+                    const item = document.createElement('div');
+                    item.className = 'scan-item';
+                    item.onclick = () => {
+                        if(res.type === 'java'){
+                            for(let di=0; di<state.dexParsed.length; di++){
+                                const dex = state.dexParsed[di];
+                                const cls = dex.classes.find(c => (c.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.') === res.path);
+                                if(cls){
+                                    switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
+                                    showSmaliClass(cls, res.path, di);
+                                    setTimeout(() => applyCodeSearch(group.task.regex), 300);
+                                    return;
+                                }
+                            }
+                        } else {
+                            switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
+                            openFile(res.path);
+                            setTimeout(() => applyCodeSearch(group.task.regex), 300);
+                        }
+                    };
+
+                    let matchesHtml = '';
+                    res.matches.slice(0, 3).forEach(m => {
+                        const highlighted = esc(m.content).replace(new RegExp(esc(m.matchText), 'gi'), '<b>$&</b>');
+                        matchesHtml += `<div class="scan-match">Line ${m.line}: ${highlighted}</div>`;
+                    });
+                    if(res.matches.length > 3) matchesHtml += `<div style="font-size:10px;color:var(--text-muted);padding:4px">... and ${res.matches.length - 3} more matches</div>`;
+
+                    item.innerHTML = `
+                        <div class="scan-file">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                            ${esc(res.path)}
+                        </div>
+                        <div class="scan-matches">${matchesHtml}</div>
+                    `;
+                    groupEl.appendChild(item);
+                });
+                resultsContainer.appendChild(groupEl);
             });
         }
 
