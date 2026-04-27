@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
 	backupmod "github.com/h0tak88r/AutoAR/internal/modules/backup"
 	cf1016mod "github.com/h0tak88r/AutoAR/internal/modules/cf1016"
 	cnamesmod "github.com/h0tak88r/AutoAR/internal/modules/cnames"
@@ -597,6 +598,39 @@ func scanLite(c *gin.Context) {
 		return err
 	})
 	okStarted(c, scanID, msg)
+}
+func scanApkX(c *gin.Context) {
+	var req ScanRequest
+	if !bindOrBad(c, &req) { return }
+	
+	// Support both file path (if uploaded via /api/upload) or package name
+	var target string
+	if req.PackageID != nil && *req.PackageID != "" {
+		target = *req.PackageID
+	} else if req.FilePath != nil && *req.FilePath != "" {
+		target = *req.FilePath
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Either package_id or file_path (for uploaded APK) is required"})
+		return
+	}
+
+	mitm := req.MITM != nil && *req.MITM
+	scanID := generateScanID()
+
+	go runScanInProcess(scanID, "apkx", target, func() error {
+		opts := apkxmod.Options{
+			MITM: mitm,
+		}
+		if req.PackageID != nil && *req.PackageID != "" {
+			opts.Package = target
+		} else {
+			opts.InputPath = target
+		}
+		_, err := apkxmod.Run(opts)
+		return err
+	})
+
+	okStarted(c, scanID, fmt.Sprintf("APK analysis (apkX) started for %s", target))
 }
 
 // ── Keyhack ───────────────────────────────────────────────────────────────────
