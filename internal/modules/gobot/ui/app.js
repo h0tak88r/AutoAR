@@ -199,6 +199,17 @@ function pathScanId() {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+function openAuditorInNewTab(view) {
+  const tok = state._authAccessToken || localTokenGet();
+  if (tok) {
+    // Stamp the cookie so the new tab's request passes the server-side auth guard
+    document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
+  }
+  const modeMap = { 'apkauditor': 'android', 'ipaauditor': 'ios', 'adbauditor': 'adb' };
+  const mode = modeMap[view] || 'android';
+  window.open(`/ui/apkauditor/?mode=${mode}`, '_blank');
+}
+
 function navigateTo(view) {
   const prev = state.view;
   state.view = view;
@@ -565,7 +576,15 @@ function wireShellOnce() {
 
   VIEWS.forEach(v => {
     const el = document.getElementById(`nav-${v}`);
-    if (el) el.addEventListener('click', () => navigateTo(v));
+    if (el) {
+      el.addEventListener('click', () => {
+        if (el.getAttribute('data-newtab') === 'true') {
+          openAuditorInNewTab(v);
+        } else {
+          navigateTo(v);
+        }
+      });
+    }
   });
 
   const refreshBtn = document.getElementById('refresh-btn');
