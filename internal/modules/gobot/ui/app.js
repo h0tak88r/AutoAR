@@ -211,11 +211,18 @@ function navigateTo(view) {
 
   // When entering APK Auditor, stamp a short-lived cookie so the iframe's
   // request to /ui/apkauditor/ passes the server-side auth guard.
+  // We also lazily inject the iframe src so it doesn't fire on page load.
   if (view === 'apkauditor') {
     const tok = state._authAccessToken || localTokenGet();
     if (tok) {
-      // SameSite=Strict, 1 hour TTL, path scoped to /ui/apkauditor
       document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
+    }
+    // Lazily set iframe src — only once, after the cookie is written.
+    const frame = document.getElementById('apkauditor-frame');
+    if (frame && !frame.getAttribute('data-loaded')) {
+      frame.setAttribute('data-loaded', '1');
+      // Tiny delay ensures the cookie is flushed before the network request.
+      setTimeout(() => { frame.src = '/ui/apkauditor/'; }, 30);
     }
   }
 
