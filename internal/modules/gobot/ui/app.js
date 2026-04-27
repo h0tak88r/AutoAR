@@ -192,7 +192,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -213,17 +213,16 @@ function navigateTo(view) {
   // When entering APK Auditor, stamp a short-lived cookie so the iframe's
   // request to /ui/apkauditor/ passes the server-side auth guard.
   // We also lazily inject the iframe src so it doesn't fire on page load.
-  if (view === 'apkauditor') {
+  if (['apkauditor', 'ipaauditor', 'adbauditor'].includes(view)) {
     const tok = state._authAccessToken || localTokenGet();
     if (tok) {
       document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
     }
-    // Lazily set iframe src — only once, after the cookie is written.
-    const frame = document.getElementById('apkauditor-frame');
+    const modeMap = { 'apkauditor': 'android', 'ipaauditor': 'ios', 'adbauditor': 'adb' };
+    const frame = document.getElementById(`${view}-frame`);
     if (frame && !frame.getAttribute('data-loaded')) {
       frame.setAttribute('data-loaded', '1');
-      // Tiny delay ensures the cookie is flushed before the network request.
-      setTimeout(() => { frame.src = '/ui/apkauditor/'; }, 30);
+      setTimeout(() => { frame.src = `/ui/apkauditor/?mode=${modeMap[view]}`; }, 30);
     }
   }
 
@@ -233,14 +232,16 @@ function navigateTo(view) {
     if (el) {
       const isActive = v === view;
       el.classList.toggle('active', isActive);
-      // APK Auditor is full-height, use flex for its container
-      if (v === 'apkauditor') el.style.display = isActive ? 'flex' : 'none';
+      // Auditor views are full-height, use flex for their containers
+      if (['apkauditor', 'ipaauditor', 'adbauditor'].includes(v)) {
+        el.style.display = isActive ? 'flex' : 'none';
+      }
     }
     if (nav) nav.classList.toggle('active', v === view);
   });
   document.getElementById('topbar-title').textContent = viewTitle(view);
   state.selectedDomain = null;
-  if (view !== 'apkauditor') {
+  if (!['apkauditor', 'ipaauditor', 'adbauditor'].includes(view)) {
     refreshCurrentView();
   }
   startPolling();
@@ -283,7 +284,9 @@ function viewTitle(v) {
     keyhacks: 'Keyhacks',
     monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
     'report-templates': 'Report Templates',
-    apkauditor: '📱 APK Auditor'
+    apkauditor: '🤖 APK Auditor',
+    ipaauditor: '🍏 IPA Auditor',
+    adbauditor: '⚡ ADB Auditor'
   }[v] || v;
 }
 
