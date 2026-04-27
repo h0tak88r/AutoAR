@@ -191,7 +191,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -211,12 +211,19 @@ function navigateTo(view) {
   VIEWS.forEach(v => {
     const el = document.getElementById(`view-${v}`);
     const nav = document.getElementById(`nav-${v}`);
-    if (el) el.classList.toggle('active', v === view);
+    if (el) {
+      const isActive = v === view;
+      el.classList.toggle('active', isActive);
+      // APK Auditor is full-height, use flex for its container
+      if (v === 'apkauditor') el.style.display = isActive ? 'flex' : 'none';
+    }
     if (nav) nav.classList.toggle('active', v === view);
   });
   document.getElementById('topbar-title').textContent = viewTitle(view);
   state.selectedDomain = null;
-  refreshCurrentView();
+  if (view !== 'apkauditor') {
+    refreshCurrentView();
+  }
   startPolling();
 }
 
@@ -256,7 +263,8 @@ function viewTitle(v) {
     targets: 'Bug Bounty Targets',
     keyhacks: 'Keyhacks',
     monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
-    'report-templates': 'Report Templates'
+    'report-templates': 'Report Templates',
+    apkauditor: '📱 APK Auditor'
   }[v] || v;
 }
 
