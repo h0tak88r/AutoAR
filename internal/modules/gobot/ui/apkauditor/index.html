@@ -547,7 +547,10 @@
                             <button class="stab" onclick="switchExplorerView('smali',this)">Smali</button>
                         </div>
                         <div class="explorer-controls" style="flex-shrink:0">
+                        <div class="jadx-search" style="display:flex;gap:4px;align-items:center">
                             <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..." oninput="searchFiles(this.value)">
+                            <button id="regexToggle" onclick="toggleRegexSearch()" title="Regex Search" style="padding:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:10px;font-weight:700;transition:all .2s">REG</button>
+                        </div>
                             <div class="code-search-nav" id="codeSearchNavBar" style="display:none">
                                 <span class="code-search-count" id="codeSearchCount"></span>
                                 <button onclick="codeSearchNav(-1)" title="Previous">&#9650; Prev</button>
@@ -705,6 +708,31 @@
 
 
 
+        function toggleRegexSearch(){
+            state.regexSearch=!state.regexSearch;
+            const btn=document.getElementById('regexToggle');
+            if(state.regexSearch){
+                btn.style.color='var(--accent-primary)';
+                btn.style.borderColor='var(--accent-primary)';
+                btn.style.background='var(--accent-subtle)';
+            }else{
+                btn.style.color='var(--text-muted)';
+                btn.style.borderColor='var(--border-default)';
+                btn.style.background='var(--bg-card)';
+            }
+            const q=document.getElementById('fileSearchInput').value;
+            if(q) searchFiles(q);
+        }
+
+        function getSearchRegex(q, flags='gi'){
+            try {
+                if(state.regexSearch) return new RegExp(q, flags);
+                return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+            } catch(e) {
+                return null;
+            }
+        }
+
         function searchFiles(q){
             if(!q || q.length < 2){
                 document.querySelectorAll('.tree-file').forEach(f=>f.style.display='');
@@ -728,29 +756,31 @@
             }
         }
         function searchAPKFiles(q){
-            q=q.toLowerCase();
+            const re=getSearchRegex(q);
+            if(!re) return;
             document.querySelectorAll('#fileTree details').forEach(d=>d.open=true);
             document.querySelectorAll('.tree-file').forEach(f=>{
-                const n=f.querySelector('.file-name')?.textContent.toLowerCase()||'';
-                f.style.display=n.includes(q)?'':'none';
+                const n=f.querySelector('.file-name')?.textContent||'';
+                f.style.display=re.test(n)?'':'none';
             });
         }
         function searchCode(q){
-            const lq=q.toLowerCase();
+            const re=getSearchRegex(q);
+            if(!re) return;
             const results=[];
             for(let di=0;di<state.dexParsed.length;di++){
                 const dex=state.dexParsed[di];
                 for(const cls of (dex.classes||[])){
                     const fqn=(cls.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.');
-                    if(fqn.toLowerCase().includes(lq)){results.push({fqn,cls,di,reason:'class name'});continue;}
+                    if(re.test(fqn)){results.push({fqn,cls,di,reason:'class name'});continue;}
                     if(state.javaCache.has(fqn)){
                         const code=state.javaCache.get(fqn);
-                        if(code.toLowerCase().includes(lq)){results.push({fqn,cls,di,reason:'code match'});}
+                        if(re.test(code)){results.push({fqn,cls,di,reason:'code match'});}
                     }
                 }
             }
             for(const [path,content] of state.fileContents){
-                if(typeof content==='string'&&content.toLowerCase().includes(lq)){
+                if(typeof content==='string'&&re.test(content)){
                     results.push({fqn:path,file:true,reason:'file content'});
                 }
             }
@@ -816,28 +846,31 @@
             }
         }
         function highlightInNode(node,q){
+            const re=getSearchRegex(q);
+            if(!re) return;
             const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT,null);
             const textNodes=[];
             while(walker.nextNode()) textNodes.push(walker.currentNode);
-            const lq=q.toLowerCase();
             for(const tn of textNodes){
                 const text=tn.textContent;
-                const lt=text.toLowerCase();
-                let idx=lt.indexOf(lq);
-                if(idx===-1) continue;
+                let match;
                 const frag=document.createDocumentFragment();
                 let last=0;
-                while(idx!==-1){
-                    if(idx>last) frag.appendChild(document.createTextNode(text.slice(last,idx)));
+                let found=false;
+                while((match=re.exec(text))!==null){
+                    if(match.index>last) frag.appendChild(document.createTextNode(text.slice(last,match.index)));
                     const span=document.createElement('span');
                     span.className='search-hl';
-                    span.textContent=text.slice(idx,idx+q.length);
+                    span.textContent=match[0];
                     frag.appendChild(span);
-                    last=idx+q.length;
-                    idx=lt.indexOf(lq,last);
+                    last=match.index+match[0].length;
+                    found=true;
+                    if(re.lastIndex===match.index) re.lastIndex++; // Avoid infinite loops on zero-width matches
                 }
-                if(last<text.length) frag.appendChild(document.createTextNode(text.slice(last)));
-                tn.parentNode.replaceChild(frag,tn);
+                if(found){
+                    if(last<text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+                    tn.parentNode.replaceChild(frag,tn);
+                }
             }
         }
         function codeSearchNav(dir){
