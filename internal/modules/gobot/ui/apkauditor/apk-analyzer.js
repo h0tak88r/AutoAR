@@ -868,8 +868,10 @@ function analyzeManifest(manifest) {
         const short = n.split('.').pop();
         if ((a.exported === true || a.exported === 'true') && !a.permission)
             f('exported_activity', 'Exported Activity Without Permission', 'issue', `Activity "${n}" is exported and can be launched by any application without restrictions.`, 'CWE-926', 'M1', 'PLATFORM-1', `<activity> ${short} [exported, no permission]`);
-        if (a.taskAffinity !== undefined && a.taskAffinity !== '')
-            f('task_affinity', 'Non-empty taskAffinity (Task Hijacking)', 'issue', `Activity "${n}" sets a custom taskAffinity, may enable task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [taskAffinity="${a.taskAffinity}"]`);
+        
+        const packageName = manifest.attribs?.package || '';
+        if (a.taskAffinity !== undefined && a.taskAffinity !== '' && a.taskAffinity !== packageName)
+            f('task_affinity', 'Custom taskAffinity (Task Hijacking Risk)', 'issue', `Activity "${n}" sets a custom taskAffinity (${a.taskAffinity}). If not explicitly intended, this can enable task hijacking attacks.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [taskAffinity="${a.taskAffinity}"]`);
     });
     findAll(app, 'service').forEach(svc => {
         const a = svc.attribs || {};
@@ -912,8 +914,13 @@ function analyzeManifest(manifest) {
                     f('deeplink_scheme', `Custom URL Scheme: ${scheme}://`, 'issue', `Activity "${n}" handles "${scheme}://" scheme. Validate deep link input.`, 'CWE-939', 'M1', 'PLATFORM-3', `<activity> ${short} [scheme="${scheme}://"]`);
             }
         }
-        if (a.launchMode === 'singleTask' && a.taskAffinity)
-            f('task_hijack', 'singleTask + taskAffinity (Task Hijacking)', 'issue', `Activity "${n}" uses singleTask with taskAffinity, vulnerable to StrandHogg.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [singleTask + taskAffinity]`);
+        if (a.launchMode === 'singleTask' || a.launchMode === '2') {
+            f('launch_mode_singletask', 'singleTask Launch Mode', 'issue', `Activity "${n}" uses singleTask launchMode. Improper routing of intents can lead to vulnerabilities.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [launchMode="${a.launchMode}"]`);
+            
+            if (a.taskAffinity) {
+                f('task_hijack', 'singleTask + taskAffinity (StrandHogg Risk)', 'issue', `Activity "${n}" uses singleTask with taskAffinity, highly vulnerable to StrandHogg task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [singleTask + taskAffinity]`);
+            }
+        }
     });
 
     findAll(manifest, 'permission').forEach(perm => {
@@ -975,10 +982,16 @@ function extractManifestInfo(R) {
     }
 }
 
-function analyzeContent(content, filePath, rules) {
+function analyzeContent(content, filePath, rules, enableDeepScan = false) {
     const findings = [];
     const safe = content.length > 300000 ? content.slice(0, 300000) : content;
-    for (const rule of rules) {
+    
+    let activeRules = rules;
+    if (enableDeepScan && typeof SECRETS_RULES !== 'undefined') {
+        activeRules = rules.concat(SECRETS_RULES);
+    }
+
+    for (const rule of activeRules) {
         for (const pat of rule.patterns) {
             try {
                 pat.lastIndex = 0;
@@ -1060,7 +1073,7 @@ function buildSmaliTree(classes, tree, dexIdx) {
     }
 }
 
-async function analyzeAPK(file) {
+async function analyzeAPK(file, options = {}) {
     const R = {
         appInfo: { fileName: file.name, fileSize: formatSize(file.size) },
         manifest: null, manifestStr: '', permissions: [], dangerousPerms: [],
@@ -1213,7 +1226,7 @@ async function analyzeAPK(file) {
                 state.arscData = arscData;
                 state.fileContents.set('resources.arsc', renderArsc(arscData));
                 const arscContent = arscData.allStrings.join('\n');
-                R.findings.push(...analyzeContent(arscContent, 'resources.arsc', ANDROID_RULES));
+                R.findings.push(...analyzeContent(arscContent, 'resources.arsc', ANDROID_RULES, options.enableDeepScan));
             }
         } catch(e) { }
     }
@@ -1236,7 +1249,7 @@ async function analyzeAPK(file) {
             try {
                 const javaCode = generateJavaView(cls, dex.buf, dex.strings, dex.types, dex.methods, dex.fields || []);
                 state.javaCache.set(fqn, javaCode);
-                const classFindings = analyzeContent(javaCode, fqn + '.java', ANDROID_RULES);
+                const classFindings = analyzeContent(javaCode, fqn + '.java', ANDROID_RULES, options.enableDeepScan);
                 R.findings.push(...classFindings);
             } catch(e) {}
             if (classesScanned % 100 === 0) {
@@ -1281,7 +1294,7 @@ async function analyzeAPK(file) {
                 c = await zip.file(path).async('string');
             }
             state.fileContents.set(path, c);
-            R.findings.push(...analyzeContent(c, path, ANDROID_RULES));
+            R.findings.push(...analyzeContent(c, path, ANDROID_RULES, options.enableDeepScan));
         } catch(e) {}
     }
     await yield_();
@@ -3213,9 +3226,9 @@ function showToast(msg, type = 'info') {
     t.innerHTML = icon + msg; c.appendChild(t); setTimeout(() => t.remove(), 4000);
 }
 
-async function startAnalysis(file) {
+async function startAnalysis(file, options = {}) {
     try {
-        const results = await analyzeAPK(file);
+        const results = await analyzeAPK(file, options);
         hideLoading();
         document.getElementById('landingContent').style.display = 'none';
         document.querySelector('.privacy-section').style.display = 'none';
