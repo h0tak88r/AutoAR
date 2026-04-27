@@ -368,6 +368,9 @@ type ScanRequest struct {
 	CVEs                 *[]string `json:"cves"`                   // CVEs to check (CVE-2025-55182, CVE-2025-14847)
 	MongoDBHost          *string   `json:"mongodb_host"`           // MongoDB host for CVE-2025-14847
 	MongoDBPort          *int      `json:"mongodb_port"`           // MongoDB port for CVE-2025-14847
+	// ApkX options
+	PackageID *string `json:"package_id"`
+	MITM      *bool   `json:"mitm"`
 	// JWT options
 	Token            *string `json:"token"`              // JWT token
 	SkipCrack        *bool   `json:"skip_crack"`         // JWT skip crack
@@ -562,6 +565,7 @@ func setupAPI() *gin.Engine {
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
 		api.POST("/zerodays", scanZerodays)   // Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)
 		api.POST("/jwt", scanJWT)             // JWT vulnerability scan
+		api.POST("/apkx", scanApkX)           // APK analysis and MITM patching
 		api.GET("/:scan_id/status", getScanStatus)
 		api.GET("/:scan_id/results", getScanResults)
 		api.GET("/:scan_id/download", downloadScanResults)
@@ -641,6 +645,7 @@ func availableMemoryBytes() int64 {
 	}
 	return -1
 }
+
 
 // apiUploadHandler handles file uploads for analysis
 func apiUploadHandler(c *gin.Context) {
