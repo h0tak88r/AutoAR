@@ -201,13 +201,17 @@ function pathScanId() {
 
 function openAuditorInNewTab(view) {
   const tok = state._authAccessToken || localTokenGet();
+  const pathMap = { 'apkauditor': '/ui/apkauditor/', 'ipaauditor': '/ui/ipaauditor/', 'adbauditor': '/ui/adbauditor/' };
+  const targetPath = pathMap[view] || '/ui/apkauditor/';
+  
   if (tok) {
     // Stamp the cookie so the new tab's request passes the server-side auth guard
+    // We set it for the specific subpaths
     document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
+    document.cookie = `autoar_token=${tok}; path=/ui/ipaauditor; max-age=3600; SameSite=Strict`;
+    document.cookie = `autoar_token=${tok}; path=/ui/adbauditor; max-age=3600; SameSite=Strict`;
   }
-  const modeMap = { 'apkauditor': 'android', 'ipaauditor': 'ios', 'adbauditor': 'adb' };
-  const mode = modeMap[view] || 'android';
-  window.open(`/ui/apkauditor/?mode=${mode}`, '_blank');
+  window.open(targetPath, '_blank');
 }
 
 function navigateTo(view) {
