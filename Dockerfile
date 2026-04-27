@@ -53,7 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
     postgresql-client docker.io \
     python3 python3-pip sqlmap nmap \
-    default-jre-headless \
+    default-jre-headless unzip zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Apktool and Uber-APK-Signer for MITM patching
