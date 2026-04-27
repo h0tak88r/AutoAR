@@ -111,6 +111,7 @@ type fileEntry struct {
 	Module    string `json:"module,omitempty"`
 	Category  string `json:"category,omitempty"`
 	Source    string `json:"source,omitempty"` // "local", "db", "r2"
+	PublicURL string `json:"public_url,omitempty"`
 }
 
 func parseScanResultsPagination(c *gin.Context) (page, perPage int) {
@@ -241,7 +242,7 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 
 	if _, err := os.Stat(scanDir); err == nil {
 		// Walk local directory
-		walkErr := filepath.Walk(scanDir, func(path string, info os.FileInfo, err error) error {
+		filepath.Walk(scanDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}
@@ -250,23 +251,22 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 				return nil
 			}
 
-			// #4: Unified result deduplication (Prefer JSON over TXT for recon/findings)
+			// Unified result deduplication (Prefer JSON over TXT)
 			if strings.HasSuffix(name, ".txt") {
 				base := strings.TrimSuffix(name, ".txt")
 				jsonAlternatives := []string{
 					base + ".json",
 					strings.ReplaceAll(base, "subs", "subdomains") + ".json",
 					strings.ReplaceAll(base, "live-", "live") + ".json",
-					"livehosts.json",     // if name is live-subs.txt
-					"subdomains.json",    // if name is all-subs.txt
-					"urls.json",          // if name is all-urls.txt
-					"js-urls.json",       // if name is js-urls.txt
-					"tech-detect.json",   // if name is tech-detect.txt
-					"cname-records.json", // if name is cnames.txt or cname.txt
+					"livehosts.json",
+					"subdomains.json",
+					"urls.json",
+					"js-urls.json",
+					"tech-detect.json",
+					"cname-records.json",
 				}
 				for _, alt := range jsonAlternatives {
 					if _, err := os.Stat(filepath.Join(scanDir, alt)); err == nil {
-						// Skip the TXT file because a superior JSON alternative exists
 						return nil
 					}
 				}
@@ -275,7 +275,6 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 			isJSON := strings.HasSuffix(strings.ToLower(name), ".json")
 			lineCount := 0
 			if !isJSON {
-				// Fast line count for text files
 				if data, readErr := os.ReadFile(path); readErr == nil {
 					lineCount = strings.Count(string(data), "\n")
 				}
@@ -292,54 +291,63 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 				LineCount: lineCount,
 				Module:    inferModuleFromFileName(relName),
 				Category:  inferCategoryFromFileName(relName),
+				Source:    "local",
 			})
 			return nil
 		})
-		if walkErr != nil {
-			log.Printf("[scan-results] walk %s: %v", scanDir, walkErr)
-		}
 	}
 
-	if len(localEntries) > 0 {
+	// Always merge with DB-indexed artifacts to get R2 URLs
+	artifacts, _ := db.ListScanArtifacts(scanID)
+	if len(artifacts) == 0 {
 		return localEntries, nil
 	}
 
-	// Local dir is empty or missing — fall back to DB-indexed artifacts.
-	artifacts, err := db.ListScanArtifacts(scanID)
-	if err != nil || len(artifacts) == 0 {
-		return localEntries, nil // Return empty list, not an error
+	// Merge logic: prefer DB entry if available because it has the R2 PublicURL
+	merged := []fileEntry{}
+	seenLocal := make(map[string]int)
+	for i, entry := range localEntries {
+		seenLocal[entry.FileName] = i
 	}
 
-	seen := make(map[string]struct{}, len(artifacts))
 	for _, a := range artifacts {
 		if a == nil {
 			continue
 		}
 		base := filepath.Base(a.FileName)
-		if _, dup := seen[base]; dup {
-			continue
-		}
-		seen[base] = struct{}{}
-
-		isJSON := strings.HasSuffix(strings.ToLower(base), ".json")
-		src := "r2"
-		if a.LocalPath != "" {
-			src = "local"
-		}
-		_ = src
-		localEntries = append(localEntries, fileEntry{
+		
+		entry := fileEntry{
 			FileName:  base,
 			LocalPath: a.LocalPath,
 			SizeBytes: a.SizeBytes,
-			IsJSON:    isJSON,
 			LineCount: a.LineCount,
-			Module:    firstNonEmpty(a.Module, inferModuleFromFileName(base)),
-			Category:  firstNonEmpty(a.Category, inferCategoryFromFileName(base)),
+			PublicURL: a.PublicURL,
 			Source:    "db",
-		})
+		}
+		if a.PublicURL != "" {
+			entry.Source = "r2"
+		}
+		entry.IsJSON = strings.HasSuffix(strings.ToLower(base), ".json")
+		entry.Module = inferModuleFromFileName(base)
+		entry.Category = inferCategoryFromFileName(base)
+
+		if idx, found := seenLocal[base]; found {
+			// Update local entry with R2 info
+			localEntries[idx].PublicURL = a.PublicURL
+			if a.PublicURL != "" {
+				localEntries[idx].Source = "r2"
+			}
+		} else {
+			// Add DB-only entry (e.g. if file was deleted locally after upload)
+			merged = append(merged, entry)
+		}
 	}
-	return localEntries, nil
+
+	// Combine local entries (updated) and DB-only entries
+	finalResults := append(localEntries, merged...)
+	return finalResults, nil
 }
+
 
 // writeLocalFile writes content to a local file for a scan
 func writeLocalFile(scanID, fileName string, data []byte) (string, error) {
