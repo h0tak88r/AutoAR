@@ -2737,8 +2737,27 @@
                             <button class="stab" onclick="switchExplorerView('smali',this)">Smali</button>
                         </div>
                         <div class="explorer-controls" style="flex-shrink:0">
-                            <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..."
-                                oninput="searchFiles(this.value)">
+                            <div style="display:flex; gap: 8px;">
+                                <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..."
+                                    oninput="searchFiles(this.value)" style="flex:1;">
+                                <select id="presetSearch" onchange="const v = this.value; if(v) { document.getElementById('fileSearchInput').value = v; searchFiles(v); this.value = ''; }" style="width: auto; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 8px; padding: 0 10px; cursor: pointer;">
+                                    <option value="">Preset Keywords...</option>
+                                    <option value="AKIA">AWS Key (AKIA)</option>
+                                    <option value="s3.amazonaws.com">AWS S3 Bucket</option>
+                                    <option value="AIza">Google API Key (AIza)</option>
+                                    <option value="firebaseio.com">Firebase DB</option>
+                                    <option value="xoxb-">Slack Token (xoxb-)</option>
+                                    <option value="-----BEGIN PRIVATE KEY-----">Private Key</option>
+                                    <option value="jdbc:">Database JDBC</option>
+                                    <option value="password=">Password</option>
+                                    <option value="secret=">Secret</option>
+                                    <option value="api_key">API Key</option>
+                                    <option value="token=">Token</option>
+                                    <option value="sk_live_">Stripe Secret</option>
+                                    <option value="sq0csp-">Square Secret</option>
+                                    <option value="eyJh">JWT Token (eyJh)</option>
+                                </select>
+                            </div>
                             <div class="code-search-nav" id="codeSearchNavBar" style="display:none">
                                 <span class="code-search-count" id="codeSearchCount"></span>
                                 <button onclick="codeSearchNav(-1)" title="Previous">&#9650; Prev</button>
