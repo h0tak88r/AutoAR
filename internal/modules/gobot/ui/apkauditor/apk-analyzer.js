@@ -1,7 +1,7 @@
-/** @preserve @author Sandeep Wawdane @license MIT */
+/** @preserve @license MIT */
 'use strict';
 
-window.apkState = {
+const state = {
     analysisResults: null,
     zipContent: null,
     dexParsed: [],
@@ -15,10 +15,8 @@ window.apkState = {
     currentViewFqn: null,
     currentViewDexIdx: null,
     javaCache: new Map(),
-    explorerView: 'apk',
-    regexMode: false
+    explorerView: 'apk'
 };
-const apkState = window.apkState;
 
 const esc = s => { if (!s && s !== 0) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
 const formatSize = b => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(2) + ' MB';
@@ -822,10 +820,6 @@ const ANDROID_RULES = [
      patterns:[/-----BEGIN DSA PRIVATE KEY-----/g,/-----BEGIN OPENSSH PRIVATE KEY-----/g],
      description:'SSH private key embedded in the app. Allows authenticating to servers as the key owner.',cwe:'CWE-321',owasp:'M9',masvs:'CRYPTO-1'},
 ];
-if (typeof window.SECRETS_RULES !== 'undefined' && Array.isArray(window.SECRETS_RULES)) {
-    console.log(`[APK-Analyzer] Merging ${window.SECRETS_RULES.length} secret rules...`);
-    ANDROID_RULES.push(...window.SECRETS_RULES);
-}
 
 function findAll(node, tag) {
     if (!node) return [];
@@ -874,10 +868,8 @@ function analyzeManifest(manifest) {
         const short = n.split('.').pop();
         if ((a.exported === true || a.exported === 'true') && !a.permission)
             f('exported_activity', 'Exported Activity Without Permission', 'issue', `Activity "${n}" is exported and can be launched by any application without restrictions.`, 'CWE-926', 'M1', 'PLATFORM-1', `<activity> ${short} [exported, no permission]`);
-        
-        const packageName = manifest.attribs?.package || '';
-        if (a.taskAffinity !== undefined && a.taskAffinity !== '' && a.taskAffinity !== packageName)
-            f('task_affinity', 'Custom taskAffinity (Task Hijacking Risk)', 'issue', `Activity "${n}" sets a custom taskAffinity (${a.taskAffinity}). If not explicitly intended, this can enable task hijacking attacks.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [taskAffinity="${a.taskAffinity}"]`);
+        if (a.taskAffinity !== undefined && a.taskAffinity !== '')
+            f('task_affinity', 'Non-empty taskAffinity (Task Hijacking)', 'issue', `Activity "${n}" sets a custom taskAffinity, may enable task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [taskAffinity="${a.taskAffinity}"]`);
     });
     findAll(app, 'service').forEach(svc => {
         const a = svc.attribs || {};
@@ -920,18 +912,8 @@ function analyzeManifest(manifest) {
                     f('deeplink_scheme', `Custom URL Scheme: ${scheme}://`, 'issue', `Activity "${n}" handles "${scheme}://" scheme. Validate deep link input.`, 'CWE-939', 'M1', 'PLATFORM-3', `<activity> ${short} [scheme="${scheme}://"]`);
             }
         }
-        const lm = String(a.launchMode);
-        if (lm === 'singleTask' || lm === '2') {
-            f('launch_mode_singletask', 'SingleTask LaunchMode (Task Hijack Risk)', 'warning', `Activity "${n}" uses singleTask launchMode. It may be vulnerable to StrandHogg-style task hijacking if taskAffinity is not properly configured.`, 'CWE-1021', 'M1', 'PLATFORM-2', `<activity> ${short} [launchMode="${a.launchMode}"]`);
-            
-            if (!a.taskAffinity) {
-                f('task_hijack', 'Task Hijacking Risk (singleTask + no-taskAffinity)', 'issue', `Activity "${n}" uses singleTask without a custom taskAffinity, making it highly vulnerable to StrandHogg task hijacking.`, 'CWE-1021', 'M1', 'PLATFORM-2', `<activity> ${short} [singleTask + no-taskAffinity]`);
-            }
-        }
-        
-        if (a.taskAffinity && a.taskAffinity !== R.appInfo?.packageName) {
-            f('task_affinity_hijack', 'Task Hijacking Risk (Custom TaskAffinity)', 'issue', `Activity "${n}" has a custom taskAffinity ("${a.taskAffinity}") which can be hijacked by malicious apps.`, 'CWE-1021', 'M1', 'PLATFORM-2', `<activity> ${short} [taskAffinity="${a.taskAffinity}"]`);
-        }
+        if (a.launchMode === 'singleTask' && a.taskAffinity)
+            f('task_hijack', 'singleTask + taskAffinity (Task Hijacking)', 'issue', `Activity "${n}" uses singleTask with taskAffinity, vulnerable to StrandHogg.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [singleTask + taskAffinity]`);
     });
 
     findAll(manifest, 'permission').forEach(perm => {
@@ -996,7 +978,6 @@ function extractManifestInfo(R) {
 function analyzeContent(content, filePath, rules) {
     const findings = [];
     const safe = content.length > 300000 ? content.slice(0, 300000) : content;
-
     for (const rule of rules) {
         for (const pat of rule.patterns) {
             try {
@@ -1079,7 +1060,7 @@ function buildSmaliTree(classes, tree, dexIdx) {
     }
 }
 
-async function analyzeAPK(file, options = {}) {
+async function analyzeAPK(file) {
     const R = {
         appInfo: { fileName: file.name, fileSize: formatSize(file.size) },
         manifest: null, manifestStr: '', permissions: [], dangerousPerms: [],
@@ -1089,19 +1070,19 @@ async function analyzeAPK(file, options = {}) {
         specialFiles: { dex: [], databases: [], configs: [] },
         strings: [], urls: [], minSdk: null, targetSdk: null, isObfuscated: false
     };
-    apkState.findings = { issue: [], secure: [] };
-    apkState.groupedFindings = { issue: [], secure: [] };
-    apkState.fileContents.clear();
-    apkState.dexParsed = [];
-    apkState.smaliTree = {};
-    apkState.currentViewMode = 'java';
-    apkState.currentViewClass = null;
-    apkState.currentViewFqn = null;
-    apkState.currentViewDexIdx = null;
-    apkState.javaCache = new Map();
-    apkState.explorerView = 'apk';
-    apkState.arscData = null;
-    apkState.inspectorData = null;
+    state.findings = { issue: [], secure: [] };
+    state.groupedFindings = { issue: [], secure: [] };
+    state.fileContents.clear();
+    state.dexParsed = [];
+    state.smaliTree = {};
+    state.currentViewMode = 'java';
+    state.currentViewClass = null;
+    state.currentViewFqn = null;
+    state.currentViewDexIdx = null;
+    state.javaCache = new Map();
+    state.explorerView = 'apk';
+    state.arscData = null;
+    state.inspectorData = null;
 
     showLoading('Loading APK...');
     updateProgress(5, 'Reading file...');
@@ -1117,7 +1098,7 @@ async function analyzeAPK(file, options = {}) {
     updateProgress(14, 'Extracting APK...');
     await yield_();
     const zip = await JSZip.loadAsync(ab);
-    apkState.zipContent = zip;
+    state.zipContent = zip;
 
     updateProgress(18, 'Building file tree...');
     await yield_();
@@ -1153,7 +1134,7 @@ async function analyzeAPK(file, options = {}) {
             R.manifest = parser.parse();
             if (R.manifest) {
                 R.manifestStr = '<?xml version="1.0" encoding="utf-8"?>\n' + xmlToStr(R.manifest);
-                apkState.fileContents.set('AndroidManifest.xml', R.manifestStr);
+                state.fileContents.set('AndroidManifest.xml', R.manifestStr);
                 extractManifestInfo(R);
                 R.findings.push(...analyzeManifest(R.manifest));
             }
@@ -1213,9 +1194,9 @@ async function analyzeAPK(file, options = {}) {
             const parser = new DEXParser(db);
             const parsed = parser.parse();
             if (parsed) {
-                apkState.dexParsed.push({ name: dp, buf: db, ...parsed });
+                state.dexParsed.push({ name: dp, buf: db, ...parsed });
                 allDexStrings.push(...parsed.strings);
-                buildSmaliTree(parsed.classes, apkState.smaliTree, apkState.dexParsed.length - 1);
+                buildSmaliTree(parsed.classes, state.smaliTree, state.dexParsed.length - 1);
                 R.dexFiles.push({ name: dp, classes: parsed.classes.length, methods: parsed.methods.length, strings: parsed.strings.length });
             }
         } catch(e) { }
@@ -1229,15 +1210,15 @@ async function analyzeAPK(file, options = {}) {
             const arscBuf = await arscFile.async('arraybuffer');
             const arscData = parseArsc(arscBuf);
             if (arscData) {
-                apkState.arscData = arscData;
-                apkState.fileContents.set('resources.arsc', renderArsc(arscData));
+                state.arscData = arscData;
+                state.fileContents.set('resources.arsc', renderArsc(arscData));
                 const arscContent = arscData.allStrings.join('\n');
                 R.findings.push(...analyzeContent(arscContent, 'resources.arsc', ANDROID_RULES));
             }
         } catch(e) { }
     }
 
-    const allClasses = apkState.dexParsed.flatMap(d => d.classes);
+    const allClasses = state.dexParsed.flatMap(d => d.classes);
     if (allClasses.length > 10) {
         const short = allClasses.filter(c => { const s = c.name.replace(/.*\//,'').replace(/;/,''); return s.length <= 2; }).length;
         R.isObfuscated = (short / allClasses.length) > 0.4;
@@ -1247,14 +1228,14 @@ async function analyzeAPK(file, options = {}) {
     updateProgress(56, 'Scanning decompiled classes...');
     await yield_();
     let classesScanned = 0;
-    for (const dex of apkState.dexParsed) {
+    for (const dex of state.dexParsed) {
         for (const cls of (dex.classes || []).slice(0, 500)) {
             if (classesScanned++ > 2000) break;
             const fqn = (cls.name || '').replace(/^L/, '').replace(/;$/, '').replace(/\//g, '.');
             if (!fqn || fqn.length < 3) continue;
             try {
                 const javaCode = generateJavaView(cls, dex.buf, dex.strings, dex.types, dex.methods, dex.fields || []);
-                apkState.javaCache.set(fqn, javaCode);
+                state.javaCache.set(fqn, javaCode);
                 const classFindings = analyzeContent(javaCode, fqn + '.java', ANDROID_RULES);
                 R.findings.push(...classFindings);
             } catch(e) {}
@@ -1299,7 +1280,7 @@ async function analyzeAPK(file, options = {}) {
             } else {
                 c = await zip.file(path).async('string');
             }
-            apkState.fileContents.set(path, c);
+            state.fileContents.set(path, c);
             R.findings.push(...analyzeContent(c, path, ANDROID_RULES));
         } catch(e) {}
     }
@@ -1329,9 +1310,9 @@ async function analyzeAPK(file, options = {}) {
     }
     for (const [, g] of ruleGroups) {
         const s = g.severity === 'secure' ? 'secure' : 'issue';
-        apkState.groupedFindings[s].push(g);
+        state.groupedFindings[s].push(g);
     }
-    apkState.analysisResults = R;
+    state.analysisResults = R;
     updateProgress(100, 'Complete!');
     return R;
 }
@@ -2389,13 +2370,13 @@ function renderManifestTab(R) {
 }
 
 function copyManifest() {
-    const R = apkState.analysisResults;
+    const R = state.analysisResults;
     if (!R || !R.manifestStr) { showToast('No manifest available', 'error'); return; }
     navigator.clipboard.writeText(R.manifestStr).then(() => showToast('Manifest copied!', 'success')).catch(() => showToast('Copy failed', 'error'));
 }
 
 function downloadManifestFile() {
-    const R = apkState.analysisResults;
+    const R = state.analysisResults;
     if (!R || !R.manifestStr) { showToast('No manifest available', 'error'); return; }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([R.manifestStr], { type: 'text/xml' }));
@@ -2403,7 +2384,7 @@ function downloadManifestFile() {
 }
 
 function renderOverviewTab(R) {
-    const g = apkState.groupedFindings;
+    const g = state.groupedFindings;
     document.getElementById('overviewStats').innerHTML = `
     <div class="stat-card findings-card">
         <div class="stat-card-header"><span class="stat-card-label">Findings</span><div class="stat-card-icon accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></div></div>
@@ -2468,58 +2449,23 @@ function renderOverviewTab(R) {
 function ir(k, v) { return `<div class="info-row"><span class="info-key">${esc(k)}</span><span class="info-val">${v}</span></div>`; }
 
 function renderFindingsTab() {
-    const q = (document.getElementById('findingsSearch')?.value || '').toLowerCase();
-    let all = [...apkState.groupedFindings.issue];
-    
-    if (q) {
-        all = all.filter(f => 
-            (f.ruleName || '').toLowerCase().includes(q) || 
-            (f.description || '').toLowerCase().includes(q) ||
-            (f.cwe || '').toLowerCase().includes(q) ||
-            (f.masvs || '').toLowerCase().includes(q)
-        );
-    }
-
+    const all = [...state.groupedFindings.issue];
     const renderMatch = m => {
         const file = m.file || '';
         return `<div class="finding-match-item"><code>${esc((m.match||'').slice(0,150))}</code><span class="match-loc finding-goto" data-file="${esc(file)}" data-line="${m.line||''}">${esc(file)}${m.line?':'+m.line:''}</span></div>`;
     };
-
     document.getElementById('findingsList').innerHTML = all.map((f, idx) => {
-        const countBadge = f.count > 1 ? `<span class="finding-count">${f.count}</span>` : '';
+        const countBadge = f.count > 1 ? `<span class="finding-count">${f.count} occurrences</span>` : '';
         let matchesHtml = '';
         if (f.matches && f.matches.length > 0) {
             if (f.matches.length === 1) {
                 matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}</div>`;
             } else {
-                matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}<button class="finding-expand-btn" data-target="fml_${idx}" data-total="${f.matches.length}">Show ${f.matches.length} more</button><div id="fml_${idx}" class="finding-match-list" style="display:none">${f.matches.slice(1).map(renderMatch).join('')}</div></div>`;
+                matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}<button class="finding-expand-btn" data-target="fml_${idx}" data-total="${f.matches.length}">Show all ${f.matches.length} instances</button><div id="fml_${idx}" class="finding-match-list" style="display:none">${f.matches.slice(1).map(renderMatch).join('')}</div></div>`;
             }
         }
-        const tags = [
-            f.cwe ? `<span class="tag">${esc(f.cwe)}</span>` : '',
-            f.owasp ? `<span class="tag">OWASP M${esc(f.owasp.replace('M',''))}</span>` : '',
-            f.masvs ? `<span class="tag">MASVS-${esc(f.masvs)}</span>` : ''
-        ].filter(Boolean).join('');
-
-        return `
-            <div class="finding-card compact-finding" data-severity="${f.severity}">
-                <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
-                    <div style="display:flex;align-items:center;gap:12px;flex:1">
-                        <span class="sev-badge sev-${f.severity}">${f.severity.slice(0,1).toUpperCase()}</span>
-                        <span class="finding-title" style="font-size:13px;font-weight:600">${esc(f.ruleName)}</span>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px">
-                        ${tags}
-                        ${countBadge}
-                        <span class="chevron" style="opacity:0.3;font-size:10px">▼</span>
-                    </div>
-                </div>
-                <div class="finding-details hidden" style="padding-top:12px;margin-top:8px;border-top:1px solid rgba(255,255,255,0.05)">
-                    <p class="finding-desc" style="margin-bottom:12px;font-size:12px;line-height:1.5">${esc(f.description)}</p>
-                    ${matchesHtml}
-                </div>
-            </div>`;
-    }).join('') || `<div class="no-data">${q ? 'No results matching search' : 'No findings'}</div>`;
+        return `<div class="finding-card" data-severity="${f.severity}"><div class="finding-header"><span class="sev-badge sev-${f.severity}">${f.severity.toUpperCase()}</span><span class="finding-title">${esc(f.ruleName)}</span>${countBadge}</div><p class="finding-desc">${esc(f.description)}</p>${matchesHtml}<div class="finding-tags">${f.cwe?`<span class="tag">${esc(f.cwe)}</span>`:''}${f.owasp?`<span class="tag">OWASP M${esc(f.owasp.replace('M',''))}</span>`:''}${f.masvs?`<span class="tag">MASVS-${esc(f.masvs)}</span>`:''}</div></div>`;
+    }).join('') || '<div class="no-data">No findings</div>';
     const fl = document.getElementById('findingsList');
     const handler = e => {
         const btn = e.target.closest('.finding-expand-btn');
@@ -2542,8 +2488,8 @@ function renderFindingsTab() {
 }
 
 function renderSmaliTab(R) {
-    const total = apkState.dexParsed.reduce((s, d) => s + d.classes.length, 0);
-    const totalM = apkState.dexParsed.reduce((s, d) => s + d.methods.length, 0);
+    const total = state.dexParsed.reduce((s, d) => s + d.classes.length, 0);
+    const totalM = state.dexParsed.reduce((s, d) => s + d.methods.length, 0);
     document.getElementById('smaliInfo').innerHTML = `<div class="dex-stats">
         ${R.dexFiles.map(d => `<div class="dex-stat-card"><div class="dex-name">${esc(d.name)}</div><div class="dex-nums"><span>${d.classes} classes</span><span>${d.methods} methods</span><span>${d.strings} strings</span></div></div>`).join('')}
         <div class="dex-stat-card total"><div class="dex-name">Totals</div><div class="dex-nums"><span>${total} classes</span><span>${totalM} methods</span><span>${R.strings.length} strings</span></div></div>
@@ -2552,7 +2498,7 @@ function renderSmaliTab(R) {
     if (!R.dexFiles.length) {
         treeEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px">No DEX files found</div>';
     } else {
-        renderSmaliTree(treeEl, apkState.smaliTree);
+        renderSmaliTree(treeEl, state.smaliTree);
     }
     renderSmaliStrings(R);
 }
@@ -2586,7 +2532,7 @@ function renderSmaliTree(el, tree) {
 
 function filterSmaliTree(q) {
     const el = document.getElementById('smaliTree');
-    if (!q) { renderSmaliTree(el, apkState.smaliTree); return; }
+    if (!q) { renderSmaliTree(el, state.smaliTree); return; }
     el.innerHTML = '';
     const lq = q.toLowerCase();
     const results = [];
@@ -2596,7 +2542,7 @@ function filterSmaliTree(q) {
             else if (node._type === 'pkg') walk(node._ch);
         }
     }
-    walk(apkState.smaliTree);
+    walk(state.smaliTree);
     if (!results.length) { el.innerHTML = '<div style="padding:12px 16px;color:var(--text-muted);font-size:12px">No results</div>'; return; }
     results.slice(0, 200).forEach(node => {
         const isIface = (node._cls.flags & 0x0200) !== 0;
@@ -2633,9 +2579,9 @@ function showStringsTab(btn, id) {
 }
 
 function showSmaliClass(cls, fqn, dexIdx) {
-    apkState.currentViewClass = cls;
-    apkState.currentViewFqn = fqn;
-    apkState.currentViewDexIdx = dexIdx ?? 0;
+    state.currentViewClass = cls;
+    state.currentViewFqn = fqn;
+    state.currentViewDexIdx = dexIdx ?? 0;
 
     const simple = fqn.split('.').pop();
     const mCnt = (cls.methods||[]).length, fCnt = (cls.fields||[]).length;
@@ -2662,19 +2608,19 @@ function showSmaliClass(cls, fqn, dexIdx) {
 }
 
 function switchCodeView(mode) {
-    apkState.currentViewMode = mode;
+    state.currentViewMode = mode;
     document.querySelectorAll('.jadx-toggle-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.view === mode));
     renderCodeView();
 }
 
 function renderCodeView() {
-    const cls = apkState.currentViewClass;
+    const cls = state.currentViewClass;
     if (!cls) return;
-    const fqn = apkState.currentViewFqn;
+    const fqn = state.currentViewFqn;
     const simple = (fqn || '').split('.').pop();
-    const dex = apkState.dexParsed[apkState.currentViewDexIdx ?? 0];
-    const mode = apkState.currentViewMode;
+    const dex = state.dexParsed[state.currentViewDexIdx ?? 0];
+    const mode = state.currentViewMode;
 
     const ext = mode === 'java' ? '.java' : '.smali';
     document.getElementById('jadxFileName').textContent = simple + ext;
@@ -2684,13 +2630,13 @@ function renderCodeView() {
 
     let code, highlighted;
     if (mode === 'java') {
-        if (apkState.javaCache.has(fqn)) {
-            code = apkState.javaCache.get(fqn);
+        if (state.javaCache.has(fqn)) {
+            code = state.javaCache.get(fqn);
         } else {
             code = dex
                 ? generateJavaView(cls, dex.buf, dex.strings, dex.types, dex.methods, dex.fields || [])
                 : generateJavaView(cls, null, [], [], [], []);
-            apkState.javaCache.set(fqn, code);
+            state.javaCache.set(fqn, code);
         }
         highlighted = highlightJava(code);
     } else {
@@ -2721,7 +2667,7 @@ function jumpToMethod(methodName) {
 }
 
 function switchExplorerView(mode, btn) {
-    apkState.explorerView = mode;
+    state.explorerView = mode;
     if (btn) {
         btn.parentElement.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -2748,7 +2694,7 @@ function switchExplorerView(mode, btn) {
     if (smaliTree) smaliTree.style.display = 'none';
 
     if (isClass) {
-        apkState.currentViewMode = mode;
+        state.currentViewMode = mode;
         document.querySelectorAll('.jadx-toggle-btn').forEach(b =>
             b.classList.toggle('active', b.dataset.view === mode));
     }
@@ -2766,8 +2712,8 @@ function switchExplorerView(mode, btn) {
 function buildSourceTree(container, ext) {
     container.innerHTML = '';
     const tree = {};
-    for (let dexIdx = 0; dexIdx < apkState.dexParsed.length; dexIdx++) {
-        const dex = apkState.dexParsed[dexIdx];
+    for (let dexIdx = 0; dexIdx < state.dexParsed.length; dexIdx++) {
+        const dex = state.dexParsed[dexIdx];
         for (const cls of (dex.classes || [])) {
             const fqn = (cls.name || '').replace(/^L/, '').replace(/;$/, '').replace(/\//g, '.');
             const parts = fqn.split('.');
@@ -2808,16 +2754,16 @@ function openSourceFile(cls, fqn, dexIdx, ext) {
     const pathEl = document.getElementById('currentFilePath');
     if (pathEl) pathEl.textContent = fqn.replace(/\./g, '/') + '.' + ext;
 
-    const dex = apkState.dexParsed[dexIdx ?? 0];
+    const dex = state.dexParsed[dexIdx ?? 0];
     let code, highlighted;
     if (ext === 'java') {
-        if (apkState.javaCache.has(fqn)) {
-            code = apkState.javaCache.get(fqn);
+        if (state.javaCache.has(fqn)) {
+            code = state.javaCache.get(fqn);
         } else {
             code = dex
                 ? generateJavaView(cls, dex.buf, dex.strings, dex.types, dex.methods, dex.fields || [])
                 : generateJavaView(cls, null, [], [], [], []);
-            apkState.javaCache.set(fqn, code);
+            state.javaCache.set(fqn, code);
         }
         highlighted = highlightJava(code);
     } else {
@@ -2940,7 +2886,7 @@ function generateExploitCommands(comp, packageName) {
 function renderInspectorTab(R) {
     try {
     const allComps = analyzeExportedComponents(R.manifest);
-    apkState.inspectorData = allComps;
+    state.inspectorData = allComps;
     const pkg = R.appInfo.packageName || '';
 
     const exported = {
@@ -3083,11 +3029,11 @@ async function openFile(path) {
         if(typeof _activeSearchQuery==='string'&&_activeSearchQuery.length>0) setTimeout(()=>applyCodeSearch(_activeSearchQuery),50);
     };
 
-    if (apkState.fileContents.has(path)) {
-        showContent(apkState.fileContents.get(path));
+    if (state.fileContents.has(path)) {
+        showContent(state.fileContents.get(path));
         return;
     }
-    const entry = apkState.zipContent?.file(path);
+    const entry = state.zipContent?.file(path);
     if (!entry) { codeEl.innerHTML = `<div class="no-data">File not found in package</div>`; return; }
     codeEl.innerHTML = '<div class="no-data">Loading...</div>';
     try {
@@ -3106,7 +3052,7 @@ async function openFile(path) {
             const arscData = parseArsc(data);
             if (arscData && arscData.strings.length > 0) {
                 const rendered = renderArsc(arscData);
-                apkState.fileContents.set(path, rendered);
+                state.fileContents.set(path, rendered);
                 showContent(rendered);
             } else {
                 codeEl.innerHTML = `<pre class="file-hex" style="padding:12px">resources.arsc -Could not extract strings (${formatSize(data.byteLength)})\n\n${hexDump(new Uint8Array(data), 512)}</pre>`;
@@ -3131,7 +3077,7 @@ async function openFile(path) {
                             const xmlStr = '<?xml version="1.0" encoding="utf-8"?>\n' + xmlToStr(parsed);
                             const badRatio = (xmlStr.match(/\uFFFD/g) || []).length / xmlStr.length;
                             if (badRatio < 0.05) {
-                                apkState.fileContents.set(path, xmlStr);
+                                state.fileContents.set(path, xmlStr);
                                 showContent(xmlStr);
                                 return;
                             }
@@ -3141,7 +3087,7 @@ async function openFile(path) {
                 const text = new TextDecoder('utf-8', { fatal: false }).decode(data);
                 const badChars = (text.match(/[\x00-\x08\x0E-\x1F]/g) || []).length;
                 if (badChars / Math.max(text.length, 1) < 0.1 && text.length > 0) {
-                    apkState.fileContents.set(path, text);
+                    state.fileContents.set(path, text);
                     showContent(text);
                 } else {
                     codeEl.innerHTML = `<div style="padding:12px"><div class="no-data" style="margin-bottom:8px">Binary XML file (${formatSize(data.byteLength)}) -compiled Android resource</div><pre class="file-hex">${hexDump(bytes, 512)}</pre></div>`;
@@ -3153,7 +3099,7 @@ async function openFile(path) {
             }
         }
         const text = await entry.async('string');
-        apkState.fileContents.set(path, text);
+        state.fileContents.set(path, text);
         showContent(text);
     } catch(e) { codeEl.innerHTML = `<div class="no-data">Cannot display file: ${esc(e.message)}</div>`; }
 }
@@ -3171,7 +3117,7 @@ function hexDump(bytes, limit = 512) {
 }
 
 function exportReport() {
-    const R = apkState.analysisResults;
+    const R = state.analysisResults;
     if (!R) { showToast('No analysis results to export', 'error'); return; }
     try {
         const { jsPDF } = window.jspdf;
@@ -3187,7 +3133,7 @@ function exportReport() {
         doc.setFontSize(8); doc.setTextColor(180,180,200); doc.text(new Date().toISOString().split('T')[0], M, 30);
         y = 42;
 
-        const g = apkState.groupedFindings;
+        const g = state.groupedFindings;
 
         heading('Application');
         row('Package', R.appInfo.packageName || R.appInfo.fileName);
@@ -3267,9 +3213,9 @@ function showToast(msg, type = 'info') {
     t.innerHTML = icon + msg; c.appendChild(t); setTimeout(() => t.remove(), 4000);
 }
 
-async function startAnalysis(file, options = {}) {
+async function startAnalysis(file) {
     try {
-        const results = await analyzeAPK(file, options);
+        const results = await analyzeAPK(file);
         hideLoading();
         document.getElementById('landingContent').style.display = 'none';
         document.querySelector('.privacy-section').style.display = 'none';
@@ -3277,7 +3223,7 @@ async function startAnalysis(file, options = {}) {
         const pkg = results.appInfo.packageName || results.appInfo.fileName.replace('.apk', '');
         document.getElementById('appName').textContent = pkg.split('.').pop() || pkg;
         document.getElementById('appPackage').textContent = pkg;
-        const tot = apkState.groupedFindings.issue.length;
+        const tot = state.groupedFindings.issue.length;
         document.getElementById('findingsCount').textContent = tot;
         renderOverviewTab(results);
         renderManifestTab(results);
@@ -3301,14 +3247,14 @@ function downloadCurrentFile() {
     let p = document.getElementById('currentFilePath')?.textContent || '';
     if (!p || p === 'Select a file to view its contents') p = document.getElementById('jadxFilePath')?.textContent || '';
     if (!p) return;
-    if (apkState.currentViewClass && (apkState.explorerView === 'java' || apkState.explorerView === 'smali')) {
+    if (state.currentViewClass && (state.explorerView === 'java' || state.explorerView === 'smali')) {
         const code = document.getElementById('jadxCode')?.innerText || '';
         const blob = new Blob([code], { type: 'text/plain' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
         a.download = p.split('.').pop() === p ? p + '.java' : p.split('/').pop();
         a.click(); return;
     }
-    const e = apkState.zipContent?.file(p);
+    const e = state.zipContent?.file(p);
     if (!e) { showToast('File not found in APK', 'error'); return; }
     e.async('blob').then(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = p.split('/').pop(); a.click(); });
 }
@@ -3344,8 +3290,8 @@ function navigateToFile(file, line) {
         var fqn = file.replace(/\.java$/, '');
         var javaTabs = document.querySelectorAll('.explorer-view-tabs .stab');
         if (javaTabs[1]) switchExplorerView('java', javaTabs[1]);
-        apkState.currentViewMode = 'java';
-        if (apkState.javaCache.has(fqn)) {
+        state.currentViewMode = 'java';
+        if (state.javaCache.has(fqn)) {
             var nameEl = document.getElementById('jadxFileName');
             var pathEl = document.getElementById('jadxFilePath');
             var metaEl = document.getElementById('jadxFileMeta');
@@ -3355,11 +3301,11 @@ function navigateToFile(file, line) {
             if (pathEl) pathEl.textContent = fqn;
             if (metaEl) metaEl.textContent = '';
             if (toggleEl) toggleEl.style.display = 'none';
-            if (codeEl) codeEl.innerHTML = '<div class="cwl">' + highlightJava(apkState.javaCache.get(fqn)) + '</div>';
+            if (codeEl) codeEl.innerHTML = '<div class="cwl">' + highlightJava(state.javaCache.get(fqn)) + '</div>';
             highlightLine('#jadxCode', line);
         } else {
-            for (var di = 0; di < apkState.dexParsed.length; di++) {
-                var dex = apkState.dexParsed[di];
+            for (var di = 0; di < state.dexParsed.length; di++) {
+                var dex = state.dexParsed[di];
                 var cls = (dex.classes || []).find(c => (c.name || '').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.') === fqn);
                 if (cls) {
                     showSmaliClass(cls, fqn, di);
