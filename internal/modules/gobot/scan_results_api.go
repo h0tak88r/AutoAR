@@ -635,6 +635,37 @@ func apiScanResultFileContent(c *gin.Context) {
 	})
 }
 
+// GET /api/scans/:id/results/download — raw binary download
+func apiScanResultFileDownload(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	scanID := strings.TrimSpace(c.Param("id"))
+	fileName := strings.TrimSpace(c.Query("file_name"))
+
+	if scanID == "" || fileName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id and file_name are required"})
+		return
+	}
+
+	// Verify scan exists
+	if _, err := db.GetScan(scanID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	raw, _, err := loadFileContent(scanID, fileName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+	c.Header("Content-Type", "application/octet-stream")
+	c.Data(http.StatusOK, "application/octet-stream", raw)
+}
+
 func buildJSONPreview(raw []byte, page, perPage int) gin.H {
 	var top interface{}
 	if err := json.Unmarshal(raw, &top); err != nil {
