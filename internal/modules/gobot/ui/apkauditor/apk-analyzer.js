@@ -987,16 +987,11 @@ function extractManifestInfo(R) {
     }
 }
 
-function analyzeContent(content, filePath, rules, enableDeepScan = false) {
+function analyzeContent(content, filePath, rules) {
     const findings = [];
     const safe = content.length > 300000 ? content.slice(0, 300000) : content;
-    
-    let activeRules = rules;
-    if (enableDeepScan && typeof SECRETS_RULES !== 'undefined') {
-        activeRules = rules.concat(SECRETS_RULES);
-    }
 
-    for (const rule of activeRules) {
+    for (const rule of rules) {
         for (const pat of rule.patterns) {
             try {
                 pat.lastIndex = 0;
@@ -1231,7 +1226,7 @@ async function analyzeAPK(file, options = {}) {
                 state.arscData = arscData;
                 state.fileContents.set('resources.arsc', renderArsc(arscData));
                 const arscContent = arscData.allStrings.join('\n');
-                R.findings.push(...analyzeContent(arscContent, 'resources.arsc', ANDROID_RULES, options.enableDeepScan));
+                R.findings.push(...analyzeContent(arscContent, 'resources.arsc', ANDROID_RULES));
             }
         } catch(e) { }
     }
@@ -1254,7 +1249,7 @@ async function analyzeAPK(file, options = {}) {
             try {
                 const javaCode = generateJavaView(cls, dex.buf, dex.strings, dex.types, dex.methods, dex.fields || []);
                 state.javaCache.set(fqn, javaCode);
-                const classFindings = analyzeContent(javaCode, fqn + '.java', ANDROID_RULES, options.enableDeepScan);
+                const classFindings = analyzeContent(javaCode, fqn + '.java', ANDROID_RULES);
                 R.findings.push(...classFindings);
             } catch(e) {}
             if (classesScanned % 100 === 0) {
@@ -1299,7 +1294,7 @@ async function analyzeAPK(file, options = {}) {
                 c = await zip.file(path).async('string');
             }
             state.fileContents.set(path, c);
-            R.findings.push(...analyzeContent(c, path, ANDROID_RULES, options.enableDeepScan));
+            R.findings.push(...analyzeContent(c, path, ANDROID_RULES));
         } catch(e) {}
     }
     await yield_();
