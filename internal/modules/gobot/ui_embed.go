@@ -32,23 +32,32 @@ func serveDashboardUI(c *gin.Context) {
 	// The apkauditor HTML page is guarded server-side so direct navigation to
 	// /ui/apkauditor/ without a valid session is blocked.  Sub-assets (.js/.css)
 	// are served freely — they are inert without the protected HTML wrapper.
+	//
+	// Same-origin iframe requests (Sec-Fetch-Dest: iframe, Sec-Fetch-Site: same-origin)
+	// are explicitly allowed — they come from within the authenticated SPA itself.
 	if strings.HasPrefix(filePath, "apkauditor") &&
 		(strings.HasSuffix(filePath, ".html") || filePath == "apkauditor/index.html") &&
 		dashboardAPIAuthEnforced() {
 
-		// Accept token from Authorization: Bearer … header or autoar_token cookie.
-		raw := ""
-		if ah := strings.TrimSpace(c.GetHeader("Authorization")); strings.HasPrefix(ah, "Bearer ") {
-			raw = strings.TrimSpace(ah[len("Bearer "):])
-		}
-		if raw == "" {
-			raw, _ = c.Cookie("autoar_token")
-		}
+		// Trust same-origin iframe requests — the SPA already gated them.
+		isSameOriginIframe := c.GetHeader("Sec-Fetch-Dest") == "iframe" &&
+			c.GetHeader("Sec-Fetch-Site") == "same-origin"
 
-		if raw == "" || verifyLocalJWT(raw) != nil {
-			// Redirect browser to the SPA; the JS auth gate will show login.
-			c.Redirect(http.StatusFound, "/ui")
-			return
+		if !isSameOriginIframe {
+			// Accept token from Authorization: Bearer … header or autoar_token cookie.
+			raw := ""
+			if ah := strings.TrimSpace(c.GetHeader("Authorization")); strings.HasPrefix(ah, "Bearer ") {
+				raw = strings.TrimSpace(ah[len("Bearer "):])
+			}
+			if raw == "" {
+				raw, _ = c.Cookie("autoar_token")
+			}
+
+			if raw == "" || verifyLocalJWT(raw) != nil {
+				// Redirect browser to the SPA; the JS auth gate will show login.
+				c.Redirect(http.StatusFound, "/ui")
+				return
+			}
 		}
 	}
 	// ─────────────────────────────────────────────────────────────────────────
