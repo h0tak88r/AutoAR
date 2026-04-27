@@ -2462,23 +2462,58 @@ function renderOverviewTab(R) {
 function ir(k, v) { return `<div class="info-row"><span class="info-key">${esc(k)}</span><span class="info-val">${v}</span></div>`; }
 
 function renderFindingsTab() {
-    const all = [...apkState.groupedFindings.issue];
+    const q = (document.getElementById('findingsSearch')?.value || '').toLowerCase();
+    let all = [...apkState.groupedFindings.issue];
+    
+    if (q) {
+        all = all.filter(f => 
+            (f.ruleName || '').toLowerCase().includes(q) || 
+            (f.description || '').toLowerCase().includes(q) ||
+            (f.cwe || '').toLowerCase().includes(q) ||
+            (f.masvs || '').toLowerCase().includes(q)
+        );
+    }
+
     const renderMatch = m => {
         const file = m.file || '';
         return `<div class="finding-match-item"><code>${esc((m.match||'').slice(0,150))}</code><span class="match-loc finding-goto" data-file="${esc(file)}" data-line="${m.line||''}">${esc(file)}${m.line?':'+m.line:''}</span></div>`;
     };
+
     document.getElementById('findingsList').innerHTML = all.map((f, idx) => {
-        const countBadge = f.count > 1 ? `<span class="finding-count">${f.count} occurrences</span>` : '';
+        const countBadge = f.count > 1 ? `<span class="finding-count">${f.count}</span>` : '';
         let matchesHtml = '';
         if (f.matches && f.matches.length > 0) {
             if (f.matches.length === 1) {
                 matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}</div>`;
             } else {
-                matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}<button class="finding-expand-btn" data-target="fml_${idx}" data-total="${f.matches.length}">Show all ${f.matches.length} instances</button><div id="fml_${idx}" class="finding-match-list" style="display:none">${f.matches.slice(1).map(renderMatch).join('')}</div></div>`;
+                matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}<button class="finding-expand-btn" data-target="fml_${idx}" data-total="${f.matches.length}">Show ${f.matches.length} more</button><div id="fml_${idx}" class="finding-match-list" style="display:none">${f.matches.slice(1).map(renderMatch).join('')}</div></div>`;
             }
         }
-        return `<div class="finding-card" data-severity="${f.severity}"><div class="finding-header"><span class="sev-badge sev-${f.severity}">${f.severity.toUpperCase()}</span><span class="finding-title">${esc(f.ruleName)}</span>${countBadge}</div><p class="finding-desc">${esc(f.description)}</p>${matchesHtml}<div class="finding-tags">${f.cwe?`<span class="tag">${esc(f.cwe)}</span>`:''}${f.owasp?`<span class="tag">OWASP M${esc(f.owasp.replace('M',''))}</span>`:''}${f.masvs?`<span class="tag">MASVS-${esc(f.masvs)}</span>`:''}</div></div>`;
-    }).join('') || '<div class="no-data">No findings</div>';
+        const tags = [
+            f.cwe ? `<span class="tag">${esc(f.cwe)}</span>` : '',
+            f.owasp ? `<span class="tag">OWASP M${esc(f.owasp.replace('M',''))}</span>` : '',
+            f.masvs ? `<span class="tag">MASVS-${esc(f.masvs)}</span>` : ''
+        ].filter(Boolean).join('');
+
+        return `
+            <div class="finding-card compact-finding" data-severity="${f.severity}">
+                <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
+                    <div style="display:flex;align-items:center;gap:12px;flex:1">
+                        <span class="sev-badge sev-${f.severity}">${f.severity.slice(0,1).toUpperCase()}</span>
+                        <span class="finding-title" style="font-size:13px;font-weight:600">${esc(f.ruleName)}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        ${tags}
+                        ${countBadge}
+                        <span class="chevron" style="opacity:0.3;font-size:10px">▼</span>
+                    </div>
+                </div>
+                <div class="finding-details hidden" style="padding-top:12px;margin-top:8px;border-top:1px solid rgba(255,255,255,0.05)">
+                    <p class="finding-desc" style="margin-bottom:12px;font-size:12px;line-height:1.5">${esc(f.description)}</p>
+                    ${matchesHtml}
+                </div>
+            </div>`;
+    }).join('') || `<div class="no-data">${q ? 'No results matching search' : 'No findings'}</div>`;
     const fl = document.getElementById('findingsList');
     const handler = e => {
         const btn = e.target.closest('.finding-expand-btn');

@@ -1701,51 +1701,66 @@ function renderOverviewTab(results) {
     }
 }
 
-function renderFindingsTab(results) {
+function renderFindingsTab() {
+    const q = (document.getElementById('findingsSearch')?.value || '').toLowerCase();
     const container = document.getElementById('findingsList');
-    const allGrouped = [
-        ...ipaState.groupedFindings.high,
-        ...ipaState.groupedFindings.warning,
-        ...ipaState.groupedFindings.info,
-        ...ipaState.groupedFindings.secure
+    let allGrouped = [
+        ...(ipaState.groupedFindings?.high || []),
+        ...(ipaState.groupedFindings?.warning || []),
+        ...(ipaState.groupedFindings?.info || []),
+        ...(ipaState.groupedFindings?.secure || [])
     ];
 
+    if (q) {
+        allGrouped = allGrouped.filter(f => 
+            (f.ruleName || '').toLowerCase().includes(q) || 
+            (f.description || '').toLowerCase().includes(q) ||
+            (f.cwe || '').toLowerCase().includes(q) ||
+            (f.masvs || '').toLowerCase().includes(q)
+        );
+    }
+
     if (allGrouped.length === 0) {
-        container.innerHTML = '<div class="no-data">No findings</div>';
+        container.innerHTML = `<div class="no-data">${q ? 'No results matching search' : 'No findings'}</div>`;
         return;
     }
 
     container.innerHTML = allGrouped.map((f, i) => {
         const instanceCount = f.instances.length;
         const instancesHtml = f.instances.map((inst, j) => `
-            <div class="instance-item" onclick="openFileInExplorer('${escapeJs(inst.file)}', ${parseInt(inst.line) || 0})">
-                <div class="instance-header">
-                    <span class="instance-number">#${j + 1}</span>
-                    <span class="instance-file">${escapeHtml(inst.file)}${inst.line ? ':' + inst.line : ''}</span>
-                    ${inst.binaryOffset ? `<span class="instance-offset">@ ${inst.binaryOffset}</span>` : ''}
+            <div class="finding-match-item" onclick="openFileInExplorer('${escapeJs(inst.file)}', ${parseInt(inst.line) || 0})">
+                <div class="instance-header" style="font-size:11px; margin-bottom:4px">
+                    <span class="instance-file" style="color:var(--accent-primary)">${escapeHtml(inst.file)}${inst.line ? ':' + inst.line : ''}</span>
+                    ${inst.binaryOffset ? `<span class="instance-offset" style="opacity:0.5"> @ ${inst.binaryOffset}</span>` : ''}
                 </div>
-                <div class="instance-match"><code>${escapeHtml(inst.match)}</code></div>
-                <pre class="instance-snippet">${escapeHtml(inst.snippet)}</pre>
+                <code>${escapeHtml(inst.match)}</code>
             </div>
         `).join('');
 
+        const tags = [
+            f.cwe ? `<span class="tag">CWE: ${f.cwe}</span>` : '',
+            f.owasp ? `<span class="tag">OWASP: ${f.owasp}</span>` : '',
+            f.masvs ? `<span class="tag">MASVS: ${f.masvs}</span>` : ''
+        ].filter(Boolean).join('');
+
+        const sevKey = f.severity.toLowerCase();
+
         return `
-            <div class="finding-card ${f.severity}" data-finding-id="${i}">
-                <div class="finding-header" onclick="toggleFinding(${i})">
-                    <span class="severity-badge ${f.severity}">${f.severity.toUpperCase()}</span>
-                    <span class="finding-title">${escapeHtml(f.ruleName)}</span>
-                    <span class="instance-count">${instanceCount} instance${instanceCount > 1 ? 's' : ''}</span>
-                    <span class="finding-toggle">▼</span>
-                </div>
-                <div class="finding-body" id="finding-body-${i}">
-                    <div class="finding-description">${escapeHtml(f.description)}</div>
-                    <div class="finding-meta">
-                        ${f.cwe ? `<span class="meta-tag">CWE: ${f.cwe}</span>` : ''}
-                        ${f.owasp ? `<span class="meta-tag">OWASP: ${f.owasp}</span>` : ''}
-                        ${f.masvs ? `<span class="meta-tag">MASVS: ${f.masvs}</span>` : ''}
+            <div class="finding-card compact-finding" data-severity="${sevKey}">
+                <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
+                    <div style="display:flex;align-items:center;gap:12px;flex:1">
+                        <span class="sev-badge sev-${sevKey}">${sevKey.slice(0,1).toUpperCase()}</span>
+                        <span class="finding-title" style="font-size:13px;font-weight:600">${escapeHtml(f.ruleName)}</span>
                     </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        ${tags}
+                        <span class="finding-count">${instanceCount}</span>
+                        <span class="chevron" style="opacity:0.3;font-size:10px">▼</span>
+                    </div>
+                </div>
+                <div class="finding-details hidden" style="padding-top:12px;margin-top:8px;border-top:1px solid rgba(255,255,255,0.05)">
+                    <div class="finding-description" style="margin-bottom:12px;font-size:12px;line-height:1.5">${escapeHtml(f.description)}</div>
                     <div class="instances-section">
-                        <div class="instances-header">Found in ${instanceCount} location${instanceCount > 1 ? 's' : ''}:</div>
                         <div class="instances-list">${instancesHtml}</div>
                     </div>
                 </div>

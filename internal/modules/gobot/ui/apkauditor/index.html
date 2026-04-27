@@ -14,15 +14,27 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
-    <script src="lib/jszip.min.js"></script>
-    <script src="lib/plist.min.js"></script>
-    <script src="lib/jspdf.umd.min.js"></script>
-    <script src="apk-secrets.js"></script>
-    <script src="apk-analyzer.js"></script>
-    <script src="ipa-analyzer.js"></script>
-    <script src="adb-core.js"></script>
-    <script src="adb-auditor.js"></script>
-    <script src="adb-ui-bridge.js"></script>
+    <script>
+        (function() {
+            const mode = new URLSearchParams(window.location.search).get('mode') || 'android';
+            const scripts = ['lib/jszip.min.js', 'lib/plist.min.js', 'lib/jspdf.umd.min.js'];
+            if (mode === 'android') scripts.push('apk-secrets.js', 'apk-analyzer.js');
+            else if (mode === 'ios') scripts.push('ipa-analyzer.js');
+            else if (mode === 'adb') scripts.push('adb-core.js', 'adb-auditor.js', 'adb-ui-bridge.js');
+
+            scripts.forEach(src => {
+                const s = document.createElement('script');
+                s.src = src;
+                s.async = false;
+                document.head.appendChild(s);
+            });
+            window.__AUDITOR_MODE__ = mode;
+        })();
+
+        // Global fallbacks to prevent errors before scripts load or in modes that don't use them
+        window.renderFindingsTab = window.renderFindingsTab || function() {};
+        window.startAnalysis = window.startAnalysis || function() {};
+    </script>
     <style>
         :root {
             --bg-primary: #030306;
@@ -2409,6 +2421,32 @@
         .auditor-tab:hover { background: rgba(255,255,255,0.1); border-color: var(--accent-primary); color: var(--text-primary); }
         .auditor-tab.active { background: var(--accent-subtle); border-color: var(--accent-primary); color: var(--accent-primary); box-shadow: 0 0 15px rgba(129, 140, 248, 0.2); }
         .hidden { display: none !important; }
+        .compact-finding {
+            padding: 0 !important;
+            margin-bottom: 12px !important;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.02) !important;
+            border-radius: 12px;
+        }
+        .compact-finding .finding-header {
+            padding: 12px 16px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        .compact-finding .finding-header:hover {
+            background: rgba(255,255,255,0.04);
+        }
+        .compact-finding .finding-details {
+            padding: 16px;
+            background: rgba(0,0,0,0.2);
+        }
+        .hidden { display: none !important; }
+        .tag { font-size: 10px; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px; color: var(--text-muted); border: 1px solid rgba(255,255,255,0.1); }
+        .finding-count { font-size: 10px; background: var(--accent-primary); color: white; padding: 1px 6px; border-radius: 10px; font-weight: bold; }
     </style>
 </head>
 
@@ -2518,7 +2556,7 @@
                 <div id="adbContentArea" style="margin-top:40px; text-align:left"></div>
             </div>
 
-            <section class="features-section">
+            <section class="features-section" id="featuresSection">
                 <h2 class="section-title">Everything you need to <span>audit Android apps</span></h2>
                 <div class="features-grid">
                     <div class="feature-card">
@@ -2760,21 +2798,18 @@
 
 
             <div class="panel" id="panel-findings">
-                <div class="results-section">
-                    <div class="results-header" style="display:flex; justify-content:space-between; align-items:center;">
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                                <line x1="12" y1="9" x2="12" y2="13" />
-                                <line x1="12" y1="17" x2="12.01" y2="17" />
-                            </svg>
-                            Security Findings
-                        </div>
-                        <input type="text" id="findingsSearchInput" placeholder="Search findings..." oninput="filterFindings(this.value)" style="width: 250px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 12px; font-size: 13px;">
+                <div class="findings-controls" style="margin: 0 0 16px 0; display:flex; gap:12px; align-items:center; background:rgba(255,255,255,0.03); padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.05)">
+                    <div style="position:relative; flex:1">
+                        <span style="position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:12px; opacity:0.5">🔍</span>
+                        <input type="text" id="findingsSearch" placeholder="Search findings (CWE, OWASP, rule name)..." oninput="renderFindingsTab()"
+                            style="width:100%; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:8px 12px 8px 32px; color:var(--text-primary); font-size:13px">
                     </div>
-                    <div id="findingsList" style="padding:12px; display:flex; flex-direction:column; gap:8px; max-height: calc(100vh - 180px); overflow-y: auto;"></div>
+                </div>
+                <div id="findingsList" class="findings-grid compact">
+                    <div class="no-data">Select a file to begin analysis</div>
                 </div>
             </div>
+
 
 
             <div class="panel" id="panel-explorer">
@@ -2937,7 +2972,7 @@
     </div>
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="apk-analyzer.js"></script>
+
     <script>
 
         (function () {
@@ -3275,12 +3310,29 @@
         async function handleFileEntry(file) {
             if (currentMode === 'android') {
                 if (!file.name.toLowerCase().endsWith('.apk')) return showToast('Please select an .apk file', 'error');
-                if (typeof handleFile === 'function') await handleFile(file);
+                if (typeof startAnalysis === 'function') await startAnalysis(file);
             } else if (currentMode === 'ios') {
                 if (!file.name.toLowerCase().endsWith('.ipa')) return showToast('Please select an .ipa file', 'error');
-                if (typeof startAnalysis === 'function') await startAnalysis(file);
+                if (typeof startAnalysis === 'function') {
+                    await startAnalysis(file);
+                } else {
+                    showToast('Analysis engine not loaded. Please wait.', 'error');
+                }
             }
         }
+
+        window.onload = () => {
+            const params = new URLSearchParams(window.location.search);
+            const mode = params.get('mode');
+            if (mode) setMode(mode);
+            
+            if (window.self !== window.top) {
+                const nav = document.querySelector('.top-nav');
+                if (nav) nav.style.display = 'none';
+                const main = document.querySelector('main');
+                if (main) main.style.paddingTop = '20px';
+            }
+        };
 
         // Particles
         function createParticles() {
