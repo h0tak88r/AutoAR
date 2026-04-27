@@ -1,7 +1,7 @@
 /** @preserve @author Sandeep Wawdane @license MIT */
 'use strict';
 
-const apkState = {
+window.apkState = {
     analysisResults: null,
     zipContent: null,
     dexParsed: [],
@@ -18,6 +18,7 @@ const apkState = {
     explorerView: 'apk',
     regexMode: false
 };
+const apkState = window.apkState;
 
 const esc = s => { if (!s && s !== 0) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
 const formatSize = b => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(2) + ' MB';
@@ -821,8 +822,9 @@ const ANDROID_RULES = [
      patterns:[/-----BEGIN DSA PRIVATE KEY-----/g,/-----BEGIN OPENSSH PRIVATE KEY-----/g],
      description:'SSH private key embedded in the app. Allows authenticating to servers as the key owner.',cwe:'CWE-321',owasp:'M9',masvs:'CRYPTO-1'},
 ];
-if (typeof SECRETS_RULES !== 'undefined' && Array.isArray(SECRETS_RULES)) {
-    ANDROID_RULES.push(...SECRETS_RULES);
+if (typeof window.SECRETS_RULES !== 'undefined' && Array.isArray(window.SECRETS_RULES)) {
+    console.log(`[APK-Analyzer] Merging ${window.SECRETS_RULES.length} secret rules...`);
+    ANDROID_RULES.push(...window.SECRETS_RULES);
 }
 
 function findAll(node, tag) {
