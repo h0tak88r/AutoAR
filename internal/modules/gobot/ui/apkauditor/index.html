@@ -437,6 +437,10 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         Upload APK
                     </button>
+                    <button class="btn btn-ghost" onclick="openRemoteModal()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Fetch Package ID
+                    </button>
                 </div>
                 <div class="hero-stats">
                     <div class="hero-stat"><div class="hero-stat-value" style="color:var(--accent-primary)">80+</div><div class="hero-stat-label">Security Rules</div></div>
@@ -467,6 +471,35 @@
                         <div class="feature-title">In-Browser DEX Decompiler</div>
                         <div class="feature-desc">DEX bytecode to Java pseudocode and Smali. Class trees, method signatures, strings.</div>
                     </div>
+
+            <!-- Remote Package Modal -->
+            <div id="remoteModal" class="modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.8);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
+                <div class="modal-content" style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:24px;padding:32px;max-width:480px;width:100%;margin:20px;box-shadow:0 24px 48px rgba(0,0,0,0.5);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+                        <h2 style="font-size:20px;font-weight:700;">Remote Package Analysis</h2>
+                        <button onclick="closeRemoteModal()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                    </div>
+                    <p style="font-size:14px;color:var(--text-secondary);margin-bottom:20px;">Enter an Android Package ID (e.g., com.discord) to fetch it from public repositories and perform security analysis.</p>
+                    
+                    <div style="margin-bottom:20px;">
+                        <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;">Package ID</label>
+                        <input type="text" id="remotePkgId" placeholder="com.example.app" style="width:100%;padding:12px 16px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:12px;color:var(--text-primary);font-family:inherit;font-size:14px;">
+                    </div>
+
+                    <div style="margin-bottom:24px;display:flex;align-items:center;gap:12px;padding:12px;background:rgba(129,140,248,0.05);border-radius:12px;border:1px solid rgba(129,140,248,0.1);">
+                        <input type="checkbox" id="remoteMitm" style="width:18px;height:18px;cursor:pointer;">
+                        <div>
+                            <label for="remoteMitm" style="display:block;font-size:14px;font-weight:600;cursor:pointer;">Apply MITM Patch</label>
+                            <span style="font-size:11px;color:var(--text-muted);">Inject Network Security Config for easier proxying</span>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:14px;" onclick="startRemoteAnalysis()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                        Start Remote Analysis
+                    </button>
+                </div>
+            </div>
                     <div class="feature-card">
                         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
                         <div class="feature-title">80+ Android Security Rules</div>
