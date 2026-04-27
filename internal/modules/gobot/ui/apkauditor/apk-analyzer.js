@@ -2439,36 +2439,37 @@ function renderOverviewTab(R) {
 function renderFindingsTab() {
     const all = [...state.groupedFindings.issue];
     
-    // Update Overview Summary Counts
-    const counts = { high: 0, warning: 0, info: 0 };
-    all.forEach(f => {
-        if(f.severity === 'high' || f.severity === 'critical') counts.high += f.count;
-        else if(f.severity === 'warning' || f.severity === 'medium') counts.warning += f.count;
-        else counts.info += f.count;
-    });
-    
-    const hEl = document.getElementById('count-high');
-    const wEl = document.getElementById('count-warning');
-    const iEl = document.getElementById('count-info');
-    if(hEl) hEl.textContent = counts.high;
-    if(wEl) wEl.textContent = counts.warning;
-    if(iEl) iEl.textContent = counts.info;
-
     const renderMatch = m => {
         const file = m.file || '';
         return `<div class="finding-match-item"><code>${esc((m.match||'').slice(0,150))}</code><span class="match-loc finding-goto" data-file="${esc(file)}" data-line="${m.line||''}">${esc(file)}${m.line?':'+m.line:''}</span></div>`;
     };
+
     document.getElementById('findingsList').innerHTML = all.map((f, idx) => {
-        const countBadge = f.count > 1 ? `<span class="finding-count">${f.count} occurrences</span>` : '';
-        let matchesHtml = '';
-        if (f.matches && f.matches.length > 0) {
-            if (f.matches.length === 1) {
-                matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}</div>`;
-            } else {
-                matchesHtml = `<div class="finding-matches">${renderMatch(f.matches[0])}<button class="finding-expand-btn" data-target="fml_${idx}" data-total="${f.matches.length}">Show all ${f.matches.length} instances</button><div id="fml_${idx}" class="finding-match-list" style="display:none">${f.matches.slice(1).map(renderMatch).join('')}</div></div>`;
-            }
-        }
-        return `<div class="finding-card" data-severity="${f.severity}"><div class="finding-header"><span class="sev-badge sev-${f.severity}">${f.severity.toUpperCase()}</span><span class="finding-title">${esc(f.ruleName)}</span>${countBadge}</div><p class="finding-desc">${esc(f.description)}</p>${matchesHtml}<div class="finding-tags">${f.cwe?`<span class="tag">${esc(f.cwe)}</span>`:''}${f.owasp?`<span class="tag">OWASP M${esc(f.owasp.replace('M',''))}</span>`:''}${f.masvs?`<span class="tag">MASVS-${esc(f.masvs)}</span>`:''}</div></div>`;
+        const countBadge = f.count > 1 ? `<span class="finding-count-badge">${f.count} instances</span>` : '';
+        const sev = (f.severity === 'issue' || f.severity === 'medium') ? 'warning' : 
+                    (f.severity === 'critical') ? 'high' : f.severity;
+        
+        let matchesHtml = (f.matches || []).map(renderMatch).join('');
+        
+        return `
+            <div class="finding-container-compact">
+                <div class="finding-row-compact ${sev}" onclick="this.classList.toggle('active'); document.getElementById('details_${idx}').classList.toggle('active')">
+                    <div class="sev-mini ${sev}">${sev.toUpperCase()}</div>
+                    <div class="finding-title-compact">${esc(f.ruleName)}</div>
+                    <div class="finding-meta-compact">
+                        ${countBadge}
+                        <span class="finding-chevron">▼</span>
+                    </div>
+                </div>
+                <div id="details_${idx}" class="finding-details-compact">
+                    <p class="finding-desc" style="margin-bottom:16px; font-size:13px; opacity:0.8; line-height:1.6">${esc(f.description)}</p>
+                    <div class="finding-matches">${matchesHtml}</div>
+                    <div class="finding-tags" style="margin-top:12px">
+                        ${f.cwe?`<span class="tag">${esc(f.cwe)}</span>`:''}${f.owasp?`<span class="tag">OWASP M${esc(f.owasp.replace('M',''))}</span>`:''}${f.masvs?`<span class="tag">MASVS-${esc(f.masvs)}</span>`:''}
+                    </div>
+                </div>
+            </div>
+        `;
     }).join('') || '<div class="no-data">No findings</div>';
     const fl = document.getElementById('findingsList');
     const handler = e => {
