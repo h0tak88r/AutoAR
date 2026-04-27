@@ -3396,16 +3396,22 @@
         };
 
         async function handleFileEntry(file) {
-            if (currentMode === 'android') {
-                if (!file.name.toLowerCase().endsWith('.apk')) return showToast('Please select an .apk file', 'error');
-                if (typeof startAnalysis === 'function') await startAnalysis(file);
-            } else if (currentMode === 'ios') {
-                if (!file.name.toLowerCase().endsWith('.ipa')) return showToast('Please select an .ipa file', 'error');
-                if (typeof startAnalysis === 'function') {
-                    await startAnalysis(file);
-                } else {
-                    showToast('Analysis engine not loaded. Please wait.', 'error');
+            try {
+                if (currentMode === 'android') {
+                    if (!file.name.toLowerCase().endsWith('.apk')) return showToast('Please select an .apk file', 'error');
+                    if (typeof startAnalysis === 'function') await startAnalysis(file);
+                } else if (currentMode === 'ios') {
+                    if (!file.name.toLowerCase().endsWith('.ipa')) return showToast('Please select an .ipa file', 'error');
+                    if (typeof startAnalysis === 'function') {
+                        await startAnalysis(file);
+                    } else {
+                        showToast('Analysis engine (ipa-analyzer.js) not loaded. Please wait or refresh.', 'error');
+                    }
                 }
+            } catch (err) {
+                console.error('[Auditor] File handling error:', err);
+                showToast('Analysis failed: ' + err.message, 'error');
+                if (typeof hideLoading === 'function') hideLoading();
             }
         }
 
