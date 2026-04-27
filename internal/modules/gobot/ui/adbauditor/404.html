@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Page Not Found | ADB Auditor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --void: #000000;
+            --depth-2: #0a0a0f;
+            --depth-4: #14151c;
+            --depth-5: #1a1b24;
+            --lum-100: #ffffff;
+            --lum-90: #e8e9ed;
+            --lum-70: #a0a3b1;
+            --pulse: #6366f1;
+            --pulse-glow: rgba(99, 102, 241, 0.5);
+            --grad-aurora: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+            --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            background: var(--void);
+            color: var(--lum-90);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-font-smoothing: antialiased;
+            overflow: hidden;
+        }
+        .ambient {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.3;
+        }
+        .orb-1 {
+            width: 600px;
+            height: 600px;
+            background: var(--pulse);
+            top: -200px;
+            right: -100px;
+        }
+        .orb-2 {
+            width: 400px;
+            height: 400px;
+            background: #8b5cf6;
+            bottom: -100px;
+            left: -100px;
+        }
+        .container {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            padding: 40px;
+        }
+        .error-code {
+            font-size: clamp(100px, 20vw, 200px);
+            font-weight: 700;
+            background: var(--grad-aurora);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+            margin-bottom: 16px;
+        }
+        .error-title {
+            font-size: clamp(20px, 4vw, 28px);
+            font-weight: 600;
+            color: var(--lum-100);
+            margin-bottom: 12px;
+        }
+        .error-message {
+            font-size: 16px;
+            color: var(--lum-70);
+            max-width: 400px;
+            margin: 0 auto 32px;
+            line-height: 1.6;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            background: var(--grad-aurora);
+            color: var(--lum-100);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 15px;
+            border-radius: 12px;
+            transition: all 0.4s var(--ease-out-expo);
+            box-shadow: 0 4px 20px var(--pulse-glow);
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px var(--pulse-glow);
+        }
+        .btn svg {
+            width: 18px;
+            height: 18px;
+        }
+        .logo {
+            position: absolute;
+            top: 32px;
+            left: 32px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            z-index: 2;
+        }
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--grad-aurora);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .logo-icon svg {
+            width: 20px;
+            height: 20px;
+            color: white;
+        }
+        .logo-text {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--lum-100);
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+    </div>
+    <a href="/" class="logo">
+        <div class="logo-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <span class="logo-text">ADB Auditor</span>
+    </a>
+    <div class="container">
+        <div class="error-code">404</div>
+        <h1 class="error-title">Page Not Found</h1>
+        <p class="error-message">The page you're looking for doesn't exist or has been moved to a different location.</p>
+        <a href="/" class="btn">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+            Back to Home
+        </a>
+    </div>
+</body>
+</html>
