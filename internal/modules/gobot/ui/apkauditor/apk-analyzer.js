@@ -3324,9 +3324,8 @@ function navigateToFile(file, line) {
     switchTab('explorer');
     var apkTab = document.querySelector('.explorer-view-tabs .stab');
     if (apkTab) switchExplorerView('apk', apkTab);
-    navigateToFile(file, line);
-    highlightLine('#jadxCode', line);
 }
+
 
 // --- Remote Analysis Integration ---
 function openRemoteModal() {
@@ -3348,11 +3347,15 @@ async function startRemoteAnalysis() {
     closeRemoteModal();
     showLoading('Starting Remote Scan...');
 
+    const token = localStorage.getItem('autoar_local_token');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     try {
         // 1. Launch Scan
-        const startResp = await fetch('/api/scan/apkx', {
+        const startResp = await fetch('/scan/apkx', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({ package_id: pkgId, mitm: mitm })
         });
         
@@ -3372,7 +3375,7 @@ async function startRemoteAnalysis() {
             attempts++;
             if (attempts > 300) throw new Error('Scan timed out'); // 10 mins
 
-            const statusResp = await fetch('/api/scans/' + scanId);
+            const statusResp = await fetch('/api/scans/' + scanId, { headers });
             const statusData = await statusResp.json();
             status = statusData.scan.status.toLowerCase();
             
@@ -3384,7 +3387,7 @@ async function startRemoteAnalysis() {
 
         // 3. Get Results
         showLoading('Fetching artifacts...');
-        const resResp = await fetch('/api/scans/' + scanId + '/results/summary');
+        const resResp = await fetch('/api/scans/' + scanId + '/results/summary', { headers });
         const resData = await resResp.json();
         
         // Prefer mitm-patched APK if it exists
@@ -3393,8 +3396,9 @@ async function startRemoteAnalysis() {
 
         // 4. Download and Analyze
         showLoading('Downloading APK for local analysis...');
-        const downloadUrl = `/api/scans/${scanId}/results/download?file_name=${encodeURIComponent(apkFile.file_name)}`;
-        const apkResp = await fetch(downloadUrl);
+        const downloadUrl = `/api/scans/${scanId}/results/download?file=${encodeURIComponent(apkFile.file_name)}`;
+        const apkResp = await fetch(downloadUrl, { headers });
+        if (!apkResp.ok) throw new Error('Failed to download APK artifact');
         const apkBlob = await apkResp.blob();
         
         const file = new File([apkBlob], apkFile.file_name, { type: 'application/vnd.android.package-archive' });
