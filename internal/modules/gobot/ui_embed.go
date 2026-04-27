@@ -28,6 +28,31 @@ func serveDashboardUI(c *gin.Context) {
 		filePath = "apkauditor/index.html"
 	}
 
+	// ── APK Auditor auth gate ─────────────────────────────────────────────────
+	// The apkauditor HTML page is guarded server-side so direct navigation to
+	// /ui/apkauditor/ without a valid session is blocked.  Sub-assets (.js/.css)
+	// are served freely — they are inert without the protected HTML wrapper.
+	if strings.HasPrefix(filePath, "apkauditor") &&
+		(strings.HasSuffix(filePath, ".html") || filePath == "apkauditor/index.html") &&
+		dashboardAPIAuthEnforced() {
+
+		// Accept token from Authorization: Bearer … header or autoar_token cookie.
+		raw := ""
+		if ah := strings.TrimSpace(c.GetHeader("Authorization")); strings.HasPrefix(ah, "Bearer ") {
+			raw = strings.TrimSpace(ah[len("Bearer "):])
+		}
+		if raw == "" {
+			raw, _ = c.Cookie("autoar_token")
+		}
+
+		if raw == "" || verifyLocalJWT(raw) != nil {
+			// Redirect browser to the SPA; the JS auth gate will show login.
+			c.Redirect(http.StatusFound, "/ui")
+			return
+		}
+	}
+	// ─────────────────────────────────────────────────────────────────────────
+
 	// Try to read the requested file from the embedded FS
 	content, err := uiFiles.ReadFile("ui/" + filePath)
 	if err != nil {
