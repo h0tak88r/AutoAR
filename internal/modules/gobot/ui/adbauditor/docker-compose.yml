@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  adbauditor:
+    build: .
+    container_name: adbauditor
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
