@@ -531,13 +531,6 @@
             <div class="panel active" id="panel-overview">
                 <div class="info-grid">
                     <div class="info-card">
-                        <div class="info-header">App Identity</div>
-                        <div class="info-val"><span class="info-label">Package:</span> <span id="infoPkg">-</span></div>
-                        <div class="info-val"><span class="info-label">Version:</span> <span id="infoVer">-</span></div>
-                        <div class="info-val"><span class="info-label">Min SDK:</span> <span id="infoMin">-</span></div>
-                        <div class="info-val"><span class="info-label">Target SDK:</span> <span id="infoTarget">-</span></div>
-                    </div>
-                    <div class="info-card">
                         <div class="info-header">Security Summary</div>
                         <div class="findings-vertical" id="findingsSummary">
                             <div class="finding-row high">
@@ -1042,7 +1035,13 @@
                 }
 
                 scanTasks.forEach(task => {
-                    const re = new RegExp(task.regex, 'gi');
+                    let re;
+                    try {
+                        re = new RegExp(task.regex, 'gi');
+                    } catch(e) {
+                        console.warn('Invalid regex in preset:', task.id, task.regex, e);
+                        return;
+                    }
                     const taskResults = [];
 
                     // Scan DEX/Java classes
