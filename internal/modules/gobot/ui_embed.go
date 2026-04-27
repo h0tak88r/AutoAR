@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed ui/index.html ui/styles.css ui/app.js ui/logo.png ui/apkauditor
+//go:embed ui/index.html ui/styles.css ui/app.js ui/logo.png ui/apkauditor ui/ipaauditor ui/adbauditor
 var uiFiles embed.FS
 
 // serveDashboardUI serves the embedded SPA.
@@ -24,8 +24,12 @@ func serveDashboardUI(c *gin.Context) {
 
 	if filePath == "" {
 		filePath = "index.html"
-	} else if filePath == "apkauditor" || filePath == "apkauditor/" || filePath == "ipaauditor" || filePath == "ipaauditor/" || filePath == "adbauditor" || filePath == "adbauditor/" {
+	} else if filePath == "apkauditor" || filePath == "apkauditor/" {
 		filePath = "apkauditor/index.html"
+	} else if filePath == "ipaauditor" || filePath == "ipaauditor/" {
+		filePath = "ipaauditor/index.html"
+	} else if filePath == "adbauditor" || filePath == "adbauditor/" {
+		filePath = "adbauditor/index.html"
 	}
 
 	// ── APK Auditor auth gate ─────────────────────────────────────────────────
@@ -36,7 +40,7 @@ func serveDashboardUI(c *gin.Context) {
 	// Same-origin iframe requests (Sec-Fetch-Dest: iframe, Sec-Fetch-Site: same-origin)
 	// are explicitly allowed — they come from within the authenticated SPA itself.
 	if (strings.HasPrefix(filePath, "apkauditor") || strings.HasPrefix(filePath, "ipaauditor") || strings.HasPrefix(filePath, "adbauditor")) &&
-		(strings.HasSuffix(filePath, ".html") || filePath == "apkauditor/index.html") &&
+		(strings.HasSuffix(filePath, ".html") || filePath == "apkauditor/index.html" || filePath == "ipaauditor/index.html" || filePath == "adbauditor/index.html") &&
 		dashboardAPIAuthEnforced() {
 
 		// Trust same-origin iframe requests — the SPA already gated them.
