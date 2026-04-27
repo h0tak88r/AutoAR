@@ -17,7 +17,7 @@
     <script>
         (function() {
             const mode = new URLSearchParams(window.location.search).get('mode') || 'android';
-            const scripts = ['lib/jszip.min.js', 'lib/plist.min.js', 'lib/jspdf.umd.min.js'];
+            const scripts = ['lib/jszip.min.js', 'lib/jspdf.umd.min.js'];
             if (mode === 'android') scripts.push('apk-secrets.js', 'apk-analyzer.js');
             else if (mode === 'ios') scripts.push('ipa-analyzer.js');
             else if (mode === 'adb') scripts.push('adb-core.js', 'adb-auditor.js', 'adb-ui-bridge.js');
@@ -2822,14 +2822,21 @@
                             <button class="stab" onclick="switchExplorerView('java',this)">Java</button>
                             <button class="stab" onclick="switchExplorerView('smali',this)">Smali</button>
                         </div>
-                        <div class="explorer-controls" style="flex-shrink:0">
-                            <div style="display:flex; gap: 8px;">
-                                <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..."
-                                    oninput="searchFiles(this.value)" style="flex:1;">
-                                <button id="regexToggle" onclick="toggleRegexMode()" class="btn btn-ghost" 
-                                    style="padding: 0 10px; min-width: 44px; font-family: 'JetBrains Mono', monospace;" 
-                                    title="Toggle Regex Search (.*)">.*</button>
-                                <select id="presetSearch" onchange="const v = this.value; if(v) { document.getElementById('fileSearchInput').value = v; searchFiles(v); this.value = ''; }" style="width: auto; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 8px; padding: 0 10px; cursor: pointer;">
+                        <div class="explorer-controls" style="flex-shrink:0; padding:10px; border-bottom:1px solid var(--border-subtle)">
+                            <div style="display:flex; flex-direction:column; gap:10px">
+                                <div style="display:flex; gap: 8px; align-items:center">
+                                    <div style="position:relative; flex:1">
+                                        <span style="position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:12px; opacity:0.4">🔍</span>
+                                        <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..."
+                                            oninput="searchFiles(this.value)" 
+                                            style="width:100%; background:rgba(0,0,0,0.2); border:1px solid var(--border-default); border-radius:8px; padding:8px 12px 8px 30px; color:var(--text-primary); font-size:13px">
+                                    </div>
+                                    <button id="regexToggle" onclick="toggleRegexMode()" class="btn btn-ghost" 
+                                        style="padding: 0 10px; min-width: 44px; height:36px; font-family: 'JetBrains Mono', monospace; background:rgba(255,255,255,0.03); border:1px solid var(--border-default)" 
+                                        title="Toggle Regex Search (.*)">.*</button>
+                                </div>
+                                <select id="presetSearch" onchange="const v = this.value; if(v) { document.getElementById('fileSearchInput').value = v; searchFiles(v); this.value = ''; }" 
+                                    style="width: 100%; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size:12px">
                                     <option value="">Preset Keywords...</option>
                                     <optgroup label="Regular Expressions">
                                         <option value="/AKIA[0-9A-Z]{16}/">AWS Key (regex)</option>
@@ -3041,13 +3048,13 @@
         }
 
         function searchFiles(q) {
-            const state = (window.apkState || window.ipaState || {});
+            const state = (window.apkState || window.ipaState || { dexParsed: [], fileContents: new Map(), javaCache: new Map() });
             if (!q || q.length < 2) {
                 document.querySelectorAll('.tree-file').forEach(f => f.style.display = '');
                 document.querySelectorAll('#fileTree details').forEach(d => d.open = false);
                 if (state.explorerView === 'java' || state.explorerView === 'smali') {
                     const el = document.getElementById('smaliTree');
-                    if (el) renderSmaliTree(el, state.smaliTree);
+                    if (el && state.smaliTree) renderSmaliTree(el, state.smaliTree);
                 }
                 clearCodeHighlights();
                 const nav = document.getElementById('codeSearchNavBar');
@@ -3065,7 +3072,7 @@
         }
         function searchAPKFiles(q) {
             let rx = null;
-            const state = (window.apkState || {});
+            const state = (window.apkState || window.ipaState || { dexParsed: [], fileContents: new Map() });
             if (state.regexMode) {
                 try { rx = new RegExp(q, 'i'); } catch(e){}
             } else if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
@@ -3081,7 +3088,7 @@
         }
         function searchCode(q) {
             let rx = null;
-            const state = (window.apkState || {});
+            const state = (window.apkState || window.ipaState || { dexParsed: [], fileContents: new Map(), javaCache: new Map() });
             if (state.regexMode) {
                 try { rx = new RegExp(q, 'i'); } catch(e){}
             } else if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
