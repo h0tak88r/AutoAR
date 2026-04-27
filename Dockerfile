@@ -60,7 +60,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -L https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -o /usr/local/bin/apktool && \
     chmod +x /usr/local/bin/apktool && \
     curl -L https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar -o /usr/local/bin/apktool.jar && \
-    curl -L https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar -o /usr/local/bin/uber-apk-signer.jar
+    curl -L https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar -o /usr/local/bin/uber-apk-signer.jar && \
+    curl -L https://github.com/EFForg/apkeep/releases/download/0.18.0/apkeep-x86_64-unknown-linux-gnu -o /usr/local/bin/apkeep && \
+    chmod +x /usr/local/bin/apkeep
 
 # Copy minimal application configuration and assets (source not required at runtime)
 COPY regexes/ ./regexes/
