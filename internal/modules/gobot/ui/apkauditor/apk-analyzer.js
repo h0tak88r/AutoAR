@@ -821,6 +821,9 @@ const ANDROID_RULES = [
      patterns:[/-----BEGIN DSA PRIVATE KEY-----/g,/-----BEGIN OPENSSH PRIVATE KEY-----/g],
      description:'SSH private key embedded in the app. Allows authenticating to servers as the key owner.',cwe:'CWE-321',owasp:'M9',masvs:'CRYPTO-1'},
 ];
+if (typeof SECRETS_RULES !== 'undefined' && Array.isArray(SECRETS_RULES)) {
+    ANDROID_RULES.push(...SECRETS_RULES);
+}
 
 function findAll(node, tag) {
     if (!node) return [];
