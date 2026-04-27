@@ -343,6 +343,14 @@
             .info-grid{grid-template-columns:1fr;}
             .hero-stats{gap:20px;}
         }
+
+        /* Scan Results Styles */
+        .scan-item { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 12px; padding: 12px; transition: all 0.2s; cursor: pointer; }
+        .scan-item:hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
+        .scan-file { font-size: 13px; font-weight: 700; color: var(--accent-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+        .scan-matches { display: flex; flex-direction: column; gap: 6px; }
+        .scan-match { font-family: 'JetBrains Mono', monospace; font-size: 11px; background: var(--code-bg); padding: 8px; border-radius: 4px; border-left: 3px solid var(--accent-secondary); white-space: pre-wrap; word-break: break-all; color: var(--text-secondary); }
+        .scan-match b { color: var(--text-primary); background: rgba(129, 140, 248, 0.3); border-radius: 2px; padding: 0 2px; }
     </style>
 </head>
 <body>
@@ -493,8 +501,9 @@
                 </button>
                 <button class="tab" data-tab="explorer">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                    Code &amp; Explorer
+                    Code & Explorer
                 </button>
+                <button class="tab" data-tab="scan" id="tab-scan-btn">Scan</button>
                 <button class="tab" data-tab="inspector">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     Components
@@ -565,6 +574,7 @@
                                     <option value="s3_bucket">S3 Buckets</option>
                                 </optgroup>
                             </select>
+                            <button id="bulkScanBtn" onclick="runBulkRegexScan()" title="Run Bulk Scan" style="padding:6px 10px;background:var(--accent-primary);border:none;border-radius:6px;color:white;cursor:pointer;font-size:10px;font-weight:700;transition:all .2s;white-space:nowrap">Scan All</button>
                         </div>
                             <div class="code-search-nav" id="codeSearchNavBar" style="display:none">
                                 <span class="code-search-count" id="codeSearchCount"></span>
@@ -656,6 +666,16 @@
                     <div class="manifest-scroll">
                         <div id="manifestViewer" style="padding:8px 0"><div style="padding:32px;text-align:center;color:var(--text-muted)">Load an APK to view the manifest</div></div>
                     </div>
+                </div>
+            </div>
+
+            <div id="panel-scan" class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Bulk Scan Results</h2>
+                    <div id="scanStatus" style="font-size:12px;color:var(--text-secondary)"></div>
+                </div>
+                <div id="bulkScanResults" class="scan-results-container" style="padding:16px;overflow-y:auto;max-height:calc(100vh - 250px)">
+                    <div class="empty-state">No scan performed yet. Use the search bar and click "Scan All".</div>
                 </div>
             </div>
 
@@ -892,6 +912,7 @@
             while(walker.nextNode()) textNodes.push(walker.currentNode);
             for(const tn of textNodes){
                 const text=tn.textContent;
+                re.lastIndex = 0; // Reset for each node
                 let match;
                 const frag=document.createDocumentFragment();
                 let last=0;
@@ -912,6 +933,131 @@
                 }
             }
         }
+        function runBulkRegexScan(){
+            const q = document.getElementById('fileSearchInput').value;
+            if(!q || q.length < 2){
+                alert('Please enter a search query (at least 2 characters)');
+                return;
+            }
+            const re = getSearchRegex(q);
+            if(!re) {
+                alert('Invalid Regular Expression');
+                return;
+            }
+
+            const resultsContainer = document.getElementById('bulkScanResults');
+            const statusEl = document.getElementById('scanStatus');
+            const tabBtn = document.getElementById('tab-scan-btn');
+
+            resultsContainer.innerHTML = '<div class="empty-state"><div class="loader" style="margin: 20px auto"></div>Scanning all files...</div>';
+            statusEl.textContent = 'Scanning...';
+            if(tabBtn) tabBtn.click();
+
+            setTimeout(() => {
+                const results = [];
+                // Scan DEX/Java classes
+                for(let di=0; di<state.dexParsed.length; di++){
+                    const dex = state.dexParsed[di];
+                    for(const cls of (dex.classes||[])){
+                        const fqn = (cls.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.');
+                        if(state.javaCache.has(fqn)){
+                            const code = state.javaCache.get(fqn);
+                            const matches = findMatchesWithContext(code, re);
+                            if(matches.length > 0){
+                                results.push({ path: fqn, type: 'java', matches });
+                            }
+                        }
+                    }
+                }
+
+                // Scan other files (Manifest, XML, etc)
+                for(const [path, content] of state.fileContents){
+                    if(typeof content === 'string'){
+                        const matches = findMatchesWithContext(content, re);
+                        if(matches.length > 0){
+                            results.push({ path: path, type: 'file', matches });
+                        }
+                    }
+                }
+
+                renderBulkResults(results, q);
+            }, 50);
+        }
+
+        function findMatchesWithContext(text, re){
+            re.lastIndex = 0;
+            const matches = [];
+            const lines = text.split('\n');
+            
+            for(let i=0; i<lines.length; i++){
+                const line = lines[i];
+                re.lastIndex = 0;
+                let match;
+                if((match = re.exec(line)) !== null){
+                    matches.push({
+                        line: i + 1,
+                        content: line,
+                        matchText: match[0]
+                    });
+                }
+            }
+            return matches;
+        }
+
+        function renderBulkResults(results, q){
+            const resultsContainer = document.getElementById('bulkScanResults');
+            const statusEl = document.getElementById('scanStatus');
+            
+            if(results.length === 0){
+                resultsContainer.innerHTML = '<div class="empty-state">No matches found for "'+esc(q)+'"</div>';
+                statusEl.textContent = '0 results';
+                return;
+            }
+
+            statusEl.textContent = results.length + ' files with matches';
+            resultsContainer.innerHTML = '';
+            
+            results.forEach(res => {
+                const item = document.createElement('div');
+                item.className = 'scan-item';
+                item.onclick = () => {
+                    if(res.type === 'java'){
+                        // Find class in dex
+                        for(let di=0; di<state.dexParsed.length; di++){
+                            const dex = state.dexParsed[di];
+                            const cls = dex.classes.find(c => (c.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.') === res.path);
+                            if(cls){
+                                switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
+                                showSmaliClass(cls, res.path, di);
+                                setTimeout(() => applyCodeSearch(q), 300);
+                                return;
+                            }
+                        }
+                    } else {
+                        switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
+                        openFile(res.path);
+                        setTimeout(() => applyCodeSearch(q), 300);
+                    }
+                };
+
+                let matchesHtml = '';
+                res.matches.slice(0, 5).forEach(m => {
+                    const highlighted = esc(m.content).replace(new RegExp(esc(m.matchText), 'gi'), '<b>$&</b>');
+                    matchesHtml += `<div class="scan-match">Line ${m.line}: ${highlighted}</div>`;
+                });
+                if(res.matches.length > 5) matchesHtml += `<div style="font-size:10px;color:var(--text-muted);padding:4px">... and ${res.matches.length - 5} more matches</div>`;
+
+                item.innerHTML = `
+                    <div class="scan-file">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                        ${esc(res.path)}
+                    </div>
+                    <div class="scan-matches">${matchesHtml}</div>
+                `;
+                resultsContainer.appendChild(item);
+            });
+        }
+
         function codeSearchNav(dir){
             if(!_codeSearchMatches.length) return;
             if(_codeSearchIdx>=0&&_codeSearchIdx<_codeSearchMatches.length)
