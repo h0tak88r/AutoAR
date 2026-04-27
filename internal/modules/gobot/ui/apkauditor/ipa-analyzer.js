@@ -1641,29 +1641,36 @@ function escapeJs(text) {
 }
 
 function renderResults(results) {
-    document.getElementById('resultsSection').style.display = 'block';
-    document.getElementById('progressContainer').style.display = 'none';
+    // Safely update app info in the inspector summary or other available areas
+    const summaryEl = document.getElementById('inspectorSummary');
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+                <div class="info-card">
+                    <div style="font-size:10px; opacity:0.5; text-transform:uppercase; margin-bottom:4px">App Name</div>
+                    <div style="font-weight:600">${escapeHtml(results.appInfo.appName || 'Unknown')}</div>
+                </div>
+                <div class="info-card">
+                    <div style="font-size:10px; opacity:0.5; text-transform:uppercase; margin-bottom:4px">Bundle ID</div>
+                    <div style="font-weight:600">${escapeHtml(results.appInfo.bundleId || 'N/A')}</div>
+                </div>
+                <div class="info-card">
+                    <div style="font-size:10px; opacity:0.5; text-transform:uppercase; margin-bottom:4px">Version</div>
+                    <div style="font-weight:600">${escapeHtml(results.appInfo.version || '?')}</div>
+                </div>
+                <div class="info-card">
+                    <div style="font-size:10px; opacity:0.5; text-transform:uppercase; margin-bottom:4px">Security Score</div>
+                    <div style="font-weight:600; color: var(--accent-primary)">${results.securityScore}/100</div>
+                </div>
+            </div>
+        `;
+    }
 
-    document.getElementById('appName').textContent = results.appInfo.appName || 'Unknown';
-    document.getElementById('bundleId').textContent = results.appInfo.bundleId || '';
-    document.getElementById('appVersion').textContent = `v${results.appInfo.version || '?'} (${results.appInfo.build || '?'})`;
-    document.getElementById('appSize').textContent = results.appInfo.fileSize;
-    document.getElementById('appType').textContent = results.binType;
-
-    const score = results.securityScore;
-    document.getElementById('scoreCircle').style.setProperty('--score', score);
-    document.getElementById('scoreValue').textContent = score;
-    document.getElementById('highCount').textContent = ipaState.groupedFindings.high.length;
-    document.getElementById('warningCount').textContent = ipaState.groupedFindings.warning.length;
-    document.getElementById('infoCount').textContent = ipaState.groupedFindings.info.length;
-    document.getElementById('secureCount').textContent = ipaState.groupedFindings.secure.length;
-
-    renderOverviewTab(results);
-    renderFindingsTab(results);
-    renderBinaryTab(results);
-    renderExplorerTab(results);
-    renderStringsTab(results);
-    renderPlistTab(results);
+    // Call individual tab renderers safely
+    if (typeof renderOverviewTab === 'function') try { renderOverviewTab(results); } catch(e) { console.warn('renderOverviewTab failed', e); }
+    if (typeof renderFindingsTab === 'function') try { renderFindingsTab(results); } catch(e) { console.warn('renderFindingsTab failed', e); }
+    if (typeof renderExplorerTab === 'function') try { renderExplorerTab(results); } catch(e) { console.warn('renderExplorerTab failed', e); }
+    if (typeof renderPlistTab === 'function') try { renderPlistTab(results); } catch(e) { console.warn('renderPlistTab failed', e); }
 }
 
 function renderOverviewTab(results) {
@@ -1830,13 +1837,13 @@ function renderTree(tree, prefix) {
     for (const [name, node] of entries) {
         if (node._type === 'dir') {
             html += `
-                <div class="tree-folder">
-                    <div class="tree-folder-header" onclick="this.parentElement.classList.toggle('open')">
+                <details class="tree-folder">
+                    <summary class="tree-folder-header">
                         <span class="folder-icon">📁</span>
                         <span class="folder-name">${escapeHtml(name)}</span>
-                    </div>
+                    </summary>
                     <div class="tree-folder-content">${renderTree(node, prefix + name + '/')}</div>
-                </div>
+                </details>
             `;
         } else {
             const ext = name.split('.').pop().toLowerCase();
@@ -2507,16 +2514,32 @@ document.addEventListener('DOMContentLoaded', () => {
     log('IPA Auditor v2.0 initialized');
 });
 
-async function processFile(file) {
-    document.getElementById('progressContainer').style.display = 'block';
+async function startAnalysis(file) {
+    if (typeof showLoading === 'function') showLoading('Analyzing IPA...', 'Initializing...');
     try {
         const results = await analyzeIPA(file);
-        hideLoading();
+        if (typeof hideLoading === 'function') hideLoading();
         renderResults(results);
+        
+        // Switch to findings tab automatically
+        const findingsTab = document.querySelector('.auditor-tab[data-mode="ios"]');
+        if (findingsTab) {
+            // If we are in IPA mode, we should show the results panels
+            document.getElementById('landingContent').classList.add('hidden');
+            document.getElementById('analysisContent').classList.remove('hidden');
+            // Select first tab
+            const firstTab = document.querySelector('.tab[data-tab="findings"]');
+            if (firstTab) firstTab.click();
+        }
     } catch (error) {
-        hideLoading();
-        document.getElementById('progressContainer').style.display = 'none';
-        alert('Error: ' + error.message);
-        console.error(error);
+        if (typeof hideLoading === 'function') hideLoading();
+        console.error('[IPA-Auditor] Analysis failed:', error);
+        if (typeof showToast === 'function') showToast('Analysis failed: ' + error.message, 'error');
     }
 }
+
+// Map processFile for compatibility
+const processFile = startAnalysis;
+
+// Ensure ipaState is global
+window.ipaState = ipaState;
