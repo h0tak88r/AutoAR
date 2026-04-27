@@ -344,6 +344,19 @@
             .hero-stats{gap:20px;}
         }
 
+        /* Findings Summary Styles */
+        .findings-vertical { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+        .finding-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); transition: all 0.2s; }
+        .finding-row:hover { transform: translateX(4px); border-color: var(--accent-primary); }
+        .finding-row .count { font-size: 22px; font-weight: 800; min-width: 35px; }
+        .finding-row .label { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+        .finding-row.high { background: rgba(251, 113, 133, 0.08); border-color: rgba(251, 113, 133, 0.2); }
+        .finding-row.high .count { color: #fb7185; }
+        .finding-row.warning { background: rgba(251, 146, 60, 0.08); border-color: rgba(251, 146, 60, 0.2); }
+        .finding-row.warning .count { color: #fb923c; }
+        .finding-row.info { background: rgba(34, 211, 238, 0.08); border-color: rgba(34, 211, 238, 0.2); }
+        .finding-row.info .count { color: #22d3ee; }
+
         /* Scan Results Styles */
         .scan-item { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 12px; padding: 12px; transition: all 0.2s; cursor: pointer; }
         .scan-item:hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
@@ -516,7 +529,32 @@
 
 
             <div class="panel active" id="panel-overview">
-                <div class="stats-grid" id="overviewStats"></div>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <div class="info-header">App Identity</div>
+                        <div class="info-val"><span class="info-label">Package:</span> <span id="infoPkg">-</span></div>
+                        <div class="info-val"><span class="info-label">Version:</span> <span id="infoVer">-</span></div>
+                        <div class="info-val"><span class="info-label">Min SDK:</span> <span id="infoMin">-</span></div>
+                        <div class="info-val"><span class="info-label">Target SDK:</span> <span id="infoTarget">-</span></div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-header">Security Summary</div>
+                        <div class="findings-vertical" id="findingsSummary">
+                            <div class="finding-row high">
+                                <span class="count" id="count-high">0</span>
+                                <span class="label">Critical/High Issues</span>
+                            </div>
+                            <div class="finding-row warning">
+                                <span class="count" id="count-warning">0</span>
+                                <span class="label">Warnings</span>
+                            </div>
+                            <div class="finding-row info">
+                                <span class="count" id="count-info">0</span>
+                                <span class="label">Info Findings</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="results-section">
                     <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Application Information</div>
                     <div id="appInfoGrid" style="padding:16px"></div>
@@ -540,7 +578,13 @@
 
             <div class="panel" id="panel-findings">
                 <div class="results-section">
-                    <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Security Findings</div>
+                    <div class="results-header" style="display:flex;justify-content:space-between;align-items:center">
+                        <div style="display:flex;align-items:center;gap:12px">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            Security Findings
+                        </div>
+                        <input type="text" id="findingsSearchInput" placeholder="Filter findings..." oninput="filterFindings(this.value)" style="padding:6px 12px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-primary);font-size:12px;outline:none;width:250px">
+                    </div>
                     <div id="findingsList" style="padding:16px"></div>
                 </div>
             </div>
@@ -721,6 +765,15 @@
 
     <script src="apk-analyzer.js"></script>
     <script>
+
+        function filterFindings(q){
+            q = q.toLowerCase();
+            const cards = document.querySelectorAll('.finding-card');
+            cards.forEach(card => {
+                const text = card.textContent.toLowerCase();
+                card.style.display = text.includes(q) ? '' : 'none';
+            });
+        }
 
         (function(){
             const f=document.getElementById('particleField');
