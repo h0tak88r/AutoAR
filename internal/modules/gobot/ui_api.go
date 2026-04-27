@@ -758,6 +758,19 @@ func apiListScans(c *gin.Context) {
 		recent = make([]*db.ScanRecord, 0)
 	}
 
+	// Filter out apkx scans — they are internal to the APK Auditor page
+	filterApkx := func(scans []*db.ScanRecord) []*db.ScanRecord {
+		out := scans[:0]
+		for _, s := range scans {
+			if s != nil && strings.ToLower(s.ScanType) != "apkx" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	active = filterApkx(active)
+	recent = filterApkx(recent)
+
 	c.JSON(http.StatusOK, gin.H{
 		"active_scans": active,
 		"recent_scans": recent,
