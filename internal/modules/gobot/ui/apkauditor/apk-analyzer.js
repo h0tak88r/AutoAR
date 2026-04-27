@@ -913,8 +913,10 @@ function analyzeManifest(manifest) {
                     f('deeplink_scheme', `Custom URL Scheme: ${scheme}://`, 'issue', `Activity "${n}" handles "${scheme}://" scheme. Validate deep link input.`, 'CWE-939', 'M1', 'PLATFORM-3', `<activity> ${short} [scheme="${scheme}://"]`);
             }
         }
-        if (a.launchMode === 'singleTask' && a.taskAffinity)
-            f('task_hijack', 'singleTask + taskAffinity (Task Hijacking)', 'issue', `Activity "${n}" uses singleTask with taskAffinity, vulnerable to StrandHogg.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [singleTask + taskAffinity]`);
+        if ((a.launchMode === 'singleTask' || a.launchMode === 'singleInstance') && a.taskAffinity)
+            f('task_hijack', `${a.launchMode} + taskAffinity (Task Hijacking)`, 'issue', `Activity "${n}" uses ${a.launchMode} with taskAffinity, vulnerable to StrandHogg task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [${a.launchMode} + taskAffinity]`);
+        if (a.allowTaskReparenting === true || a.allowTaskReparenting === 'true')
+            f('task_reparenting', 'allowTaskReparenting Enabled', 'issue', `Activity "${n}" has allowTaskReparenting="true", which can be abused for task hijacking.`, 'CWE-926', 'M1', 'PLATFORM-3', `<activity> ${short} [allowTaskReparenting="true"]`);
     });
 
     findAll(manifest, 'permission').forEach(perm => {
@@ -2447,10 +2449,25 @@ function renderOverviewTab(R) {
         ? R.trackers.map(t => `<div class="tracker-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;opacity:.5;flex-shrink:0"><circle cx="12" cy="12" r="10"/></svg>${esc(t)}</div>`).join('')
         : '<div class="no-data">No known third-party SDKs detected</div>';
 }
-function ir(k, v) { return `<div class="info-row"><span class="info-key">${esc(k)}</span><span class="info-val">${v}</span></div>`; }
 
 function renderFindingsTab() {
     const all = [...state.groupedFindings.issue];
+    
+    // Update Overview Summary Counts
+    const counts = { high: 0, warning: 0, info: 0 };
+    all.forEach(f => {
+        if(f.severity === 'high' || f.severity === 'critical') counts.high += f.count;
+        else if(f.severity === 'warning' || f.severity === 'medium') counts.warning += f.count;
+        else counts.info += f.count;
+    });
+    
+    const hEl = document.getElementById('count-high');
+    const wEl = document.getElementById('count-warning');
+    const iEl = document.getElementById('count-info');
+    if(hEl) hEl.textContent = counts.high;
+    if(wEl) wEl.textContent = counts.warning;
+    if(iEl) iEl.textContent = counts.info;
+
     const renderMatch = m => {
         const file = m.file || '';
         return `<div class="finding-match-item"><code>${esc((m.match||'').slice(0,150))}</code><span class="match-loc finding-goto" data-file="${esc(file)}" data-line="${m.line||''}">${esc(file)}${m.line?':'+m.line:''}</span></div>`;
