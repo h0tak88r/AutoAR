@@ -1606,6 +1606,10 @@ func indexScanArtifacts(scanID, scanType, target string) {
 		}
 	case "jwt":
 		roots = append(roots, filepath.Join(resultsDir, "jwt-scan"))
+	case "apkx":
+		if target != "" {
+			roots = append(roots, filepath.Join(resultsDir, "apkx", target))
+		}
 	// DNS-specific scans: only index from their specific output dir, never the whole domain root.
 	case "dns-takeover", "dns-dangling-ip":
 		if target != "" {
