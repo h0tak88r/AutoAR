@@ -39,21 +39,6 @@ func Run() error {
 		return fmt.Errorf("failed to install Go tools: %w", err)
 	}
 
-	// Check and install jadx
-	if err := checkAndInstallJadx(); err != nil {
-		return fmt.Errorf("failed to install jadx: %w", err)
-	}
-
-	// Check and install apktool
-	if err := checkAndInstallApktool(); err != nil {
-		return fmt.Errorf("failed to install apktool: %w", err)
-	}
-
-	// Check and install uber-apk-signer (optional but recommended)
-	if err := checkAndInstallUberApkSigner(); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to install uber-apk-signer (optional): %v\n", err)
-		fmt.Println("   MITM patching will still work, but APK signing may fail.")
-	}
 
 	// Create necessary directories
 	fmt.Println("📁 Creating AutoAR directories...")
@@ -131,7 +116,6 @@ func checkAndInstallSystemPackages(osType string) error {
 	case "debian", "linux":
 		requiredPackages := map[string]string{
 			"libpcap-dev":              "libpcap-dev",
-			"openjdk-17-jre-headless":  "openjdk-17-jre-headless",
 			"unzip":                    "unzip",
 			"git":                      "git",
 			"curl":                     "curl",
@@ -183,7 +167,6 @@ func checkAndInstallSystemPackages(osType string) error {
 	case "rhel":
 		requiredPackages := map[string]string{
 			"libpcap-devel":           "libpcap-devel",
-			"java-17-openjdk-headless": "java-17-openjdk-headless",
 			"unzip":                   "unzip",
 			"git":                     "git",
 			"curl":                    "curl",
@@ -328,136 +311,6 @@ func checkAndInstallGoTools() error {
 	return nil
 }
 
-func checkAndInstallJadx() error {
-	fmt.Println("📱 Checking jadx decompiler...")
-
-	// Check if already installed
-	if _, err := exec.LookPath("jadx"); err == nil {
-		fmt.Println("   [OK] jadx is already installed")
-		return nil
-	}
-
-	fmt.Println("   [MISSING] jadx")
-	jadxVersion := "1.4.7"
-	jadxURL := fmt.Sprintf("https://github.com/skylot/jadx/releases/download/v%s/jadx-%s.zip", jadxVersion, jadxVersion)
-	
-	tmpFile := filepath.Join(os.TempDir(), "jadx.zip")
-	defer os.Remove(tmpFile)
-
-	fmt.Printf("   Downloading jadx v%s...\n", jadxVersion)
-	if err := downloadFile(jadxURL, tmpFile); err != nil {
-		return fmt.Errorf("failed to download jadx: %w", err)
-	}
-
-	jadxDir := "/opt/jadx"
-	fmt.Printf("   Extracting to %s...\n", jadxDir)
-	
-	// Create directory
-	if err := exec.Command("sudo", "mkdir", "-p", jadxDir).Run(); err != nil {
-		return fmt.Errorf("failed to create jadx directory: %w", err)
-	}
-
-	// Extract
-	unzipCmd := exec.Command("sudo", "unzip", "-q", tmpFile, "-d", jadxDir)
-	unzipCmd.Stdout = os.Stdout
-	unzipCmd.Stderr = os.Stderr
-	if err := unzipCmd.Run(); err != nil {
-		return fmt.Errorf("failed to extract jadx: %w", err)
-	}
-
-	// Create symlinks
-	jadxBin := filepath.Join(jadxDir, "bin", "jadx")
-	if err := exec.Command("sudo", "ln", "-sf", jadxBin, "/usr/local/bin/jadx").Run(); err != nil {
-		return fmt.Errorf("failed to create jadx symlink: %w", err)
-	}
-
-	fmt.Println("   [ + ]jadx installed")
-	return nil
-}
-
-func checkAndInstallApktool() error {
-	fmt.Println("🔧 Checking apktool...")
-
-	// Check if already installed
-	if _, err := exec.LookPath("apktool"); err == nil {
-		fmt.Println("   [OK] apktool is already installed")
-		return nil
-	}
-
-	fmt.Println("   [MISSING] apktool")
-	apktoolVersion := "2.9.3"
-	apktoolURL := fmt.Sprintf("https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_%s.jar", apktoolVersion)
-	
-	jarPath := "/usr/local/bin/apktool.jar"
-	tmpFile := filepath.Join(os.TempDir(), "apktool.jar")
-	defer os.Remove(tmpFile)
-
-	fmt.Printf("   Downloading apktool v%s...\n", apktoolVersion)
-	if err := downloadFile(apktoolURL, tmpFile); err != nil {
-		return fmt.Errorf("failed to download apktool: %w", err)
-	}
-
-	// Move to /usr/local/bin
-	if err := exec.Command("sudo", "mv", tmpFile, jarPath).Run(); err != nil {
-		return fmt.Errorf("failed to move apktool.jar: %w", err)
-	}
-
-	// Create wrapper script
-	scriptPath := "/usr/local/bin/apktool"
-	scriptContent := "#!/bin/sh\njava -jar /usr/local/bin/apktool.jar \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(os.TempDir(), "apktool"), []byte(scriptContent), 0755); err != nil {
-		return fmt.Errorf("failed to create apktool script: %w", err)
-	}
-
-	if err := exec.Command("sudo", "mv", filepath.Join(os.TempDir(), "apktool"), scriptPath).Run(); err != nil {
-		return fmt.Errorf("failed to move apktool script: %w", err)
-	}
-
-	fmt.Println("   [ + ]apktool installed")
-	return nil
-}
-
-func checkAndInstallUberApkSigner() error {
-	fmt.Println("✍️  Checking uber-apk-signer (optional)...")
-
-	// Check if already installed
-	if _, err := exec.LookPath("uber-apk-signer"); err == nil {
-		fmt.Println("   [OK] uber-apk-signer is already installed")
-		return nil
-	}
-
-	fmt.Println("   [MISSING] uber-apk-signer")
-	version := "1.3.0"
-	url := fmt.Sprintf("https://github.com/patrickfav/uber-apk-signer/releases/download/v%s/uber-apk-signer-%s.jar", version, version)
-	
-	jarPath := "/usr/local/bin/uber-apk-signer.jar"
-	tmpFile := filepath.Join(os.TempDir(), "uber-apk-signer.jar")
-	defer os.Remove(tmpFile)
-
-	fmt.Printf("   Downloading uber-apk-signer v%s...\n", version)
-	if err := downloadFile(url, tmpFile); err != nil {
-		return fmt.Errorf("failed to download uber-apk-signer: %w", err)
-	}
-
-	// Move to /usr/local/bin
-	if err := exec.Command("sudo", "mv", tmpFile, jarPath).Run(); err != nil {
-		return fmt.Errorf("failed to move uber-apk-signer.jar: %w", err)
-	}
-
-	// Create wrapper script
-	scriptPath := "/usr/local/bin/uber-apk-signer"
-	scriptContent := "#!/bin/sh\njava -jar /usr/local/bin/uber-apk-signer.jar \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(os.TempDir(), "uber-apk-signer"), []byte(scriptContent), 0755); err != nil {
-		return fmt.Errorf("failed to create uber-apk-signer script: %w", err)
-	}
-
-	if err := exec.Command("sudo", "mv", filepath.Join(os.TempDir(), "uber-apk-signer"), scriptPath).Run(); err != nil {
-		return fmt.Errorf("failed to move uber-apk-signer script: %w", err)
-	}
-
-	fmt.Println("   [ + ]uber-apk-signer installed")
-	return nil
-}
 
 func downloadFile(url, dest string) error {
 	resp, err := http.Get(url)

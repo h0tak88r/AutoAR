@@ -21,7 +21,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	apkxmod "github.com/h0tak88r/AutoAR/internal/modules/apkx"
 	"github.com/h0tak88r/AutoAR/internal/modules/db"
 	"github.com/h0tak88r/AutoAR/internal/modules/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/modules/utils"
@@ -52,8 +51,6 @@ var (
 
 	// scanSemaphore limits concurrent child-process scans (#2 rate limiting).
 	scanSemaphore = make(chan struct{}, maxConcurrentScans)
-	// apkxPackageSemaphore serializes heavy package-based apkx scans to reduce OOM risk.
-	apkxPackageSemaphore = make(chan struct{}, 1)
 	resourceLimitsOnce   sync.Once
 )
 
@@ -385,11 +382,6 @@ type ScanRequest struct {
 	DNSType *string `json:"dns_type"` // DNS scan type: takeover, dangling-ip
 	// URLs options
 	SkipSubdomainEnum *bool `json:"skip_subdomain_enum"` // URLs: skip subdomain enumeration (treat as single subdomain)
-	// ApkX options
-	PackageID *string `json:"package_id"` // ApkX package ID
-	MITM      *bool   `json:"mitm"`       // ApkX MITM option
-	Platform  *string `json:"platform"`   // ApkX platform (android/ios)
-	SkipRegex *bool   `json:"skip_regex"` // ApkX skip regex option
 }
 
 type ScanResponse struct {
@@ -503,8 +495,6 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/scans/:id/pause", apiPauseScan)
 		apiGroup.POST("/scans/:id/resume", apiResumeScan)
 		apiGroup.POST("/scans/:id/rescan", apiRescan)
-		apiGroup.GET("/apkx/cache/stats", apiAPKXCacheStats)
-		apiGroup.POST("/apkx/cache/clear", apiClearAPKXCache)
 		apiGroup.GET("/monitor/targets", apiMonitorTargets)
 		apiGroup.GET("/monitor/subdomain-targets", apiSubdomainMonitorTargets)
 		apiGroup.GET("/monitor/changes", apiMonitorChanges)
@@ -512,12 +502,12 @@ func setupAPI() *gin.Engine {
 		apiGroup.POST("/monitor/url-targets", apiPostMonitorURLTarget)
 		apiGroup.POST("/monitor/suggest-from-domain", apiPostMonitorSuggestFromDomain)
 		apiGroup.DELETE("/monitor/url-targets/:id", apiDeleteMonitorURLTarget)
-		apiGroup.POST("/monitor/url-targets/:id/pause", apiPauseMonitorURLTarget)
-		apiGroup.POST("/monitor/url-targets/:id/resume", apiResumeMonitorURLTarget)
+		apiGroup.POST("/monitor/url-targets/:id/pause", apiPostMonitorURLTarget)
+		apiGroup.POST("/monitor/url-targets/:id/resume", apiPostMonitorURLTarget)
 		apiGroup.POST("/monitor/subdomain-targets", apiPostMonitorSubdomainTarget)
 		apiGroup.DELETE("/monitor/subdomain-targets/:id", apiDeleteMonitorSubdomainTarget)
-		apiGroup.POST("/monitor/subdomain-targets/:id/pause", apiPauseMonitorSubdomainTarget)
-		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiResumeMonitorSubdomainTarget)
+		apiGroup.POST("/monitor/subdomain-targets/:id/pause", apiPostMonitorSubdomainTarget)
+		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiPostMonitorSubdomainTarget)
 		apiGroup.GET("/r2/files", apiR2Files)
 		apiGroup.POST("/r2/delete", apiR2Delete)
 		// Bug bounty scope / target fetch endpoints
@@ -568,7 +558,6 @@ func setupAPI() *gin.Engine {
 		api.POST("/github_org", scanGitHubOrg)
 		api.POST("/recon", scanRecon) // Unified asset discovery: subdomains, livehosts, tech, cnames
 		api.POST("/lite", scanLite)
-		api.POST("/apkx", scanApkX)
 		api.POST("/ffuf", scanFFuf)           // FFuf fuzzing
 		api.POST("/backup", scanBackup)       // Backup file discovery
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
@@ -601,195 +590,6 @@ func setupAPI() *gin.Engine {
 	return r
 }
 
-// scanApkX performs static analysis on an APK/IPA file or downloads one by
-// package ID, using the embedded apkX engine directly in-process.
-//
-// Running in-process (rather than spawning a child "autoar apkx scan" binary)
-// avoids the double-memory cost that was causing Docker OOM restarts.
-func scanApkX(c *gin.Context) {
-	var req ScanRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	mitm := false
-	if req.MITM != nil {
-		mitm = *req.MITM
-	}
-
-	skipRegex := false
-	if req.SkipRegex != nil {
-		skipRegex = *req.SkipRegex
-	}
-
-	if ok, msg := apkxMemoryPreflightCheck(); !ok {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": msg,
-			"hint":  "increase container memory or lower concurrent heavy scans",
-		})
-		return
-	}
-
-	scanID := generateScanID()
-
-	// ── Package-ID mode ──────────────────────────────────────────────────────
-	if req.PackageID != nil && *req.PackageID != "" {
-		pkg := *req.PackageID
-		platform := "android"
-		if req.Platform != nil && *req.Platform != "" {
-			platform = strings.ToLower(*req.Platform)
-		}
-
-		go runApkXInProcess(scanID, "apkx", pkg, func() (*apkxmod.Result, error) {
-			apkxPackageSemaphore <- struct{}{}
-			defer func() { <-apkxPackageSemaphore }()
-			log.Printf("[API] [apkx] Starting package-based scan: %s (%s)", pkg, platform)
-			return apkxmod.RunFromPackage(apkxmod.PackageOptions{
-				Package:   pkg,
-				Platform:  platform,
-				MITM:      mitm,
-				SkipRegex: skipRegex,
-			})
-		})
-
-		c.JSON(http.StatusOK, ScanResponse{
-			ScanID:  scanID,
-			Status:  "started",
-			Message: fmt.Sprintf("apkX package analysis started for %s (%s)", pkg, platform),
-		})
-		return
-	}
-
-	// ── File-path mode ───────────────────────────────────────────────────────
-	if req.FilePath == nil || *req.FilePath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file_path or package_id is required"})
-		return
-	}
-
-	if err := validateFilePath(*req.FilePath); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	filePath := *req.FilePath
-	go runApkXInProcess(scanID, "apkx", filePath, func() (*apkxmod.Result, error) {
-		log.Printf("[API] [apkx] Starting file-based scan: %s", filePath)
-		return apkxmod.Run(apkxmod.Options{
-			InputPath: filePath,
-			MITM:      mitm,
-			SkipRegex: skipRegex,
-		})
-	})
-
-	c.JSON(http.StatusOK, ScanResponse{
-		ScanID:  scanID,
-		Status:  "started",
-		Message: fmt.Sprintf("apkX analysis started for %s", filePath),
-	})
-}
-
-// runApkXInProcess runs an apkX scan function directly in-process and manages
-// the full scan lifecycle (DB record, manifest, status updates) without
-// spawning a child process — avoiding the memory double-fork that caused OOM
-// crashes in Docker.
-func runApkXInProcess(scanID, scanType, target string, fn func() (*apkxmod.Result, error)) {
-	startedAt := time.Now()
-
-	// Acquire the shared concurrency semaphore (same as executeScan).
-	scanSemaphore <- struct{}{}
-	defer func() { <-scanSemaphore }()
-
-
-	dbRecord := &db.ScanRecord{
-		ScanID:     scanID,
-		ScanType:   scanType,
-		Target:     target,
-		Status:     "running",
-		StartedAt:  startedAt,
-		LastUpdate: startedAt,
-		Command:    fmt.Sprintf("apkx-inprocess target=%s", target),
-	}
-	if err := db.CreateScan(dbRecord); err != nil {
-		log.Printf("[apkx] Failed to create DB record for %s: %v", scanID, err)
-	}
-
-	scansMutex.Lock()
-	activeScans[scanID] = &ScanInfo{
-		ScanID:    scanID,
-		Status:    "running",
-		ScanType:  scanType,
-		Target:    target,
-		StartedAt: startedAt,
-		Command:   fmt.Sprintf("apkx-inprocess target=%s", target),
-	}
-	scansMutex.Unlock()
-
-	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
-
-	result, err := fn()
-
-	completedAt := time.Now()
-	status := "completed"
-	errMsg := ""
-	if err != nil {
-		status = "failed"
-		errMsg = err.Error()
-		log.Printf("[apkx] Scan %s failed: %v", scanID, err)
-	}
-
-	_ = db.UpdateScanResult(scanID, status, "")
-
-	scansMutex.Lock()
-	delete(activeScans, scanID)
-	scansMutex.Unlock()
-
-	apiScansMutex.Lock()
-	sr := &ScanResult{
-		ScanID:      scanID,
-		Status:      status,
-		ScanType:    scanType,
-		StartedAt:   startedAt,
-		CompletedAt: &completedAt,
-		Error:       errMsg,
-	}
-	if result != nil {
-		sr.Output = result.ReportDir
-	}
-	storeScanResultLocked(scanID, sr)
-	apiScansMutex.Unlock()
-
-	// Index local artifacts first (may find nothing if cleanup already ran).
-	if result != nil {
-		indexScanArtifacts(scanID, scanType, target)
-	}
-
-	// Backfill from R2 — apkx deletes local files after upload, so the above
-	// walk finds nothing. This lists the R2 prefix and inserts into scan_artifacts.
-	indexWorkflowArtifactsFromR2(scanID, scanType, target)
-
-	// Collect indexed files and write the scan manifest (drives the "N outputs" badge).
-	outputFiles := collectScanOutputFiles(scanID)
-	durationMS := completedAt.Sub(startedAt).Milliseconds()
-	scannerVersion := ""
-	writeScanManifest(scanID, scanType, target, startedAt, completedAt, moduleExecutionEntry{
-		Module:         scanType,
-		Status:         status,
-		StartedAt:      startedAt,
-		CompletedAt:    completedAt,
-		DurationMS:     durationMS,
-		OutputFiles:    outputFiles,
-		ScannerVersion: scannerVersion,
-		Command:        fmt.Sprintf("apkx-inprocess target=%s", target),
-	})
-
-	progress := 0
-	if status == "completed" {
-		progress = 100
-	}
-	utils.SendScanNotification("complete", scanID, target, scanType, status, progress)
-	log.Printf("[apkx] Scan %s (%s) %s in %s", scanID, target, status, completedAt.Sub(startedAt).Round(time.Second))
-}
 
 func readInt64FromFile(path string) (int64, error) {
 	b, err := os.ReadFile(path)
@@ -841,24 +641,6 @@ func availableMemoryBytes() int64 {
 		}
 	}
 	return -1
-}
-
-func apkxMemoryPreflightCheck() (bool, string) {
-	// Default minimum free memory before starting heavy APK scans.
-	minFree := int64(700 * 1024 * 1024) // 700MB
-	if raw := strings.TrimSpace(os.Getenv("APKX_MIN_FREE_MEM_BYTES")); raw != "" {
-		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
-			minFree = v
-		}
-	}
-	avail := availableMemoryBytes()
-	if avail <= 0 {
-		return true, ""
-	}
-	if avail < minFree {
-		return false, fmt.Sprintf("insufficient free memory for apkx scan: available=%dMB required>=%dMB", avail/(1024*1024), minFree/(1024*1024))
-	}
-	return true, ""
 }
 
 // apiUploadHandler handles file uploads for analysis
@@ -1216,11 +998,6 @@ func docsHandler(c *gin.Context) {
             </div>
 
             <div class="endpoint">
-                <div class="endpoint-path"><span class="method post">POST</span> /scan/apkx</div>
-                <div class="description">APK/IPA static analysis</div>
-            </div>
-
-            <div class="endpoint">
                 <div class="endpoint-path"><span class="method post">POST</span> /scan/ffuf</div>
                 <div class="description">FFuf web fuzzing</div>
             </div>
@@ -1457,7 +1234,6 @@ func generateScanID() string {
 // extractScanTargetFromCommand infers the human-readable target from command arguments (#11).
 // Special cases:
 //   - JWT scans: returns "jwt-token" rather than exposing the actual token value in the DB.
-//   - APK/IPA scans: returns the filename only (not the full path) for privacy.
 func extractScanTargetFromCommand(command []string, scanType string) string {
 	if len(command) == 0 {
 		return ""
@@ -1491,12 +1267,6 @@ func extractScanTargetFromCommand(command []string, scanType string) string {
 			return next
 		case st == "zerodays" && arg == "-f":
 			return "file:" + filepath.Base(next)
-		case strings.Contains(st, "apkx") && (arg == "-i" || arg == "--input"):
-			// Return filename only — full paths may contain sensitive directory structure.
-			return filepath.Base(next)
-		case strings.Contains(st, "apkx") && (arg == "-p" || arg == "--package"):
-			// Package-id scans should show the actual package identifier as target.
-			return next
 		case st == "jwt" && (arg == "-t" || arg == "--token"):
 			// Never expose the raw token string in the DB.
 			return "jwt-token"
@@ -1691,7 +1461,7 @@ func executeScan(scanID string, command []string, scanType string) {
 			"dns_cf1016": "CF1016 Dangling DNS", "dns-cf1016": "CF1016 Dangling DNS",
 			"misconfig": "Misconfiguration", "s3": "S3 Bucket",
 			"github": "GitHub Recon", "github_org": "GitHub Org Recon",
-			"jwt": "JWT Scan", "apkx": "APK Analysis",
+			"jwt": "JWT Scan",
 			"dns-takeover": "DNS Takeover", "dns-dangling-ip": "Dangling IP",
 			"nuclei": "Nuclei Scan", "tech": "Tech Detection",
 			"ports": "Port Scan", "gf": "GF Patterns",
@@ -1746,8 +1516,6 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
-	// apkx indexing is target-scoped in indexScanArtifacts, so failed scans can still expose
-	// same-target partial outputs/logs without cross-package bleed.
 	indexScanArtifacts(scanID, scanType, target)
 	// domain_run / subdomain_run delete local results after upload — backfill from R2 for the UI table.
 	indexWorkflowArtifactsFromR2(scanID, scanType, target)
@@ -1833,8 +1601,6 @@ func indexScanArtifacts(scanID, scanType, target string) {
 		}
 	case "jwt":
 		roots = append(roots, filepath.Join(resultsDir, "jwt-scan"))
-	case "apkx":
-		roots = append(roots, filepath.Join(resultsDir, "apkx"))
 	// DNS-specific scans: only index from their specific output dir, never the whole domain root.
 	case "dns-takeover", "dns-dangling-ip":
 		if target != "" {
@@ -1868,9 +1634,6 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			if shouldSkipArtifact(path) {
 				return nil
 			}
-			if scanType == "apkx" && !shouldIncludeAPKXArtifact(path, resultsDir, target) {
-				return nil
-			}
 			if _, ok := seen[path]; ok {
 				return nil
 			}
@@ -1894,46 +1657,6 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			return nil
 		})
 	}
-}
-
-func shouldIncludeAPKXArtifact(path, resultsDir, target string) bool {
-	base := strings.ToLower(filepath.Base(path))
-	if base == "results.json" || base == "scan.log" || strings.HasSuffix(base, ".apk") || strings.HasSuffix(base, ".ipa") {
-		// further filtered by directory target match below
-	}
-	apkRoot := filepath.Join(resultsDir, "apkx")
-	rel, err := filepath.Rel(apkRoot, path)
-	if err != nil {
-		return false
-	}
-	rel = filepath.Clean(rel)
-	if strings.HasPrefix(rel, "..") {
-		return false
-	}
-	parts := strings.Split(rel, string(os.PathSeparator))
-	if len(parts) == 0 {
-		return false
-	}
-	// top-level cache layout: apkx/cache/<pkg_version>/...
-	top := strings.ToLower(parts[0])
-	if top == "cache" && len(parts) > 1 {
-		top = strings.ToLower(parts[1])
-	}
-	t := strings.TrimSpace(strings.ToLower(target))
-	if t == "" {
-		return false
-	}
-	safeTarget := strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(t)
-	alt := strings.TrimSuffix(t, strings.ToLower(filepath.Ext(t)))
-	altSafe := strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(alt)
-
-	if top == safeTarget || strings.HasPrefix(top, safeTarget+"_") {
-		return true
-	}
-	if altSafe != "" && (top == altSafe || strings.HasPrefix(top, altSafe+"_")) {
-		return true
-	}
-	return false
 }
 
 // targetHostForR2Prefixes mirrors the UI r2PrefixesForScan hostname normalization (app.js).
@@ -1990,14 +1713,14 @@ func isR2KeyIndexableArtifact(key string) bool {
 	}
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {
-	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin", ".xml", ".apk":
+	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin", ".xml":
 		return true
 	default:
 		return false
 	}
 }
 
-// indexWorkflowArtifactsFromR2 populates scan_artifacts from R2 listings for domain_run / subdomain_run / apkx.
+// indexWorkflowArtifactsFromR2 populates scan_artifacts from R2 listings for domain_run / subdomain_run.
 // These scan types delete local result dirs on completion, so post-scan
 // filesystem indexing finds nothing; uploads still land in R2. Backfilling here makes the scan modal
 // use the same indexed-artifact table as other scans instead of the raw R2 fallback.
@@ -2008,13 +1731,6 @@ func indexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 	switch st {
 	case "domain_run", "subdomain_run":
 		r2Prefixes = workflowScanR2Prefixes(target)
-	case "apkx":
-		// Artifacts are at new-results/apkx/<safepkg>/
-		// (consistent with domain scans at new-results/<target>/).
-		if target != "" {
-			safePkg := strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(target)
-			r2Prefixes = append(r2Prefixes, "new-results/apkx/"+safePkg+"/")
-		}
 	}
 
 	if len(r2Prefixes) == 0 || strings.TrimSpace(scanID) == "" || !r2storage.IsEnabled() {
@@ -2058,24 +1774,19 @@ func indexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 }
 
 func shouldSkipArtifact(path string) bool {
-	name := strings.ToLower(filepath.Base(path))
-	if name == "scan-manifest.json" || name == "cache_info.json" || name == "report-table.json" {
+	name := strings.ToLower(filepath.Ext(path))
+	if name == ".log" || name == ".txt" || name == ".json" || name == ".csv" || name == ".html" || name == ".md" {
+		// keep these
+	} else {
+		// skip others by default
+		// return true 
+	}
+
+	base := strings.ToLower(filepath.Base(path))
+	if base == "scan-manifest.json" || base == "cache_info.json" || base == "report-table.json" {
 		return true
 	}
-	if strings.HasPrefix(name, ".lite-uploads-") {
-		return true
-	}
-	if strings.HasPrefix(name, "temp-") || strings.Contains(name, "dangling-ip-temp") {
-		return true
-	}
-	if strings.EqualFold(name, "temp-url.txt") {
-		return true
-	}
-	// Raw .txt files that are superseded by structured JSON equivalents:
-	// misconfig-scan-results.txt → misconfig-vulnerabilities.json
-	// ffuf-results.txt / ffuf-webhook-messages.txt → ffuf-results.json
-	// kxss-results.txt → xss-reflection-vulnerabilities.json
-	// exposure-findings.txt → exposure-vulnerabilities.json
+	
 	skipByName := []string{
 		"misconfig-scan-results.txt",
 		"ffuf-results.txt",
@@ -2083,193 +1794,27 @@ func shouldSkipArtifact(path string) bool {
 		"kxss-results.txt",
 		"exposure-findings.txt",
 		"wp-confusion-results.txt",
-		// Local debug-only summaries — not findings
 		"nuclei-summary.txt",
-		// Pipeline input files — subdomains/URLs are never findings
 		"all-subs.txt",
 		"live-subs.txt",
 		"live-hosts.txt",
 		"all-urls.txt",
 		"subdomains.txt",
 		"enumerated-subs.txt",
-		// URL corpus JSON envelopes (WriteLinesAsJSON format) — recon, not vulns
 		"urls.json",
 		"js-urls.json",
-		// Subdomain and port list envelopes — raw line lists, not findings
 		"subdomains.json",
 		"ports.json",
-		// Live hosts — already served by /assets endpoint
 		"livehosts.json",
-		// CNAME recon — served by DNS/cnames section, not findings
 		"cname-records.json",
 	}
 	for _, skip := range skipByName {
-		if strings.EqualFold(name, skip) {
+		if strings.EqualFold(base, skip) {
 			return true
 		}
 	}
-	// DNS raw intermediate files → superseded by dns-takeover-vulnerabilities.json
-	rawDNSFiles := []string{
-		"dangling-ip.txt", "ns-takeover-raw.txt", "ns-servers-vuln.txt",
-		"ns-filtered-vulns.txt", "azure-takeover.txt", "aws-takeover.txt",
-		"gcp-takeover.txt", "cloudflare-tunnel-errors.txt",
-		"cname-takeover-raw.txt", "cname-takeover.txt", "cname-takeover-vulnerable.txt",
-	}
-	for _, skip := range rawDNSFiles {
-		if strings.EqualFold(name, skip) {
-			return true
-		}
-	}
-	ext := strings.ToLower(filepath.Ext(name))
-	switch ext {
-	case ".txt", ".json", ".log", ".csv", ".html", ".md", ".bin", ".apk", ".ipa", ".aab":
-		return false
-	default:
-		return true
-	}
-}
 
-type clearApkxCacheRequest struct {
-	Package string `json:"package"`
-	All     *bool  `json:"all,omitempty"`
-}
-
-func apiAPKXCacheStats(c *gin.Context) {
-	cacheRoot := filepath.Join(getResultsDir(), "apkx", "cache")
-	_ = os.MkdirAll(cacheRoot, 0o755)
-
-	localDirs := 0
-	localFiles := 0
-	localBytes := int64(0)
-	_ = filepath.Walk(cacheRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil {
-			return nil
-		}
-		if info.IsDir() {
-			if path != cacheRoot {
-				localDirs++
-			}
-			return nil
-		}
-		localFiles++
-		localBytes += info.Size()
-		return nil
-	})
-
-	r2Objects := 0
-	r2Bytes := int64(0)
-	r2ErrMsg := ""
-	if r2storage.IsEnabled() {
-		if objs, err := r2storage.ListObjectsRecursive("apkx/cache/"); err == nil {
-			r2Objects = len(objs)
-			for _, o := range objs {
-				r2Bytes += o.Size
-			}
-		} else {
-			r2ErrMsg = err.Error()
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"ok": true,
-		"local": gin.H{
-			"dirs":  localDirs,
-			"files": localFiles,
-			"bytes": localBytes,
-		},
-		"r2": gin.H{
-			"enabled": r2storage.IsEnabled(),
-			"objects": r2Objects,
-			"bytes":   r2Bytes,
-			"error":   r2ErrMsg,
-		},
-	})
-}
-
-// apiClearAPKXCache clears local/R2 APKX cache entries.
-// - package provided: clears only that package prefix.
-// - package omitted or all=true: clears all APKX cache.
-func apiClearAPKXCache(c *gin.Context) {
-	var req clearApkxCacheRequest
-	_ = c.ShouldBindJSON(&req)
-
-	pkg := strings.TrimSpace(c.Query("package"))
-	if pkg == "" {
-		pkg = strings.TrimSpace(req.Package)
-	}
-	clearAll := pkg == ""
-	if req.All != nil && *req.All {
-		clearAll = true
-	}
-
-	cacheRoot := filepath.Join(getResultsDir(), "apkx", "cache")
-	_ = os.MkdirAll(cacheRoot, 0o755)
-
-	removedLocal := 0
-	removeR2Prefix := "apkx/cache/"
-	if !clearAll {
-		safePkg := strings.ReplaceAll(pkg, ".", "_")
-		prefix := safePkg + "_"
-		entries, err := os.ReadDir(cacheRoot)
-		if err == nil {
-			for _, e := range entries {
-				if !e.IsDir() {
-					continue
-				}
-				if strings.HasPrefix(strings.ToLower(e.Name()), strings.ToLower(prefix)) {
-					if rmErr := os.RemoveAll(filepath.Join(cacheRoot, e.Name())); rmErr == nil {
-						removedLocal++
-					}
-				}
-			}
-		}
-		removeR2Prefix = "apkx/cache/" + safePkg + "_"
-	} else {
-		entries, err := os.ReadDir(cacheRoot)
-		if err == nil {
-			for _, e := range entries {
-				if e.IsDir() {
-					if rmErr := os.RemoveAll(filepath.Join(cacheRoot, e.Name())); rmErr == nil {
-						removedLocal++
-					}
-				}
-			}
-		}
-	}
-
-	removedR2 := 0
-	r2ErrMsg := ""
-	if r2storage.IsEnabled() {
-		if objs, err := r2storage.ListObjectsRecursive(removeR2Prefix); err == nil {
-			keys := make([]string, 0, len(objs))
-			for _, o := range objs {
-				if strings.TrimSpace(o.Key) != "" {
-					keys = append(keys, o.Key)
-				}
-			}
-			if len(keys) > 0 {
-				if err := r2storage.DeleteObjects(keys); err != nil {
-					r2ErrMsg = err.Error()
-				} else {
-					removedR2 = len(keys)
-				}
-			}
-		} else {
-			r2ErrMsg = err.Error()
-		}
-	}
-
-	scope := "all"
-	if !clearAll {
-		scope = pkg
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"ok":            true,
-		"scope":         scope,
-		"local_removed": removedLocal,
-		"r2_removed":    removedR2,
-		"r2_error":      r2ErrMsg,
-	})
+	return false
 }
 
 // CancelScanByID stops a running scan: API process (SIGKILL) or Discord context cancel.
