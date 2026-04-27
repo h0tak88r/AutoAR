@@ -2388,30 +2388,12 @@ function downloadManifestFile() {
 
 function renderOverviewTab(R) {
     const g = state.groupedFindings;
-    document.getElementById('overviewStats').innerHTML = `
-    <div class="stat-card findings-card">
-        <div class="stat-card-header"><span class="stat-card-label">Findings</span><div class="stat-card-icon accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></div></div>
-        <div class="findings-vertical">
-            <div class="finding-row warning"><span class="count">${g.issue.length}</span><span class="label">Issues</span></div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-card-header"><span class="stat-card-label">Components</span><div class="stat-card-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div></div>
-        <div class="stat-card-value">${R.components.activities.length + R.components.services.length + R.components.receivers.length + R.components.providers.length}</div>
-        <div class="stat-card-desc">${R.components.activities.filter(c => c.exported === true || c.exported === 'true').length + R.components.services.filter(c => c.exported === true || c.exported === 'true').length} exported</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-card-header"><span class="stat-card-label">Permissions</span><div class="stat-card-icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div></div>
-        <div class="stat-card-value">${R.permissions.length}</div><div class="stat-card-desc">${R.dangerousPerms.length} dangerous</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-card-header"><span class="stat-card-label">Files</span><div class="stat-card-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div></div>
-        <div class="stat-card-value">${R.files.length}</div><div class="stat-card-desc">${R.dexFiles.length} DEX · ${R.nativeLibs.length} native</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-card-header"><span class="stat-card-label">Trackers</span><div class="stat-card-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div></div>
-        <div class="stat-card-value">${R.trackers.length}</div><div class="stat-card-desc">SDKs detected</div>
-    </div>`;
+    
+    const set = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+    set('infoPkg', R.appInfo.packageName || R.appInfo.fileName);
+    set('infoVer', R.appInfo.versionName || R.appInfo.versionCode || '—');
+    set('infoMin', R.minSdk ? `API ${R.minSdk} (Android ${sdkToVer(R.minSdk)})` : '—');
+    set('infoTarget', R.targetSdk ? `API ${R.targetSdk} (Android ${sdkToVer(R.targetSdk)})` : '—');
 
     const ci = R.certInfo;
     document.getElementById('appInfoGrid').innerHTML = `<div class="info-grid">
