@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed ui/index.html ui/styles.css ui/app.js ui/logo.png
+//go:embed ui/index.html ui/styles.css ui/app.js ui/logo.png ui/apkauditor
 var uiFiles embed.FS
 
 // serveDashboardUI serves the embedded SPA.
@@ -24,6 +24,8 @@ func serveDashboardUI(c *gin.Context) {
 
 	if filePath == "" {
 		filePath = "index.html"
+	} else if filePath == "apkauditor" || filePath == "apkauditor/" {
+		filePath = "apkauditor/index.html"
 	}
 
 	// Try to read the requested file from the embedded FS
