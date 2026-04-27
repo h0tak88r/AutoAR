@@ -561,17 +561,34 @@
                             <button id="regexToggle" onclick="toggleRegexSearch()" title="Regex Search" style="padding:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:10px;font-weight:700;transition:all .2s">REG</button>
                             <select id="searchPresets" onchange="applySearchPreset(this.value)" style="padding:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-secondary);font-size:10px;outline:none;cursor:pointer">
                                 <option value="">Presets</option>
-                                <optgroup label="Critical/High findings">
-                                    <option value="firebase">Firebase Database</option>
+                                <optgroup label="Critical Findings">
+                                    <option value="private_key">Private Keys (RSA/EC/PGP)</option>
                                     <option value="aws_key">AWS Access Key</option>
                                     <option value="google_api">Google API Key</option>
+                                    <option value="firebase">Firebase Database</option>
+                                    <option value="stripe_key">Stripe API Key</option>
+                                    <option value="mailgun_key">Mailgun API Key</option>
+                                    <option value="generic_secret">Generic Secrets</option>
+                                </optgroup>
+                                <optgroup label="Sensitive Tokens">
                                     <option value="jwt">JWT Token</option>
-                                    <option value="private_key">Private Keys</option>
-                                    <option value="slack_webhook">Slack Webhook</option>
-                                    <option value="generic_secret">Generic Secret</option>
-                                    <option value="ip_address">IP Addresses</option>
+                                    <option value="oauth_token">OAuth Access Token</option>
+                                    <option value="github_token">GitHub Personal Token</option>
                                     <option value="auth_header">Authorization Headers</option>
+                                    <option value="bearer_token">Bearer Tokens</option>
+                                </optgroup>
+                                <optgroup label="Infrastructure">
                                     <option value="s3_bucket">S3 Buckets</option>
+                                    <option value="ip_address">IP Addresses</option>
+                                    <option value="jdbc">JDBC Connection Strings</option>
+                                    <option value="heroku_key">Heroku API Key</option>
+                                    <option value="digitalocean">DigitalOcean Token</option>
+                                </optgroup>
+                                <optgroup label="Messaging & Social">
+                                    <option value="slack_webhook">Slack Webhook</option>
+                                    <option value="discord_token">Discord Bot Token</option>
+                                    <option value="facebook_token">Facebook Access Token</option>
+                                    <option value="twitter_token">Twitter Bearer Token</option>
                                 </optgroup>
                             </select>
                             <button id="bulkScanBtn" onclick="runBulkRegexScan()" title="Run Bulk Scan" style="padding:6px 10px;background:var(--accent-primary);border:none;border-radius:6px;color:white;cursor:pointer;font-size:10px;font-weight:700;transition:all .2s;white-space:nowrap">Scan All</button>
@@ -744,16 +761,30 @@
 
 
         const SEARCH_PRESETS = {
-            firebase: { name: 'Firebase Database', regex: '[a-z0-9.-]+\\.firebaseio\\.com' },
+            private_key: { name: 'Private Keys', regex: '-----BEGIN .* PRIVATE KEY-----' },
             aws_key: { name: 'AWS Access Key', regex: '(AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}' },
             google_api: { name: 'Google API Key', regex: 'AIza[0-9A-Za-z-_]{35}' },
+            firebase: { name: 'Firebase Database', regex: '[a-z0-9.-]+\\.firebaseio\\.com' },
+            stripe_key: { name: 'Stripe API Key', regex: '(sk|pk)_(test|live)_[0-9a-zA-Z]{24,99}' },
+            mailgun_key: { name: 'Mailgun API Key', regex: 'key-[0-9a-zA-Z]{32}' },
+            generic_secret: { name: 'Generic Secrets', regex: '(?i)(secret|key|password|token|auth).*[\'|"][0-9a-zA-Z]{16,45}[\'|"]' },
+            
             jwt: { name: 'JWT Token', regex: 'eyJ[a-zA-Z0-9-]{10,}\\.eyJ[a-zA-Z0-9-]{10,}\\.[a-zA-Z0-9-]{10,}' },
-            private_key: { name: 'Private Keys', regex: '-----BEGIN .* PRIVATE KEY-----' },
-            slack_webhook: { name: 'Slack Webhook', regex: 'https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}' },
-            generic_secret: { name: 'Generic Secret', regex: '[sS][eE][cC][rR][eE][tT].*[\'|"][0-9a-zA-Z]{32,45}[\'|"]' },
+            oauth_token: { name: 'OAuth Token', regex: 'ya29\\.[0-9A-Za-z\\-_]+' },
+            github_token: { name: 'GitHub Token', regex: '(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,255}' },
+            auth_header: { name: 'Auth Headers', regex: '(basic|bearer)\\s[a-zA-Z0-9_\\-:\\.=]+' },
+            bearer_token: { name: 'Bearer Token', regex: 'bearer\\s[a-zA-Z0-9_\\-:\\.=]+' },
+
+            s3_bucket: { name: 'S3 Buckets', regex: 's3[_-]?bucket(=|=|:|:)|[a-z0-9.-]+\\.s3-[a-z0-9-]+\\.amazonaws\\.com' },
             ip_address: { name: 'IP Addresses', regex: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b' },
-            auth_header: { name: 'Authorization Headers', regex: '(basic|bearer)\\s[a-zA-Z0-9_\\-:\\.=]+' },
-            s3_bucket: { name: 'S3 Buckets', regex: 's3[_-]?bucket(=|=|:|:)' }
+            jdbc: { name: 'JDBC Strings', regex: 'jdbc:[a-z:]+://[A-Za-z0-9\\.\\-_:;=/@?,&]+' },
+            heroku_key: { name: 'Heroku Key', regex: '[hH][eE][rR][oO][kK][uU].*[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' },
+            digitalocean: { name: 'DigitalOcean', regex: '[a-zA-Z0-9_-]{64}' },
+
+            slack_webhook: { name: 'Slack Webhook', regex: 'https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}' },
+            discord_token: { name: 'Discord Bot', regex: '[a-zA-Z0-9_-]{24}\\.[a-zA-Z0-9_-]{6}\\.[a-zA-Z0-9_-]{27}' },
+            facebook_token: { name: 'Facebook Token', regex: 'EAACEdEose0cBA[0-9A-Za-z]+' },
+            twitter_token: { name: 'Twitter Token', regex: '[tT][wW][iI][tT][tT][eE][rR].*[0-9A-Za-z\\-_]{35,}' }
         };
 
         function applySearchPreset(val){
