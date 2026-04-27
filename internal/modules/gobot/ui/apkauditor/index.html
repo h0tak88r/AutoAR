@@ -16,6 +16,7 @@
         rel="stylesheet">
     <script src="lib/jszip.min.js"></script>
     <script src="lib/jspdf.umd.min.js"></script>
+    <script src="apk-secrets.js"></script>
     <style>
         :root {
             --bg-primary: #030306;
@@ -2462,6 +2463,12 @@
                     <span class="fmt-badge">Certificate Analysis</span>
                     <span class="fmt-badge">80+ Security Rules</span>
                 </div>
+                <div style="margin-top: 24px; text-align: center; color: var(--text-secondary);">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; background: var(--bg-elevated); padding: 8px 16px; border-radius: 12px; border: 1px solid var(--border-default);">
+                        <input type="checkbox" id="deepScanToggle" style="width: 16px; height: 16px; accent-color: var(--accent-primary);">
+                        <span style="font-size: 14px; font-weight: 500;">Enable Deep Secret Scan (1600+ regex patterns, slower)</span>
+                    </label>
+                </div>
             </div>
 
             <section class="features-section">
@@ -2876,17 +2883,22 @@
         })();
 
 
-        const dz = document.getElementById('dropZone'), fi = document.getElementById('fileInput');
-        dz.addEventListener('click', () => fi.click());
+        const dz = document.getElementById('dropZone');
+        const fi = document.getElementById('fileInput');
+        const getOptions = () => ({ enableDeepScan: document.getElementById('deepScanToggle')?.checked || false });
+        dz.addEventListener('click', (e) => {
+            if (e.target.id === 'deepScanToggle' || e.target.closest('label')) return;
+            fi.click();
+        });
         dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
         dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
         dz.addEventListener('drop', async e => {
             e.preventDefault(); dz.classList.remove('drag-over');
             const file = e.dataTransfer.files[0];
-            if (file && file.name.toLowerCase().endsWith('.apk')) await startAnalysis(file);
-            else showToast('Please drop a valid .apk file', 'error');
+            if (file && file.name.toLowerCase().endsWith('.apk')) await startAnalysis(file, getOptions());
+            else showToast('Please drop an .apk file', 'error');
         });
-        fi.addEventListener('change', async e => { if (e.target.files[0]) await startAnalysis(e.target.files[0]); });
+        fi.addEventListener('change', async e => { if (e.target.files[0]) await startAnalysis(e.target.files[0], getOptions()); });
 
 
         document.querySelectorAll('.tab').forEach(t => {
