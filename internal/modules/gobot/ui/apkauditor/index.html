@@ -2493,7 +2493,7 @@
                 <p class="hero-subtitle">Drop an APK to decompile DEX, scan for vulns, parse manifests and certs.
                     Nothing leaves your browser.</p>
                 <div class="hero-actions">
-                    <button class="btn btn-primary" onclick="document.getElementById('dropZone').click()">
+                    <button id="heroActionBtn" class="btn btn-primary" onclick="document.getElementById('dropZone').click()">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                             <polyline points="17 8 12 3 7 8" />
@@ -2539,7 +2539,7 @@
                 </div>
             </div>
 
-            <div id="adbInterface" style="display:none; max-width:700px; margin:0 auto 60px; position:relative; z-index:2; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:24px; padding:40px; text-align:center">
+            <div id="adbInterface" class="hidden" style="max-width:700px; margin:0 auto 60px; position:relative; z-index:2; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:24px; padding:40px; text-align:center">
                 <div class="adb-icon" style="width:80px; height:80px; margin:0 auto 24px; color:var(--accent-primary)">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 </div>
@@ -2557,7 +2557,7 @@
             </div>
 
             <section class="features-section" id="featuresSection">
-                <h2 class="section-title">Everything you need to <span>audit Android apps</span></h2>
+                <h2 class="section-title" id="featuresTitle">Everything you need to <span>audit Android apps</span></h2>
                 <div class="features-grid">
                     <div class="feature-card">
                         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -2826,6 +2826,9 @@
                             <div style="display:flex; gap: 8px;">
                                 <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..."
                                     oninput="searchFiles(this.value)" style="flex:1;">
+                                <button id="regexToggle" onclick="toggleRegexMode()" class="btn btn-ghost" 
+                                    style="padding: 0 10px; min-width: 44px; font-family: 'JetBrains Mono', monospace;" 
+                                    title="Toggle Regex Search (.*)">.*</button>
                                 <select id="presetSearch" onchange="const v = this.value; if(v) { document.getElementById('fileSearchInput').value = v; searchFiles(v); this.value = ''; }" style="width: auto; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 8px; padding: 0 10px; cursor: pointer;">
                                     <option value="">Preset Keywords...</option>
                                     <optgroup label="Regular Expressions">
@@ -3025,8 +3028,20 @@
         });
 
 
+        function toggleRegexMode() {
+            const state = (window.apkState || {});
+            state.regexMode = !state.regexMode;
+            const btn = document.getElementById('regexToggle');
+            if (btn) {
+                btn.style.background = state.regexMode ? 'var(--accent-primary)' : '';
+                btn.style.color = state.regexMode ? 'white' : '';
+                btn.style.borderColor = state.regexMode ? 'var(--accent-primary)' : '';
+            }
+            searchFiles(document.getElementById('fileSearchInput').value);
+        }
 
         function searchFiles(q) {
+            const state = (window.apkState || window.ipaState || {});
             if (!q || q.length < 2) {
                 document.querySelectorAll('.tree-file').forEach(f => f.style.display = '');
                 document.querySelectorAll('#fileTree details').forEach(d => d.open = false);
@@ -3050,7 +3065,10 @@
         }
         function searchAPKFiles(q) {
             let rx = null;
-            if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
+            const state = (window.apkState || {});
+            if (state.regexMode) {
+                try { rx = new RegExp(q, 'i'); } catch(e){}
+            } else if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
                 try { rx = new RegExp(q.slice(1, -1), 'i'); } catch(e){}
             }
             const lq = q.toLowerCase();
@@ -3063,7 +3081,10 @@
         }
         function searchCode(q) {
             let rx = null;
-            if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
+            const state = (window.apkState || {});
+            if (state.regexMode) {
+                try { rx = new RegExp(q, 'i'); } catch(e){}
+            } else if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
                 try { rx = new RegExp(q.slice(1, -1), 'i'); } catch(e){}
             }
             const lq = q.toLowerCase();
@@ -3152,7 +3173,10 @@
         }
         function highlightInNode(node, q) {
             let rx = null;
-            if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
+            const state = (window.apkState || window.ipaState || {});
+            if (state.regexMode) {
+                try { rx = new RegExp(q, 'gi'); } catch(e){}
+            } else if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
                 try { rx = new RegExp(q.slice(1, -1), 'gi'); } catch(e){}
             }
             const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
@@ -3238,18 +3262,26 @@
                 subtitle.textContent = 'Drop an APK to decompile DEX, scan for vulns, parse manifests and certs.';
                 dropTitle.textContent = 'Drop your APK here';
                 fileInput.accept = '.apk';
+                const hbtn = document.getElementById('heroActionBtn');
+                if (hbtn) hbtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:8px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload APK';
                 document.getElementById('adbInterface').classList.add('hidden');
                 document.getElementById('dropZone').classList.remove('hidden');
                 document.getElementById('featuresSection').classList.remove('hidden');
+                document.querySelector('.hero-actions').classList.remove('hidden');
+                document.getElementById('featuresTitle').innerHTML = 'Everything you need to <span>audit Android apps</span>';
             } else if (mode === 'ios') {
                 badge.textContent = 'iOS Security Scanner · 100% In-Browser';
                 title.innerHTML = 'Audit Any <span class="gradient">iOS IPA</span><br>Securely';
                 subtitle.textContent = 'Professional iOS security auditing. Analyze plists, entitlements, and binary strings.';
                 dropTitle.textContent = 'Drop your IPA here';
                 fileInput.accept = '.ipa';
+                const hbtn = document.getElementById('heroActionBtn');
+                if (hbtn) hbtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:8px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload IPA';
                 document.getElementById('adbInterface').classList.add('hidden');
                 document.getElementById('dropZone').classList.remove('hidden');
                 document.getElementById('featuresSection').classList.remove('hidden');
+                document.querySelector('.hero-actions').classList.remove('hidden');
+                document.getElementById('featuresTitle').innerHTML = 'Everything you need to <span>audit iOS apps</span>';
             } else if (mode === 'adb') {
                 badge.textContent = 'ADB Device Auditor · WebUSB Based';
                 title.innerHTML = 'Direct <span class="gradient">ADB Security</span><br>Assessment';
@@ -3257,6 +3289,7 @@
                 document.getElementById('adbInterface').classList.remove('hidden');
                 document.getElementById('dropZone').classList.add('hidden');
                 document.getElementById('featuresSection').classList.add('hidden');
+                document.querySelector('.hero-actions').classList.add('hidden');
                 if (window.adbUI) window.adbUI.init();
             }
         }
