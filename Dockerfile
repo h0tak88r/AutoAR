@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # --- Builder stage: install Go-based security tools and build AutoAR bot ---
 FROM golang:1.26-bookworm AS builder
 
