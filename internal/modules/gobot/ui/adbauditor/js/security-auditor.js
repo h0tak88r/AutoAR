@@ -1,4 +1,4 @@
-/** @preserve @author Sandeep Wawdane @license MIT */
+/** @preserve @license MIT */
 (function(global) {
     'use strict';
 
