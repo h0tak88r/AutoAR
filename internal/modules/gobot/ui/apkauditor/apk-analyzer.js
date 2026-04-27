@@ -3324,6 +3324,86 @@ function navigateToFile(file, line) {
     switchTab('explorer');
     var apkTab = document.querySelector('.explorer-view-tabs .stab');
     if (apkTab) switchExplorerView('apk', apkTab);
-    openFile(file);
+    navigateToFile(file, line);
     highlightLine('#jadxCode', line);
+}
+
+// --- Remote Analysis Integration ---
+function openRemoteModal() {
+    document.getElementById('remoteModal').style.display = 'flex';
+}
+function closeRemoteModal() {
+    document.getElementById('remoteModal').style.display = 'none';
+}
+
+async function startRemoteAnalysis() {
+    const pkgId = document.getElementById('remotePkgId').value.trim();
+    const mitm = document.getElementById('remoteMitm').checked;
+    
+    if (!pkgId) {
+        showToast('Please enter a Package ID', 'error');
+        return;
+    }
+
+    closeRemoteModal();
+    showLoading('Starting Remote Scan...');
+
+    try {
+        // 1. Launch Scan
+        const startResp = await fetch('/api/scan/apkx', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ package_id: pkgId, mitm: mitm })
+        });
+        
+        const startData = await startResp.json();
+        if (!startResp.ok || !startData.scan_id) {
+            throw new Error(startData.error || 'Failed to start scan');
+        }
+        
+        const scanId = startData.scan_id;
+        showToast('Scan started: ' + scanId, 'info');
+
+        // 2. Poll Status
+        let status = 'running';
+        let attempts = 0;
+        while (status === 'running' || status === 'pending') {
+            await sleep(2000);
+            attempts++;
+            if (attempts > 300) throw new Error('Scan timed out'); // 10 mins
+
+            const statusResp = await fetch('/api/scans/' + scanId);
+            const statusData = await statusResp.json();
+            status = statusData.scan.status.toLowerCase();
+            
+            showLoading('Scan Status: ' + status.toUpperCase());
+            if (status === 'failed' || status === 'error') {
+                throw new Error('Scan failed on server');
+            }
+        }
+
+        // 3. Get Results
+        showLoading('Fetching artifacts...');
+        const resResp = await fetch('/api/scans/' + scanId + '/results/summary');
+        const resData = await resResp.json();
+        
+        // Prefer mitm-patched APK if it exists
+        let apkFile = (resData.files || []).find(f => f.file_name.includes('-mitm.apk')) || (resData.files || []).find(f => f.file_name.endsWith('.apk'));
+        if (!apkFile) throw new Error('No APK found in scan results');
+
+        // 4. Download and Analyze
+        showLoading('Downloading APK for local analysis...');
+        const downloadUrl = `/api/scans/${scanId}/results/download?file_name=${encodeURIComponent(apkFile.file_name)}`;
+        const apkResp = await fetch(downloadUrl);
+        const apkBlob = await apkResp.blob();
+        
+        const file = new File([apkBlob], apkFile.file_name, { type: 'application/vnd.android.package-archive' });
+        
+        showToast('APK fetched! Analyzing...', 'success');
+        startAnalysis(file);
+
+    } catch (e) {
+        hideLoading();
+        showToast('Remote analysis failed: ' + e.message, 'error');
+    }
 }
