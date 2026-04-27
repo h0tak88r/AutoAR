@@ -1643,6 +1643,9 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			if shouldSkipArtifact(path) {
 				return nil
 			}
+			if scanType == "apkx" && !strings.HasSuffix(strings.ToLower(path), ".apk") {
+				return nil
+			}
 			if _, ok := seen[path]; ok {
 				return nil
 			}

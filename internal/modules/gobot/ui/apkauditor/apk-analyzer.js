@@ -3406,27 +3406,48 @@ async function startRemoteAnalysis() {
         showToast('APK fetched! Analyzing...', 'success');
         startAnalysis(file);
 
-        // Show completion modal with download link
+        // Show completion modal with download link and R2 URL
         const modalContent = document.querySelector('#remoteScanModal .modal-body');
         if (modalContent) {
             const isMitm = apkFile.file_name.includes('-mitm.apk');
+            const r2Url = apkFile.public_url || '';
+            const finalDownloadUrl = r2Url || downloadUrl;
+
             modalContent.innerHTML = `
                 <div style="text-align: center;">
                     <i class="fas fa-check-circle" style="font-size: 48px; color: #00ff00; margin-bottom: 15px;"></i>
                     <h3 style="color: #fff;">Remote Analysis Complete</h3>
-                    <p style="color: #ccc;">The APK has been loaded into the auditor for analysis.</p>
+                    <p style="color: #ccc; margin-bottom: 20px;">The APK has been loaded into the auditor.</p>
                     
-                    <div style="margin: 20px 0; padding: 15px; background: rgba(0,255,0,0.1); border: 1px solid #00ff00; border-radius: 8px;">
-                        <h4 style="color: #00ff00; margin-bottom: 10px;">${isMitm ? 'MITM Patched APK Ready' : 'APK Ready'}</h4>
-                        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px;">${apkFile.file_name}</p>
-                        <a href="${downloadUrl}" class="btn btn-primary" download style="background: #00ff00; color: #000; border: none; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; display: inline-block;">
-                            <i class="fas fa-download"></i> Download APK
-                        </a>
+                    <div style="margin: 20px 0; padding: 15px; background: rgba(0,255,0,0.1); border: 1px solid #00ff00; border-radius: 8px; text-align: left;">
+                        <h4 style="color: #00ff00; margin-bottom: 5px;">${isMitm ? 'MITM Patched APK' : 'Original APK'}</h4>
+                        <p style="font-size: 11px; color: #888; font-family: monospace; word-break: break-all; margin-bottom: 15px;">${apkFile.file_name}</p>
+                        
+                        <div style="display: flex; gap: 10px; flex-direction: column;">
+                            <a href="${finalDownloadUrl}" class="btn btn-primary" download style="background: #00ff00; color: #000; border: none; padding: 12px; border-radius: 5px; text-decoration: none; font-weight: bold; text-align: center; display: block;">
+                                <i class="fas fa-download"></i> Download APK
+                            </a>
+                            ${r2Url ? `
+                            <div style="display: flex; gap: 5px;">
+                                <input type="text" readonly value="${r2Url}" id="r2UrlInput" style="flex: 1; background: #222; border: 1px solid #444; color: #00ff00; padding: 8px; border-radius: 4px; font-size: 11px;">
+                                <button onclick="copyR2Link()" class="btn btn-sm btn-secondary" style="white-space: nowrap;">Copy Link</button>
+                            </div>
+                            ` : ''}
+                        </div>
                     </div>
                     
-                    <button class="btn btn-secondary" onclick="closeRemoteModal()" style="width: 100%;">Continue to Auditor</button>
+                    <button class="btn btn-secondary" onclick="closeRemoteModal()" style="width: 100%; margin-top: 10px;">Continue to Auditor</button>
                 </div>
             `;
+            
+            // Add copy function to window scope
+            window.copyR2Link = () => {
+                const input = document.getElementById('r2UrlInput');
+                input.select();
+                document.execCommand('copy');
+                showToast('Link copied to clipboard!', 'success');
+            };
+            
             document.getElementById('remoteScanModal').style.display = 'block';
         }
 
