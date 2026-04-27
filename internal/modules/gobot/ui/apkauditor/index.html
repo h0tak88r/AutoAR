@@ -151,20 +151,6 @@
         .filter-bar{display:flex;gap:8px;padding:16px;flex-wrap:wrap;}
         .filter-btn{padding:6px 16px;font-size:13px;font-weight:600;font-family:inherit;color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;cursor:pointer;transition:all .2s;}
         .filter-btn.active,.filter-btn:hover{color:var(--text-primary);border-color:var(--accent-primary);background:var(--accent-subtle);}
-        .finding-card{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:12px;padding:16px;margin-bottom:12px;transition:border-color .2s;}
-        .finding-card:hover{border-color:var(--border-default);}
-        .finding-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
-        .sev-badge{padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px;}
-        .sev-badge.sev-issue{background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.2);}
-        .sev-badge.sev-secure{background:rgba(52,211,153,.1);color:var(--green);border:1px solid rgba(52,211,153,.2);}
-        .finding-title{font-size:14px;font-weight:700;flex:1;}
-        .finding-file{font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;background:var(--bg-card);padding:2px 8px;border-radius:4px;}
-        .finding-desc{font-size:13px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5;}
-        .finding-match{background:var(--code-bg);border:1px solid var(--border-subtle);border-radius:8px;padding:8px 12px;margin-bottom:10px;}
-        .finding-match code{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--orange);}
-        .finding-count{font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(129,140,248,.15);color:var(--accent-primary);font-weight:600;margin-left:8px;}
-        .finding-matches{background:var(--code-bg);border:1px solid var(--border-subtle);border-radius:8px;padding:8px;margin-bottom:10px;}
-        details.finding-matches{overflow:visible;}
         .finding-match-item{display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);}
         .finding-match-item code{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--orange);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
         .match-loc{font-size:10px;color:var(--text-muted);white-space:nowrap;}
@@ -248,6 +234,62 @@
         .explorer-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border-subtle);}
         .current-file-path{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
         .viewer-actions{display:flex;gap:6px;}
+        /* Compact Findings UI */
+        .finding-row-compact {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            background: #0d0d18;
+            border: 1px solid var(--border-subtle);
+            border-left: 3px solid transparent;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .finding-row-compact:hover {
+            background: #141425;
+            border-color: var(--border-default);
+        }
+        .finding-row-compact.high { border-left-color: #ef4444; }
+        .finding-row-compact.warning { border-left-color: #f59e0b; }
+        .finding-row-compact.info { border-left-color: #06b6d4; }
+        .finding-row-compact.secure { border-left-color: #10b981; }
+
+        .finding-row-compact .sev-mini {
+            font-size: 9px;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            width: 54px;
+            text-align: center;
+        }
+        .sev-mini.high { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .sev-mini.warning { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .sev-mini.info { background: rgba(6,182,212,0.15); color: #06b6d4; }
+        .sev-mini.secure { background: rgba(16,185,129,0.15); color: #10b981; }
+
+        .finding-title-compact { font-size: 13px; font-weight: 600; color: var(--text-primary); flex: 1; }
+        .finding-meta-compact { display: flex; align-items: center; gap: 8px; }
+        .finding-count-badge { font-size: 10px; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 2px 8px; border-radius: 10px; }
+        .finding-chevron { font-size: 10px; color: var(--text-muted); opacity: 0.5; transition: transform 0.2s; }
+        .finding-row-compact.active .finding-chevron { transform: rotate(180deg); }
+
+        .finding-details-compact {
+            display: none;
+            padding: 20px;
+            background: #090912;
+            border: 1px solid var(--border-subtle);
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+            margin-top: -10px;
+            margin-bottom: 12px;
+            animation: slideDown 0.2s ease-out;
+        }
+        .finding-details-compact.active { display: block; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
         .viewer-btn{padding:5px 10px;background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:6px;cursor:pointer;}
         .file-viewer-container{flex:1;overflow:auto;background:var(--code-bg);}
         .file-text{font-family:'JetBrains Mono',monospace;font-size:12px;padding:16px;line-height:1.7;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;}
@@ -530,23 +572,6 @@
 
             <div class="panel active" id="panel-overview">
                 <div class="info-grid">
-                    <div class="info-card">
-                        <div class="info-header">Security Summary</div>
-                        <div class="findings-vertical" id="findingsSummary">
-                            <div class="finding-row high">
-                                <span class="count" id="count-high">0</span>
-                                <span class="label">Critical/High Issues</span>
-                            </div>
-                            <div class="finding-row warning">
-                                <span class="count" id="count-warning">0</span>
-                                <span class="label">Warnings</span>
-                            </div>
-                            <div class="finding-row info">
-                                <span class="count" id="count-info">0</span>
-                                <span class="label">Info Findings</span>
-                            </div>
-                        </div>
-                    </div>
                 </div>
                 <div class="results-section">
                     <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Application Information</div>
@@ -761,10 +786,10 @@
 
         function filterFindings(q){
             q = q.toLowerCase();
-            const cards = document.querySelectorAll('.finding-card');
-            cards.forEach(card => {
-                const text = card.textContent.toLowerCase();
-                card.style.display = text.includes(q) ? '' : 'none';
+            const containers = document.querySelectorAll('.finding-container-compact');
+            containers.forEach(cont => {
+                const text = cont.textContent.toLowerCase();
+                cont.style.display = text.includes(q) ? '' : 'none';
             });
         }
 
