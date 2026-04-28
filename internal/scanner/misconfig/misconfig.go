@@ -181,7 +181,8 @@ func handleScan(opts Options, resultsDir string) error {
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
 
 	// Write JSON results to scan directory (local-first)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	scanID := utils.GetCurrentScanID()
+	if scanID != "" {
 		// Each finding is emitted as a flat object whose fields map directly to the
 		// dashboard table columns via parseFindingFromObject:
 		//   template-id  → VULNERABILITY TYPE column (human-readable name)
