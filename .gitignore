@@ -1,1 +1,103 @@
+# Configuration files with secrets
+autoar.yaml
+.env
+*.log
+*.pid
+
+# Results directory
+new-results/
+web-data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# API logs
+api.log
+autoar_api.log
+autoar-bot.log
+autoAR.log
+logs/
+# Service files
+*.service
+
+# Test files and directories
+test-*
+*test*
+tmp_*
+
+# Secrets and API keys (but allow keyhack module and scripts)
+*secret**
+*key**
+!internal/modules/gobot/keyhack_api.go
+!internal/api/keyhack_api.go
+!internal/bot/commands_keyhack_monitor_status.go
+!modules/keyhack.sh
+!scripts/*.sh
+*token*
+*webhook*
+!internal/utils/webhook.go
+
+# Generated files
+generate_from_env.sh
+
+# External dependencies
+# nuclei_templates/  # Now using as submodule
+# Wordlists/  # Now using as submodule
+keyhack_templates/  # Cloned in Docker from KeysKit repo
+
+*.txt
+!internal/api/ui/adbauditor/robots.txt
+
+# Exclude all markdown files except README.md
+*.md
+!README.md
+!docs/**/*.md
+!internal/api/ui/adbauditor/docs/
+# Allow nuclei-templates markdown files (submodule)
+!nuclei_templates/**/*.md
+# Allow gomodules README files
+!gomodules/**/README.md
+
+# Compiled binaries (but allow source files)
+/autoar
+autoar.exe
+all-roots.txt
+roots.txt
+.evn.example
+.env
+.sql.gz
 autoar
+.db-shm
+.db-wal
+
+/backups/
+nuclei-templates/
+Rules.ymlsupabase_export.sql
