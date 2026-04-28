@@ -3,5 +3,5 @@
 package version
 
 // Version is the semantic version without a "v" prefix (e.g. "4.0.0").
-// v4.1.2 — Fixes for Phase 3/4 hangs, backup/fuzzuli timeout handling, stable CLI scan detection, and scan rescan.
-const Version = "4.1.2"
+// v4.2.0 — Regex-driven APK/IPA auditor upgrades and expanded findings coverage.
+const Version = "4.2.0"
