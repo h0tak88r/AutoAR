@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"github.com/h0tak88r/AutoAR/internal/modules/backup"
-	"github.com/h0tak88r/AutoAR/internal/modules/jwt"
-	"github.com/h0tak88r/AutoAR/internal/modules/s3"
-	"github.com/h0tak88r/AutoAR/internal/modules/zerodays"
+	"github.com/h0tak88r/AutoAR/internal/scanner/backup"
+	"github.com/h0tak88r/AutoAR/internal/scanner/jwt"
+	"github.com/h0tak88r/AutoAR/internal/scanner/s3"
+	"github.com/h0tak88r/AutoAR/internal/scanner/zerodays"
 	"github.com/spf13/cobra"
 )
 

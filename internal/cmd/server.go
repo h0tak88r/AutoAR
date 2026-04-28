@@ -3,7 +3,7 @@ package cmd
 import (
 	"log"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/gobot"
+	"github.com/h0tak88r/AutoAR/internal/app"
 	"github.com/spf13/cobra"
 )
 
@@ -12,7 +12,7 @@ var apiCmd = &cobra.Command{
 	Short: "Start the REST API server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Println("Starting AutoAR API Server...")
-		return gobot.StartAPI()
+		return app.StartAPI()
 	},
 }
 
@@ -21,7 +21,10 @@ var botCmd = &cobra.Command{
 	Short: "Start the Discord bot",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Println("Starting AutoAR Discord Bot...")
-		return gobot.StartBot()
+		// Note: Bot currently starts its own internal API for subprocesses
+		// This is handled inside app.StartBoth or similar if needed
+		// For now, we call app's coordinate StartBoth if it's the main entry
+		return app.StartBoth() 
 	},
 }
 
@@ -30,7 +33,7 @@ var bothCmd = &cobra.Command{
 	Short: "Start both the API server and Discord bot",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Println("Starting AutoAR API and Bot...")
-		return gobot.StartBoth()
+		return app.StartBoth()
 	},
 }
 
