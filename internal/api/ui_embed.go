@@ -3,8 +3,10 @@ package api
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -32,16 +34,29 @@ func serveDashboardUI(c *gin.Context) {
 
 	// Serve real static files directly; fallback to the first available UI entry page.
 	if stat, statErr := fs.Stat(uiRoot, cleanPath); statErr == nil && !stat.IsDir() {
-		c.FileFromFS(cleanPath, http.FS(uiRoot))
+		serveEmbeddedFile(c, uiRoot, cleanPath)
 		return
 	}
 
 	for _, candidate := range []string{"index.html", "apkauditor/index.html", "ipaauditor/index.html", "adbauditor/index.html"} {
 		if stat, statErr := fs.Stat(uiRoot, candidate); statErr == nil && !stat.IsDir() {
-			c.FileFromFS(candidate, http.FS(uiRoot))
+			serveEmbeddedFile(c, uiRoot, candidate)
 			return
 		}
 	}
 
 	c.String(http.StatusNotFound, "UI entrypoint not found")
+}
+
+func serveEmbeddedFile(c *gin.Context, fsys fs.FS, filePath string) {
+	data, err := fs.ReadFile(fsys, filePath)
+	if err != nil {
+		c.String(http.StatusNotFound, "Not found")
+		return
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(filePath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Data(http.StatusOK, contentType, data)
 }
