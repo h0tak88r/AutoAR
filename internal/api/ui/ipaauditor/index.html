@@ -517,9 +517,9 @@
     </header>
 
     <main class="hero" id="landingContent">
-        <div class="hero-badge">Comprehensive iOS Security Analysis</div>
+        <div class="hero-badge">Comprehensive iOS Security Analysis · Regex-Based Scans</div>
         <h1 class="hero-title"><span class="gradient">IPA Auditor</span></h1>
-        <p class="hero-subtitle">Professional iOS security auditing platform. Analyze IPA files entirely in your browser with 50+ security checks based on OWASP MASVS.</p>
+        <p class="hero-subtitle">Professional iOS security auditing platform. Analyze IPA files entirely in your browser with regex-based secret scanning and OWASP MASVS-aligned checks.</p>
         <div class="hero-actions">
             <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload IPA</button>
         </div>
@@ -552,7 +552,7 @@
             <div class="dropzone-title">Drag & Drop IPA File</div>
             <div class="dropzone-desc">or click anywhere to browse</div>
             <div class="dropzone-formats">
-                <span class="format-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Secure Analysis</span>
+                <span class="format-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Regex Security Scan</span>
                 <span class="format-tag">.ipa</span>
                 <span class="format-tag">iOS App</span>
             </div>
@@ -567,7 +567,7 @@
             <p class="section-desc">Pattern-based security analysis for iOS applications. Scans IPA contents and flags potential security issues for manual review.</p>
         </div>
         <div class="features-grid">
-            <div class="feature-card"><div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="feature-title">Security Scan</div><div class="feature-desc">Scans all files for 50+ vulnerability patterns including ATS misconfigurations, insecure storage, weak cryptography, and hardcoded secrets.</div></div>
+            <div class="feature-card"><div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="feature-title">Security Scan</div><div class="feature-desc">Regex-based scanning across source files and extracted binary strings for secrets, insecure configs, ATS issues, weak crypto, and hardcoded credentials.</div></div>
             <div class="feature-card"><div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div><div class="feature-title">Binary Analysis</div><div class="feature-desc">Extracts strings from Mach-O executable and checks for PIE, ARC, Stack Canary, and 64-bit compilation.</div></div>
             <div class="feature-card"><div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div><div class="feature-title">Pattern Matching</div><div class="feature-desc">Searches for weak crypto usage (MD5, SHA1, DES), hardcoded secrets, API keys, and sensitive strings.</div></div>
             <div class="feature-card"><div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><div class="feature-title">File Inspection</div><div class="feature-desc">Lists all files in the IPA bundle including plists, databases, certificates, and embedded resources.</div></div>

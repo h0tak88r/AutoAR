@@ -7,8 +7,126 @@ const state = {
     groupedFindings: { high: [], warning: [], info: [], secure: [] },
     fileContents: new Map(),
     binaryStrings: [],
+    regexSearch: false,
     debug: true
 };
+
+const SEARCH_PRESETS = {
+    private_key: { name: 'Private Keys', regex: '-----BEGIN .* PRIVATE KEY-----' },
+    aws_key: { name: 'AWS Access Key', regex: '(AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}' },
+    google_api: { name: 'Google API Key', regex: 'AIza[0-9A-Za-z-_]{35}' },
+    firebase: { name: 'Firebase Database', regex: '[a-z0-9.-]+\\.firebaseio\\.com' },
+    stripe_key: { name: 'Stripe API Key', regex: '(sk|pk)_(test|live)_[0-9a-zA-Z]{24,99}' },
+    mailgun_key: { name: 'Mailgun API Key', regex: 'key-[0-9a-zA-Z]{32}' },
+    generic_secret: { name: 'Generic Secrets', regex: '(secret|key|password|token|auth).*[\'|"][0-9a-zA-Z]{16,45}[\'|"]' },
+    jwt: { name: 'JWT Token', regex: 'eyJ[a-zA-Z0-9-]{10,}\\.eyJ[a-zA-Z0-9-]{10,}\\.[a-zA-Z0-9-]{10,}' },
+    oauth_token: { name: 'OAuth Token', regex: 'ya29\\.[0-9A-Za-z\\-_]+' },
+    github_token: { name: 'GitHub Token', regex: '(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,255}' },
+    auth_header: { name: 'Auth Headers', regex: '(basic|bearer)\\s[a-zA-Z0-9_\\-:\\.=]+' },
+    bearer_token: { name: 'Bearer Tokens', regex: 'bearer\\s[a-zA-Z0-9_\\-:\\.=]+' },
+    s3_bucket: { name: 'S3 Buckets', regex: 's3[_-]?bucket(=|=|:|:)|[a-z0-9.-]+\\.s3-[a-z0-9-]+\\.amazonaws\\.com' },
+    ip_address: { name: 'IP Addresses', regex: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b' },
+    jdbc: { name: 'JDBC Strings', regex: 'jdbc:[a-z:]+://[A-Za-z0-9\\.\\-_:;=/@?,&]+' },
+    heroku_key: { name: 'Heroku Key', regex: '[hH][eE][rR][oO][kK][uU].*[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' },
+    digitalocean: { name: 'DigitalOcean', regex: '[a-zA-Z0-9_-]{64}' },
+    slack_webhook: { name: 'Slack Webhook', regex: 'https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}' },
+    discord_token: { name: 'Discord Bot', regex: '[a-zA-Z0-9_-]{24}\\.[a-zA-Z0-9_-]{6}\\.[a-zA-Z0-9_-]{27}' },
+    facebook_token: { name: 'Facebook Token', regex: 'EAACEdEose0cBA[0-9A-Za-z]+' },
+    twitter_token: { name: 'Twitter Token', regex: '[tT][wW][iI][tT][tT][eE][rR].*[0-9A-Za-z\\-_]{35,}' }
+};
+
+let APX_FINDING_RULES_CACHE = null;
+
+function decodeApxRegexSource(raw) {
+    return String(raw || '')
+        .replace(/\\\\/g, '\\')
+        .replace(/\\"/g, '"');
+}
+
+async function loadApxRegexFindingRules() {
+    if (Array.isArray(APX_FINDING_RULES_CACHE)) return APX_FINDING_RULES_CACHE;
+
+    try {
+        const resp = await fetch('../apkauditor/apk-analyzer.js', { cache: 'no-store' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const source = await resp.text();
+
+        const extracted = [];
+        const blockRe = /\{id:'(apx_[^']+)'[\s\S]*?\},/g;
+        let blockMatch;
+        while ((blockMatch = blockRe.exec(source)) !== null) {
+            const block = blockMatch[0];
+            const id = blockMatch[1];
+            const nameMatch = block.match(/name:"([^"]+)"/);
+            const descriptionMatch = block.match(/description:'([^']*)'/);
+
+            let regexSource = null;
+            const newRegExpMatch = block.match(/patterns:\[new RegExp\("((?:\\.|[^"\\])*)",\s*'gi'\)/);
+            if (newRegExpMatch) {
+                regexSource = decodeApxRegexSource(newRegExpMatch[1]);
+            } else {
+                const regexLiteralMatch = block.match(/patterns:\[\/((?:\\.|[^\/\\])+)\/g[i]?\]/);
+                if (regexLiteralMatch) regexSource = regexLiteralMatch[1];
+            }
+            if (!regexSource) continue;
+
+            const name = nameMatch ? nameMatch[1] : id;
+            try {
+                extracted.push({
+                    id,
+                    name: `Regex Secret Scan: ${name}`,
+                    severity: 'high',
+                    patterns: [new RegExp(regexSource, 'gi')],
+                    description: (descriptionMatch && descriptionMatch[1]) || `Detected by APX secret regex (${name}).`,
+                    cwe: 'CWE-798',
+                    owasp: 'M9',
+                    masvs: 'STORAGE-14'
+                });
+            } catch (err) {
+                log('Invalid APX regex skipped:', id, err);
+            }
+        }
+
+        APX_FINDING_RULES_CACHE = extracted;
+        log('Loaded APX regex findings rules:', extracted.length);
+        return APX_FINDING_RULES_CACHE;
+    } catch (e) {
+        log('Failed to load APX regex findings rules:', e);
+        APX_FINDING_RULES_CACHE = [];
+        return APX_FINDING_RULES_CACHE;
+    }
+}
+
+function escapeRegex(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSearchRegex(query) {
+    const input = (query || '').trim();
+    if (!input) return null;
+
+    if (SEARCH_PRESETS[input]) {
+        try { return new RegExp(SEARCH_PRESETS[input].regex, 'i'); } catch (e) { return null; }
+    }
+
+    const regexLiteral = input.match(/^\/(.+)\/([gimsuy]*)$/);
+    if (regexLiteral) {
+        try { return new RegExp(regexLiteral[1], regexLiteral[2] || 'i'); } catch (e) { return null; }
+    }
+
+    try {
+        if (state.regexSearch) return new RegExp(input, 'i');
+        return new RegExp(escapeRegex(input), 'i');
+    } catch (e) {
+        return null;
+    }
+}
+
+function regexMatches(regex, text) {
+    if (!regex || text == null) return false;
+    regex.lastIndex = 0;
+    return regex.test(String(text));
+}
 
 function log(...args) {
     if (state.debug) console.log('[IPA-Auditor]', ...args);
@@ -721,6 +839,53 @@ const SECURITY_RULES = [
     }
 ];
 
+function buildPresetFindingRules() {
+    const presetSeverity = {
+        private_key: 'high',
+        aws_key: 'high',
+        google_api: 'high',
+        stripe_key: 'high',
+        github_token: 'high',
+        slack_webhook: 'high',
+        oauth_token: 'high',
+        jwt: 'warning',
+        firebase: 'warning',
+        mailgun_key: 'warning',
+        auth_header: 'warning',
+        bearer_token: 'warning',
+        s3_bucket: 'warning',
+        jdbc: 'warning',
+        heroku_key: 'warning',
+        digitalocean: 'warning',
+        discord_token: 'warning',
+        facebook_token: 'warning',
+        twitter_token: 'warning',
+        ip_address: 'info',
+        generic_secret: 'warning'
+    };
+
+    const rules = [];
+    for (const [presetId, preset] of Object.entries(SEARCH_PRESETS)) {
+        try {
+            rules.push({
+                id: `preset_${presetId}`,
+                name: `Regex Secret Scan: ${preset.name}`,
+                severity: presetSeverity[presetId] || 'warning',
+                patterns: [new RegExp(preset.regex, 'gi')],
+                description: `Detected by regex preset scan (${preset.name}). Review and validate whether this is an exposed secret or sensitive value.`,
+                cwe: 'CWE-798',
+                owasp: 'M9',
+                masvs: 'STORAGE-14'
+            });
+        } catch (e) {
+            log('Skipping invalid preset regex for findings:', presetId, e);
+        }
+    }
+    return rules;
+}
+
+const FINDING_RULES = [...SECURITY_RULES, ...buildPresetFindingRules()];
+
 function analyzeContentWithContext(content, filePath, rules) {
     const findings = [];
     const lines = content.split('\n');
@@ -878,6 +1043,9 @@ async function analyzeIPA(file) {
     state.binaryStrings = [];
 
     try {
+        const apxFindingRules = await loadApxRegexFindingRules();
+        const findingRules = [...FINDING_RULES, ...apxFindingRules];
+
         showLoading('Loading IPA...');
         updateProgress(5, 'Reading file...');
 
@@ -1042,7 +1210,7 @@ async function analyzeIPA(file) {
 
                     state.fileContents.set(relPath, content);
 
-                    const fileFindings = analyzeContentWithContext(contentForAnalysis, relPath, SECURITY_RULES);
+                    const fileFindings = analyzeContentWithContext(contentForAnalysis, relPath, findingRules);
                     results.findings.push(...fileFindings);
 
                     const urls = content.match(/https?:\/\/[^\s"'<>\]\)]+/gi) || [];
@@ -1073,7 +1241,7 @@ async function analyzeIPA(file) {
 
                 const stringsContent = stringData.map(s => s.str).join('\n');
 
-                const binFindings = analyzeContentWithContext(stringsContent, `BINARY:${results.appInfo.executableName}`, SECURITY_RULES);
+                const binFindings = analyzeContentWithContext(stringsContent, `BINARY:${results.appInfo.executableName}`, findingRules);
 
                 for (const finding of binFindings) {
                     const matchingStr = stringData.find(s => s.str.includes(finding.match));
@@ -1572,11 +1740,31 @@ function searchBinaryStrings(query) {
 
 function searchFiles(query) {
     if (!state.analysisResults) return [];
+    const regex = buildSearchRegex(query);
+    if (!regex) return [];
 
-    const lower = query.toLowerCase();
-    return state.analysisResults.files
-        .filter(f => f.toLowerCase().includes(lower))
-        .slice(0, 100);
+    const matches = new Set();
+    const files = state.analysisResults.files || [];
+
+    for (const filePath of files) {
+        if (regexMatches(regex, filePath)) matches.add(filePath);
+    }
+
+    for (const [filePath, content] of state.fileContents.entries()) {
+        if (regexMatches(regex, filePath) || regexMatches(regex, content)) {
+            matches.add(filePath);
+        }
+    }
+
+    if (state.binaryStrings.length > 0) {
+        const binaryHit = state.binaryStrings.some(entry => regexMatches(regex, entry.str));
+        if (binaryHit) {
+            const executable = state.analysisResults?.appInfo?.executableName || 'Executable';
+            matches.add(`BINARY:${executable}`);
+        }
+    }
+
+    return Array.from(matches).slice(0, 200);
 }
 
 async function sha256(buffer) {
