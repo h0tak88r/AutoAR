@@ -68,7 +68,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	log.Printf("[OK] Port scan completed, found %d open ports", count)
 
 	// Write JSON results to scan directory (local-first)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		data, readErr := os.ReadFile(outFile)
 		if readErr == nil {
 			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
@@ -90,7 +90,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 
 	// Send result files to Discord webhook if configured (only when not running under bot)
 	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
-	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+	if utils.GetCurrentScanID() == "" {
 		utils.SendPhaseFiles("ports", domain, []string{outFile})
 	}
 

@@ -185,7 +185,7 @@ func ScanWPConfusion(opts ScanOptions) error {
 			log.Printf("[WARN] Failed to create directory for results %s: %v", opts.Output, err)
 		}
 		
-		scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+		scanID := utils.GetCurrentScanID()
 
 		if len(allVulnerable) > 0 {
 			// Save vulnerabilities to file
