@@ -225,7 +225,7 @@ func Run(opts Options) (*Result, error) {
 
 	// Write structured JSON for the dashboard — one finding per discovered backup URL.
 	// template-id = "Exposed Backup File", matched-at = URL, severity = high
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		data, readErr := os.ReadFile(res.ResultsFile)
 		if readErr == nil {
 			type backupFinding struct {

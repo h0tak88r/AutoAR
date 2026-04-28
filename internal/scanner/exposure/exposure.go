@@ -125,7 +125,7 @@ func Run(opts Options) (*Result, error) {
 
 	// Write structured JSON for the dashboard (JSON-only pipeline).
 	// Each Finding maps to: TARGET=host+path, VULN TYPE=category+path, SEV=derived, MODULE=Exposure.
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		type exposureFinding struct {
 			TemplateID string `json:"template-id"` // VULN TYPE column: "api-docs: /swagger.json"
 			MatchedAt  string `json:"matched-at"`  // TARGET column: full URL

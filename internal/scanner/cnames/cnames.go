@@ -248,7 +248,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	log.Printf("[OK] Found %d CNAME records for %s", count, domain)
 
 	// Write JSON output to scan directory for dashboard
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		// Emit structured objects: {subdomain, cname, type}
 		type cnameEntry struct {
 			Subdomain string `json:"subdomain"`
@@ -284,7 +284,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	}
 
 	// Send result files to Discord webhook (only when not running under bot)
-	if os.Getenv("AUTOAR_CURRENT_SCAN_ID") == "" {
+	if utils.GetCurrentScanID() == "" {
 		webhookURL := os.Getenv("DISCORD_WEBHOOK")
 		if webhookURL != "" {
 			if info, err := os.Stat(out); err == nil && info.Size() > 0 {

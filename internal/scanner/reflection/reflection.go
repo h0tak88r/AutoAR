@@ -173,7 +173,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 
 	// Write structured JSON for the dashboard — one object per kxss finding.
 	// Template: TARGET=url, VULN TYPE='xss @ param | Unfiltered: [chars]', SEV=medium.
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		type xssFinding struct {
 			TemplateID  string   `json:"template-id"` // VULN TYPE column
 			MatchedAt   string   `json:"matched-at"`  // TARGET column

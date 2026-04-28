@@ -141,7 +141,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// Write JSON results to scan directory (local-first)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		target := opts.Domain
 		if target == "" {
 			target = opts.Subdomain

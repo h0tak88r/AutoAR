@@ -63,7 +63,7 @@ func RunFFuf(opts Options) (*Result, error) {
 
 	// Single target mode
 	if opts.Target == "" {
-		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "ffuf", "ffuf-results.json")
 		}
 		return nil, fmt.Errorf("target is required (use -u for URL or -d for domain mode)")
@@ -382,7 +382,7 @@ func RunFFuf(opts Options) (*Result, error) {
 	}
 
 	// Write structured JSON to scan directory for dashboard
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if customOutput, ok := job.Output.(*customOutputProvider); ok {
 			customOutput.resultsMutex.Lock()
 			captured := append([]ffufpkg.Result(nil), customOutput.results...)
@@ -1392,7 +1392,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	}
 
 	// Write structured JSON to scan directory for dashboard
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if customOutput, ok := job.Output.(*customOutputProvider); ok {
 			customOutput.resultsMutex.Lock()
 			captured := append([]ffufpkg.Result(nil), customOutput.results...)
