@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoAR Dashboard</title>
+  <meta name="description" content="AutoAR — Automated Attack Surface Recon dashboard. Monitor domains, scans, R2 files and change events in real time." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/ui/styles.css" />
+  <link rel="icon" type="image/png" href="/ui/logo.png" />
+</head>
+<body>
+
+<!-- Login gate — shown when API auth is enabled and there is no valid local session -->
+<div id="auth-gate" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="/ui/logo.png" style="width:100%;height:100%;border-radius:4px;object-fit:contain" alt="AutoAR"></div>
+    <h1 class="auth-title">AutoAR</h1>
+    <p class="auth-sub">Sign in to continue</p>
+    <form id="auth-form" class="auth-form">
+      <label class="auth-label" for="auth-username">Username</label>
+      <input class="search-input auth-input" id="auth-username" type="text" autocomplete="username" required placeholder="admin" />
+      <label class="auth-label" for="auth-password">Password</label>
+      <input class="search-input auth-input" id="auth-password" type="password" autocomplete="current-password" required placeholder="••••••••" />
+      <p id="auth-error" class="auth-error" role="alert"></p>
+      <button type="submit" class="btn btn-primary auth-submit" id="auth-submit">Sign in</button>
+    </form>
+    <p id="auth-config-hint" class="auth-hint" style="display:none"></p>
+  </div>
+</div>
+
+<div class="shell" id="app-shell">
+
+  <!-- ─── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+
+    <div class="sidebar-logo">
+      <div class="logo-icon"><img src="/ui/logo.png" style="width:100%;height:100%;border-radius:4px;object-fit:contain" alt="AutoAR"></div>
+      <div>
+        <div class="logo-text">AutoAR</div>
+        <div class="logo-version">v4.1.0</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-section-label">Main</div>
+
+        <div class="nav-item active" id="nav-overview">
+          <span class="nav-icon">⚡</span>
+          <span>Overview</span>
+        </div>
+
+        <div class="nav-item" id="nav-scans">
+          <span class="nav-icon">📡</span>
+          <span>Scans</span>
+        </div>
+
+        <div class="nav-item" id="nav-domains">
+          <span class="nav-icon">🌐</span>
+          <span>Domains</span>
+        </div>
+
+        <div class="nav-item" id="nav-subdomains">
+          <span class="nav-icon">🔗</span>
+          <span>Subdomains</span>
+          <span class="nav-badge" id="subdomains-badge" style="display:none"></span>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Intelligence</div>
+
+        <div class="nav-item" id="nav-monitor">
+          <span class="nav-icon">👁️</span>
+          <span>Monitor</span>
+        </div>
+
+        <div class="nav-item" id="nav-targets">
+          <span class="nav-icon">🎯</span>
+          <span>Targets</span>
+        </div>
+
+        <div class="nav-item" id="nav-keyhacks">
+          <span class="nav-icon">🔑</span>
+          <span>Keyhacks</span>
+        </div>
+
+        <div class="nav-item" id="nav-apkauditor" data-newtab="true">
+          <span class="nav-icon">🤖</span>
+          <span>APK Auditor</span>
+          <span class="nav-icon-right" style="margin-left:auto; font-size:10px; opacity:0.5">↗</span>
+        </div>
+        <div class="nav-item" id="nav-ipaauditor" data-newtab="true">
+          <span class="nav-icon">🍏</span>
+          <span>IPA Auditor</span>
+          <span class="nav-icon-right" style="margin-left:auto; font-size:10px; opacity:0.5">↗</span>
+        </div>
+        <div class="nav-item" id="nav-adbauditor" data-newtab="true">
+          <span class="nav-icon">⚡</span>
+          <span>ADB Auditor</span>
+          <span class="nav-icon-right" style="margin-left:auto; font-size:10px; opacity:0.5">↗</span>
+        </div>
+        <div class="nav-item" id="nav-securitylab" data-newtab="true">
+          <span class="nav-icon">🧪</span>
+          <span>Security Lab</span>
+          <span class="nav-icon-right" style="margin-left:auto; font-size:10px; opacity:0.5">↗</span>
+        </div>
+
+        <div class="nav-item" id="nav-r2">
+          <span class="nav-icon">📦</span>
+          <span>R2 Browser</span>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">System</div>
+        <div class="nav-item" id="nav-report-templates">
+          <span class="nav-icon">📝</span>
+          <span>Report Templates</span>
+        </div>
+        <div class="nav-item" id="nav-settings">
+          <span class="nav-icon">⚙️</span>
+          <span>Settings</span>
+        </div>
+      </div>
+    </nav>
+
+    <div class="sidebar-metrics" id="sidebar-metrics">
+      <div class="metrics-label">📊 Performance</div>
+      <div class="metric-item">
+        <div class="metric-info"><span>CPU</span><span id="metric-cpu">0%</span></div>
+        <div class="metric-bar"><div class="metric-fill" id="metric-cpu-fill" style="width: 0%"></div></div>
+      </div>
+      <div class="metric-item">
+        <div class="metric-info"><span>RAM</span><span id="metric-ram">0%</span></div>
+        <div class="metric-bar"><div class="metric-fill" id="metric-ram-fill" style="width: 0%"></div></div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="status-dot" id="status-dot"></div>
+      <div class="status-text" id="status-text">Connecting…</div>
+      <button type="button" class="btn btn-ghost sign-out-btn" id="sign-out-btn" style="display:none;width:100%;margin-top:10px;font-size:12px">Sign out</button>
+    </div>
+  </aside>
+
+  <!-- ─── Main area ─────────────────────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="topbar-title" id="topbar-title">Overview</div>
+      <div class="topbar-actions">
+        <span class="topbar-time" id="topbar-time"></span>
+        <button class="refresh-btn" id="refresh-btn">
+          <span>↻</span>
+          <span>Refresh</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Scrollable content -->
+    <div class="content">
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Overview                                                      -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view active" id="view-overview">
+
+        <div class="view-header">
+          <h1 class="view-title">Overview</h1>
+          <div class="view-subtitle">Real-time attack surface intelligence</div>
+        </div>
+
+        <!-- Stat cards -->
+        <div class="stats-grid">
+          <div class="stat-card" data-accent="cyan">
+            <div class="stat-header">
+              <div class="stat-label">Domains</div>
+              <div class="stat-icon">🌐</div>
+            </div>
+            <div class="stat-value" id="stat-domains">—</div>
+            <div class="stat-footer">Tracked root domains</div>
+          </div>
+
+          <div class="stat-card" data-accent="purple">
+            <div class="stat-header">
+              <div class="stat-label">Subdomains</div>
+              <div class="stat-icon">🔗</div>
+            </div>
+            <div class="stat-value" id="stat-subdomains">—</div>
+            <div class="stat-footer" id="stat-live-footer">Live: <span id="stat-live">—</span></div>
+          </div>
+
+          <div class="stat-card" data-accent="emerald">
+            <div class="stat-header">
+              <div class="stat-label">Active Scans</div>
+              <div class="stat-icon">⚡</div>
+            </div>
+            <div class="stat-value" id="stat-active">—</div>
+            <div class="stat-footer">Completed: <span id="stat-completed">—</span></div>
+          </div>
+
+          <div class="stat-card" data-accent="amber">
+            <div class="stat-header">
+              <div class="stat-label">Monitors</div>
+              <div class="stat-icon">👁️</div>
+            </div>
+            <div class="stat-value" id="stat-monitors">—</div>
+            <div class="stat-footer">URL &amp; subdomain</div>
+          </div>
+        </div>
+
+        <!-- Quick Scan Launcher -->
+        <div class="scan-launcher">
+          <div class="scan-launcher-title">🚀 Quick Scan Launcher</div>
+          <div class="scan-form">
+            <select id="launch-type">
+              <optgroup label="Workflow &amp; recon">
+                <option value="domain_scan">domain_scan (workflow)</option>
+                <option value="subdomain_scan">subdomain_scan (workflow)</option>
+                <option value="lite" selected>lite (full pipeline)</option>
+                <option value="recon">recon (Asset Discovery)</option>
+                <option value="urls">urls</option>
+                <option value="js">js</option>
+                <option value="reflection">reflection</option>
+                <option value="nuclei">nuclei</option>
+                <option value="ports">ports</option>
+                <option value="gf">gf</option>
+                <option value="backup">backup</option>
+                <option value="misconfig">misconfig</option>
+                <option value="apkx">apkx (APK analysis)</option>
+              </optgroup>
+              <optgroup label="DNS">
+                <option value="dns">dns (takeover)</option>
+                <option value="dns_dangling">dns (dangling-ip)</option>
+                <option value="dns_takeover">dns-takeover (legacy)</option>
+                <option value="dns_cf1016">dns-cf1016 (Cloudflare 1016)</option>
+              </optgroup>
+              <optgroup label="Cloud &amp; source">
+                <option value="s3">s3 (bucket)</option>
+                <option value="github">github (repo)</option>
+                <option value="github_org">github_org</option>
+              </optgroup>
+              <optgroup label="Advanced">
+                <option value="zerodays">zerodays</option>
+                <option value="ffuf">ffuf (URL + FUZZ)</option>
+                <option value="jwt">jwt (token)</option>
+              </optgroup>
+            </select>
+            <select id="launch-target-mode"></select>
+            <input type="text" id="launch-target" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
+            <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none"></textarea>
+            <button class="btn-primary" id="launch-btn">
+              <span>▶</span>
+              <span>Launch</span>
+            </button>
+          </div>
+          <div id="launch-help" class="launch-help"></div>
+          <details class="launcher-accordion" open>
+            <summary>Essential flags</summary>
+            <div id="launch-flags-essential" class="launch-flags-grid"></div>
+          </details>
+          <details class="launcher-accordion">
+            <summary>Advanced flags</summary>
+            <div id="launch-flags-advanced" class="launch-flags-grid"></div>
+          </details>
+          <details class="launcher-accordion">
+            <summary>Launch payload preview</summary>
+            <pre id="launch-preview" class="launch-preview">{}</pre>
+          </details>
+        </div>
+
+        <!-- Running scans (same data as Scans → Active; updates on poll / after launch) -->
+        <div class="card" id="overview-running-scans" style="display:none">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="card-title-icon">⚡</span>
+              Running now
+            </div>
+          </div>
+          <div class="card-body" id="overview-active-scans-body"></div>
+        </div>
+
+        <!-- Recent changes feed -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="card-title-icon">📡</span>
+              Recent Monitor Changes
+            </div>
+          </div>
+          <div class="card-body change-feed" id="recent-changes-feed">
+            <div class="empty-state">
+              <div class="empty-icon">⏳</div>
+              <div class="empty-title">Loading…</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /view-overview -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Scans                                                         -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-scans">
+
+        <div class="view-header">
+          <h1 class="view-title">Scans</h1>
+          <div class="view-subtitle">Active and recent scan history</div>
+        </div>
+
+        <div id="scans-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+
+      </div><!-- /view-scans -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Scan results (deep link /scans/:id)                           -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-scan-detail">
+        <div class="view-header" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between">
+          <div>
+            <button type="button" class="btn btn-ghost" id="scan-detail-back" style="margin-bottom:8px">← Back</button>
+            <h1 class="view-title" id="scan-detail-title">Scan results</h1>
+            <div class="view-subtitle" id="scan-detail-sub"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn btn-ghost" id="scan-detail-export-csv-btn" style="font-size:12px;min-width:108px;border-color:var(--accent-cyan);color:var(--accent-cyan)">📥 Export CSV</button>
+            <button type="button" class="scan-control-btn-r2" id="scan-detail-r2-btn" style="display:none;min-width:108px">Browse R2</button>
+            <button type="button" class="btn btn-ghost" id="scan-detail-clear-cache-btn" style="display:none;font-size:12px;min-width:108px;border-color:rgba(251,191,36,.45);color:var(--accent-amber)">🧹 Clear Cache</button>
+            <button type="button" class="btn btn-ghost" id="scan-detail-rescan-btn" style="display:none;font-size:12px;min-width:108px;border-color:rgba(52,211,153,.4);color:var(--accent-emerald)" onclick="document.getElementById('scan-detail-rescan-btn')._rescan && document.getElementById('scan-detail-rescan-btn')._rescan()">🔁 Rescan</button>
+            <button type="button" class="btn btn-ghost" id="scan-detail-delete-btn" style="font-size:12px;min-width:108px;border-color:rgba(248,113,113,.4);color:var(--accent-red)">🗑 Delete</button>
+          </div>
+        </div><!-- /view-header -->
+        <div id="scan-detail-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-scan-detail -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Domains                                                        -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-domains">
+
+        <div class="view-header">
+          <h1 class="view-title">Domains</h1>
+          <div class="view-subtitle">Click a domain to browse its subdomains</div>
+        </div>
+
+        <div class="filter-bar" id="filter-bar-domains">
+          <input class="search-input" id="domain-search" placeholder="Search domains…" autocomplete="off" />
+        </div>
+
+        <div id="domains-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+
+      </div><!-- /view-domains -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Subdomains                                                    -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-subdomains">
+        <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <h1 class="view-title">Subdomains</h1>
+            <div class="view-subtitle">All discovered subdomains across every domain</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <button id="run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
+              ⚡ Run Nuclei Template
+            </button>
+            <div id="cnames-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
+              ⏳ <span id="cnames-progress-text">0/0</span>
+            </div>
+            <button id="retry-cnames-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptRetryCnames()">
+              ↻ Resolve Missing CNAMEs
+            </button>
+            <button id="copy-all-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center">
+              📋 Copy All Subdomains
+            </button>
+          </div>
+        </div>
+        <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap">
+          <input class="search-input" id="subdomains-search" placeholder="Search by subdomain or root…" autocomplete="off" style="flex:2;min-width:200px" />
+          <select class="search-input" id="subdomains-status-filter" style="flex:1;min-width:120px;cursor:pointer">
+            <option value="0" selected>Any Status</option>
+            <option value="200">200 OK</option>
+            <option value="301">301 / 302 Redirect</option>
+            <option value="403">403 Forbidden</option>
+            <option value="404">404 Not Found</option>
+            <option value="500">50x Error</option>
+          </select>
+          <input class="search-input" id="subdomains-tech-filter" placeholder="Filter Tech (e.g. React)…" autocomplete="off" style="flex:1;min-width:140px" />
+          <input class="search-input" id="subdomains-cname-filter" placeholder="Filter CNAME…" autocomplete="off" style="flex:1;min-width:140px" />
+        </div>
+        <div id="subdomains-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-subdomains -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Bug Bounty Targets                                           -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-targets">
+        <div class="view-header">
+          <h1 class="view-title">🎯 Bug Bounty Targets</h1>
+          <div class="view-subtitle">Fetch in-scope root domains from HackerOne, Bugcrowd, YesWeHack, Intigriti &amp; Immunefi</div>
+        </div>
+
+        <!-- Platform Cards -->
+        <div id="targets-platforms-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:28px;"></div>
+
+        <!-- Fetch Controls -->
+        <div class="card" id="targets-fetch-card" style="margin-bottom:20px;display:none;">
+          <div class="card-title"><span class="card-title-icon">⚙️</span><span id="targets-fetch-card-title">Fetch Options</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding-top:8px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-bbp-only"> BBP Only
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-pvt-only"> Private Only
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-public-only"> Public Only
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+              <input type="checkbox" id="targets-include-oos"> Include OOS
+            </label>
+            <button class="btn btn-primary" id="targets-fetch-btn" onclick="targetsDoFetch()" style="margin-left:auto;">
+              Fetch Targets
+            </button>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="card" id="targets-results-card" style="display:none;">
+          <div class="card-title" style="justify-content:space-between;">
+            <span><span class="card-title-icon">📋</span><span id="targets-result-header">Results</span></span>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="targets-filter-input" placeholder="Filter domains…" oninput="targetsApplyFilter()"
+                style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;width:220px;">
+              <button class="btn btn-primary" id="targets-add-all-btn" onclick="targetsAddAllDomains()" style="font-size:12px;padding:6px 14px;">
+                + Add All to Domains DB
+              </button>
+              <button class="btn" id="targets-copy-btn" onclick="targetsCopyAll()" style="font-size:12px;padding:6px 14px;background:var(--bg-tertiary);">
+                Copy List
+              </button>
+            </div>
+          </div>
+          <div id="targets-domain-list" style="margin-top:12px;max-height:520px;overflow-y:auto;"></div>
+        </div>
+      </div><!-- /view-targets -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Keyhacks                                                     -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-keyhacks">
+        <div class="view-header">
+          <h1 class="view-title">🔑 Keyhacks</h1>
+          <div class="view-subtitle">API key validation templates and usage guides</div>
+        </div>
+
+        <div class="filter-bar">
+          <input class="search-input" id="keyhacks-search" placeholder="Search templates (e.g. AWS, SendGrid)…" autocomplete="off" />
+        </div>
+
+        <div id="keyhacks-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-keyhacks -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Monitor                                                        -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-monitor">
+
+        <div class="view-header">
+          <h1 class="view-title">Monitor</h1>
+          <div class="view-subtitle">URL and subdomain change detection</div>
+        </div>
+
+        <!-- URL Monitor Targets -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header">
+            <div class="card-title"><span class="card-title-icon">🔗</span>URL Monitor Targets</div>
+          </div>
+          <div class="card-body">
+            <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:10px">Quick launch</div>
+              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+                <div style="flex:1;min-width:220px">
+                  <label for="monitor-url-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Page URL</label>
+                  <input class="search-input" id="monitor-url-input" type="url" placeholder="https://example.com/status" autocomplete="off" style="width:100%;box-sizing:border-box" />
+                </div>
+                <div style="min-width:120px">
+                  <label for="monitor-url-strategy" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Strategy</label>
+                  <select class="search-input" id="monitor-url-strategy" style="width:100%;cursor:pointer">
+                    <option value="hash" selected>hash (full page)</option>
+                    <option value="regex">regex</option>
+                  </select>
+                </div>
+                <div id="monitor-url-pattern-wrap" style="flex:1;min-width:180px;display:none">
+                  <label for="monitor-url-pattern" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Pattern (regex)</label>
+                  <input class="search-input" id="monitor-url-pattern" type="text" placeholder="Optional; default date pattern if empty" autocomplete="off" style="width:100%;box-sizing:border-box" />
+                </div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+                  <input type="checkbox" id="monitor-url-autostart" checked /> Start checking now
+                </label>
+                <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddUrlMonitor()">Add monitor</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Registers the target in the database. When “Start checking now” is on, marks it running and wakes the URL monitor worker (same as CLI <code style="font-size:10px;opacity:.85">monitor updates add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
+            </div>
+            <div class="monitor-ai-suggest" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(30,40,60,.25)">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px">AI-assisted URLs</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.45">Enter a <strong>target domain</strong>. The server probes common release/changelog/blog paths, then ranks pages with <strong>OpenRouter</strong> (or heuristics if no API key). Select rows and add them as URL monitors.</div>
+              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+                <div style="flex:1;min-width:200px">
+                  <label for="monitor-ai-domain" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Domain</label>
+                  <input class="search-input" id="monitor-ai-domain" type="text" placeholder="example.com" autocomplete="off" style="width:100%;box-sizing:border-box" />
+                </div>
+                <button type="button" class="btn btn-primary" id="monitor-ai-suggest-btn" style="padding:8px 16px;font-size:13px" onclick="runMonitorAISuggest()">Discover &amp; rank</button>
+              </div>
+              <div id="monitor-ai-suggest-meta" style="font-size:11px;color:var(--text-muted);margin-top:8px;display:none"></div>
+              <div id="monitor-ai-suggest-results" style="margin-top:14px;display:none"></div>
+            </div>
+            <div id="monitor-url-container">
+              <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subdomain Monitor Targets -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header">
+            <div class="card-title"><span class="card-title-icon">🌐</span>Subdomain Monitor Targets</div>
+          </div>
+          <div class="card-body">
+            <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:10px">Quick launch</div>
+              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+                <div style="flex:1;min-width:200px">
+                  <label for="monitor-sub-domain-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Root domain</label>
+                  <input class="search-input" id="monitor-sub-domain-input" type="text" placeholder="example.com" autocomplete="off" style="width:100%;box-sizing:border-box" />
+                </div>
+                <div style="width:100px">
+                  <label for="monitor-sub-interval" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Interval (s)</label>
+                  <input class="search-input" id="monitor-sub-interval" type="number" min="60" step="60" value="3600" style="width:100%;box-sizing:border-box" />
+                </div>
+                <div style="width:88px">
+                  <label for="monitor-sub-threads" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Threads</label>
+                  <input class="search-input" id="monitor-sub-threads" type="number" min="1" max="500" value="100" style="width:100%;box-sizing:border-box" />
+                </div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+                  <input type="checkbox" id="monitor-sub-checknew" checked /> Detect new subs
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+                  <input type="checkbox" id="monitor-sub-autostart" checked /> Start monitor now
+                </label>
+                <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddSubdomainMonitor()">Add monitor</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Adds a subdomain watch target and optionally starts the subdomain monitor daemon (same idea as CLI <code style="font-size:10px;opacity:.85">monitor subdomains manage add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
+            </div>
+            <div id="monitor-sub-container">
+              <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Change History Feed -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="card-title-icon">📋</span>Change History</div>
+            <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="clearMonitorChangeHistory()">Clear history</button>
+          </div>
+          <div class="card-body change-feed" id="monitor-changes-feed">
+            <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+          </div>
+        </div>
+
+      </div><!-- /view-monitor -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: R2 Storage                                                     -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-r2">
+
+        <div class="view-header">
+          <h1 class="view-title">R2 Storage</h1>
+          <div class="view-subtitle">
+            Browse Cloudflare R2 bucket:
+            <span id="r2-path" style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan)">/</span>
+          </div>
+        </div>
+
+        <div id="r2-loading" style="display:none;margin-bottom:12px;font-size:13px;color:var(--text-muted)">
+          ⏳ Loading files…
+        </div>
+
+        <div class="r2-browser">
+          <div class="r2-tree">
+            <div class="r2-tree-header">Folders</div>
+            <div id="r2-tree-list">
+              <div class="r2-tree-item active"><span>📦</span><span>root</span></div>
+            </div>
+          </div>
+
+          <div class="r2-files-panel">
+            <div class="card-header">
+              <div class="card-title"><span class="card-title-icon">📄</span>Files</div>
+              <button type="button" id="r2-delete-selected" class="btn btn-ghost" style="display:none">🗑 Delete selected</button>
+            </div>
+            <div id="r2-files-list">
+              <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /view-r2 -->
+
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Settings                                                       -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-settings">
+
+        <div class="view-header">
+          <h1 class="view-title">Settings</h1>
+          <div class="view-subtitle">Connection status and configuration</div>
+        </div>
+
+        <div id="settings-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+
+      </div><!-- /view-settings -->
+
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: APK Auditor                                                  -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-apkauditor" style="padding:0;height:100%;display:none;flex-direction:column">
+        <iframe
+          id="apkauditor-frame"
+          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+          allow="clipboard-write"
+          title="APK Auditor"
+        ></iframe>
+      </div><!-- /view-apkauditor -->
+      <div class="view" id="view-ipaauditor" style="padding:0;height:100%;display:none;flex-direction:column">
+        <iframe
+          id="ipaauditor-frame"
+          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+          allow="clipboard-write"
+          title="IPA Auditor"
+        ></iframe>
+      </div><!-- /view-ipaauditor -->
+      <div class="view" id="view-adbauditor" style="padding:0;height:100%;display:none;flex-direction:column">
+        <iframe
+          id="adbauditor-frame"
+          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+          allow="clipboard-write; usb"
+          title="ADB Auditor"
+        ></iframe>
+      </div><!-- /view-adbauditor -->
+      <div class="view" id="view-securitylab" style="padding:0;height:100%;display:none;flex-direction:column">
+        <iframe
+          id="securitylab-frame"
+          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+          allow="clipboard-write"
+          title="Security Lab"
+        ></iframe>
+      </div><!-- /view-securitylab -->
+
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Report Templates                                             -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-report-templates">
+        <div class="view-header">
+          <h1 class="view-title">📝 Report Templates</h1>
+          <div class="view-subtitle">Manage and generate report templates</div>
+        </div>
+        <div class="filter-bar">
+          <input class="search-input" id="report-templates-search" placeholder="Search templates..." autocomplete="off" />
+        </div>
+        <input id="report-templates-import-file" type="file" accept="application/json,.json" style="display:none" onchange="handleImportReportTemplatesFile(event)" />
+        <div id="report-templates-container">
+          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div>
+        </div>
+      </div><!-- /view-report-templates -->
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /shell -->
+
+<style>
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.clickable-row:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+</style>
+
+<!-- Modal: Report Template Editor -->
+<div id="modal-report-template" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
+  <div class="auth-card" style="width: 95%; max-width: 1200px; padding: 24px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+    <div class="view-header" style="margin-bottom: 20px; flex-shrink: 0;">
+      <h2 class="view-title" id="report-template-modal-title">📝 Edit Template</h2>
+      <div class="view-subtitle">Markdown format supported with real-time preview</div>
+    </div>
+    
+    <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; overflow: hidden;">
+      <div style="flex-shrink: 0;">
+        <label class="auth-label" for="report-template-name">Template Name</label>
+        <input class="search-input auth-input" id="report-template-name" type="text" placeholder="e.g. pentest-report" required />
+      </div>
+      
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; overflow: hidden;">
+        <div style="display: flex; flex-direction: column; min-height: 0;">
+          <label class="auth-label">Markdown Editor</label>
+          <textarea id="report-template-content" class="search-input auth-input" 
+            style="flex: 1; min-height: 0; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: none; background: #010409;" 
+            placeholder="# My Report Template..." oninput="updateTemplatePreview()"></textarea>
+        </div>
+        <div style="display: flex; flex-direction: column; min-height: 0;">
+          <label class="auth-label">Live Preview</label>
+          <div id="report-template-preview" class="search-input" 
+            style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px; background: #0d1117; border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"></div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px; flex-shrink: 0;">
+        <button type="button" class="btn btn-ghost" onclick="closeReportTemplateModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveReportTemplate()">Save Template</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Nuclei Global Scan Modal -->
+<div id="nuclei-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
+  <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+    <h2 class="auth-title" style="margin-bottom: 8px;">Run Global Nuclei Scan</h2>
+    <p class="auth-sub" style="margin-bottom: 20px;">Enter a Nuclei template path/ID, OR paste raw YAML template code.</p>
+    
+    <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+      <textarea id="nuclei-template-input" class="search-input auth-input" 
+        style="flex: 1; min-height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical; background: #010409;" 
+        placeholder="cves/2021/CVE-2021-44228.yaml&#10;&#10;-- OR --&#10;&#10;id: custom-template&#10;info:&#10;  name: Custom Scan&#10;  ..."></textarea>
+    </div>
+
+    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
+      <button type="button" class="btn btn-ghost" onclick="closeNucleiModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)">⚡ Run Scan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notifications -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Markdown parser for previews -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<!-- Local auth: no external SDK needed -->
+<script src="/ui/app.js"></script>
+</body>
+</html>

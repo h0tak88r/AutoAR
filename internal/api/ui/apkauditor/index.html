@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APK Auditor - Android Security Analysis Tool</title>
+    <meta name="description" content="Android APK security analysis tool. Runs in your browser. No uploads, no server.">
+    <meta name="description" content="Android APK security analysis tool. Runs in your browser. No uploads, no server.">
+    <meta name="theme-color" content="#030306">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="lib/jszip.min.js"></script>
+    <script src="lib/jspdf.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary:#030306;--bg-secondary:#08080c;--bg-tertiary:#0c0c12;
+            --bg-card:#0e0e14;--bg-elevated:#121218;
+            --border-subtle:rgba(255,255,255,0.04);--border-default:rgba(255,255,255,0.08);--border-hover:rgba(255,255,255,0.12);
+            --text-primary:#f4f4f6;--text-secondary:#a1a1aa;--text-muted:#52525b;
+            --accent-primary:#818cf8;--accent-secondary:#6366f1;
+            --accent-glow:rgba(129,140,248,0.4);--accent-subtle:rgba(129,140,248,0.08);
+            --cyan:#22d3ee;--green:#34d399;--red:#fb7185;--orange:#fb923c;
+            --code-bg:#0a0a0e;
+        }
+        *{margin:0;padding:0;box-sizing:border-box;}
+        html{font-size:15px;scroll-behavior:smooth;}
+        body{font-family:'Outfit',-apple-system,system-ui,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100vh;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+        .particle-field{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;}
+        .particle{position:absolute;width:2px;height:2px;background:var(--accent-primary);border-radius:50%;opacity:0;animation:particleFloat 15s infinite;}
+        .particle::after{content:'';position:absolute;inset:-2px;background:inherit;border-radius:50%;filter:blur(4px);opacity:.5;}
+        @keyframes particleFloat{0%{opacity:0;transform:translateY(100vh) scale(0)}10%{opacity:.6}90%{opacity:.6}100%{opacity:0;transform:translateY(-100vh) scale(1)}}
+        .gradient-orbs{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;}
+        .orb{position:absolute;border-radius:50%;filter:blur(100px);opacity:.15;}
+        .orb-1{width:600px;height:600px;background:linear-gradient(135deg,#6366f1,#8b5cf6);top:-300px;left:-200px;animation:orbDrift1 30s ease-in-out infinite;}
+        .orb-2{width:500px;height:500px;background:linear-gradient(135deg,#06b6d4,#22d3ee);bottom:-200px;right:-150px;animation:orbDrift2 25s ease-in-out infinite;}
+        .orb-3{width:400px;height:400px;background:linear-gradient(135deg,#34d399,#10b981);top:40%;left:30%;animation:orbDrift3 35s ease-in-out infinite;}
+        @keyframes orbDrift1{0%,100%{transform:translate(0,0)}50%{transform:translate(80px,40px)}}
+        @keyframes orbDrift2{0%,100%{transform:translate(0,0)}50%{transform:translate(-60px,-60px)}}
+        @keyframes orbDrift3{0%,100%{transform:translate(-50%,-50%) scale(.8);opacity:.08}50%{transform:translate(-50%,-50%) scale(1.2);opacity:.18}}
+        .grid-pattern{position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:60px 60px;mask-image:radial-gradient(ellipse at center,black 0%,transparent 70%);}
+        .header{position:fixed;top:0;left:0;right:0;z-index:100;padding:16px 24px;background:rgba(3,3,6,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--border-subtle);}
+        .header-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+        .logo{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;}
+        .logo-icon{width:36px;height:36px;}
+        .logo-text{font-weight:700;font-size:18px;letter-spacing:-.5px;}
+        .logo-text span{color:var(--accent-primary);}
+        .nav-links{display:flex;align-items:center;gap:8px;}
+        .nav-link{padding:8px 16px;font-size:14px;font-weight:500;color:var(--text-secondary);text-decoration:none;border-radius:8px;transition:all .2s;}
+        .nav-link:hover{color:var(--text-primary);background:var(--accent-subtle);}
+        .btn{padding:10px 20px;font-size:14px;font-weight:600;font-family:inherit;border:none;border-radius:10px;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:8px;text-decoration:none;}
+        .btn-primary{background:linear-gradient(135deg,var(--accent-secondary),var(--accent-primary));color:white;box-shadow:0 4px 20px var(--accent-glow);}
+        .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px var(--accent-glow);}
+        .btn-ghost{background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-default);}
+        .btn-ghost:hover{background:var(--bg-card);border-color:var(--border-hover);}
+        .btn svg{width:16px;height:16px;}
+        .hero{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:120px 24px 80px;text-align:center;}
+        .hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:var(--accent-subtle);border:1px solid rgba(129,140,248,.2);border-radius:100px;font-size:13px;font-weight:600;color:var(--accent-primary);margin-bottom:32px;animation:fadeUp .8s ease forwards;}
+        .hero-badge::before{content:'';width:6px;height:6px;background:var(--accent-primary);border-radius:50%;animation:pulse 2s ease infinite;}
+        @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.5)}}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        .hero-title{font-size:clamp(40px,7vw,72px);font-weight:800;letter-spacing:-2px;line-height:1.1;margin-bottom:24px;animation:fadeUp .8s ease .1s forwards;opacity:0;}
+        .hero-title .gradient{background:linear-gradient(135deg,var(--text-primary) 0%,var(--accent-primary) 50%,var(--cyan) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+        .hero-subtitle{font-size:18px;color:var(--text-secondary);max-width:560px;margin:0 auto 40px;line-height:1.7;animation:fadeUp .8s ease .2s forwards;opacity:0;}
+        .hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;animation:fadeUp .8s ease .3s forwards;opacity:0;}
+        .hero-stats{display:flex;align-items:center;justify-content:center;gap:40px;margin-top:60px;padding-top:40px;border-top:1px solid var(--border-subtle);animation:fadeUp .8s ease .4s forwards;opacity:0;flex-wrap:wrap;}
+        .hero-stat{text-align:center;}
+        .hero-stat-value{font-size:28px;font-weight:700;}
+        .hero-stat-label{font-size:13px;color:var(--text-muted);margin-top:4px;}
+        .dropzone{position:relative;z-index:2;max-width:700px;margin:0 auto 60px;padding:60px 40px;background:var(--bg-card);border:2px dashed var(--border-default);border-radius:24px;cursor:pointer;transition:all .3s;animation:fadeUp .8s ease .5s forwards;opacity:0;}
+        .dropzone:hover,.dropzone.drag-over{border-color:var(--accent-primary);background:rgba(99,102,241,.05);transform:scale(1.01);}
+        .dropzone-icon{width:64px;height:64px;margin:0 auto 24px;background:var(--accent-subtle);border-radius:16px;display:flex;align-items:center;justify-content:center;}
+        .dropzone-icon svg{width:32px;height:32px;color:var(--accent-primary);}
+        .dropzone-title{font-size:20px;font-weight:700;margin-bottom:8px;}
+        .dropzone-sub{font-size:14px;color:var(--text-secondary);margin-bottom:24px;}
+        .dropzone-formats{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
+        .fmt-badge{padding:4px 12px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;font-size:12px;font-weight:600;color:var(--text-secondary);}
+        .features-section{position:relative;z-index:2;padding:80px 24px;max-width:1200px;margin:0 auto;}
+        .section-title{font-size:32px;font-weight:800;text-align:center;letter-spacing:-1px;margin-bottom:48px;}
+        .section-title span{color:var(--accent-primary);}
+        .features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}
+        .feature-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:28px;transition:all .3s;}
+        .feature-card:hover{border-color:var(--border-default);transform:translateY(-2px);}
+        .feature-icon{width:44px;height:44px;background:var(--accent-subtle);border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;}
+        .feature-icon svg{width:22px;height:22px;color:var(--accent-primary);}
+        .feature-title{font-size:16px;font-weight:700;margin-bottom:8px;}
+        .feature-desc{font-size:13px;color:var(--text-secondary);line-height:1.6;}
+        .privacy-section{position:relative;z-index:2;padding:40px 24px 80px;}
+        .privacy-card{max-width:700px;margin:0 auto;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:20px;padding:40px;text-align:center;}
+        .privacy-icon{width:56px;height:56px;background:var(--accent-subtle);border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;}
+        .privacy-icon svg{width:28px;height:28px;color:var(--accent-primary);}
+        .privacy-title{font-size:22px;font-weight:700;margin-bottom:12px;}
+        .privacy-desc{font-size:14px;color:var(--text-secondary);margin-bottom:24px;}
+        .privacy-badges{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+        .privacy-badge{display:flex;align-items:center;gap:6px;padding:8px 16px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;font-size:13px;font-weight:500;}
+        .privacy-badge svg{width:14px;height:14px;color:var(--green);}
+        .app-container{display:none;position:relative;z-index:2;max-width:1200px;margin:0 auto;padding:80px 24px 40px;}
+        .app-container.active{display:block;}
+        .app-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px;flex-wrap:wrap;}
+        .app-title{display:flex;align-items:center;gap:16px;}
+        .app-icon{width:56px;height:56px;background:linear-gradient(135deg,var(--accent-secondary),var(--accent-primary));border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:white;flex-shrink:0;}
+        #appName{font-size:22px;font-weight:700;letter-spacing:-.5px;}
+        #appPackage{font-size:13px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;margin-top:2px;}
+        .app-actions{display:flex;gap:8px;}
+        .tabs{display:flex;gap:4px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:6px;margin-bottom:24px;overflow-x:auto;}
+        .tab{display:flex;align-items:center;gap:8px;padding:10px 20px;font-size:14px;font-weight:600;font-family:inherit;color:var(--text-secondary);background:none;border:none;border-radius:10px;cursor:pointer;transition:all .2s;white-space:nowrap;}
+        .tab svg{width:16px;height:16px;}
+        .tab:hover{color:var(--text-primary);background:var(--bg-elevated);}
+        .tab.active{color:var(--text-primary);background:var(--bg-elevated);box-shadow:0 1px 3px rgba(0,0,0,.3);}
+        .tab-badge{background:var(--red);color:white;border-radius:100px;padding:2px 7px;font-size:11px;font-weight:700;}
+        .panel{display:none;}.panel.active{display:block;}
+        .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px;margin-bottom:24px;}
+        .stat-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:20px;}
+        .stat-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+        .stat-card-label{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+        .stat-card-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;}
+        .stat-card-icon svg{width:16px;height:16px;}
+        .stat-card-icon.accent{background:var(--accent-subtle);color:var(--accent-primary);}
+        .stat-card-icon.cyan{background:rgba(34,211,238,.1);color:var(--cyan);}
+        .stat-card-icon.green{background:rgba(52,211,153,.1);color:var(--green);}
+        .stat-card-icon.orange{background:rgba(251,146,60,.1);color:var(--orange);}
+        .stat-card-value{font-size:32px;font-weight:800;letter-spacing:-1px;}
+        .stat-card-desc{font-size:12px;color:var(--text-muted);margin-top:4px;}
+        .score-circle{display:flex;align-items:baseline;gap:4px;margin-top:8px;}
+        .score-num{font-size:48px;font-weight:800;letter-spacing:-2px;}
+        .score-label{font-size:18px;color:var(--text-muted);}
+        .findings-vertical{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
+        .finding-row{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:8px;}
+        .finding-row.high{background:rgba(251,113,133,.1);}.finding-row.warning{background:rgba(251,191,36,.08);}.finding-row.info{background:rgba(129,140,248,.08);}.finding-row.secure{background:rgba(52,211,153,.08);}
+        .finding-row .count{font-size:18px;font-weight:800;min-width:28px;}.finding-row .label{font-size:12px;font-weight:600;color:var(--text-secondary);}
+        .results-section{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;overflow:hidden;margin-bottom:16px;}
+        .results-header{display:flex;align-items:center;gap:10px;padding:16px 20px;font-size:14px;font-weight:700;border-bottom:1px solid var(--border-subtle);}
+        .results-header svg{width:16px;height:16px;color:var(--accent-primary);}
+        .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;}
+        .info-row{display:flex;flex-direction:column;gap:2px;padding:12px 16px;border-bottom:1px solid var(--border-subtle);}
+        .info-key{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+        .info-val{font-size:13px;color:var(--text-primary);}
+        .perm-item{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border-subtle);font-size:13px;}
+        .perm-item:last-child{border-bottom:none;}
+        .perm-name{font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;}
+        .perm-full{font-size:11px;color:var(--text-muted);}
+        .perm-item.danger .perm-name{color:var(--red);}
+        .badge-danger{margin-left:auto;background:rgba(251,113,133,.15);color:var(--red);border:1px solid rgba(251,113,133,.3);padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600;white-space:nowrap;}
+        .badge-warn{margin-left:auto;background:rgba(251,191,36,.1);color:var(--orange);border:1px solid rgba(251,191,36,.2);padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600;white-space:nowrap;}
+        .comp-item{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border-subtle);font-size:13px;}
+        .comp-item:last-child{border-bottom:none;}
+        .comp-type{font-size:10px;font-weight:700;padding:2px 6px;background:var(--accent-subtle);color:var(--accent-primary);border-radius:4px;text-transform:uppercase;letter-spacing:.4px;min-width:60px;text-align:center;}
+        .comp-name{font-family:'JetBrains Mono',monospace;font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .tracker-item{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border-subtle);font-size:13px;}
+        .tracker-item:last-child{border-bottom:none;}
+        .filter-bar{display:flex;gap:8px;padding:16px;flex-wrap:wrap;}
+        .filter-btn{padding:6px 16px;font-size:13px;font-weight:600;font-family:inherit;color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;cursor:pointer;transition:all .2s;}
+        .filter-btn.active,.filter-btn:hover{color:var(--text-primary);border-color:var(--accent-primary);background:var(--accent-subtle);}
+        .finding-match-item{display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);}
+        .finding-match-item code{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--orange);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .match-loc{font-size:10px;color:var(--text-muted);white-space:nowrap;}
+        .finding-goto{cursor:pointer;text-decoration:underline;text-decoration-style:dashed;text-underline-offset:2px;}
+        .finding-goto:hover{color:var(--accent-primary);}
+        .finding-match-more{font-size:11px;color:var(--text-muted);padding:4px 0;font-style:italic;}
+        .finding-expand-btn{display:block;width:100%;font-size:12px;color:var(--accent-primary);cursor:pointer;padding:8px 0;font-weight:600;background:none;border:none;border-top:1px dashed rgba(129,140,248,.3);text-align:center;margin-top:4px;transition:background .2s;font-family:inherit;}
+        .finding-expand-btn:hover{color:#a5b4fc;}
+        .finding-match-list{max-height:500px;overflow-y:auto;border-top:1px solid var(--border-subtle);margin-top:4px;padding-top:4px;}
+        .comp-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:14px;margin-bottom:10px;}
+        .comp-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+        .comp-type-badge{font-size:10px;padding:2px 8px;border-radius:6px;font-weight:700;text-transform:uppercase;}
+        .comp-type-badge.activity{background:rgba(129,140,248,.15);color:#818cf8;}
+        .comp-type-badge.service{background:rgba(52,211,153,.15);color:#34d399;}
+        .comp-type-badge.receiver{background:rgba(251,146,60,.15);color:#fb923c;}
+        .comp-type-badge.provider{background:rgba(251,113,133,.15);color:#fb7185;}
+        .comp-name{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-primary);word-break:break-all;}
+        .comp-badges{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0;}
+        .comp-badge{font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--text-muted);}
+        .comp-badge.danger{background:rgba(251,113,133,.15);color:#fb7185;}
+        .comp-badge.warn{background:rgba(251,146,60,.15);color:#fb923c;}
+        .comp-intents{font-size:11px;color:var(--text-muted);margin:4px 0;}
+        .comp-cmd{background:var(--code-bg);border:1px solid var(--border-subtle);border-radius:6px;padding:8px;margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green);word-break:break-all;cursor:pointer;position:relative;}
+        .comp-cmd:hover::after{content:'Click to copy';position:absolute;top:2px;right:6px;font-size:9px;color:var(--text-muted);}
+        .finding-snippet{margin-bottom:10px;}
+        .finding-snippet summary{font-size:12px;color:var(--text-muted);cursor:pointer;padding:4px 0;}
+        .finding-snippet pre{background:var(--code-bg);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary);overflow-x:auto;margin-top:8px;line-height:1.6;}
+        .finding-tags{display:flex;gap:6px;flex-wrap:wrap;}
+        .tag{padding:2px 8px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px;font-size:11px;color:var(--text-muted);}
+        .smali-panel{display:grid;grid-template-columns:260px 1fr;gap:16px;height:600px;}
+        .smali-sidebar{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;}
+        .smali-sidebar-header{padding:14px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border-subtle);}
+        .smali-tree-container{flex:1;overflow-y:auto;padding:8px;}
+        .smali-pkg{font-size:12px;font-weight:600;color:var(--text-secondary);padding:4px 8px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;border-radius:6px;}
+        .smali-pkg:hover{background:var(--bg-elevated);}
+        .smali-children{padding-left:16px;}
+        .smali-class{font-size:12px;font-family:'JetBrains Mono',monospace;padding:3px 8px;cursor:pointer;border-radius:6px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .smali-class:hover,.smali-class.active{background:var(--accent-subtle);color:var(--accent-primary);}
+        .smali-main{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;}
+        .smali-viewer-header{padding:12px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:10px;background:var(--bg-elevated);}
+        .smali-classname{font-size:14px;font-weight:700;}
+        .smali-fqn{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);flex:1;}
+        .smali-method-count{font-size:11px;color:var(--text-muted);}
+        .smali-code{flex:1;overflow:auto;padding:16px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7;color:var(--text-secondary);background:var(--code-bg);}
+        .dex-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px;}
+        .dex-stat-card{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:12px;padding:14px;}
+        .dex-stat-card.total{border-color:rgba(129,140,248,.3);}
+        .dex-name{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);margin-bottom:6px;}
+        .dex-nums{display:flex;gap:12px;flex-wrap:wrap;}
+        .dex-nums span{font-size:13px;font-weight:600;color:var(--text-primary);}
+        .strings-tabs{display:flex;gap:6px;margin-bottom:12px;}
+        .stab{padding:6px 14px;font-size:13px;font-weight:600;font-family:inherit;background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:8px;cursor:pointer;transition:all .2s;}
+        .stab.active{background:var(--accent-subtle);border-color:var(--accent-primary);color:var(--accent-primary);}
+        .strings-list{display:none;max-height:300px;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:12px;padding:8px;}
+        .strings-list.active{display:block;}
+        .str-item{font-size:12px;font-family:'JetBrains Mono',monospace;padding:4px 8px;border-radius:4px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .str-item:hover{background:var(--bg-card);}
+        .str-item.url{color:var(--cyan);}
+        .explorer-container{display:grid;grid-template-columns:280px 1fr;gap:0;border:1px solid var(--border-subtle);border-radius:16px;overflow:hidden;}
+        .explorer-sidebar{background:var(--bg-card);border-right:1px solid var(--border-subtle);overflow:hidden;display:flex;flex-direction:column;}
+        .explorer-controls{padding:12px;border-bottom:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:8px;}
+        .explorer-controls input,.explorer-controls select{width:100%;padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-family:inherit;font-size:13px;outline:none;}
+        .tree-controls{display:flex;gap:6px;}
+        .tree-controls button{flex:1;padding:5px;background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:14px;}
+        .quick-access{border-bottom:1px solid var(--border-subtle);padding:12px;}
+        .quick-access-header{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
+        .quick-access-toggle{cursor:pointer;color:var(--text-muted);}
+        .qa-item{font-size:12px;padding:5px 6px;border-radius:6px;cursor:pointer;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .qa-item:hover{background:var(--bg-elevated);color:var(--text-primary);}
+        .tree-section-header{padding:10px 12px 4px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;}
+        .tree-file-count{font-size:11px;color:var(--text-muted);}
+        .file-tree-container{flex:1;overflow-y:auto;padding:4px 8px 8px;}
+        .tree-dir{font-size:12px;font-weight:600;padding:4px 6px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:5px;border-radius:6px;color:var(--text-secondary);}
+        .tree-dir:hover{background:var(--bg-elevated);}
+        .tree-children{padding-left:14px;}
+        .tree-file{font-size:12px;padding:3px 6px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:6px;color:var(--text-secondary);}
+        .tree-file:hover{background:var(--bg-elevated);color:var(--text-primary);}
+        .file-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .file-size{font-size:10px;color:var(--text-muted);white-space:nowrap;}
+        .explorer-main{background:var(--bg-card);overflow:hidden;display:flex;flex-direction:column;}
+        .explorer-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border-subtle);}
+        .current-file-path{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .viewer-actions{display:flex;gap:6px;}
+        /* Compact Findings UI */
+        .finding-row-compact {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            background: #0d0d18;
+            border: 1px solid var(--border-subtle);
+            border-left: 3px solid transparent;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .finding-row-compact:hover {
+            background: #141425;
+            border-color: var(--border-default);
+        }
+        .finding-row-compact.high { border-left-color: #ef4444; }
+        .finding-row-compact.warning { border-left-color: #f59e0b; }
+        .finding-row-compact.info { border-left-color: #06b6d4; }
+        .finding-row-compact.secure { border-left-color: #10b981; }
+
+        .finding-row-compact .sev-mini {
+            font-size: 9px;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            width: 54px;
+            text-align: center;
+        }
+        .sev-mini.high { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .sev-mini.warning { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .sev-mini.info { background: rgba(6,182,212,0.15); color: #06b6d4; }
+        .sev-mini.secure { background: rgba(16,185,129,0.15); color: #10b981; }
+
+        .finding-title-compact { font-size: 13px; font-weight: 600; color: var(--text-primary); flex: 1; }
+        .finding-meta-compact { display: flex; align-items: center; gap: 8px; }
+        .finding-count-badge { font-size: 10px; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 2px 8px; border-radius: 10px; }
+        .finding-chevron { font-size: 10px; color: var(--text-muted); opacity: 0.5; transition: transform 0.2s; }
+        .finding-row-compact.active .finding-chevron { transform: rotate(180deg); }
+
+        .finding-details-compact {
+            display: none;
+            padding: 20px;
+            background: #090912;
+            border: 1px solid var(--border-subtle);
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+            margin-top: -10px;
+            margin-bottom: 12px;
+            animation: slideDown 0.2s ease-out;
+        }
+        .finding-details-compact.active { display: block; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        .viewer-btn{padding:5px 10px;background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:6px;cursor:pointer;}
+        .file-viewer-container{flex:1;overflow:auto;background:var(--code-bg);}
+        .file-text{font-family:'JetBrains Mono',monospace;font-size:12px;padding:16px;line-height:1.7;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;}
+        .file-hex{font-family:'JetBrains Mono',monospace;font-size:11px;padding:16px;line-height:1.8;color:var(--text-secondary);white-space:pre;}
+        .no-data{padding:32px;text-align:center;color:var(--text-muted);font-size:14px;}
+        .footer{position:relative;z-index:2;border-top:1px solid var(--border-subtle);padding:32px 24px;margin-top:80px;}
+        .footer-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+        .footer-brand{display:flex;align-items:center;gap:12px;}
+        .footer-logo{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text-secondary);font-size:14px;font-weight:600;}
+        .footer-logo:hover{color:var(--text-primary);}
+        .footer-divider{color:var(--border-default);}
+        .footer-github{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);text-decoration:none;}
+        .footer-github:hover{color:var(--text-primary);}
+        .footer-copyright{font-size:13px;color:var(--text-muted);}
+        .footer-copyright a{color:var(--accent-primary);text-decoration:none;}
+        .loading-overlay{position:fixed;inset:0;z-index:1000;background:rgba(3,3,6,.95);display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px;}
+        .loading-overlay.active{display:flex;}
+        .loader{width:48px;height:48px;border:3px solid var(--border-default);border-top-color:var(--accent-primary);border-radius:50%;animation:spin 1s linear infinite;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .loading-text{font-size:18px;font-weight:700;}
+        .loading-subtext{font-size:14px;color:var(--text-secondary);}
+        .progress-bar{width:300px;height:4px;background:var(--bg-elevated);border-radius:2px;overflow:hidden;}
+        .progress-fill{height:100%;background:linear-gradient(90deg,var(--accent-secondary),var(--accent-primary));border-radius:2px;transition:width .3s ease;width:0%;}
+        .toast-container{position:fixed;bottom:24px;right:24px;z-index:2000;display:flex;flex-direction:column;gap:8px;}
+        .toast{display:flex;align-items:center;gap:10px;padding:12px 18px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:toastIn .3s ease;}
+        .toast svg{width:18px;height:18px;flex-shrink:0;}
+        @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+        .manifest-wrap{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;overflow:hidden;}
+        .manifest-bar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);}
+        .manifest-filename{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--accent-primary);}
+        .manifest-filename svg{width:14px;height:14px;opacity:.7;}
+        .manifest-scroll{overflow:auto;max-height:72vh;background:var(--code-bg);}
+
+        .jadx-wrap{display:grid;grid-template-columns:280px 1fr;border:1px solid var(--border-subtle);border-radius:16px;overflow:hidden;height:68vh;}
+        .jadx-left{display:flex;flex-direction:column;background:#090910;border-right:1px solid var(--border-subtle);}
+        .jadx-left-hdr{padding:9px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:6px;}
+        .jadx-left-hdr svg{width:12px;height:12px;opacity:.5;}
+        .jadx-search{padding:8px;border-bottom:1px solid var(--border-subtle);}
+        .jadx-search input{width:100%;padding:6px 10px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-primary);font-family:inherit;font-size:12px;outline:none;transition:border-color .2s;}
+        .jadx-search input:focus{border-color:var(--accent-primary);}
+        .jadx-tree{flex:1;overflow-y:auto;padding:4px 0;}
+        .jadx-pkg{display:flex;align-items:center;gap:5px;padding:3px 10px;color:var(--text-secondary);cursor:pointer;font-weight:600;font-size:12px;list-style:none;white-space:nowrap;border-radius:0;}
+        .jadx-pkg:hover{background:rgba(255,255,255,.04);color:var(--text-primary);}
+        .jadx-children{padding-left:14px;}
+        .jadx-cls{display:flex;align-items:center;gap:5px;padding:2px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .jadx-cls:hover{background:rgba(129,140,248,.1);color:var(--accent-primary);}
+        .jadx-cls.active{background:rgba(129,140,248,.15);color:var(--accent-primary);border-left:2px solid var(--accent-primary);padding-left:8px;}
+        .jadx-right{display:flex;flex-direction:column;background:var(--code-bg);}
+        .jadx-file-hdr{display:flex;align-items:center;gap:10px;padding:8px 16px;background:#0d0d18;border-bottom:1px solid var(--border-subtle);min-height:36px;}
+        .jadx-file-name{font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--accent-primary);font-weight:700;}
+        .jadx-file-path{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;}
+        .jadx-file-meta{font-size:11px;color:var(--text-muted);white-space:nowrap;}
+        .jadx-view-toggle{display:flex;gap:2px;background:var(--bg-card,#16162a);border:1px solid var(--border-default,#2a2a40);border-radius:6px;padding:2px;}
+        .jadx-toggle-btn{padding:3px 10px;font-size:11px;font-weight:700;font-family:inherit;background:none;border:none;color:var(--text-muted,#888);border-radius:4px;cursor:pointer;transition:all .2s;}
+        .jadx-toggle-btn.active{background:rgba(129,140,248,.15);color:var(--accent-primary,#818cf8);}
+        .jadx-toggle-btn:hover:not(.active){color:#ccc;background:rgba(255,255,255,.05);}
+        .method-jump-select{font-size:11px;font-family:'JetBrains Mono',monospace;background:#0d0d18;color:var(--text-muted);border:1px solid var(--border-default,#2a2a40);border-radius:4px;padding:2px 6px;max-width:180px;}
+        .jadx-code{flex:1;overflow:auto;padding:4px 0;}
+        .jadx-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:14px;}
+
+        .code-search-nav{display:flex;align-items:center;gap:4px;margin-top:4px;}
+        .code-search-count{font-size:11px;color:var(--text-muted);white-space:nowrap;flex:1;}
+        .code-search-nav button{background:none;border:1px solid var(--border-default);color:var(--text-secondary);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;font-family:inherit;white-space:nowrap;}
+        .code-search-nav button:hover{background:rgba(255,255,255,.06);color:var(--text-primary);}
+        .search-hl{background:rgba(255,213,79,.35);border-radius:2px;}
+        .search-hl-current{background:rgba(255,152,0,.7);border-radius:2px;outline:1px solid #ff9800;}
+
+        .cwl{display:table;width:100%;border-collapse:collapse;}
+        .cl{display:table-row;}
+        .cl:hover{background:rgba(255,255,255,.018);}
+        .ln{display:table-cell;padding:0 12px 0 8px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.85;color:rgba(255,255,255,.18);user-select:none;white-space:nowrap;min-width:42px;border-right:1px solid rgba(255,255,255,.05);}
+        .lc{display:table-cell;padding:0 24px 0 16px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.85;white-space:pre;}
+
+        .sk{color:#818cf8;}
+        .sm{color:#22d3ee;}
+        .st{color:#34d399;}
+        .ss{color:#fbbf24;}
+        .sr{color:#fb923c;}
+        .sn{color:#f472b6;}
+        .sc{color:#3f3f55;font-style:italic;}
+        .sl{color:#a78bfa;}
+
+        .xt{color:#818cf8;font-weight:600;}
+        .xa{color:#22d3ee;}
+        .xn{color:#a78bfa;}
+        .xv{color:#fbbf24;}
+        .xp{color:#52525b;}
+        .xc{color:#3f3f55;font-style:italic;}
+        @media(max-width:768px){
+            .jadx-wrap,.explorer-container{grid-template-columns:1fr;}
+            .jadx-left,.explorer-sidebar{height:260px;}
+            .info-grid{grid-template-columns:1fr;}
+            .hero-stats{gap:20px;}
+        }
+
+        /* Findings Summary Styles */
+        .findings-vertical { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+        .finding-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); transition: all 0.2s; }
+        .finding-row:hover { transform: translateX(4px); border-color: var(--accent-primary); }
+        .finding-row .count { font-size: 22px; font-weight: 800; min-width: 35px; }
+        .finding-row .label { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+        .finding-row.high { background: rgba(251, 113, 133, 0.08); border-color: rgba(251, 113, 133, 0.2); }
+        .finding-row.high .count { color: #fb7185; }
+        .finding-row.warning { background: rgba(251, 146, 60, 0.08); border-color: rgba(251, 146, 60, 0.2); }
+        .finding-row.warning .count { color: #fb923c; }
+        .finding-row.info { background: rgba(34, 211, 238, 0.08); border-color: rgba(34, 211, 238, 0.2); }
+        .finding-row.info .count { color: #22d3ee; }
+
+        /* Scan Results Styles */
+        .scan-item { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 12px; padding: 12px; transition: all 0.2s; cursor: pointer; }
+        .scan-item:hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
+        .scan-file { font-size: 13px; font-weight: 700; color: var(--accent-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+        .scan-matches { display: flex; flex-direction: column; gap: 6px; }
+        .scan-match { font-family: 'JetBrains Mono', monospace; font-size: 11px; background: var(--code-bg); padding: 8px; border-radius: 4px; border-left: 3px solid var(--accent-secondary); white-space: pre-wrap; word-break: break-all; color: var(--text-secondary); }
+        .scan-match b { color: var(--text-primary); background: rgba(129, 140, 248, 0.3); border-radius: 2px; padding: 0 2px; }
+    </style>
+</head>
+<body>
+    <div class="particle-field" id="particleField"></div>
+    <div class="gradient-orbs"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div>
+    <div class="grid-pattern"></div>
+
+    <header class="header">
+        <div class="header-inner">
+            <a href="#" class="logo" onclick="location.reload()">
+                <div class="logo-icon">
+                    <svg fill="none" stroke="url(#lg1)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/><defs><linearGradient id="lg1" x1="0" y1="0" x2="24" y2="24"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+                </div>
+                <div class="logo-text">APK <span>Auditor</span></div>
+            </a>
+            <nav class="nav-links">
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div id="landingContent">
+            <section class="hero">
+                <div class="hero-badge">Android Security Scanner · Regex-Based Scans · 100% In-Browser</div>
+                <h1 class="hero-title">Analyze Any <span class="gradient">Android APK</span><br>In Seconds</h1>
+                <p class="hero-subtitle">Drop an APK to decompile DEX, perform regex-based security scans, parse manifests and certs. Nothing leaves your browser.</p>
+                <div class="hero-actions">
+                    <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Upload APK
+                    </button>
+                    <button class="btn btn-ghost" onclick="openRemoteModal()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Fetch Package ID
+                    </button>
+                </div>
+                <div class="hero-stats">
+                    <div class="hero-stat"><div class="hero-stat-value" style="color:var(--accent-primary)">280+</div><div class="hero-stat-label">Security Rules</div></div>
+                    <div class="hero-stat"><div class="hero-stat-value" style="color:var(--cyan)">DEX</div><div class="hero-stat-label">Decompiler</div></div>
+                    <div class="hero-stat"><div class="hero-stat-value" style="color:var(--green)">0</div><div class="hero-stat-label">Server Uploads</div></div>
+                    <div class="hero-stat"><div class="hero-stat-value" style="color:var(--orange)">OWASP</div><div class="hero-stat-label">MASVS Aligned</div></div>
+                </div>
+            </section>
+
+            <div class="dropzone" id="dropZone" style="position:relative;z-index:2;max-width:700px;margin:0 auto 60px">
+                <input type="file" id="fileInput" accept=".apk" style="display:none">
+                <div class="dropzone-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><polyline points="7 10 12 5 17 10"/><line x1="12" y1="5" x2="12" y2="15"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg></div>
+                <div class="dropzone-title">Drop your APK here</div>
+                <div class="dropzone-sub">Or click to browse. Your file never leaves your device.</div>
+                <div class="dropzone-formats">
+                    <span class="fmt-badge">AndroidManifest.xml</span>
+                    <span class="fmt-badge">DEX Decompiler</span>
+                    <span class="fmt-badge">Certificate Analysis</span>
+                    <span class="fmt-badge">280+ Regex Security Rules</span>
+                </div>
+            </div>
+
+            <section class="features-section">
+                <h2 class="section-title">Everything you need to <span>audit Android apps</span></h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
+                        <div class="feature-title">In-Browser DEX Decompiler</div>
+                        <div class="feature-desc">DEX bytecode to Java pseudocode and Smali. Class trees, method signatures, strings.</div>
+                    </div>
+
+            <!-- Remote Package Modal -->
+            <div id="remoteModal" class="modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.8);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
+                <div class="modal-content" style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:24px;padding:32px;max-width:480px;width:100%;margin:20px;box-shadow:0 24px 48px rgba(0,0,0,0.5);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+                        <h2 style="font-size:20px;font-weight:700;">Remote Package Analysis</h2>
+                        <button onclick="closeRemoteModal()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                    </div>
+                    <p style="font-size:14px;color:var(--text-secondary);margin-bottom:20px;">Enter an Android Package ID (e.g., com.discord) to fetch it from public repositories and perform security analysis.</p>
+                    
+                    <div style="margin-bottom:20px;">
+                        <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;">Package ID</label>
+                        <input type="text" id="remotePkgId" placeholder="com.example.app" style="width:100%;padding:12px 16px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:12px;color:var(--text-primary);font-family:inherit;font-size:14px;">
+                    </div>
+
+                    <div style="margin-bottom:24px;display:flex;align-items:center;gap:12px;padding:12px;background:rgba(129,140,248,0.05);border-radius:12px;border:1px solid rgba(129,140,248,0.1);">
+                        <input type="checkbox" id="remoteMitm" style="width:18px;height:18px;cursor:pointer;">
+                        <div>
+                            <label for="remoteMitm" style="display:block;font-size:14px;font-weight:600;cursor:pointer;">Apply MITM Patch</label>
+                            <span style="font-size:11px;color:var(--text-muted);">Inject Network Security Config for easier proxying</span>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:14px;" onclick="startRemoteAnalysis()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                        Start Remote Analysis
+                    </button>
+                </div>
+            </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+                        <div class="feature-title">280+ Regex-Based Android Security Rules</div>
+                        <div class="feature-desc">Regex-based static analysis for hardcoded keys, secrets, weak crypto, HTTP endpoints, exported components, and more.</div>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                        <div class="feature-title">Binary Manifest Parser</div>
+                        <div class="feature-desc">Parses binary AXML. Exported components, permissions, SDK versions, backup flags, deep links.</div>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg></div>
+                        <div class="feature-title">Certificate Analysis</div>
+                        <div class="feature-desc">Signing cert analysis. Debug keys, expired certs, weak algorithms.</div>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+                        <div class="feature-title">38+ Tracker & SDK Detection</div>
+                        <div class="feature-desc">Detects ad SDKs, analytics, crash reporters, payment libs from DEX strings.</div>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
+                        <div class="feature-title">Full File Explorer</div>
+                        <div class="feature-desc">Browse APK contents. XML, JSON, images, databases, .so files with syntax highlighting or hex view.</div>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
+                        <div class="feature-title">OWASP MASVS Aligned</div>
+                        <div class="feature-desc">Findings tagged with CWE, OWASP Mobile Top 10, MASVS. PDF export for reports.</div>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+                        <div class="feature-title">Component Inspector</div>
+                        <div class="feature-desc">Exported activities, services, receivers, providers. ADB commands to test each one.</div>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+                        <div class="feature-title">Multi-DEX Support</div>
+                        <div class="feature-desc">Handles multi-dex APKs. All DEX files parsed and scanned.</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <section class="privacy-section">
+            <div class="privacy-card">
+                <div class="privacy-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+                <h3 class="privacy-title">Your APKs Never Leave Your Device</h3>
+                <p class="privacy-desc">All analysis runs in your browser. No files uploaded to any server. Your APKs stay private.</p>
+                <div class="privacy-badges">
+                    <div class="privacy-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Client-Side Only</div>
+                    <div class="privacy-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>No Server Upload</div>
+                    <div class="privacy-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Open Source</div>
+                    <div class="privacy-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Offline Capable</div>
+                </div>
+            </div>
+        </section>
+
+
+
+        <div class="app-container" id="appContainer">
+            <div class="app-header">
+                <div class="app-title">
+                    <div class="app-icon" id="appIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div><h2 id="appName">App Name</h2><p id="appPackage">com.example.app</p></div>
+                </div>
+                <div class="app-actions">
+                    <button class="btn btn-ghost" onclick="exportReport()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Export Report
+                    </button>
+                    <button class="btn btn-primary" onclick="location.reload()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        New Scan
+                    </button>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" data-tab="overview">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                    Overview
+                </button>
+                <button class="tab" data-tab="findings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Findings<span class="tab-badge" id="findingsCount">0</span>
+                </button>
+                <button class="tab" data-tab="explorer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    Code & Explorer
+                </button>
+
+                <button class="tab" data-tab="inspector">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    Components
+                </button>
+                <button class="tab" data-tab="manifest">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    Manifest
+                </button>
+            </div>
+
+
+            <div class="panel active" id="panel-overview">
+                <div class="info-grid">
+                </div>
+                <div class="results-section">
+                    <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Application Information</div>
+                    <div id="appInfoGrid" style="padding:16px"></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                    <div class="results-section">
+                        <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Permissions</div>
+                        <div id="permissionsList" style="max-height:320px;overflow-y:auto"></div>
+                    </div>
+                    <div class="results-section">
+                        <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Components</div>
+                        <div id="componentsList" style="max-height:320px;overflow-y:auto"></div>
+                    </div>
+                </div>
+                <div class="results-section">
+                    <div class="results-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>Trackers &amp; SDKs</div>
+                    <div id="trackersList" style="padding:8px 0;display:flex;flex-wrap:wrap;gap:4px;padding:12px"></div>
+                </div>
+            </div>
+
+
+            <div class="panel" id="panel-findings">
+                <div class="results-section">
+                    <div class="results-header" style="display:flex;justify-content:space-between;align-items:center">
+                        <div style="display:flex;align-items:center;gap:12px">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            Security Findings
+                        </div>
+                        <input type="text" id="findingsSearchInput" placeholder="Filter findings..." oninput="filterFindings(this.value)" style="padding:6px 12px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-primary);font-size:12px;outline:none;width:250px">
+                    </div>
+                    <div id="findingsList" style="padding:16px"></div>
+                </div>
+            </div>
+
+
+            <div class="panel" id="panel-explorer">
+                <div class="explorer-container" style="height:calc(100vh - 180px)">
+
+                    <div class="explorer-sidebar" style="display:flex;flex-direction:column;overflow:hidden">
+                        <div class="explorer-view-tabs" style="padding:6px;display:flex;gap:3px;border-bottom:1px solid var(--border-subtle,#333);flex-shrink:0">
+                            <button class="stab active" onclick="switchExplorerView('apk',this)">APK</button>
+                            <button class="stab" onclick="switchExplorerView('java',this)">Java</button>
+                            <button class="stab" onclick="switchExplorerView('smali',this)">Smali</button>
+                        </div>
+                        <div class="explorer-controls" style="flex-shrink:0">
+                        <div class="jadx-search" style="display:flex;gap:4px;align-items:center">
+                            <input type="text" id="fileSearchInput" placeholder="Search code, classes, files..." oninput="searchFiles(this.value)">
+                            <button id="regexToggle" onclick="toggleRegexSearch()" title="Regex Search" style="padding:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:10px;font-weight:700;transition:all .2s">REG</button>
+                            <select id="searchPresets" onchange="applySearchPreset(this.value)" style="padding:6px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:6px;color:var(--text-secondary);font-size:10px;outline:none;cursor:pointer">
+                                <option value="">Presets</option>
+                                <optgroup label="Critical Findings">
+                                    <option value="private_key">Private Keys (RSA/EC/PGP)</option>
+                                    <option value="aws_key">AWS Access Key</option>
+                                    <option value="google_api">Google API Key</option>
+                                    <option value="firebase">Firebase Database</option>
+                                    <option value="stripe_key">Stripe API Key</option>
+                                    <option value="mailgun_key">Mailgun API Key</option>
+                                    <option value="generic_secret">Generic Secrets</option>
+                                </optgroup>
+                                <optgroup label="Sensitive Tokens">
+                                    <option value="jwt">JWT Token</option>
+                                    <option value="oauth_token">OAuth Access Token</option>
+                                    <option value="github_token">GitHub Personal Token</option>
+                                    <option value="auth_header">Authorization Headers</option>
+                                    <option value="bearer_token">Bearer Tokens</option>
+                                </optgroup>
+                                <optgroup label="Infrastructure">
+                                    <option value="s3_bucket">S3 Buckets</option>
+                                    <option value="ip_address">IP Addresses</option>
+                                    <option value="jdbc">JDBC Connection Strings</option>
+                                    <option value="heroku_key">Heroku API Key</option>
+                                    <option value="digitalocean">DigitalOcean Token</option>
+                                </optgroup>
+                                <optgroup label="Messaging & Social">
+                                    <option value="slack_webhook">Slack Webhook</option>
+                                    <option value="discord_token">Discord Bot Token</option>
+                                    <option value="facebook_token">Facebook Access Token</option>
+                                    <option value="twitter_token">Twitter Bearer Token</option>
+                                </optgroup>
+                            </select>
+
+                        </div>
+                            <div class="code-search-nav" id="codeSearchNavBar" style="display:none">
+                                <span class="code-search-count" id="codeSearchCount"></span>
+                                <button onclick="codeSearchNav(-1)" title="Previous">&#9650; Prev</button>
+                                <button onclick="codeSearchNav(1)" title="Next">&#9660; Next</button>
+                            </div>
+                            <select id="fileTypeFilter" onchange="filterFileTree(this.value)" style="display:none">
+                                <option value="">All Files</option>
+                                <option value="xml">XML</option><option value="json">JSON</option>
+                                <option value="dex">DEX</option><option value="so">.so</option>
+                                <option value="db,sqlite,sqlite3">DB</option><option value="png,jpg,jpeg,gif,webp">Images</option>
+                            </select>
+                            <div class="tree-controls">
+                                <button onclick="expandAllFolders()" title="Expand All">+</button>
+                                <button onclick="collapseAllFolders()" title="Collapse All">-</button>
+                            </div>
+                        </div>
+
+                        <div id="smaliInfo" style="display:none"></div>
+                        <div class="jadx-search" id="classSearchWrap" style="display:none;flex-shrink:0">
+                            <input type="text" id="smaliSearchInput" placeholder="Search classes..." oninput="filterSmaliTree(this.value)">
+                        </div>
+                        <div class="jadx-tree" id="smaliTree" style="display:none;flex:1;overflow-y:auto"></div>
+
+                        <div class="tree-section-header" id="fileTreeHeader">
+                            <span>Files</span>
+                            <span class="tree-file-count" id="totalFileCount"></span>
+                        </div>
+                        <div class="file-tree-container" id="fileTree" style="flex:1;overflow-y:auto"></div>
+                        <div class="file-tree-container" id="javaSourceTree" style="display:none;flex:1;overflow-y:auto"></div>
+                        <div class="file-tree-container" id="smaliSourceTree" style="display:none;flex:1;overflow-y:auto"></div>
+                    </div>
+
+                    <div class="explorer-main" style="display:flex;flex-direction:column;overflow:hidden">
+                        <div class="jadx-file-hdr" style="flex-shrink:0">
+                            <span class="jadx-file-name" id="jadxFileName">—</span>
+                            <div class="jadx-view-toggle" id="jadxViewToggle" style="display:none">
+                                <button class="jadx-toggle-btn active" data-view="java" onclick="switchCodeView('java')">Java</button>
+                                <button class="jadx-toggle-btn" data-view="smali" onclick="switchCodeView('smali')">Smali</button>
+                            </div>
+                            <select id="methodJump" class="method-jump-select" style="display:none" onchange="jumpToMethod(this.value)">
+                                <option value="">Jump to method...</option>
+                            </select>
+                            <span class="jadx-file-path" id="jadxFilePath"></span>
+                            <span class="jadx-file-meta" id="jadxFileMeta"></span>
+                            <span class="current-file-path" id="currentFilePath" style="display:none"></span>
+                            <button class="viewer-btn" onclick="downloadCurrentFile()" title="Download file" style="margin-left:auto">Save</button>
+                        </div>
+                        <div class="jadx-code" id="jadxCode" style="flex:1;overflow:auto">
+                            <div id="fileViewer"><div class="jadx-empty">Select a file or class from the sidebar</div></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="smaliStrings" style="display:none"></div>
+            </div>
+
+
+            <div class="panel" id="panel-inspector">
+                <div class="results-section" style="margin-bottom:16px">
+                    <div class="results-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        Exported Components &amp; Attack Surface
+                    </div>
+                    <div id="inspectorSummary" style="padding:12px"></div>
+                </div>
+                <div class="filter-bar" style="margin-bottom:12px">
+                    <button class="filter-btn active" onclick="filterInspector('all',this)">All</button>
+                    <button class="filter-btn" onclick="filterInspector('activity',this)">Activities</button>
+                    <button class="filter-btn" onclick="filterInspector('service',this)">Services</button>
+                    <button class="filter-btn" onclick="filterInspector('receiver',this)">Receivers</button>
+                    <button class="filter-btn" onclick="filterInspector('provider',this)">Providers</button>
+                </div>
+                <div id="inspectorList" style="padding:0 16px 16px"></div>
+            </div>
+
+
+            <div class="panel" id="panel-manifest">
+                <div class="manifest-wrap">
+                    <div class="manifest-bar">
+                        <span class="manifest-filename">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            AndroidManifest.xml
+                        </span>
+                        <div style="display:flex;gap:8px">
+                            <button class="viewer-btn" onclick="copyManifest()" title="Copy XML">Copy</button>
+                            <button class="viewer-btn" onclick="downloadManifestFile()" title="Download">Save</button>
+                        </div>
+                    </div>
+                    <div class="manifest-scroll">
+                        <div id="manifestViewer" style="padding:8px 0"><div style="padding:32px;text-align:center;color:var(--text-muted)">Load an APK to view the manifest</div></div>
+                    </div>
+                </div>
+            </div>
+
+
+
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <a href="#" class="footer-logo" onclick="location.reload()">
+                    <svg fill="none" stroke="url(#fl)" viewBox="0 0 24 24" width="22" height="22"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/><defs><linearGradient id="fl" x1="0" y1="0" x2="24" y2="24"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+                    APK Auditor
+                </a>
+            </div>
+            <div class="footer-copyright">© 2026 APK Auditor</div>
+        </div>
+    </footer>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loader"></div>
+        <div class="loading-text" id="loadingText">Analyzing APK...</div>
+        <div class="loading-subtext" id="progressText">Extracting files...</div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="apk-analyzer.js"></script>
+    <script>
+
+        function filterFindings(q){
+            q = q.toLowerCase();
+            const containers = document.querySelectorAll('.finding-container-compact');
+            containers.forEach(cont => {
+                const text = cont.textContent.toLowerCase();
+                cont.style.display = text.includes(q) ? '' : 'none';
+            });
+        }
+
+        (function(){
+            const f=document.getElementById('particleField');
+            for(let i=0;i<50;i++){
+                const p=document.createElement('div');p.className='particle';
+                p.style.left=Math.random()*100+'%';
+                p.style.animationDelay=Math.random()*15+'s';
+                p.style.animationDuration=(12+Math.random()*8)+'s';
+                const c=['#818cf8','#22d3ee','#34d399','#fb923c'];
+                p.style.background=c[Math.floor(Math.random()*c.length)];
+                f.appendChild(p);
+            }
+        })();
+
+
+        const dz=document.getElementById('dropZone'),fi=document.getElementById('fileInput');
+        dz.addEventListener('click',()=>fi.click());
+        dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over');});
+        dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+        dz.addEventListener('drop',async e=>{
+            e.preventDefault();dz.classList.remove('drag-over');
+            const file=e.dataTransfer.files[0];
+            if(file&&file.name.toLowerCase().endsWith('.apk'))await startAnalysis(file);
+            else showToast('Please drop a valid .apk file','error');
+        });
+        fi.addEventListener('change',async e=>{if(e.target.files[0])await startAnalysis(e.target.files[0]);});
+
+
+        document.querySelectorAll('.tab').forEach(t=>{
+            t.addEventListener('click',()=>{
+                document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+                t.classList.add('active');
+                document.getElementById('panel-'+t.dataset.tab).classList.add('active');
+            });
+        });
+
+
+
+        const SEARCH_PRESETS = {
+            private_key: { name: 'Private Keys', regex: '-----BEGIN .* PRIVATE KEY-----' },
+            aws_key: { name: 'AWS Access Key', regex: '(AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}' },
+            google_api: { name: 'Google API Key', regex: 'AIza[0-9A-Za-z-_]{35}' },
+            firebase: { name: 'Firebase Database', regex: '[a-z0-9.-]+\\.firebaseio\\.com' },
+            stripe_key: { name: 'Stripe API Key', regex: '(sk|pk)_(test|live)_[0-9a-zA-Z]{24,99}' },
+            mailgun_key: { name: 'Mailgun API Key', regex: 'key-[0-9a-zA-Z]{32}' },
+            generic_secret: { name: 'Generic Secrets', regex: '(?i)(secret|key|password|token|auth).*[\'|"][0-9a-zA-Z]{16,45}[\'|"]' },
+            
+            jwt: { name: 'JWT Token', regex: 'eyJ[a-zA-Z0-9-]{10,}\\.eyJ[a-zA-Z0-9-]{10,}\\.[a-zA-Z0-9-]{10,}' },
+            oauth_token: { name: 'OAuth Token', regex: 'ya29\\.[0-9A-Za-z\\-_]+' },
+            github_token: { name: 'GitHub Token', regex: '(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,255}' },
+            auth_header: { name: 'Auth Headers', regex: '(basic|bearer)\\s[a-zA-Z0-9_\\-:\\.=]+' },
+            bearer_token: { name: 'Bearer Token', regex: 'bearer\\s[a-zA-Z0-9_\\-:\\.=]+' },
+
+            s3_bucket: { name: 'S3 Buckets', regex: 's3[_-]?bucket(=|=|:|:)|[a-z0-9.-]+\\.s3-[a-z0-9-]+\\.amazonaws\\.com' },
+            ip_address: { name: 'IP Addresses', regex: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b' },
+            jdbc: { name: 'JDBC Strings', regex: 'jdbc:[a-z:]+://[A-Za-z0-9\\.\\-_:;=/@?,&]+' },
+            heroku_key: { name: 'Heroku Key', regex: '[hH][eE][rR][oO][kK][uU].*[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' },
+            digitalocean: { name: 'DigitalOcean', regex: '[a-zA-Z0-9_-]{64}' },
+
+            slack_webhook: { name: 'Slack Webhook', regex: 'https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}' },
+            discord_token: { name: 'Discord Bot', regex: '[a-zA-Z0-9_-]{24}\\.[a-zA-Z0-9_-]{6}\\.[a-zA-Z0-9_-]{27}' },
+            facebook_token: { name: 'Facebook Token', regex: 'EAACEdEose0cBA[0-9A-Za-z]+' },
+            twitter_token: { name: 'Twitter Token', regex: '[tT][wW][iI][tT][tT][eE][rR].*[0-9A-Za-z\\-_]{35,}' }
+        };
+
+        function applySearchPreset(val){
+            if(!val) return;
+            const p = SEARCH_PRESETS[val];
+            if(p){
+                if(!state.regexSearch) toggleRegexSearch();
+                const input = document.getElementById('fileSearchInput');
+                input.value = p.regex;
+                searchFiles(p.regex);
+            }
+            document.getElementById('searchPresets').value = '';
+        }
+
+        function toggleRegexSearch(){
+            state.regexSearch=!state.regexSearch;
+            const btn=document.getElementById('regexToggle');
+            if(state.regexSearch){
+                btn.style.color='var(--accent-primary)';
+                btn.style.borderColor='var(--accent-primary)';
+                btn.style.background='var(--accent-subtle)';
+            }else{
+                btn.style.color='var(--text-muted)';
+                btn.style.borderColor='var(--border-default)';
+                btn.style.background='var(--bg-card)';
+            }
+            const q=document.getElementById('fileSearchInput').value;
+            if(q) searchFiles(q);
+        }
+
+        function getSearchRegex(q, flags='gi'){
+            try {
+                if(state.regexSearch) return new RegExp(q, flags);
+                return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+            } catch(e) {
+                return null;
+            }
+        }
+
+        function searchFiles(q){
+            if(!q || q.length < 2){
+                document.querySelectorAll('.tree-file').forEach(f=>f.style.display='');
+                document.querySelectorAll('#fileTree details').forEach(d=>d.open=false);
+                if(state.explorerView==='java'||state.explorerView==='smali'){
+                    const el=document.getElementById('smaliTree');
+                    if(el)renderSmaliTree(el,state.smaliTree);
+                }
+                clearCodeHighlights();
+                const nav=document.getElementById('codeSearchNavBar');
+                if(nav)nav.style.display='none';
+                _activeSearchQuery='';
+                return;
+            }
+
+            applyCodeSearch(q);
+            if(state.explorerView==='java'||state.explorerView==='smali'){
+                searchCode(q);
+            } else {
+                searchAPKFiles(q);
+            }
+        }
+        function searchAPKFiles(q){
+            const re=getSearchRegex(q);
+            if(!re) return;
+            document.querySelectorAll('#fileTree details').forEach(d=>d.open=true);
+            document.querySelectorAll('.tree-file').forEach(f=>{
+                const n=f.querySelector('.file-name')?.textContent||'';
+                f.style.display=re.test(n)?'':'none';
+            });
+        }
+        function searchCode(q){
+            const re=getSearchRegex(q);
+            if(!re) return;
+            const results=[];
+            for(let di=0;di<state.dexParsed.length;di++){
+                const dex=state.dexParsed[di];
+                for(const cls of (dex.classes||[])){
+                    const fqn=(cls.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.');
+                    if(re.test(fqn)){results.push({fqn,cls,di,reason:'class name'});continue;}
+                    if(state.javaCache.has(fqn)){
+                        const code=state.javaCache.get(fqn);
+                        if(re.test(code)){results.push({fqn,cls,di,reason:'code match'});}
+                    }
+                }
+            }
+            for(const [path,content] of state.fileContents){
+                if(typeof content==='string'&&re.test(content)){
+                    results.push({fqn:path,file:true,reason:'file content'});
+                }
+            }
+            const el=document.getElementById('smaliTree');
+            if(!el)return;
+            el.innerHTML='';
+            if(!results.length){el.innerHTML='<div style="padding:12px;color:var(--text-muted);font-size:12px">No results for "'+esc(q)+'"</div>';return;}
+            el.innerHTML='<div style="padding:4px 12px;color:var(--text-muted);font-size:11px">'+results.length+' results</div>';
+            results.slice(0,300).forEach(r=>{
+                const btn=document.createElement('div');
+                btn.className='jadx-cls';
+                if(r.file){
+                    btn.innerHTML='<span style="color:var(--orange);font-size:9px">&#9671;</span><span style="font-size:11px">'+esc(r.fqn)+'</span>';
+                    btn.onclick=()=>{openFile(r.fqn);setTimeout(()=>applyCodeSearch(q),200);};
+                }else{
+                    btn.innerHTML='<span style="color:var(--accent-primary);font-size:9px">&#9670;</span><span style="font-size:11px">'+esc(r.fqn.split('.').pop())+'</span><span style="font-size:9px;color:var(--text-muted);margin-left:4px">'+esc(r.reason)+'</span>';
+                    btn.onclick=()=>{showSmaliClass(r.cls,r.fqn,r.di);setTimeout(()=>applyCodeSearch(q),200);};
+                }
+                el.appendChild(btn);
+            });
+        }
+
+
+        let _codeSearchMatches=[];
+        let _codeSearchIdx=-1;
+        let _activeSearchQuery='';
+
+        function clearCodeHighlights(){
+            document.querySelectorAll('#jadxCode .search-hl, #jadxCode .search-hl-current').forEach(el=>{
+                const parent=el.parentNode;
+                parent.replaceChild(document.createTextNode(el.textContent),el);
+                parent.normalize();
+            });
+            _codeSearchMatches=[];
+            _codeSearchIdx=-1;
+        }
+        function applyCodeSearch(q){
+            clearCodeHighlights();
+            _activeSearchQuery=q||'';
+            const nav=document.getElementById('codeSearchNavBar');
+            const countEl=document.getElementById('codeSearchCount');
+            if(!q||q.length<1){
+                if(nav)nav.style.display='none';
+                countEl.textContent='';
+                return;
+            }
+            const codeEl=document.getElementById('jadxCode');
+            const cells=codeEl.querySelectorAll('.lc');
+            if(!cells.length){
+                const container=codeEl.querySelector('#fileViewer pre')||codeEl.querySelector('pre');
+                if(container) highlightInNode(container,q);
+                else highlightInNode(codeEl,q);
+            } else {
+                cells.forEach(cell=>highlightInNode(cell,q));
+            }
+            _codeSearchMatches=Array.from(codeEl.querySelectorAll('.search-hl'));
+            if(_codeSearchMatches.length>0){
+                if(nav)nav.style.display='flex';
+                codeSearchNav(1);
+            } else {
+                if(nav)nav.style.display='flex';
+                countEl.textContent='No matches in this file';
+            }
+        }
+        function highlightInNode(node,q){
+            const re=getSearchRegex(q);
+            if(!re) return;
+            const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT,null);
+            const textNodes=[];
+            while(walker.nextNode()) textNodes.push(walker.currentNode);
+            for(const tn of textNodes){
+                const text=tn.textContent;
+                re.lastIndex = 0; // Reset for each node
+                let match;
+                const frag=document.createDocumentFragment();
+                let last=0;
+                let found=false;
+                while((match=re.exec(text))!==null){
+                    if(match.index>last) frag.appendChild(document.createTextNode(text.slice(last,match.index)));
+                    const span=document.createElement('span');
+                    span.className='search-hl';
+                    span.textContent=match[0];
+                    frag.appendChild(span);
+                    last=match.index+match[0].length;
+                    found=true;
+                    if(re.lastIndex===match.index) re.lastIndex++; // Avoid infinite loops on zero-width matches
+                }
+                if(found){
+                    if(last<text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+                    tn.parentNode.replaceChild(frag,tn);
+                }
+            }
+        }
+        function runBulkRegexScan(){
+            const query = document.getElementById('fileSearchInput').value;
+            const resultsContainer = document.getElementById('bulkScanResults');
+            const statusEl = document.getElementById('scanStatus');
+            const tabBtn = document.getElementById('tab-scan-btn');
+
+            resultsContainer.innerHTML = '<div class="empty-state"><div class="loader" style="margin: 20px auto"></div>Scanning all files...</div>';
+            statusEl.textContent = 'Scanning...';
+            if(tabBtn) tabBtn.click();
+
+            setTimeout(() => {
+                const finalResults = [];
+                const scanTasks = [];
+
+                if(query && query.length >= 2){
+                    scanTasks.push({ id: 'custom', name: 'Search: ' + query, regex: query });
+                } else {
+                    // No query, scan ALL presets
+                    Object.keys(SEARCH_PRESETS).forEach(key => {
+                        scanTasks.push({ id: key, ...SEARCH_PRESETS[key] });
+                    });
+                }
+
+                scanTasks.forEach(task => {
+                    let re;
+                    try {
+                        re = new RegExp(task.regex, 'gi');
+                    } catch(e) {
+                        console.warn('Invalid regex in preset:', task.id, task.regex, e);
+                        return;
+                    }
+                    const taskResults = [];
+
+                    // Scan DEX/Java classes
+                    for(let di=0; di<state.dexParsed.length; di++){
+                        const dex = state.dexParsed[di];
+                        for(const cls of (dex.classes||[])){
+                            const fqn = (cls.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.');
+                            if(state.javaCache.has(fqn)){
+                                const code = state.javaCache.get(fqn);
+                                const matches = findMatchesWithContext(code, re);
+                                if(matches.length > 0){
+                                    taskResults.push({ path: fqn, type: 'java', matches });
+                                }
+                            }
+                        }
+                    }
+
+                    // Scan other files
+                    for(const [path, content] of state.fileContents){
+                        if(typeof content === 'string'){
+                            const matches = findMatchesWithContext(content, re);
+                            if(matches.length > 0){
+                                taskResults.push({ path: path, type: 'file', matches });
+                            }
+                        }
+                    }
+
+                    if(taskResults.length > 0){
+                        finalResults.push({ task, results: taskResults });
+                    }
+                });
+
+                renderBulkResultsGrouped(finalResults);
+            }, 50);
+        }
+
+        function findMatchesWithContext(text, re){
+            re.lastIndex = 0;
+            const matches = [];
+            const lines = text.split('\n');
+            
+            for(let i=0; i<lines.length; i++){
+                const line = lines[i];
+                re.lastIndex = 0;
+                let match;
+                if((match = re.exec(line)) !== null){
+                    matches.push({
+                        line: i + 1,
+                        content: line,
+                        matchText: match[0]
+                    });
+                }
+            }
+            return matches;
+        }
+
+        function renderBulkResultsGrouped(groups){
+            const resultsContainer = document.getElementById('bulkScanResults');
+            const statusEl = document.getElementById('scanStatus');
+            
+            if(groups.length === 0){
+                resultsContainer.innerHTML = '<div class="empty-state">No matches found in any file.</div>';
+                statusEl.textContent = '0 results';
+                return;
+            }
+
+            let totalFiles = 0;
+            groups.forEach(g => totalFiles += g.results.length);
+            statusEl.textContent = groups.length + ' patterns found in ' + totalFiles + ' files';
+            resultsContainer.innerHTML = '';
+            
+            groups.forEach(group => {
+                const groupEl = document.createElement('div');
+                groupEl.style.marginBottom = '32px';
+                groupEl.innerHTML = `
+                    <div style="font-size:14px;font-weight:700;color:var(--orange);margin-bottom:16px;display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border-default)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        ${esc(group.task.name)}
+                        <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${group.results.length} files)</span>
+                    </div>
+                `;
+
+                group.results.forEach(res => {
+                    const item = document.createElement('div');
+                    item.className = 'scan-item';
+                    item.onclick = () => {
+                        if(res.type === 'java'){
+                            for(let di=0; di<state.dexParsed.length; di++){
+                                const dex = state.dexParsed[di];
+                                const cls = dex.classes.find(c => (c.name||'').replace(/^L/,'').replace(/;$/,'').replace(/\//g,'.') === res.path);
+                                if(cls){
+                                    switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
+                                    showSmaliClass(cls, res.path, di);
+                                    setTimeout(() => applyCodeSearch(group.task.regex), 300);
+                                    return;
+                                }
+                            }
+                        } else {
+                            switchExplorerView('explorer', document.querySelector('.stab[onclick*="explorer"]'));
+                            openFile(res.path);
+                            setTimeout(() => applyCodeSearch(group.task.regex), 300);
+                        }
+                    };
+
+                    let matchesHtml = '';
+                    res.matches.slice(0, 3).forEach(m => {
+                        const highlighted = esc(m.content).replace(new RegExp(esc(m.matchText), 'gi'), '<b>$&</b>');
+                        matchesHtml += `<div class="scan-match">Line ${m.line}: ${highlighted}</div>`;
+                    });
+                    if(res.matches.length > 3) matchesHtml += `<div style="font-size:10px;color:var(--text-muted);padding:4px">... and ${res.matches.length - 3} more matches</div>`;
+
+                    item.innerHTML = `
+                        <div class="scan-file">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                            ${esc(res.path)}
+                        </div>
+                        <div class="scan-matches">${matchesHtml}</div>
+                    `;
+                    groupEl.appendChild(item);
+                });
+                resultsContainer.appendChild(groupEl);
+            });
+        }
+
+        function codeSearchNav(dir){
+            if(!_codeSearchMatches.length) return;
+            if(_codeSearchIdx>=0&&_codeSearchIdx<_codeSearchMatches.length)
+                _codeSearchMatches[_codeSearchIdx].className='search-hl';
+            _codeSearchIdx+=dir;
+            if(_codeSearchIdx>=_codeSearchMatches.length) _codeSearchIdx=0;
+            if(_codeSearchIdx<0) _codeSearchIdx=_codeSearchMatches.length-1;
+            const cur=_codeSearchMatches[_codeSearchIdx];
+            cur.className='search-hl-current';
+            cur.scrollIntoView({behavior:'smooth',block:'center'});
+            const el=document.getElementById('codeSearchCount');
+            el.textContent=(_codeSearchIdx+1)+' of '+_codeSearchMatches.length+' matches';
+        }
+    </script>
+</body>
+</html>
