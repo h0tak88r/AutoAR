@@ -61,6 +61,7 @@ tmp_*
 !scripts/*.sh
 *token*
 *webhook*
+!internal/utils/webhook.go
 
 # Generated files
 generate_from_env.sh
