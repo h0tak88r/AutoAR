@@ -1,34 +1,37 @@
-# Dashboard authentication (Supabase)
+# Dashboard Authentication
 
-When the AutoAR HTTP API is exposed on the public internet, enable JWT verification so only signed-in users can call `/api/*`, `/scan/*`, `/keyhack/*`, `/internal/*`, `/metrics`, `/docs`, and `GET /scans`.
+When the AutoAR HTTP API is exposed on the public internet, you should enable authentication so only authorized users can access the dashboard and API.
 
-## Environment variables
+AutoAR uses a native Go-based authentication system with JWT (JSON Web Tokens).
+
+## Enable Authentication
+
+To enable authentication, simply set the `DASHBOARD_USER` and `DASHBOARD_PASSWORD` environment variables in your `.env` file.
+
+```env
+DASHBOARD_USER=admin
+DASHBOARD_PASSWORD=your_strong_password_here
+```
+
+If these variables are **not** set, the dashboard will operate in "Insecure Mode" (no login required), which is recommended only for local development.
+
+## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SUPABASE_URL` | Yes (for login UI + asymmetric JWTs) | Project URL, e.g. `https://xxxx.supabase.co`. Used to fetch **JWKS** at `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` for **RS256** / **ES256** access tokens (Supabase “new JWT signing keys”). |
-| `SUPABASE_JWT_SECRET` | For **HS256** (legacy) | **JWT Secret** from Supabase → Project Settings → API. Used to verify **HS256** tokens. If the project only issues **ES256/RS256** keys, verification is still done via **JWKS**; keep this set if you also rely on legacy symmetric signing. |
-| `SUPABASE_ANON_KEY` | Yes (for login UI) | **anon** / **publishable** key from Supabase → Settings → API. Safe to expose to the browser via `/api/config`. **Never** put the `service_role` / `sb_secret_*` key here. |
-| `SUPABASE_SECRET_KEY` | Server-only | Privileged key for server-side Supabase APIs if you add them later — **never** expose to the UI or `/api/config`. |
-| `CORS_ALLOWED_ORIGINS` | If UI is on another origin | Comma-separated list, e.g. `https://dash.example.com`. If unset, `Access-Control-Allow-Origin: *` is used (development only). |
+| `DASHBOARD_USER` | Yes (for auth) | The username required to log in. |
+| `DASHBOARD_PASSWORD` | Yes (for auth) | The password required to log in. |
+| `AUTOAR_JWT_SECRET` | Optional | Custom secret key for signing JWTs. If unset, it's derived from `DASHBOARD_PASSWORD`. |
+| `AUTOAR_API_AUTH_DISABLED` | Optional | Set to `true` to explicitly disable auth even if credentials are set (useful for debugging). |
+| `CORS_ALLOWED_ORIGINS` | Optional | Comma-separated list of allowed origins. Defaults to `*` if unset. |
 
-## Supabase project setup
+## How it Works
 
-1. Enable **Email** provider (or another provider) under Authentication → Providers.
-2. Create a user under **Authentication → Users** (or enable sign-ups).
-3. Copy **JWT Secret** (if using legacy HS256), **Project URL**, and **anon public** key into your server environment.
+1. **Login:** The browser sends a POST request to `/api/auth/login` with your credentials.
+2. **Token Issue:** If valid, the server returns a signed HS256 JWT valid for 24 hours.
+3. **Authorization:** Every subsequent API request includes the `Authorization: Bearer <token>` header.
+4. **Validation:** The Go backend validates the token using the secret key before processing the request.
 
-## Behaviour
+## Local Development
 
-- `GET /api/config` stays **public** so the SPA can read `auth_enabled` and Supabase URL/key before login.
-- `GET /health` stays **public** for uptime checks.
-- The UI loads `@supabase/supabase-js` from CDN, signs in with email/password, and sends `Authorization: Bearer <access_token>` on API calls.
-- The Go API verifies access tokens as follows:
-  - **HS256:** HMAC with `SUPABASE_JWT_SECRET` (optionally after base64-decoding the secret, matching Supabase’s storage format).
-  - **RS256 / ES256:** asymmetric keys loaded from **JWKS** at `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` (required for projects using Supabase’s new signing keys).
-
-If neither `SUPABASE_JWT_SECRET` nor `SUPABASE_URL` is set, protected routes do not enforce JWT (local development only).
-
-## Local development
-
-Leave `SUPABASE_JWT_SECRET` and `SUPABASE_URL` unset: the dashboard can run without a login gate (API auth middleware is a no-op).
+For local use, you can leave the auth variables unset. The dashboard will automatically detect this and bypass the login screen.

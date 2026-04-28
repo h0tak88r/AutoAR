@@ -34,10 +34,10 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | ☁️ **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
 | 🔗 **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
 | 🐙 **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
-| 📱 **APK Auditor**     | Browser-based static analysis: decompile DEX, 80+ OWASP rules, tracker detection, manifest parsing, cert analysis, MASVS export. Credit: [thecybersandeep/apkauditor](https://github.com/thecybersandeep/apkauditor) |
+| 📱 **APK Auditor**     | Browser-based static analysis: decompile DEX, 80+ OWASP rules, tracker detection, manifest parsing, cert analysis, MASVS export. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
 | 🔒 **MITM Patch**      | Fetch any Android app by Package ID → auto-patch `network_security_config.xml` → re-sign → R2 download link in one click             |
-| 📱 **IPA Auditor**     | Browser-based iOS IPA analysis: binary strings, plist parsing, secrets detection, framework fingerprinting                             |
-| 🖥️ **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching                 |
+| 📱 **IPA Auditor**     | Browser-based iOS IPA analysis: binary strings, plist parsing, secrets detection, framework fingerprinting. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
+| 🖥️ **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching. (Based on [adbauditor](https://github.com/thecybersandeep/adbauditor) by @thecybersandeep) |
 | ⚙️ **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
 | 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
 | 🔄 **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
@@ -399,14 +399,34 @@ autoar both                Start Discord bot + API server simultaneously
 
 ## 🛠️ Installation
 
-### Prerequisites
+### Option 1 — Docker (Primary & Recommended)
 
-- **Go 1.24+** — [Download](https://golang.org/dl/)
-- **Git**
-- System tools: `curl`, `bash`
-- *(Optional)* PostgreSQL for persistent storage, or use SQLite for zero-config
+The easiest way to run AutoAR with all dependencies (Go, Nuclei, FFUF, APK Auditor tools, etc.) pre-installed. Requires [Docker](https://docs.docker.com/get-docker/) and [Docker Compose V2](https://docs.docker.com/compose/).
 
-### Option 1 — Clone & Build (Recommended)
+1. **Clone & Configure:**
+   ```bash
+   git clone https://github.com/h0tak88r/AutoAR.git && cd AutoAR
+   cp .env.example .env
+   # Edit .env to set your API keys and configuration
+   ```
+
+2. **Database Choice:**
+   - **PostgreSQL (Standard):** Ensure `DB_TYPE=postgresql` and `DB_HOST` points to the `postgres` service:
+     ```env
+     DB_TYPE=postgresql
+     DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
+     ```
+   - **SQLite (Quick Test):** `DB_TYPE=sqlite` and `DB_HOST=/app/bughunt.db`.
+
+3. **Launch:**
+   ```bash
+   # Build and start all services (API, Dashboard, Database, Bot)
+   docker compose --profile full up -d
+   ```
+
+
+
+### Option 2 — Manual Build
 
 ```bash
 git clone https://github.com/h0tak88r/AutoAR.git
@@ -422,7 +442,7 @@ go build -tags netgo -o autoar ./cmd/autoar/
 ./autoar help
 ```
 
-### Option 2 — Go Install
+### Option 3 — Go Install
 
 ```bash
 go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
@@ -434,19 +454,6 @@ go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
 > echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc && source ~/.bashrc
 > ```
 
-### Option 3 — Docker
-
-Requires [Docker](https://docs.docker.com/get-docker/) and Compose **V2** (`docker compose`). Legacy installs may use `docker-compose` instead.
-
-```bash
-cp env.example .env
-# Edit .env (Discord token, DB_HOST, API keys, optional Supabase + R2 for the dashboard)
-
-docker compose build
-docker compose up -d autoar-discord
-```
-
-See **Docker & Compose** below for API-only, full stack, optional local Postgres, and environment notes.
 
 ---
 
@@ -563,27 +570,21 @@ AUTOAR_TIMEOUT_NUCLEI=0
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Docker)
 
 ```bash
-# 1. Clone and build
+# 1. Setup
 git clone https://github.com/h0tak88r/AutoAR.git && cd AutoAR
-go build -tags netgo -o autoar ./cmd/autoar/
+cp .env.example .env  # Edit .env with your keys
 
-# 2. Configure
-cp .env.example .env
-# Edit .env with your credentials
+# 2. Start Full Stack (API + Dashboard + Postgres)
+docker compose --profile full up -d
 
-# 3. Install required tools
-./autoar setup
+# 3. Run a scan via Docker
+docker compose run --rm autoar-api domain run -d example.com
 
-# 4. Run your first full scan
-./autoar domain run -d example.com
-
-# 5. Or run a specific workflow
-./autoar subdomain run -s api.example.com
-./autoar lite run -d example.com
-./autoar fastlook run -d example.com
+# 4. Access the Dashboard
+# Open http://localhost:8000/ui/ in your browser
 ```
 
 ---
@@ -638,61 +639,60 @@ See the [CoPaw AutoAR Skill documentation](/blob/main/docs/copaw-skill.md) for f
 
 ---
 
-## 🐳 Docker & Compose
+## 🐳 Docker & Compose Deep Dive
 
-The repository includes a multi-stage `**Dockerfile`** (Go build + Debian runtime with common CLI deps) and `**docker-compose.yml**` with three app services and an optional database.
+The repository includes a multi-stage **Dockerfile** and a comprehensive **docker-compose.yml** that manages the API, Dashboard UI, Discord Bot, and PostgreSQL.
 
-### Prerequisites
+### Environment Variables in Docker
 
-1. Copy and edit environment: `cp .env.example .env`
-  Compose loads `**.env**` from the project root (create it before `docker compose up` or the `env_file` step will fail).
-2. Paths inside the image use `**/app**` (`AUTOAR_RESULTS_DIR=/app/new-results`, templates under `/app/nuclei_templates`, etc.) — already set in `env.example`.
+Docker services automatically load variables from the `.env` file in the root directory.
 
-### Build
+| Variable | Recommended for Docker |
+| -------- | ---------------------- |
+| `AUTOAR_RESULTS_DIR` | `/app/new-results` (mounted as volume) |
+| `NUCLEI_TEMPLATES_PATH` | `/app/nuclei_templates` |
+| `DB_TYPE` | `postgresql` |
+| `DB_HOST` | `postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable` |
 
+### PostgreSQL Integration
+
+AutoAR's Docker stack includes a dedicated PostgreSQL container. This is the **recommended** way to run AutoAR for persistence and performance.
+
+1. **Persistence:** Data is stored in the `postgres_data` Docker volume.
+2. **Access:** You can access the DB via `docker exec -it autoar-postgres psql -U autoar -d bughunt`.
+3. **Migration:** No manual migration needed; AutoAR handles schema initialization on startup.
+
+### Service Profiles
+
+| Profile | Services Started | Use Case |
+| ------- | ---------------- | -------- |
+| `api` | `autoar-api` | Running the backend/UI only |
+| `bot` | `autoar-discord` | Running the Discord bot only |
+| `full` | `autoar-api`, `autoar-discord`, `postgres` | Running everything with local DB |
+| `localdb` | `postgres` | Just starting the database |
+
+**Example:**
 ```bash
-docker compose build
+# Run everything except Discord bot
+docker compose --profile api --profile localdb up -d
 ```
 
-### Run services
+### Path Mapping & Volumes
 
+AutoAR maps the following host directories into the container:
+- `./new-results` → `/app/new-results` (Scan outputs)
+- `./nuclei_templates` → `/app/nuclei_templates` (Nuclei rules)
+- `./Wordlists` → `/app/Wordlists` (Fuzzing lists)
 
-| Goal                         | Command                                           |
-| ---------------------------- | ------------------------------------------------- |
-| Discord bot only             | `docker compose up -d autoar-discord`             |
-| REST API + dashboard UI only | `docker compose --profile api up -d autoar-api`   |
-| Bot + API together           | `docker compose --profile full up -d autoar-full` |
-
-
-- **API / UI:** `http://localhost:8000` (health: `GET /health`, dashboard: `/ui/`).  
-- **Logs:** `docker compose logs -f autoar-api` (or the service name you use).
-
-### Optional: local PostgreSQL
-
-For a self-contained stack (no external Supabase DB), start the bundled Postgres and point `DB_HOST` at it:
-
-```bash
-# In .env set:
-# DB_TYPE=postgresql
-# DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
-
-docker compose --profile api --profile localdb up -d postgres autoar-api
-```
-
-Adjust `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` in `.env` if you change the defaults in `docker-compose.yml` (keep them consistent with `DB_HOST`).
-
-### Dashboard auth & R2 in Docker
-
-Pass the same variables as on bare metal (see [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md)). `docker-compose.yml` forwards `**SUPABASE_***`, `**USE_R2_STORAGE**`, `**R2_***`, and `**GEMINI_API_KEY**` into the API services when set in `.env`.
-
-### Typical `.env` inside Docker
+### Typical `.env` for Docker Full Stack
 
 ```env
+AUTOAR_MODE=both
 AUTOAR_RESULTS_DIR=/app/new-results
-NUCLEI_TEMPLATES_PATH=/app/nuclei_templates
-FFUF_WORDLIST_PATH=/app/Wordlists/quick_fuzz.txt
 DB_TYPE=postgresql
-DB_HOST=postgresql://user:pass@host:5432/bughunt
+DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
+USE_R2_STORAGE=true
+OPENROUTER_API_KEY=...
 ```
 
 ---
