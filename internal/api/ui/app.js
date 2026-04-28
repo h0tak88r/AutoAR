@@ -192,7 +192,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -294,7 +294,7 @@ async function openScanResultsPage(scanId, opts = {}) {
 
 function viewTitle(v) {
   return {
-    overview: 'Overview', domains: 'Domains', subdomains: 'Subdomains',
+    overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
     targets: 'Bug Bounty Targets',
     keyhacks: 'Keyhacks',
     monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
@@ -825,8 +825,8 @@ async function copyAllSubdomainsMatching() {
 
 async function loadScans() {
   await loadResource('scans', '/api/scans', 'scans');
-  // Scans view removed; overview active scans still updated by renderOverviewActiveScans()
   renderOverviewActiveScans();
+  if (state.view === 'scans') renderScans();
 }
 
 async function loadMonitor() {
