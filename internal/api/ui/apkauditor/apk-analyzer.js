@@ -10861,18 +10861,52 @@ function renderOverviewTab(R) {
         : '<div class="no-data">No known third-party SDKs detected</div>';
 }
 
-function renderFindingsTab() {
-    const all = [...state.groupedFindings.issue];
+function renderFindingsTab(filterSev = 'all', query = '') {
+    state._currentFindingsFilter = filterSev;
+    if (query !== undefined && query !== null) state._currentFindingsQuery = query.toLowerCase();
+    const q = state._currentFindingsQuery || '';
+    
+    let all = [...state.groupedFindings.issue];
+    
+    if (filterSev !== 'all') {
+        all = all.filter(f => {
+            const s = (f.severity === 'issue' || f.severity === 'medium') ? 'medium' : f.severity;
+            return s === filterSev;
+        });
+    }
+    
+    if (q) {
+        all = all.filter(f => 
+            f.ruleName.toLowerCase().includes(q) || 
+            f.description.toLowerCase().includes(q) ||
+            (f.cwe && f.cwe.toLowerCase().includes(q))
+        );
+    }
 
     const renderMatch = m => {
         const file = m.file || '';
         return `<div class="finding-match-item"><code>${esc((m.match || '').slice(0, 150))}</code><span class="match-loc finding-goto" data-file="${esc(file)}" data-line="${m.line || ''}">${esc(file)}${m.line ? ':' + m.line : ''}</span></div>`;
     };
 
-    document.getElementById('findingsList').innerHTML = all.map((f, idx) => {
+    const counts = {
+        critical: state.groupedFindings.issue.filter(f => f.severity === 'critical').length,
+        medium: state.groupedFindings.issue.filter(f => f.severity === 'issue' || f.severity === 'medium').length,
+        info: state.groupedFindings.issue.filter(f => f.severity === 'info').length
+    };
+
+    const filterBar = `
+        <div class="filter-bar" style="padding: 0 0 16px 0; border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px">
+            <button class="filter-btn ${filterSev === 'all' ? 'active' : ''}" onclick="renderFindingsTab('all')">All (${state.groupedFindings.issue.length})</button>
+            <button class="filter-btn ${filterSev === 'critical' ? 'active' : ''}" onclick="renderFindingsTab('critical')" style="border-left: 3px solid #ef4444">Critical (${counts.critical})</button>
+            <button class="filter-btn ${filterSev === 'medium' ? 'active' : ''}" onclick="renderFindingsTab('medium')" style="border-left: 3px solid #f59e0b">Medium (${counts.medium})</button>
+            <button class="filter-btn ${filterSev === 'info' ? 'active' : ''}" onclick="renderFindingsTab('info')" style="border-left: 3px solid #06b6d4">Info (${counts.info})</button>
+        </div>
+    `;
+
+    document.getElementById('findingsList').innerHTML = filterBar + (all.map((f, idx) => {
         const countBadge = f.count > 1 ? `<span class="finding-count-badge">${f.count} instances</span>` : '';
         const sev = (f.severity === 'issue' || f.severity === 'medium') ? 'warning' :
-            (f.severity === 'critical') ? 'high' : f.severity;
+            (f.severity === 'critical') ? 'high' : (f.severity === 'info' ? 'info' : f.severity);
         const sevText = (f.severity === 'issue') ? 'MEDIUM' : f.severity.toUpperCase();
 
         let matchesHtml = (f.matches || []).map(renderMatch).join('');
@@ -10896,7 +10930,7 @@ function renderFindingsTab() {
                 </div>
             </div>
         `;
-    }).join('') || '<div class="no-data">No findings</div>';
+    }).join('') || '<div class="no-data">No findings matching filter</div>');
     const fl = document.getElementById('findingsList');
     const handler = e => {
         const btn = e.target.closest('.finding-expand-btn');
@@ -10916,6 +10950,10 @@ function renderFindingsTab() {
     fl.removeEventListener('click', fl._expandHandler);
     fl._expandHandler = handler;
     fl.addEventListener('click', handler);
+}
+
+function filterFindings(q) {
+    renderFindingsTab(state._currentFindingsFilter || 'all', q);
 }
 
 function renderSmaliTab(R) {
