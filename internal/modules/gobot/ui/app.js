@@ -192,7 +192,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor'];
+const VIEWS = ['overview', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -294,7 +294,7 @@ async function openScanResultsPage(scanId, opts = {}) {
 
 function viewTitle(v) {
   return {
-    overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
+    overview: 'Overview', domains: 'Domains', subdomains: 'Subdomains',
     targets: 'Bug Bounty Targets',
     keyhacks: 'Keyhacks',
     monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
@@ -692,7 +692,7 @@ async function startDashboard() {
   const backBtn = document.getElementById('scan-detail-back');
   if (backBtn && !backBtn.dataset.wired) {
     backBtn.dataset.wired = '1';
-    backBtn.addEventListener('click', () => navigateTo('scans'));
+    backBtn.addEventListener('click', () => navigateTo('overview'));
   }
   if (!window.__autoarPopstate) {
     window.__autoarPopstate = true;
@@ -825,7 +825,7 @@ async function copyAllSubdomainsMatching() {
 
 async function loadScans() {
   await loadResource('scans', '/api/scans', 'scans');
-  if (state.view === 'scans') renderScans();
+  // Scans view removed; overview active scans still updated by renderOverviewActiveScans()
   renderOverviewActiveScans();
 }
 
@@ -1191,7 +1191,7 @@ function startPolling() {
     } catch (e) { /* ignore */ }
 
     const n = state.stats?.active_scans ?? 0;
-    const onScans = state.view === 'scans';
+    const onScans = false; // scans view removed
 
     // Only fast-poll if on Scans list or viewing a scan that is actually running
     let isViewingActiveScan = false;
@@ -3540,7 +3540,7 @@ async function renderScanDetailView(scanId) {
       deleteDetailBtn.onclick = async () => {
         await deleteScan(scanId, target);
         // Navigate back to scans list after deletion.
-        navigateTo('scans');
+        navigateTo('overview');
       };
     }
 
@@ -5083,6 +5083,8 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
         </aside>
         <section style="min-width:0;position:relative">
       <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
+      <!-- Severity summary bar -->
+      <div id="recon-severity-bar" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.6);display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
       <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
         <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
         <select id="recon-filter-severity" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
@@ -5182,6 +5184,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const tabsEl = root.querySelector('#recon-left-rail');
   const railSearchInput = root.querySelector('#recon-rail-search');
   const apkMetaBar = root.querySelector('#recon-apk-meta');
+  const severityBar = root.querySelector('#recon-severity-bar');
   const filterBar = root.querySelector('#recon-filter-bar');
   const chipBar = root.querySelector('#recon-quick-chips');
   const viewModeSel = root.querySelector('#recon-view-mode');
@@ -5199,7 +5202,56 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   const drawerBody = root.querySelector('#recon-drawer-body');
   const drawerClose = root.querySelector('#recon-drawer-close');
 
-  // ── APK meta bar renderer (called on first render + after async fetch) ─────
+  // ── Severity summary bar renderer ────────────────────────────────────────────
+  const SEV_DEFS = [
+    { key: 'critical', label: 'Critical', color: '#fc8181', bg: 'rgba(252,129,129,.13)', border: 'rgba(252,129,129,.35)' },
+    { key: 'high',     label: 'High',     color: '#f6ad55', bg: 'rgba(246,173,85,.13)',  border: 'rgba(246,173,85,.35)' },
+    { key: 'medium',   label: 'Medium',   color: '#f6e05e', bg: 'rgba(246,224,94,.13)',  border: 'rgba(246,224,94,.35)' },
+    { key: 'low',      label: 'Low',      color: '#63b3ed', bg: 'rgba(99,179,237,.13)',  border: 'rgba(99,179,237,.35)' },
+    { key: 'info',     label: 'Info',     color: '#68d391', bg: 'rgba(104,211,145,.13)', border: 'rgba(104,211,145,.35)' },
+  ];
+  const renderSeverityBar = () => {
+    if (!severityBar) return;
+    // Count per severity level across ALL loaded rows (not filtered by current tab)
+    const counts = {};
+    for (const r of allRows) {
+      const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim() || 'info';
+      counts[sev] = (counts[sev] || 0) + 1;
+    }
+    const hasCounts = SEV_DEFS.some(d => counts[d.key] > 0);
+    if (!hasCounts) { severityBar.style.display = 'none'; return; }
+    severityBar.style.display = 'flex';
+    const pills = SEV_DEFS
+      .filter(d => counts[d.key] > 0)
+      .map(d => {
+        const isActive = filterSeverity === d.key;
+        return `<button type="button" data-sev="${esc(d.key)}" title="Filter by ${d.label}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid ${isActive ? d.color : d.border};border-radius:999px;background:${isActive ? d.bg : 'rgba(255,255,255,.02)'};color:${isActive ? d.color : 'var(--text-secondary)'};font-size:11px;font-weight:${isActive ? '600' : '400'};cursor:pointer;transition:all .15s">
+          <span style="font-size:13px">${d.key === 'critical' ? '🔴' : d.key === 'high' ? '🟠' : d.key === 'medium' ? '🟡' : d.key === 'low' ? '🔵' : '🟢'}</span>
+          <span>${d.label}</span>
+          <span style="background:${isActive ? d.color : 'rgba(255,255,255,.1)'};color:${isActive ? '#000' : 'var(--text-muted)'};border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${counts[d.key]}</span>
+        </button>`;
+      }).join('');
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const allActive = filterSeverity === 'any';
+    severityBar.innerHTML = `
+      <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;padding-right:4px">Severity:</span>
+      <button type="button" data-sev="any" title="Show all severities" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid ${allActive ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${allActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${allActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">
+        All <span style="background:rgba(255,255,255,.1);color:var(--text-muted);border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${total}</span>
+      </button>
+      ${pills}`;
+    severityBar.querySelectorAll('button[data-sev]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterSeverity = btn.dataset.sev || 'any';
+        const sel = root.querySelector('#recon-filter-severity');
+        if (sel) sel.value = filterSeverity;
+        _currentPage = 1;
+        renderSeverityBar();
+        renderBody();
+      });
+    });
+  };
+
+
   const renderAPKMetaBar = () => {
     if (!apkMetaBar || !isAPKScan || !apkPackageInfo) {
       if (apkMetaBar) { apkMetaBar.style.display = 'none'; apkMetaBar.innerHTML = ''; }
@@ -5382,6 +5434,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   };
 
   const renderBody = () => {
+    renderSeverityBar();
     const filtered = allRows.filter(r => {
       if (!rowMatch(r)) return false;
       if (HIDDEN_KINDS.has(r.kind)) return false; // always hide logs + tech rows
@@ -5550,6 +5603,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
 
   const showURLsView = () => {
     if (filterBar) filterBar.style.display = 'none';
+    if (severityBar) severityBar.style.display = 'none';
     if (standardView) standardView.style.display = 'none';
     if (assetsView) assetsView.style.display = 'none';
     if (urlsView) urlsView.style.display = 'block';
@@ -5629,6 +5683,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
   // ── Assets tab renderer ──────────────────────────────────────────────────
   const showAssetsView = async () => {
     if (filterBar) filterBar.style.display = 'none';
+    if (severityBar) severityBar.style.display = 'none';
     if (standardView) standardView.style.display = 'none';
     if (assetsView) assetsView.style.display = 'block';
     if (!assetsContent) return;
@@ -5651,6 +5706,7 @@ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) 
     if (filterBar) filterBar.style.display = '';
     if (standardView) standardView.style.display = 'block';
     if (assetsView) assetsView.style.display = 'none';
+    renderSeverityBar(); // update pills when switching back to standard view
   };
 
   const switchReconView = (kind) => {
@@ -8199,7 +8255,7 @@ async function targetsAddAllDomains() {
 function targetsLaunchScan(domain) {
   // Navigate to scans page with a pre-filled new scan modal if available,
   // or navigate to scans and open a full domain scan.
-  navigateTo('scans');
+  navigateTo('overview');
   setTimeout(() => {
     if (typeof openNewScanModal === 'function') {
       openNewScanModal({ target: domain, scanType: 'domain_run' });
