@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/cf1016"
-	"github.com/h0tak88r/AutoAR/internal/modules/db"
-	"github.com/h0tak88r/AutoAR/internal/modules/dns"
+	"github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
+	"github.com/h0tak88r/AutoAR/internal/db"
+	"github.com/h0tak88r/AutoAR/internal/scanner/dns"
 	"github.com/spf13/cobra"
 )
 
