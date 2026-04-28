@@ -192,7 +192,7 @@ const state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor'];
+const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'];
 
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
@@ -201,7 +201,7 @@ function pathScanId() {
 
 function openAuditorInNewTab(view) {
   const tok = state._authAccessToken || localTokenGet();
-  const pathMap = { 'apkauditor': '/ui/apkauditor/', 'ipaauditor': '/ui/ipaauditor/', 'adbauditor': '/ui/adbauditor/' };
+  const pathMap = { 'apkauditor': '/ui/apkauditor/', 'ipaauditor': '/ui/ipaauditor/', 'adbauditor': '/ui/adbauditor/', 'securitylab': '/ui/securitylab/' };
   const targetPath = pathMap[view] || '/ui/apkauditor/';
   
   if (tok) {
@@ -210,6 +210,7 @@ function openAuditorInNewTab(view) {
     document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
     document.cookie = `autoar_token=${tok}; path=/ui/ipaauditor; max-age=3600; SameSite=Strict`;
     document.cookie = `autoar_token=${tok}; path=/ui/adbauditor; max-age=3600; SameSite=Strict`;
+    document.cookie = `autoar_token=${tok}; path=/ui/securitylab; max-age=3600; SameSite=Strict`;
   }
   window.open(targetPath, '_blank');
 }
@@ -228,16 +229,25 @@ function navigateTo(view) {
   // When entering APK Auditor, stamp a short-lived cookie so the iframe's
   // request to /ui/apkauditor/ passes the server-side auth guard.
   // We also lazily inject the iframe src so it doesn't fire on page load.
-  if (['apkauditor', 'ipaauditor', 'adbauditor'].includes(view)) {
+  if (['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(view)) {
     const tok = state._authAccessToken || localTokenGet();
     if (tok) {
       document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
+      document.cookie = `autoar_token=${tok}; path=/ui/ipaauditor; max-age=3600; SameSite=Strict`;
+      document.cookie = `autoar_token=${tok}; path=/ui/adbauditor; max-age=3600; SameSite=Strict`;
+      document.cookie = `autoar_token=${tok}; path=/ui/securitylab; max-age=3600; SameSite=Strict`;
     }
     const modeMap = { 'apkauditor': 'android', 'ipaauditor': 'ios', 'adbauditor': 'adb' };
     const frame = document.getElementById(`${view}-frame`);
     if (frame && !frame.getAttribute('data-loaded')) {
       frame.setAttribute('data-loaded', '1');
-      setTimeout(() => { frame.src = `/ui/apkauditor/?mode=${modeMap[view]}`; }, 30);
+      setTimeout(() => {
+        if (view === 'securitylab') {
+          frame.src = '/ui/securitylab/';
+        } else {
+          frame.src = `/ui/apkauditor/?mode=${modeMap[view]}`;
+        }
+      }, 30);
     }
   }
 
@@ -248,7 +258,7 @@ function navigateTo(view) {
       const isActive = v === view;
       el.classList.toggle('active', isActive);
       // Auditor views are full-height, use flex for their containers
-      if (['apkauditor', 'ipaauditor', 'adbauditor'].includes(v)) {
+      if (['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(v)) {
         el.style.display = isActive ? 'flex' : 'none';
       }
     }
@@ -256,7 +266,7 @@ function navigateTo(view) {
   });
   document.getElementById('topbar-title').textContent = viewTitle(view);
   state.selectedDomain = null;
-  if (!['apkauditor', 'ipaauditor', 'adbauditor'].includes(view)) {
+  if (!['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(view)) {
     refreshCurrentView();
   }
   startPolling();
@@ -301,7 +311,8 @@ function viewTitle(v) {
     'report-templates': 'Report Templates',
     apkauditor: '🤖 APK Auditor',
     ipaauditor: '🍏 IPA Auditor',
-    adbauditor: '⚡ ADB Auditor'
+    adbauditor: '⚡ ADB Auditor',
+    securitylab: '🧪 Security Lab'
   }[v] || v;
 }
 
