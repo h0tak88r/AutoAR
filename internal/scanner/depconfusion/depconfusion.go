@@ -92,7 +92,7 @@ func runWeb(opts Options, resultsDir string) error {
 	}
 
 	// Handle standardized JSON output for dashboard
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
 			data, _ := os.ReadFile(res.OutputFile)
@@ -150,7 +150,7 @@ func runWebFromFile(opts Options, resultsDir string) error {
 	}
 
 	// Handle standardized JSON output for dashboard
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
 			//Findings already documented in JSON file produced by library
@@ -300,7 +300,7 @@ func runWebFull(opts Options, resultsDir string) error {
 	}
 
 	// Handle standardized JSON output for dashboard
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
 			data, _ := os.ReadFile(res.OutputFile)
@@ -342,7 +342,7 @@ func runGitHubRepo(opts Options, resultsDir string) error {
 	}
 
 	// Handle standardized JSON output for dashboard
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
 			data, _ := os.ReadFile(res.OutputFile)
@@ -384,7 +384,7 @@ func runGitHubOrg(opts Options, resultsDir string) error {
 	}
 
 	// Handle standardized JSON output for dashboard
-	scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
 			data, _ := os.ReadFile(res.OutputFile)
