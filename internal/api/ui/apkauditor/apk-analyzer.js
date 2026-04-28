@@ -9400,7 +9400,7 @@ function extractManifestInfo(R) {
 
 function analyzeContent(content, filePath, rules) {
     const findings = [];
-    const safe = content.length > 300000 ? content.slice(0, 300000) : content;
+    const safe = content.length > 2000000 ? content.slice(0, 2000000) : content;
     for (const rule of rules) {
         for (const pat of rule.patterns) {
             try {
@@ -9611,7 +9611,7 @@ async function analyzeAPK(file) {
     updateProgress(40, 'Parsing DEX files...');
     await yield_();
     const allDexStrings = [];
-    for (const dp of R.specialFiles.dex.slice(0, 5)) {
+    for (const dp of R.specialFiles.dex) {
         try {
             updateProgress(40, `Parsing ${dp}...`);
             await yield_();
@@ -9654,8 +9654,8 @@ async function analyzeAPK(file) {
     await yield_();
     let classesScanned = 0;
     for (const dex of state.dexParsed) {
-        for (const cls of (dex.classes || []).slice(0, 500)) {
-            if (classesScanned++ > 2000) break;
+        for (const cls of (dex.classes || [])) {
+            if (classesScanned++ > 10000) break;
             const fqn = (cls.name || '').replace(/^L/, '').replace(/;$/, '').replace(/\//g, '.');
             if (!fqn || fqn.length < 3) continue;
             try {
@@ -9686,7 +9686,7 @@ async function analyzeAPK(file) {
         !priorityFiles.includes(f) &&
         textExts.has(f.split('.').pop().toLowerCase())
     );
-    const textFiles = [...priorityFiles, ...otherTextFiles].slice(0, 80);
+    const textFiles = [...priorityFiles, ...otherTextFiles].slice(0, 500);
     for (const path of textFiles) {
         try {
             const ext = path.split('.').pop().toLowerCase();
