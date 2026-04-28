@@ -340,7 +340,7 @@ func handleScan(opts Options, resultsDir string) error {
 
 	// Write structured JSON for the dashboard — the vulnerability is the publicly
 	// accessible bucket. One finding = one accessible bucket + object count as evidence.
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		bucketURL := fmt.Sprintf("https://%s.s3.amazonaws.com", opts.Bucket)
 		type s3Finding struct {
 			TemplateID  string   `json:"template-id"`

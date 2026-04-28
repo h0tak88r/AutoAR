@@ -102,7 +102,7 @@ func RunNuclei(opts Options) (*Result, error) {
 		// Index each JSONL result file into the scan directory so the dashboard can find them.
 		// We preserve the nuclei JSONL format rather than re-wrapping lines, so template-id,
 		// matched-at, info.severity etc. remain accessible for clean dashboard parsing.
-		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			foundVulnerabilities := false
 			for _, rf := range resultFiles {
 				info, err := os.Stat(rf)
@@ -192,7 +192,7 @@ func RunNuclei(opts Options) (*Result, error) {
 	log.Printf("[OK] Nuclei scan completed successfully for %s (mode: %s)", targetName, opts.Mode)
 
 	// Index each JSONL result file into the scan dir (preserves nuclei JSON structure)
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		foundVulnerabilities := false
 		for _, rf := range resultFiles {
 			info, err := os.Stat(rf)

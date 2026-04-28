@@ -255,7 +255,7 @@ func Run(opts Options) (*Result, error) {
 		}
 		
 		res.Duration = time.Since(startTime)
-		if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "aem", "aem-vulnerabilities.json")
 		}
 		return res, nil
@@ -332,7 +332,7 @@ func Run(opts Options) (*Result, error) {
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
 
 	// Write structured JSON for the dashboard
-	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		type aemFinding struct {
 			TemplateID string `json:"template-id"`
 			MatchedAt  string `json:"matched-at"`

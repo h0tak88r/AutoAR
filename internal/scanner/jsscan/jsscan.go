@@ -186,7 +186,7 @@ func Run(opts Options) (*Result, error) {
 	if err := scanJSForSecrets(targetJS, secretsFile, opts.Threads); err != nil {
 		log.Printf("[WARN] JS scan: Secret scanning failed: %v", err)
 	} else {
-		scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+		scanID := utils.GetCurrentScanID()
 		if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
 			log.Printf("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
 			
