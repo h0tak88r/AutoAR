@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/sirupsen/logrus"
-	"github.com/h0tak88r/AutoAR/internal/modules/utils"
+	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/h0tak88r/AutoAR/internal/version"
 )
 

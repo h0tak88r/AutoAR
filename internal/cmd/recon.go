@@ -3,13 +3,13 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/cnames"
-	"github.com/h0tak88r/AutoAR/internal/modules/livehosts"
-	"github.com/h0tak88r/AutoAR/internal/modules/ports"
-	"github.com/h0tak88r/AutoAR/internal/modules/recon"
-	"github.com/h0tak88r/AutoAR/internal/modules/subdomains"
-	"github.com/h0tak88r/AutoAR/internal/modules/tech"
-	"github.com/h0tak88r/AutoAR/internal/modules/urls"
+	"github.com/h0tak88r/AutoAR/internal/scanner/cnames"
+	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
+	"github.com/h0tak88r/AutoAR/internal/scanner/ports"
+	"github.com/h0tak88r/AutoAR/internal/scanner/recon"
+	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
+	"github.com/h0tak88r/AutoAR/internal/scanner/tech"
+	"github.com/h0tak88r/AutoAR/internal/scanner/urls"
 	"github.com/spf13/cobra"
 )
 

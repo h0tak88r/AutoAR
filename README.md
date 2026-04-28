@@ -641,6 +641,19 @@ See the [CoPaw AutoAR Skill documentation](/blob/main/docs/copaw-skill.md) for f
 
 ## 🐳 Docker & Compose Deep Dive
 
+### 🏗️ Architecture & Internal Structure (v4.1+)
+
+AutoAR follows a strictly decoupled, package-based architecture designed for enterprise scaling and clean dependency management:
+
+- **`cmd/autoar/`**: The main entry point. All binaries and commands start here.
+- **`internal/api/`**: The core backend source of truth. Manages all scan states (`ActiveScans`), database operations, REST endpoints, and orchestration.
+- **`internal/bot/`**: The Discord integration layer. It is fully stateless and consumes exported utilities and state from the `api` and `utils` packages, providing the interactive chat UI.
+- **`internal/utils/`**: Centralized, shared logic (binary paths, helper functions, logging, env loading). This acts as the foundational layer to strictly prevent any circular imports between the API and the Bot.
+
+*Both the API and Discord bot can be run entirely independently, or combined in a single binary using `autoar both`.*
+
+---
+
 The repository includes a multi-stage **Dockerfile** and a comprehensive **docker-compose.yml** that manages the API, Dashboard UI, Discord Bot, and PostgreSQL.
 
 ### Environment Variables in Docker

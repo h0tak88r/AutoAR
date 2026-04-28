@@ -1,0 +1,654 @@
+package bot
+
+import (
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/h0tak88r/AutoAR/internal/utils"
+)
+
+// JWT Commands
+func handleJWTScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	token := ""
+	skipCrack := false
+	skipPayloads := false
+	testAttacks := false
+	var wordlistChoice *string
+	var maxCrackAttempts *int
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "token":
+			token = opt.StringValue()
+		case "skip_crack":
+			skipCrack = opt.BoolValue()
+		case "skip_payloads":
+			skipPayloads = opt.BoolValue()
+		case "test_attacks":
+			testAttacks = opt.BoolValue()
+		case "wordlist":
+			val := opt.StringValue()
+			wordlistChoice = &val
+		case "max_crack_attempts":
+			val := int(opt.IntValue())
+			maxCrackAttempts = &val
+		}
+	}
+
+	if token == "" {
+		respond(s, i, "❌ JWT token is required", true)
+		return
+	}
+
+	// Map wordlist choice to actual file path
+	var wordlistPath string
+	if wordlistChoice != nil && *wordlistChoice != "" {
+		root := getRootDir()
+		switch *wordlistChoice {
+		case "fast":
+			wordlistPath = filepath.Join(root, "Wordlists", "jwt-common.txt")
+		case "heavy":
+			wordlistPath = filepath.Join(root, "Wordlists", "scraped-JWT-secrets.txt")
+		default:
+			// If it's a custom path, use it as-is
+			wordlistPath = *wordlistChoice
+		}
+	}
+
+	// Build command
+	command := []string{utils.GetAutoarScriptPath(), "jwt", "scan", "--token", token}
+
+	if skipCrack {
+		command = append(command, "--skip-crack")
+	}
+	if skipPayloads {
+		command = append(command, "--skip-payloads")
+	}
+	if testAttacks {
+		command = append(command, "--test-attacks")
+	}
+	if wordlistPath != "" {
+		command = append(command, "-w", wordlistPath)
+	}
+	if maxCrackAttempts != nil && *maxCrackAttempts > 0 {
+		command = append(command, "--max-crack-attempts", fmt.Sprintf("%d", *maxCrackAttempts))
+	}
+
+	// Build embed description with wordlist info
+	desc := fmt.Sprintf("**Token:** `%s...`\n**Tool:** jwt-hack", token[:min(20, len(token))])
+	if wordlistPath != "" {
+		wordlistName := "Custom"
+		switch *wordlistChoice {
+		case "fast":
+			wordlistName = "Fast (jwt-common.txt)"
+		case "heavy":
+			wordlistName = "Heavy (scraped-JWT-secrets.txt)"
+		}
+		desc += fmt.Sprintf("\n**Wordlist:** %s", wordlistName)
+	}
+	if skipCrack {
+		desc += "\n**Cracking:** Skipped"
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🔐 JWT Security Scan",
+		Description: desc,
+		Color:       0x3498db,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "🟡 Running", Inline: false},
+		},
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	scanID := fmt.Sprintf("jwt_%d", time.Now().Unix())
+	go runScanBackground(scanID, "jwt", "JWT Token", command, s, i)
+}
+
+// Other Commands
+func handleBackupScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+	domain := ""
+	threads := 100
+	delay := 0
+	method := "regular" // Default method
+	extensions := ""
+	var filePath string
+
+	// Check for file attachment first
+	if data.Resolved != nil && data.Resolved.Attachments != nil {
+		for _, opt := range data.Options {
+			if opt.Type == discordgo.ApplicationCommandOptionAttachment {
+				if attID, ok := opt.Value.(string); ok {
+					if att, ok := data.Resolved.Attachments[attID]; ok && att != nil {
+						// Download attachment to temp file
+						tmpFile, err := os.CreateTemp("", "backup-domains-*.txt")
+						if err != nil {
+							respond(s, i, fmt.Sprintf("❌ Failed to create temp file: %v", err), true)
+							return
+						}
+						defer tmpFile.Close()
+
+						resp, err := http.Get(att.URL)
+						if err != nil {
+							respond(s, i, fmt.Sprintf("❌ Failed to download file: %v", err), true)
+							return
+						}
+						defer resp.Body.Close()
+
+						if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+							respond(s, i, fmt.Sprintf("❌ Failed to save file: %v", err), true)
+							return
+						}
+						tmpFile.Close()
+						filePath = tmpFile.Name()
+					}
+				}
+			}
+		}
+	}
+
+	// Parse other options
+	for _, opt := range data.Options {
+		switch opt.Name {
+		case "domain":
+			domain = opt.StringValue()
+		case "threads":
+			threads = int(opt.IntValue())
+		case "delay":
+			delay = int(opt.IntValue())
+		case "method":
+			method = opt.StringValue()
+		case "extensions":
+			extensions = opt.StringValue()
+		}
+	}
+
+	if domain == "" && filePath == "" {
+		respond(s, i, "❌ Either domain or file attachment is required", false)
+		return
+	}
+
+	if domain != "" && filePath != "" {
+		respond(s, i, "❌ Cannot specify both domain and file. Use either domain or file attachment.", false)
+		return
+	}
+
+	scanID := fmt.Sprintf("backup_%d", time.Now().Unix())
+	var command []string
+	if filePath != "" {
+		command = []string{utils.GetAutoarScriptPath(), "backup", "scan", "-f", filePath, "-t", fmt.Sprintf("%d", threads)}
+	} else {
+		command = []string{utils.GetAutoarScriptPath(), "backup", "scan", "-d", domain, "-t", fmt.Sprintf("%d", threads)}
+	}
+
+	if method != "" && method != "regular" {
+		command = append(command, "-m", method)
+	}
+	if extensions != "" {
+		command = append(command, "-ex", extensions)
+	}
+	if delay > 0 {
+		command = append(command, "--delay", fmt.Sprintf("%d", delay))
+	}
+
+	embed := createScanEmbed("Backup Scan", domain, "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "backup_scan", domain, command, s, i)
+}
+
+func handleCheckTools(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	scanID := fmt.Sprintf("check_tools_%d", time.Now().Unix())
+	command := []string{utils.GetAutoarScriptPath(), "check-tools"}
+
+	embed := createScanEmbed("Check Tools", "system", "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "check_tools", "system", command, s, i)
+}
+
+func handleCleanup(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	scanID := fmt.Sprintf("cleanup_%d", time.Now().Unix())
+	command := []string{utils.GetAutoarScriptPath(), "cleanup"}
+
+	embed := createScanEmbed("Cleanup Results", "system", "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "cleanup", "system", command, s, i)
+}
+
+func handleAEMScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	domain := ""
+	liveHostsFile := ""
+	threads := 50
+	ssrfHost := ""
+	ssrfPort := 0
+	debug := false
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "domain":
+			domain = opt.StringValue()
+		case "live_hosts_file":
+			liveHostsFile = opt.StringValue()
+		case "threads":
+			threads = int(opt.IntValue())
+		case "ssrf_host":
+			ssrfHost = opt.StringValue()
+		case "ssrf_port":
+			ssrfPort = int(opt.IntValue())
+		case "debug":
+			debug = opt.BoolValue()
+		}
+	}
+
+	if domain == "" && liveHostsFile == "" {
+		respond(s, i, "Either domain or live_hosts_file is required", false)
+		return
+	}
+
+	// Build command
+	args := []string{"aem", "scan"}
+	if domain != "" {
+		args = append(args, "-d", domain)
+	} else {
+		args = append(args, "-l", liveHostsFile)
+	}
+	args = append(args, "-t", fmt.Sprintf("%d", threads))
+	if ssrfHost != "" {
+		args = append(args, "--ssrf-host", ssrfHost)
+		if ssrfPort > 0 {
+			args = append(args, "--ssrf-port", fmt.Sprintf("%d", ssrfPort))
+		}
+	}
+	if debug {
+		args = append(args, "--debug")
+	}
+
+	scanID := fmt.Sprintf("aem_scan_%d", time.Now().Unix())
+	target := domain
+	if target == "" {
+		target = liveHostsFile
+	}
+
+	embed := createScanEmbed("AEM Scan", target, "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "aem_scan", target, args, s, i)
+}
+
+func handleMisconfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	target := ""
+	var service *string
+	delay := 0
+	permutations := false
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "target":
+			target = opt.StringValue()
+		case "service":
+			val := opt.StringValue()
+			service = &val
+		case "delay":
+			delay = int(opt.IntValue())
+		case "permutations":
+			permutations = opt.BoolValue()
+		}
+	}
+
+	if target == "" {
+		respond(s, i, "Target is required", false)
+		return
+	}
+
+	scanID := fmt.Sprintf("misconfig_%d", time.Now().Unix())
+	command := []string{utils.GetAutoarScriptPath(), "misconfig", "scan", target}
+	if service != nil && *service != "" {
+		command = append(command, "--service", *service)
+	}
+	if delay > 0 {
+		command = append(command, "--delay", fmt.Sprintf("%d", delay))
+	}
+	if permutations {
+		command = append(command, "--permutations")
+	}
+
+	embed := createScanEmbed("Misconfig Scan", target, "running")
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScanBackground(scanID, "misconfig", target, command, s, i)
+}
+
+func handleWebDepConf(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	var urls []string
+	var domain string
+	full := false
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "url":
+			urls = append(urls, opt.StringValue())
+		case "domain":
+			domain = opt.StringValue()
+		case "full":
+			full = opt.BoolValue()
+		}
+	}
+
+	if full {
+		if domain == "" {
+			respond(s, i, "❌ Domain is required for full scan", false)
+			return
+		}
+		scanID := fmt.Sprintf("webdepconf_full_%d", time.Now().Unix())
+		command := []string{utils.GetAutoarScriptPath(), "depconfusion", "web", "--full", "-d", domain}
+		embed := createScanEmbed("Web DepConfusion (Full)", domain, "running")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			},
+		})
+		go runScanBackground(scanID, "webdepconf", domain, command, s, i)
+	} else {
+		if len(urls) == 0 && domain == "" {
+			respond(s, i, "❌ At least one URL or domain is required", false)
+			return
+		}
+		scanID := fmt.Sprintf("webdepconf_%d", time.Now().Unix())
+		command := []string{utils.GetAutoarScriptPath(), "depconfusion", "web"}
+		if domain != "" {
+			// If domain provided, convert to URL
+			if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+				command = append(command, "https://"+domain)
+			} else {
+				command = append(command, domain)
+			}
+		} else {
+			command = append(command, urls...)
+		}
+		target := domain
+		if target == "" {
+			target = strings.Join(urls, ", ")
+		}
+		embed := createScanEmbed("Web DepConfusion", target, "running")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			},
+		})
+		go runScanBackground(scanID, "webdepconf", target, command, s, i)
+	}
+}
+
+func handleScope(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	platform := ""
+	username := ""
+	token := ""
+	email := ""
+	password := ""
+	categories := "all"
+	bbpOnly := false
+	pvtOnly := false
+	includeOOS := false
+	publicOnly := false
+	activeOnly := false
+	extractRoots := true // Default to true
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "platform":
+			platform = opt.StringValue()
+		case "username":
+			username = opt.StringValue()
+		case "token":
+			token = opt.StringValue()
+		case "email":
+			email = opt.StringValue()
+		case "password":
+			password = opt.StringValue()
+		case "categories":
+			categories = opt.StringValue()
+		case "bbp_only":
+			bbpOnly = opt.BoolValue()
+		case "pvt_only":
+			pvtOnly = opt.BoolValue()
+		case "include_oos":
+			includeOOS = opt.BoolValue()
+		case "public_only":
+			publicOnly = opt.BoolValue()
+		case "active_only":
+			activeOnly = opt.BoolValue()
+		case "extract_roots":
+			extractRoots = opt.BoolValue()
+		}
+	}
+
+	if platform == "" {
+		respond(s, i, "❌ Platform is required", false)
+		return
+	}
+
+	// Build command
+	command := []string{utils.GetAutoarScriptPath(), "scope", "-p", platform}
+
+	if username != "" {
+		command = append(command, "-u", username)
+	}
+	if token != "" {
+		command = append(command, "-t", token)
+	}
+	if email != "" {
+		command = append(command, "-e", email)
+	}
+	if password != "" {
+		command = append(command, "-P", password)
+	}
+	if categories != "" && categories != "all" {
+		command = append(command, "-c", categories)
+	}
+	if bbpOnly {
+		command = append(command, "--bbp-only")
+	}
+	if pvtOnly {
+		command = append(command, "--pvt-only")
+	}
+	if includeOOS {
+		command = append(command, "--include-oos")
+	}
+	if publicOnly {
+		command = append(command, "--public-only")
+	}
+	if activeOnly {
+		command = append(command, "--active-only")
+	}
+	if extractRoots {
+		command = append(command, "--extract-roots")
+	} else {
+		command = append(command, "--no-extract-roots")
+	}
+
+	// Create output file in results directory
+	resultsDir := utils.GetResultsDir()
+	os.MkdirAll(resultsDir, 0755)
+	outputFile := filepath.Join(resultsDir, fmt.Sprintf("scope_%s_%d.txt", platform, time.Now().Unix()))
+	command = append(command, "-o", outputFile)
+
+	// Build embed description
+	desc := fmt.Sprintf("**Platform:** %s\n", platform)
+	if username != "" {
+		desc += fmt.Sprintf("**Username:** %s\n", username)
+	}
+	if token != "" {
+		desc += fmt.Sprintf("**Token:** `%s...`\n", token[:min(10, len(token))])
+	}
+	if categories != "" && categories != "all" {
+		desc += fmt.Sprintf("**Categories:** %s\n", categories)
+	}
+	if bbpOnly {
+		desc += "**BBP Only:** Yes\n"
+	}
+	if pvtOnly {
+		desc += "**Private Only:** Yes\n"
+	}
+	if extractRoots {
+		desc += "**Extract Roots:** Yes\n"
+	} else {
+		desc += "**Extract Roots:** No (raw targets)\n"
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🎯 Bug Bounty Scope Fetch",
+		Description: desc,
+		Color:       0x00ff00,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Status", Value: "Fetching scope...", Inline: false},
+		},
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
+
+	go runScopeBackground(platform, command, outputFile, s, i)
+}
+
+func runScopeBackground(platform string, command []string, outputFile string, s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Run the command
+	cmd := exec.Command(command[0], command[1:]...)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		log.Printf("[ERROR] Scope fetch failed: %v\nOutput: %s", err, string(output))
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Scope Fetch Failed",
+			Description: fmt.Sprintf("**Platform:** %s\n**Error:** %v", platform, err),
+			Color:       0xff0000,
+		}
+		s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	// Check if output file exists and has content
+	fileInfo, err := os.Stat(outputFile)
+	if err != nil || fileInfo.Size() == 0 {
+		embed := &discordgo.MessageEmbed{
+			Title:       "⚠️ No Root Domains Found",
+			Description: fmt.Sprintf("**Platform:** %s\nNo root domains were extracted from the scope.", platform),
+			Color:       0xffaa00,
+		}
+		s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	// Read the file to count domains
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read output file: %v", err)
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	domainCount := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			domainCount++
+		}
+	}
+
+	// Determine result type based on file content or command
+	resultType := "Root Domains"
+	if strings.Contains(outputFile, "raw") || !strings.Contains(string(data), ".") {
+		// Try to detect if it's raw targets (contains URLs, wildcards, etc.)
+		hasURLs := strings.Contains(string(data), "http://") || strings.Contains(string(data), "https://")
+		hasWildcards := strings.Contains(string(data), "*.")
+		if hasURLs || hasWildcards {
+			resultType = "Targets"
+		}
+	}
+
+	// Create embed with results
+	embed := &discordgo.MessageEmbed{
+		Title:       "[ + ]Scope Fetch Complete",
+		Description: fmt.Sprintf("**Platform:** %s\n**%s Found:** %d", platform, resultType, domainCount),
+		Color:       0x00ff00,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Output File", Value: fmt.Sprintf("`%s`", outputFile), Inline: false},
+		},
+	}
+
+	// Send the file as attachment
+	file, err := os.Open(outputFile)
+	if err != nil {
+		log.Printf("[ERROR] Failed to open output file: %v", err)
+		s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+	defer file.Close()
+
+	// Send followup with file
+	s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{embed},
+		Files: []*discordgo.File{
+			{
+				Name:   fmt.Sprintf("scope_%s_%d.txt", platform, time.Now().Unix()),
+				Reader: file,
+			},
+		},
+	})
+}
