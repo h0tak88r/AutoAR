@@ -35,7 +35,7 @@ COPY internal/ ./internal/
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar ./cmd/autoar
 
 # Build entrypoint binary (replaces docker-entrypoint.sh)
-WORKDIR /app/internal/modules/entrypoint
+WORKDIR /app/internal/scanner/entrypoint
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar-entrypoint .
 WORKDIR /app
 

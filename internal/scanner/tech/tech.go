@@ -1,0 +1,232 @@
+package tech
+
+import (
+	"bufio"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"net/url"
+
+	"github.com/h0tak88r/AutoAR/internal/db"
+	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
+	"github.com/h0tak88r/AutoAR/internal/utils"
+	"github.com/projectdiscovery/httpx/runner"
+)
+
+// Result holds tech detection results
+type Result struct {
+	Domain     string
+	Hosts      int
+	OutputFile string
+}
+
+// DetectTech runs technology detection using httpx
+func DetectTech(domain string, threads int) (*Result, error) {
+	if domain == "" {
+		return nil, fmt.Errorf("domain is required")
+	}
+	if threads == 0 {
+		threads = 100
+	}
+
+	resultsDir := utils.GetResultsDir()
+	domainDir := filepath.Join(resultsDir, domain)
+	subsDir := filepath.Join(domainDir, "subs")
+	subsFile := filepath.Join(subsDir, "live-subs.txt")
+	outFile := filepath.Join(subsDir, "tech-detect.txt")
+
+	if err := utils.EnsureDir(subsDir); err != nil {
+		return nil, fmt.Errorf("failed to create subs dir: %w", err)
+	}
+
+	// Get live hosts file (checks file first, then database)
+	liveHostsFile, err := livehosts.GetLiveHostsFile(domain)
+	if err != nil {
+		log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
+		// Fallback: try to create it by running livehosts
+		_, err2 := livehosts.FilterLiveHosts(domain, threads, false)
+		if err2 != nil {
+			return nil, fmt.Errorf("failed to get live hosts for %s: %w", domain, err2)
+		}
+		liveHostsFile = subsFile
+	}
+
+	if liveHostsFile != subsFile {
+		// File was created from database, update subsFile path
+		subsFile = liveHostsFile
+	}
+
+	if _, err := os.Stat(subsFile); err != nil {
+		return nil, fmt.Errorf("live hosts file not found: %s", subsFile)
+	}
+
+	// Read live hosts from file
+	file, err := os.Open(subsFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open live hosts file: %w", err)
+	}
+	defer file.Close()
+
+	var targets []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			// Extract host from URL if needed
+			if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+				targets = append(targets, line)
+			} else {
+				// Assume it's a hostname, add both http and https
+				targets = append(targets, "http://"+line, "https://"+line)
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read live hosts file: %w", err)
+	}
+
+	if len(targets) == 0 {
+		log.Printf("[WARN] No live hosts found for %s; skipping tech detection", domain)
+		return &Result{
+			Domain:     domain,
+			Hosts:      0,
+			OutputFile: outFile,
+		}, nil
+	}
+
+	log.Printf("[INFO] Running technology detection with %d threads", threads)
+
+	// Configure httpx options for tech detection
+	options := runner.Options{
+		InputTargetHost: targets,
+		Threads:        threads,
+		TechDetect:     true,
+		ExtractTitle:   true,
+		StatusCode:     true,
+		OutputServerHeader: true,
+		NoColor:        true,
+		Silent:         true,
+		FollowRedirects: true,
+		FollowHostRedirects: true,
+	}
+
+	// Validate options
+	if err := options.ValidateOptions(); err != nil {
+		return nil, fmt.Errorf("failed to validate httpx options: %w", err)
+	}
+
+	// Create output file
+	out, err := os.Create(outFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer out.Close()
+
+	writer := bufio.NewWriter(out)
+	defer writer.Flush()
+
+	var count int
+	var mu sync.Mutex
+
+	// techResult is a structured finding for the dashboard (recon / assets table).
+	type techResult struct {
+		URL          string   `json:"matched-at"`   // TARGET column
+		TemplateID   string   `json:"template-id"`  // VULN TYPE column (tech summary)
+		Severity     string   `json:"severity"`
+		StatusCode   int      `json:"status_code"`
+		Title        string   `json:"title,omitempty"`
+		WebServer    string   `json:"web_server,omitempty"`
+		Technologies []string `json:"technologies,omitempty"`
+	}
+	var techResults []techResult
+
+	// Set callback in options
+	options.OnResult = func(result runner.Result) {
+		if result.URL != "" {
+			mu.Lock()
+			count++
+			// Write human-readable text line to file
+			line := fmt.Sprintf("%s [%d] [%s] [%s] [%s]\n",
+				result.URL,
+				result.StatusCode,
+				result.Title,
+				result.WebServer,
+				strings.Join(result.Technologies, ","))
+			writer.WriteString(line)
+			// Accumulate structured result for JSON output
+			techLabel := strings.Join(result.Technologies, ", ")
+			if techLabel == "" {
+				techLabel = result.WebServer
+			}
+			if techLabel == "" {
+				techLabel = fmt.Sprintf("HTTP %d", result.StatusCode)
+			}
+			techResults = append(techResults, techResult{
+				URL:          result.URL,
+				TemplateID:   techLabel,
+				Severity:     "info",
+				StatusCode:   result.StatusCode,
+				Title:        result.Title,
+				WebServer:    result.WebServer,
+				Technologies: result.Technologies,
+			})
+			
+			// Also sync to core database Subdomains table (tech, title, status, isLive)
+			subhost := result.URL
+			if parsed, err := url.Parse(result.URL); err == nil && parsed.Hostname() != "" {
+				subhost = parsed.Hostname()
+			}
+			go db.UpdateSubdomainFull(domain, subhost, strings.Join(result.Technologies, ","), result.Title, result.StatusCode, true)
+			
+			mu.Unlock()
+		}
+	}
+
+	// Create httpx runner
+	httpxRunner, err := runner.New(&options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create httpx runner: %w", err)
+	}
+	defer httpxRunner.Close()
+
+	// Run enumeration
+	httpxRunner.RunEnumeration()
+
+	log.Printf("[OK] Technology detection completed for %d hosts", count)
+
+	// Write structured JSON for the dashboard (recon / tech assets).
+	if scanID := os.Getenv("AUTOAR_CURRENT_SCAN_ID"); scanID != "" {
+		if len(techResults) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "tech-detect.json", techResults); err != nil {
+				log.Printf("[WARN] Failed to write tech JSON: %v", err)
+			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "recon", "tech-detect.json")
+		}
+	}
+
+	return &Result{
+		Domain:     domain,
+		Hosts:      count,
+		OutputFile: outFile,
+	}, nil
+}
+
+func countLines(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	count := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count, nil
+}

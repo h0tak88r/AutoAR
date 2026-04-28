@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/domain"
+	"github.com/h0tak88r/AutoAR/internal/scanner/domain"
 	"github.com/spf13/cobra"
 )
 

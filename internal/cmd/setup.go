@@ -3,8 +3,8 @@ package cmd
 import (
 	"log"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/checktools"
-	"github.com/h0tak88r/AutoAR/internal/modules/setup"
+	"github.com/h0tak88r/AutoAR/internal/scanner/checktools"
+	"github.com/h0tak88r/AutoAR/internal/scanner/setup"
 	"github.com/spf13/cobra"
 )
 

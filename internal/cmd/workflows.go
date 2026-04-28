@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/h0tak88r/AutoAR/internal/modules/fastlook"
-	"github.com/h0tak88r/AutoAR/internal/modules/subdomain"
+	"github.com/h0tak88r/AutoAR/internal/scanner/fastlook"
+	"github.com/h0tak88r/AutoAR/internal/scanner/subdomain"
 	"github.com/spf13/cobra"
 )
 
