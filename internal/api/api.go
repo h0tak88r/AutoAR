@@ -449,8 +449,11 @@ func SetupAPI() *gin.Engine {
 
 	auth := supabaseJWTAuth()
 
-	// Root
-	r.GET("/", rootHandler)
+	// Root: serve dashboard UI by default.
+	r.GET("/", serveDashboardUI)
+	// API landing endpoint (non-auth) for health/info checks.
+	r.GET("/api", rootHandler)
+	r.GET("/api/", rootHandler)
 	r.GET("/health", healthHandler)
 	r.GET("/metrics", auth, metricsHandler)
 	r.GET("/docs", auth, docsHandler)
