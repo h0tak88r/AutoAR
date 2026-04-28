@@ -16,8 +16,9 @@ AutoAR is a powerful, end-to-end automated security reconnaissance and vulnerabi
 
 Results are automatically uploaded to **Cloudflare R2 storage** and linked directly in your output — no hunting through directories.
 
-**Public VPS / dashboard:** configure Supabase-backed login and JWT verification for the HTTP API — see [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md).
+**Public VPS / dashboard:** uses native Go JWT authentication with local PostgreSQL — no Supabase required. See [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md).
 
+![Dashboard](image.png)
 ---
 
 ## ✨ Feature Highlights
@@ -33,14 +34,17 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | ☁️ **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
 | 🔗 **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
 | 🐙 **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
-| 📱 **Mobile Apps**     | Browser-based APK/IPA Auditor — decompile DEX, 80+ security rules, MITM patching, remote fetch by Package ID with R2 download links |
+| 📱 **APK Auditor**     | Browser-based static analysis: decompile DEX, 80+ OWASP rules, tracker detection, manifest parsing, cert analysis, MASVS export. Credit: [thecybersandeep/apkauditor](https://github.com/thecybersandeep/apkauditor) |
+| 🔒 **MITM Patch**      | Fetch any Android app by Package ID → auto-patch `network_security_config.xml` → re-sign → R2 download link in one click             |
+| 📱 **IPA Auditor**     | Browser-based iOS IPA analysis: binary strings, plist parsing, secrets detection, framework fingerprinting                             |
+| 🖥️ **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching                 |
 | ⚙️ **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
 | 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
 | 🔄 **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
-| 🤖 **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required     |
+| 🤖 **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **z-ai/glm-4.5-air:free via OpenRouter** — zero cost required          |
 | 📤 **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 | 🔔 **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
-| 🖥️ **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets page, APK Auditor with remote scan, Rescan button, CF-1016 findings  |
+| 🖥️ **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings             |
 
 
 ---
@@ -357,9 +361,9 @@ As of the latest release, AutoAR's AI engine runs on `**[stepfun/step-3.5-flash:
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
-That's it. AutoAR will automatically use `stepfun/step-3.5-flash:free` for all `/ai` and `/brain` commands.
+That's it. AutoAR will automatically use `z-ai/glm-4.5-air:free` for all `/ai` and `/brain` commands.
 
-> **Tip:** If `OPENROUTER_API_KEY` is set, it is used first. `GEMINI_API_KEY` is a fallback for direct Gemini access. You only need one of the two.
+> **Tip:** If `OPENROUTER_API_KEY` is set, it is used first (with `z-ai/glm-4.5-air:free`). `ZHIPU_API_KEY` routes to the Z.ai direct endpoint. `GEMINI_API_KEY` is a final fallback. You only need one of the three.
 
 ### Database & Results
 
