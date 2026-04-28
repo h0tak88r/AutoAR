@@ -33,14 +33,14 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | ☁️ **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
 | 🔗 **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
 | 🐙 **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
-| 📱 **Mobile Apps**     | APK/IPA analysis with MobSF + MITM traffic interception                                                                                |
+| 📱 **Mobile Apps**     | Browser-based APK/IPA Auditor — decompile DEX, 80+ security rules, MITM patching, remote fetch by Package ID with R2 download links |
 | ⚙️ **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
 | 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
 | 🔄 **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
 | 🤖 **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **Step-3.5 Flash via OpenRouter (free tier)** — zero cost required     |
 | 📤 **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 | 🔔 **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
-| 🖥️ **Web dashboard**  | **v4.0+** — Stats, scans, domains, monitors, R2 browser, Targets page (BB scope fetch), Rescan button, structured CF-1016 findings     |
+| 🖥️ **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets page, APK Auditor with remote scan, Rescan button, CF-1016 findings  |
 
 
 ---
@@ -199,13 +199,48 @@ autoar aem scan        -d <domain>            Detect AEM instances and test vuln
                        [--proxy <proxy>]      HTTP proxy
 ```
 
-### Mobile Application Analysis (APKx)
+### Mobile Application Analysis (APK Auditor)
 
+The **APK Auditor** is a fully browser-based static analysis tool available at `/ui/apkauditor/`.
+
+**Drag & Drop Analysis (no server required):**
+- Drop any APK to instantly decompile DEX and run 80+ security rules in the browser
+- Parsed binary AndroidManifest (exported components, permissions, SDK, backup flags, deep links)
+- Certificate analysis (debug keys, expired certs, weak algorithms)
+- 38+ tracker & SDK detection from DEX strings
+- Full in-browser file explorer (XML, JSON, images, .so files with hex view)
+- OWASP MASVS aligned reporting — one-click export
+
+**Remote Fetch by Package ID (server-side, with MITM patch):**
+
+```bash
+# Via the dashboard UI — click "Fetch Package ID" in the APK Auditor page
+# Enter the package ID, optionally enable MITM patch, click Start
 ```
-autoar apkx scan       -i <apk_or_ipa_path>  Analyze an APK or IPA file
+
+Or via API:
+```bash
+curl -X POST https://your-server/scan/apkx \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": "com.example.app", "mitm": true}'
+```
+
+What happens:
+1. Downloads the APK from APKPure (supports `.xapk` / split APKs automatically)
+2. *(Optional)* Patches `network_security_config.xml` to trust user-installed CAs + disables certificate pinning
+3. Re-signs with `uber-apk-signer` and uploads the patched APK to R2
+4. Shows a **download panel** in the Auditor UI with direct R2 links for:
+   - 📦 Original APK
+   - 🔒 MITM Patched APK (if requested)
+5. Automatically loads the APK into the browser auditor for analysis
+
+> **Scan records from APK Auditor are hidden from the main Scans dashboard** — they exist only within the Auditor context.
+
+```bash
+autoar apkx scan       -i <apk_or_ipa_path>  Analyze a local APK or IPA file
                        -p <package_id>        Download and scan by package ID
-                       [--platform android|ios]
-                       [--mitm]               Set up MITM proxy interception
+                       [--mitm]               Patch APK for MITM traffic analysis
 autoar apkx mitm       -i <apk_path>          Patch APK for MITM traffic analysis
 ```
 
