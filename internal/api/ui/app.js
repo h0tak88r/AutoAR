@@ -238,15 +238,17 @@ function navigateTo(view) {
       document.cookie = `autoar_token=${tok}; path=/ui/securitylab; max-age=3600; SameSite=Strict`;
     }
     const modeMap = { 'apkauditor': 'android', 'ipaauditor': 'ios', 'adbauditor': 'adb' };
+    const auditorPathMap = {
+      apkauditor: '/ui/apkauditor/?mode=android',
+      ipaauditor: '/ui/ipaauditor/?mode=ios',
+      adbauditor: '/ui/adbauditor/?mode=adb',
+    };
     const frame = document.getElementById(`${view}-frame`);
     if (frame && !frame.getAttribute('data-loaded')) {
       frame.setAttribute('data-loaded', '1');
       setTimeout(() => {
-        if (view === 'securitylab') {
-          frame.src = '/ui/securitylab/';
-        } else {
-          frame.src = `/ui/apkauditor/?mode=${modeMap[view]}`;
-        }
+        if (view === 'securitylab') frame.src = '/ui/securitylab/';
+        else frame.src = auditorPathMap[view] || `/ui/apkauditor/?mode=${modeMap[view]}`;
       }, 30);
     }
   }
@@ -8326,13 +8328,103 @@ async function apiPost(path, body) {
 
 // ── Keyhacks ─────────────────────────────────────────────────────────────────
 
+const KEYHACK_LOCAL_TEMPLATES = [
+  {
+    Keyname: 'AWS Access Key',
+    Description: 'Detect AWS access keys and validate identity scope.',
+    Method: 'GET',
+    CommandTemplate: 'aws sts get-caller-identity --access-key-id "{{KEY}}"',
+    Notes: 'Use with short-lived session credentials only in authorized testing.',
+    Detect: [/AKIA[0-9A-Z]{16}/, /ASIA[0-9A-Z]{16}/],
+    ExploitHint: 'Try aws sts get-caller-identity, then enumerate allowed services with least-noisy calls.'
+  },
+  {
+    Keyname: 'GitHub Token',
+    Description: 'Validate GitHub personal access tokens.',
+    Method: 'GET',
+    CommandTemplate: 'curl -s -H "Authorization: Bearer {{KEY}}" https://api.github.com/user',
+    Notes: 'Classic PAT usually starts with ghp_. Fine-grained may use github_pat_.',
+    Detect: [/ghp_[A-Za-z0-9_]{30,}/, /github_pat_[A-Za-z0-9_]{20,}/],
+    ExploitHint: 'Validate scope by checking /user, /user/repos, and org endpoints.'
+  },
+  {
+    Keyname: 'Stripe Secret Key',
+    Description: 'Validate Stripe secret keys against account endpoint.',
+    Method: 'GET',
+    CommandTemplate: 'curl -s https://api.stripe.com/v1/account -u "{{KEY}}:"',
+    Notes: 'Secret keys commonly start with sk_live_ or sk_test_.',
+    Detect: [/sk_(live|test)_[A-Za-z0-9]{16,}/],
+    ExploitHint: 'Check account metadata and restricted key permissions before any action.'
+  },
+  {
+    Keyname: 'Slack Bot Token',
+    Description: 'Validate Slack bot token and discover bot identity.',
+    Method: 'GET',
+    CommandTemplate: 'curl -s -H "Authorization: Bearer {{KEY}}" https://slack.com/api/auth.test',
+    Notes: 'Bot tokens typically start with xoxb-.',
+    Detect: [/xoxb-[0-9A-Za-z-]{20,}/],
+    ExploitHint: 'After auth.test, enumerate scopes with apps.permissions.info if permitted.'
+  },
+  {
+    Keyname: 'OpenAI API Key',
+    Description: 'Validate OpenAI key with models listing endpoint.',
+    Method: 'GET',
+    CommandTemplate: 'curl -s -H "Authorization: Bearer {{KEY}}" https://api.openai.com/v1/models',
+    Notes: 'Modern keys frequently start with sk-proj-.',
+    Detect: [/sk-proj-[A-Za-z0-9_\-]{20,}/, /sk-[A-Za-z0-9]{20,}/],
+    ExploitHint: 'Validate first; never run expensive generation endpoints during checks.'
+  },
+];
+
+function detectKeyhackTemplateByValue(value) {
+  const token = String(value || '').trim();
+  if (!token) return null;
+  for (const t of KEYHACK_LOCAL_TEMPLATES) {
+    const patterns = Array.isArray(t.Detect) ? t.Detect : [];
+    if (patterns.some((re) => re.test(token))) return t;
+  }
+  return null;
+}
+
+function renderKeyInspectorResult(raw) {
+  const out = document.getElementById('keyhacks-inspector-output');
+  if (!out) return;
+  const token = String(raw || '').trim();
+  if (!token) {
+    out.innerHTML = '<div class="empty-state"><div class="empty-title">Paste a key to inspect</div></div>';
+    return;
+  }
+  const hit = detectKeyhackTemplateByValue(token);
+  if (!hit) {
+    out.innerHTML = '<div class="empty-state"><div class="empty-title">No template match</div><div class="empty-subtitle">Try searching templates by provider name.</div></div>';
+    return;
+  }
+  const suggested = (hit.CommandTemplate || '').replaceAll('{{KEY}}', token);
+  out.innerHTML = `
+    <div class="card" style="margin:10px 0 0 0">
+      <div class="card-header"><div class="card-title"><span class="card-title-icon">🧪</span>Detected: ${escapeHTML(hit.Keyname)}</div></div>
+      <div class="card-body">
+        <div style="margin-bottom:10px;color:var(--text-muted)">${escapeHTML(hit.Description || '')}</div>
+        <div class="keyhack-cmd-section">
+          <div class="keyhack-cmd-label">Suggested validation command</div>
+          <div class="keyhack-cmd-box"><pre class="keyhack-pre">${escapeHTML(suggested)}</pre></div>
+        </div>
+        <div style="margin-top:10px;color:var(--text-secondary)"><strong>Hint:</strong> ${escapeHTML(hit.ExploitHint || 'Validate scope carefully and avoid destructive calls.')}</div>
+      </div>
+    </div>`;
+}
+
 async function loadKeyhacks(query = '') {
   const container = document.getElementById('keyhacks-container');
   if (!container) return;
 
   try {
-    const path = query ? `/api/keyhacks/search?q=${encodeURIComponent(query)}` : '/api/keyhacks';
-    const data = await apiFetch(path);
+    const q = String(query || '').toLowerCase();
+    const data = KEYHACK_LOCAL_TEMPLATES.filter((t) =>
+      !q ||
+      String(t.Keyname || '').toLowerCase().includes(q) ||
+      String(t.Description || '').toLowerCase().includes(q)
+    );
     renderKeyhacks(data);
   } catch (e) {
     container.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading templates</div><div class="empty-subtitle">${e.message}</div></div>`;
@@ -8348,7 +8440,18 @@ function renderKeyhacks(templates) {
     return;
   }
 
-  let html = `<div class="keyhacks-grid">`;
+  let html = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div class="card-title"><span class="card-title-icon">🔍</span>API Key Inspector (Browser-local)</div></div>
+      <div class="card-body">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <input class="search-input" id="keyhacks-key-input" placeholder="Paste key/token for detection..." autocomplete="off" style="flex:1;min-width:260px" />
+          <button class="btn btn-primary" id="keyhacks-inspect-btn">Inspect</button>
+        </div>
+        <div id="keyhacks-inspector-output" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="keyhacks-grid">`;
 
   templates.forEach(t => {
     const method = (t.Method || 'GET').toUpperCase();
@@ -8390,6 +8493,17 @@ function renderKeyhacks(templates) {
 
   html += '</div>';
   container.innerHTML = html;
+  const inspectBtn = document.getElementById('keyhacks-inspect-btn');
+  const keyInput = document.getElementById('keyhacks-key-input');
+  if (inspectBtn && keyInput) {
+    inspectBtn.addEventListener('click', () => renderKeyInspectorResult(keyInput.value));
+    keyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        renderKeyInspectorResult(keyInput.value);
+      }
+    });
+  }
   container.querySelectorAll('.keyhack-copy-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const cmd = btn.getAttribute('data-cmd') || '';
