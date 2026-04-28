@@ -57,6 +57,8 @@ tmp_*
 *secret**
 *key**
 !internal/modules/gobot/keyhack_api.go
+!internal/api/keyhack_api.go
+!internal/bot/commands_keyhack_monitor_status.go
 !modules/keyhack.sh
 !scripts/*.sh
 *token*
@@ -72,11 +74,13 @@ generate_from_env.sh
 keyhack_templates/  # Cloned in Docker from KeysKit repo
 
 *.txt
+!internal/api/ui/adbauditor/robots.txt
 
 # Exclude all markdown files except README.md
 *.md
 !README.md
 !docs/**/*.md
+!internal/api/ui/adbauditor/docs/
 # Allow nuclei-templates markdown files (submodule)
 !nuclei_templates/**/*.md
 # Allow gomodules README files
