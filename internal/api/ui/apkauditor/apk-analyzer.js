@@ -2448,13 +2448,14 @@ function renderFindingsTab() {
         const countBadge = f.count > 1 ? `<span class="finding-count-badge">${f.count} instances</span>` : '';
         const sev = (f.severity === 'issue' || f.severity === 'medium') ? 'warning' : 
                     (f.severity === 'critical') ? 'high' : f.severity;
+        const sevText = (f.severity === 'issue') ? 'MEDIUM' : f.severity.toUpperCase();
         
         let matchesHtml = (f.matches || []).map(renderMatch).join('');
         
         return `
             <div class="finding-container-compact">
                 <div class="finding-row-compact ${sev}" onclick="this.classList.toggle('active'); document.getElementById('details_${idx}').classList.toggle('active')">
-                    <div class="sev-mini ${sev}">${sev.toUpperCase()}</div>
+                    <div class="sev-mini ${sev}">${sevText}</div>
                     <div class="finding-title-compact">${esc(f.ruleName)}</div>
                     <div class="finding-meta-compact">
                         ${countBadge}
