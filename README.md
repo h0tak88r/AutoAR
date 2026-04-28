@@ -34,9 +34,9 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 | ☁️ **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
 | 🔗 **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
 | 🐙 **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
-| 📱 **APK Auditor**     | Browser-based static analysis: decompile DEX, 80+ OWASP rules, tracker detection, manifest parsing, cert analysis, MASVS export. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
+| 📱 **APK Auditor**     | Browser-based Android analysis: DEX decompiler, manifest + cert parsing, tracker detection, MASVS mapping, and regex-driven findings with APX secret patterns. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
 | 🔒 **MITM Patch**      | Fetch any Android app by Package ID → auto-patch `network_security_config.xml` → re-sign → R2 download link in one click             |
-| 📱 **IPA Auditor**     | Browser-based iOS IPA analysis: binary strings, plist parsing, secrets detection, framework fingerprinting. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
+| 📱 **IPA Auditor**     | Browser-based iOS IPA analysis: plist + Mach-O inspection, binary strings extraction, and findings tab powered by 200+ regex signatures plus MASVS-style rules. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
 | 🖥️ **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching. (Based on [adbauditor](https://github.com/thecybersandeep/adbauditor) by @thecybersandeep) |
 | ⚙️ **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
 | 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
@@ -208,11 +208,12 @@ autoar aem scan        -d <domain>            Detect AEM instances and test vuln
 The **APK Auditor** is a fully browser-based static analysis tool available at `/ui/apkauditor/`.
 
 **Drag & Drop Analysis (no server required):**
-- Drop any APK to instantly decompile DEX and run 80+ security rules in the browser
+- Drop any APK to instantly decompile DEX and run regex-based findings in the browser
 - Parsed binary AndroidManifest (exported components, permissions, SDK, backup flags, deep links)
 - Certificate analysis (debug keys, expired certs, weak algorithms)
 - 38+ tracker & SDK detection from DEX strings
 - Full in-browser file explorer (XML, JSON, images, .so files with hex view)
+- Regex presets and bulk pattern scans for secrets/tokens across code and resources
 - OWASP MASVS aligned reporting — one-click export
 
 **Remote Fetch by Package ID (server-side, with MITM patch):**
@@ -247,6 +248,23 @@ autoar apkx scan       -i <apk_or_ipa_path>  Analyze a local APK or IPA file
                        [--mitm]               Patch APK for MITM traffic analysis
 autoar apkx mitm       -i <apk_path>          Patch APK for MITM traffic analysis
 ```
+
+### Mobile Application Analysis (IPA Auditor)
+
+The **IPA Auditor** is a browser-based iOS static analysis tool available at `/ui/ipaauditor/`.
+
+**What it covers:**
+- IPA parsing in-browser (no upload required for local analysis)
+- Info.plist extraction, URL schemes, entitlement/permission indicators
+- Mach-O binary string extraction with security pattern matching
+- Findings tab generated from:
+  - native iOS security rules (ATS, storage, crypto, webview/runtime checks)
+  - regex preset secret scans
+  - imported APX regex signatures from APK Auditor (200 patterns)
+- Combined findings coverage is now 200+ regex signatures plus core iOS rules
+- Explorer mode for source/resources with line-level finding navigation
+
+> **Important:** Auditor findings are signatures for triage and manual validation, not guaranteed exploitability.
 
 ### Dependency Confusion
 
@@ -788,13 +806,13 @@ For PostgreSQL, ensure:
 
 ## 🏷️ GitHub release (tag → CI)
 
-Versions are defined once in `[internal/version/version.go](internal/version/version.go)` (`Version`, no `v` prefix). To publish **v4.0.0**:
+Versions are defined once in `[internal/version/version.go](internal/version/version.go)` (`Version`, no `v` prefix). To publish **v4.2.0**:
 
-1. Set `const Version = "4.0.0"` and commit.
+1. Set `const Version = "4.2.0"` and commit.
 2. From the repo root:
   ```bash
    chmod +x scripts/tag-release.sh
-   ./scripts/tag-release.sh v4.0.0
+   ./scripts/tag-release.sh v4.2.0
   ```
    This pushes your current branch and the annotated tag. `**[.github/workflows/release.yml](.github/workflows/release.yml)**` then builds Linux binaries, attaches `tar.gz` / `zip`, generates release notes, and pushes `**ghcr.io/<owner>/autoar**` for that tag.
 
