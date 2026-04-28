@@ -20,7 +20,6 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.5
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/joeguo/tldextract v0.0.0-20220507100122-d83daa6adef8
-	github.com/joho/godotenv v1.5.1
 	github.com/juju/persistent-cookiejar v1.0.0
 	github.com/majd/ipatool/v2 v2.2.0
 	github.com/projectdiscovery/dnsx v1.2.2
@@ -30,6 +29,7 @@ require (
 	github.com/projectdiscovery/subfinder/v2 v2.6.7
 	github.com/projectdiscovery/tlsx v1.2.2
 	github.com/sa7mon/s3scanner v0.0.0-20251106040855-9e26bc46e8ee
+	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.10.2
 	github.com/sw33tLie/bbscope v0.0.0-20251113222800-c453973e83dd
@@ -235,9 +235,7 @@ require (
 	github.com/sashabaranov/go-openai v1.37.0 // indirect
 	github.com/schollz/progressbar/v3 v3.13.1 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
-	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
-	github.com/shogo82148/androidbinary v1.0.5 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
