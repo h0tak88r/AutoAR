@@ -48,12 +48,12 @@ type AICommandList struct {
 }
 
 const (
-	DefaultModel         = "nvidia/nemotron-3-nano-30b-a3b:free"
+	DefaultModel         = "z-ai/glm-4.5-air:free"
 	OpenRouterEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
 	GeminiDirectEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 	ZAIEndpoint          = "https://api.z.ai/api/coding/paas/v4/chat/completions"
-	ZAIDefaultModel      = "glm-4.6"
-	MaxAgentIterations   = 20 // increased from 8 — complex hunts need subdomains+live+ports+nuclei+js+gf+validations
+	ZAIDefaultModel      = "glm-4.5-air"
+	MaxAgentIterations   = 20
 )
 
 // ─── Agent Loop types ─────────────────────────────────────────────────────────
