@@ -620,6 +620,12 @@ function r2PageMethod(name) {
     : null;
 }
 
+function r2PrefixesPageMethod(name) {
+  return window.R2PrefixesPage && typeof window.R2PrefixesPage[name] === 'function'
+    ? window.R2PrefixesPage[name]
+    : null;
+}
+
 async function loadR2(prefix = '') {
   const fn = r2PageMethod('loadR2');
   if (fn) return fn(prefix);
@@ -649,6 +655,8 @@ function r2DeleteSelected() {
 
 /** Strip protocol/path for R2 prefixes (results/, new-results/, lite/). */
 function targetToHostname(target) {
+  const fn = r2PrefixesPageMethod('targetToHostname');
+  if (fn) return fn(target);
   if (target == null || target === '') return '';
   const t = String(target).trim();
   try {
@@ -663,6 +671,8 @@ function targetToHostname(target) {
 }
 
 function uniquePrefixList(prefixes) {
+  const fn = r2PrefixesPageMethod('uniquePrefixList');
+  if (fn) return fn(prefixes);
   const out = [];
   const seen = new Set();
   for (const p of prefixes) {
@@ -677,6 +687,8 @@ function uniquePrefixList(prefixes) {
  * R2 key prefixes to search per scan type (mirrors local new-results/ layout + UploadResultsDirectory results/).
  */
 function r2PrefixesForScan(target, scanType) {
+  const fn = r2PrefixesPageMethod('r2PrefixesForScan');
+  if (fn) return fn(target, scanType);
   const t = (target || '').trim();
   const st = (scanType || '').toLowerCase();
   const host = targetToHostname(t) || t;
