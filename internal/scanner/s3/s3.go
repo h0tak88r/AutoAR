@@ -120,6 +120,7 @@ func handleEnum(opts Options, resultsDir string) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	foundCount := 0
+	foundBuckets := make([]string, 0, 32)
 
 	// Start worker goroutines using S3Scanner worker
 	for i := 0; i < threads; i++ {
@@ -154,6 +155,7 @@ func handleEnum(opts Options, resultsDir string) error {
 					fmt.Fprintf(logFileHandle, "[OK] Found bucket: %s (region: %s)\n", result.Name, result.Region)
 					log.Printf("[OK] S3 enumeration: Found bucket: %s (region: %s)", result.Name, result.Region)
 					foundCount++
+					foundBuckets = append(foundBuckets, result.Name)
 					mu.Unlock()
 				} else if opts.Verbose {
 					fmt.Fprintf(logFileHandle, "[INFO] Bucket %s: does not exist\n", result.Name)
@@ -181,6 +183,37 @@ func handleEnum(opts Options, resultsDir string) error {
 	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
 	
 	log.Printf("[OK] S3 enumeration completed for %s (results: %s, log: %s)", opts.Root, outputFile, logFile)
+
+	// Publish structured enum results for dashboard parsing.
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
+		type s3EnumFinding struct {
+			Target     string `json:"target"`
+			Bucket     string `json:"bucket"`
+			Status     string `json:"status"`
+			Vulnerable bool   `json:"vulnerable"`
+			Severity   string `json:"severity"`
+			Module     string `json:"module"`
+			Finding    string `json:"finding"`
+		}
+		findings := make([]s3EnumFinding, 0, len(foundBuckets))
+		for _, b := range foundBuckets {
+			findings = append(findings, s3EnumFinding{
+				Target:     b,
+				Bucket:     b,
+				Status:     "discovered",
+				Vulnerable: false,
+				Severity:   "info",
+				Module:     "s3-enum",
+				Finding:    "S3 bucket discovered",
+			})
+		}
+		if len(findings) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "s3-buckets.json", findings); err != nil {
+				log.Printf("[WARN] Failed to write S3 enum JSON: %v", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -343,18 +376,30 @@ func handleScan(opts Options, resultsDir string) error {
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		bucketURL := fmt.Sprintf("https://%s.s3.amazonaws.com", opts.Bucket)
 		type s3Finding struct {
-			TemplateID  string   `json:"template-id"`
-			MatchedAt   string   `json:"matched-at"`
-			Severity    string   `json:"severity"`
-			ObjectCount int      `json:"object_count"`
-			ScanMethod  string   `json:"scan_method"`
+			Target      string `json:"target"`
+			Bucket      string `json:"bucket"`
+			Status      string `json:"status"`
+			Vulnerable  bool   `json:"vulnerable"`
+			Severity    string `json:"severity"`
+			Module      string `json:"module"`
+			Finding     string `json:"finding"`
+			ObjectCount int    `json:"object_count"`
+			ScanMethod  string `json:"scan_method"`
 		}
 		var findings []s3Finding
 		if objectCount > 0 {
+			finding := "Public S3 Bucket"
+			if scanMethod != "" {
+				finding = fmt.Sprintf("Public S3 Bucket (%s)", scanMethod)
+			}
 			findings = append(findings, s3Finding{
-				TemplateID:  "Public S3 Bucket",
-				MatchedAt:   bucketURL,
+				Target:      bucketURL,
+				Bucket:      opts.Bucket,
+				Status:      "public",
+				Vulnerable:  true,
 				Severity:    "high",
+				Module:      "s3-scan",
+				Finding:     finding,
 				ObjectCount: objectCount,
 				ScanMethod:  scanMethod,
 			})
