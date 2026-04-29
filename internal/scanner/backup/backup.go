@@ -62,7 +62,7 @@ func Run(opts Options) (*Result, error) {
 				}
 			}
 		}
-		
+
 		// If not in Docker and path is absolute (like /new-results), convert to relative
 		if !isDocker {
 			if cwd, err := os.Getwd(); err == nil {
@@ -116,12 +116,12 @@ func Run(opts Options) (*Result, error) {
 
 	fuzzOpts := fuzzulitool.DefaultOptions()
 	fuzzOpts.Workers = threads
-	
+
 	// Set method if provided
 	if opts.Method != "" {
 		fuzzOpts.Method = fuzzulitool.Method(opts.Method)
 	}
-	
+
 	// Set custom extensions if provided
 	if len(opts.Extensions) > 0 {
 		fuzzOpts.Extensions = opts.Extensions
@@ -180,35 +180,24 @@ func Run(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("invalid options")
 	}
 
+	validURLs := make([]string, 0, len(urls))
 	foundCount := 0
 	for _, u := range urls {
 		if strings.TrimSpace(u) == "" {
 			continue
 		}
 		if _, err := resultsFH.WriteString(u + "\n"); err == nil {
+			validURLs = append(validURLs, u)
 			foundCount++
 		}
 	}
-	
+
 	log.Printf("[INFO] Backup scan: Wrote %d backup URLs to results file: %s", foundCount, resultsFile)
 
 	res.Duration = time.Since(start)
 
-	// Count lines containing "http" in results file, similar to the bash module.
-	f, err := os.Open(resultsFile)
-	if err != nil {
-		return res, fmt.Errorf("failed to open results file for counting: %w", err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, "http") {
-			res.FoundCount++
-		}
-	}
-	_ = scanner.Err()
+	// We already have discovered URLs from the fuzzuli package result.
+	res.FoundCount = foundCount
 
 	// If we scanned a live-hosts file, record host count as well.
 	if opts.LiveHostsFile != "" {
@@ -226,32 +215,30 @@ func Run(opts Options) (*Result, error) {
 	// Write structured JSON for the dashboard — one finding per discovered backup URL.
 	// template-id = "Exposed Backup File", matched-at = URL, severity = high
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
-		data, readErr := os.ReadFile(res.ResultsFile)
-		if readErr == nil {
-			type backupFinding struct {
-				TemplateID string `json:"template-id"`
-				MatchedAt  string `json:"matched-at"`
-				Severity   string `json:"severity"`
+		type backupFinding struct {
+			TemplateID string `json:"template-id"`
+			MatchedAt  string `json:"matched-at"`
+			Severity   string `json:"severity"`
+			Module     string `json:"module"`
+		}
+		findings := make([]backupFinding, 0, len(validURLs))
+		for _, l := range validURLs {
+			if strings.TrimSpace(l) == "" || !strings.Contains(l, "http") {
+				continue
 			}
-			var findings []backupFinding
-			for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-				l = strings.TrimSpace(l)
-				if l == "" || !strings.Contains(l, "http") {
-					continue
-				}
-				findings = append(findings, backupFinding{
-					TemplateID: "Exposed Backup File",
-					MatchedAt:  l,
-					Severity:   "high",
-				})
+			findings = append(findings, backupFinding{
+				TemplateID: "Exposed Backup File",
+				MatchedAt:  l,
+				Severity:   "high",
+				Module:     "backup-detection",
+			})
+		}
+		if len(findings) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "backup-vulnerabilities.json", findings); err != nil {
+				log.Printf("[WARN] Failed to write backup JSON: %v", err)
 			}
-			if len(findings) > 0 {
-				if err := utils.WriteJSONToScanDir(scanID, "backup-vulnerabilities.json", findings); err != nil {
-					log.Printf("[WARN] Failed to write backup JSON: %v", err)
-				}
-			} else {
-				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "backup-detection", "backup-vulnerabilities.json")
-			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "backup-detection", "backup-vulnerabilities.json")
 		}
 	}
 
