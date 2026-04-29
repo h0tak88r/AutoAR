@@ -127,8 +127,6 @@ function viewTitle(v) {
 
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
 
-const LOCAL_TOKEN_KEY = 'autoar_local_token';
-
 function authSessionPageMethod(name) {
   return window.AuthSessionPage && typeof window.AuthSessionPage[name] === 'function'
     ? window.AuthSessionPage[name]
