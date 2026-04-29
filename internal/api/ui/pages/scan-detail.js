@@ -173,31 +173,6 @@
             </div>
           </div>`;
       } else {
-        const isRunning = /running|starting/i.test(stat);
-        const logCardStyle = isRunning ? '' : 'display:none;';
-        const logTerminalCard = `
-          <div class="modern-card" id="scan-log-terminal-card" style="${logCardStyle}">
-            <div class="card-header" style="cursor:pointer" onclick="document.getElementById('scan-log-body').style.display=document.getElementById('scan-log-body').style.display==='none'?'block':'none'">
-              <div class="card-title"><span class="card-title-icon">📟</span>Live Scan Log</div>
-              <span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">● streaming</span>
-            </div>
-            <div id="scan-log-body" style="padding:0">
-              <pre id="scan-log-output" style="
-                background:var(--bg-secondary,#0d0d14);
-                color:#a0ffb0;
-                font-size:11px;
-                line-height:1.55;
-                padding:16px;
-                margin:0;
-                max-height:340px;
-                overflow-y:auto;
-                border-radius:0 0 12px 12px;
-                white-space:pre-wrap;
-                word-break:break-all;
-              ">Connecting to log stream...</pre>
-            </div>
-          </div>`;
-
         const reportCard = `
           <div class="modern-card" id="scan-report-card">
             <div class="card-header">
@@ -238,7 +213,6 @@
           <div class="scan-detail-modern">
             ${zipBanner}
             ${manifestCard}
-            ${logTerminalCard}
             ${reportCard}
             ${emptyBanner}
             
@@ -255,31 +229,6 @@
       }
 
       container.innerHTML = html;
-
-      // Wire live log terminal SSE
-      const logOutput = document.getElementById('scan-log-output');
-      const logTermCard = document.getElementById('scan-log-terminal-card');
-      if (logOutput) {
-        let sseLog = null;
-        const connectLogStream = () => {
-          if (sseLog) { sseLog.close(); sseLog = null; }
-          const tok = typeof window.localTokenGet === 'function' ? window.localTokenGet() : '';
-          const url = `/api/scans/${encodeURIComponent(scanId)}/logs/stream${tok ? `?token=${encodeURIComponent(tok)}` : ''}`;
-          sseLog = new EventSource(url);
-          sseLog.addEventListener('log', e => {
-            logOutput.textContent += e.data + '\n';
-            logOutput.scrollTop = logOutput.scrollHeight;
-          });
-          sseLog.addEventListener('done', () => {
-            logOutput.textContent += '\n✅ Scan finished.\n';
-            sseLog.close(); sseLog = null;
-            if (logTermCard) logTermCard.querySelector('.badge').textContent = '● finished';
-          });
-          sseLog.onerror = () => { sseLog.close(); sseLog = null; };
-        };
-        connectLogStream();
-        window.__currentLogSSE = sseLog;
-      }
 
       // Wire report generation card
       const reportTemplateSel = document.getElementById('scan-report-template-sel');
