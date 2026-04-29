@@ -59,6 +59,7 @@ tmp_*
 !internal/modules/gobot/keyhack_api.go
 !internal/api/keyhack_api.go
 !internal/bot/commands_keyhack_monitor_status.go
+!internal/api/ui/pages/keyhacks.js
 !modules/keyhack.sh
 !scripts/*.sh
 *token*

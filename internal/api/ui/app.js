@@ -8030,603 +8030,77 @@ document.addEventListener('DOMContentLoaded', boot);
 // Bug Bounty Targets Page
 // ══════════════════════════════════════════════════════════════════════════════
 
-const PLATFORM_COLORS = {
-  h1: { bg: '#1a2e1a', border: '#2a5a2a', accent: '#2ecc71', text: '#2ecc71' },
-  bc: { bg: '#2e1e10', border: '#5a3820', accent: '#e67e22', text: '#e67e22' },
-  ywh: { bg: '#10182e', border: '#1e2e5a', accent: '#3498db', text: '#3498db' },
-  it: { bg: '#1e1028', border: '#3c1e55', accent: '#9b59b6', text: '#9b59b6' },
-  immunefi: { bg: '#1a1a2e', border: '#2a2a55', accent: '#667eea', text: '#667eea' },
-};
-
-// State for the targets page
-const targetsState = {
-  platforms: [],
-  selectedPlatform: null,
-  credentials: {},   // {platform: {token, username, email, password}}
-  domains: [],       // last fetched root domains
-  filtered: [],      // after filter
-};
-
+function targetsPageMethod(name) {
+  return window.TargetsPage && typeof window.TargetsPage[name] === 'function'
+    ? window.TargetsPage[name]
+    : null;
+}
 async function loadTargetsPlatforms() {
-  if (state.view !== 'targets') return;
-  try {
-    const data = await apiFetch('/api/scope/platforms');
-    targetsState.platforms = data.platforms || [];
-    renderTargetsPlatforms();
-  } catch (e) {
-    showToast('error', 'Scope Error', e.message);
-  }
+  const fn = targetsPageMethod('loadTargetsPlatforms');
+  if (fn) return fn();
 }
-
 function renderTargetsPlatforms() {
-  const grid = document.getElementById('targets-platforms-grid');
-  if (!grid) return;
-  grid.innerHTML = '';
-  for (const p of targetsState.platforms) {
-    const colors = PLATFORM_COLORS[p.id] || PLATFORM_COLORS['immunefi'];
-    const isSelected = targetsState.selectedPlatform === p.id;
-    const card = document.createElement('div');
-    card.id = `targets-platform-${p.id}`;
-    card.style.cssText = `
-      background:${colors.bg};border:2px solid ${isSelected ? colors.accent : colors.border};
-      border-radius:16px;padding:20px;cursor:pointer;transition:all 0.2s;
-      ${isSelected ? `box-shadow:0 0 24px ${colors.accent}33;` : ''}
-    `;
-    card.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-        <span style="font-size:28px">${p.logo}</span>
-        <div>
-          <div style="font-weight:700;font-size:15px;color:${colors.text}">${p.name}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
-            ${p.env_configured
-        ? `<span style="color:#2ecc71">✓ Credentials configured</span>`
-        : `<span style="color:#e74c3c">⚠ Credentials needed</span>`}
-          </div>
-        </div>
-      </div>
-      <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:14px">${p.description}</div>
-      ${renderPlatformCredFields(p, colors)}
-      <button onclick="targetsSelectPlatform('${p.id}')"
-        style="width:100%;margin-top:14px;padding:9px;border-radius:10px;border:none;
-               background:${isSelected ? colors.accent : colors.border};
-               color:${isSelected ? '#fff' : colors.text};font-weight:600;font-size:13px;cursor:pointer;transition:all 0.2s;">
-        ${isSelected ? '✓ Selected' : 'Select'}
-      </button>
-    `;
-    card.addEventListener('mouseenter', () => {
-      if (!isSelected) card.style.borderColor = colors.accent;
-    });
-    card.addEventListener('mouseleave', () => {
-      if (!isSelected) card.style.borderColor = colors.border;
-    });
-    grid.appendChild(card);
-  }
+  const fn = targetsPageMethod('renderTargetsPlatforms');
+  if (fn) return fn();
 }
-
 function renderPlatformCredFields(p, colors) {
-  if (!p.auth_fields || p.auth_fields.length === 0) return '';
-  const creds = targetsState.credentials[p.id] || {};
-  return p.auth_fields.map(field => {
-    const label = field.charAt(0).toUpperCase() + field.slice(1);
-    const isPass = field === 'password' || field === 'token';
-    return `
-      <div style="margin-bottom:8px;">
-        <label style="font-size:11px;font-weight:600;color:${colors.text};text-transform:uppercase;letter-spacing:0.05em;">${label}</label>
-        <input type="${isPass ? 'password' : 'text'}"
-          id="targets-cred-${p.id}-${field}"
-          value="${escapeSafe(creds[field] || '')}"
-          placeholder="${field === 'token' ? 'API Token' : field === 'username' ? 'Username' : field}"
-          oninput="targetsUpdateCred('${p.id}','${field}',this.value)"
-          style="width:100%;box-sizing:border-box;background:rgba(0,0,0,0.3);border:1px solid ${colors.border};
-                 border-radius:8px;padding:7px 10px;color:#fff;font-size:12px;margin-top:4px;outline:none;" />
-      </div>
-    `;
-  }).join('');
+  const fn = targetsPageMethod('renderPlatformCredFields');
+  if (fn) return fn(p, colors);
+  return '';
 }
-
 function escapeSafe(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const fn = targetsPageMethod('escapeSafe');
+  if (fn) return fn(s);
+  return String(s || '');
 }
-
 function targetsUpdateCred(platformId, field, value) {
-  if (!targetsState.credentials[platformId]) targetsState.credentials[platformId] = {};
-  targetsState.credentials[platformId][field] = value;
+  const fn = targetsPageMethod('targetsUpdateCred');
+  if (fn) return fn(platformId, field, value);
 }
-
 function targetsSelectPlatform(id) {
-  targetsState.selectedPlatform = id;
-  renderTargetsPlatforms();
-  const p = targetsState.platforms.find(x => x.id === id);
-  const fetchCard = document.getElementById('targets-fetch-card');
-  if (fetchCard) {
-    fetchCard.style.display = 'block';
-    const titleEl = document.getElementById('targets-fetch-card-title');
-    if (titleEl && p) titleEl.textContent = `Fetch from ${p.name}`;
-  }
-  // Hide previous results
-  const resultsCard = document.getElementById('targets-results-card');
-  if (resultsCard) resultsCard.style.display = 'none';
+  const fn = targetsPageMethod('targetsSelectPlatform');
+  if (fn) return fn(id);
 }
-
 async function targetsDoFetch() {
-  const platformId = targetsState.selectedPlatform;
-  if (!platformId) { showToast('warning', 'No platform', 'Select a platform first'); return; }
-
-  const creds = targetsState.credentials[platformId] || {};
-  const btn = document.getElementById('targets-fetch-btn');
-  if (btn) { btn.textContent = 'Fetching…'; btn.disabled = true; }
-
-  try {
-    const body = {
-      platform: platformId,
-      username: creds.username || '',
-      token: creds.token || '',
-      email: creds.email || '',
-      password: creds.password || '',
-      bbp_only: document.getElementById('targets-bbp-only')?.checked || false,
-      pvt_only: document.getElementById('targets-pvt-only')?.checked || false,
-      public_only: document.getElementById('targets-public-only')?.checked || false,
-      include_oos: document.getElementById('targets-include-oos')?.checked || false,
-      extract_roots: true,
-    };
-    const data = await apiPost('/api/scope/fetch', body);
-    targetsState.domains = data.root_domains || [];
-    targetsState.filtered = [...targetsState.domains];
-
-    const p = targetsState.platforms.find(x => x.id === platformId);
-    const header = document.getElementById('targets-result-header');
-    if (header) header.textContent = `${data.domain_count} root domains from ${p?.name || platformId} (${data.programs} programs)`;
-
-    const resultsCard = document.getElementById('targets-results-card');
-    if (resultsCard) resultsCard.style.display = 'block';
-
-    targetsRenderDomainList(targetsState.filtered);
-    showToast('success', 'Done', `Fetched ${data.domain_count} root domains from ${data.programs} programs`);
-  } catch (e) {
-    showToast('error', 'Fetch failed', e.message);
-  } finally {
-    if (btn) { btn.textContent = 'Fetch Targets'; btn.disabled = false; }
-  }
+  const fn = targetsPageMethod('targetsDoFetch');
+  if (fn) return fn();
 }
-
 function targetsApplyFilter() {
-  const q = (document.getElementById('targets-filter-input')?.value || '').toLowerCase();
-  targetsState.filtered = q
-    ? targetsState.domains.filter(d => d.toLowerCase().includes(q))
-    : [...targetsState.domains];
-  targetsRenderDomainList(targetsState.filtered);
+  const fn = targetsPageMethod('targetsApplyFilter');
+  if (fn) return fn();
 }
-
 function targetsRenderDomainList(domains) {
-  const container = document.getElementById('targets-domain-list');
-  if (!container) return;
-  if (!domains.length) {
-    container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">No domains found.</div>`;
-    return;
-  }
-  const colors = PLATFORM_COLORS[targetsState.selectedPlatform] || PLATFORM_COLORS['immunefi'];
-  container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead>
-        <tr style="border-bottom:1px solid var(--border);">
-          <th style="text-align:left;padding:8px 12px;color:var(--text-muted);font-weight:600;">#</th>
-          <th style="text-align:left;padding:8px 12px;color:var(--text-muted);font-weight:600;">Root Domain</th>
-          <th style="text-align:right;padding:8px 12px;color:var(--text-muted);font-weight:600;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${domains.map((d, i) => `
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.15s;"
-              onmouseenter="this.style.background='rgba(255,255,255,0.03)'"
-              onmouseleave="this.style.background='transparent'">
-            <td style="padding:9px 12px;color:var(--text-muted);width:40px">${i + 1}</td>
-            <td style="padding:9px 12px;">
-              <span style="color:${colors.text};font-family:monospace">${escapeSafe(d)}</span>
-            </td>
-            <td style="padding:9px 12px;text-align:right;">
-              <div style="display:flex;gap:6px;justify-content:flex-end;">
-                <button onclick="targetsAddDomain('${escapeSafe(d)}')"
-                  style="padding:4px 12px;border-radius:8px;border:1px solid ${colors.border};
-                         background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
-                  + Add
-                </button>
-                <button onclick="targetsLaunchScan('${escapeSafe(d)}')"
-                  style="padding:4px 12px;border-radius:8px;border:none;
-                         background:${colors.accent};color:#fff;font-size:11px;cursor:pointer;font-weight:600;">
-                  ▶ Scan
-                </button>
-              </div>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
+  const fn = targetsPageMethod('targetsRenderDomainList');
+  if (fn) return fn(domains);
 }
-
 async function targetsAddDomain(domain) {
-  try {
-    await apiPost('/api/domains', { domain });
-    showToast('success', 'Added', `${domain} added to Domains DB`);
-  } catch (e) {
-    showToast('error', 'Add failed', e.message);
-  }
+  const fn = targetsPageMethod('targetsAddDomain');
+  if (fn) return fn(domain);
 }
-
 async function targetsAddAllDomains() {
-  const domains = targetsState.filtered;
-  if (!domains.length) return;
-  const btn = document.getElementById('targets-add-all-btn');
-  if (btn) { btn.textContent = 'Adding…'; btn.disabled = true; }
-  try {
-    // Use the bulk endpoint — one HTTP request for all domains
-    const data = await apiPost('/api/domains/bulk', { domains });
-    showToast('success', 'Bulk Add', `Added ${data.added} domains${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
-  } catch (e) {
-    showToast('error', 'Bulk add failed', e.message);
-  } finally {
-    if (btn) { btn.textContent = '+ Add All to Domains DB'; btn.disabled = false; }
-  }
+  const fn = targetsPageMethod('targetsAddAllDomains');
+  if (fn) return fn();
 }
-
 function targetsLaunchScan(domain) {
-  // Navigate to scans page with a pre-filled new scan modal if available,
-  // or navigate to scans and open a full domain scan.
-  navigateTo('overview');
-  setTimeout(() => {
-    if (typeof openNewScanModal === 'function') {
-      openNewScanModal({ target: domain, scanType: 'domain_run' });
-    } else {
-      showToast('info', 'Launch Scan', `Start a scan for ${domain} from the Scans page`);
-    }
-  }, 300);
+  const fn = targetsPageMethod('targetsLaunchScan');
+  if (fn) return fn(domain);
 }
-
 async function targetsCopyAll() {
-  const domains = targetsState.filtered;
-  if (!domains.length) return;
-  const text = domains.join('\n');
-
-  // Try the modern Clipboard API first (requires HTTPS or localhost)
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast('success', 'Copied', `${domains.length} domains copied to clipboard`);
-      return;
-    } catch { /* fall through to textarea fallback */ }
-  }
-
-  // Textarea fallback for HTTP (non-secure) contexts
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    if (ok) {
-      showToast('success', 'Copied', `${domains.length} domains copied to clipboard`);
-    } else {
-      showToast('warning', 'Manual copy needed', 'Auto-copy failed — open the text in the toast');
-    }
-  } catch (e) {
-    showToast('error', 'Copy failed', e.message);
-  }
-}
-
-// Helper: POST with JSON body (reuses auth headers like apiFetch)
-async function apiPost(path, body) {
-  const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-  const res = await fetch(`${API}${path}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  if (res.status === 401 && state.config?.auth_enabled) { handleAuthError(); throw new Error('Unauthorized'); }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
+  const fn = targetsPageMethod('targetsCopyAll');
+  if (fn) return fn();
 }
 
 // ── Keyhacks ─────────────────────────────────────────────────────────────────
 
-// Key Inspector detection patterns (Security Lab style) + DB-backed command suggestion.
-// Detection is 100% browser-side; commands come from Keyhacks templates fetched from DB once.
-const KEYHACK_KEY_PATTERNS = [
-  { name: 'AWS Access Key', re: /\bAKIA[0-9A-Z]{16}\b/g, sev: 'high', providerQuery: 'aws' },
-  { name: 'Google API Key', re: /\bAIza[0-9A-Za-z\-_]{35}\b/g, sev: 'high', providerQuery: 'google' },
-  { name: 'GitHub PAT', re: /\bghp_[A-Za-z0-9]{36,255}\b/g, sev: 'high', providerQuery: 'github' },
-  { name: 'Slack Webhook', re: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/_-]+/g, sev: 'high', providerQuery: 'slack' },
-  { name: 'Stripe Secret', re: /\bsk_(live|test)_[0-9a-zA-Z]{16,}\b/g, sev: 'high', providerQuery: 'stripe' },
-  { name: 'JWT Token', re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, sev: 'warn', providerQuery: 'jwt' },
-  { name: 'Private Key Block', re: /-----BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----/g, sev: 'high', providerQuery: 'private key' },
-  { name: 'Bearer Token', re: /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/g, sev: 'warn', providerQuery: 'bearer' },
-];
-
-function detectKeyProvidersInText(raw) {
-  const txt = String(raw || '');
-  const out = [];
-
-  for (const p of KEYHACK_KEY_PATTERNS) {
-    // Ensure global regex state doesn't leak between runs.
-    p.re.lastIndex = 0;
-    let m;
-    while ((m = p.re.exec(txt)) !== null) {
-      if (!m[0]) break;
-      out.push({
-        name: p.name,
-        sev: p.sev,
-        providerQuery: p.providerQuery,
-        match: m[0].slice(0, 160),
-      });
-
-      // Safety: avoid infinite loops on zero-length matches.
-      if (m.index === p.re.lastIndex) p.re.lastIndex++;
-      if (out.length >= 10) break;
-    }
-  }
-
-  return out;
-}
-
-function keyhacksTemplateMatchesProviderQuery(t, providerQuery) {
-  const q = String(providerQuery || '').toLowerCase().trim();
-  if (!q) return false;
-
-  const hay = [
-    t?.Keyname,
-    t?.Description,
-    t?.Notes,
-    t?.URL,
-    t?.CommandTemplate,
-  ].filter(Boolean).join(' ').toLowerCase();
-
-  return hay.includes(q);
-}
-
-async function ensureKeyhacksAllTemplatesLoaded() {
-  if (Array.isArray(state.keyhacksAllTemplates) && state.keyhacksAllTemplates.length) return state.keyhacksAllTemplates;
-  if (state.keyhacksTemplatesLoading) return state.keyhacksTemplatesLoading;
-
-  state.keyhacksTemplatesLoading = apiFetch('/api/keyhacks')
-    .then((templates) => {
-      state.keyhacksAllTemplates = Array.isArray(templates) ? templates : [];
-      return state.keyhacksAllTemplates;
-    })
-    .catch((e) => {
-      state.keyhacksAllTemplates = [];
-      throw e;
-    })
-    .finally(() => {
-      state.keyhacksTemplatesLoading = null;
-    });
-
-  return state.keyhacksTemplatesLoading;
-}
-
-function commandTemplateForToken(t, token) {
-  let cmd = t?.CommandTemplate || '';
-  if (!cmd) return '';
-  if (cmd.includes('{{KEY}}')) cmd = cmd.replaceAll('{{KEY}}', token);
-  return cmd;
-}
-
-async function renderKeyInspectorResult(raw) {
-  const out = document.getElementById('keyhacks-inspector-output');
-  if (!out) return;
-
-  const token = String(raw || '').trim();
-  if (!token) {
-    out.innerHTML = '<div class="empty-state"><div class="empty-title">Paste a key to inspect</div></div>';
-    return;
-  }
-
-  let templates = [];
-  try {
-    templates = await ensureKeyhacksAllTemplatesLoaded();
-  } catch (e) {
-    out.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading keyhacks</div><div class="empty-subtitle">${escapeHTML(e.message)}</div></div>`;
-    return;
-  }
-
-  const detections = detectKeyProvidersInText(token);
-  if (!detections.length) {
-    out.innerHTML = '<div class="empty-state"><div class="empty-title">No known key patterns detected</div><div class="empty-subtitle">Try searching templates by provider name.</div></div>';
-    return;
-  }
-
-  const byMatch = (providerQuery) => {
-    if (!templates?.length) return [];
-    return templates
-      .filter((t) => keyhacksTemplateMatchesProviderQuery(t, providerQuery))
-      .slice(0, 3);
-  };
-
-  const sevBadge = (sev) => {
-    if (sev === 'high') return `<span style="display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;background:rgba(248,113,113,.15);color:#f87171;font-weight:800;font-size:12px">HIGH</span>`;
-    return `<span style="display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;background:rgba(245,158,11,.15);color:#f59e0b;font-weight:800;font-size:12px">WARN</span>`;
-  };
-
-  const html = detections
-    .slice(0, 3)
-    .map((d) => {
-      const matched = byMatch(d.providerQuery);
-      if (!matched.length) {
-        return `
-          <div class="card" style="margin:10px 0 0 0">
-            <div class="card-header"><div class="card-title">${sevBadge(d.sev)} <span style="margin-left:8px">${escapeHTML(d.name)}</span></div></div>
-            <div class="card-body">
-              <div style="margin-bottom:10px;color:var(--text-muted)">Matched pattern: <span style="font-family:ui-monospace,monospace">${escapeHTML(d.match)}</span></div>
-              <div class="empty-subtitle">No command template found in Keyhacks DB for this provider.</div>
-            </div>
-          </div>
-        `;
-      }
-
-      const cmdsHtml = matched
-        .map((t) => {
-          const cmd = commandTemplateForToken(t, token);
-          if (!cmd) return '';
-          return `
-            <div class="keyhack-cmd-section" style="margin-top:10px">
-              <div class="keyhack-cmd-label">Validation command (${escapeHTML(t.Method || 'GET').toUpperCase()})</div>
-              <div class="keyhack-cmd-box">
-                <pre class="keyhack-pre">${escapeHTML(cmd)}</pre>
-                <button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}">
-                  <span style="font-size:14px">📋</span>
-                </button>
-              </div>
-            </div>
-          `;
-        })
-        .filter(Boolean)
-        .join('');
-
-      return `
-        <div class="card" style="margin:10px 0 0 0">
-          <div class="card-header"><div class="card-title">${sevBadge(d.sev)} <span style="margin-left:8px">${escapeHTML(d.name)}</span></div></div>
-          <div class="card-body">
-            <div style="margin-bottom:10px;color:var(--text-muted)">Matched pattern: <span style="font-family:ui-monospace,monospace">${escapeHTML(d.match)}</span></div>
-            ${cmdsHtml}
-          </div>
-        </div>
-      `;
-    })
-    .join('');
-
-  out.innerHTML = html;
-
-  // Wire copy buttons added by the inspector render.
-  out.querySelectorAll('.keyhack-copy-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const cmd = btn.getAttribute('data-cmd') || '';
-      try {
-        await copyToClipboard(cmd);
-        showToast('success', 'Copied to clipboard', '');
-      } catch (e) {
-        showToast('error', 'Copy failed', e?.message || String(e));
-      }
-    });
-  });
-}
-
 async function loadKeyhacks(query = '') {
-  const container = document.getElementById('keyhacks-container');
-  if (!container) return;
-
-  try {
-    await ensureKeyhacksAllTemplatesLoaded();
-
-    const q = String(query || '').toLowerCase().trim();
-    const data = !q
-      ? state.keyhacksAllTemplates
-      : (state.keyhacksAllTemplates || []).filter((t) => {
-        const k = String(t?.Keyname || '').toLowerCase();
-        const d = String(t?.Description || '').toLowerCase();
-        return k.includes(q) || d.includes(q);
-      });
-
-    renderKeyhacks(data);
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading templates</div><div class="empty-subtitle">${escapeHTML(e.message)}</div></div>`;
-  }
-}
-
-function renderKeyhacks(templates) {
-  const container = document.getElementById('keyhacks-container');
-  if (!container) return;
-
-  if (!templates || templates.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No templates found</div><div class="empty-subtitle">Try a different search query</div></div>';
+  if (!window.KeyhacksPage || typeof window.KeyhacksPage.loadKeyhacks !== 'function') {
+    const container = document.getElementById('keyhacks-container');
+    if (container) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Keyhacks module not loaded</div></div>';
+    }
     return;
   }
-
-  let html = `
-      <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title"><span class="card-title-icon">🔍</span>API Key Inspector (Security-Lab style + DB commands)</div></div>
-      <div class="card-body">
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <input class="search-input" id="keyhacks-key-input" placeholder="Paste key/token for detection..." autocomplete="off" style="flex:1;min-width:260px" />
-          <button class="btn btn-primary" id="keyhacks-inspect-btn">Inspect</button>
-        </div>
-        <div id="keyhacks-inspector-output" style="margin-top:8px"></div>
-      </div>
-    </div>
-    <div class="keyhacks-grid">`;
-
-  templates.forEach(t => {
-    const method = (t.Method || 'GET').toUpperCase();
-    const cmd = t.CommandTemplate || '';
-    const methodClass = method === 'POST' ? 'method-post' : 'method-get';
-    
-    html += `
-      <div class="keyhack-card">
-        <div class="keyhack-header">
-          <div class="keyhack-title">
-            <span class="nav-icon" style="font-size:14px">🔑</span>
-            ${escapeHTML(t.Keyname)}
-          </div>
-          <div class="keyhack-badge ${methodClass}">${method}</div>
-        </div>
-        <div class="keyhack-body">
-          <div class="keyhack-desc">${escapeHTML(t.Description || 'No description available for this template.')}</div>
-          
-          <div class="keyhack-cmd-section">
-            <div class="keyhack-cmd-label">Validation Command Template</div>
-            <div class="keyhack-cmd-box">
-              <pre class="keyhack-pre">${escapeHTML(cmd)}</pre>
-              <button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}">
-                <span style="font-size:14px">📋</span>
-              </button>
-            </div>
-          </div>
-
-          ${t.Notes ? `
-          <div class="keyhack-notes">
-            <div class="keyhack-notes-label">💡 Usage Notes</div>
-            <div class="keyhack-notes-text">${escapeHTML(t.Notes)}</div>
-          </div>
-          ` : ''}
-        </div>
-      </div>
-    `;
-  });
-
-  html += '</div>';
-  container.innerHTML = html;
-  const inspectBtn = document.getElementById('keyhacks-inspect-btn');
-  const keyInput = document.getElementById('keyhacks-key-input');
-  if (inspectBtn && keyInput) {
-    inspectBtn.addEventListener('click', async () => {
-      await renderKeyInspectorResult(keyInput.value);
-    });
-    keyInput.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        await renderKeyInspectorResult(keyInput.value);
-      }
-    });
-  }
-  container.querySelectorAll('.keyhack-copy-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const cmd = btn.getAttribute('data-cmd') || '';
-      try {
-        await copyToClipboard(cmd);
-        showToast('success', 'Copied to clipboard', '');
-      } catch (e) {
-        showToast('error', 'Copy failed', e?.message || String(e));
-      }
-    });
-  });
-}
-
-function escapeHTML(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return window.KeyhacksPage.loadKeyhacks(query);
 }
 
 // Keyhacks check
@@ -8742,248 +8216,54 @@ async function generateScanReport(scanId) {
 
 
 // ── Report Templates ─────────────────────────────────────────────────────────
-
+function reportTemplatesPageMethod(name) {
+  return window.ReportTemplatesPage && typeof window.ReportTemplatesPage[name] === 'function'
+    ? window.ReportTemplatesPage[name]
+    : null;
+}
 async function renderReportTemplates(search = '') {
-  const container = document.getElementById('report-templates-container');
-  if (!container) return;
-
-  try {
-    let templates = await apiFetch('/api/report-templates');
-
-    if (search) {
-      const q = search.toLowerCase();
-      templates = templates.filter(name => name.toLowerCase().includes(q));
-    }
-
-    const headerBlock = `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-ghost" onclick="exportReportTemplates()">⬇️ Export JSON</button>
-          <button class="btn btn-ghost" onclick="triggerImportReportTemplates()">⬆️ Import JSON</button>
-        </div>
-        <button class="btn btn-primary" onclick="openReportTemplateModal()">➕ Add Template</button>
-      </div>
-    `;
-
-    if (!templates || templates.length === 0) {
-      container.innerHTML = `
-        ${headerBlock}
-        <div class="empty-state">
-          <div class="empty-icon">📝</div>
-          <div class="empty-title">No templates found</div>
-          <p class="empty-sub">Create your first markdown report template.</p>
-        </div>
-      `;
-      return;
-    }
-
-    container.innerHTML = `
-      ${headerBlock}
-      <div class="domain-grid">
-        ${templates.map(name => `
-          <div class="domain-card" onclick="openReportTemplateModalByName('${encodeURIComponent(name)}')">
-            <div class="domain-name">📄 ${esc(name)}</div>
-            <div class="domain-stats">
-              <div class="domain-stat">
-                <div class="domain-stat-label">Format</div>
-                <div class="domain-stat-value" style="font-size: 14px;">Markdown</div>
-              </div>
-            </div>
-            <div style="margin-top: 16px; display: flex; gap: 8px;">
-              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openReportTemplateModalByName('${encodeURIComponent(name)}')">✏️ Edit</button>
-              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplateByName('${encodeURIComponent(name)}')">🗑️ Delete</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="error-state">❌ ${esc(err.message)}</div>`;
-  }
+  const fn = reportTemplatesPageMethod('renderReportTemplates');
+  if (fn) return fn(search);
 }
-
 function openReportTemplateModalByName(encodedName) {
-  openReportTemplateModal(decodeURIComponent(encodedName || ''));
+  const fn = reportTemplatesPageMethod('openReportTemplateModalByName');
+  if (fn) return fn(encodedName);
 }
-
 async function openReportTemplateModal(name = '') {
-  const modal = document.getElementById('modal-report-template');
-  const title = document.getElementById('report-template-modal-title');
-  const nameInput = document.getElementById('report-template-name');
-  const contentInput = document.getElementById('report-template-content');
-
-  if (!modal || !title || !nameInput || !contentInput) return;
-
-  nameInput.value = name;
-  // Allow renaming existing templates.
-  nameInput.readOnly = false;
-  state.reportTemplateOriginalName = name || '';
-  contentInput.value = '';
-  title.textContent = name ? '📝 Edit Template' : '➕ New Template';
-
-  if (name) {
-    try {
-      const data = await apiFetch(`/api/report-templates/${encodeURIComponent(name)}`);
-      contentInput.value = data.content;
-    } catch (err) {
-      showToast('error', 'Failed to load template', err.message);
-    }
-  }
-
-  modal.style.display = 'flex';
-  updateTemplatePreview();
+  const fn = reportTemplatesPageMethod('openReportTemplateModal');
+  if (fn) return fn(name);
 }
-
 function updateTemplatePreview() {
-  const content = document.getElementById('report-template-content').value;
-  const preview = document.getElementById('report-template-preview');
-  if (!preview) return;
-  
-  if (typeof marked !== 'undefined') {
-    preview.innerHTML = marked.parse(content || '*No content yet...*');
-  } else {
-    preview.textContent = content;
-  }
+  const fn = reportTemplatesPageMethod('updateTemplatePreview');
+  if (fn) return fn();
 }
-
 function closeReportTemplateModal() {
-  const modal = document.getElementById('modal-report-template');
-  state.reportTemplateOriginalName = '';
-  if (modal) modal.style.display = 'none';
+  const fn = reportTemplatesPageMethod('closeReportTemplateModal');
+  if (fn) return fn();
 }
-
 async function saveReportTemplate() {
-  const name = document.getElementById('report-template-name').value.trim();
-  const content = document.getElementById('report-template-content').value;
-  const originalName = String(state.reportTemplateOriginalName || '').trim();
-
-  if (!name || !content) {
-    showToast('error', 'Validation', 'Name and content are required');
-    return;
-  }
-
-  try {
-    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-    const res = await fetch(`${API}/api/report-templates`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ name, content })
-    });
-
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to save template');
-    }
-
-    // If this was a rename, remove the old template key.
-    if (originalName && originalName !== name) {
-      try {
-        const delHeaders = await buildAuthHeaders();
-        await fetch(`${API}/api/report-templates/${encodeURIComponent(originalName)}`, {
-          method: 'DELETE',
-          headers: delHeaders,
-        });
-      } catch (_) {
-        // Best effort: keep successful save even if old key cleanup fails.
-      }
-    }
-
-    showToast('success', 'Template Saved', `Template "${name}" saved successfully`);
-    closeReportTemplateModal();
-    renderReportTemplates();
-  } catch (err) {
-    showToast('error', 'Save Failed', err.message);
-  }
+  const fn = reportTemplatesPageMethod('saveReportTemplate');
+  if (fn) return fn();
 }
-
 function deleteReportTemplateByName(encodedName) {
-  deleteReportTemplate(decodeURIComponent(encodedName || ''));
+  const fn = reportTemplatesPageMethod('deleteReportTemplateByName');
+  if (fn) return fn(encodedName);
 }
-
 async function exportReportTemplates() {
-  try {
-    const headers = await buildAuthHeaders();
-    const res = await fetch(`${API}/api/report-templates/export`, { method: 'GET', headers });
-    if (!res.ok) {
-      let msg = 'Failed to export templates';
-      try {
-        const data = await res.json();
-        msg = data.error || msg;
-      } catch (_) {}
-      throw new Error(msg);
-    }
-    const blob = await res.blob();
-    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const filename = `report-templates-${ts}.json`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    showToast('success', 'Export Ready', `Downloaded ${filename}`);
-  } catch (err) {
-    showToast('error', 'Export Failed', err.message);
-  }
+  const fn = reportTemplatesPageMethod('exportReportTemplates');
+  if (fn) return fn();
 }
-
 function triggerImportReportTemplates() {
-  const input = document.getElementById('report-templates-import-file');
-  if (!input) return;
-  input.value = '';
-  input.click();
+  const fn = reportTemplatesPageMethod('triggerImportReportTemplates');
+  if (fn) return fn();
 }
-
 async function handleImportReportTemplatesFile(event) {
-  const file = event?.target?.files?.[0];
-  if (!file) return;
-
-  try {
-    const headers = await buildAuthHeaders();
-    const form = new FormData();
-    form.append('file', file);
-    form.append('overwrite', 'true');
-
-    const res = await fetch(`${API}/api/report-templates/import`, {
-      method: 'POST',
-      headers,
-      body: form,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to import templates');
-    }
-    showToast('success', 'Import Completed', `Imported ${data.imported || 0}, skipped ${data.skipped || 0}`);
-    renderReportTemplates((document.getElementById('report-templates-search')?.value || '').trim());
-  } catch (err) {
-    showToast('error', 'Import Failed', err.message);
-  } finally {
-    if (event?.target) event.target.value = '';
-  }
+  const fn = reportTemplatesPageMethod('handleImportReportTemplatesFile');
+  if (fn) return fn(event);
 }
-
 async function deleteReportTemplate(name) {
-  if (!confirm(`Are you sure you want to delete the template "${name}"?`)) return;
-
-  try {
-    const headers = await buildAuthHeaders();
-    const res = await fetch(`${API}/api/report-templates/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-      headers
-    });
-
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to delete template');
-    }
-
-    showToast('success', 'Template Deleted', `Template "${name}" removed`);
-    renderReportTemplates();
-	} catch (err) {
-		showToast('error', 'Delete Failed', err.message);
-	}
+  const fn = reportTemplatesPageMethod('deleteReportTemplate');
+  if (fn) return fn(name);
 }
 
 window.promptRetryCnames = async function() {
