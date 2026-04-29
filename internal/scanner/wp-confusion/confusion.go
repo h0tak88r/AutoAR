@@ -198,13 +198,26 @@ func ScanWPConfusion(opts ScanOptions) error {
 					TemplateID string `json:"template-id"`
 					MatchedAt  string `json:"matched-at"`
 					Severity   string `json:"severity"`
+					Module     string `json:"module"`
+					Finding    string `json:"finding"`
 				}
 				var findings []wpFinding
+				seen := make(map[string]struct{}, len(allVulnerable))
 				for _, v := range allVulnerable {
+					target := strings.TrimSpace(v)
+					if target == "" {
+						continue
+					}
+					if _, ok := seen[target]; ok {
+						continue
+					}
+					seen[target] = struct{}{}
 					findings = append(findings, wpFinding{
 						TemplateID: "WordPress Confusion",
-						MatchedAt:  v,
+						MatchedAt:  target,
 						Severity:   "high",
+						Module:     "wp-confusion",
+						Finding:    "WordPress plugin/theme slug appears claimable on wordpress.org",
 					})
 				}
 				_ = utils.WriteJSONToScanDir(scanID, "wp-confusion-vulnerabilities.json", findings)
@@ -216,7 +229,11 @@ func ScanWPConfusion(opts ScanOptions) error {
 		} else {
 			// Clean up legacy text summary that causes UI clutter
 			if scanID != "" {
-				_ = utils.WriteNoFindingsJSON(scanID, opts.URL, "dependency-confusion", "wp-confusion-vulnerabilities.json")
+				target := opts.URL
+				if target == "" && len(urls) > 0 {
+					target = urls[0]
+				}
+				_ = utils.WriteNoFindingsJSON(scanID, target, "wp-confusion", "wp-confusion-vulnerabilities.json")
 			} else {
 				// Fallback for CLI use: Create empty file with summary
 				logContent := fmt.Sprintf("WordPress Plugin Confusion Scan Results\n=====================================\nTargets: %d\nTimestamp: %s\nNo vulnerabilities found across all targets\n", processedCount, time.Now().Format(time.RFC3339))
