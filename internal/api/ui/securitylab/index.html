@@ -56,7 +56,6 @@
 
     <div class="tabs">
       <button class="tab active" data-tab="jwt">JWT Analyzer</button>
-      <button class="tab" data-tab="apikey">API Key Inspector</button>
       <button class="tab" data-tab="regex">Regex Workbench</button>
       <button class="tab" data-tab="depconf">Dependency Confusion</button>
     </div>
@@ -74,17 +73,6 @@
         <div class="card"><div class="k">Payload</div><pre id="jwtPayload">{}</pre></div>
       </div>
       <div class="card"><div class="k">Security Checks</div><div id="jwtChecks" class="list"></div></div>
-    </section>
-
-    <section class="panel" id="panel-apikey">
-      <div class="card">
-        <div class="k">Input</div>
-        <textarea id="keyInput" placeholder="Paste key/token, URL, config line, or JSON blob"></textarea>
-        <div class="row" style="margin-top:8px">
-          <button class="btn" id="keyAnalyze">Inspect Keys</button>
-        </div>
-      </div>
-      <div class="card"><div class="k">Detected Providers / Patterns</div><div id="keyResults" class="list"></div></div>
     </section>
 
     <section class="panel" id="panel-regex">
@@ -168,35 +156,6 @@
         checks.push(['bad', 'Invalid JWT: ' + e.message]);
       }
       $('jwtChecks').innerHTML = checks.map(([cls, msg]) => `<div class="item"><span class="pill ${cls}">${cls.toUpperCase()}</span> <span style="margin-left:8px">${msg}</span></div>`).join('');
-    });
-
-    const KEY_PATTERNS = [
-      ['AWS Access Key', /\bAKIA[0-9A-Z]{16}\b/g, 'high'],
-      ['Google API Key', /\bAIza[0-9A-Za-z\-_]{35}\b/g, 'high'],
-      ['GitHub PAT', /\bghp_[A-Za-z0-9]{36,255}\b/g, 'high'],
-      ['Slack Webhook', /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/_-]+/g, 'high'],
-      ['Stripe Secret', /\bsk_(live|test)_[0-9a-zA-Z]{16,}\b/g, 'high'],
-      ['JWT Token', /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, 'warn'],
-      ['Private Key Block', /-----BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----/g, 'high'],
-      ['Bearer Token', /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/g, 'warn']
-    ];
-
-    $('keyAnalyze').addEventListener('click', () => {
-      const input = $('keyInput').value;
-      const out = [];
-      KEY_PATTERNS.forEach(([name, re, sev]) => {
-        re.lastIndex = 0;
-        let m, count = 0;
-        while ((m = re.exec(input)) !== null) {
-          count++;
-          if (m.index === re.lastIndex) re.lastIndex++;
-          out.push({ name, sev, match: m[0].slice(0, 160) });
-        }
-        if (count === 0) return;
-      });
-      $('keyResults').innerHTML = out.length
-        ? out.map(x => `<div class="item"><span class="pill ${x.sev === 'high' ? 'bad' : 'warn'}">${x.sev.toUpperCase()}</span> <b style="margin-left:8px">${x.name}</b><div class="muted" style="margin-top:6px"><code>${x.match.replace(/</g, '&lt;')}</code></div></div>`).join('')
-        : '<div class="item muted">No known key patterns detected.</div>';
     });
 
     $('regexRun').addEventListener('click', () => {
