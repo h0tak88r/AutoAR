@@ -198,16 +198,33 @@ func Run(opts Options) (*Result, error) {
 						MatchedAt  string `json:"matched-at"`
 						Severity   string `json:"severity"`
 						Finding    string `json:"finding"`
+						Module     string `json:"module"`
+						SecretType string `json:"secret_type,omitempty"`
+						Secret     string `json:"secret,omitempty"`
 					}
 					var findings []secretFinding
+					seen := make(map[string]struct{})
 					for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-						if line == "" { continue }
-						// Format: [PatternName] URL -> Secret
+						if strings.TrimSpace(line) == "" {
+							continue
+						}
+						target, secretType, secretValue := parseSecretLine(line)
+						if target == "" {
+							continue
+						}
+						key := target + "|" + secretType + "|" + secretValue
+						if _, ok := seen[key]; ok {
+							continue
+						}
+						seen[key] = struct{}{}
 						findings = append(findings, secretFinding{
-							TemplateID: "JS Secret Exposure",
-							MatchedAt:  line,
+							TemplateID: "JS Secret Exposure" + ternary(secretType != "", " ("+secretType+")", ""),
+							MatchedAt:  target,
 							Severity:   "high",
 							Finding:    line,
+							Module:     "js-secrets",
+							SecretType: secretType,
+							Secret:     secretValue,
 						})
 					}
 					if len(findings) > 0 {
@@ -331,6 +348,34 @@ func extractRootDomain(host string) string {
 		return strings.Join(parts[len(parts)-2:], ".")
 	}
 	return host
+}
+
+func parseSecretLine(line string) (target string, secretType string, secretValue string) {
+	// Expected format from scanner:
+	//   [PatternName] URL -> Secret
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "", "", ""
+	}
+	if strings.HasPrefix(line, "[") {
+		if closeIdx := strings.Index(line, "]"); closeIdx > 1 {
+			secretType = strings.TrimSpace(line[1:closeIdx])
+			line = strings.TrimSpace(line[closeIdx+1:])
+		}
+	}
+	parts := strings.SplitN(line, "->", 2)
+	target = strings.TrimSpace(parts[0])
+	if len(parts) == 2 {
+		secretValue = strings.TrimSpace(parts[1])
+	}
+	return target, secretType, secretValue
+}
+
+func ternary(cond bool, yes, no string) string {
+	if cond {
+		return yes
+	}
+	return no
 }
 
 func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {

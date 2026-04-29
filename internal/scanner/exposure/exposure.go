@@ -130,6 +130,7 @@ func Run(opts Options) (*Result, error) {
 			TemplateID string `json:"template-id"` // VULN TYPE column: "api-docs: /swagger.json"
 			MatchedAt  string `json:"matched-at"`  // TARGET column: full URL
 			Severity   string `json:"severity"`
+			Module     string `json:"module"`
 			Category   string `json:"category"`
 			Evidence   string `json:"evidence"`
 			StatusCode int    `json:"status_code"`
@@ -139,15 +140,22 @@ func Run(opts Options) (*Result, error) {
 			"docker":   "high",
 		}
 		var jfindings []exposureFinding
+		seen := make(map[string]struct{}, len(findings))
 		for _, f := range findings {
 			sev := severityMap[f.Category]
 			if sev == "" {
 				sev = "medium"
 			}
+			key := f.Host + "|" + f.Path + "|" + f.Category + "|" + f.Evidence
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
 			jfindings = append(jfindings, exposureFinding{
 				TemplateID: f.Category + ": " + f.Path,
 				MatchedAt:  f.Host + f.Path,
 				Severity:   sev,
+				Module:     "exposure-scan",
 				Category:   f.Category,
 				Evidence:   f.Evidence,
 				StatusCode: f.StatusCode,
