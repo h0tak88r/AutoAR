@@ -1,7 +1,6 @@
 package dalfox
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -142,23 +141,16 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 				if len(r.Raw) == 0 {
 					continue
 				}
-				var obj map[string]interface{}
-				if err := json.Unmarshal(r.Raw, &obj); err != nil {
-					continue
-				}
-				severity := strings.TrimSpace(fmt.Sprint(obj["severity"]))
-				if severity == "" || severity == "<nil>" {
+				severity := strings.TrimSpace(strings.ToLower(r.Severity))
+				if severity == "" {
 					severity = "high"
 				}
-				fType := strings.TrimSpace(fmt.Sprint(obj["type"]))
-				if fType == "" || fType == "<nil>" {
+				fType := strings.TrimSpace(r.Type)
+				if fType == "" {
 					fType = "xss"
 				}
-				param := strings.TrimSpace(fmt.Sprint(obj["param"]))
-				if param == "" || param == "<nil>" {
-					param = strings.TrimSpace(fmt.Sprint(obj["parameter"]))
-				}
-				payload := strings.TrimSpace(fmt.Sprint(obj["payload"]))
+				param := strings.TrimSpace(r.Parameter)
+				payload := strings.TrimSpace(r.Payload)
 				findingLabel := fmt.Sprintf("XSS (%s)", strings.ToUpper(fType))
 				key := findingLabel + "|" + r.Target + "|" + param + "|" + payload
 				if _, ok := seen[key]; ok {

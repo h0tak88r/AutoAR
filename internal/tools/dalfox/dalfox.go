@@ -19,8 +19,12 @@ type Options struct {
 
 // Result represents a single dalfox scan result for one target URL.
 type Result struct {
-	Target string          `json:"target"`
-	Raw    json.RawMessage `json:"raw"`
+	Target    string          `json:"target"`
+	Raw       json.RawMessage `json:"raw"`
+	Severity  string          `json:"severity,omitempty"`
+	Type      string          `json:"type,omitempty"`
+	Parameter string          `json:"parameter,omitempty"`
+	Payload   string          `json:"payload,omitempty"`
 }
 
 // ScanFile reads target URLs from the given file (one per line), runs
@@ -68,8 +72,30 @@ func ScanFile(path string, opts Options) ([]Result, error) {
 			if err != nil {
 				continue
 			}
+			var raw map[string]interface{}
+			_ = json.Unmarshal(b, &raw)
+			severity := strings.TrimSpace(fmt.Sprint(raw["severity"]))
+			if severity == "" || severity == "<nil>" {
+				severity = "high"
+			}
+			fType := strings.TrimSpace(fmt.Sprint(raw["type"]))
+			if fType == "" || fType == "<nil>" {
+				fType = "xss"
+			}
+			param := strings.TrimSpace(fmt.Sprint(raw["param"]))
+			if param == "" || param == "<nil>" {
+				param = strings.TrimSpace(fmt.Sprint(raw["parameter"]))
+			}
+			payload := strings.TrimSpace(fmt.Sprint(raw["payload"]))
 
-			resultsCh <- Result{Target: url, Raw: b}
+			resultsCh <- Result{
+				Target:    url,
+				Raw:       b,
+				Severity:  severity,
+				Type:      fType,
+				Parameter: param,
+				Payload:   payload,
+			}
 		}
 	}
 
