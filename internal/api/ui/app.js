@@ -1971,6 +1971,12 @@ function uiHelpersMethod(name) {
     : null;
 }
 
+function formatUtilsPageMethod(name) {
+  return window.FormatUtilsPage && typeof window.FormatUtilsPage[name] === 'function'
+    ? window.FormatUtilsPage[name]
+    : null;
+}
+
 function fmtDate(d) {
   const fn = uiHelpersMethod('fmtDate');
   return fn ? fn(d) : '—';
@@ -1982,37 +1988,21 @@ function timeAgo(d) {
 }
 
 function elapsedStr(start) {
-  try {
-    const diff = Date.now() - new Date(start).getTime();
-    if (isNaN(diff)) return '';
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  } catch { return ''; }
+  const fn = formatUtilsPageMethod('elapsedStr');
+  if (fn) return fn(start);
+  return '';
 }
 
 function elapsedBetween(start, end) {
-  try {
-    const diff = new Date(end).getTime() - new Date(start).getTime();
-    if (isNaN(diff) || diff < 0) return '—';
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  } catch { return '—'; }
+  const fn = formatUtilsPageMethod('elapsedBetween');
+  if (fn) return fn(start, end);
+  return '—';
 }
 
 function fmtSize(bytes) {
-  if (!bytes) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return (bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0) + ' ' + sizes[i];
+  const fn = formatUtilsPageMethod('fmtSize');
+  if (fn) return fn(bytes);
+  return '0 B';
 }
 
 function fmtInterval(secs) {
