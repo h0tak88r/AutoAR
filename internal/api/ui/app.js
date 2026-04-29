@@ -11,13 +11,6 @@ const API = APP_CONFIG_STATE.API || '';
 const POLL_INTERVAL = APP_CONFIG_STATE.POLL_INTERVAL || 15000;
 const POLL_FAST_SCANS = APP_CONFIG_STATE.POLL_FAST_SCANS || 3500;
 const POLL_FAST_ANY = APP_CONFIG_STATE.POLL_FAST_ANY || 7000;
-// Scan detail real-time refresh state (declared early so openScanResultsPage can use them)
-let _scanDetailRefreshTimer = null;
-let _scanDetailRefreshId = null;
-let _scanDetailKnownFiles = new Set();
-let _assetsCache = null;
-
-
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function resolvePageMethod(pageKey, name) {

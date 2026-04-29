@@ -18,7 +18,7 @@
   window._scanDetailKnownFiles = new Set();
   window._scanDetailRefreshTimer = null;
   window._scanDetailRefreshId = null;
-  window._assetsCache = null;
+  let _assetsCache = null;
 
   async function renderScanDetailView(scanId) {
     const container = document.getElementById('scan-detail-container');
@@ -371,7 +371,7 @@
         const unifiedRoot = document.getElementById('unified-parsed-results');
         if (unifiedRoot) {
           loadReconUnifiedTable(scanId, files, 'unified-parsed-results');
-          window._assetsCache = null;
+          _assetsCache = null;
         }
       }
 
