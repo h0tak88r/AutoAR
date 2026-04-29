@@ -6,13 +6,7 @@
     (window.VIEWS || []).forEach((v) => {
       const el = document.getElementById(`nav-${v}`);
       if (el) {
-        el.addEventListener('click', () => {
-          if (el.getAttribute('data-newtab') === 'true') {
-            window.openAuditorInNewTab(v);
-          } else {
-            window.navigateTo(v);
-          }
-        });
+        el.addEventListener('click', () => window.navigateTo(v));
       }
     });
 
