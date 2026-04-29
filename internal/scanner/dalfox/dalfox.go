@@ -1,15 +1,16 @@
 package dalfox
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
-	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
 	"github.com/h0tak88r/AutoAR/internal/scanner/gf"
 	"github.com/h0tak88r/AutoAR/internal/scanner/urls"
+	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -126,12 +127,54 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if count > 0 {
-			// Results are already in JSONL format in outFile.
-			// Let's copy it to scan results dir and index it.
-			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), "dalfox-results.json")
-			if data, readErr := os.ReadFile(outFile); readErr == nil {
-				_ = os.WriteFile(scanFile, data, 0644)
-				_, _ = utils.IndexExistingResultFile(scanID, scanFile)
+			type dalfoxFinding struct {
+				TemplateID string `json:"template-id"`
+				MatchedAt  string `json:"matched-at"`
+				Severity   string `json:"severity"`
+				Type       string `json:"type,omitempty"`
+				Parameter  string `json:"parameter,omitempty"`
+				Payload    string `json:"payload,omitempty"`
+				Module     string `json:"module"`
+			}
+			findings := make([]dalfoxFinding, 0, count)
+			for _, r := range results {
+				if len(r.Raw) == 0 {
+					continue
+				}
+				var obj map[string]interface{}
+				if err := json.Unmarshal(r.Raw, &obj); err != nil {
+					continue
+				}
+				severity := strings.TrimSpace(fmt.Sprint(obj["severity"]))
+				if severity == "" || severity == "<nil>" {
+					severity = "high"
+				}
+				fType := strings.TrimSpace(fmt.Sprint(obj["type"]))
+				if fType == "" || fType == "<nil>" {
+					fType = "xss"
+				}
+				param := strings.TrimSpace(fmt.Sprint(obj["param"]))
+				if param == "" || param == "<nil>" {
+					param = strings.TrimSpace(fmt.Sprint(obj["parameter"]))
+				}
+				payload := strings.TrimSpace(fmt.Sprint(obj["payload"]))
+				findingLabel := fmt.Sprintf("XSS (%s)", strings.ToUpper(fType))
+				findings = append(findings, dalfoxFinding{
+					TemplateID: findingLabel,
+					MatchedAt:  r.Target,
+					Severity:   severity,
+					Type:       fType,
+					Parameter:  param,
+					Payload:    payload,
+					Module:     "xss-detection",
+				})
+			}
+			if len(findings) > 0 {
+				if err := utils.WriteJSONToScanDir(scanID, "dalfox-results.json", findings); err != nil {
+					log.Printf("[WARN] Failed to write dalfox JSON: %v", err)
+				}
+			} else {
+				_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")

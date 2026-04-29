@@ -13,9 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/utils"
+	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
 )
 
 // EnumerateSubdomains enumerates subdomains for a given domain using subfinder and API sources
@@ -41,7 +41,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	var results []string
 	var mu sync.Mutex
 	unique := make(map[string]bool)
-	
+
 	// Helper to add unique subdomain
 	addSubdomain := func(subdomain string) {
 		subdomain = strings.TrimSpace(subdomain)
@@ -54,7 +54,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 			mu.Unlock()
 		}
 	}
-	
+
 	// 2. Get subdomains from API sources (lightweight, fast)
 	log.Printf("[INFO] Collecting subdomains from API sources for %s", domain)
 	apiResults := getSubdomainsFromAPIs(domain)
@@ -62,7 +62,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 		addSubdomain(subdomain)
 	}
 	log.Printf("[INFO] Found %d subdomains from API sources", len(apiResults))
-	
+
 	// 3. Get subdomains from subfinder library
 	log.Printf("[INFO] Collecting subdomains using subfinder library for %s", domain)
 	subfinderResults, err := getSubdomainsFromSubfinder(domain, threads)
@@ -76,11 +76,30 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	}
 
 	log.Printf("[OK] Found %d unique subdomains for %s", len(results), domain)
-	
+
 	// Write JSON results to scan directory (local-first)
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if len(results) > 0 {
-			if err := utils.WriteLinesAsJSON(scanID, domain, "subdomain", "subdomains.json", results); err != nil {
+			type subdomainFinding struct {
+				Subdomain string `json:"subdomain"`
+				Domain    string `json:"domain"`
+				Status    string `json:"status"`
+				Severity  string `json:"severity"`
+				Module    string `json:"module"`
+				Finding   string `json:"finding"`
+			}
+			findings := make([]subdomainFinding, 0, len(results))
+			for _, s := range results {
+				findings = append(findings, subdomainFinding{
+					Subdomain: s,
+					Domain:    domain,
+					Status:    "discovered",
+					Severity:  "info",
+					Module:    "subdomain-enum",
+					Finding:   "Subdomain discovered",
+				})
+			}
+			if err := utils.WriteJSONToScanDir(scanID, "subdomains.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write subdomain JSON: %v", err)
 			}
 		} else {
@@ -103,7 +122,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 			}
 		}
 	}
-	
+
 	return results, nil
 }
 
@@ -349,21 +368,21 @@ func getSubdomainsFromSubfinder(domain string, threads int) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to enumerate subdomains: %v", err)
 	}
-	
+
 	// Parse results from buffer
 	bufData := buf.String()
 	lines := strings.Split(strings.TrimSpace(bufData), "\n")
-	
+
 	var results []string
 	unique := make(map[string]bool)
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" && !strings.Contains(line, "*") && !unique[line] {
 			unique[line] = true
 			results = append(results, line)
 		}
-		}
+	}
 
 	return results, nil
 }
@@ -374,9 +393,9 @@ func getProviderConfig() string {
 	// First, check if user explicitly provided a config file path
 	configPath := os.Getenv("SUBFINDER_CONFIG")
 	if configPath != "" {
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
+		if _, err := os.Stat(configPath); err == nil {
+			return configPath
+		}
 	}
 
 	// Check default location
@@ -390,7 +409,7 @@ func getProviderConfig() string {
 	generatedConfigPath, err := generateSubfinderConfigFromEnv()
 	if err != nil {
 		log.Printf("[WARN] Failed to generate subfinder config from env vars: %v", err)
-	return ""
+		return ""
 	}
 
 	return generatedConfigPath
@@ -409,31 +428,31 @@ func generateSubfinderConfigFromEnv() (string, error) {
 
 	// Map of environment variable names to subfinder provider names
 	providerMap := map[string]string{
-		"GITHUB_TOKEN":              "github",
-		"SECURITYTRAILS_API_KEY":   "securitytrails",
-		"SHODAN_API_KEY":           "shodan",
-		"VIRUSTOTAL_API_KEY":       "virustotal",
-		"WORDPRESS_API_KEY":        "wordpress",
-		"BEVIGIL_API_KEY":          "bevigil",
-		"BINARYEDGE_API_KEY":       "binaryedge",
-		"URLSCAN_API_KEY":           "urlscan",
-		"CENSYS_API_ID":            "censys",
-		"CENSYS_API_SECRET":         "censys",
-		"CERTSPOTTER_API_KEY":      "certspotter",
-		"CHAOS_API_KEY":            "chaos",
-		"FOFA_EMAIL":               "fofa",
-		"FOFA_KEY":                 "fofa",
-		"FULLHUNT_API_KEY":         "fullhunt",
-		"INTELX_API_KEY":           "intelx",
-		"PASSIVETOTAL_USERNAME":     "passivetotal",
-		"PASSIVETOTAL_API_KEY":     "passivetotal",
-		"QUAKE_USERNAME":           "quake",
-		"QUAKE_PASSWORD":           "quake",
-		"THREATBOOK_API_KEY":       "threatbook",
-		"WHOISXMLAPI_API_KEY":      "whoisxmlapi",
-		"ZOOMEYE_USERNAME":         "zoomeye",
-		"ZOOMEYE_PASSWORD":         "zoomeye",
-		"ZOOMEYEAPI_API_KEY":       "zoomeyeapi",
+		"GITHUB_TOKEN":           "github",
+		"SECURITYTRAILS_API_KEY": "securitytrails",
+		"SHODAN_API_KEY":         "shodan",
+		"VIRUSTOTAL_API_KEY":     "virustotal",
+		"WORDPRESS_API_KEY":      "wordpress",
+		"BEVIGIL_API_KEY":        "bevigil",
+		"BINARYEDGE_API_KEY":     "binaryedge",
+		"URLSCAN_API_KEY":        "urlscan",
+		"CENSYS_API_ID":          "censys",
+		"CENSYS_API_SECRET":      "censys",
+		"CERTSPOTTER_API_KEY":    "certspotter",
+		"CHAOS_API_KEY":          "chaos",
+		"FOFA_EMAIL":             "fofa",
+		"FOFA_KEY":               "fofa",
+		"FULLHUNT_API_KEY":       "fullhunt",
+		"INTELX_API_KEY":         "intelx",
+		"PASSIVETOTAL_USERNAME":  "passivetotal",
+		"PASSIVETOTAL_API_KEY":   "passivetotal",
+		"QUAKE_USERNAME":         "quake",
+		"QUAKE_PASSWORD":         "quake",
+		"THREATBOOK_API_KEY":     "threatbook",
+		"WHOISXMLAPI_API_KEY":    "whoisxmlapi",
+		"ZOOMEYE_USERNAME":       "zoomeye",
+		"ZOOMEYE_PASSWORD":       "zoomeye",
+		"ZOOMEYEAPI_API_KEY":     "zoomeyeapi",
 	}
 
 	var builder strings.Builder
@@ -507,7 +526,7 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	// Check if we have any providers configured
 	configContent := builder.String()
 	trimmedContent := strings.TrimSpace(configContent)
-	
+
 	// If no providers were configured (only header comments), don't create a file
 	// Count actual provider entries (lines that contain ": [")
 	providerLines := strings.Count(trimmedContent, ": [")
