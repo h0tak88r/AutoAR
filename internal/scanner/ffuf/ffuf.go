@@ -197,7 +197,7 @@ func RunFFuf(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to add status matcher: %w", err)
 	}
 
-	// Filter by size (real-time deduplication)
+	// Keep size map for compatibility in returned metadata, but do not deduplicate by size.
 	uniqueSizes := make(map[int64]bool)
 	var sizeMutex sync.Mutex
 	lastSize := int64(-1)
@@ -358,14 +358,14 @@ func RunFFuf(opts Options) (*Result, error) {
 	if inputProviderTotal > 0 {
 		log.Printf("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
 	}
-	log.Printf("[INFO] Found %d unique results", found)
+	log.Printf("[INFO] Found %d results", found)
 	
 	// Warn if job completed suspiciously fast (less than 1 second for large wordlist)
 	if duration < time.Second && wordlistSize > 100000 {
 		log.Printf("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
 	}
 
-	log.Printf("[OK] FFuf fuzzing completed. Found %d unique results", found)
+	log.Printf("[OK] FFuf fuzzing completed. Found %d results", found)
 	log.Printf("[INFO] Results saved to: %s", opts.OutputFile)
 
 	// Webhook file sending removed - files are now sent via utils.SendPhaseFiles from phase functions
@@ -546,23 +546,9 @@ func (c *customOutputProvider) Result(resp ffufpkg.Response) {
 		return
 	}
 
-	// Real-time size filtering - skip if same size as previous
+	// Record observed response size without filtering/deduping results.
 	c.sizeMutex.Lock()
 	currentSize := resp.ContentLength
-	if *c.lastSize == currentSize && *c.lastSize != -1 {
-		c.sizeMutex.Unlock()
-		c.base.Result(resp)
-		return // Skip duplicate size
-	}
-
-	// Check if we've seen this size before
-	if c.uniqueSizes[currentSize] {
-		c.sizeMutex.Unlock()
-		c.base.Result(resp)
-		return // Skip duplicate size
-	}
-
-	// Mark this size as seen
 	c.uniqueSizes[currentSize] = true
 	*c.lastSize = currentSize
 	c.sizeMutex.Unlock()
@@ -736,12 +722,8 @@ func (c *customOutputProvider) try403Bypass(originalResp ffufpkg.Response) {
 			contentWords := len(strings.Fields(bodyStr))
 			contentLength := int64(len(bodyBytes))
 
-			// Check if this size was already seen to avoid duplicates
+			// Record observed response size without filtering/deduping results.
 			c.sizeMutex.Lock()
-			if c.uniqueSizes[contentLength] {
-				c.sizeMutex.Unlock()
-				continue // Skip duplicate size
-			}
 			c.uniqueSizes[contentLength] = true
 			c.sizeMutex.Unlock()
 
@@ -1051,7 +1033,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 	wg.Wait()
 
 	log.Printf("[OK] FFuf domain mode completed for %s", opts.Domain)
-	log.Printf("[INFO] Scanned %d hosts, found %d total unique results", hostsScanned, totalFound)
+	log.Printf("[INFO] Scanned %d hosts, found %d total results", hostsScanned, totalFound)
 	log.Printf("[INFO] Combined results saved to: %s", combinedOutputFile)
 
 	return &Result{
@@ -1199,7 +1181,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to add status matcher: %w", err)
 	}
 
-	// Filter by size (real-time deduplication)
+	// Keep size map for compatibility in returned metadata, but do not deduplicate by size.
 	uniqueSizes := make(map[int64]bool)
 	var sizeMutex sync.Mutex
 	lastSize := int64(-1)
@@ -1371,7 +1353,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	if inputProviderTotal > 0 {
 		log.Printf("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
 	}
-	log.Printf("[INFO] Found %d unique results", found)
+	log.Printf("[INFO] Found %d results", found)
 	
 	// Warn if job completed suspiciously fast (less than 1 second for large wordlist)
 	if duration < time.Second && wordlistSize > 100000 {

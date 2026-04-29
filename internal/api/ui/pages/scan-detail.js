@@ -1025,8 +1025,10 @@
     }
 
     const renderSavedFilters = () => { if (!savedFiltersSel) return; const names = Object.keys(savedFilterSets).sort(); savedFiltersSel.innerHTML = '<option value="">Saved filters…</option>' + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join(''); };
-    const readCurrentFilterSet = () => ({ activeKind, searchHost, searchTitle, filterSeverity, searchModule, searchJsOnly, quickChip, presetMode, });
-    const applyFilterSet = (fs) => { if (!fs) return; activeKind = fs.activeKind || activeKind; searchHost = String(fs.searchHost || ''); searchTitle = String(fs.searchTitle || ''); filterSeverity = String(fs.filterSeverity || 'any'); searchModule = String(fs.searchModule || 'all'); searchJsOnly = !!fs.searchJsOnly; quickChip = String(fs.quickChip || 'none'); presetMode = String(fs.presetMode || 'smart'); const h = root.querySelector('#recon-filter-host'), t = root.querySelector('#recon-filter-title'), s = root.querySelector('#recon-filter-severity'); if (h) h.value = searchHost; if (t) t.value = searchTitle; if (s) s.value = filterSeverity; if (modSelect) modSelect.value = searchModule; if (viewModeSel) viewModeSel.value = presetMode; };
+    // Saved filter presets should be reusable across any tab/module, so they intentionally
+    // do not persist activeKind.
+    const readCurrentFilterSet = () => ({ searchHost, searchTitle, filterSeverity, searchModule, searchJsOnly, quickChip, presetMode, });
+    const applyFilterSet = (fs) => { if (!fs) return; searchHost = String(fs.searchHost || ''); searchTitle = String(fs.searchTitle || ''); filterSeverity = String(fs.filterSeverity || 'any'); searchModule = String(fs.searchModule || 'all'); searchJsOnly = !!fs.searchJsOnly; quickChip = String(fs.quickChip || 'none'); presetMode = String(fs.presetMode || 'smart'); const h = root.querySelector('#recon-filter-host'), t = root.querySelector('#recon-filter-title'), s = root.querySelector('#recon-filter-severity'); if (h) h.value = searchHost; if (t) t.value = searchTitle; if (s) s.value = filterSeverity; if (modSelect) modSelect.value = searchModule; if (viewModeSel) viewModeSel.value = presetMode; };
 
     const chipDefs = [{ id: 'highplus', label: 'High+' },{ id: 'hasurl', label: 'Has URL' },{ id: 'exported', label: 'Exported Components' },{ id: 'secrets', label: 'Secrets' },{ id: 'onlyjs', label: 'Only JS' }];
     const renderChips = () => { if (!chipBar) return; chipBar.innerHTML = chipDefs.map(c => { const active = quickChip === c.id; return `<button type="button" data-chip="${escAttr(c.id)}" style="padding:5px 10px;border:1px solid ${active ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${active ? 'rgba(34,211,238,.13)' : 'rgba(255,255,255,.02)'};color:${active ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">${esc(c.label)}</button>`; }).join(''); };
@@ -1098,7 +1100,15 @@
     if (viewModeSel) viewModeSel.addEventListener('change', () => { presetMode = viewModeSel.value; persistUIState(); _currentPage = 1; renderBody(); });
     if (saveFilterBtn) saveFilterBtn.addEventListener('click', () => { const n = filterNameInput?.value.trim(); if (!n) return; savedFilterSets[n] = readCurrentFilterSet(); persistSavedSets(); renderSavedFilters(); });
     if (deleteFilterBtn) deleteFilterBtn.addEventListener('click', () => { const n = savedFiltersSel?.value; if (n) { delete savedFilterSets[n]; persistSavedSets(); renderSavedFilters(); } });
-    if (savedFiltersSel) savedFiltersSel.addEventListener('change', () => { const n = savedFiltersSel.value; if (savedFilterSets[n]) { applyFilterSet(savedFilterSets[n]); renderChips(); switchReconView(activeKind); } });
+    if (savedFiltersSel) savedFiltersSel.addEventListener('change', () => {
+      const n = savedFiltersSel.value;
+      if (savedFilterSets[n]) {
+        applyFilterSet(savedFilterSets[n]);
+        renderChips();
+        _currentPage = 1;
+        renderBody();
+      }
+    });
     
     const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
     const applyF = () => { searchHost = hostI?.value.toLowerCase().trim(); searchTitle = titleI?.value.toLowerCase().trim(); filterSeverity = sevS?.value; _currentPage = 1; renderBody(); };
@@ -1113,9 +1123,28 @@
   }
 
   function renderAssetsGrid(container, assets) {
-    const renderRows = (list) => list.map(a => `<tr class="dashboard-table-row"><td>${a.is_live ? 'Alive' : 'Dead'}</td><td><a href="${esc(a.url)}" target="_blank" style="color:var(--accent-cyan)">${esc(a.host)}</a></td><td style="text-align:center">${a.status_code || '—'}</td><td>${(a.technologies || []).join(', ')}</td></tr>`).join('');
-    container.innerHTML = `<div style="margin-bottom:12px;display:flex;gap:12px"><input id="asset-search" type="search" placeholder="Search hosts…" style="flex:1;padding:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/></div><div style="border:1px solid var(--border);border-radius:8px;overflow:hidden"><table class="dashboard-table" style="margin:0;width:100%"><thead><tr><th>STATUS</th><th>HOST</th><th style="text-align:center">CODE</th><th>TECHNOLOGIES</th></tr></thead><tbody id="asset-tbody">${renderRows(assets)}</tbody></table></div>`;
-    container.querySelector('#asset-search').addEventListener('input', e => { const q = e.target.value.toLowerCase().trim(); const filtered = assets.filter(a => a.host.toLowerCase().includes(q) || (a.technologies || []).some(t => t.toLowerCase().includes(q))); container.querySelector('#asset-tbody').innerHTML = renderRows(filtered); });
+    const renderRows = (list) => list.map(a => {
+      const url = a.url || (a.host ? `https://${a.host}` : '#');
+      const cname = Array.isArray(a.cnames) && a.cnames.length ? a.cnames.join(', ') : '—';
+      const tech = Array.isArray(a.technologies) && a.technologies.length ? a.technologies.join(', ') : '—';
+      return `<tr class="dashboard-table-row">
+        <td>${a.is_live ? 'Alive' : 'Dead'}</td>
+        <td><a href="${esc(url)}" target="_blank" rel="noopener" style="color:var(--accent-cyan)">${esc(a.host || '—')}</a></td>
+        <td style="text-align:center">${a.status_code || '—'}</td>
+        <td style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(cname)}</td>
+        <td>${esc(tech)}</td>
+      </tr>`;
+    }).join('');
+    container.innerHTML = `<div style="margin-bottom:12px;display:flex;gap:12px"><input id="asset-search" type="search" placeholder="Search hosts, CNAME, or tech…" style="flex:1;padding:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/></div><div style="border:1px solid var(--border);border-radius:8px;overflow:hidden"><table class="dashboard-table" style="margin:0;width:100%"><thead><tr><th>STATUS</th><th>HOST</th><th style="text-align:center">CODE</th><th>CNAME</th><th>TECHNOLOGIES</th></tr></thead><tbody id="asset-tbody">${renderRows(assets)}</tbody></table></div>`;
+    container.querySelector('#asset-search').addEventListener('input', e => {
+      const q = e.target.value.toLowerCase().trim();
+      const filtered = assets.filter(a =>
+        String(a.host || '').toLowerCase().includes(q) ||
+        (Array.isArray(a.cnames) ? a.cnames.join(' ').toLowerCase().includes(q) : false) ||
+        (Array.isArray(a.technologies) ? a.technologies.some(t => String(t).toLowerCase().includes(q)) : false)
+      );
+      container.querySelector('#asset-tbody').innerHTML = renderRows(filtered);
+    });
   }
 
   function wireScanDetailFilters(scanId, allFiles) {
