@@ -22,7 +22,15 @@ let _assetsCache = null;
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
+function clipboardUtilsPageMethod(name) {
+  return window.ClipboardUtilsPage && typeof window.ClipboardUtilsPage[name] === 'function'
+    ? window.ClipboardUtilsPage[name]
+    : null;
+}
+
 async function copyToClipboard(text) {
+  const fn = clipboardUtilsPageMethod('copyToClipboard');
+  if (fn) return fn(text);
   if (navigator.clipboard && navigator.clipboard.writeText) {
     try {
       await navigator.clipboard.writeText(text);
