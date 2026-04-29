@@ -221,13 +221,25 @@ function viewTitle(v) {
 
 const LOCAL_TOKEN_KEY = 'autoar_local_token';
 
+function authSessionPageMethod(name) {
+  return window.AuthSessionPage && typeof window.AuthSessionPage[name] === 'function'
+    ? window.AuthSessionPage[name]
+    : null;
+}
+
 function localTokenGet() {
+  const fn = authSessionPageMethod('localTokenGet');
+  if (fn) return fn();
   try { return localStorage.getItem(LOCAL_TOKEN_KEY) || null; } catch { return null; }
 }
 function localTokenSet(tok) {
+  const fn = authSessionPageMethod('localTokenSet');
+  if (fn) return fn(tok);
   try { localStorage.setItem(LOCAL_TOKEN_KEY, tok); } catch { /* ignore */ }
 }
 function localTokenClear() {
+  const fn = authSessionPageMethod('localTokenClear');
+  if (fn) return fn();
   try { localStorage.removeItem(LOCAL_TOKEN_KEY); } catch { /* ignore */ }
 }
 
@@ -289,22 +301,13 @@ async function apiDelete(path) {
 }
 
 function showAuthGate(hintMsg) {
-  const gate = document.getElementById('auth-gate');
-  const shell = document.getElementById('app-shell');
-  const hint = document.getElementById('auth-config-hint');
-  if (hint && hintMsg) {
-    hint.style.display = 'block';
-    hint.textContent = hintMsg;
-  }
-  if (gate) gate.style.display = 'flex';
-  if (shell) shell.style.display = 'none';
+  const fn = authSessionPageMethod('showAuthGate');
+  if (fn) return fn(hintMsg);
 }
 
 function hideAuthGate() {
-  const gate = document.getElementById('auth-gate');
-  const shell = document.getElementById('app-shell');
-  if (gate) gate.style.display = 'none';
-  if (shell) shell.style.display = '';
+  const fn = authSessionPageMethod('hideAuthGate');
+  if (fn) return fn();
 }
 
 function scanActionsPageMethod(name) {
@@ -403,37 +406,8 @@ async function loadConfig() {
 }
 
 function wireAuthForm() {
-  const form = document.getElementById('auth-form');
-  if (!form || form.dataset.wired) return;
-  form.dataset.wired = '1';
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const errEl = document.getElementById('auth-error');
-    const submit = document.getElementById('auth-submit');
-    if (errEl) errEl.textContent = '';
-    const username = (document.getElementById('auth-username') || {}).value || '';
-    const password = (document.getElementById('auth-password') || {}).value || '';
-    if (submit) submit.disabled = true;
-    try {
-      const res = await fetch(`${API}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (errEl) errEl.textContent = data.error || 'Login failed';
-        return;
-      }
-      state._authAccessToken = data.token;
-      localTokenSet(data.token);
-      await startDashboard();
-    } catch (err) {
-      if (errEl) errEl.textContent = err.message || 'Network error';
-    } finally {
-      if (submit) submit.disabled = false;
-    }
-  });
+  const fn = authSessionPageMethod('wireAuthForm');
+  if (fn) return fn();
 }
 
 function wireShellOnce() {
@@ -2563,6 +2537,7 @@ window.loadResource = loadResource;
 window.loadStats = loadStats;
 window.refreshCurrentView = refreshCurrentView;
 window.renderRecentChanges = renderRecentChanges;
+window.startDashboard = startDashboard;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
