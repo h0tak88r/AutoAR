@@ -676,6 +676,15 @@
       const m = String(v || '').match(/\b([1-5][0-9]{2})\b/);
       return m ? Number(m[1]) : null;
     };
+    const attachRowIndex = (rowHtml, rowIdx) => {
+      if (!rowHtml) return rowHtml;
+      // Ensure every interactive findings row can be resolved back to source data.
+      if (/\bdata-row-index=/.test(rowHtml)) return rowHtml;
+      return rowHtml.replace(
+        /<tr class="findings-row([^"]*)"/,
+        `<tr class="findings-row$1" data-row-index="${rowIdx}"`
+      );
+    };
     const parseTitle = (v) => {
       const s = String(v || '').trim();
       if (!s || s === '—') return '-';
@@ -1068,8 +1077,10 @@
           const rowIdx = vStart + idx, sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
           const sevMeta = { critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' }, high: { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' }, medium: { color: '#f6e05e', bg: '#f6e05e20', label: 'MED' }, low: { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW' }, info: { color: '#68d391', bg: '#68d39120', label: 'INFO' }, warning: { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' }, }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
           const modInfo = getModuleDisplayInfo(r.module);
-          if (presetMode === 'raw') return window.renderDefaultRow(r, rowIdx, modInfo, sevMeta);
-          return window.renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta);
+          if (presetMode === 'raw') {
+            return attachRowIndex(window.renderDefaultRow(r, rowIdx, modInfo, sevMeta), rowIdx);
+          }
+          return attachRowIndex(window.renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta), rowIdx);
         }).join('');
         tbody.innerHTML = slice.length ? `${topPad ? `<tr class="virtual-pad-top"><td colspan="5" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="5" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}` : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
       }

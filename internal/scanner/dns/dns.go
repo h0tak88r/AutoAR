@@ -529,6 +529,9 @@ func runNucleiTakeoverSDK(targetFile, templateDir, outputFile string) error {
 		return fmt.Errorf("init nuclei output writer: %w", err)
 	}
 	defer writer.Close()
+	if err := ensureNucleiIgnoreFile(); err != nil {
+		log.Printf("[WARN] Failed to prepare nuclei ignore file: %v", err)
+	}
 
 	ne, err := nucleiSDK.NewNucleiEngineCtx(
 		context.Background(),
@@ -566,6 +569,25 @@ func runNucleiTakeoverSDK(targetFile, templateDir, outputFile string) error {
 		return writeErr
 	}
 	return err
+}
+
+func ensureNucleiIgnoreFile() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	ignorePath := filepath.Join(home, ".config", "nuclei", ".nuclei-ignore")
+	if err := os.MkdirAll(filepath.Dir(ignorePath), 0755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(ignorePath); err == nil {
+		return nil
+	}
+	f, err := os.Create(ignorePath)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 func runDNSReaper(domainDir, findingsDir, subsFile string) error {
