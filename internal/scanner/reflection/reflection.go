@@ -137,6 +137,28 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	
 	// Scan URLs with concurrency and timeout
 	kxssResults, err := scanURLsWithConcurrency(ctx, validURLs, opts.Threads)
+	type xssFinding struct {
+		TemplateID string   `json:"template-id"` // VULN TYPE column
+		MatchedAt  string   `json:"matched-at"`  // TARGET column
+		Severity   string   `json:"severity"`
+		Param      string   `json:"param"`
+		Unfiltered []string `json:"unfiltered"`
+	}
+	findings := make([]xssFinding, 0, len(kxssResults))
+	for _, r := range kxssResults {
+		if r.URL == "" || r.Param == "" || len(r.Chars) == 0 {
+			continue
+		}
+		charsStr := fmt.Sprintf("%v", r.Chars)
+		label := fmt.Sprintf("xss @ %s | Unfiltered: %s", r.Param, charsStr)
+		findings = append(findings, xssFinding{
+			TemplateID: label,
+			MatchedAt:  r.URL,
+			Severity:   "medium",
+			Param:      r.Param,
+			Unfiltered: r.Chars,
+		})
+	}
 	if err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("[WARN] kxss scan timed out after %v", opts.Timeout)
@@ -151,10 +173,10 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	} else {
 		// Write results in the same text format as original kxss
 		var lines []string
-		for _, r := range kxssResults {
-			lines = append(lines, fmt.Sprintf("URL: %s Param: %s Unfiltered: %v ", r.URL, r.Param, r.Chars))
+		for _, f := range findings {
+			lines = append(lines, fmt.Sprintf("URL: %s Param: %s Unfiltered: %v ", f.MatchedAt, f.Param, f.Unfiltered))
 		}
-		log.Printf("[OK] Found %d reflection point(s) out of %d URL(s) scanned", len(kxssResults), len(validURLs))
+		log.Printf("[OK] Found %d reflection point(s) out of %d URL(s) scanned", len(findings), len(validURLs))
 		if err := utils.WriteFile(outFile, []byte(strings.Join(lines, "\n"))); err != nil {
 			return nil, fmt.Errorf("failed to write kxss results: %w", err)
 		}
@@ -164,9 +186,9 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		}
 	}
 
-	count, _ := countLines(outFile)
-	if count > 0 {
-		log.Printf("[OK] Found %d reflection points", count)
+	reflectionCount := len(findings)
+	if reflectionCount > 0 {
+		log.Printf("[OK] Found %d reflection points", reflectionCount)
 	} else {
 		log.Printf("[INFO] No reflection points found")
 	}
@@ -174,29 +196,6 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	// Write structured JSON for the dashboard — one object per kxss finding.
 	// Template: TARGET=url, VULN TYPE='xss @ param | Unfiltered: [chars]', SEV=medium.
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
-		type xssFinding struct {
-			TemplateID  string   `json:"template-id"` // VULN TYPE column
-			MatchedAt   string   `json:"matched-at"`  // TARGET column
-			Severity    string   `json:"severity"`
-			Param       string   `json:"param"`
-			Unfiltered  []string `json:"unfiltered"`
-		}
-		var findings []xssFinding
-		for _, r := range kxssResults {
-			if r.URL == "" || r.Param == "" {
-				continue
-			}
-			// Format: xss @ category | Unfiltered: [$ | ( ) ` : ; { }]
-			charsStr := fmt.Sprintf("%v", r.Chars)
-			label := fmt.Sprintf("xss @ %s | Unfiltered: %s", r.Param, charsStr)
-			findings = append(findings, xssFinding{
-				TemplateID: label,
-				MatchedAt:  r.URL,
-				Severity:   "medium",
-				Param:      r.Param,
-				Unfiltered: r.Chars,
-			})
-		}
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "xss-reflection-vulnerabilities.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write reflection JSON: %v", err)
@@ -208,7 +207,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 
 	return &Result{
 		Domain:      opts.Domain,
-		Reflections: count,
+		Reflections: reflectionCount,
 		OutputFile:  outFile,
 	}, nil
 }

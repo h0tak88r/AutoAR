@@ -16,6 +16,8 @@ import (
 	"github.com/projectdiscovery/httpx/runner"
 )
 
+const depconfusionArtifactName = "depconfusion-vulnerabilities.json"
+
 type Options struct {
 	Mode          string   // "web", "github"
 	Target        string   // URL, domain, repo, or org
@@ -95,16 +97,17 @@ func runWeb(opts Options, resultsDir string) error {
 	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
-			data, _ := os.ReadFile(res.OutputFile)
-			var findings interface{}
-			_ = json.Unmarshal(data, &findings)
-			_ = utils.WriteJSONToScanDir(scanID, "depconfusion-vulnerabilities.json", findings)
+			target := ""
+			if len(opts.Targets) > 0 {
+				target = opts.Targets[0]
+			}
+			_ = publishDepconfusionJSON(scanID, target, res.OutputFile)
 		} else {
 			target := ""
 			if len(opts.Targets) > 0 {
 				target = opts.Targets[0]
 			}
-			_ = utils.WriteNoFindingsJSON(scanID, target, "dependency-confusion", "depconfusion-vulnerabilities.json")
+			_ = utils.WriteNoFindingsJSON(scanID, target, "dependency-confusion", depconfusionArtifactName)
 		}
 	}
 
@@ -153,15 +156,9 @@ func runWebFromFile(opts Options, resultsDir string) error {
 	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
-			//Findings already documented in JSON file produced by library
-			// Just ensure it's indexed/uploaded if needed? 
-			// Library writes to res.OutputFile. We should use WriteJSONToScanDir to index it.
-			data, _ := os.ReadFile(res.OutputFile)
-			var findings interface{}
-			_ = json.Unmarshal(data, &findings)
-			_ = utils.WriteJSONToScanDir(scanID, "depconfusion-vulnerabilities.json", findings)
+			_ = publishDepconfusionJSON(scanID, opts.Target, res.OutputFile)
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, opts.Target, "dependency-confusion", "depconfusion-vulnerabilities.json")
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Target, "dependency-confusion", depconfusionArtifactName)
 		}
 	}
 
@@ -303,12 +300,9 @@ func runWebFull(opts Options, resultsDir string) error {
 	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
-			data, _ := os.ReadFile(res.OutputFile)
-			var findings interface{}
-			_ = json.Unmarshal(data, &findings)
-			_ = utils.WriteJSONToScanDir(scanID, "depconfusion-vulnerabilities.json", findings)
+			_ = publishDepconfusionJSON(scanID, opts.Target, res.OutputFile)
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, opts.Target, "dependency-confusion", "depconfusion-vulnerabilities.json")
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Target, "dependency-confusion", depconfusionArtifactName)
 		}
 	}
 
@@ -345,12 +339,9 @@ func runGitHubRepo(opts Options, resultsDir string) error {
 	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
-			data, _ := os.ReadFile(res.OutputFile)
-			var findings interface{}
-			_ = json.Unmarshal(data, &findings)
-			_ = utils.WriteJSONToScanDir(scanID, "depconfusion-vulnerabilities.json", findings)
+			_ = publishDepconfusionJSON(scanID, opts.GitHubRepo, res.OutputFile)
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, opts.GitHubRepo, "dependency-confusion", "depconfusion-vulnerabilities.json")
+			_ = utils.WriteNoFindingsJSON(scanID, opts.GitHubRepo, "dependency-confusion", depconfusionArtifactName)
 		}
 	}
 
@@ -387,12 +378,9 @@ func runGitHubOrg(opts Options, resultsDir string) error {
 	scanID := utils.GetCurrentScanID()
 	if scanID != "" {
 		if res.Findings > 0 {
-			data, _ := os.ReadFile(res.OutputFile)
-			var findings interface{}
-			_ = json.Unmarshal(data, &findings)
-			_ = utils.WriteJSONToScanDir(scanID, "depconfusion-vulnerabilities.json", findings)
+			_ = publishDepconfusionJSON(scanID, opts.GitHubOrg, res.OutputFile)
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, opts.GitHubOrg, "dependency-confusion", "depconfusion-vulnerabilities.json")
+			_ = utils.WriteNoFindingsJSON(scanID, opts.GitHubOrg, "dependency-confusion", depconfusionArtifactName)
 		}
 	}
 
@@ -543,5 +531,17 @@ func normalizeTargetURL(target string) string {
 	}
 	
 	return target
+}
+
+func publishDepconfusionJSON(scanID, target, srcPath string) error {
+	info, err := os.Stat(srcPath)
+	if err != nil || info.Size() == 0 {
+		return utils.WriteNoFindingsJSON(scanID, target, "dependency-confusion", depconfusionArtifactName)
+	}
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+	return utils.WriteTextToScanDir(scanID, depconfusionArtifactName, data)
 }
 
