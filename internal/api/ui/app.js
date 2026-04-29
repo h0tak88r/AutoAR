@@ -3486,25 +3486,20 @@ function escAttr(s) {
     .replace(/</g, '&lt;');
 }
 
+function uiHelpersMethod(name) {
+  return window.UIHelpers && typeof window.UIHelpers[name] === 'function'
+    ? window.UIHelpers[name]
+    : null;
+}
+
 function fmtDate(d) {
-  if (!d) return '—';
-  try {
-    const dt = new Date(d);
-    if (isNaN(dt)) return '—';
-    return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch { return '—'; }
+  const fn = uiHelpersMethod('fmtDate');
+  return fn ? fn(d) : '—';
 }
 
 function timeAgo(d) {
-  if (!d) return '—';
-  try {
-    const diff = Date.now() - new Date(d).getTime();
-    if (isNaN(diff)) return '—';
-    if (diff < 60000) return 'just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return `${Math.floor(diff / 86400000)}d ago`;
-  } catch { return '—'; }
+  const fn = uiHelpersMethod('timeAgo');
+  return fn ? fn(d) : '—';
 }
 
 function elapsedStr(start) {
@@ -3542,85 +3537,48 @@ function fmtSize(bytes) {
 }
 
 function fmtInterval(secs) {
-  if (!secs) return '—';
-  if (secs < 60) return `${secs}s`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-  return `${Math.floor(secs / 3600)}h`;
+  const fn = uiHelpersMethod('fmtInterval');
+  return fn ? fn(secs) : '—';
 }
 
 function statusBadge(status) {
-  const map = {
-    running: 'badge-running',
-    starting: 'badge-starting',
-    paused: 'badge-starting',
-    done: 'badge-done',
-    completed: 'badge-done',
-    failed: 'badge-failed',
-    error: 'badge-failed',
-    cancelled: 'badge-starting',
-  };
-  const cls = map[status] || 'badge-done';
-  return `<span class="badge ${cls}">${esc(status)}</span>`;
+  const fn = uiHelpersMethod('statusBadge');
+  return fn ? fn(status) : `<span class="badge badge-done">${esc(status)}</span>`;
 }
 
 function httpColor(code) {
-  if (!code) return 'var(--text-muted)';
-  if (code >= 200 && code < 300) return 'var(--accent-emerald)';
-  if (code >= 300 && code < 400) return 'var(--accent-cyan)';
-  if (code >= 400 && code < 500) return 'var(--accent-amber)';
-  if (code >= 500) return 'var(--accent-red)';
-  return 'var(--text-muted)';
+  const fn = uiHelpersMethod('httpColor');
+  return fn ? fn(code) : 'var(--text-muted)';
 }
 
 function fileIcon(ext) {
-  const map = {
-    txt: '📄', log: '📋', json: '📊', zip: '📦', gz: '📦', html: '🌐',
-    pdf: '📑', png: '🖼', jpg: '🖼', jpeg: '🖼', apk: '📱', ipa: '📱',
-    db: '🗄', sql: '🗄', md: '📝'
-  };
-  return map[ext] || '📄';
+  const fn = uiHelpersMethod('fileIcon');
+  return fn ? fn(ext) : '📄';
 }
 
 function humanChangeType(t) {
-  const map = {
-    new_subdomain: 'New Subdomain',
-    became_live: 'Host Came Online',
-    became_dead: 'Host Went Down',
-    content_changed: 'Content Changed',
-    status_changed: 'Status Changed',
-  };
-  return map[t] || t;
+  const fn = uiHelpersMethod('humanChangeType');
+  return fn ? fn(t) : t;
 }
 
 function emptyState(icon, title, desc) {
-  return `<div class="empty-state">
-    <div class="empty-icon">${icon}</div>
-    <div class="empty-title">${esc(title)}</div>
-    <div class="empty-desc">${esc(desc)}</div>
-  </div>`;
+  const fn = uiHelpersMethod('emptyState');
+  if (fn) return fn(icon, title, desc);
+  return `<div class="empty-state"><div class="empty-icon">${icon}</div><div class="empty-title">${esc(title)}</div><div class="empty-desc">${esc(desc)}</div></div>`;
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
 function showToast(type, title, msg) {
-  const container = document.getElementById('toast-container');
-  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.innerHTML = `<div class="toast-icon">${icons[type] || 'ℹ️'}</div>
-    <div class="toast-body">
-      <div class="toast-title">${esc(title)}</div>
-      ${msg ? `<div class="toast-msg">${esc(msg)}</div>` : ''}
-    </div>`;
-  container.appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  const fn = uiHelpersMethod('showToast');
+  if (fn) return fn(type, title, msg);
 }
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
 
 function updateClock() {
-  const el = document.getElementById('topbar-time');
-  if (el) el.textContent = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const fn = uiHelpersMethod('updateClock');
+  if (fn) return fn();
 }
 
 // ── Manual Refresh ────────────────────────────────────────────────────────────
