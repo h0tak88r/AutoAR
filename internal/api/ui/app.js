@@ -47,36 +47,21 @@ const state = APP_CONFIG_STATE.state || {};
 
 const VIEWS = APP_CONFIG_STATE.VIEWS || [];
 
-function navigationUIPageMethod(name) {
-  return resolvePageMethod('NavigationUIPage', name);
-}
-
-function routerCorePageMethod(name) {
-  return resolvePageMethod('RouterCorePage', name);
-}
-
-function routerNavigationPageMethod(name) {
-  return resolvePageMethod('RouterNavigationPage', name);
-}
-
 function pathScanId() {
   return callPageMethod('RouterCorePage', 'pathScanId', [], null);
 }
 
 function openAuditorInNewTab(view) {
-  const fn = navigationUIPageMethod('openAuditorInNewTab');
-  if (fn) return fn(view);
+  return callPageMethod('NavigationUIPage', 'openAuditorInNewTab', [view]);
 }
 
 function navigateTo(view) {
-  const fn = routerNavigationPageMethod('navigateTo');
-  if (fn) return fn(view);
+  return callPageMethod('RouterNavigationPage', 'navigateTo', [view]);
 }
 
 /** Deep-linked scan results page (/scans/:id). */
 async function openScanResultsPage(scanId, opts = {}) {
-  const fn = routerCorePageMethod('openScanResultsPage');
-  if (fn) return fn(scanId, opts);
+  return callPageMethod('RouterCorePage', 'openScanResultsPage', [scanId, opts]);
 }
 
 
@@ -86,24 +71,14 @@ function viewTitle(v) {
 
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
 
-function authSessionPageMethod(name) {
-  return resolvePageMethod('AuthSessionPage', name);
-}
-
-function apiClientPageMethod(name) {
-  return resolvePageMethod('ApiClientPage', name);
-}
-
 function localTokenGet() {
   return callPageMethod('AuthSessionPage', 'localTokenGet', [], null);
 }
 function localTokenSet(tok) {
-  const fn = authSessionPageMethod('localTokenSet');
-  if (fn) return fn(tok);
+  return callPageMethod('AuthSessionPage', 'localTokenSet', [tok]);
 }
 function localTokenClear() {
-  const fn = authSessionPageMethod('localTokenClear');
-  if (fn) return fn();
+  return callPageMethod('AuthSessionPage', 'localTokenClear');
 }
 
 async function buildAuthHeaders(extra = {}) {
@@ -111,146 +86,103 @@ async function buildAuthHeaders(extra = {}) {
 }
 
 function handleAuthError() {
-  const fn = apiClientPageMethod('handleAuthError');
-  if (fn) return fn();
+  return callPageMethod('ApiClientPage', 'handleAuthError');
 }
 
 async function apiFetch(path) {
-  const fn = apiClientPageMethod('apiFetch');
-  if (fn) return fn(path);
+  const v = callPageMethod('ApiClientPage', 'apiFetch', [path]);
+  if (v !== undefined) return v;
   throw new Error('apiFetch unavailable');
 }
 
 async function apiPost(path, body, customHeaders = {}) {
-  const fn = apiClientPageMethod('apiPost');
-  if (fn) return fn(path, body, customHeaders);
+  const v = callPageMethod('ApiClientPage', 'apiPost', [path, body, customHeaders]);
+  if (v !== undefined) return v;
   throw new Error('apiPost unavailable');
 }
 
 async function apiDelete(path) {
-  const fn = apiClientPageMethod('apiDelete');
-  if (fn) return fn(path);
+  const v = callPageMethod('ApiClientPage', 'apiDelete', [path]);
+  if (v !== undefined) return v;
   throw new Error('apiDelete unavailable');
 }
 
 function showAuthGate(hintMsg) {
-  const fn = authSessionPageMethod('showAuthGate');
-  if (fn) return fn(hintMsg);
+  return callPageMethod('AuthSessionPage', 'showAuthGate', [hintMsg]);
 }
 
 function hideAuthGate() {
-  const fn = authSessionPageMethod('hideAuthGate');
-  if (fn) return fn();
-}
-
-function scanActionsPageMethod(name) {
-  return resolvePageMethod('ScanActionsPage', name);
-}
-
-function domainActionsPageMethod(name) {
-  return resolvePageMethod('DomainActionsPage', name);
-}
-
-function appCoreActionsPageMethod(name) {
-  return resolvePageMethod('AppCoreActionsPage', name);
+  return callPageMethod('AuthSessionPage', 'hideAuthGate');
 }
 
 async function cancelScan(scanID) {
-  const fn = scanActionsPageMethod('cancelScan');
-  if (fn) return fn(scanID);
+  return callPageMethod('ScanActionsPage', 'cancelScan', [scanID]);
 }
 
 async function deleteScan(scanID, target = '') {
-  const fn = scanActionsPageMethod('deleteScan');
-  if (fn) return fn(scanID, target);
+  return callPageMethod('ScanActionsPage', 'deleteScan', [scanID, target]);
 }
 
 async function rescanScan(scanID) {
-  const fn = scanActionsPageMethod('rescanScan');
-  if (fn) return fn(scanID);
+  return callPageMethod('ScanActionsPage', 'rescanScan', [scanID]);
 }
 
 function toggleSelectAllRecentScans(master) {
-  const fn = scanActionsPageMethod('toggleSelectAllRecentScans');
-  if (fn) return fn(master);
+  return callPageMethod('ScanActionsPage', 'toggleSelectAllRecentScans', [master]);
 }
 
 async function deleteSelectedScans() {
-  const fn = scanActionsPageMethod('deleteSelectedScans');
-  if (fn) return fn();
+  return callPageMethod('ScanActionsPage', 'deleteSelectedScans');
 }
 
 async function clearAllScans() {
-  const fn = scanActionsPageMethod('clearAllScans');
-  if (fn) return fn();
+  return callPageMethod('ScanActionsPage', 'clearAllScans');
 }
 
 async function deleteDomainRecord(domain) {
-  const fn = domainActionsPageMethod('deleteDomainRecord');
-  if (fn) return fn(domain);
+  return callPageMethod('DomainActionsPage', 'deleteDomainRecord', [domain]);
 }
 
 async function pauseScan(scanID) {
-  const fn = scanActionsPageMethod('pauseScan');
-  if (fn) return fn(scanID);
+  return callPageMethod('ScanActionsPage', 'pauseScan', [scanID]);
 }
 
 async function resumeScan(scanID) {
-  const fn = scanActionsPageMethod('resumeScan');
-  if (fn) return fn(scanID);
+  return callPageMethod('ScanActionsPage', 'resumeScan', [scanID]);
 }
 
 async function loadResource(key, path, stateKey) {
-  const fn = appCoreActionsPageMethod('loadResource');
-  if (fn) return fn(key, path, stateKey);
+  return callPageMethod('AppCoreActionsPage', 'loadResource', [key, path, stateKey]);
 }
 
 // ── Data Loading ──────────────────────────────────────────────────────────────
-
-function dashboardDataPageMethod(name) {
-  return resolvePageMethod('DashboardDataPage', name);
-}
 
 async function loadConfig() {
   return callPageMethod('SettingsPage', 'loadConfig');
 }
 
 function wireAuthForm() {
-  const fn = authSessionPageMethod('wireAuthForm');
-  if (fn) return fn();
-}
-
-function shellWiringPageMethod(name) {
-  return resolvePageMethod('ShellWiringPage', name);
+  return callPageMethod('AuthSessionPage', 'wireAuthForm');
 }
 
 function wireShellOnce() {
-  const fn = shellWiringPageMethod('wireShellOnce');
-  if (fn) return fn();
-}
-
-function dashboardBootstrapPageMethod(name) {
-  return resolvePageMethod('DashboardBootstrapPage', name);
+  return callPageMethod('ShellWiringPage', 'wireShellOnce');
 }
 
 async function startDashboard() {
-  const fn = dashboardBootstrapPageMethod('startDashboard');
-  if (fn) return fn();
+  return callPageMethod('DashboardBootstrapPage', 'startDashboard');
 }
 
 async function loadStats() {
-  const fn = dashboardDataPageMethod('loadStats');
-  if (fn) return fn();
+  return callPageMethod('DashboardDataPage', 'loadStats');
 }
 
 async function loadDomains() {
-  const fn = dashboardDataPageMethod('loadDomains');
-  if (fn) return fn();
+  return callPageMethod('DashboardDataPage', 'loadDomains');
 }
 
 async function loadSubdomains(page = 1, search = '') {
-  const fn = dashboardDataPageMethod('loadSubdomains');
-  if (fn) return fn(page, search);
+  return callPageMethod('DashboardDataPage', 'loadSubdomains', [page, search]);
 }
 
 /** Copy every subdomain string matching the current search (paginates at API max page size). */
@@ -260,55 +192,32 @@ async function copyAllSubdomainsMatching() {
 }
 
 async function loadScans() {
-  const fn = dashboardDataPageMethod('loadScans');
-  if (fn) return fn();
+  return callPageMethod('DashboardDataPage', 'loadScans');
 }
 
 async function loadMonitor() {
   return callPageMethod('MonitorPage', 'loadMonitor');
 }
 
-function r2PageMethod(name) {
-  return resolvePageMethod('R2Page', name);
-}
-
-function r2PrefixesPageMethod(name) {
-  return resolvePageMethod('R2PrefixesPage', name);
-}
-
-function domainR2ActionsPageMethod(name) {
-  return resolvePageMethod('DomainR2ActionsPage', name);
-}
-
 async function loadR2(prefix = '') {
-  const fn = r2PageMethod('loadR2');
-  if (fn) return fn(prefix);
+  return callPageMethod('R2Page', 'loadR2', [prefix]);
 }
 
 function wireR2BrowserOnce() {
-  const fn = r2PageMethod('wireR2BrowserOnce');
-  if (fn) return fn();
-}
-
-function pollingPageMethod(name) {
-  return resolvePageMethod('PollingPage', name);
+  return callPageMethod('R2Page', 'wireR2BrowserOnce');
 }
 
 function r2UpdateDeleteSelectedVisibility() {
-  const fn = r2PageMethod('r2UpdateDeleteSelectedVisibility');
-  if (fn) return fn();
+  return callPageMethod('R2Page', 'r2UpdateDeleteSelectedVisibility');
 }
 function r2DeletePrefixInteractive(prefix) {
-  const fn = r2PageMethod('r2DeletePrefixInteractive');
-  if (fn) return fn(prefix);
+  return callPageMethod('R2Page', 'r2DeletePrefixInteractive', [prefix]);
 }
 function r2DeleteKeyInteractive(key) {
-  const fn = r2PageMethod('r2DeleteKeyInteractive');
-  if (fn) return fn(key);
+  return callPageMethod('R2Page', 'r2DeleteKeyInteractive', [key]);
 }
 function r2DeleteSelected() {
-  const fn = r2PageMethod('r2DeleteSelected');
-  if (fn) return fn();
+  return callPageMethod('R2Page', 'r2DeleteSelected');
 }
 
 /** Strip protocol/path for R2 prefixes (results/, new-results/, lite/). */
@@ -329,87 +238,63 @@ function r2PrefixesForScan(target, scanType) {
 
 /** Jump to R2 view and open the first prefix that has objects for this scan type + target. */
 async function browseR2ForScan(target, scanType) {
-  const fn = domainR2ActionsPageMethod('browseR2ForScan');
-  if (fn) return fn(target, scanType);
+  return callPageMethod('DomainR2ActionsPage', 'browseR2ForScan', [target, scanType]);
 }
 
 async function loadDomainSubdomains(domain) {
-  const fn = domainR2ActionsPageMethod('loadDomainSubdomains');
-  if (fn) return fn(domain);
+  return callPageMethod('DomainR2ActionsPage', 'loadDomainSubdomains', [domain]);
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────
 
 function startPolling() {
-  const fn = pollingPageMethod('startPolling');
-  if (fn) return fn();
+  return callPageMethod('PollingPage', 'startPolling');
 }
 
 function refreshCurrentView() {
-  const fn = pollingPageMethod('refreshCurrentView');
-  if (fn) return fn();
-}
-
-function scanDetailPaginationPageMethod(name) {
-  return resolvePageMethod('ScanDetailPaginationPage', name);
+  return callPageMethod('PollingPage', 'refreshCurrentView');
 }
 
 /** Pagination: previous page of files */
 function prevFilesPage(scanId) {
-  const fn = scanDetailPaginationPageMethod('prevFilesPage');
-  if (fn) return fn(scanId);
+  return callPageMethod('ScanDetailPaginationPage', 'prevFilesPage', [scanId]);
 }
 
 /** Pagination: next page of files */
 function nextFilesPage(scanId, total) {
-  const fn = scanDetailPaginationPageMethod('nextFilesPage');
-  if (fn) return fn(scanId, total);
+  return callPageMethod('ScanDetailPaginationPage', 'nextFilesPage', [scanId, total]);
 }
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
 
-function overviewPageMethod(name) {
-  return resolvePageMethod('OverviewPage', name);
-}
-
 function renderStats() {
-  const fn = overviewPageMethod('renderStats');
-  if (fn) return fn();
+  return callPageMethod('OverviewPage', 'renderStats');
 }
 
 function renderOverviewActiveScans() {
-  const fn = overviewPageMethod('renderOverviewActiveScans');
-  if (fn) return fn();
+  return callPageMethod('OverviewPage', 'renderOverviewActiveScans');
 }
 
 // ── System Metrics ────────────────────────────────────────────────────────────
 
 function startMetricsPolling() {
-  const fn = overviewPageMethod('startMetricsPolling');
-  if (fn) return fn();
+  return callPageMethod('OverviewPage', 'startMetricsPolling');
 }
 
 function updateMetricsUI(data) {
-  const fn = overviewPageMethod('updateMetricsUI');
-  if (fn) return fn(data);
+  return callPageMethod('OverviewPage', 'updateMetricsUI', [data]);
 }
 
 function renderRecentChanges() {
-  const fn = overviewPageMethod('renderRecentChanges');
-  if (fn) return fn();
+  return callPageMethod('OverviewPage', 'renderRecentChanges');
 }
 
 function changeItemHtml(c) {
   return callPageMethod('OverviewPage', 'changeItemHtml', [c], '');
 }
 
-function scansPageMethod(name) {
-  return resolvePageMethod('ScansPage', name);
-}
-
 function renderScans() {
-  const fn = scansPageMethod('renderScans');
-  if (fn) return fn();
+  return callPageMethod('ScansPage', 'renderScans');
 }
 
 
@@ -418,8 +303,7 @@ function renderScans() {
  * Falls back to capitalising the raw value if no mapping exists.
  */
 function scanTypeLabel(rawType) {
-  const fn = scansPageMethod('scanTypeLabel');
-  return fn ? fn(rawType) : rawType;
+  return callPageMethod('ScansPage', 'scanTypeLabel', [rawType], rawType);
 }
 
 function scanItemHtml(s) {
@@ -432,58 +316,38 @@ function scanRowHtml(s) {
 
 // ── Scan results page (/scans/:id) ─────────────────────────────────────────────
 
-/** Determine file type category from filename for icon display */
-function scanCommonPageMethod(name) {
-  return resolvePageMethod('ScanCommonPage', name);
-}
-
-function scanResultsCorePageMethod(name) {
-  return resolvePageMethod('ScanResultsCorePage', name);
-}
-
-function categoryDisplayPageMethod(name) {
-  return resolvePageMethod('CategoryDisplayPage', name);
-}
-
 function getFileTypeFromName(fileName) {
-  const fn = scanCommonPageMethod('getFileTypeFromName');
-  return fn ? fn(fileName) : 'text';
+  return callPageMethod('ScanCommonPage', 'getFileTypeFromName', [fileName], 'text');
 }
 
 /** Get icon emoji for file type */
 function getFileTypeIcon(fileType) {
-  const fn = scanCommonPageMethod('getFileTypeIcon');
-  return fn ? fn(fileType) : '📄';
+  return callPageMethod('ScanCommonPage', 'getFileTypeIcon', [fileType], '📄');
 }
 
 /** Toggle collapsible sections */
 function toggleCollapsible(header) {
-  const fn = scanCommonPageMethod('toggleCollapsible');
-  if (fn) return fn(header);
+  return callPageMethod('ScanCommonPage', 'toggleCollapsible', [header]);
 }
 
 /** Switch between scan detail tabs */
 function switchScanDetailTab(tabName) {
-  const fn = scanCommonPageMethod('switchScanDetailTab');
-  if (fn) return fn(tabName);
+  return callPageMethod('ScanCommonPage', 'switchScanDetailTab', [tabName]);
 }
 
 /** Format JSON with syntax highlighting */
 function formatJSONWithHighlighting(jsonObj) {
-  const fn = scanCommonPageMethod('formatJSONWithHighlighting');
-  return fn ? fn(jsonObj) : '';
+  return callPageMethod('ScanCommonPage', 'formatJSONWithHighlighting', [jsonObj], '');
 }
 
 /** Apply syntax highlighting to JSON string */
 function syntaxHighlightJSON(json) {
-  const fn = scanCommonPageMethod('syntaxHighlightJSON');
-  return fn ? fn(json) : '';
+  return callPageMethod('ScanCommonPage', 'syntaxHighlightJSON', [json], '');
 }
 
 /** Plain-text line when a finished scan has no indexed artifacts (aligned with Discord phaseNoResultsMessage). */
 function scanNoArtifactsMessage(scanType, target) {
-  const fn = scanCommonPageMethod('scanNoArtifactsMessage');
-  return fn ? fn(scanType, target) : '[ ⚪ ] No artifacts';
+  return callPageMethod('ScanCommonPage', 'scanNoArtifactsMessage', [scanType, target], '[ ⚪ ] No artifacts');
 }
 
 function goToScanResultsPage(scanID) {
@@ -493,31 +357,22 @@ function goToScanResultsPage(scanID) {
 
 /** Categorize scan artifacts for ASM-style layout (recon / vulns / other). */
 function categorizeScanArtifactFile(fileName) {
-  const fn = scanCommonPageMethod('categorizeScanArtifactFile');
-  if (fn) return fn(fileName);
-  return 'other';
+  return callPageMethod('ScanCommonPage', 'categorizeScanArtifactFile', [fileName], 'other');
 }
 
 /** Detect module from filename */
 function detectModuleFromFileName(fileName, existingModule) {
-  const fn = scanCommonPageMethod('detectModuleFromFileName');
-  return fn ? fn(fileName, existingModule) : (existingModule || 'unknown');
+  return callPageMethod('ScanCommonPage', 'detectModuleFromFileName', [fileName, existingModule], (existingModule || 'unknown'));
 }
 
 /** Get module display name with icon */
 function normalizeModuleKey(module) {
-  const fn = scanCommonPageMethod('normalizeModuleKey');
-  return fn ? fn(module) : (String(module || '').toLowerCase().trim() || 'unknown');
+  return callPageMethod('ScanCommonPage', 'normalizeModuleKey', [module], (String(module || '').toLowerCase().trim() || 'unknown'));
 }
 
 /** Get module display name with icon */
 function getModuleDisplayInfo(module) {
-  const fn = scanCommonPageMethod('getModuleDisplayInfo');
-  return fn ? fn(module) : { icon: '❓', name: 'Unknown', color: '#64748b' };
-}
-
-function findingsRowsPageMethod(name) {
-  return resolvePageMethod('FindingsRowsPage', name);
+  return callPageMethod('ScanCommonPage', 'getModuleDisplayInfo', [module], { icon: '❓', name: 'Unknown', color: '#64748b' });
 }
 
 function getUnifiedTableColumns(activeKind) {
@@ -546,17 +401,11 @@ function renderGFPatternsRow(r, idx, modInfo, sevMeta) {
 
 /** Get category display info */
 function getCategoryDisplayInfo(category) {
-  const fn = categoryDisplayPageMethod('getCategoryDisplayInfo');
-  if (fn) return fn(category);
-  return { icon: '📄', name: 'File', badge: '' };
+  return callPageMethod('CategoryDisplayPage', 'getCategoryDisplayInfo', [category], { icon: '📄', name: 'File', badge: '' });
 }
 
 function parseNucleiFindingLine(line) {
   return callPageMethod('ScanResultsCorePage', 'parseNucleiFindingLine', [line], null);
-}
-
-function scanDetailAsmPageMethod(name) {
-  return resolvePageMethod('ScanDetailAsmPage', name);
 }
 
 function scanArtifactRowHtml(f) {
@@ -568,33 +417,26 @@ function scanAsmSectionHtml(id, icon, title, subtitle, files, emptyNote) {
 }
 
 async function loadScanDetailVulnerabilityInsights(scanId, allFiles) {
-  const fn = scanDetailAsmPageMethod('loadScanDetailVulnerabilityInsights');
-  if (fn) return fn(scanId, allFiles);
+  return callPageMethod('ScanDetailAsmPage', 'loadScanDetailVulnerabilityInsights', [scanId, allFiles]);
 }
 
 function wireScanFileRows(container, scanId) {
-  const fn = scanDetailAsmPageMethod('wireScanFileRows');
-  if (fn) return fn(container, scanId);
+  return callPageMethod('ScanDetailAsmPage', 'wireScanFileRows', [container, scanId]);
 }
 
 /** Group files by module */
 function groupFilesByModule(files) {
-  const fn = scanResultsCorePageMethod('groupFilesByModule');
-  if (fn) return fn(files);
-  return {};
+  return callPageMethod('ScanResultsCorePage', 'groupFilesByModule', [files], {});
 }
 
 /** Parse and render results from a JSON file */
 async function parseAndRenderResults(scanId, file, container) {
-  const fn = scanResultsCorePageMethod('parseAndRenderResults');
-  if (fn) return fn(scanId, file, container);
+  return callPageMethod('ScanResultsCorePage', 'parseAndRenderResults', [scanId, file, container]);
 }
 
 /** Detect what type of results we're dealing with */
 function detectResultType(items, file) {
-  const fn = scanResultsCorePageMethod('detectResultType');
-  if (fn) return fn(items, file);
-  return 'generic-json';
+  return callPageMethod('ScanResultsCorePage', 'detectResultType', [items, file], 'generic-json');
 }
 
 /** Render appropriate table based on result type */
@@ -605,15 +447,9 @@ function renderResultTable(items, type, file) {
   return '';
 }
 
-function scanResultsUtilsPageMethod(name) {
-  return resolvePageMethod('ScanResultsUtilsPage', name);
-}
-
 /** Filter files based on search query and filters */
 function filterScanFiles(files, searchQuery, filters = {}) {
-  const fn = scanResultsUtilsPageMethod('filterScanFiles');
-  if (fn) return fn(files, searchQuery, filters);
-  return files;
+  return callPageMethod('ScanResultsUtilsPage', 'filterScanFiles', [files, searchQuery, filters], files);
 }
 
 /** Render module badge */
@@ -628,8 +464,7 @@ function renderCategoryBadge(category) {
 
 /** Copy all results to clipboard */
 async function copyAllScanResults(scanId) {
-  const fn = scanResultsUtilsPageMethod('copyAllScanResults');
-  if (fn) return fn(scanId);
+  return callPageMethod('ScanResultsUtilsPage', 'copyAllScanResults', [scanId]);
 }
 
 function scanDetailPageMethod(name) {
@@ -746,8 +581,7 @@ function renderMonitor() {
 }
 
 function renderR2() {
-  const fn = r2PageMethod('renderR2');
-  if (fn) return fn();
+  return callPageMethod('R2Page', 'renderR2');
 }
 
 function renderSettings() {
@@ -768,8 +602,7 @@ function saveWebhookSettings() {
 }
 
 function updateStatusDot() {
-  const fn = appCoreActionsPageMethod('updateStatusDot');
-  if (fn) return fn();
+  return callPageMethod('AppCoreActionsPage', 'updateStatusDot');
 }
 
 // ── Scan Launcher ─────────────────────────────────────────────────────────────
@@ -805,22 +638,12 @@ function escAttr(s) {
   return callPageMethod('HtmlEscapePage', 'escAttr', [s], String(s ?? ''));
 }
 
-function uiHelpersMethod(name) {
-  return resolvePageMethod('UIHelpers', name);
-}
-
-function formatUtilsPageMethod(name) {
-  return resolvePageMethod('FormatUtilsPage', name);
-}
-
 function fmtDate(d) {
-  const fn = uiHelpersMethod('fmtDate');
-  return fn ? fn(d) : '—';
+  return callPageMethod('UIHelpers', 'fmtDate', [d], '—');
 }
 
 function timeAgo(d) {
-  const fn = uiHelpersMethod('timeAgo');
-  return fn ? fn(d) : '—';
+  return callPageMethod('UIHelpers', 'timeAgo', [d], '—');
 }
 
 function elapsedStr(start) {
@@ -832,68 +655,55 @@ function elapsedBetween(start, end) {
 }
 
 function fmtSize(bytes) {
-  const fn = formatUtilsPageMethod('fmtSize');
-  if (fn) return fn(bytes);
-  return '0 B';
+  return callPageMethod('FormatUtilsPage', 'fmtSize', [bytes], '0 B');
 }
 
 function fmtInterval(secs) {
-  const fn = uiHelpersMethod('fmtInterval');
-  return fn ? fn(secs) : '—';
+  return callPageMethod('UIHelpers', 'fmtInterval', [secs], '—');
 }
 
 function statusBadge(status) {
-  const fn = uiHelpersMethod('statusBadge');
-  return fn ? fn(status) : `<span class="badge badge-done">${esc(status)}</span>`;
+  return callPageMethod('UIHelpers', 'statusBadge', [status], `<span class="badge badge-done">${esc(status)}</span>`);
 }
 
 function httpColor(code) {
-  const fn = uiHelpersMethod('httpColor');
-  return fn ? fn(code) : 'var(--text-muted)';
+  return callPageMethod('UIHelpers', 'httpColor', [code], 'var(--text-muted)');
 }
 
 function fileIcon(ext) {
-  const fn = uiHelpersMethod('fileIcon');
-  return fn ? fn(ext) : '📄';
+  return callPageMethod('UIHelpers', 'fileIcon', [ext], '📄');
 }
 
 function humanChangeType(t) {
-  const fn = uiHelpersMethod('humanChangeType');
-  return fn ? fn(t) : t;
+  return callPageMethod('UIHelpers', 'humanChangeType', [t], t);
 }
 
 function emptyState(icon, title, desc) {
-  const fn = uiHelpersMethod('emptyState');
-  if (fn) return fn(icon, title, desc);
-  return `<div class="empty-state"><div class="empty-icon">${icon}</div><div class="empty-title">${esc(title)}</div><div class="empty-desc">${esc(desc)}</div></div>`;
+  return callPageMethod('UIHelpers', 'emptyState', [icon, title, desc], `<div class="empty-state"><div class="empty-icon">${icon}</div><div class="empty-title">${esc(title)}</div><div class="empty-desc">${esc(desc)}</div></div>`);
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
 function showToast(type, title, msg) {
-  const fn = uiHelpersMethod('showToast');
-  if (fn) return fn(type, title, msg);
+  return callPageMethod('UIHelpers', 'showToast', [type, title, msg]);
 }
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
 
 function updateClock() {
-  const fn = uiHelpersMethod('updateClock');
-  if (fn) return fn();
+  return callPageMethod('UIHelpers', 'updateClock');
 }
 
 // ── Manual Refresh ────────────────────────────────────────────────────────────
 
 function manualRefresh() {
-  const fn = appCoreActionsPageMethod('manualRefresh');
-  if (fn) return fn();
+  return callPageMethod('AppCoreActionsPage', 'manualRefresh');
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 async function boot() {
-  const fn = dashboardBootstrapPageMethod('boot');
-  if (fn) return fn();
+  return callPageMethod('DashboardBootstrapPage', 'boot');
 }
 
 document.addEventListener('DOMContentLoaded', boot);
