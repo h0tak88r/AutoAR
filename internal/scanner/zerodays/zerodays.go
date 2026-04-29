@@ -150,7 +150,67 @@ func Run(opts Options) (*Result, error) {
 			target = "zerodays"
 		}
 		if result.TotalVulnerable > 0 {
-			if err := utils.WriteJSONToScanDir(scanID, "zerodays-results.json", result); err != nil {
+			type zerodayFinding struct {
+				TemplateID string `json:"template-id"`
+				MatchedAt  string `json:"matched-at"`
+				Severity   string `json:"severity"`
+				Module     string `json:"module"`
+				Type       string `json:"type,omitempty"`
+				Finding    string `json:"finding"`
+			}
+			findings := make([]zerodayFinding, 0, result.TotalVulnerable)
+			seen := make(map[string]struct{})
+
+			for _, v := range result.React2ShellVulns {
+				if strings.TrimSpace(v.URL) == "" {
+					continue
+				}
+				sev := strings.TrimSpace(strings.ToLower(v.Severity))
+				if sev == "" {
+					sev = "high"
+				}
+				vType := strings.TrimSpace(v.Type)
+				label := "React2Shell (CVE-2025-55182)"
+				if vType != "" {
+					label += " [" + vType + "]"
+				}
+				key := label + "|" + v.URL + "|" + sev
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				findings = append(findings, zerodayFinding{
+					TemplateID: label,
+					MatchedAt:  v.URL,
+					Severity:   sev,
+					Module:     "zerodays",
+					Type:       vType,
+					Finding:    "Potential React2Shell exploitation path detected",
+				})
+			}
+
+			for _, v := range result.MongoDBVulns {
+				if !v.Vulnerable || strings.TrimSpace(v.Host) == "" {
+					continue
+				}
+				targetAddr := fmt.Sprintf("%s:%d", v.Host, v.Port)
+				label := "MongoDB Memory Leak (CVE-2025-14847)"
+				key := label + "|" + targetAddr
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				findings = append(findings, zerodayFinding{
+					TemplateID: label,
+					MatchedAt:  targetAddr,
+					Severity:   "high",
+					Module:     "zerodays",
+					Type:       "mongodb-memory-leak",
+					Finding:    fmt.Sprintf("Leaked %d bytes from MongoDB response", len(v.LeakedData)),
+				})
+			}
+
+			if err := utils.WriteJSONToScanDir(scanID, "zerodays-results.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write zerodays JSON: %v", err)
 			}
 		} else {
