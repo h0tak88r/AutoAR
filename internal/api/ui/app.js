@@ -391,6 +391,12 @@ function settingsPageMethod(name) {
     : null;
 }
 
+function dashboardDataPageMethod(name) {
+  return window.DashboardDataPage && typeof window.DashboardDataPage[name] === 'function'
+    ? window.DashboardDataPage[name]
+    : null;
+}
+
 async function loadConfig() {
   const fn = settingsPageMethod('loadConfig');
   if (fn) return fn();
@@ -582,74 +588,18 @@ async function startDashboard() {
 }
 
 async function loadStats() {
-  await loadResource('stats', '/api/dashboard/stats', 'stats');
-  renderStats();
-  renderRecentChanges();
-  // Update active scans badge
-  const badge = document.getElementById('scans-badge');
-  if (badge && state.stats) {
-    badge.textContent = state.stats.active_scans;
-    badge.classList.toggle('pulse', state.stats.active_scans > 0);
-  }
+  const fn = dashboardDataPageMethod('loadStats');
+  if (fn) return fn();
 }
 
 async function loadDomains() {
-  await loadResource('domains', '/api/domains', 'domains');
-  if (state.view === 'domains' && !state.selectedDomain) renderDomainGrid();
-  if (state.view === 'overview') renderStats();
+  const fn = dashboardDataPageMethod('loadDomains');
+  if (fn) return fn();
 }
 
 async function loadSubdomains(page = 1, search = '') {
-  const reqId = Date.now();
-  state._subdomainsReqId = reqId;
-  state.subdomainsPage = page;
-
-  const searchInput = document.getElementById('subdomains-search');
-  const actualSearch = searchInput && document.activeElement === searchInput ? searchInput.value : search;
-  state.subdomainsSearch = actualSearch;
-
-  const st = document.getElementById('subdomains-status-filter')?.value || '0';
-  const tc = document.getElementById('subdomains-tech-filter')?.value || '';
-  const cn = document.getElementById('subdomains-cname-filter')?.value || '';
-
-  state.subdStatus = st;
-  state.subdTech = tc;
-  state.subdCname = cn;
-  state.subdomainsLimit = 30;
-  state.loading.subdomains = true;
-  state.error.subdomains = null;
-  if (state.view === 'subdomains') {
-    const container = document.getElementById('subdomains-container');
-    if (container) container.innerHTML = emptyState('⏳', 'Loading subdomains…', 'Fetching paginated rows from database.');
-  }
-
-  if (!state.domains || !state.domains.length) {
-    await loadResource('domains', '/api/domains', 'domains');
-  }
-
-  try {
-    const q = encodeURIComponent(state.subdomainsSearch);
-    const qs = `page=${page}&limit=${state.subdomainsLimit}&search=${q}&status=${state.subdStatus}&tech=${encodeURIComponent(state.subdTech)}&cname=${encodeURIComponent(state.subdCname)}`;
-    const data = await apiFetch(`/api/subdomains?${qs}`);
-    if (state._subdomainsReqId !== reqId) return;
-    state.allSubdomains = data.subdomains || [];
-    state.allSubdomainsTotal = data.total || 0;
-
-    const badge = document.getElementById('subdomains-badge');
-    if (badge) {
-      badge.textContent = state.allSubdomainsTotal;
-      badge.style.display = state.allSubdomainsTotal ? '' : 'none';
-    }
-  } catch (e) {
-    if (state._subdomainsReqId !== reqId) return;
-    state.allSubdomains = [];
-    state.allSubdomainsTotal = 0;
-    state.error.subdomains = e?.message || String(e);
-    showToast('error', 'Subdomains load failed', state.error.subdomains);
-  } finally {
-    if (state._subdomainsReqId === reqId) state.loading.subdomains = false;
-  }
-  if (state.view === 'subdomains') renderSubdomainsPage();
+  const fn = dashboardDataPageMethod('loadSubdomains');
+  if (fn) return fn(page, search);
 }
 
 /** Copy every subdomain string matching the current search (paginates at API max page size). */
@@ -659,9 +609,8 @@ async function copyAllSubdomainsMatching() {
 }
 
 async function loadScans() {
-  await loadResource('scans', '/api/scans', 'scans');
-  renderOverviewActiveScans();
-  if (state.view === 'scans') renderScans();
+  const fn = dashboardDataPageMethod('loadScans');
+  if (fn) return fn();
 }
 
 function monitorPageMethod(name) {
@@ -2610,8 +2559,10 @@ window.emptyState = emptyState;
 window.fmtSize = fmtSize;
 window.fileIcon = fileIcon;
 window.updateStatusDot = updateStatusDot;
+window.loadResource = loadResource;
 window.loadStats = loadStats;
 window.refreshCurrentView = refreshCurrentView;
+window.renderRecentChanges = renderRecentChanges;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
