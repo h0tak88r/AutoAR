@@ -30,18 +30,20 @@ func supabaseJWTAuth() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		auth := strings.TrimSpace(c.GetHeader("Authorization"))
-		if auth == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing Authorization bearer token"})
-			return
+		var raw string
+		if auth != "" {
+			const p = "Bearer "
+			if !strings.HasPrefix(auth, p) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization must be Bearer <token>"})
+				return
+			}
+			raw = strings.TrimSpace(auth[len(p):])
+		} else {
+			raw = strings.TrimSpace(c.Query("token"))
 		}
-		const p = "Bearer "
-		if !strings.HasPrefix(auth, p) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization must be Bearer <token>"})
-			return
-		}
-		raw := strings.TrimSpace(auth[len(p):])
+
 		if raw == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "empty bearer token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
 			return
 		}
 

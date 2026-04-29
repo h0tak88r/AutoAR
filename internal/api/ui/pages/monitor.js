@@ -1,5 +1,9 @@
 (() => {
-  const { esc, fmtDate, fmtInterval, timeAgo, humanChangeType } = window;
+  const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
+  const fmtDate = (...args) => (typeof window.fmtDate === 'function' ? window.fmtDate(...args) : String(args[0] ?? ''));
+  const fmtInterval = (...args) => (typeof window.fmtInterval === 'function' ? window.fmtInterval(...args) : String(args[0] ?? ''));
+  const timeAgo = (...args) => (typeof window.timeAgo === 'function' ? window.timeAgo(...args) : String(args[0] ?? ''));
+  const humanChangeType = (...args) => (typeof window.humanChangeType === 'function' ? window.humanChangeType(...args) : String(args[0] ?? ''));
 
   async function loadMonitor() {
     const [targets, subTargets, changes] = await Promise.allSettled([

@@ -263,7 +263,9 @@
         let sseLog = null;
         const connectLogStream = () => {
           if (sseLog) { sseLog.close(); sseLog = null; }
-          sseLog = new EventSource(`/api/scans/${encodeURIComponent(scanId)}/logs/stream`);
+          const tok = typeof window.localTokenGet === 'function' ? window.localTokenGet() : '';
+          const url = `/api/scans/${encodeURIComponent(scanId)}/logs/stream${tok ? `?token=${encodeURIComponent(tok)}` : ''}`;
+          sseLog = new EventSource(url);
           sseLog.addEventListener('log', e => {
             logOutput.textContent += e.data + '\n';
             logOutput.scrollTop = logOutput.scrollHeight;
@@ -516,6 +518,7 @@
   async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) {
     const root = document.getElementById(containerId);
     if (!root) return;
+    let wrap = null;
     const stNorm = String(scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
     const isAPKScan = stNorm.includes('apkx');
     const badge = document.getElementById('unified-parsed-badge') || document.getElementById('recon-parsed-badge');
@@ -1096,7 +1099,8 @@
       const totalPages = Math.ceil(filtered.length / _pageSize) || 1;
       if (_currentPage > totalPages) _currentPage = totalPages;
       const slice = filtered.slice((_currentPage - 1) * _pageSize, _currentPage * _pageSize);
-      const tbody = root.querySelector('#recon-unified-tbody'), headRow = root.querySelector('#recon-unified-headrow'), shown = root.querySelector('#recon-unified-shown'), wrap = root.querySelector('.result-table-wrap');
+      const tbody = root.querySelector('#recon-unified-tbody'), headRow = root.querySelector('#recon-unified-headrow'), shown = root.querySelector('#recon-unified-shown');
+      wrap = root.querySelector('.result-table-wrap');
       if (shown) shown.textContent = String(filtered.length);
       if (headRow) {
         const cols = presetMode === 'raw' ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'] : window.getUnifiedTableColumns(activeKind);
