@@ -74,12 +74,41 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 	// 3b. Write JSON results to scan directory (local-first)
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if liveCount > 0 {
-			if err := utils.WriteJSONToScanDir(scanID, "livehosts.json", map[string]interface{}{
-				"scan_id": scanID,
-				"target":  domain,
-				"results": liveHostMap,
-				"count":   liveCount,
-			}); err != nil {
+			type livehostFinding struct {
+				Target     string `json:"target"`
+				Host       string `json:"host"`
+				URL        string `json:"url"`
+				Scheme     string `json:"scheme"`
+				StatusCode int    `json:"status_code"`
+				Status     string `json:"status"`
+				Severity   string `json:"severity"`
+				Module     string `json:"module"`
+				Finding    string `json:"finding"`
+			}
+			findings := make([]livehostFinding, 0, len(liveHostMap))
+			seen := make(map[string]struct{}, len(liveHostMap))
+			for _, r := range liveHostMap {
+				if strings.TrimSpace(r.URL) == "" {
+					continue
+				}
+				key := r.Host + "|" + r.URL + "|" + r.Scheme
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				findings = append(findings, livehostFinding{
+					Target:     r.Host,
+					Host:       r.Host,
+					URL:        r.URL,
+					Scheme:     r.Scheme,
+					StatusCode: r.StatusCode,
+					Status:     "live",
+					Severity:   "info",
+					Module:     "livehosts",
+					Finding:    "Live host detected",
+				})
+			}
+			if err := utils.WriteJSONToScanDir(scanID, "livehosts.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write livehosts JSON: %v", err)
 			}
 		} else {
