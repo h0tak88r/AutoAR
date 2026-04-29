@@ -9,6 +9,7 @@
       if (typeof window.updateStatusDot === 'function') window.updateStatusDot();
     } catch (e) {
       window.showToast('error', 'Config Error', e.message);
+      throw e;
     }
   }
 

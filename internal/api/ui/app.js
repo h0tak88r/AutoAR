@@ -339,10 +339,8 @@ function localTokenClear() {
 
 async function buildAuthHeaders(extra = {}) {
   const h = { ...extra };
-  if (state.config?.auth_enabled) {
-    const tok = state._authAccessToken || localTokenGet();
-    if (tok) h.Authorization = `Bearer ${tok}`;
-  }
+  const tok = state._authAccessToken || localTokenGet();
+  if (tok) h.Authorization = `Bearer ${tok}`;
   return h;
 }
 
@@ -356,7 +354,7 @@ function handleAuthError() {
 async function apiFetch(path) {
   const headers = await buildAuthHeaders();
   const res = await fetch(`${API}${path}`, { headers });
-  if (res.status === 401 && state.config?.auth_enabled) {
+  if (res.status === 401) {
     handleAuthError();
     throw new Error('Session expired — sign in again');
   }
@@ -371,7 +369,7 @@ async function apiPost(path, body, customHeaders = {}) {
     headers,
     body: JSON.stringify(body),
   });
-  if (res.status === 401 && state.config?.auth_enabled) {
+  if (res.status === 401) {
     handleAuthError();
     throw new Error('Session expired — sign in again');
   }
@@ -385,7 +383,7 @@ async function apiPost(path, body, customHeaders = {}) {
 async function apiDelete(path) {
   const headers = await buildAuthHeaders();
   const res = await fetch(`${API}${path}`, { method: 'DELETE', headers });
-  if (res.status === 401 && state.config?.auth_enabled) {
+  if (res.status === 401) {
     handleAuthError();
     throw new Error('Session expired — sign in again');
   }
@@ -4286,15 +4284,7 @@ window.promptRetryCnames = async function() {
 	if (matchString === null) return; // User cancelled
 
 	try {
-		const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-		const res = await fetch(`${API}/api/subdomains/cnames/retry`, {
-			method: 'POST',
-			headers,
-			body: JSON.stringify({ match_string: matchString })
-		});
-
-		const data = await res.json();
-		if (!res.ok) throw new Error(data.error || 'Failed to start CNAME retry');
+		const data = await apiPost('/api/subdomains/cnames/retry', { match_string: matchString });
 		
 		showToast('success', 'Started', data.message || 'CNAME resolution started in background');
 		startCnamesProgressPolling();
@@ -4313,10 +4303,7 @@ async function startCnamesProgressPolling() {
 
 	const poll = async () => {
 		try {
-			const headers = await buildAuthHeaders();
-			const res = await fetch(`${API}/api/subdomains/cnames/progress`, { headers });
-			if (!res.ok) return;
-			const data = await res.json();
+			const data = await apiFetch('/api/subdomains/cnames/progress');
 			
 			if (progressText) {
 				progressText.textContent = `${data.processed} / ${data.total} (${data.matches} matches)`;
@@ -4356,15 +4343,7 @@ window.submitNucleiModal = async function() {
 	}
 
 	try {
-		const headers = await buildAuthHeaders({ 'Content-Type': 'application/json' });
-		const res = await fetch(`${API}/api/subdomains/nuclei/run`, {
-			method: 'POST',
-			headers,
-			body: JSON.stringify({ template: template })
-		});
-
-		const data = await res.json();
-		if (!res.ok) throw new Error(data.error || 'Failed to start Global Nuclei scan');
+		const data = await apiPost('/api/subdomains/nuclei/run', { template: template });
 		
 		showToast('success', 'Started', data.message || 'Global Nuclei scan started');
 		closeNucleiModal();
