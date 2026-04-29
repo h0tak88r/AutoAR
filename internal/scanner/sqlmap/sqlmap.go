@@ -22,6 +22,14 @@ type Result struct {
 	OutputFile string
 }
 
+type sqlmapFinding struct {
+	TemplateID string `json:"template-id"`
+	MatchedAt  string `json:"matched-at"`
+	Severity   string `json:"severity"`
+	Module     string `json:"module"`
+	Finding    string `json:"finding"`
+}
+
 // RunSQLMap runs sqlmap SQL injection scanner
 func RunSQLMap(domain string, threads int) (*Result, error) {
 	if domain == "" {
@@ -73,7 +81,8 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 
 	// Run sqlmap via native Go concurrency (replaces interlace limitation)
 	log.Printf("[INFO] Running sqlmap natively with %d threads", threads)
-	if err := runSQLMapMultiThread(tempURLs, outFile, threads); err != nil {
+	structuredFindings, err := runSQLMapMultiThread(tempURLs, outFile, threads)
+	if err != nil {
 		log.Printf("[WARN] sqlmap scan failed: %v", err)
 	}
 
@@ -81,18 +90,8 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 	log.Printf("[OK] SQLMap scan completed, found %d findings", count)
 
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
-		if count > 0 {
-			// For now, if text results exist, emit one summary finding pointing to the log.
-			// In the future, we can parse the sqlmap output more deeply.
-			findings := []map[string]interface{}{
-				{
-					"target":   domain, // Or better, extract first vulnerable URL
-					"finding":  fmt.Sprintf("Potential SQL Injection detected via sqlmap (%d log entries)", count),
-					"severity": "high",
-					"type":     "sql-detection",
-				},
-			}
-			_ = utils.WriteJSONToScanDir(scanID, "sqlmap-results.json", findings)
+		if len(structuredFindings) > 0 {
+			_ = utils.WriteJSONToScanDir(scanID, "sqlmap-results.json", structuredFindings)
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "sql-detection", "sqlmap-results.json")
 		}
@@ -138,10 +137,10 @@ func cleanURLs(inFile, outFile string) error {
 	return scanner.Err()
 }
 
-func runSQLMapMultiThread(urlsFile, outFile string, workers int) error {
+func runSQLMapMultiThread(urlsFile, outFile string, workers int) ([]sqlmapFinding, error) {
 	f, err := os.Open(urlsFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
 
@@ -154,18 +153,20 @@ func runSQLMapMultiThread(urlsFile, outFile string, workers int) error {
 		}
 	}
 	if len(urls) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	out, err := os.OpenFile(outFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer out.Close()
 
 	var outMutex sync.Mutex
+	var findingsMutex sync.Mutex
 	var wg sync.WaitGroup
 	jobs := make(chan string, len(urls))
+	structuredFindings := make([]sqlmapFinding, 0, len(urls))
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
@@ -174,9 +175,21 @@ func runSQLMapMultiThread(urlsFile, outFile string, workers int) error {
 			for url := range jobs {
 				cmd := exec.Command("sqlmap", "-u", url, "--batch", "--random-agent", "--dbs")
 				output, _ := cmd.CombinedOutput()
+				outText := strings.ToLower(string(output))
 				outMutex.Lock()
 				_, _ = out.Write(output)
 				outMutex.Unlock()
+				if strings.Contains(outText, "is vulnerable") || strings.Contains(outText, "sql injection") || strings.Contains(outText, "injectable") {
+					findingsMutex.Lock()
+					structuredFindings = append(structuredFindings, sqlmapFinding{
+						TemplateID: "SQL Injection",
+						MatchedAt:  url,
+						Severity:   "high",
+						Module:     "sql-detection",
+						Finding:    "Potential SQL injection vector detected by sqlmap",
+					})
+					findingsMutex.Unlock()
+				}
 			}
 		}()
 	}
@@ -187,7 +200,24 @@ func runSQLMapMultiThread(urlsFile, outFile string, workers int) error {
 	close(jobs)
 	wg.Wait()
 
-	return nil
+	return dedupeSQLMapFindings(structuredFindings), nil
+}
+
+func dedupeSQLMapFindings(in []sqlmapFinding) []sqlmapFinding {
+	if len(in) == 0 {
+		return in
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]sqlmapFinding, 0, len(in))
+	for _, f := range in {
+		key := f.TemplateID + "|" + f.MatchedAt + "|" + f.Severity
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, f)
+	}
+	return out
 }
 
 func countLines(path string) (int, error) {
