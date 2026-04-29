@@ -730,28 +730,8 @@ function goToScanResultsPage(scanID) {
 
 /** Categorize scan artifacts for ASM-style layout (recon / vulns / other). */
 function categorizeScanArtifactFile(fileName) {
-  const n = String(fileName || '').toLowerCase();
-  if (!n) return 'other';
-  const recon = new Set([
-    'subdomains.json', 'livehosts.json', 'urls.json', 'js-urls.json', 'interesting-urls.json',
-    'tech-detect.json', 'cname-records.json', 'buckets.json',
-  ]);
-  const legacyRecon = new Set([
-    'all-subs.txt', 'live-subs.txt', 'all-urls.txt', 'js-urls.txt',
-    'tech-detect.txt', 'cnames.txt', 'buckets.txt',
-  ]);
-  if (recon.has(n)) return 'recon';
-  if (legacyRecon.has(n)) return 'recon';
-  if (n.startsWith('nuclei-')) return 'vuln';
-  if (n.includes('zerodays') && n.endsWith('.json')) return 'vuln';
-  if ((n.startsWith('gf-') && n.endsWith('.txt')) || n === 'gf-results.txt') return 'vuln';
-  if (n.includes('misconfig') && n.endsWith('.txt')) return 'vuln';
-  if (n.includes('dalfox') || n.includes('sqlmap')) return 'vuln';
-  if (n.includes('depconfusion') && n.endsWith('.txt')) return 'vuln';
-  if (n.includes('confused2-web') || (n.includes('confused') && n.endsWith('.log'))) return 'vuln';
-  if (n.includes('exposure') && n.endsWith('.txt')) return 'vuln';
-  if (n.includes('vulnerabilities') && n.endsWith('.txt')) return 'vuln';
-  if (n.endsWith('.log')) return 'other';
+  const fn = scanCommonPageMethod('categorizeScanArtifactFile');
+  if (fn) return fn(fileName);
   return 'other';
 }
 
