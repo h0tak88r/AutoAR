@@ -131,6 +131,7 @@ func DetectTech(domain string, threads int) (*Result, error) {
 
 	var count int
 	var mu sync.Mutex
+	seenFindings := make(map[string]struct{})
 
 	// techResult is a structured finding for the dashboard (recon / assets table).
 	type techResult struct {
@@ -148,6 +149,18 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	options.OnResult = func(result runner.Result) {
 		if result.URL != "" {
 			mu.Lock()
+			fingerprint := strings.Join([]string{
+				result.URL,
+				fmt.Sprint(result.StatusCode),
+				result.WebServer,
+				result.Title,
+				strings.Join(result.Technologies, ","),
+			}, "|")
+			if _, exists := seenFindings[fingerprint]; exists {
+				mu.Unlock()
+				return
+			}
+			seenFindings[fingerprint] = struct{}{}
 			count++
 			// Write human-readable text line to file
 			line := fmt.Sprintf("%s [%d] [%s] [%s] [%s]\n",
