@@ -98,8 +98,7 @@ function routerNavigationPageMethod(name) {
 function pathScanId() {
   const fn = routerCorePageMethod('pathScanId');
   if (fn) return fn();
-  const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
-  return m ? decodeURIComponent(m[1]) : null;
+  return null;
 }
 
 function openAuditorInNewTab(view) {
