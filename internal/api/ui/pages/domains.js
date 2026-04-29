@@ -234,6 +234,32 @@
       const fb = document.getElementById('filter-bar-domains');
       if (fb) fb.style.display = '';
       this.renderDomainGrid();
+    },
+
+    async copyAllSubdomainsMatching() {
+      try {
+        const q = encodeURIComponent(window.state.subdomainsSearch || '');
+        const pageSize = 500;
+        let page = 1;
+        const all = [];
+        for (;;) {
+          const data = await window.apiFetch(`/api/subdomains?page=${page}&limit=${pageSize}&search=${q}`);
+          const batch = data.subdomains || [];
+          all.push(...batch);
+          const total = data.total || 0;
+          if (!batch.length || all.length >= total) break;
+          page += 1;
+          if (page > 2000) break;
+        }
+        if (!all.length) {
+          window.showToast('error', 'Nothing to copy', 'No subdomains match the current search.');
+          return;
+        }
+        await window.copyToClipboard(all.map((s) => s.subdomain).join('\n'));
+        window.showToast('success', 'Copied!', `${all.length} subdomains copied to clipboard`);
+      } catch (e) {
+        window.showToast('error', 'Copy failed', e.message || String(e));
+      }
     }
   };
 

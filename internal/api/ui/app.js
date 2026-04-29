@@ -654,29 +654,8 @@ async function loadSubdomains(page = 1, search = '') {
 
 /** Copy every subdomain string matching the current search (paginates at API max page size). */
 async function copyAllSubdomainsMatching() {
-  try {
-    const q = encodeURIComponent(state.subdomainsSearch || '');
-    const pageSize = 500;
-    let page = 1;
-    const all = [];
-    for (; ;) {
-      const data = await apiFetch(`/api/subdomains?page=${page}&limit=${pageSize}&search=${q}`);
-      const batch = data.subdomains || [];
-      all.push(...batch);
-      const total = data.total || 0;
-      if (!batch.length || all.length >= total) break;
-      page += 1;
-      if (page > 2000) break;
-    }
-    if (!all.length) {
-      showToast('error', 'Nothing to copy', 'No subdomains match the current search.');
-      return;
-    }
-    await copyToClipboard(all.map(s => s.subdomain).join('\n'));
-    showToast('success', 'Copied!', `${all.length} subdomains copied to clipboard`);
-  } catch (e) {
-    showToast('error', 'Copy failed', e.message || String(e));
-  }
+  const fn = domainsPageMethod('copyAllSubdomainsMatching');
+  if (fn) return fn();
 }
 
 async function loadScans() {
