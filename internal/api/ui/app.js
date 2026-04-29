@@ -749,6 +749,12 @@ function scanResultsCorePageMethod(name) {
     : null;
 }
 
+function categoryDisplayPageMethod(name) {
+  return window.CategoryDisplayPage && typeof window.CategoryDisplayPage[name] === 'function'
+    ? window.CategoryDisplayPage[name]
+    : null;
+}
+
 function getFileTypeFromName(fileName) {
   const fn = scanCommonPageMethod('getFileTypeFromName');
   return fn ? fn(fileName) : 'text';
@@ -1172,16 +1178,9 @@ function renderGFPatternsRow(r, idx, modInfo, sevMeta) {
 
 /** Get category display info */
 function getCategoryDisplayInfo(category) {
-  const cat = String(category || '').toLowerCase();
-  const categories = {
-    'vulnerability': { icon: '⚠️', name: 'Vulnerability', badge: 'badge-failed' },
-    'recon': { icon: '🔭', name: 'Reconnaissance', badge: 'badge-running' },
-    'config': { icon: '⚙️', name: 'Configuration', badge: 'badge-starting' },
-    'output': { icon: '📊', name: 'Output', badge: 'badge-done' },
-    'log': { icon: '📝', name: 'Log', badge: 'badge-monitor-off' },
-  };
-
-  return categories[cat] || { icon: '📄', name: 'File', badge: '' };
+  const fn = categoryDisplayPageMethod('getCategoryDisplayInfo');
+  if (fn) return fn(category);
+  return { icon: '📄', name: 'File', badge: '' };
 }
 
 function parseNucleiFindingLine(line) {
