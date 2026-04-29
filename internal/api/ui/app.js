@@ -705,20 +705,22 @@ function refreshCurrentView() {
   if (fn) return fn();
 }
 
+function scanDetailPaginationPageMethod(name) {
+  return window.ScanDetailPaginationPage && typeof window.ScanDetailPaginationPage[name] === 'function'
+    ? window.ScanDetailPaginationPage[name]
+    : null;
+}
+
 /** Pagination: previous page of files */
 function prevFilesPage(scanId) {
-  if (state.scanDetailUI.filesPage > 1) {
-    state.scanDetailUI.filesPage--;
-    renderScanDetailView(scanId);
-  }
+  const fn = scanDetailPaginationPageMethod('prevFilesPage');
+  if (fn) return fn(scanId);
 }
 
 /** Pagination: next page of files */
 function nextFilesPage(scanId, total) {
-  if (state.scanDetailUI.filesPage * state.scanDetailUI.filesPerPage < total) {
-    state.scanDetailUI.filesPage++;
-    renderScanDetailView(scanId);
-  }
+  const fn = scanDetailPaginationPageMethod('nextFilesPage');
+  if (fn) return fn(scanId, total);
 }
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
@@ -2380,6 +2382,8 @@ window.wireShellOnce = wireShellOnce;
 window.updateClock = updateClock;
 window.browseR2ForScan = browseR2ForScan;
 window.loadDomainSubdomains = loadDomainSubdomains;
+window.prevFilesPage = prevFilesPage;
+window.nextFilesPage = nextFilesPage;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
