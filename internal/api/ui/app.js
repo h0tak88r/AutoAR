@@ -806,6 +806,12 @@ function scanCommonPageMethod(name) {
     : null;
 }
 
+function scanResultsCorePageMethod(name) {
+  return window.ScanResultsCorePage && typeof window.ScanResultsCorePage[name] === 'function'
+    ? window.ScanResultsCorePage[name]
+    : null;
+}
+
 function getFileTypeFromName(fileName) {
   const fn = scanCommonPageMethod('getFileTypeFromName');
   return fn ? fn(fileName) : 'text';
@@ -1242,21 +1248,8 @@ function getCategoryDisplayInfo(category) {
 }
 
 function parseNucleiFindingLine(line) {
-  const t = String(line || '').trim();
-  if (!t || t.startsWith('#')) return null;
-  if (t.startsWith('{')) {
-    try {
-      const o = JSON.parse(t);
-      const url = o['matched-at'] || o.matched_at || o.url || o.host || o.matched || '';
-      const template = o['template-id'] || o.template_id || o.templateID || o.template || o.id || '—';
-      const sev = (o.info && o.info.severity) || o.severity || '—';
-      return { url: String(url || ''), template: String(template), severity: String(sev) };
-    } catch {
-      return null;
-    }
-  }
-  if (/^https?:\/\//i.test(t)) return { url: t, template: '—', severity: '—' };
-  if (t.length > 4 && !/^Nuclei /i.test(t) && !/^Found /i.test(t)) return { url: t, template: '—', severity: '—' };
+  const fn = scanResultsCorePageMethod('parseNucleiFindingLine');
+  if (fn) return fn(line);
   return null;
 }
 
@@ -1403,160 +1396,21 @@ function wireScanFileRows(container, scanId) {
 
 /** Group files by module */
 function groupFilesByModule(files) {
-  const modules = {};
-  files.forEach(f => {
-    const mod = detectModuleFromFileName(f.file_name, f.module);
-    if (!modules[mod]) modules[mod] = [];
-    f._module = mod;
-    modules[mod].push(f);
-  });
-  return modules;
+  const fn = scanResultsCorePageMethod('groupFilesByModule');
+  if (fn) return fn(files);
+  return {};
 }
 
 /** Parse and render results from a JSON file */
 async function parseAndRenderResults(scanId, file, container) {
-  try {
-    const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?file_name=${encodeURIComponent(file.file_name)}&page=1&per_page=500`);
-
-    let items = [];
-    let resultType = 'generic-json';
-    if (data.format === 'json-array') {
-      items = data.items || [];
-      resultType = detectResultType(items, file);
-    } else if (data.format === 'json-object' && data.data) {
-      // Try to extract array from common fields
-      const obj = data.data;
-      for (const key of ['results', 'findings', 'matches', 'issues', 'vulnerabilities', 'data', 'items', 'hosts', 'subdomains']) {
-        if (Array.isArray(obj[key])) {
-          items = obj[key];
-          break;
-        }
-      }
-      if (!items.length) items = [obj];
-      resultType = detectResultType(items, file);
-    } else if (data.format === 'text' && Array.isArray(data.lines)) {
-      const lines = data.lines.map(x => String(x || '').trim()).filter(Boolean);
-      const mod = detectModuleFromFileName(file.file_name, file.module);
-      if (mod === 'nuclei') {
-        const parsed = [];
-        for (const line of lines) {
-          const p = parseNucleiFindingLine(line);
-          if (p) parsed.push({
-            template: p.template || '—',
-            severity: p.severity || 'info',
-            url: p.url || '',
-          });
-        }
-        items = parsed.length ? parsed : lines;
-      } else {
-        items = lines;
-      }
-      resultType = detectResultType(items, file);
-    }
-
-    if (!items.length) {
-      container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">No parseable results in this file</div>';
-      return;
-    }
-
-    // Detect result type and render appropriate table
-    const html = renderResultTable(items, resultType, file);
-    container.innerHTML = html;
-
-  } catch (e) {
-    container.innerHTML = `<div style="padding:20px;color:var(--accent-red)">Error loading results: ${esc(e.message)}</div>`;
-  }
+  const fn = scanResultsCorePageMethod('parseAndRenderResults');
+  if (fn) return fn(scanId, file, container);
 }
 
 /** Detect what type of results we're dealing with */
 function detectResultType(items, file) {
-  if (!items.length) return 'unknown';
-
-  const first = items[0];
-  const fileName = (file.file_name || '').toLowerCase();
-  const module = file.module || detectModuleFromFileName(file.file_name);
-
-  // Subdomain results
-  if (module === 'subdomain-enum' || fileName.includes('subdomain') || fileName.includes('subs')) {
-    if (typeof first === 'string') return 'subdomain-list';
-    if (first.subdomain || first.domain || first.host) return 'subdomain-object';
-  }
-
-  // HTTPX/Live hosts results
-  if (module === 'httpx' || fileName.includes('live') || fileName.includes('httpx') || fileName.includes('livehosts')) {
-    if (first.url || first.URL || first.host || first.Host || first.status_code || first.StatusCode || first.status || first.title) return 'httpx-results';
-  }
-
-  // Nuclei vulnerability results
-  if (module === 'nuclei' || fileName.includes('nuclei')) {
-    if (first['template-id'] || first.template_id || first.template || first.severity || first['matched-at']) return 'nuclei-findings';
-  }
-
-  // Zerodays results
-  if (module === 'zerodays' || fileName.includes('zeroday')) {
-    if (first.cve || first.vulnerability || first.exploit) return 'zerodays-findings';
-  }
-
-  // JS analysis results
-  if (module === 'js-analysis' || fileName.includes('js-')) {
-    if (first.url || first.endpoint || first.secret || first.key) return 'js-findings';
-  }
-
-  // XSS/Dalfox results
-  if (module === 'xss-detection' || fileName.includes('dalfox') || fileName.includes('kxss')) {
-    if (first.url && (first.payload || first.parameter)) return 'xss-findings';
-  }
-
-  // SQL injection results
-  if (module === 'sql-detection' || fileName.includes('sqlmap')) {
-    if (first.url && (first.parameter || first.type)) return 'sqli-findings';
-  }
-
-  // GF pattern results
-  if (module === 'gf-patterns' || fileName.startsWith('gf-')) {
-    if (typeof first === 'string') return 'url-list';
-    if (first.url) return 'url-list';
-  }
-
-  // Backup files
-  if (module === 'backup-detection' || fileName.includes('backup')) {
-    if (first.url || first.path) return 'backup-findings';
-  }
-
-  // Misconfiguration
-  if (module === 'misconfig') {
-    if (first.url || first.service || first.service_name || first.service_id || first.config || first['matched-at']) return 'misconfig-findings';
-  }
-
-  // AEM findings
-  if (module === 'aem' || fileName.includes('aem')) {
-    if (first.url || first.vulnerable || first.reason) return 'aem-findings';
-  }
-
-  // Port scan
-  if (module === 'port-scan' || fileName.includes('port') || fileName.includes('nmap')) {
-    if (first.port || first.protocol || first.service) return 'port-results';
-  }
-
-  // S3 buckets
-  if (module === 's3-scan' || fileName.includes('s3') || fileName.includes('bucket')) {
-    if (first.bucket || first.key || first.url) return 's3-findings';
-  }
-
-  // DNS takeover
-  if (module === 'dns-takeover' || fileName.includes('dns')) {
-    if (first.domain || first.cname || first.fingerprint) return 'dns-findings';
-  }
-
-  // Tech detect
-  if (module === 'tech-detect') {
-    if (first.url && (first.tech || first.technology || first.framework)) return 'tech-findings';
-  }
-
-  // URLs
-  if (typeof first === 'string') return 'url-list';
-  if (first.url) return 'url-list';
-
+  const fn = scanResultsCorePageMethod('detectResultType');
+  if (fn) return fn(items, file);
   return 'generic-json';
 }
 
