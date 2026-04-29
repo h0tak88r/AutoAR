@@ -94,8 +94,8 @@
       <div class="card">
         <div class="k">Regex Definitions (optional)</div>
         <div class="muted" style="margin-top:6px">
-          Load many regexes at once from <b>regexes.yaml</b> or <b>JS bundles</b> (URLs or upload).
-          When loaded, <i>Run Scan</i> runs every definition against the input text.
+          Load many regexes at once from <b>regexes.yaml</b>.
+          When loaded, <i>Run Scan</i> runs every definition against loaded JS file(s) (uploads/URLs) or falls back to the input text.
         </div>
         <div style="height:10px"></div>
         <div class="cols">
@@ -104,15 +104,15 @@
             <input id="regexYamlUpload" type="file" accept=".yaml,.yml,text/yaml,application/x-yaml" />
           </div>
           <div>
-            <div class="k">JS bundle upload</div>
-            <input id="regexJsUpload" type="file" accept=".js,application/javascript,text/javascript" />
+            <div class="k">JS file upload(s)</div>
+            <input id="regexJsUpload" type="file" multiple accept=".js,application/javascript,text/javascript" />
           </div>
         </div>
         <div style="height:10px"></div>
-        <div class="k">JS bundle URLs (one per line)</div>
-        <textarea id="regexJsUrls" placeholder="https://.../regexes.js&#10;https://.../more-regexes.js" style="min-height:90px"></textarea>
+        <div class="k">JS file URLs (one per line)</div>
+        <textarea id="regexJsUrls" placeholder="https://.../app.js&#10;https://.../bundle.js" style="min-height:90px"></textarea>
         <div class="row" style="margin-top:8px">
-          <button class="btn" id="regexLoadDefs">Load Definitions</button>
+          <button class="btn" id="regexLoadDefs">Load Regexes</button>
           <button class="btn ghost" id="regexClearDefs" type="button">Clear</button>
         </div>
         <div class="muted" id="regexDefsMeta" style="margin-top:8px"></div>
@@ -321,42 +321,6 @@
       return normalized;
     }
 
-    async function loadRegexDefsFromJsText(jsText) {
-      // Expected format: the JS bundle assigns one of:
-      //   window.__securitylabRegexDefs
-      //   window.SECURITYLAB_REGEX_DEFINITIONS
-      //   window.regexes
-      // to an Array of { name?, pattern, flags? }.
-      const before = window.__securitylabRegexDefs;
-      try {
-        delete window.__securitylabRegexDefs;
-        delete window.SECURITYLAB_REGEX_DEFINITIONS;
-        delete window.regexes;
-      } catch {}
-
-      try {
-        // Not sandboxed by design (this is a power-user tool in an admin UI iframe).
-        // The JS bundle is expected to only set global variables.
-        // eslint-disable-next-line no-new-func
-        new Function(String(jsText || ''))();
-      } catch (e) {
-        throw new Error('JS bundle eval failed: ' + e.message);
-      }
-
-      const defs =
-        window.__securitylabRegexDefs ||
-        window.SECURITYLAB_REGEX_DEFINITIONS ||
-        window.regexes ||
-        [];
-
-      if (!Array.isArray(defs)) throw new Error('JS bundle did not export an array');
-      const normalized = defs.map((d, i) => normalizeRegexDef(d, i));
-
-      // Restore previous value if this bundle didn't define anything.
-      window.__securitylabRegexDefs = normalized;
-      return normalized;
-    }
-
     async function loadRegexDefs() {
       const meta = $('regexDefsMeta');
       meta.textContent = 'Loading regex definitions…';
@@ -370,31 +334,11 @@
         defs.push(...await loadRegexDefsFromYamlText(text));
       }
 
-      // JS upload
-      const jsFileEl = $('regexJsUpload');
-      if (jsFileEl && jsFileEl.files && jsFileEl.files[0]) {
-        const jsText = await jsFileEl.files[0].text();
-        defs.push(...await loadRegexDefsFromJsText(jsText));
-      }
-
-      // JS URLs
-      const urls = String($('regexJsUrls')?.value || '')
-        .split('\n')
-        .map(s => s.trim())
-        .filter(Boolean);
-
-      for (const url of urls) {
-        const resp = await fetch(url, { cache: 'no-store' });
-        if (!resp.ok) throw new Error(`Failed to fetch JS URL: ${url} (${resp.status})`);
-        const jsText = await resp.text();
-        const loaded = await loadRegexDefsFromJsText(jsText);
-        defs.push(...loaded);
-      }
-
+      const normalized = defs;
       // Merge + de-dup by (name|pattern|flags)
       const seen = new Set();
       const merged = [];
-      defs.forEach((d) => {
+      normalized.forEach((d) => {
         const k = `${d.name}::${d.pattern}::${d.flags}`;
         if (seen.has(k)) return;
         seen.add(k);
@@ -407,54 +351,104 @@
 
     function runLoadedRegexes(text, defs) {
       const results = $('regexResults');
-      results.innerHTML = '';
+      const targets = Array.isArray(window.__securitylabJsScanTargets) ? window.__securitylabJsScanTargets : [];
 
-      const out = [];
-      let total = 0;
-      for (const [idx, def] of defs.entries()) {
-        try {
-          const re = new RegExp(def.pattern, def.flags || 'g');
-          re.lastIndex = 0;
-          let m;
-          let local = 0;
-          while ((m = re.exec(text)) !== null) {
-            out.push({
-              name: def.name || `regex_${idx + 1}`,
-              idx: m.index,
-              val: m[0]
-            });
+      const scanOneText = (targetLabel, inputText) => {
+        const out = [];
+        let total = 0;
+        for (const [idx, def] of defs.entries()) {
+          try {
+            const re = new RegExp(def.pattern, def.flags || 'g');
+            re.lastIndex = 0;
+            let m;
+            let local = 0;
+            while ((m = re.exec(inputText)) !== null) {
+              out.push({
+                name: def.name || `regex_${idx + 1}`,
+                idx: m.index,
+                val: m[0]
+              });
+              total++;
+              local++;
+              if (m.index === re.lastIndex) re.lastIndex++;
+              if (local > 50) break;
+              if (total >= 500) break;
+            }
+            if (total >= 500) break;
+          } catch (e) {
+            out.push({ name: def.name || `regex_${idx + 1}`, idx: -1, val: `ERROR: ${e.message}` });
             total++;
-            local++;
-            if (m.index === re.lastIndex) re.lastIndex++;
-            if (local > 50) break; // prevent a single regex from flooding
-            if (total >= 500) break; // global cap
+            if (total >= 500) break;
           }
-          if (total >= 500) break;
-        } catch (e) {
-          out.push({ name: def.name || `regex_${idx + 1}`, idx: -1, val: `ERROR: ${e.message}` });
-          total++;
-          if (total >= 500) break;
+        }
+
+        return out.length
+          ? out.map(x => {
+            const pill = x.idx === -1 ? 'bad' : 'ok';
+            const tag = x.idx === -1 ? 'ERROR' : 'MATCH';
+            return `<div class="item">
+              <span class="pill ${pill}">${tag}</span>
+              <b style="margin-left:8px">${escapeHTML(x.name)}</b>
+              ${x.idx >= 0 ? `<span class="muted" style="margin-left:8px">@${x.idx}</span>` : ''}
+              <div style="margin-top:6px"><code>${escapeHTML(x.val)}</code></div>
+            </div>`;
+          }).join('')
+          : '<div class="item muted">No matches.</div>';
+      };
+
+      if (targets.length) {
+        results.innerHTML = targets.map(t => {
+          const label = t && t.name ? t.name : 'JS target';
+          const header = `<div class="item muted" style="border:1px solid rgba(255,255,255,.06); border-radius:10px; margin:10px 0 10px 0">
+            <b>${escapeHTML(label)}</b>
+            <div class="muted" style="margin-top:6px">Scanning with ${defs.length} regex definition(s)…</div>
+          </div>`;
+          return header + scanOneText(label, t.content);
+        }).join('');
+      } else {
+        results.innerHTML = scanOneText('input', text);
+      }
+    }
+
+    async function fetchTextUrlNoCache(url) {
+      const resp = await fetch(url, { cache: 'no-store' });
+      if (!resp.ok) throw new Error(`Failed to fetch: ${url} (${resp.status})`);
+      return await resp.text();
+    }
+
+    async function loadJsScanTargets() {
+      const targets = [];
+
+      const jsFileEl = $('regexJsUpload');
+      if (jsFileEl && jsFileEl.files && jsFileEl.files.length) {
+        for (const f of jsFileEl.files) {
+          const text = await f.text();
+          targets.push({ name: f.name, content: text });
         }
       }
 
-      results.innerHTML = out.length
-        ? out.map(x => {
-          const pill = x.idx === -1 ? 'bad' : 'ok';
-          const tag = x.idx === -1 ? 'ERROR' : 'MATCH';
-          return `<div class="item">
-            <span class="pill ${pill}">${tag}</span>
-            <b style="margin-left:8px">${escapeHTML(x.name)}</b>
-            ${x.idx >= 0 ? `<span class="muted" style="margin-left:8px">@${x.idx}</span>` : ''}
-            <div style="margin-top:6px"><code>${escapeHTML(x.val)}</code></div>
-          </div>`;
-        }).join('')
-        : '<div class="item muted">No matches.</div>';
+      const urls = String($('regexJsUrls')?.value || '')
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      for (const url of urls) {
+        const text = await fetchTextUrlNoCache(url);
+        targets.push({ name: url.split('/').pop() || url, content: text });
+      }
+
+      window.__securitylabJsScanTargets = targets;
+      const meta = $('regexDefsMeta');
+      meta.textContent = targets.length
+        ? `${window.__securitylabRegexDefs?.length || 0} regexes loaded; ${targets.length} JS target(s) loaded.`
+        : `No JS targets loaded. Run Scan will use regexInput text instead.`;
     }
 
     $('regexLoadDefs').addEventListener('click', async () => {
       try {
         await loadRegexDefs();
-        $('regexResults').innerHTML = '<div class="item muted">Definitions loaded. Click <b>Run Scan</b>.</div>';
+        await loadJsScanTargets();
+        $('regexResults').innerHTML = '<div class="item muted">Regexes loaded. Click <b>Run Scan</b> (scans JS targets or regexInput).</div>';
       } catch (e) {
         $('regexResults').innerHTML = `<div class="item"><span class="pill bad">ERROR</span><span style="margin-left:8px">${escapeHTML(e.message)}</span></div>`;
         $('regexDefsMeta').textContent = 'Failed to load definitions.';
@@ -463,8 +457,9 @@
 
     $('regexClearDefs').addEventListener('click', () => {
       window.__securitylabRegexDefs = [];
+      window.__securitylabJsScanTargets = [];
       $('regexDefsMeta').textContent = 'Cleared regex definitions.';
-      $('regexResults').innerHTML = '<div class="item muted">Cleared. Click <b>Run Scan</b> to use single-pattern mode.</div>';
+      $('regexResults').innerHTML = '<div class="item muted">Cleared regex definitions and JS targets. Click <b>Run Scan</b> to use single-pattern mode.</div>';
     });
 
     function parseDeps(raw, mode) {
