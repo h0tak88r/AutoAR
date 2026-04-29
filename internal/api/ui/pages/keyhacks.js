@@ -8,10 +8,20 @@
     { name: 'JWT Token', re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, sev: 'warn', providerQuery: 'jwt' },
     { name: 'Private Key Block', re: /-----BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----/g, sev: 'high', providerQuery: 'private key' },
     { name: 'Bearer Token', re: /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/g, sev: 'warn', providerQuery: 'bearer' },
+    { name: 'Slack Bot Token', re: /\bxoxb-[0-9a-zA-Z-]+/g, sev: 'high', providerQuery: 'slack' },
+    { name: 'Slack User Token', re: /\bxoxp-[0-9a-zA-Z-]+/g, sev: 'high', providerQuery: 'slack' },
+    { name: 'Discord Bot Token', re: /\b[A-Za-z0-9._-]{20,}\.[A-Za-z0-9._-]{4,}\.[A-Za-z0-9._-]{20,}\b/g, sev: 'high', providerQuery: 'discord' },
+    { name: 'Telegram Bot Token', re: /\b[0-9]{8,10}:[A-Za-z0-9_-]{30,}\b/g, sev: 'high', providerQuery: 'telegram' },
+    { name: 'OpenAI API Key', re: /\bsk-[A-Za-z0-9]{32,}\b/g, sev: 'high', providerQuery: 'openai' },
+    { name: 'SendGrid API Key', re: /\bSG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{30,}\b/g, sev: 'high', providerQuery: 'sendgrid' },
+    { name: 'Twilio Auth Token', re: /\b[A-f0-9]{32}\b/g, sev: 'warn', providerQuery: 'twilio' },
+    { name: 'MongoDB URI', re: /\bmongodb(\+srv)?:\/\/[^\s'"]+/g, sev: 'high', providerQuery: 'mongodb' },
+    { name: 'PostgreSQL URI', re: /\bpostgres(ql)?:\/\/[^\s'"]+/g, sev: 'high', providerQuery: 'postgresql' },
+    { name: 'MySQL URI', re: /\bmysql:\/\/[^\s'"]+/g, sev: 'high', providerQuery: 'mysql' },
+    { name: 'Redis URL', re: /\bredis:\/\/[^\s'"]+/g, sev: 'high', providerQuery: 'redis' },
   ];
 
   let allTemplates = null;
-  let templatesLoading = null;
 
   function escapeHTML(str) {
     if (!str) return '';
@@ -27,18 +37,12 @@
   function detectKeyProvidersInText(raw) {
     const txt = String(raw || '');
     const out = [];
-
     for (const p of KEYHACK_KEY_PATTERNS) {
       p.re.lastIndex = 0;
       let m;
       while ((m = p.re.exec(txt)) !== null) {
         if (!m[0]) break;
-        out.push({
-          name: p.name,
-          sev: p.sev,
-          providerQuery: p.providerQuery,
-          match: m[0].slice(0, 160),
-        });
+        out.push({ name: p.name, sev: p.sev, providerQuery: p.providerQuery, match: m[0].slice(0, 160) });
         if (m.index === p.re.lastIndex) p.re.lastIndex++;
         if (out.length >= 10) break;
       }
@@ -50,28 +54,14 @@
     const q = String(providerQuery || '').toLowerCase().trim();
     if (!q) return false;
     const hay = [t?.Keyname, t?.Description, t?.Notes, t?.URL, t?.CommandTemplate]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
+      .filter(Boolean).join(' ').toLowerCase();
     return hay.includes(q);
   }
 
-  async function ensureKeyhacksAllTemplatesLoaded() {
+  function ensureTemplatesLoaded() {
     if (Array.isArray(allTemplates) && allTemplates.length) return allTemplates;
-    if (templatesLoading) return templatesLoading;
-    templatesLoading = window.apiFetch('/api/keyhacks')
-      .then((templates) => {
-        allTemplates = Array.isArray(templates) ? templates : [];
-        return allTemplates;
-      })
-      .catch((e) => {
-        allTemplates = [];
-        throw e;
-      })
-      .finally(() => {
-        templatesLoading = null;
-      });
-    return templatesLoading;
+    allTemplates = window.BUNDLED_KEYHACK_TEMPLATES || [];
+    return allTemplates;
   }
 
   function commandTemplateForToken(t, token) {
@@ -90,24 +80,16 @@
       return;
     }
 
-    let templates = [];
-    try {
-      templates = await ensureKeyhacksAllTemplatesLoaded();
-    } catch (e) {
-      out.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading keyhacks</div><div class="empty-subtitle">${escapeHTML(e.message)}</div></div>`;
-      return;
-    }
-
+    const templates = ensureTemplatesLoaded();
     const detections = detectKeyProvidersInText(token);
     if (!detections.length) {
       out.innerHTML = '<div class="empty-state"><div class="empty-title">No known key patterns detected</div><div class="empty-subtitle">Try searching templates by provider name.</div></div>';
       return;
     }
 
-    const byMatch = (providerQuery) => {
-      if (!templates?.length) return [];
-      return templates.filter((t) => keyhacksTemplateMatchesProviderQuery(t, providerQuery)).slice(0, 3);
-    };
+    const byMatch = (providerQuery) =>
+      (templates || []).filter((t) => keyhacksTemplateMatchesProviderQuery(t, providerQuery)).slice(0, 3);
+
     const sevBadge = (sev) =>
       sev === 'high'
         ? '<span style="display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;background:rgba(248,113,113,.15);color:#f87171;font-weight:800;font-size:12px">HIGH</span>'
@@ -118,14 +100,11 @@
       if (!matched.length) {
         return `<div class="card" style="margin:10px 0 0 0"><div class="card-header"><div class="card-title">${sevBadge(d.sev)} <span style="margin-left:8px">${escapeHTML(d.name)}</span></div></div><div class="card-body"><div style="margin-bottom:10px;color:var(--text-muted)">Matched pattern: <span style="font-family:ui-monospace,monospace">${escapeHTML(d.match)}</span></div><div class="empty-subtitle">No command template found in Keyhacks DB for this provider.</div></div></div>`;
       }
-      const cmdsHtml = matched
-        .map((t) => {
-          const cmd = commandTemplateForToken(t, token);
-          if (!cmd) return '';
-          return `<div class="keyhack-cmd-section" style="margin-top:10px"><div class="keyhack-cmd-label">Validation command (${escapeHTML(t.Method || 'GET').toUpperCase()})</div><div class="keyhack-cmd-box"><pre class="keyhack-pre">${escapeHTML(cmd)}</pre><button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}"><span style="font-size:14px">📋</span></button></div></div>`;
-        })
-        .filter(Boolean)
-        .join('');
+      const cmdsHtml = matched.map((t) => {
+        const cmd = commandTemplateForToken(t, token);
+        if (!cmd) return '';
+        return `<div class="keyhack-cmd-section" style="margin-top:10px"><div class="keyhack-cmd-label">Validation command (${escapeHTML(t.Method || 'GET').toUpperCase()})</div><div class="keyhack-cmd-box"><pre class="keyhack-pre">${escapeHTML(cmd)}</pre><button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}"><span style="font-size:14px">📋</span></button></div></div>`;
+      }).filter(Boolean).join('');
       return `<div class="card" style="margin:10px 0 0 0"><div class="card-header"><div class="card-title">${sevBadge(d.sev)} <span style="margin-left:8px">${escapeHTML(d.name)}</span></div></div><div class="card-body"><div style="margin-bottom:10px;color:var(--text-muted)">Matched pattern: <span style="font-family:ui-monospace,monospace">${escapeHTML(d.match)}</span></div>${cmdsHtml}</div></div>`;
     }).join('');
 
@@ -133,12 +112,8 @@
     out.querySelectorAll('.keyhack-copy-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const cmd = btn.getAttribute('data-cmd') || '';
-        try {
-          await window.copyToClipboard(cmd);
-          window.showToast('success', 'Copied to clipboard', '');
-        } catch (e) {
-          window.showToast('error', 'Copy failed', e?.message || String(e));
-        }
+        try { await window.copyToClipboard(cmd); window.showToast('success', 'Copied to clipboard', ''); }
+        catch (e) { window.showToast('error', 'Copy failed', e?.message || String(e)); }
       });
     });
   }
@@ -151,9 +126,10 @@
       return;
     }
 
+    const total = ensureTemplatesLoaded().length;
     let html = `
       <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title"><span class="card-title-icon">🔍</span>API Key Inspector (Security-Lab style + DB commands)</div></div>
+      <div class="card-header"><div class="card-title"><span class="card-title-icon">🔍</span>API Key Inspector — Browser-Based (${total} templates)</div></div>
       <div class="card-body">
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <input class="search-input" id="keyhacks-key-input" placeholder="Paste key/token for detection..." autocomplete="off" style="flex:1;min-width:260px" />
@@ -176,25 +152,14 @@
     const inspectBtn = document.getElementById('keyhacks-inspect-btn');
     const keyInput = document.getElementById('keyhacks-key-input');
     if (inspectBtn && keyInput) {
-      inspectBtn.addEventListener('click', async () => {
-        await renderKeyInspectorResult(keyInput.value);
-      });
-      keyInput.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          await renderKeyInspectorResult(keyInput.value);
-        }
-      });
+      inspectBtn.addEventListener('click', async () => { await renderKeyInspectorResult(keyInput.value); });
+      keyInput.addEventListener('keydown', async (e) => { if (e.key === 'Enter') { e.preventDefault(); await renderKeyInspectorResult(keyInput.value); } });
     }
     container.querySelectorAll('.keyhack-copy-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const cmd = btn.getAttribute('data-cmd') || '';
-        try {
-          await window.copyToClipboard(cmd);
-          window.showToast('success', 'Copied to clipboard', '');
-        } catch (e) {
-          window.showToast('error', 'Copy failed', e?.message || String(e));
-        }
+        try { await window.copyToClipboard(cmd); window.showToast('success', 'Copied to clipboard', ''); }
+        catch (e) { window.showToast('error', 'Copy failed', e?.message || String(e)); }
       });
     });
   }
@@ -203,15 +168,15 @@
     const container = document.getElementById('keyhacks-container');
     if (!container) return;
     try {
-      await ensureKeyhacksAllTemplatesLoaded();
+      ensureTemplatesLoaded();
       const q = String(query || '').toLowerCase().trim();
       const data = !q
         ? allTemplates
         : (allTemplates || []).filter((t) => {
-          const k = String(t?.Keyname || '').toLowerCase();
-          const d = String(t?.Description || '').toLowerCase();
-          return k.includes(q) || d.includes(q);
-        });
+            const k = String(t?.Keyname || '').toLowerCase();
+            const d = String(t?.Description || '').toLowerCase();
+            return k.includes(q) || d.includes(q);
+          });
       renderKeyhacks(data);
     } catch (e) {
       container.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading templates</div><div class="empty-subtitle">${escapeHTML(e.message)}</div></div>`;
