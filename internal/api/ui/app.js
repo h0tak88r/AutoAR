@@ -207,17 +207,12 @@ async function loadResource(key, path, stateKey) {
 
 // ── Data Loading ──────────────────────────────────────────────────────────────
 
-function settingsPageMethod(name) {
-  return resolvePageMethod('SettingsPage', name);
-}
-
 function dashboardDataPageMethod(name) {
   return resolvePageMethod('DashboardDataPage', name);
 }
 
 async function loadConfig() {
-  const fn = settingsPageMethod('loadConfig');
-  if (fn) return fn();
+  return callPageMethod('SettingsPage', 'loadConfig');
 }
 
 function wireAuthForm() {
@@ -269,13 +264,8 @@ async function loadScans() {
   if (fn) return fn();
 }
 
-function monitorPageMethod(name) {
-  return resolvePageMethod('MonitorPage', name);
-}
-
 async function loadMonitor() {
-  const fn = monitorPageMethod('loadMonitor');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'loadMonitor');
 }
 
 function r2PageMethod(name) {
@@ -713,60 +703,46 @@ function backToDomains() {
 
 
 function syncMonitorUrlPatternVisibility() {
-  const fn = monitorPageMethod('syncMonitorUrlPatternVisibility');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'syncMonitorUrlPatternVisibility');
 }
 async function quickAddUrlMonitor() {
-  const fn = monitorPageMethod('quickAddUrlMonitor');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'quickAddUrlMonitor');
 }
 async function quickAddSubdomainMonitor() {
-  const fn = monitorPageMethod('quickAddSubdomainMonitor');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'quickAddSubdomainMonitor');
 }
 async function runMonitorAISuggest() {
-  const fn = monitorPageMethod('runMonitorAISuggest');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'runMonitorAISuggest');
 }
 function renderMonitorAISuggestResults(res) {
-  const fn = monitorPageMethod('renderMonitorAISuggestResults');
-  if (fn) return fn(res);
+  return callPageMethod('MonitorPage', 'renderMonitorAISuggestResults', [res]);
 }
 async function addSelectedMonitorSuggestions() {
-  const fn = monitorPageMethod('addSelectedMonitorSuggestions');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'addSelectedMonitorSuggestions');
 }
 async function pauseUrlMonitor(id) {
-  const fn = monitorPageMethod('pauseUrlMonitor');
-  if (fn) return fn(id);
+  return callPageMethod('MonitorPage', 'pauseUrlMonitor', [id]);
 }
 async function resumeUrlMonitor(id) {
-  const fn = monitorPageMethod('resumeUrlMonitor');
-  if (fn) return fn(id);
+  return callPageMethod('MonitorPage', 'resumeUrlMonitor', [id]);
 }
 async function deleteUrlMonitor(id) {
-  const fn = monitorPageMethod('deleteUrlMonitor');
-  if (fn) return fn(id);
+  return callPageMethod('MonitorPage', 'deleteUrlMonitor', [id]);
 }
 async function pauseSubdomainMonitor(id) {
-  const fn = monitorPageMethod('pauseSubdomainMonitor');
-  if (fn) return fn(id);
+  return callPageMethod('MonitorPage', 'pauseSubdomainMonitor', [id]);
 }
 async function resumeSubdomainMonitor(id) {
-  const fn = monitorPageMethod('resumeSubdomainMonitor');
-  if (fn) return fn(id);
+  return callPageMethod('MonitorPage', 'resumeSubdomainMonitor', [id]);
 }
 async function deleteSubdomainMonitor(id) {
-  const fn = monitorPageMethod('deleteSubdomainMonitor');
-  if (fn) return fn(id);
+  return callPageMethod('MonitorPage', 'deleteSubdomainMonitor', [id]);
 }
 async function clearMonitorChangeHistory() {
-  const fn = monitorPageMethod('clearMonitorChangeHistory');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'clearMonitorChangeHistory');
 }
 function renderMonitor() {
-  const fn = monitorPageMethod('renderMonitor');
-  if (fn) return fn();
+  return callPageMethod('MonitorPage', 'renderMonitor');
 }
 
 function renderR2() {
@@ -775,25 +751,20 @@ function renderR2() {
 }
 
 function renderSettings() {
-  const fn = settingsPageMethod('renderSettings');
-  if (fn) return fn();
+  return callPageMethod('SettingsPage', 'renderSettings');
 }
 
 function saveOpenRouterKey() {
-  const fn = settingsPageMethod('saveOpenRouterKey');
-  if (fn) return fn();
+  return callPageMethod('SettingsPage', 'saveOpenRouterKey');
 }
 function saveGeminiKey() {
-  const fn = settingsPageMethod('saveGeminiKey');
-  if (fn) return fn();
+  return callPageMethod('SettingsPage', 'saveGeminiKey');
 }
 function saveTimeoutSettings() {
-  const fn = settingsPageMethod('saveTimeoutSettings');
-  if (fn) return fn();
+  return callPageMethod('SettingsPage', 'saveTimeoutSettings');
 }
 function saveWebhookSettings() {
-  const fn = settingsPageMethod('saveWebhookSettings');
-  if (fn) return fn();
+  return callPageMethod('SettingsPage', 'saveWebhookSettings');
 }
 
 function updateStatusDot() {
