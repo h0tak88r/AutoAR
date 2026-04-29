@@ -25,6 +25,11 @@ function resolvePageMethod(pageKey, name) {
   return page && typeof page[name] === 'function' ? page[name] : null;
 }
 
+function callPageMethod(pageKey, name, args = [], fallback) {
+  const fn = resolvePageMethod(pageKey, name);
+  return fn ? fn(...args) : fallback;
+}
+
 function clipboardUtilsPageMethod(name) {
   return resolvePageMethod('ClipboardUtilsPage', name);
 }
@@ -55,9 +60,7 @@ function routerNavigationPageMethod(name) {
 }
 
 function pathScanId() {
-  const fn = routerCorePageMethod('pathScanId');
-  if (fn) return fn();
-  return null;
+  return callPageMethod('RouterCorePage', 'pathScanId', [], null);
 }
 
 function openAuditorInNewTab(view) {
@@ -78,9 +81,7 @@ async function openScanResultsPage(scanId, opts = {}) {
 
 
 function viewTitle(v) {
-  const fn = navigationUIPageMethod('viewTitle');
-  if (fn) return fn(v);
-  return v;
+  return callPageMethod('NavigationUIPage', 'viewTitle', [v], v);
 }
 
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
@@ -94,9 +95,7 @@ function apiClientPageMethod(name) {
 }
 
 function localTokenGet() {
-  const fn = authSessionPageMethod('localTokenGet');
-  if (fn) return fn();
-  return null;
+  return callPageMethod('AuthSessionPage', 'localTokenGet', [], null);
 }
 function localTokenSet(tok) {
   const fn = authSessionPageMethod('localTokenSet');
@@ -108,9 +107,7 @@ function localTokenClear() {
 }
 
 async function buildAuthHeaders(extra = {}) {
-  const fn = apiClientPageMethod('buildAuthHeaders');
-  if (fn) return fn(extra);
-  return { ...extra };
+  return callPageMethod('ApiClientPage', 'buildAuthHeaders', [extra], { ...extra });
 }
 
 function handleAuthError() {
@@ -326,24 +323,18 @@ function r2DeleteSelected() {
 
 /** Strip protocol/path for R2 prefixes (results/, new-results/, lite/). */
 function targetToHostname(target) {
-  const fn = r2PrefixesPageMethod('targetToHostname');
-  if (fn) return fn(target);
-  return '';
+  return callPageMethod('R2PrefixesPage', 'targetToHostname', [target], '');
 }
 
 function uniquePrefixList(prefixes) {
-  const fn = r2PrefixesPageMethod('uniquePrefixList');
-  if (fn) return fn(prefixes);
-  return [];
+  return callPageMethod('R2PrefixesPage', 'uniquePrefixList', [prefixes], []);
 }
 
 /**
  * R2 key prefixes to search per scan type (mirrors local new-results/ layout + UploadResultsDirectory results/).
  */
 function r2PrefixesForScan(target, scanType) {
-  const fn = r2PrefixesPageMethod('r2PrefixesForScan');
-  if (fn) return fn(target, scanType);
-  return [];
+  return callPageMethod('R2PrefixesPage', 'r2PrefixesForScan', [target, scanType], []);
 }
 
 /** Jump to R2 view and open the first prefix that has objects for this scan type + target. */
@@ -419,9 +410,7 @@ function renderRecentChanges() {
 }
 
 function changeItemHtml(c) {
-  const fn = overviewPageMethod('changeItemHtml');
-  if (fn) return fn(c);
-  return '';
+  return callPageMethod('OverviewPage', 'changeItemHtml', [c], '');
 }
 
 function scansPageMethod(name) {
@@ -444,15 +433,11 @@ function scanTypeLabel(rawType) {
 }
 
 function scanItemHtml(s) {
-  const fn = scansPageMethod('scanItemHtml');
-  if (fn) return fn(s);
-  return '';
+  return callPageMethod('ScansPage', 'scanItemHtml', [s], '');
 }
 
 function scanRowHtml(s) {
-  const fn = scansPageMethod('scanRowHtml');
-  if (fn) return fn(s);
-  return '';
+  return callPageMethod('ScansPage', 'scanRowHtml', [s], '');
 }
 
 // ── Scan results page (/scans/:id) ─────────────────────────────────────────────
@@ -546,39 +531,27 @@ function findingsRowsPageMethod(name) {
 }
 
 function getUnifiedTableColumns(activeKind) {
-  const fn = findingsRowsPageMethod('getUnifiedTableColumns');
-  if (fn) return fn(activeKind);
-  return ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'];
+  return callPageMethod('FindingsRowsPage', 'getUnifiedTableColumns', [activeKind], ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE']);
 }
 
 function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
-  const fn = findingsRowsPageMethod('renderRowForUnifiedTab');
-  if (fn) return fn(r, idx, activeKind, modInfo, sevMeta);
-  return '';
+  return callPageMethod('FindingsRowsPage', 'renderRowForUnifiedTab', [r, idx, activeKind, modInfo, sevMeta], '');
 }
 
 function renderDefaultRow(r, idx, modInfo, sevMeta) {
-  const fn = findingsRowsPageMethod('renderDefaultRow');
-  if (fn) return fn(r, idx, modInfo, sevMeta);
-  return '';
+  return callPageMethod('FindingsRowsPage', 'renderDefaultRow', [r, idx, modInfo, sevMeta], '');
 }
 
 function renderJSAnalysisRow(r, idx, modInfo, sevMeta) {
-  const fn = findingsRowsPageMethod('renderJSAnalysisRow');
-  if (fn) return fn(r, idx, modInfo, sevMeta);
-  return '';
+  return callPageMethod('FindingsRowsPage', 'renderJSAnalysisRow', [r, idx, modInfo, sevMeta], '');
 }
 
 function renderNucleiRow(r, idx, modInfo, sevMeta) {
-  const fn = findingsRowsPageMethod('renderNucleiRow');
-  if (fn) return fn(r, idx, modInfo, sevMeta);
-  return '';
+  return callPageMethod('FindingsRowsPage', 'renderNucleiRow', [r, idx, modInfo, sevMeta], '');
 }
 
 function renderGFPatternsRow(r, idx, modInfo, sevMeta) {
-  const fn = findingsRowsPageMethod('renderGFPatternsRow');
-  if (fn) return fn(r, idx, modInfo, sevMeta);
-  return '';
+  return callPageMethod('FindingsRowsPage', 'renderGFPatternsRow', [r, idx, modInfo, sevMeta], '');
 }
 
 /** Get category display info */
@@ -589,9 +562,7 @@ function getCategoryDisplayInfo(category) {
 }
 
 function parseNucleiFindingLine(line) {
-  const fn = scanResultsCorePageMethod('parseNucleiFindingLine');
-  if (fn) return fn(line);
-  return null;
+  return callPageMethod('ScanResultsCorePage', 'parseNucleiFindingLine', [line], null);
 }
 
 function scanDetailAsmPageMethod(name) {
@@ -599,15 +570,11 @@ function scanDetailAsmPageMethod(name) {
 }
 
 function scanArtifactRowHtml(f) {
-  const fn = scanDetailAsmPageMethod('scanArtifactRowHtml');
-  if (fn) return fn(f);
-  return '';
+  return callPageMethod('ScanDetailAsmPage', 'scanArtifactRowHtml', [f], '');
 }
 
 function scanAsmSectionHtml(id, icon, title, subtitle, files, emptyNote) {
-  const fn = scanDetailAsmPageMethod('scanAsmSectionHtml');
-  if (fn) return fn(id, icon, title, subtitle, files, emptyNote);
-  return '';
+  return callPageMethod('ScanDetailAsmPage', 'scanAsmSectionHtml', [id, icon, title, subtitle, files, emptyNote], '');
 }
 
 async function loadScanDetailVulnerabilityInsights(scanId, allFiles) {
@@ -661,16 +628,12 @@ function filterScanFiles(files, searchQuery, filters = {}) {
 
 /** Render module badge */
 function renderModuleBadge(module) {
-  const fn = scanResultsUtilsPageMethod('renderModuleBadge');
-  if (fn) return fn(module);
-  return '';
+  return callPageMethod('ScanResultsUtilsPage', 'renderModuleBadge', [module], '');
 }
 
 /** Render category badge */
 function renderCategoryBadge(category) {
-  const fn = scanResultsUtilsPageMethod('renderCategoryBadge');
-  if (fn) return fn(category);
-  return '';
+  return callPageMethod('ScanResultsUtilsPage', 'renderCategoryBadge', [category], '');
 }
 
 /** Copy all results to clipboard */
@@ -907,15 +870,11 @@ function timeAgo(d) {
 }
 
 function elapsedStr(start) {
-  const fn = formatUtilsPageMethod('elapsedStr');
-  if (fn) return fn(start);
-  return '';
+  return callPageMethod('FormatUtilsPage', 'elapsedStr', [start], '');
 }
 
 function elapsedBetween(start, end) {
-  const fn = formatUtilsPageMethod('elapsedBetween');
-  if (fn) return fn(start, end);
-  return '—';
+  return callPageMethod('FormatUtilsPage', 'elapsedBetween', [start, end], '—');
 }
 
 function fmtSize(bytes) {
