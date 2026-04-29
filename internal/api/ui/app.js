@@ -1041,95 +1041,43 @@ function nextFilesPage(scanId, total) {
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
 
+function overviewPageMethod(name) {
+  return window.OverviewPage && typeof window.OverviewPage[name] === 'function'
+    ? window.OverviewPage[name]
+    : null;
+}
+
 function renderStats() {
-  const s = state.stats;
-  if (!s) return;
-  const set = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
-  };
-  set('stat-domains', s.domains ?? 0);
-  set('stat-subdomains', s.subdomains ?? 0);
-  set('stat-live', s.live_subdomains ?? 0);
-  set('stat-monitors', s.monitor_targets ?? 0);
-  set('stat-active', s.active_scans ?? 0);
-  set('stat-completed', s.completed_scans ?? 0);
+  const fn = overviewPageMethod('renderStats');
+  if (fn) return fn();
 }
 
 function renderOverviewActiveScans() {
-  const card = document.getElementById('overview-running-scans');
-  const body = document.getElementById('overview-active-scans-body');
-  if (!card || !body) return;
-  const active = state.scans?.active_scans || [];
-  if (!active.length) {
-    card.style.display = 'none';
-    return;
-  }
-  card.style.display = 'block';
-  body.innerHTML = active.map(s => scanItemHtml(s)).join('');
+  const fn = overviewPageMethod('renderOverviewActiveScans');
+  if (fn) return fn();
 }
 
 // ── System Metrics ────────────────────────────────────────────────────────────
 
 function startMetricsPolling() {
-  if (state._metricsTimer) clearInterval(state._metricsTimer);
-  const poll = async () => {
-    try {
-      const data = await apiFetch('/api/system/metrics');
-      updateMetricsUI(data);
-    } catch (e) { console.warn('[metrics] poll failed', e); }
-  };
-  poll();
-  state._metricsTimer = setInterval(poll, 10000);
+  const fn = overviewPageMethod('startMetricsPolling');
+  if (fn) return fn();
 }
 
 function updateMetricsUI(data) {
-  const cpu = Math.round(data.cpu_percent || 0);
-  const ram = Math.round(data.memory_percent || 0);
-  
-  const cpuEl = document.getElementById('metric-cpu');
-  const cpuFill = document.getElementById('metric-cpu-fill');
-  const ramEl = document.getElementById('metric-ram');
-  const ramFill = document.getElementById('metric-ram-fill');
-  
-  if (cpuEl) cpuEl.textContent = `${cpu}%`;
-  if (cpuFill) cpuFill.style.width = `${cpu}%`;
-  if (ramEl) ramEl.textContent = `${ram}%`;
-  if (ramFill) ramFill.style.width = `${ram}%`;
+  const fn = overviewPageMethod('updateMetricsUI');
+  if (fn) return fn(data);
 }
 
 function renderRecentChanges() {
-  const el = document.getElementById('recent-changes-feed');
-  if (!el) return;
-  const changes = state.stats?.recent_changes || [];
-  if (!changes.length) {
-    el.innerHTML = emptyState('📭', 'No recent changes', 'Monitor targets have not detected any changes yet.');
-    return;
-  }
-  el.innerHTML = changes.map(c => changeItemHtml(c)).join('');
+  const fn = overviewPageMethod('renderRecentChanges');
+  if (fn) return fn();
 }
 
 function changeItemHtml(c) {
-  const ctype = c.ChangeType || c.change_type || '';
-  const domain = c.Domain || c.domain || '';
-  const detail = c.Detail || c.detail || '';
-  const at = c.DetectedAt || c.detected_at || '';
-  const iconMap = {
-    new_subdomain: '🆕',
-    became_live: '🟢',
-    became_dead: '💀',
-    content_changed: '📝',
-    status_changed: '🔄',
-  };
-  const preview = String(detail || '').slice(0, 200);
-  return `<div class="change-item">
-    <div class="change-dot ${esc(ctype)}"></div>
-    <div class="change-body">
-      <div class="change-title">${iconMap[ctype] || '📌'} ${esc(humanChangeType(ctype))}</div>
-      <div class="change-detail">${esc(domain)}${preview ? ` — ${esc(preview)}` : ''}</div>
-    </div>
-    <div class="change-time">${timeAgo(at)}</div>
-  </div>`;
+  const fn = overviewPageMethod('changeItemHtml');
+  if (fn) return fn(c);
+  return '';
 }
 
 function renderScans() {
@@ -3861,3 +3809,4 @@ window.renderTechFindingsTable = renderTechFindingsTable;
 window.renderGenericJSONTable = renderGenericJSONTable;
 window.renderModuleBadge = renderModuleBadge;
 window.renderCategoryBadge = renderCategoryBadge;
+window.scanItemHtml = scanItemHtml;
