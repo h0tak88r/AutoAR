@@ -3,9 +3,12 @@ package nuclei
 import (
 	"context"
 	"fmt"
+	"html"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
@@ -532,6 +535,9 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 	defer jsonWriter.Close()
 
 	log.Printf("[EXEC] Running nuclei SDK with templates: %s (targets=%d, threads=%d)", templateDir, len(targets), threads)
+	if err := ensureNucleiIgnoreFile(); err != nil {
+		log.Printf("[WARN] Failed to prepare nuclei ignore file: %v", err)
+	}
 	engine, err := nucleiSDK.NewNucleiEngineCtx(
 		context.Background(),
 		nucleiSDK.DisableUpdateCheck(),
@@ -615,8 +621,13 @@ func readTargetLines(path string) ([]string, error) {
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	targets := make([]string, 0, len(lines))
 	seen := make(map[string]struct{}, len(lines))
+	skipped := 0
 	for _, line := range lines {
-		t := strings.TrimSpace(line)
+		t, ok := sanitizeNucleiTarget(line)
+		if !ok {
+			skipped++
+			continue
+		}
 		if t == "" {
 			continue
 		}
@@ -626,7 +637,59 @@ func readTargetLines(path string) ([]string, error) {
 		seen[t] = struct{}{}
 		targets = append(targets, t)
 	}
+	if skipped > 0 {
+		log.Printf("[WARN] Skipped %d malformed nuclei targets from %s", skipped, path)
+	}
 	return targets, nil
+}
+
+var hostOnlyPattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+(:[0-9]{1,5})?$`)
+
+func sanitizeNucleiTarget(raw string) (string, bool) {
+	t := strings.TrimSpace(html.UnescapeString(raw))
+	if t == "" {
+		return "", false
+	}
+	if strings.ContainsAny(t, "<>\"'`") || strings.Contains(t, " ") {
+		return "", false
+	}
+	// Reject common template placeholders / malformed URL escapes from noisy sources.
+	if strings.Contains(t, "%s") || strings.HasSuffix(t, "%") {
+		return "", false
+	}
+	if strings.Contains(t, "://") {
+		u, err := url.ParseRequestURI(t)
+		if err != nil || u.Host == "" {
+			return "", false
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return "", false
+		}
+		return t, true
+	}
+	if hostOnlyPattern.MatchString(t) {
+		return t, true
+	}
+	return "", false
+}
+
+func ensureNucleiIgnoreFile() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	ignorePath := filepath.Join(home, ".config", "nuclei", ".nuclei-ignore")
+	if err := os.MkdirAll(filepath.Dir(ignorePath), 0755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(ignorePath); err == nil {
+		return nil
+	}
+	f, err := os.Create(ignorePath)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 func max(a, b int) int {
