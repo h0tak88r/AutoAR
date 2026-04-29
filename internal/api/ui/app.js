@@ -1319,6 +1319,12 @@ function launcherPageMethod(name) {
     : null;
 }
 
+function htmlEscapePageMethod(name) {
+  return window.HtmlEscapePage && typeof window.HtmlEscapePage[name] === 'function'
+    ? window.HtmlEscapePage[name]
+    : null;
+}
+
 function syncLaunchPlaceholder(rebuildModes = false) {
   const fn = launcherPageMethod('syncLaunchPlaceholder');
   if (fn) return fn(rebuildModes);
@@ -1347,6 +1353,8 @@ async function handleLaunchFileUpload(inputEl) {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function esc(s) {
+  const fn = htmlEscapePageMethod('esc');
+  if (fn) return fn(s);
   if (s == null) return '';
   return String(s)
     .replace(/&/g, '&amp;')
@@ -1358,6 +1366,8 @@ function esc(s) {
 
 /** Escape for HTML attribute values (e.g. data-r2-prefix). */
 function escAttr(s) {
+  const fn = htmlEscapePageMethod('escAttr');
+  if (fn) return fn(s);
   if (s == null) return '';
   return String(s)
     .replace(/&/g, '&amp;')
