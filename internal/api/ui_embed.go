@@ -37,6 +37,13 @@ func serveDashboardUI(c *gin.Context) {
 		serveEmbeddedFile(c, uiRoot, cleanPath)
 		return
 	}
+	if stat, statErr := fs.Stat(uiRoot, cleanPath); statErr == nil && stat.IsDir() {
+		dirIndex := path.Join(cleanPath, "index.html")
+		if idxStat, idxErr := fs.Stat(uiRoot, dirIndex); idxErr == nil && !idxStat.IsDir() {
+			serveEmbeddedFile(c, uiRoot, dirIndex)
+			return
+		}
+	}
 
 	for _, candidate := range []string{"index.html", "apkauditor/index.html", "ipaauditor/index.html", "adbauditor/index.html"} {
 		if stat, statErr := fs.Stat(uiRoot, candidate); statErr == nil && !stat.IsDir() {
