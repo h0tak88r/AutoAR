@@ -497,6 +497,12 @@ function r2PrefixesPageMethod(name) {
     : null;
 }
 
+function domainR2ActionsPageMethod(name) {
+  return window.DomainR2ActionsPage && typeof window.DomainR2ActionsPage[name] === 'function'
+    ? window.DomainR2ActionsPage[name]
+    : null;
+}
+
 async function loadR2(prefix = '') {
   const fn = r2PageMethod('loadR2');
   if (fn) return fn(prefix);
@@ -678,39 +684,13 @@ function r2PrefixesForScan(target, scanType) {
 
 /** Jump to R2 view and open the first prefix that has objects for this scan type + target. */
 async function browseR2ForScan(target, scanType) {
-  const candidates = r2PrefixesForScan(target, scanType);
-  if (!candidates.length) {
-    showToast('error', 'R2', 'No R2 search paths for this scan.');
-    return;
-  }
-  let chosen = candidates[0];
-  for (const prefix of candidates) {
-    try {
-      const data = await apiFetch(`/api/r2/files?prefix=${encodeURIComponent(prefix)}&recursive=0`);
-      const has = (data.files && data.files.length) || (data.dirs && data.dirs.length);
-      if (has) {
-        chosen = prefix;
-        break;
-      }
-    } catch (e) { /* try next */ }
-  }
-  state.r2.prefix = chosen;
-  navigateTo('r2');
-  showToast('info', 'R2', `Opened ${chosen}`);
+  const fn = domainR2ActionsPageMethod('browseR2ForScan');
+  if (fn) return fn(target, scanType);
 }
 
 async function loadDomainSubdomains(domain) {
-  state.selectedDomain = domain;
-  state.loading.subdomains = true;
-  try {
-    const data = await apiFetch(`/api/domains/${encodeURIComponent(domain)}/subdomains`);
-    state.subdomains = data.subdomains || [];
-    renderSubdomainView(domain);
-  } catch (e) {
-    showToast('error', 'Failed to load subdomains', e.message);
-  } finally {
-    state.loading.subdomains = false;
-  }
+  const fn = domainR2ActionsPageMethod('loadDomainSubdomains');
+  if (fn) return fn(domain);
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────
@@ -2398,6 +2378,8 @@ window.pathScanId = pathScanId;
 window.openScanResultsPage = openScanResultsPage;
 window.wireShellOnce = wireShellOnce;
 window.updateClock = updateClock;
+window.browseR2ForScan = browseR2ForScan;
+window.loadDomainSubdomains = loadDomainSubdomains;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
