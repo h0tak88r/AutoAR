@@ -249,37 +249,49 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 
 	// Write JSON output to scan directory for dashboard
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
-		// Emit structured objects: {subdomain, cname, type}
+		// Emit flat structured objects for direct parser consumption.
 		type cnameEntry struct {
+			Target    string `json:"target"`
 			Subdomain string `json:"subdomain"`
 			CNAME     string `json:"cname"`
 			Type      string `json:"type"`
+			Severity  string `json:"severity"`
+			Module    string `json:"module"`
+			Finding   string `json:"finding"`
 		}
 		var entries []cnameEntry
+		seen := make(map[string]struct{}, len(cnameRecords))
 		for _, rec := range cnameRecords {
 			// format: "sub.example.com CNAME target.example.com"
 			parts := strings.Fields(rec)
 			if len(parts) >= 3 {
+				sub := strings.TrimSpace(parts[0])
+				cname := strings.TrimSpace(parts[2])
+				if sub == "" || cname == "" {
+					continue
+				}
+				key := sub + "|" + cname
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
 				entries = append(entries, cnameEntry{
-					Subdomain: parts[0],
-					CNAME:     parts[2],
+					Target:    sub,
+					Subdomain: sub,
+					CNAME:     cname,
 					Type:      "CNAME",
+					Severity:  "info",
+					Module:    "cname-enum",
+					Finding:   "CNAME record discovered",
 				})
 			}
 		}
 		if len(entries) > 0 {
-			if err := utils.WriteJSONToScanDir(scanID, "cname-records.json", map[string]interface{}{
-				"scan_id":   scanID,
-				"target":    domain,
-				"scan_type": "cnames",
-				"generated": fmt.Sprintf("%v", count),
-				"records":   entries,
-				"count":     len(entries),
-			}); err != nil {
+			if err := utils.WriteJSONToScanDir(scanID, "cname-records.json", entries); err != nil {
 				log.Printf("[WARN] Failed to write CNAME JSON: %v", err)
 			}
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, domain, "dns-takeover", "cname-records.json")
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "cnames", "cname-records.json")
 		}
 	}
 
