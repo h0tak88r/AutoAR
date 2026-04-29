@@ -854,15 +854,6 @@ function findingsRowsPageMethod(name) {
     : null;
 }
 
-// ── Module Renderers Registry ────────────────────────────────────────────────
-
-const MODULE_RENDERERS = {
-  'js-analysis': renderJSAnalysisRow,
-  'nuclei': renderNucleiRow,
-  'gf-patterns': renderGFPatternsRow,
-  'default': renderDefaultRow,
-};
-
 function getUnifiedTableColumns(activeKind) {
   const fn = findingsRowsPageMethod('getUnifiedTableColumns');
   if (fn) return fn(activeKind);
