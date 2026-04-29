@@ -29,8 +29,13 @@
       if (frame && !frame.getAttribute('data-loaded')) {
         frame.setAttribute('data-loaded', '1');
         setTimeout(() => {
-          if (view === 'securitylab') frame.src = '/ui/securitylab/';
-          else frame.src = auditorPathMap[view] || `/ui/apkauditor/?mode=${modeMap[view]}`;
+          try {
+            if (view === 'securitylab') frame.src = '/ui/securitylab/';
+            else frame.src = auditorPathMap[view] || `/ui/apkauditor/?mode=${modeMap[view]}`;
+          } catch (e) {
+            // Keep SPA navigation alive even if iframe init fails in a browser/extension edge case.
+            console.warn('[router] auditor iframe init failed', e);
+          }
         }, 30);
       }
     }
@@ -50,9 +55,7 @@
 
     document.getElementById('topbar-title').textContent = window.viewTitle(view);
     state.selectedDomain = null;
-    if (!['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(view)) {
-      window.refreshCurrentView();
-    }
+    if (!['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(view)) window.refreshCurrentView();
     window.startPolling();
   }
 
