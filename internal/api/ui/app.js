@@ -99,7 +99,15 @@ function navigationUIPageMethod(name) {
     : null;
 }
 
+function routerCorePageMethod(name) {
+  return window.RouterCorePage && typeof window.RouterCorePage[name] === 'function'
+    ? window.RouterCorePage[name]
+    : null;
+}
+
 function pathScanId() {
+  const fn = routerCorePageMethod('pathScanId');
+  if (fn) return fn();
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
   return m ? decodeURIComponent(m[1]) : null;
 }
@@ -183,31 +191,8 @@ function navigateTo(view) {
 
 /** Deep-linked scan results page (/scans/:id). */
 async function openScanResultsPage(scanId, opts = {}) {
-  const { replace = false, noHistory = false } = opts;
-  if (state.scanDetailId !== scanId) {
-    state.scanDetailUI = { filesPage: 1, filesPerPage: 200, previewPage: 1, previewPerPage: 100, selectedFileName: null };
-    // Reset real-time refresh state for the new scan
-    clearScanDetailRefreshTimer();
-    _scanDetailKnownFiles = new Set();
-    _scanDetailRefreshId = scanId;
-  }
-  state.scanDetailId = scanId;
-  state.view = 'scan-detail';
-  VIEWS.forEach(v => {
-    document.getElementById(`view-${v}`)?.classList.remove('active');
-    document.getElementById(`nav-${v}`)?.classList.remove('active');
-  });
-  document.getElementById('view-scan-detail')?.classList.add('active');
-  document.getElementById('topbar-title').textContent = 'Scan results';
-  if (!noHistory) {
-    const path = `/scans/${encodeURIComponent(scanId)}`;
-    if (location.pathname !== path) {
-      if (replace) history.replaceState({ scanId }, '', path);
-      else history.pushState({ scanId }, '', path);
-    }
-  }
-  await renderScanDetailView(scanId);
-  startPolling();
+  const fn = routerCorePageMethod('openScanResultsPage');
+  if (fn) return fn(scanId, opts);
 }
 
 
@@ -2048,6 +2033,7 @@ window.nextFilesPage = nextFilesPage;
 window.parseNucleiFindingLine = parseNucleiFindingLine;
 window.loadScanDetailVulnerabilityInsights = loadScanDetailVulnerabilityInsights;
 window.wireScanFileRows = wireScanFileRows;
+window.clearScanDetailRefreshTimer = clearScanDetailRefreshTimer;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
