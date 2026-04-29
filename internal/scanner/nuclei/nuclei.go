@@ -1,16 +1,18 @@
 package nuclei
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/utils"
+	nucleiSDK "github.com/projectdiscovery/nuclei/v3/lib"
+	nucleiOutput "github.com/projectdiscovery/nuclei/v3/pkg/output"
 )
 
 // ScanMode represents the nuclei scan mode
@@ -61,10 +63,6 @@ func RunNuclei(opts Options) (*Result, error) {
 	}
 	if !validModes[opts.Mode] {
 		return nil, fmt.Errorf("invalid mode: %s. Must be full, cves, panels, default-logins, or vulnerabilities", opts.Mode)
-	}
-
-	if _, err := exec.LookPath("nuclei"); err != nil {
-		return nil, fmt.Errorf("nuclei is not installed or not in PATH")
 	}
 
 	root := utils.GetRootDir()
@@ -509,20 +507,68 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 //   template-id, matched-at, info.severity, info.name, host, etc.
 // This lets the dashboard parse clean vulnerability names instead of raw text.
 func runNucleiCommand(targetFile, templateDir string, threads int, outputFile string) error {
-	cmd := exec.Command("nuclei",
-		"-l", targetFile,
-		"-t", templateDir,
-		"-c", fmt.Sprintf("%d", threads),
-		"-silent",
-		"-duc",
-		"-jsonl",       // JSONL output: one JSON object per finding
-		"-o", outputFile,
-	)
-	cmd.Stderr = os.Stderr
-	log.Printf("[EXEC] Running: %s", strings.Join(cmd.Args, " "))
-	err := cmd.Run()
+	targets, err := readTargetLines(targetFile)
 	if err != nil {
-		log.Printf("[WARN] Nuclei command failed: %v", err)
+		return fmt.Errorf("failed to read nuclei targets: %w", err)
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("no nuclei targets found in %s", targetFile)
+	}
+	if err := utils.EnsureDir(filepath.Dir(outputFile)); err != nil {
+		return fmt.Errorf("failed to ensure nuclei output dir: %w", err)
+	}
+	fh, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create nuclei output file: %w", err)
+	}
+	defer fh.Close()
+	jsonWriter, err := nucleiOutput.NewWriter(
+		nucleiOutput.WithWriter(fh),
+		nucleiOutput.WithJson(true, false),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize nuclei JSON writer: %w", err)
+	}
+	defer jsonWriter.Close()
+
+	log.Printf("[EXEC] Running nuclei SDK with templates: %s (targets=%d, threads=%d)", templateDir, len(targets), threads)
+	engine, err := nucleiSDK.NewNucleiEngineCtx(
+		context.Background(),
+		nucleiSDK.DisableUpdateCheck(),
+		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
+		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{
+			Templates: []string{templateDir},
+		}),
+		nucleiSDK.WithConcurrency(nucleiSDK.Concurrency{
+			TemplateConcurrency:           max(1, min(threads, 25)),
+			HostConcurrency:               max(1, threads),
+			HeadlessHostConcurrency:       max(1, min(threads, 10)),
+			HeadlessTemplateConcurrency:   max(1, min(threads, 10)),
+			JavascriptTemplateConcurrency: max(1, min(threads, 10)),
+			TemplatePayloadConcurrency:    25,
+			ProbeConcurrency:              max(1, min(threads, 50)),
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize nuclei SDK: %w", err)
+	}
+	defer engine.Close()
+
+	engine.LoadTargets(targets, false)
+	writeErr := error(nil)
+	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
+		if event == nil || writeErr != nil {
+			return
+		}
+		if wErr := jsonWriter.Write(event); wErr != nil {
+			writeErr = wErr
+		}
+	})
+	if writeErr != nil {
+		return fmt.Errorf("failed writing nuclei SDK output: %w", writeErr)
+	}
+	if err != nil {
+		log.Printf("[WARN] Nuclei SDK execution returned error: %v", err)
 	}
 	return err
 }
@@ -559,4 +605,33 @@ func countLines(path string) (int, error) {
 
 func writeLines(path string, lines []string) error {
 	return utils.WriteLines(path, lines)
+}
+
+func readTargetLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	targets := make([]string, 0, len(lines))
+	seen := make(map[string]struct{}, len(lines))
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		targets = append(targets, t)
+	}
+	return targets, nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
