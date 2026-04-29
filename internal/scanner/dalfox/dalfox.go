@@ -137,6 +137,7 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 				Module     string `json:"module"`
 			}
 			findings := make([]dalfoxFinding, 0, count)
+			seen := make(map[string]struct{}, count)
 			for _, r := range results {
 				if len(r.Raw) == 0 {
 					continue
@@ -159,6 +160,11 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 				}
 				payload := strings.TrimSpace(fmt.Sprint(obj["payload"]))
 				findingLabel := fmt.Sprintf("XSS (%s)", strings.ToUpper(fType))
+				key := findingLabel + "|" + r.Target + "|" + param + "|" + payload
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
 				findings = append(findings, dalfoxFinding{
 					TemplateID: findingLabel,
 					MatchedAt:  r.Target,
