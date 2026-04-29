@@ -94,7 +94,7 @@ type scopeFetchRequest struct {
 	PublicOnly  bool   `json:"public_only"`
 	ActiveOnly  bool   `json:"active_only"`
 	IncludeOOS  bool   `json:"include_oos"`
-	ExtractRoots bool  `json:"extract_roots"` // default true if omitted
+	ExtractRoots *bool `json:"extract_roots,omitempty"` // default true if omitted
 }
 
 // POST /api/scope/fetch — fetch programs + extract root domains from a bug bounty platform
@@ -147,12 +147,9 @@ func apiFetchScope(c *gin.Context) {
 	password := firstNonEmpty(req.Password, os.Getenv("YWH_PASSWORD"))
 
 	extractRoots := true // default
-	if c.Request.ContentLength > 0 {
-		// Only override if the caller explicitly set it
-		extractRoots = req.ExtractRoots
+	if req.ExtractRoots != nil {
+		extractRoots = *req.ExtractRoots
 	}
-	// If the JSON had extract_roots explicitly false, honour it
-	_ = extractRoots
 
 	opts := scopemod.Options{
 		Platform:     platform,
@@ -167,7 +164,7 @@ func apiFetchScope(c *gin.Context) {
 		PublicOnly:   req.PublicOnly,
 		ActiveOnly:   req.ActiveOnly,
 		IncludeOOS:   req.IncludeOOS,
-		ExtractRoots: true,
+		ExtractRoots: extractRoots,
 	}
 
 	programs, err := scopemod.FetchScope(opts)
@@ -176,10 +173,16 @@ func apiFetchScope(c *gin.Context) {
 		return
 	}
 
-	rootDomains, err := scopemod.ExtractRootDomains(programs)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to extract root domains: " + err.Error()})
-		return
+	var rootDomains []string
+	if extractRoots {
+		var err error
+		rootDomains, err = scopemod.ExtractRootDomains(programs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to extract root domains: " + err.Error()})
+			return
+		}
+	} else {
+		rootDomains = []string{}
 	}
 
 	rawTargets := scopemod.ExtractRawTargets(programs)

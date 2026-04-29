@@ -12,7 +12,9 @@
     selectedPlatform: null,
     credentials: {},
     domains: [],
+    rawTargets: [],
     filtered: [],
+    extractRoots: true,
   };
 
   function escapeSafe(s) {
@@ -127,6 +129,7 @@
     if (btn) { btn.textContent = 'Fetching…'; btn.disabled = true; }
 
     try {
+      const extractRoots = document.getElementById('targets-extract-roots')?.checked ?? true;
       const body = {
         platform: platformId,
         username: creds.username || '',
@@ -137,21 +140,32 @@
         pvt_only: document.getElementById('targets-pvt-only')?.checked || false,
         public_only: document.getElementById('targets-public-only')?.checked || false,
         include_oos: document.getElementById('targets-include-oos')?.checked || false,
-        extract_roots: true,
+        extract_roots: extractRoots,
       };
       const data = await window.apiPost('/api/scope/fetch', body);
+      targetsState.extractRoots = extractRoots;
       targetsState.domains = data.root_domains || [];
-      targetsState.filtered = [...targetsState.domains];
+      targetsState.rawTargets = data.raw_targets || [];
+      const list = extractRoots ? targetsState.domains : targetsState.rawTargets;
+      targetsState.filtered = [...list];
 
       const p = targetsState.platforms.find((x) => x.id === platformId);
       const header = document.getElementById('targets-result-header');
-      if (header) header.textContent = `${data.domain_count} root domains from ${p?.name || platformId} (${data.programs} programs)`;
+      if (header) {
+        const count = extractRoots ? data.domain_count : data.target_count;
+        const label = extractRoots ? 'root domains' : 'raw scope targets';
+        header.textContent = `${count} ${label} from ${p?.name || platformId} (${data.programs} programs)`;
+      }
 
       const resultsCard = document.getElementById('targets-results-card');
       if (resultsCard) resultsCard.style.display = 'block';
 
       targetsRenderDomainList(targetsState.filtered);
-      window.showToast('success', 'Done', `Fetched ${data.domain_count} root domains from ${data.programs} programs`);
+      const addAllBtn = document.getElementById('targets-add-all-btn');
+      if (addAllBtn) addAllBtn.style.display = extractRoots ? 'inline-block' : 'none';
+      const fetchedCount = extractRoots ? data.domain_count : data.target_count;
+      const label = extractRoots ? 'root domains' : 'raw scope targets';
+      window.showToast('success', 'Done', `Fetched ${fetchedCount} ${label} from ${data.programs} programs`);
     } catch (e) {
       window.showToast('error', 'Fetch failed', e.message);
     } finally {
@@ -161,9 +175,10 @@
 
   function targetsApplyFilter() {
     const q = (document.getElementById('targets-filter-input')?.value || '').toLowerCase();
+    const base = targetsState.extractRoots ? targetsState.domains : targetsState.rawTargets;
     targetsState.filtered = q
-      ? targetsState.domains.filter((d) => d.toLowerCase().includes(q))
-      : [...targetsState.domains];
+      ? base.filter((d) => d.toLowerCase().includes(q))
+      : [...base];
     targetsRenderDomainList(targetsState.filtered);
   }
 
@@ -175,12 +190,14 @@
       return;
     }
     const colors = PLATFORM_COLORS[targetsState.selectedPlatform] || PLATFORM_COLORS.immunefi;
+    const extractRoots = targetsState.extractRoots;
+    const colTitle = extractRoots ? 'Root Domain' : 'Raw Target';
     container.innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
         <tr style="border-bottom:1px solid var(--border);">
           <th style="text-align:left;padding:8px 12px;color:var(--text-muted);font-weight:600;">#</th>
-          <th style="text-align:left;padding:8px 12px;color:var(--text-muted);font-weight:600;">Root Domain</th>
+          <th style="text-align:left;padding:8px 12px;color:var(--text-muted);font-weight:600;">${colTitle}</th>
           <th style="text-align:right;padding:8px 12px;color:var(--text-muted);font-weight:600;">Actions</th>
         </tr>
       </thead>
@@ -195,16 +212,25 @@
             </td>
             <td style="padding:9px 12px;text-align:right;">
               <div style="display:flex;gap:6px;justify-content:flex-end;">
-                <button onclick="targetsAddDomain('${escapeSafe(d)}')"
-                  style="padding:4px 12px;border-radius:8px;border:1px solid ${colors.border};
-                         background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
-                  + Add
-                </button>
-                <button onclick="targetsLaunchScan('${escapeSafe(d)}')"
-                  style="padding:4px 12px;border-radius:8px;border:none;
-                         background:${colors.accent};color:#fff;font-size:11px;cursor:pointer;font-weight:600;">
-                  ▶ Scan
-                </button>
+                ${extractRoots
+                  ? `
+                    <button onclick="targetsAddDomain('${escapeSafe(d)}')"
+                      style="padding:4px 12px;border-radius:8px;border:1px solid ${colors.border};
+                             background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
+                      + Add
+                    </button>
+                    <button onclick="targetsLaunchScan('${escapeSafe(d)}')"
+                      style="padding:4px 12px;border-radius:8px;border:none;
+                             background:${colors.accent};color:#fff;font-size:11px;cursor:pointer;font-weight:600;">
+                      ▶ Scan
+                    </button>`
+                  : `
+                    <button onclick="targetsCopyOne('${escapeSafe(d)}')"
+                      style="padding:4px 12px;border-radius:8px;border:1px solid ${colors.border};
+                             background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
+                      📋 Copy
+                    </button>`
+                }
               </div>
             </td>
           </tr>
@@ -212,6 +238,15 @@
       </tbody>
     </table>
   `;
+  }
+
+  async function targetsCopyOne(value) {
+    try {
+      await window.copyToClipboard(value);
+      window.showToast('success', 'Copied', value);
+    } catch (e) {
+      window.showToast('error', 'Copy failed', e.message || String(e));
+    }
   }
 
   async function targetsAddDomain(domain) {
