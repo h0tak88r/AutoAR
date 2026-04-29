@@ -204,6 +204,12 @@ function domainActionsPageMethod(name) {
     : null;
 }
 
+function appCoreActionsPageMethod(name) {
+  return window.AppCoreActionsPage && typeof window.AppCoreActionsPage[name] === 'function'
+    ? window.AppCoreActionsPage[name]
+    : null;
+}
+
 async function cancelScan(scanID) {
   const fn = scanActionsPageMethod('cancelScan');
   if (fn) return fn(scanID);
@@ -250,16 +256,8 @@ async function resumeScan(scanID) {
 }
 
 async function loadResource(key, path, stateKey) {
-  state.loading[key] = true;
-  try {
-    const data = await apiFetch(path);
-    state[stateKey] = data;
-    state.error[key] = null;
-  } catch (e) {
-    state.error[key] = e.message;
-  } finally {
-    state.loading[key] = false;
-  }
+  const fn = appCoreActionsPageMethod('loadResource');
+  if (fn) return fn(key, path, stateKey);
 }
 
 // ── Data Loading ──────────────────────────────────────────────────────────────
@@ -1191,16 +1189,8 @@ function saveWebhookSettings() {
 }
 
 function updateStatusDot() {
-  const dot = document.getElementById('status-dot');
-  const text = document.getElementById('status-text');
-  if (!dot || !text) return;
-  if (state.config) {
-    dot.className = 'status-dot';
-    text.textContent = 'Connected';
-  } else {
-    dot.className = 'status-dot error';
-    text.textContent = 'Offline';
-  }
+  const fn = appCoreActionsPageMethod('updateStatusDot');
+  if (fn) return fn();
 }
 
 // ── Scan Launcher ─────────────────────────────────────────────────────────────
@@ -1345,10 +1335,8 @@ function updateClock() {
 // ── Manual Refresh ────────────────────────────────────────────────────────────
 
 function manualRefresh() {
-  const btn = document.getElementById('refresh-btn');
-  if (btn) btn.classList.add('spinning');
-  refreshCurrentView();
-  setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 1200);
+  const fn = appCoreActionsPageMethod('manualRefresh');
+  if (fn) return fn();
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
