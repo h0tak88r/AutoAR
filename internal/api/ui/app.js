@@ -1707,107 +1707,37 @@ function isLiveStatus(status) {
   return false;
 }
 
+function scanResultsUtilsPageMethod(name) {
+  return window.ScanResultsUtilsPage && typeof window.ScanResultsUtilsPage[name] === 'function'
+    ? window.ScanResultsUtilsPage[name]
+    : null;
+}
+
 /** Filter files based on search query and filters */
 function filterScanFiles(files, searchQuery, filters = {}) {
-  let filtered = files;
-
-  // Apply search query
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    filtered = filtered.filter(f =>
-      f.file_name.toLowerCase().includes(q) ||
-      (f.source && f.source.toLowerCase().includes(q)) ||
-      (f.module && f.module.toLowerCase().includes(q)) ||
-      (f.category && f.category.toLowerCase().includes(q))
-    );
-  }
-
-  // Apply module filter
-  if (filters.module) {
-    filtered = filtered.filter(f => {
-      const mod = detectModuleFromFileName(f.file_name, f.module);
-      return mod === filters.module;
-    });
-  }
-
-  // Apply category filter
-  if (filters.category) {
-    filtered = filtered.filter(f => {
-      const cat = f.category || categorizeScanArtifactFile(f.file_name);
-      return cat === filters.category;
-    });
-  }
-
-  // Apply type filter (JSON/Text)
-  if (filters.type) {
-    filtered = filtered.filter(f => {
-      if (filters.type === 'json') return f.is_json;
-      if (filters.type === 'text') return !f.is_json;
-      return true;
-    });
-  }
-
-  return filtered;
+  const fn = scanResultsUtilsPageMethod('filterScanFiles');
+  if (fn) return fn(files, searchQuery, filters);
+  return files;
 }
 
 /** Render module badge */
 function renderModuleBadge(module) {
-  const info = getModuleDisplayInfo(module);
-  return `<span class="module-badge" style="background:${info.color}22;color:${info.color};border:1px solid ${info.color}44">
-    ${info.icon} ${info.name}
-  </span>`;
+  const fn = scanResultsUtilsPageMethod('renderModuleBadge');
+  if (fn) return fn(module);
+  return '';
 }
 
 /** Render category badge */
 function renderCategoryBadge(category) {
-  const info = getCategoryDisplayInfo(category);
-  return `<span class="category-badge ${info.badge}">
-    ${info.icon} ${info.name}
-  </span>`;
+  const fn = scanResultsUtilsPageMethod('renderCategoryBadge');
+  if (fn) return fn(category);
+  return '';
 }
 
 /** Copy all results to clipboard */
 async function copyAllScanResults(scanId) {
-  try {
-    showToast('info', 'Copying results...', 'Fetching all file contents');
-
-    const sum = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=200`);
-    const files = sum.files || [];
-
-    let allContent = `AutoAR Scan Results - ${scanId}\n`;
-    allContent += `Generated: ${new Date().toISOString()}\n`;
-    allContent += `${'='.repeat(80)}\n\n`;
-
-    for (const f of files) {
-      allContent += `\n${'='.repeat(80)}\n`;
-      allContent += `FILE: ${f.file_name}\n`;
-      allContent += `MODULE: ${detectModuleFromFileName(f.file_name, f.module)}\n`;
-      allContent += `SOURCE: ${f.source}\n`;
-      allContent += `${'='.repeat(80)}\n\n`;
-
-      try {
-        const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?file_name=${encodeURIComponent(f.file_name)}&page=1&per_page=500`);
-        if (data.format === 'text' && data.lines) {
-          allContent += data.lines.join('\n');
-        } else if (data.format === 'json-array' && data.items) {
-          allContent += JSON.stringify(data.items, null, 2);
-        } else if (data.format === 'json-object' && data.data) {
-          allContent += JSON.stringify(data.data, null, 2);
-        } else {
-          allContent += '[Content not available or too large]';
-        }
-      } catch (e) {
-        allContent += `[Error loading file: ${e.message}]`;
-      }
-
-      allContent += '\n\n';
-    }
-
-    await copyToClipboard(allContent);
-    showToast('success', 'Results copied!', `${files.length} files copied to clipboard`);
-  } catch (e) {
-    showToast('error', 'Copy failed', e.message);
-  }
+  const fn = scanResultsUtilsPageMethod('copyAllScanResults');
+  if (fn) return fn(scanId);
 }
 
 /** Render scan results with enhanced filtering and module display */
