@@ -256,6 +256,60 @@
     if (scanErr) {
       html += `<div class="card" style="margin-bottom:16px;border:1px solid var(--accent-red);background:rgba(239,68,68,0.08)"><div class="card-body" style="padding:14px 16px;font-size:13px;color:var(--accent-red)">Could not load scans: ${window.esc(scanErr)}</div></div>`;
     }
+    html += `<div class="scan-launcher" style="margin-bottom:20px">
+      <div class="scan-launcher-title">🚀 Quick Scan Launcher</div>
+      <div class="scan-form">
+        <select id="launch-type">
+          <optgroup label="Workflow &amp; recon">
+            <option value="domain_scan">domain_scan (workflow)</option>
+            <option value="subdomain_scan">subdomain_scan (workflow)</option>
+            <option value="lite" selected>lite (full pipeline)</option>
+            <option value="recon">recon (Asset Discovery)</option>
+            <option value="urls">urls</option>
+            <option value="js">js</option>
+            <option value="reflection">reflection</option>
+            <option value="nuclei">nuclei</option>
+            <option value="ports">ports</option>
+            <option value="gf">gf</option>
+            <option value="backup">backup</option>
+            <option value="misconfig">misconfig</option>
+            <option value="apkx">apkx (APK analysis)</option>
+          </optgroup>
+          <optgroup label="DNS">
+            <option value="dns">dns (takeover)</option>
+            <option value="dns_dangling">dns (dangling-ip)</option>
+            <option value="dns_takeover">dns-takeover (legacy)</option>
+            <option value="dns_cf1016">dns-cf1016 (Cloudflare 1016)</option>
+          </optgroup>
+          <optgroup label="Cloud &amp; source">
+            <option value="s3">s3 (bucket)</option>
+            <option value="github">github (repo)</option>
+            <option value="github_org">github_org</option>
+          </optgroup>
+          <optgroup label="Advanced">
+            <option value="zerodays">zerodays</option>
+            <option value="ffuf">ffuf (URL + FUZZ)</option>
+            <option value="jwt">jwt (token)</option>
+          </optgroup>
+        </select>
+        <select id="launch-target-mode"></select>
+        <input type="text" id="launch-target" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
+        <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none"></textarea>
+        <button class="btn-primary" id="launch-btn">
+          <span>▶</span>
+          <span>Launch</span>
+        </button>
+      </div>
+      <div id="launch-help" class="launch-help"></div>
+      <details class="launcher-accordion" open>
+        <summary>Essential flags</summary>
+        <div id="launch-flags-essential" class="launch-flags-grid"></div>
+      </details>
+      <details class="launcher-accordion">
+        <summary>Advanced flags</summary>
+        <div id="launch-flags-advanced" class="launch-flags-grid"></div>
+      </details>
+    </div>`;
     html += `<div class="card" style="margin-bottom:20px; border:1px solid var(--border); background:rgba(13,17,23,0.4)"><div class="card-body" style="padding:16px"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div style="flex:1;min-width:280px;position:relative"><input type="text" id="scan-search-input" class="search-input" placeholder="🔍 Search targets or scan types..." value="${window.esc(sUI.search)}" style="width:100%; padding-left:36px; background:var(--bg-secondary)"><span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none"></span></div><div style="min-width:180px"><select id="scan-type-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all">All Scan Types</option><optgroup label="Workflows"><option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option><option value="lite" ${sUI.typeFilter === 'lite' ? 'selected' : ''}>Lite Workflow</option><option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option><option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option></optgroup><optgroup label="Modules"><option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option><option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option><option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option><option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option><option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option><option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option><option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option></optgroup></select></div><div style="min-width:180px"><select id="scan-status-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option><option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option><option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option><option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option><option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option></select></div></div></div></div>`;
     if (filteredActive.length) {
       html += `<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title">⚡ Active Scans <span class="badge badge-running">${filteredActive.length}</span></div></div><div class="card-body">${filteredActive.map((s) => scanItemHtml(s)).join('')}</div></div>`;
@@ -263,7 +317,7 @@
     html += `<div class="card"><div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px"><div class="card-title">🕐 Recent Scans ${filteredRecent.length !== recent_scans.length ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px">(${filteredRecent.length} filtered)</span>` : ''}</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="deleteSelectedScans()">Delete selected</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick="clearAllScans()">Clear all</button></div></div><div class="card-body">`;
     if (!filteredRecent.length && !filteredActive.length) {
       if (sUI.search || sUI.typeFilter !== 'all' || sUI.statusFilter !== 'all') html += window.emptyState('🔍', 'No matches found', 'Adjust your filters or search term to see more scans.');
-      else html += scanErr ? window.emptyState('⚠️', 'Scans unavailable', 'Fix the error above or check that the API is reachable.') : window.emptyState('📋', 'No scans yet', 'Start a scan from the Overview tab or via the CLI.');
+      else html += scanErr ? window.emptyState('⚠️', 'Scans unavailable', 'Fix the error above or check that the API is reachable.') : window.emptyState('📋', 'No scans yet', 'Start a scan from the launcher above or via the CLI.');
     } else if (!filteredRecent.length && recent_scans.length > 0) {
       html += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No completed scans match the current filter</div>';
     } else if (filteredRecent.length > 0) {
@@ -277,6 +331,19 @@
     if (typeSel) typeSel.onchange = (e) => { window.state.scanListUI.typeFilter = e.target.value; renderScans(); };
     const statusSel = container.querySelector('#scan-status-filter');
     if (statusSel) statusSel.onchange = (e) => { window.state.scanListUI.statusFilter = e.target.value; renderScans(); };
+    const launchBtn = container.querySelector('#launch-btn');
+    const launchType = container.querySelector('#launch-type');
+    const launchTargetMode = container.querySelector('#launch-target-mode');
+    const launchTarget = container.querySelector('#launch-target');
+    const launchTargetList = container.querySelector('#launch-target-list');
+    if (launchBtn) launchBtn.onclick = window.triggerScan;
+    if (launchType) launchType.onchange = () => window.syncLaunchPlaceholder(true);
+    if (launchTargetMode) launchTargetMode.onchange = () => window.syncLaunchPlaceholder(false);
+    if (launchTarget) launchTarget.oninput = window.updateLaunchPreview;
+    if (launchTargetList) launchTargetList.oninput = window.updateLaunchPreview;
+    container.oninput = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
+    container.onchange = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
+    window.syncLaunchPlaceholder(true);
   }
 
   window.ScansPage = {
