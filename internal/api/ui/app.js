@@ -105,6 +105,12 @@ function routerCorePageMethod(name) {
     : null;
 }
 
+function routerNavigationPageMethod(name) {
+  return window.RouterNavigationPage && typeof window.RouterNavigationPage[name] === 'function'
+    ? window.RouterNavigationPage[name]
+    : null;
+}
+
 function pathScanId() {
   const fn = routerCorePageMethod('pathScanId');
   if (fn) return fn();
@@ -131,62 +137,8 @@ function openAuditorInNewTab(view) {
 }
 
 function navigateTo(view) {
-  const prev = state.view;
-  state.view = view;
-  if (view !== 'scan-detail') {
-    state.scanDetailId = null;
-    document.getElementById('view-scan-detail')?.classList.remove('active');
-    if (prev === 'scan-detail' && /^\/scans\//.test(location.pathname)) {
-      try { history.pushState({}, '', '/ui'); } catch (e) { /* ignore */ }
-    }
-  }
-
-  // When entering APK Auditor, stamp a short-lived cookie so the iframe's
-  // request to /ui/apkauditor/ passes the server-side auth guard.
-  // We also lazily inject the iframe src so it doesn't fire on page load.
-  if (['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(view)) {
-    const tok = state._authAccessToken || localTokenGet();
-    if (tok) {
-      document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
-      document.cookie = `autoar_token=${tok}; path=/ui/ipaauditor; max-age=3600; SameSite=Strict`;
-      document.cookie = `autoar_token=${tok}; path=/ui/adbauditor; max-age=3600; SameSite=Strict`;
-      document.cookie = `autoar_token=${tok}; path=/ui/securitylab; max-age=3600; SameSite=Strict`;
-    }
-    const modeMap = { 'apkauditor': 'android', 'ipaauditor': 'ios', 'adbauditor': 'adb' };
-    const auditorPathMap = {
-      apkauditor: '/ui/apkauditor/?mode=android',
-      ipaauditor: '/ui/ipaauditor/?mode=ios',
-      adbauditor: '/ui/adbauditor/?mode=adb',
-    };
-    const frame = document.getElementById(`${view}-frame`);
-    if (frame && !frame.getAttribute('data-loaded')) {
-      frame.setAttribute('data-loaded', '1');
-      setTimeout(() => {
-        if (view === 'securitylab') frame.src = '/ui/securitylab/';
-        else frame.src = auditorPathMap[view] || `/ui/apkauditor/?mode=${modeMap[view]}`;
-      }, 30);
-    }
-  }
-
-  VIEWS.forEach(v => {
-    const el = document.getElementById(`view-${v}`);
-    const nav = document.getElementById(`nav-${v}`);
-    if (el) {
-      const isActive = v === view;
-      el.classList.toggle('active', isActive);
-      // Auditor views are full-height, use flex for their containers
-      if (['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(v)) {
-        el.style.display = isActive ? 'flex' : 'none';
-      }
-    }
-    if (nav) nav.classList.toggle('active', v === view);
-  });
-  document.getElementById('topbar-title').textContent = viewTitle(view);
-  state.selectedDomain = null;
-  if (!['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(view)) {
-    refreshCurrentView();
-  }
-  startPolling();
+  const fn = routerNavigationPageMethod('navigateTo');
+  if (fn) return fn(view);
 }
 
 /** Deep-linked scan results page (/scans/:id). */
@@ -1978,6 +1930,7 @@ window.showAuthGate = showAuthGate;
 window.hideAuthGate = hideAuthGate;
 window.wireAuthForm = wireAuthForm;
 window.navigateTo = navigateTo;
+window.viewTitle = viewTitle;
 window.openAuditorInNewTab = openAuditorInNewTab;
 window.buildAuthHeaders = buildAuthHeaders;
 window.esc = esc;
