@@ -144,17 +144,15 @@ function apiClientPageMethod(name) {
 function localTokenGet() {
   const fn = authSessionPageMethod('localTokenGet');
   if (fn) return fn();
-  try { return localStorage.getItem(LOCAL_TOKEN_KEY) || null; } catch { return null; }
+  return null;
 }
 function localTokenSet(tok) {
   const fn = authSessionPageMethod('localTokenSet');
   if (fn) return fn(tok);
-  try { localStorage.setItem(LOCAL_TOKEN_KEY, tok); } catch { /* ignore */ }
 }
 function localTokenClear() {
   const fn = authSessionPageMethod('localTokenClear');
   if (fn) return fn();
-  try { localStorage.removeItem(LOCAL_TOKEN_KEY); } catch { /* ignore */ }
 }
 
 async function buildAuthHeaders(extra = {}) {
