@@ -3,7 +3,6 @@ package dns
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -559,16 +558,7 @@ func runNucleiTakeoverSDK(targetFile, templateDir, outputFile string) error {
 		if event == nil || writeErr != nil {
 			return
 		}
-		// Marshal+unmarshal creates a plain ResultEvent value detached from any SDK-internal references.
-		raw, marshalErr := json.Marshal(event)
-		if marshalErr != nil {
-			return
-		}
-		var stable nucleiOutput.ResultEvent
-		if unmarshalErr := json.Unmarshal(raw, &stable); unmarshalErr != nil {
-			return
-		}
-		if wErr := writer.Write(&stable); wErr != nil {
+		if wErr := writer.Write(event); wErr != nil {
 			writeErr = wErr
 		}
 	})
