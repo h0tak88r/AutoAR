@@ -20,10 +20,13 @@ let _assetsCache = null;
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
+function resolvePageMethod(pageKey, name) {
+  const page = window[pageKey];
+  return page && typeof page[name] === 'function' ? page[name] : null;
+}
+
 function clipboardUtilsPageMethod(name) {
-  return window.ClipboardUtilsPage && typeof window.ClipboardUtilsPage[name] === 'function'
-    ? window.ClipboardUtilsPage[name]
-    : null;
+  return resolvePageMethod('ClipboardUtilsPage', name);
 }
 
 async function copyToClipboard(text) {
@@ -40,21 +43,15 @@ const state = APP_CONFIG_STATE.state || {};
 const VIEWS = APP_CONFIG_STATE.VIEWS || [];
 
 function navigationUIPageMethod(name) {
-  return window.NavigationUIPage && typeof window.NavigationUIPage[name] === 'function'
-    ? window.NavigationUIPage[name]
-    : null;
+  return resolvePageMethod('NavigationUIPage', name);
 }
 
 function routerCorePageMethod(name) {
-  return window.RouterCorePage && typeof window.RouterCorePage[name] === 'function'
-    ? window.RouterCorePage[name]
-    : null;
+  return resolvePageMethod('RouterCorePage', name);
 }
 
 function routerNavigationPageMethod(name) {
-  return window.RouterNavigationPage && typeof window.RouterNavigationPage[name] === 'function'
-    ? window.RouterNavigationPage[name]
-    : null;
+  return resolvePageMethod('RouterNavigationPage', name);
 }
 
 function pathScanId() {
@@ -89,15 +86,11 @@ function viewTitle(v) {
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
 
 function authSessionPageMethod(name) {
-  return window.AuthSessionPage && typeof window.AuthSessionPage[name] === 'function'
-    ? window.AuthSessionPage[name]
-    : null;
+  return resolvePageMethod('AuthSessionPage', name);
 }
 
 function apiClientPageMethod(name) {
-  return window.ApiClientPage && typeof window.ApiClientPage[name] === 'function'
-    ? window.ApiClientPage[name]
-    : null;
+  return resolvePageMethod('ApiClientPage', name);
 }
 
 function localTokenGet() {
@@ -154,21 +147,15 @@ function hideAuthGate() {
 }
 
 function scanActionsPageMethod(name) {
-  return window.ScanActionsPage && typeof window.ScanActionsPage[name] === 'function'
-    ? window.ScanActionsPage[name]
-    : null;
+  return resolvePageMethod('ScanActionsPage', name);
 }
 
 function domainActionsPageMethod(name) {
-  return window.DomainActionsPage && typeof window.DomainActionsPage[name] === 'function'
-    ? window.DomainActionsPage[name]
-    : null;
+  return resolvePageMethod('DomainActionsPage', name);
 }
 
 function appCoreActionsPageMethod(name) {
-  return window.AppCoreActionsPage && typeof window.AppCoreActionsPage[name] === 'function'
-    ? window.AppCoreActionsPage[name]
-    : null;
+  return resolvePageMethod('AppCoreActionsPage', name);
 }
 
 async function cancelScan(scanID) {
@@ -224,15 +211,11 @@ async function loadResource(key, path, stateKey) {
 // ── Data Loading ──────────────────────────────────────────────────────────────
 
 function settingsPageMethod(name) {
-  return window.SettingsPage && typeof window.SettingsPage[name] === 'function'
-    ? window.SettingsPage[name]
-    : null;
+  return resolvePageMethod('SettingsPage', name);
 }
 
 function dashboardDataPageMethod(name) {
-  return window.DashboardDataPage && typeof window.DashboardDataPage[name] === 'function'
-    ? window.DashboardDataPage[name]
-    : null;
+  return resolvePageMethod('DashboardDataPage', name);
 }
 
 async function loadConfig() {
@@ -246,9 +229,7 @@ function wireAuthForm() {
 }
 
 function shellWiringPageMethod(name) {
-  return window.ShellWiringPage && typeof window.ShellWiringPage[name] === 'function'
-    ? window.ShellWiringPage[name]
-    : null;
+  return resolvePageMethod('ShellWiringPage', name);
 }
 
 function wireShellOnce() {
@@ -257,9 +238,7 @@ function wireShellOnce() {
 }
 
 function dashboardBootstrapPageMethod(name) {
-  return window.DashboardBootstrapPage && typeof window.DashboardBootstrapPage[name] === 'function'
-    ? window.DashboardBootstrapPage[name]
-    : null;
+  return resolvePageMethod('DashboardBootstrapPage', name);
 }
 
 async function startDashboard() {
@@ -294,9 +273,7 @@ async function loadScans() {
 }
 
 function monitorPageMethod(name) {
-  return window.MonitorPage && typeof window.MonitorPage[name] === 'function'
-    ? window.MonitorPage[name]
-    : null;
+  return resolvePageMethod('MonitorPage', name);
 }
 
 async function loadMonitor() {
@@ -305,21 +282,15 @@ async function loadMonitor() {
 }
 
 function r2PageMethod(name) {
-  return window.R2Page && typeof window.R2Page[name] === 'function'
-    ? window.R2Page[name]
-    : null;
+  return resolvePageMethod('R2Page', name);
 }
 
 function r2PrefixesPageMethod(name) {
-  return window.R2PrefixesPage && typeof window.R2PrefixesPage[name] === 'function'
-    ? window.R2PrefixesPage[name]
-    : null;
+  return resolvePageMethod('R2PrefixesPage', name);
 }
 
 function domainR2ActionsPageMethod(name) {
-  return window.DomainR2ActionsPage && typeof window.DomainR2ActionsPage[name] === 'function'
-    ? window.DomainR2ActionsPage[name]
-    : null;
+  return resolvePageMethod('DomainR2ActionsPage', name);
 }
 
 async function loadR2(prefix = '') {
@@ -333,9 +304,7 @@ function wireR2BrowserOnce() {
 }
 
 function pollingPageMethod(name) {
-  return window.PollingPage && typeof window.PollingPage[name] === 'function'
-    ? window.PollingPage[name]
-    : null;
+  return resolvePageMethod('PollingPage', name);
 }
 
 function r2UpdateDeleteSelectedVisibility() {
@@ -401,9 +370,7 @@ function refreshCurrentView() {
 }
 
 function scanDetailPaginationPageMethod(name) {
-  return window.ScanDetailPaginationPage && typeof window.ScanDetailPaginationPage[name] === 'function'
-    ? window.ScanDetailPaginationPage[name]
-    : null;
+  return resolvePageMethod('ScanDetailPaginationPage', name);
 }
 
 /** Pagination: previous page of files */
@@ -421,9 +388,7 @@ function nextFilesPage(scanId, total) {
 // ── Renderers ─────────────────────────────────────────────────────────────────
 
 function overviewPageMethod(name) {
-  return window.OverviewPage && typeof window.OverviewPage[name] === 'function'
-    ? window.OverviewPage[name]
-    : null;
+  return resolvePageMethod('OverviewPage', name);
 }
 
 function renderStats() {
@@ -460,9 +425,7 @@ function changeItemHtml(c) {
 }
 
 function scansPageMethod(name) {
-  return window.ScansPage && typeof window.ScansPage[name] === 'function'
-    ? window.ScansPage[name]
-    : null;
+  return resolvePageMethod('ScansPage', name);
 }
 
 function renderScans() {
@@ -496,21 +459,15 @@ function scanRowHtml(s) {
 
 /** Determine file type category from filename for icon display */
 function scanCommonPageMethod(name) {
-  return window.ScanCommonPage && typeof window.ScanCommonPage[name] === 'function'
-    ? window.ScanCommonPage[name]
-    : null;
+  return resolvePageMethod('ScanCommonPage', name);
 }
 
 function scanResultsCorePageMethod(name) {
-  return window.ScanResultsCorePage && typeof window.ScanResultsCorePage[name] === 'function'
-    ? window.ScanResultsCorePage[name]
-    : null;
+  return resolvePageMethod('ScanResultsCorePage', name);
 }
 
 function categoryDisplayPageMethod(name) {
-  return window.CategoryDisplayPage && typeof window.CategoryDisplayPage[name] === 'function'
-    ? window.CategoryDisplayPage[name]
-    : null;
+  return resolvePageMethod('CategoryDisplayPage', name);
 }
 
 function getFileTypeFromName(fileName) {
@@ -585,9 +542,7 @@ function getModuleDisplayInfo(module) {
 }
 
 function findingsRowsPageMethod(name) {
-  return window.FindingsRowsPage && typeof window.FindingsRowsPage[name] === 'function'
-    ? window.FindingsRowsPage[name]
-    : null;
+  return resolvePageMethod('FindingsRowsPage', name);
 }
 
 function getUnifiedTableColumns(activeKind) {
@@ -640,9 +595,7 @@ function parseNucleiFindingLine(line) {
 }
 
 function scanDetailAsmPageMethod(name) {
-  return window.ScanDetailAsmPage && typeof window.ScanDetailAsmPage[name] === 'function'
-    ? window.ScanDetailAsmPage[name]
-    : null;
+  return resolvePageMethod('ScanDetailAsmPage', name);
 }
 
 function scanArtifactRowHtml(f) {
@@ -696,9 +649,7 @@ function renderResultTable(items, type, file) {
 }
 
 function resultTablesPageMethod(name) {
-  return window.ResultTablesPage && typeof window.ResultTablesPage[name] === 'function'
-    ? window.ResultTablesPage[name]
-    : null;
+  return resolvePageMethod('ResultTablesPage', name);
 }
 
 /** Render subdomain list (simple strings) */
@@ -835,9 +786,7 @@ function isLiveStatus(status) {
 }
 
 function scanResultsUtilsPageMethod(name) {
-  return window.ScanResultsUtilsPage && typeof window.ScanResultsUtilsPage[name] === 'function'
-    ? window.ScanResultsUtilsPage[name]
-    : null;
+  return resolvePageMethod('ScanResultsUtilsPage', name);
 }
 
 /** Filter files based on search query and filters */
@@ -1033,15 +982,11 @@ function updateStatusDot() {
 // ── Scan Launcher ─────────────────────────────────────────────────────────────
 
 function launcherPageMethod(name) {
-  return window.LauncherPage && typeof window.LauncherPage[name] === 'function'
-    ? window.LauncherPage[name]
-    : null;
+  return resolvePageMethod('LauncherPage', name);
 }
 
 function htmlEscapePageMethod(name) {
-  return window.HtmlEscapePage && typeof window.HtmlEscapePage[name] === 'function'
-    ? window.HtmlEscapePage[name]
-    : null;
+  return resolvePageMethod('HtmlEscapePage', name);
 }
 
 function syncLaunchPlaceholder(rebuildModes = false) {
@@ -1085,15 +1030,11 @@ function escAttr(s) {
 }
 
 function uiHelpersMethod(name) {
-  return window.UIHelpers && typeof window.UIHelpers[name] === 'function'
-    ? window.UIHelpers[name]
-    : null;
+  return resolvePageMethod('UIHelpers', name);
 }
 
 function formatUtilsPageMethod(name) {
-  return window.FormatUtilsPage && typeof window.FormatUtilsPage[name] === 'function'
-    ? window.FormatUtilsPage[name]
-    : null;
+  return resolvePageMethod('FormatUtilsPage', name);
 }
 
 function fmtDate(d) {
@@ -1190,9 +1131,7 @@ document.addEventListener('DOMContentLoaded', boot);
 // ══════════════════════════════════════════════════════════════════════════════
 
 function targetsPageMethod(name) {
-  return window.TargetsPage && typeof window.TargetsPage[name] === 'function'
-    ? window.TargetsPage[name]
-    : null;
+  return resolvePageMethod('TargetsPage', name);
 }
 async function loadTargetsPlatforms() {
   const fn = targetsPageMethod('loadTargetsPlatforms');
@@ -1267,9 +1206,7 @@ async function loadKeyhacks(query = '') {
 // ── Export ──────────────────────────────────────────────────────────────────────
 
 function opsToolsPageMethod(name) {
-  return window.OpsToolsPage && typeof window.OpsToolsPage[name] === 'function'
-    ? window.OpsToolsPage[name]
-    : null;
+  return resolvePageMethod('OpsToolsPage', name);
 }
 async function exportScanResultsCSV(scanId) {
   const fn = opsToolsPageMethod('exportScanResultsCSV');
@@ -1285,9 +1222,7 @@ async function generateScanReport(scanId) {
 
 // ── Report Templates ─────────────────────────────────────────────────────────
 function reportTemplatesPageMethod(name) {
-  return window.ReportTemplatesPage && typeof window.ReportTemplatesPage[name] === 'function'
-    ? window.ReportTemplatesPage[name]
-    : null;
+  return resolvePageMethod('ReportTemplatesPage', name);
 }
 async function renderReportTemplates(search = '') {
   const fn = reportTemplatesPageMethod('renderReportTemplates');
