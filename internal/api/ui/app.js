@@ -307,83 +307,40 @@ function hideAuthGate() {
   if (shell) shell.style.display = '';
 }
 
+function scanActionsPageMethod(name) {
+  return window.ScanActionsPage && typeof window.ScanActionsPage[name] === 'function'
+    ? window.ScanActionsPage[name]
+    : null;
+}
+
 async function cancelScan(scanID) {
-  if (!confirm('Stop this scan? The worker process will be killed.')) return;
-  try {
-    await apiPost(`/api/scans/${encodeURIComponent(scanID)}/cancel`, {});
-    showToast('success', 'Scan stopped', '');
-    loadStats();
-    loadScans();
-  } catch (e) {
-    showToast('error', 'Could not stop scan', e.message);
-  }
+  const fn = scanActionsPageMethod('cancelScan');
+  if (fn) return fn(scanID);
 }
 
 async function deleteScan(scanID, target = '') {
-  const label = target ? ` for ${target}` : '';
-  if (!confirm(`Delete this scan record${label} and remove its R2 indexed artifacts?`)) return;
-  try {
-    await apiDelete(`/api/scans/${encodeURIComponent(scanID)}`);
-    showToast('success', 'Scan deleted', '');
-    loadStats();
-    loadScans();
-  } catch (e) {
-    showToast('error', 'Delete failed', e.message);
-  }
+  const fn = scanActionsPageMethod('deleteScan');
+  if (fn) return fn(scanID, target);
 }
 
 async function rescanScan(scanID) {
-  try {
-    const result = await apiPost(`/api/scans/${encodeURIComponent(scanID)}/rescan`, {});
-    showToast('success', '🔁 Rescan started', `New scan queued (ID: ${result.new_scan_id || ''})`);
-    loadScans();
-    if (result.new_scan_id) {
-      setTimeout(() => goToScanResultsPage(result.new_scan_id), 900);
-    }
-  } catch (e) {
-    showToast('error', 'Rescan failed', e.message);
-  }
+  const fn = scanActionsPageMethod('rescanScan');
+  if (fn) return fn(scanID);
 }
 
 function toggleSelectAllRecentScans(master) {
-  const on = master.checked;
-  document.querySelectorAll('#recent-scans-table .scan-row-select').forEach(cb => { cb.checked = on; });
+  const fn = scanActionsPageMethod('toggleSelectAllRecentScans');
+  if (fn) return fn(master);
 }
 
 async function deleteSelectedScans() {
-  const cbs = Array.from(document.querySelectorAll('#recent-scans-table .scan-row-select:checked'));
-  const ids = cbs.map(cb => cb.getAttribute('data-scan-id')).filter(Boolean);
-  if (!ids.length) {
-    showToast('error', 'No scans selected', 'Check the rows you want to remove.');
-    return;
-  }
-  if (!confirm(`Delete ${ids.length} scan record(s) and remove their indexed R2 artifacts?`)) return;
-  try {
-    const res = await apiPost('/api/scans/bulk-delete', { scan_ids: ids });
-    let msg = `Removed ${res.deleted} scan(s).`;
-    if (res.skipped_active) msg += ` ${res.skipped_active} skipped (still active).`;
-    if (res.failed) msg += ` ${res.failed} failed.`;
-    showToast(res.ok && !res.failed ? 'success' : 'error', res.ok ? 'Bulk delete done' : 'Some deletes failed', msg);
-    loadStats();
-    loadScans();
-  } catch (e) {
-    showToast('error', 'Bulk delete failed', e.message);
-  }
+  const fn = scanActionsPageMethod('deleteSelectedScans');
+  if (fn) return fn();
 }
 
 async function clearAllScans() {
-  if (!confirm('Delete all scan history? Active scans stay; finished scans are removed with their indexed R2 objects.')) return;
-  try {
-    const res = await apiPost('/api/scans/clear-all', {});
-    let msg = `Removed ${res.deleted} scan(s).`;
-    if (res.skipped_active) msg += ` ${res.skipped_active} active scan(s) were skipped.`;
-    if (res.failed) msg += ` ${res.failed} failed.`;
-    showToast(res.ok && !res.failed ? 'success' : 'error', 'Clear all', msg);
-    loadStats();
-    loadScans();
-  } catch (e) {
-    showToast('error', 'Clear all failed', e.message);
-  }
+  const fn = scanActionsPageMethod('clearAllScans');
+  if (fn) return fn();
 }
 
 async function deleteDomainRecord(domain) {
@@ -404,25 +361,13 @@ async function deleteDomainRecord(domain) {
 }
 
 async function pauseScan(scanID) {
-  try {
-    await apiPost(`/api/scans/${encodeURIComponent(scanID)}/pause`, {});
-    showToast('success', 'Scan paused', '');
-    loadStats();
-    loadScans();
-  } catch (e) {
-    showToast('error', 'Pause failed', e.message);
-  }
+  const fn = scanActionsPageMethod('pauseScan');
+  if (fn) return fn(scanID);
 }
 
 async function resumeScan(scanID) {
-  try {
-    await apiPost(`/api/scans/${encodeURIComponent(scanID)}/resume`, {});
-    showToast('success', 'Scan resumed', '');
-    loadStats();
-    loadScans();
-  } catch (e) {
-    showToast('error', 'Resume failed', e.message);
-  }
+  const fn = scanActionsPageMethod('resumeScan');
+  if (fn) return fn(scanID);
 }
 
 async function loadResource(key, path, stateKey) {
