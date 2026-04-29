@@ -112,7 +112,7 @@ func Run(opts Options) (*Result, error) {
 	if len(subdomains) == 0 {
 		log.Printf("[cf1016] No subdomains to scan")
 		if scanID := utils.GetCurrentScanID(); scanID != "" {
-			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "dns-takeover", "cf1016-vulnerabilities.json")
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "cf1016", "cf1016-vulnerabilities.json")
 		}
 		return &Result{}, nil
 	}

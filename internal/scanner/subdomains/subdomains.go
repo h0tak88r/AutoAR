@@ -103,7 +103,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 				log.Printf("[WARN] Failed to write subdomain JSON: %v", err)
 			}
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, domain, "subdomain", "subdomains.json")
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "subdomains", "subdomains.json")
 		}
 	}
 
