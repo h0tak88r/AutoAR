@@ -919,62 +919,44 @@ document.addEventListener('DOMContentLoaded', boot);
 // Bug Bounty Targets Page
 // ══════════════════════════════════════════════════════════════════════════════
 
-function targetsPageMethod(name) {
-  return resolvePageMethod('TargetsPage', name);
-}
 async function loadTargetsPlatforms() {
-  const fn = targetsPageMethod('loadTargetsPlatforms');
-  if (fn) return fn();
+  return callPageMethod('TargetsPage', 'loadTargetsPlatforms');
 }
 function renderTargetsPlatforms() {
-  const fn = targetsPageMethod('renderTargetsPlatforms');
-  if (fn) return fn();
+  return callPageMethod('TargetsPage', 'renderTargetsPlatforms');
 }
 function renderPlatformCredFields(p, colors) {
-  const fn = targetsPageMethod('renderPlatformCredFields');
-  if (fn) return fn(p, colors);
-  return '';
+  return callPageMethod('TargetsPage', 'renderPlatformCredFields', [p, colors], '');
 }
 function escapeSafe(s) {
-  const fn = targetsPageMethod('escapeSafe');
-  if (fn) return fn(s);
-  return String(s || '');
+  return callPageMethod('TargetsPage', 'escapeSafe', [s], String(s || ''));
 }
 function targetsUpdateCred(platformId, field, value) {
-  const fn = targetsPageMethod('targetsUpdateCred');
-  if (fn) return fn(platformId, field, value);
+  return callPageMethod('TargetsPage', 'targetsUpdateCred', [platformId, field, value]);
 }
 function targetsSelectPlatform(id) {
-  const fn = targetsPageMethod('targetsSelectPlatform');
-  if (fn) return fn(id);
+  return callPageMethod('TargetsPage', 'targetsSelectPlatform', [id]);
 }
 async function targetsDoFetch() {
-  const fn = targetsPageMethod('targetsDoFetch');
-  if (fn) return fn();
+  return callPageMethod('TargetsPage', 'targetsDoFetch');
 }
 function targetsApplyFilter() {
-  const fn = targetsPageMethod('targetsApplyFilter');
-  if (fn) return fn();
+  return callPageMethod('TargetsPage', 'targetsApplyFilter');
 }
 function targetsRenderDomainList(domains) {
-  const fn = targetsPageMethod('targetsRenderDomainList');
-  if (fn) return fn(domains);
+  return callPageMethod('TargetsPage', 'targetsRenderDomainList', [domains]);
 }
 async function targetsAddDomain(domain) {
-  const fn = targetsPageMethod('targetsAddDomain');
-  if (fn) return fn(domain);
+  return callPageMethod('TargetsPage', 'targetsAddDomain', [domain]);
 }
 async function targetsAddAllDomains() {
-  const fn = targetsPageMethod('targetsAddAllDomains');
-  if (fn) return fn();
+  return callPageMethod('TargetsPage', 'targetsAddAllDomains');
 }
 function targetsLaunchScan(domain) {
-  const fn = targetsPageMethod('targetsLaunchScan');
-  if (fn) return fn(domain);
+  return callPageMethod('TargetsPage', 'targetsLaunchScan', [domain]);
 }
 async function targetsCopyAll() {
-  const fn = targetsPageMethod('targetsCopyAll');
-  if (fn) return fn();
+  return callPageMethod('TargetsPage', 'targetsCopyAll');
 }
 
 // ── Keyhacks ─────────────────────────────────────────────────────────────────
@@ -994,88 +976,64 @@ async function loadKeyhacks(query = '') {
 
 // ── Export ──────────────────────────────────────────────────────────────────────
 
-function opsToolsPageMethod(name) {
-  return resolvePageMethod('OpsToolsPage', name);
-}
 async function exportScanResultsCSV(scanId) {
-  const fn = opsToolsPageMethod('exportScanResultsCSV');
-  if (fn) return fn(scanId);
+  return callPageMethod('OpsToolsPage', 'exportScanResultsCSV', [scanId]);
 }
 async function generateScanReport(scanId) {
-  const fn = opsToolsPageMethod('generateScanReport');
-  if (fn) return fn(scanId);
+  return callPageMethod('OpsToolsPage', 'generateScanReport', [scanId]);
 }
 
 // ── Nuclei Template Manager ──────────────────────────────────────────────────
 
 
 // ── Report Templates ─────────────────────────────────────────────────────────
-function reportTemplatesPageMethod(name) {
-  return resolvePageMethod('ReportTemplatesPage', name);
-}
 async function renderReportTemplates(search = '') {
-  const fn = reportTemplatesPageMethod('renderReportTemplates');
-  if (fn) return fn(search);
+  return callPageMethod('ReportTemplatesPage', 'renderReportTemplates', [search]);
 }
 function openReportTemplateModalByName(encodedName) {
-  const fn = reportTemplatesPageMethod('openReportTemplateModalByName');
-  if (fn) return fn(encodedName);
+  return callPageMethod('ReportTemplatesPage', 'openReportTemplateModalByName', [encodedName]);
 }
 async function openReportTemplateModal(name = '') {
-  const fn = reportTemplatesPageMethod('openReportTemplateModal');
-  if (fn) return fn(name);
+  return callPageMethod('ReportTemplatesPage', 'openReportTemplateModal', [name]);
 }
 function updateTemplatePreview() {
-  const fn = reportTemplatesPageMethod('updateTemplatePreview');
-  if (fn) return fn();
+  return callPageMethod('ReportTemplatesPage', 'updateTemplatePreview');
 }
 function closeReportTemplateModal() {
-  const fn = reportTemplatesPageMethod('closeReportTemplateModal');
-  if (fn) return fn();
+  return callPageMethod('ReportTemplatesPage', 'closeReportTemplateModal');
 }
 async function saveReportTemplate() {
-  const fn = reportTemplatesPageMethod('saveReportTemplate');
-  if (fn) return fn();
+  return callPageMethod('ReportTemplatesPage', 'saveReportTemplate');
 }
 function deleteReportTemplateByName(encodedName) {
-  const fn = reportTemplatesPageMethod('deleteReportTemplateByName');
-  if (fn) return fn(encodedName);
+  return callPageMethod('ReportTemplatesPage', 'deleteReportTemplateByName', [encodedName]);
 }
 async function exportReportTemplates() {
-  const fn = reportTemplatesPageMethod('exportReportTemplates');
-  if (fn) return fn();
+  return callPageMethod('ReportTemplatesPage', 'exportReportTemplates');
 }
 function triggerImportReportTemplates() {
-  const fn = reportTemplatesPageMethod('triggerImportReportTemplates');
-  if (fn) return fn();
+  return callPageMethod('ReportTemplatesPage', 'triggerImportReportTemplates');
 }
 async function handleImportReportTemplatesFile(event) {
-  const fn = reportTemplatesPageMethod('handleImportReportTemplatesFile');
-  if (fn) return fn(event);
+  return callPageMethod('ReportTemplatesPage', 'handleImportReportTemplatesFile', [event]);
 }
 async function deleteReportTemplate(name) {
-  const fn = reportTemplatesPageMethod('deleteReportTemplate');
-  if (fn) return fn(name);
+  return callPageMethod('ReportTemplatesPage', 'deleteReportTemplate', [name]);
 }
 
 async function promptRetryCnames() {
-  const fn = opsToolsPageMethod('promptRetryCnames');
-  if (fn) return fn();
+  return callPageMethod('OpsToolsPage', 'promptRetryCnames');
 }
 async function startCnamesProgressPolling() {
-  const fn = opsToolsPageMethod('startCnamesProgressPolling');
-  if (fn) return fn();
+  return callPageMethod('OpsToolsPage', 'startCnamesProgressPolling');
 }
 function promptRunGlobalNuclei() {
-  const fn = opsToolsPageMethod('promptRunGlobalNuclei');
-  if (fn) return fn();
+  return callPageMethod('OpsToolsPage', 'promptRunGlobalNuclei');
 }
 function closeNucleiModal() {
-  const fn = opsToolsPageMethod('closeNucleiModal');
-  if (fn) return fn();
+  return callPageMethod('OpsToolsPage', 'closeNucleiModal');
 }
 async function submitNucleiModal() {
-  const fn = opsToolsPageMethod('submitNucleiModal');
-  if (fn) return fn();
+  return callPageMethod('OpsToolsPage', 'submitNucleiModal');
 }
 
