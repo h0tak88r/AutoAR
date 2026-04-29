@@ -6,10 +6,11 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const API = '';          // same origin
-const POLL_INTERVAL = 15000; // idle refresh
-const POLL_FAST_SCANS = 3500; // Scans view while workers are active
-const POLL_FAST_ANY = 7000;   // any view while ≥1 active scan
+const APP_CONFIG_STATE = window.AppConfigState || {};
+const API = APP_CONFIG_STATE.API || '';
+const POLL_INTERVAL = APP_CONFIG_STATE.POLL_INTERVAL || 15000;
+const POLL_FAST_SCANS = APP_CONFIG_STATE.POLL_FAST_SCANS || 3500;
+const POLL_FAST_ANY = APP_CONFIG_STATE.POLL_FAST_ANY || 7000;
 // Scan detail real-time refresh state (declared early so openScanResultsPage can use them)
 let _scanDetailRefreshTimer = null;
 let _scanDetailRefreshId = null;
@@ -32,47 +33,11 @@ async function copyToClipboard(text) {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-const state = {
-  view: 'overview',
-  config: null,
-  stats: null,
-  domains: [],
-  scans: { active_scans: [], recent_scans: [] },
-  monitorTargets: [],
-  subMonitorTargets: [],
-  monitorChanges: [],
-  r2: { prefix: '', dirs: [], files: [] },
-  selectedDomain: null,
-  subdomains: [],
-  loading: {},   // keyed by resource name
-  error: {},
-  scanType: 'lite',
-  scanTarget: '',
-  pollTimer: null,
-  /** UUID scan id when view === 'scan-detail' */
-  scanDetailId: null,
-  /** Pagination + selection for /scans/:id page */
-  scanDetailUI: { filesPage: 1, filesPerPage: 200, previewPage: 1, previewPerPage: 100, selectedFileName: null },
-  /** Filters for the main /scans page */
-  scanListUI: { search: '', statusFilter: 'all', typeFilter: 'all' },
-  _sbClient: null,
-  _authAccessToken: null,
-  _sbAuthListener: false,
-  _dashboardStarted: false,
-  _shellWired: false,
-  _r2BrowserWired: false,
-  _metricsTimer: null,
-  reportTemplateOriginalName: '',
-  apkxCacheStats: null,
-  // Keyhacks templates are fetched once from DB and then used fully in-browser
-  // for inspector detection + command suggestion (no DB calls per paste/search).
-  keyhacksAllTemplates: null,
-  keyhacksTemplatesLoading: null,
-};
+const state = APP_CONFIG_STATE.state || {};
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'];
+const VIEWS = APP_CONFIG_STATE.VIEWS || [];
 
 function navigationUIPageMethod(name) {
   return window.NavigationUIPage && typeof window.NavigationUIPage[name] === 'function'
