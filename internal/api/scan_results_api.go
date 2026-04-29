@@ -315,7 +315,7 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 			continue
 		}
 		base := filepath.Base(a.FileName)
-		
+
 		entry := fileEntry{
 			FileName:  base,
 			LocalPath: a.LocalPath,
@@ -347,7 +347,6 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 	finalResults := append(localEntries, merged...)
 	return finalResults, nil
 }
-
 
 // writeLocalFile writes content to a local file for a scan
 func writeLocalFile(scanID, fileName string, data []byte) (string, error) {
@@ -1017,6 +1016,18 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 		}
 	}
 
+	// Structured subdomain enumeration result.
+	if v["subdomain"] != nil {
+		sub := strings.TrimSpace(fmt.Sprint(v["subdomain"]))
+		if sub != "" && sub != "<nil>" {
+			return parsedFinding{
+				Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
+				Target:   sub,
+				Finding:  firstNonEmpty(fmt.Sprint(v["finding"]), "Subdomain discovered"),
+			}
+		}
+	}
+
 	// S3 Buckets
 	if bucketStatus, ok := v["status"].(string); ok && (v["bucket"] != nil || v["target"] != nil) && v["type"] == nil {
 		targetField := firstNonEmpty(fmt.Sprint(v["target"]), fmt.Sprint(v["bucket"]))
@@ -1047,6 +1058,7 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 		fmt.Sprint(v["matched_at"]),
 		fmt.Sprint(v["url"]),
 		fmt.Sprint(v["host"]),
+		fmt.Sprint(v["subdomain"]),
 		fmt.Sprint(v["domain"]),
 		fmt.Sprint(v["target"]),
 	)
@@ -1344,6 +1356,53 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 	return out
 }
 
+func dedupeParsedRows(rows []parsedFinding) []parsedFinding {
+	if len(rows) < 2 {
+		return rows
+	}
+	out := make([]parsedFinding, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		module := strings.ToLower(strings.TrimSpace(r.Module))
+		kind := strings.ToLower(strings.TrimSpace(r.Kind))
+		target := strings.ToLower(strings.TrimSpace(r.Target))
+		finding := strings.ToLower(strings.TrimSpace(r.Finding))
+		sev := strings.ToLower(strings.TrimSpace(r.Severity))
+
+		// FFUF and port scans are particularly noisy; dedupe by stable finding identity.
+		switch {
+		case module == "ffuf-fuzzing" || kind == "ffuf":
+			status := ""
+			length := ""
+			word := ""
+			if r.Raw != nil {
+				status = strings.TrimSpace(fmt.Sprint(firstNonEmpty(fmt.Sprint(r.Raw["status_code"]), fmt.Sprint(r.Raw["status"]))))
+				length = strings.TrimSpace(fmt.Sprint(firstNonEmpty(fmt.Sprint(r.Raw["content_length"]), fmt.Sprint(r.Raw["length"]))))
+				word = strings.TrimSpace(fmt.Sprint(firstNonEmpty(fmt.Sprint(r.Raw["word"]), fmt.Sprint(r.Raw["path"]), fmt.Sprint(r.Raw["template_id"]))))
+			}
+			key := strings.Join([]string{"ffuf", target, strings.ToLower(word), status, length}, "|")
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		case module == "port-scan" || kind == "ports":
+			key := strings.Join([]string{"ports", target, finding}, "|")
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		default:
+			key := strings.Join([]string{module, kind, target, finding, sev}, "|")
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // GET /api/scans/:id/results/parsed — flattened parsed findings for dashboard tables.
 func apiScanParsedResults(c *gin.Context) {
 	_ = db.Init()
@@ -1532,6 +1591,7 @@ func apiScanParsedResults(c *gin.Context) {
 		ps := parseArtifactFindings(raw, e.Module, e.Category, 250)
 		appendRows(ps, e)
 	}
+	rows = dedupeParsedRows(rows)
 
 	c.JSON(http.StatusOK, gin.H{
 		"scan_id": scanID,
@@ -1545,9 +1605,9 @@ func apiScanParsedResults(c *gin.Context) {
 // GET /api/scans/:id/logs/stream — SSE live log stream for a scan.
 //
 // For in-process scans (runScanInProcess) the log bus is the primary source:
-//   1. All stored history lines are replayed immediately.
-//   2. New lines are pushed as they arrive until the scan finishes or the
-//      client disconnects.
+//  1. All stored history lines are replayed immediately.
+//  2. New lines are pushed as they arrive until the scan finishes or the
+//     client disconnects.
 //
 // For subprocess scans (executeScan) the log file on disk is tailed as
 // a fallback (existing behaviour).
@@ -1661,12 +1721,13 @@ func apiListNucleiTemplates(c *gin.Context) {
 //
 // Renders a report template with scan-specific variables substituted.
 // Variables recognised in template Markdown:
-//   {{domain}}   — scan target
-//   {{scan_id}}  — scan ID
-//   {{date}}     — ISO-8601 date of scan completion / now
-//   {{status}}   — completed | failed | running
-//   {{scan_type}} — nuclei-full, lite, subdomains, …
-//   {{findings}} — a Markdown table of top findings (from parsed results)
+//
+//	{{domain}}   — scan target
+//	{{scan_id}}  — scan ID
+//	{{date}}     — ISO-8601 date of scan completion / now
+//	{{status}}   — completed | failed | running
+//	{{scan_type}} — nuclei-full, lite, subdomains, …
+//	{{findings}} — a Markdown table of top findings (from parsed results)
 func apiGetScanReport(c *gin.Context) {
 	scanID := strings.TrimSpace(c.Param("id"))
 	if scanID == "" {
@@ -1740,12 +1801,12 @@ func apiGetScanReport(c *gin.Context) {
 
 	if format == "json" {
 		c.JSON(http.StatusOK, gin.H{
-			"scan_id":       scanID,
-			"template":      templateName,
-			"rendered":      rendered,
-			"target":        target,
-			"status":        status,
-			"generated_at":  time.Now().UTC(),
+			"scan_id":      scanID,
+			"template":     templateName,
+			"rendered":     rendered,
+			"target":       target,
+			"status":       status,
+			"generated_at": time.Now().UTC(),
 		})
 		return
 	}

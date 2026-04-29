@@ -5,10 +5,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
-	naabutool "github.com/h0tak88r/AutoAR/internal/tools/naabu"
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
+	naabutool "github.com/h0tak88r/AutoAR/internal/tools/naabu"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -17,6 +16,19 @@ type Result struct {
 	Domain     string
 	Ports      int
 	OutputFile string
+}
+
+type PortFinding struct {
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Protocol   string `json:"protocol"`
+	Service    string `json:"service"`
+	Status     string `json:"status"`
+	Severity   string `json:"severity"`
+	Finding    string `json:"finding"`
+	Module     string `json:"module"`
+	MatchedAt  string `json:"matched-at"`
+	TemplateID string `json:"template-id"`
 }
 
 // ScanPorts runs port scanning using naabu
@@ -60,7 +72,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	}
 
 	log.Printf("[INFO] Running naabu port scan with %d threads (library mode)", threads)
-	count, err := naabutool.ScanFromFile(subsFile, threads, outFile)
+	count, records, err := naabutool.ScanFromFile(subsFile, threads, outFile)
 	if err != nil {
 		log.Printf("[WARN] Naabu scan failed: %v", err)
 		count = 0
@@ -69,22 +81,27 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 
 	// Write JSON results to scan directory (local-first)
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
-		data, readErr := os.ReadFile(outFile)
-		if readErr == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			var nonEmpty []string
-			for _, l := range lines {
-				if strings.TrimSpace(l) != "" {
-					nonEmpty = append(nonEmpty, l)
-				}
+		findings := make([]PortFinding, 0, len(records))
+		for _, rec := range records {
+			findings = append(findings, PortFinding{
+				Host:       rec.Host,
+				Port:       rec.Port,
+				Protocol:   rec.Protocol,
+				Service:    "unknown",
+				Status:     "open",
+				Severity:   "info",
+				Finding:    fmt.Sprintf("Open Port %d (%s)", rec.Port, rec.Protocol),
+				Module:     "port-scan",
+				MatchedAt:  rec.Host,
+				TemplateID: fmt.Sprintf("port/%d", rec.Port),
+			})
+		}
+		if len(findings) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "ports.json", findings); err != nil {
+				log.Printf("[WARN] Failed to write ports JSON: %v", err)
 			}
-			if len(nonEmpty) > 0 {
-				if err := utils.WriteLinesAsJSON(scanID, domain, "ports", "ports.json", nonEmpty); err != nil {
-					log.Printf("[WARN] Failed to write ports JSON: %v", err)
-				}
-			} else {
-				_ = utils.WriteNoFindingsJSON(scanID, domain, "ports", "ports.json")
-			}
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "ports", "ports.json")
 		}
 	}
 
@@ -99,19 +116,4 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		Ports:      count,
 		OutputFile: outFile,
 	}, nil
-}
-
-func countLines(path string) (int, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
-	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	count := 0
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			count++
-		}
-	}
-	return count, nil
 }

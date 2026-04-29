@@ -42,10 +42,10 @@ type Options struct {
 
 // Result holds ffuf scan results
 type Result struct {
-	Target      string
-	TotalFound  int
-	OutputFile  string
-	UniqueSizes map[int64]bool
+	Target       string
+	TotalFound   int
+	OutputFile   string
+	UniqueSizes  map[int64]bool
 	HostsScanned int // For domain mode: number of hosts scanned
 }
 
@@ -82,7 +82,7 @@ func RunFFuf(opts Options) (*Result, error) {
 			return nil, fmt.Errorf("wordlist not found: %s", wordlistPath)
 		}
 	}
-	
+
 	// Convert wordlist to absolute path and validate it exists
 	wordlistPath := opts.Wordlist
 	if !filepath.IsAbs(wordlistPath) {
@@ -100,7 +100,7 @@ func RunFFuf(opts Options) (*Result, error) {
 			}
 		}
 	}
-	
+
 	// Validate wordlist file exists and is readable
 	info, err := os.Stat(wordlistPath)
 	if err != nil {
@@ -109,10 +109,10 @@ func RunFFuf(opts Options) (*Result, error) {
 	if info.Size() == 0 {
 		return nil, fmt.Errorf("wordlist file is empty: %s", wordlistPath)
 	}
-	
+
 	opts.Wordlist = wordlistPath
 	wordlistSize := info.Size()
-	
+
 	// Count lines in wordlist for better logging
 	wordlistLines := 0
 	if file, err := os.Open(wordlistPath); err == nil {
@@ -125,7 +125,7 @@ func RunFFuf(opts Options) (*Result, error) {
 		}
 		file.Close()
 	}
-	
+
 	log.Printf("[INFO] Wordlist: %s", wordlistPath)
 	log.Printf("[INFO] Wordlist size: %d bytes, %d lines", wordlistSize, wordlistLines)
 
@@ -169,8 +169,8 @@ func RunFFuf(opts Options) (*Result, error) {
 		conf.RecursionDepth = 3
 	}
 	conf.FollowRedirects = opts.FollowRedirects
-	conf.Verbose = false  // Keep verbose off to reduce noise
-	conf.Quiet = true     // Keep quiet, but we'll handle errors explicitly
+	conf.Verbose = false // Keep verbose off to reduce noise
+	conf.Quiet = true    // Keep quiet, but we'll handle errors explicitly
 	conf.Json = false
 
 	// Validate config before creating input provider
@@ -233,12 +233,12 @@ func RunFFuf(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to create input provider: %w", err)
 	}
 	job.Input = inputProvider
-	
+
 	// Validate wordlist was loaded
 	if inputProvider == nil {
 		return nil, fmt.Errorf("input provider is nil - wordlist may not be loaded")
 	}
-	
+
 	// Try to validate input provider has words by checking if we can get position/total
 	// This is a best-effort check - if the provider doesn't support these methods, we continue
 	var inputProviderTotal int
@@ -272,7 +272,7 @@ func RunFFuf(opts Options) (*Result, error) {
 	var resultsMutex sync.Mutex
 	var bypassMutex sync.Mutex
 	var webhookMutex sync.Mutex
-	
+
 	// Create HTTP client for 403 bypass attempts
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
@@ -280,7 +280,7 @@ func RunFFuf(opts Options) (*Result, error) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
-	
+
 	// Create webhook messages file for batch sending
 	webhookMessagesFile := filepath.Join(outputDir, "ffuf-webhook-messages.txt")
 	webhookFile, webhookErr := os.Create(webhookMessagesFile)
@@ -288,7 +288,7 @@ func RunFFuf(opts Options) (*Result, error) {
 		log.Printf("[WARN] Failed to create webhook messages file: %v", webhookErr)
 		webhookFile = nil
 	}
-	
+
 	job.Output = &customOutputProvider{
 		base:         outputProvider,
 		outFile:      outFile,
@@ -353,13 +353,13 @@ func RunFFuf(opts Options) (*Result, error) {
 	if duration.Seconds() > 0 && inputProviderTotal > 0 {
 		requestsPerSec = float64(inputProviderTotal) / duration.Seconds()
 	}
-	
+
 	log.Printf("[INFO] Fuzzing completed in %v", duration)
 	if inputProviderTotal > 0 {
 		log.Printf("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
 	}
 	log.Printf("[INFO] Found %d results", found)
-	
+
 	// Warn if job completed suspiciously fast (less than 1 second for large wordlist)
 	if duration < time.Second && wordlistSize > 100000 {
 		log.Printf("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
@@ -405,33 +405,28 @@ func RunFFuf(opts Options) (*Result, error) {
 	}, nil
 }
 
-// writeFfufJSON converts raw ffufpkg.Result structs to structured dashboard findings.
-// Each finding maps to the 4-column table:
-//   - VULN TYPE  = path portion of the URL (e.g. /admin, /backup.zip) with size/lines hints
-//   - TARGET     = full matched URL
-//   - SEV        = "info" (fuzzing results are informational)
-//   - MODULE     = FFUF
+// writeFfufJSON converts raw ffufpkg.Result structs to a structured JSON dataset.
+// It keeps legacy keys (template-id, matched-at) while adding richer ffuf-native
+// fields used by the dashboard (url, word/path, status_code, content metrics).
 func writeFfufJSON(scanID string, results []ffufpkg.Result) error {
 	type ffufFinding struct {
-		TemplateID    string `json:"template-id"` // path shown in VULN TYPE column
-		MatchedAt     string `json:"matched-at"`  // full URL in TARGET column
+		TemplateID    string `json:"template-id"` // legacy label for old UI compatibility
+		MatchedAt     string `json:"matched-at"`  // legacy target URL key
+		URL           string `json:"url"`         // primary URL field for ffuf table
+		Path          string `json:"path"`        // URL path (e.g. /admin)
+		Word          string `json:"word"`        // fuzzed token/word (mirrors path)
 		StatusCode    int    `json:"status_code"`
 		ContentLength int64  `json:"content_length"`
 		ContentLines  int64  `json:"content_lines"`
 		ContentWords  int64  `json:"content_words"`
 		Severity      string `json:"severity"`
+		Module        string `json:"module"`
 	}
 	findings := make([]ffufFinding, 0, len(results))
 	for _, r := range results {
-		// Extract just the path from the URL for the VULN TYPE column
-		path := r.Url
-		if idx := strings.Index(path, "://"); idx >= 0 {
-			path = path[idx+3:]
-			if slashIdx := strings.Index(path, "/"); slashIdx >= 0 {
-				path = path[slashIdx:]
-			} else {
-				path = "/"
-			}
+		path := extractPath(r.Url)
+		if path == "" {
+			path = "/"
 		}
 		// Build a compact type label: /path [sz]
 		label := path
@@ -452,11 +447,15 @@ func writeFfufJSON(scanID string, results []ffufpkg.Result) error {
 		findings = append(findings, ffufFinding{
 			TemplateID:    label,
 			MatchedAt:     r.Url,
+			URL:           r.Url,
+			Path:          path,
+			Word:          path,
 			StatusCode:    int(r.StatusCode),
 			ContentLength: r.ContentLength,
 			ContentLines:  r.ContentLines,
 			ContentWords:  r.ContentWords,
 			Severity:      "info",
+			Module:        "ffuf-fuzzing",
 		})
 	}
 	return utils.WriteJSONToScanDir(scanID, "ffuf-results.json", findings)
@@ -525,7 +524,7 @@ func (c *customOutputProvider) Result(resp ffufpkg.Response) {
 		Url:           resp.Request.Url,
 		Duration:      resp.Time,
 	}
-	
+
 	// Only process 200 status codes
 	if resp.StatusCode != 200 {
 		// If 403 bypass is enabled, try bypass techniques only for 403 responses
@@ -556,7 +555,7 @@ func (c *customOutputProvider) Result(resp ffufpkg.Response) {
 	// Write to file
 	line := fmt.Sprintf("[%d] %s (Size: %d, Lines: %d, Words: %d)\n",
 		resp.StatusCode, result.Url, resp.ContentLength, resp.ContentLines, resp.ContentWords)
-	
+
 	if _, err := c.outFile.WriteString(line); err != nil {
 		log.Printf("[WARN] Failed to write result: %v", err)
 	}
@@ -576,7 +575,7 @@ func (c *customOutputProvider) Result(resp ffufpkg.Response) {
 	if resp.ContentWords > 0 {
 		webhookMessage += fmt.Sprintf(" | Words: %d", resp.ContentWords)
 	}
-	
+
 	// Write to webhook messages file instead of sending immediately
 	if c.webhookFile != nil {
 		c.webhookMutex.Lock()
@@ -759,7 +758,7 @@ func (c *customOutputProvider) try403Bypass(originalResp ffufpkg.Response) {
 				webhookMessage += fmt.Sprintf(" | Words: %d", contentWords)
 			}
 			webhookMessage += fmt.Sprintf(" | [403-Bypass: %s]", technique.name)
-			
+
 			// Write to webhook messages file instead of sending immediately
 			if c.webhookFile != nil {
 				c.webhookMutex.Lock()
@@ -774,7 +773,7 @@ func (c *customOutputProvider) try403Bypass(originalResp ffufpkg.Response) {
 
 			// Log successful bypass
 			log.Printf("[INFO] 403 bypass successful: %s -> %s (technique: %s)", originalURL, testURL, technique.name)
-			
+
 			// Stop after first successful bypass to avoid duplicates
 			return
 		}
@@ -832,7 +831,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 			return nil, fmt.Errorf("wordlist not found: %s", wordlistPath)
 		}
 	}
-	
+
 	// Convert wordlist to absolute path and validate it exists
 	wordlistPath := opts.Wordlist
 	if !filepath.IsAbs(wordlistPath) {
@@ -850,7 +849,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 			}
 		}
 	}
-	
+
 	// Validate wordlist file exists and is readable
 	info, err := os.Stat(wordlistPath)
 	if err != nil {
@@ -859,7 +858,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 	if info.Size() == 0 {
 		return nil, fmt.Errorf("wordlist file is empty: %s", wordlistPath)
 	}
-	
+
 	opts.Wordlist = wordlistPath
 	log.Printf("[DEBUG] Using wordlist: %s (size: %d bytes)", wordlistPath, info.Size())
 
@@ -898,7 +897,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 		if line == "" {
 			continue
 		}
-		
+
 		// Normalize URL: remove any existing protocol (handle multiple prefixes)
 		// This handles cases where file has "https://" already or just domain
 		normalized := line
@@ -912,13 +911,13 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 				break
 			}
 		}
-		
+
 		// Remove trailing slash for consistency
 		normalized = strings.TrimSuffix(normalized, "/")
-		
+
 		// Add https:// prefix
 		normalized = "https://" + normalized
-		
+
 		hosts = append(hosts, normalized)
 	}
 	if err := scanner.Err(); err != nil {
@@ -984,9 +983,9 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 			// Create per-host options
 			hostOpts := opts
 			hostOpts.Target = targetURL
-			hostOpts.Domain = ""          // Clear domain to avoid recursion
+			hostOpts.Domain = ""                // Clear domain to avoid recursion
 			hostOpts.ParentDomain = opts.Domain // Carry the parent domain for correct output path
-			hostOpts.OutputFile = ""      // Use default per-host output
+			hostOpts.OutputFile = ""            // Use default per-host output
 
 			// Run ffuf for this host
 			result, err := runFFufSingleTarget(hostOpts)
@@ -1064,7 +1063,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 			return nil, fmt.Errorf("wordlist not found: %s", wordlistPath)
 		}
 	}
-	
+
 	// Convert wordlist to absolute path and validate it exists
 	wordlistPath := opts.Wordlist
 	if !filepath.IsAbs(wordlistPath) {
@@ -1082,7 +1081,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 			}
 		}
 	}
-	
+
 	// Validate wordlist file exists and is readable
 	info, err := os.Stat(wordlistPath)
 	if err != nil {
@@ -1091,10 +1090,10 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	if info.Size() == 0 {
 		return nil, fmt.Errorf("wordlist file is empty: %s", wordlistPath)
 	}
-	
+
 	opts.Wordlist = wordlistPath
 	wordlistSize := info.Size()
-	
+
 	// Count lines in wordlist for better logging
 	wordlistLines := 0
 	if file, err := os.Open(wordlistPath); err == nil {
@@ -1107,7 +1106,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		}
 		file.Close()
 	}
-	
+
 	log.Printf("[INFO] Wordlist: %s", wordlistPath)
 	log.Printf("[INFO] Wordlist size: %d bytes, %d lines", wordlistSize, wordlistLines)
 
@@ -1153,8 +1152,8 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		conf.RecursionDepth = 3
 	}
 	conf.FollowRedirects = opts.FollowRedirects
-	conf.Verbose = false  // Keep verbose off to reduce noise
-	conf.Quiet = true     // Keep quiet, but we'll handle errors explicitly
+	conf.Verbose = false // Keep verbose off to reduce noise
+	conf.Quiet = true    // Keep quiet, but we'll handle errors explicitly
 	conf.Json = false
 
 	// Validate config before creating input provider
@@ -1228,12 +1227,12 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to create input provider: %w", err)
 	}
 	job.Input = inputProvider
-	
+
 	// Validate wordlist was loaded
 	if inputProvider == nil {
 		return nil, fmt.Errorf("input provider is nil - wordlist may not be loaded")
 	}
-	
+
 	// Try to validate input provider has words by checking if we can get position/total
 	// This is a best-effort check - if the provider doesn't support these methods, we continue
 	var inputProviderTotal int
@@ -1267,7 +1266,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	var resultsMutex sync.Mutex
 	var bypassMutex sync.Mutex
 	var webhookMutex sync.Mutex
-	
+
 	// Create HTTP client for 403 bypass attempts
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
@@ -1275,7 +1274,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
-	
+
 	// Create webhook messages file for batch sending
 	webhookMessagesFile := filepath.Join(outputDir, "ffuf-webhook-messages.txt")
 	webhookFile, webhookErr := os.Create(webhookMessagesFile)
@@ -1283,7 +1282,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		log.Printf("[WARN] Failed to create webhook messages file: %v", webhookErr)
 		webhookFile = nil
 	}
-	
+
 	job.Output = &customOutputProvider{
 		base:         outputProvider,
 		outFile:      outFile,
@@ -1324,7 +1323,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	if inputProviderTotal > 0 {
 		log.Printf("[INFO] Will test %d payloads", inputProviderTotal)
 	}
-	
+
 	// Validate job is properly configured before starting
 	if job.Input == nil {
 		return nil, fmt.Errorf("job input is nil - cannot start fuzzing")
@@ -1338,7 +1337,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	startTime := time.Now()
 	job.Start()
 	duration := time.Since(startTime)
-	
+
 	resultMutex.Lock()
 	found := resultCount
 	resultMutex.Unlock()
@@ -1348,13 +1347,13 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	if duration.Seconds() > 0 && inputProviderTotal > 0 {
 		requestsPerSec = float64(inputProviderTotal) / duration.Seconds()
 	}
-	
+
 	log.Printf("[INFO] Fuzzing completed in %v", duration)
 	if inputProviderTotal > 0 {
 		log.Printf("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
 	}
 	log.Printf("[INFO] Found %d results", found)
-	
+
 	// Warn if job completed suspiciously fast (less than 1 second for large wordlist)
 	if duration < time.Second && wordlistSize > 100000 {
 		log.Printf("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
@@ -1394,4 +1393,3 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		UniqueSizes: uniqueSizes,
 	}, nil
 }
-

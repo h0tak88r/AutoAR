@@ -148,8 +148,59 @@ func Run(opts Options) (*Result, error) {
 	if scanID := utils.GetCurrentScanID(); scanID != "" && result != nil {
 		data, readErr := os.ReadFile(result.JSONPath)
 		if readErr == nil && len(data) > 0 {
-			if err := utils.WriteTextToScanDir(scanID, "github-secrets.json", data); err != nil {
-				fmt.Printf("[WARN] Failed to write github JSON: %v\n", err)
+			type githubFinding struct {
+				TemplateID string `json:"template-id"`
+				MatchedAt  string `json:"matched-at"`
+				Severity   string `json:"severity"`
+				Module     string `json:"module"`
+				Detector   string `json:"detector,omitempty"`
+				Verified   bool   `json:"verified"`
+				SourceFile string `json:"source_file,omitempty"`
+				Line       int    `json:"line,omitempty"`
+			}
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			findings := make([]githubFinding, 0, len(lines))
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" || !strings.HasPrefix(line, "{") {
+					continue
+				}
+				var secret TruffleHogSecret
+				if err := json.Unmarshal([]byte(line), &secret); err != nil {
+					continue
+				}
+				template := strings.TrimSpace(secret.DetectorName)
+				if template == "" {
+					template = "GitHub Secret"
+				}
+				matchedAt := strings.TrimSpace(secret.SourceMetadata.Data.Link)
+				if matchedAt == "" {
+					matchedAt = strings.TrimSpace(secret.SourceMetadata.Data.File)
+				}
+				if matchedAt == "" {
+					matchedAt = target
+				}
+				severity := "medium"
+				if secret.Verified {
+					severity = "high"
+				}
+				findings = append(findings, githubFinding{
+					TemplateID: template,
+					MatchedAt:  matchedAt,
+					Severity:   severity,
+					Module:     "github-secrets",
+					Detector:   secret.DetectorName,
+					Verified:   secret.Verified,
+					SourceFile: secret.SourceMetadata.Data.File,
+					Line:       secret.SourceMetadata.Data.Line,
+				})
+			}
+			if len(findings) > 0 {
+				if err := utils.WriteJSONToScanDir(scanID, "github-secrets.json", findings); err != nil {
+					fmt.Printf("[WARN] Failed to write github JSON: %v\n", err)
+				}
+			} else {
+				_ = utils.WriteNoFindingsJSON(scanID, target, "github-secrets", "github-secrets.json")
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, target, "github-secrets", "github-secrets.json")
@@ -233,10 +284,10 @@ func ensureRepoURL(repo string) string {
 
 // TruffleHogSecret represents a secret found by TruffleHog
 type TruffleHogSecret struct {
-	DetectorName string `json:"DetectorName"`
-	Raw          string `json:"Raw"`
-	Redacted     string `json:"Redacted"`
-	Verified     bool   `json:"Verified"`
+	DetectorName   string `json:"DetectorName"`
+	Raw            string `json:"Raw"`
+	Redacted       string `json:"Redacted"`
+	Verified       bool   `json:"Verified"`
 	SourceMetadata struct {
 		Data struct {
 			File string `json:"File"`

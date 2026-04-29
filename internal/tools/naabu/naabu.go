@@ -13,26 +13,32 @@ import (
 	"github.com/projectdiscovery/naabu/v2/pkg/runner"
 )
 
+type PortOpen struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+}
+
 // ScanFromFile reads hosts from subsFile, runs a naabu scan using the
 // official library, writes host:port lines to outFile, and returns the
 // number of discovered open ports.
-func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
+func ScanFromFile(subsFile string, threads int, outFile string) (int, []PortOpen, error) {
 	if threads <= 0 {
 		threads = 100
 	}
 
 	hosts, err := readHosts(subsFile)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if len(hosts) == 0 {
-		return 0, fmt.Errorf("no hosts found in %s", subsFile)
+		return 0, nil, fmt.Errorf("no hosts found in %s", subsFile)
 	}
 
 	// Prepare output file
 	f, err := os.Create(outFile)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create output file: %w", err)
+		return 0, nil, fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer f.Close()
 
@@ -40,6 +46,7 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 	defer writer.Flush()
 
 	count := 0
+	records := make([]PortOpen, 0, 128)
 
 	onResult := func(hr *naaburesult.HostResult) {
 		if hr == nil || len(hr.Ports) == 0 {
@@ -56,7 +63,7 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 		if idx := strings.Index(host, "/"); idx != -1 {
 			host = host[:idx]
 		}
-		
+
 		for _, p := range hr.Ports {
 			if p == nil {
 				continue
@@ -69,6 +76,11 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 			line := fmt.Sprintf("%s:%d\n", host, p.Port)
 			if _, err := writer.WriteString(line); err == nil {
 				count++
+				records = append(records, PortOpen{
+					Host:     host,
+					Port:     int(p.Port),
+					Protocol: "tcp",
+				})
 			}
 		}
 	}
@@ -84,7 +96,7 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 
 	r, err := runner.NewRunner(options)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create naabu runner: %w", err)
+		return 0, nil, fmt.Errorf("failed to create naabu runner: %w", err)
 	}
 	defer r.Close()
 
@@ -92,10 +104,10 @@ func ScanFromFile(subsFile string, threads int, outFile string) (int, error) {
 	defer cancel()
 
 	if err := r.RunEnumeration(ctx); err != nil {
-		return count, fmt.Errorf("naabu scan failed: %w", err)
+		return count, records, fmt.Errorf("naabu scan failed: %w", err)
 	}
 
-	return count, nil
+	return count, records, nil
 }
 
 func readHosts(path string) ([]string, error) {
@@ -113,16 +125,16 @@ func readHosts(path string) ([]string, error) {
 		if line == "" {
 			continue
 		}
-		
+
 		// Clean URL: remove protocol (http://, https://)
 		host := strings.TrimPrefix(line, "https://")
 		host = strings.TrimPrefix(host, "http://")
-		
+
 		// Remove path if present
 		if idx := strings.Index(host, "/"); idx != -1 {
 			host = host[:idx]
 		}
-		
+
 		// Remove port if present (keep hostname/IP only)
 		if idx := strings.Index(host, ":"); idx != -1 {
 			// Check if it's an IPv6 address (contains colons)
@@ -130,12 +142,12 @@ func readHosts(path string) ([]string, error) {
 				host = host[:idx]
 			}
 		}
-		
+
 		host = strings.TrimSpace(host)
 		if host == "" {
 			continue
 		}
-		
+
 		if _, ok := seen[host]; ok {
 			continue
 		}
