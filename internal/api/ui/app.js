@@ -4143,109 +4143,18 @@ async function loadKeyhacks(query = '') {
 
 // ── Export ──────────────────────────────────────────────────────────────────────
 
-function csvEscape(value) {
-  const str = String(value ?? '');
-  return `"${str.replace(/"/g, '""')}"`;
+function opsToolsPageMethod(name) {
+  return window.OpsToolsPage && typeof window.OpsToolsPage[name] === 'function'
+    ? window.OpsToolsPage[name]
+    : null;
 }
-
 async function exportScanResultsCSV(scanId) {
-  try {
-    showToast('info', 'Exporting CSV', `Preparing scan ${scanId} findings...`);
-    const parsed = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/parsed?section=all&limit=10000`);
-    const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
-    if (!rows.length) {
-      showToast('error', 'No data', 'No findings available to export for this scan.');
-      return;
-    }
-
-    const headers = ['target', 'severity', 'finding', 'module', 'kind', 'category', 'file', 'source'];
-    const csvLines = [
-      headers.join(','),
-      ...rows.map((r) => {
-        const target = r.host || r.target || '';
-        const severity = r.severity || '';
-        const finding = r.title || r.finding || '';
-        const module = r.module || '';
-        const kind = r.kind || '';
-        const category = r.category || '';
-        const file = r.file || r.file_name || '';
-        const source = r.source || '';
-        return [
-          csvEscape(target),
-          csvEscape(severity),
-          csvEscape(finding),
-          csvEscape(module),
-          csvEscape(kind),
-          csvEscape(category),
-          csvEscape(file),
-          csvEscape(source),
-        ].join(',');
-      }),
-    ];
-
-    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    a.href = url;
-    a.download = `scan-${scanId}-results-${ts}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    showToast('success', 'CSV exported', `${rows.length} row(s) downloaded.`);
-  } catch (e) {
-    showToast('error', 'CSV export failed', e?.message || String(e));
-  }
+  const fn = opsToolsPageMethod('exportScanResultsCSV');
+  if (fn) return fn(scanId);
 }
-
 async function generateScanReport(scanId) {
-  showToast('info', 'Generating Report', 'Gathering data for scan ' + scanId);
-  try {
-    const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/report`);
-    const reportWindow = window.open('', '_blank');
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>AutoAR Scan Report - ${scanId}</title>
-        <style>
-          body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; padding: 40px; max-width: 900px; margin: auto; }
-          h1 { border-bottom: 2px solid #06b6d4; padding-bottom: 10px; color: #0f172a; }
-          .meta { background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
-          .finding-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; page-break-inside: avoid; }
-          .severity-high { border-left: 5px solid #f97316; }
-          .severity-critical { border-left: 5px solid #ef4444; }
-          .badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-        </style>
-      </head>
-      <body>
-        <h1>Security Scan Report</h1>
-        <div class="meta">
-          <div><strong>Target:</strong> ${data.scan_info?.target || 'N/A'}</div>
-          <div><strong>Type:</strong> ${data.scan_info?.scan_type || 'N/A'}</div>
-          <div><strong>Status:</strong> ${data.scan_info?.status || 'N/A'}</div>
-          <div><strong>Generated:</strong> ${new Date().toLocaleString()}</div>
-        </div>
-        <h2>Summary of Findings</h2>
-        <p>This scan identified ${data.files?.length || 0} result artifacts.</p>
-        <div id="findings">
-          ${data.files?.map(f => `
-            <div class="finding-card">
-              <strong>${f.file_name}</strong> (${f.module})
-              <div style="font-size: 13px; color: #64748b">Size: ${f.size_bytes} bytes</div>
-            </div>
-          `).join('')}
-        </div>
-        <script>window.print();</script>
-      </body>
-      </html>
-    `;
-    reportWindow.document.write(html);
-    reportWindow.document.close();
-  } catch (e) {
-    showToast('error', 'Report Failed', e.message);
-  }
+  const fn = opsToolsPageMethod('generateScanReport');
+  if (fn) return fn(scanId);
 }
 
 // ── Nuclei Template Manager ──────────────────────────────────────────────────
@@ -4302,84 +4211,25 @@ async function deleteReportTemplate(name) {
   if (fn) return fn(name);
 }
 
-window.promptRetryCnames = async function() {
-	const matchString = prompt("Enter an optional match string (e.g. 's3.amazonaws.com' or 'phenomepeople') to alert on matches, or leave empty to just resolve all missing CNAMEs:", "");
-	if (matchString === null) return; // User cancelled
-
-	try {
-		const data = await apiPost('/api/subdomains/cnames/retry', { match_string: matchString });
-		
-		showToast('success', 'Started', data.message || 'CNAME resolution started in background');
-		startCnamesProgressPolling();
-	} catch (err) {
-		showToast('error', 'Error', err.message);
-	}
+async function promptRetryCnames() {
+  const fn = opsToolsPageMethod('promptRetryCnames');
+  if (fn) return fn();
 }
-
-let cnamesPollInterval = null;
 async function startCnamesProgressPolling() {
-	if (cnamesPollInterval) clearInterval(cnamesPollInterval);
-	
-	const progressDiv = document.getElementById('cnames-progress');
-	const progressText = document.getElementById('cnames-progress-text');
-	if (progressDiv) progressDiv.style.display = 'flex';
-
-	const poll = async () => {
-		try {
-			const data = await apiFetch('/api/subdomains/cnames/progress');
-			
-			if (progressText) {
-				progressText.textContent = `${data.processed} / ${data.total} (${data.matches} matches)`;
-			}
-			
-			if (!data.is_running) {
-				clearInterval(cnamesPollInterval);
-				cnamesPollInterval = null;
-				setTimeout(() => {
-					if (progressDiv) progressDiv.style.display = 'none';
-				}, 5000);
-			}
-		} catch (e) {}
-	};
-	
-	poll(); // Immediate first fetch
-	cnamesPollInterval = setInterval(poll, 2000);
+  const fn = opsToolsPageMethod('startCnamesProgressPolling');
+  if (fn) return fn();
 }
-
-// Check on startup if it's already running
-setTimeout(startCnamesProgressPolling, 1000);
-
-window.promptRunGlobalNuclei = function() {
-	document.getElementById('nuclei-template-input').value = "";
-	document.getElementById('nuclei-modal').style.display = 'flex';
+function promptRunGlobalNuclei() {
+  const fn = opsToolsPageMethod('promptRunGlobalNuclei');
+  if (fn) return fn();
 }
-
-window.closeNucleiModal = function() {
-	document.getElementById('nuclei-modal').style.display = 'none';
+function closeNucleiModal() {
+  const fn = opsToolsPageMethod('closeNucleiModal');
+  if (fn) return fn();
 }
-
-window.submitNucleiModal = async function() {
-	const template = document.getElementById('nuclei-template-input').value.trim();
-	if (!template) {
-		showToast('error', 'Error', 'Template cannot be empty');
-		return;
-	}
-
-	try {
-		const data = await apiPost('/api/subdomains/nuclei/run', { template: template });
-		
-		showToast('success', 'Started', data.message || 'Global Nuclei scan started');
-		closeNucleiModal();
-		
-		// Redirect to the Scans page so they can watch the live terminal logs
-		if (data.scan_id) {
-			setTimeout(() => {
-				document.getElementById('nav-scans')?.click();
-			}, 1500);
-		}
-	} catch (err) {
-		showToast('error', 'Error', err.message);
-	}
+async function submitNucleiModal() {
+  const fn = opsToolsPageMethod('submitNucleiModal');
+  if (fn) return fn();
 }
 
 // Expose to window for modularized pages
