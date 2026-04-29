@@ -269,6 +269,12 @@ function scanActionsPageMethod(name) {
     : null;
 }
 
+function domainActionsPageMethod(name) {
+  return window.DomainActionsPage && typeof window.DomainActionsPage[name] === 'function'
+    ? window.DomainActionsPage[name]
+    : null;
+}
+
 async function cancelScan(scanID) {
   const fn = scanActionsPageMethod('cancelScan');
   if (fn) return fn(scanID);
@@ -300,20 +306,8 @@ async function clearAllScans() {
 }
 
 async function deleteDomainRecord(domain) {
-  if (!domain) return;
-  if (!confirm(`Remove "${domain}" from the database? This deletes subdomains, related scans (and their R2 artifacts), monitor history for this root, and the subdomain monitor target if present.`)) return;
-  try {
-    await apiDelete(`/api/domains/${encodeURIComponent(domain)}`);
-    showToast('success', 'Domain removed', domain);
-    state.selectedDomain = null;
-    const fb = document.getElementById('filter-bar-domains');
-    if (fb) fb.style.display = '';
-    loadStats();
-    loadDomains();
-    loadScans();
-  } catch (e) {
-    showToast('error', 'Could not delete domain', e.message);
-  }
+  const fn = domainActionsPageMethod('deleteDomainRecord');
+  if (fn) return fn(domain);
 }
 
 async function pauseScan(scanID) {
@@ -1980,6 +1974,7 @@ window.wireShellOnce = wireShellOnce;
 window.updateClock = updateClock;
 window.browseR2ForScan = browseR2ForScan;
 window.loadDomainSubdomains = loadDomainSubdomains;
+window.deleteDomainRecord = deleteDomainRecord;
 window.prevFilesPage = prevFilesPage;
 window.nextFilesPage = nextFilesPage;
 window.parseNucleiFindingLine = parseNucleiFindingLine;
