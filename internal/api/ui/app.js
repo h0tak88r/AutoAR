@@ -679,77 +679,73 @@ async function copyAllScanResults(scanId) {
   if (fn) return fn(scanId);
 }
 
+function scanDetailPageMethod(name) {
+  return resolvePageMethod('ScanDetailPage', name);
+}
+
+function domainsPageMethod(name) {
+  return resolvePageMethod('DomainsPage', name);
+}
+
 /** Render scan results with enhanced filtering and module display */
 async function renderScanDetailView(scanId) {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.renderScanDetailView(scanId);
-  }
+  const fn = scanDetailPageMethod('renderScanDetailView');
+  if (fn) return fn(scanId);
 }
 
 async function loadReconUnifiedTable(scanId, files, containerId, scan) {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.loadReconUnifiedTable(scanId, files, containerId, scan);
-  }
+  const fn = scanDetailPageMethod('loadReconUnifiedTable');
+  if (fn) return fn(scanId, files, containerId, scan);
 }
 
 function wireScanDetailFilters(scanId, files) {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.wireScanDetailFilters(scanId, files);
-  }
+  const fn = scanDetailPageMethod('wireScanDetailFilters');
+  if (fn) return fn(scanId, files);
 }
 
 async function loadScanFilePreview(scanId, fileName, opts) {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.loadScanFilePreview(scanId, fileName, opts);
-  }
+  const fn = scanDetailPageMethod('loadScanFilePreview');
+  if (fn) return fn(scanId, fileName, opts);
 }
 
 function clearScanDetailRefreshTimer() {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.clearScanDetailRefreshTimer();
-  }
+  const fn = scanDetailPageMethod('clearScanDetailRefreshTimer');
+  if (fn) return fn();
 }
 
 function scheduleScanDetailRefresh(scanId, ms) {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.scheduleScanDetailRefresh(scanId, ms);
-  }
+  const fn = scanDetailPageMethod('scheduleScanDetailRefresh');
+  if (fn) return fn(scanId, ms);
 }
 
 function refreshScanDetailIfRunning(scanId) {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.doScanDetailRefresh(scanId);
-  }
+  const fn = scanDetailPageMethod('doScanDetailRefresh');
+  if (fn) return fn(scanId);
 }
 
 function clearApkxCacheForScan(scan) {
-  if (window.ScanDetailPage) {
-    return window.ScanDetailPage.clearApkxCacheForScan(scan);
-  }
+  const fn = scanDetailPageMethod('clearApkxCacheForScan');
+  if (fn) return fn(scan);
 }
 
 function renderDomainGrid() {
-  if (window.DomainsPage) {
-    return window.DomainsPage.renderDomainGrid();
-  }
+  const fn = domainsPageMethod('renderDomainGrid');
+  if (fn) return fn();
 }
 
 function renderSubdomainView(domain) {
-  if (window.DomainsPage) {
-    return window.DomainsPage.renderSubdomainView(domain);
-  }
+  const fn = domainsPageMethod('renderSubdomainView');
+  if (fn) return fn(domain);
 }
 
 function renderSubdomainsPage() {
-  if (window.DomainsPage) {
-    return window.DomainsPage.renderSubdomainsPage();
-  }
+  const fn = domainsPageMethod('renderSubdomainsPage');
+  if (fn) return fn();
 }
 
 function backToDomains() {
-  if (window.DomainsPage) {
-    return window.DomainsPage.backToDomains();
-  }
+  const fn = domainsPageMethod('backToDomains');
+  if (fn) return fn();
 }
 
 
