@@ -1215,6 +1215,29 @@ function renderRecentChanges() {
   el.innerHTML = changes.map(c => changeItemHtml(c)).join('');
 }
 
+function changeItemHtml(c) {
+  const ctype = c.ChangeType || c.change_type || '';
+  const domain = c.Domain || c.domain || '';
+  const detail = c.Detail || c.detail || '';
+  const at = c.DetectedAt || c.detected_at || '';
+  const iconMap = {
+    new_subdomain: '🆕',
+    became_live: '🟢',
+    became_dead: '💀',
+    content_changed: '📝',
+    status_changed: '🔄',
+  };
+  const preview = String(detail || '').slice(0, 200);
+  return `<div class="change-item">
+    <div class="change-dot ${esc(ctype)}"></div>
+    <div class="change-body">
+      <div class="change-title">${iconMap[ctype] || '📌'} ${esc(humanChangeType(ctype))}</div>
+      <div class="change-detail">${esc(domain)}${preview ? ` — ${esc(preview)}` : ''}</div>
+    </div>
+    <div class="change-time">${timeAgo(at)}</div>
+  </div>`;
+}
+
 function renderScans() {
   const container = document.getElementById('scans-container');
   if (!container) return;

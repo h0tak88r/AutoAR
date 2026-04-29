@@ -1,9 +1,18 @@
 (() => {
-  const { 
-    esc, apiFetch, navigateTo, showToast, state, API, apiPost, fmtSize, 
-    getFileTypeFromName, getFileTypeIcon, detectModuleFromFileName, 
-    getModuleDisplayInfo, scanNoArtifactsMessage, escAttr, copyToClipboard 
-  } = window;
+  const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
+  const apiFetch = (...args) => window.apiFetch(...args);
+  const navigateTo = (...args) => window.navigateTo(...args);
+  const showToast = (...args) => window.showToast(...args);
+  const API = '';
+  const apiPost = (...args) => window.apiPost(...args);
+  const fmtSize = (...args) => window.fmtSize(...args);
+  const getFileTypeFromName = (...args) => window.getFileTypeFromName(...args);
+  const getFileTypeIcon = (...args) => window.getFileTypeIcon(...args);
+  const detectModuleFromFileName = (...args) => window.detectModuleFromFileName(...args);
+  const getModuleDisplayInfo = (...args) => window.getModuleDisplayInfo(...args);
+  const scanNoArtifactsMessage = (...args) => window.scanNoArtifactsMessage(...args);
+  const escAttr = (...args) => window.escAttr(...args);
+  const copyToClipboard = (...args) => window.copyToClipboard(...args);
 
   // ── State for Scan Detail Page ──────────────────────────────────────────
   window._scanDetailKnownFiles = new Set();
