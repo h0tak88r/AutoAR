@@ -68,17 +68,138 @@
     return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>CVE</th><th>HOST</th><th>STATUS</th><th>DETAILS</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
-  function renderJSFindingsTable(items) { return window.renderJSFindingsTable ? window.renderJSFindingsTable(items) : renderGenericJSONTable(items); }
-  function renderXSSFindingsTable(items) { return window.renderXSSFindingsTable ? window.renderXSSFindingsTable(items) : renderGenericJSONTable(items); }
-  function renderSQLiFindingsTable(items) { return window.renderSQLiFindingsTable ? window.renderSQLiFindingsTable(items) : renderGenericJSONTable(items); }
-  function renderURLListTable(items) { return window.renderURLListTable ? window.renderURLListTable(items) : renderGenericJSONTable(items); }
-  function renderBackupFindingsTable(items) { return window.renderBackupFindingsTable ? window.renderBackupFindingsTable(items) : renderGenericJSONTable(items); }
-  function renderMisconfigTable(items) { return window.renderMisconfigTable ? window.renderMisconfigTable(items) : renderGenericJSONTable(items); }
-  function renderAEMTable(items) { return window.renderAEMTable ? window.renderAEMTable(items) : renderGenericJSONTable(items); }
-  function renderPortResultsTable(items) { return window.renderPortResultsTable ? window.renderPortResultsTable(items) : renderGenericJSONTable(items); }
-  function renderS3FindingsTable(items) { return window.renderS3FindingsTable ? window.renderS3FindingsTable(items) : renderGenericJSONTable(items); }
-  function renderDNSFindingsTable(items) { return window.renderDNSFindingsTable ? window.renderDNSFindingsTable(items) : renderGenericJSONTable(items); }
-  function renderTechFindingsTable(items) { return window.renderTechFindingsTable ? window.renderTechFindingsTable(items) : renderGenericJSONTable(items); }
+  function renderJSFindingsTable(items) {
+    const rows = items.map((item) => {
+      let url = item.url || item.endpoint || '—';
+      let secret = item.secret || item.key || item.type || '—';
+      let details = item.details || item.description || '—';
+      let tag = '';
+      let matcher = '';
+      const rawStr = typeof item === 'string' ? item : (item.url && item.url.includes(' -> ') ? item.url : '');
+      if (rawStr) {
+        const tagMatch = rawStr.match(/^\[(.*?)\]/);
+        if (tagMatch) {
+          tag = tagMatch[1];
+          const rest = rawStr.substring(tagMatch[0].length).trim();
+          if (rest.includes(' -> ')) {
+            const parts = rest.split(' -> ');
+            url = parts[0].trim();
+            matcher = parts[1].trim();
+          } else {
+            url = rest;
+          }
+        }
+      }
+      return `<tr><td><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(url)}">${esc(url)}</div></td><td>${tag ? `<span class="badge badge-info" style="background:rgba(56,189,248,0.15);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.3)">${esc(tag)}</span>` : `<span class="badge badge-running">${esc(secret)}</span>`}</td><td>${matcher ? `<code style="font-size:11px;background:rgba(234,179,8,0.1);color:#eab308;padding:2px 6px;border-radius:4px;border:1px solid rgba(234,179,8,0.2)">${esc(matcher)}</code>` : `<span style="font-size:12px;color:var(--text-muted)">${esc(details)}</span>`}</td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>TARGET (JS FILE)</th><th>VULN TYPE</th><th>MATCH / LEAK</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderXSSFindingsTable(items) {
+    const rows = items.map((item) => {
+      const url = item.url || '—';
+      const parameter = item.parameter || item.param || '—';
+      const payload = item.payload || '—';
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td><td><code style="font-size:11px;background:var(--accent-amber-dim);padding:2px 6px;border-radius:4px">${esc(String(parameter))}</code></td><td style="font-size:11px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace">${esc(String(payload))}</td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>URL</th><th>PARAMETER</th><th>PAYLOAD</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderSQLiFindingsTable(items) {
+    const rows = items.map((item) => {
+      const url = item.url || '—';
+      const parameter = item.parameter || item.param || '—';
+      const type = item.type || '—';
+      const db = item.dbms || item.database || '—';
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td><td><code style="font-size:11px;background:var(--accent-red-dim);padding:2px 6px;border-radius:4px">${esc(String(parameter))}</code></td><td><span class="severity-high">${esc(String(type))}</span></td><td style="font-size:12px;color:var(--text-muted)">${esc(String(db))}</td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>URL</th><th>PARAMETER</th><th>TYPE</th><th>DBMS</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderURLListTable(items) {
+    const rows = items.map((item) => {
+      const url = typeof item === 'string' ? item : (item.url || '—');
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);word-break:break-all">${esc(String(url))}</td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>URL</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderBackupFindingsTable(items) {
+    const rows = items.map((item) => {
+      const url = item.url || '—';
+      const path = item.path || item.file || '—';
+      const size = item.size || '—';
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td><td style="font-size:12px;color:var(--text-secondary)">${esc(String(path))}</td><td style="font-size:12px;color:var(--text-muted)">${esc(String(size))}</td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>URL</th><th>PATH</th><th>SIZE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderMisconfigTable(items) {
+    const rows = items.map((item) => {
+      const url = item.url || '—';
+      const service = item.service_name || item.service_id || item.service || '—';
+      const config = item['matched-at'] || item.matched_at || item.config || item.setting || '—';
+      const severity = item.severity || 'medium';
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td><td style="font-size:12px;color:var(--text-secondary)">${esc(String(service))}</td><td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(config))}</td><td><span class="severity-${severity.toLowerCase()}">${severity.toUpperCase()}</span></td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>URL / TARGET</th><th>SERVICE</th><th>MATCHED AT / CONFIG</th><th>SEVERITY</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderAEMTable(items) {
+    const rows = items.map((item) => {
+      const url = item.url || '—';
+      const vulnerable = item.vulnerable ? '<span class="badge badge-live">VULNERABLE</span>' : '<span class="badge badge-dead">INFO</span>';
+      const reason = item.reason || '—';
+      const severity = item.severity || (item.vulnerable ? 'high' : 'info');
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(url))}</td><td>${vulnerable}</td><td style="font-size:12px;color:var(--text-muted)">${esc(String(reason))}</td><td><span class="severity-${severity.toLowerCase()}">${severity.toUpperCase()}</span></td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>URL</th><th>STATUS</th><th>REASON / EVIDENCE</th><th>SEVERITY</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderPortResultsTable(items) {
+    const rows = items.map((item) => {
+      const host = item.host || item.ip || '—';
+      const port = item.port || '—';
+      const protocol = item.protocol || 'tcp';
+      const service = item.service || item.name || '—';
+      const state = item.state || item.status || 'open';
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(host))}</td><td><span style="color:var(--accent-purple);font-weight:600">${esc(String(port))}</span></td><td style="font-size:12px;color:var(--text-muted);text-transform:uppercase">${esc(String(protocol))}</td><td style="font-size:12px;color:var(--text-secondary)">${esc(String(service))}</td><td><span class="badge ${state === 'open' ? 'badge-live' : 'badge-dead'}">${esc(String(state))}</span></td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>HOST</th><th>PORT</th><th>PROTOCOL</th><th>SERVICE</th><th>STATE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderS3FindingsTable(items) {
+    const rows = items.map((item) => {
+      const bucket = item.bucket || '—';
+      const url = item.url || '—';
+      const keys = item.keys || item.objects || '—';
+      const public_ = item.public || item.open || false;
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(bucket))}</td><td style="font-size:12px;color:var(--text-secondary);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td><td style="font-size:12px;color:var(--text-muted)">${esc(String(keys))}</td><td><span class="badge ${public_ ? 'badge-failed' : 'badge-done'}">${public_ ? 'PUBLIC' : 'PRIVATE'}</span></td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>BUCKET</th><th>URL</th><th>OBJECTS</th><th>ACCESS</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderDNSFindingsTable(items) {
+    const rows = items.map((item) => {
+      const domain = item.domain || item.subdomain || '—';
+      const cname = item.cname || '—';
+      const fingerprint = item.fingerprint || item.provider || '—';
+      const vulnerable = item.vulnerable || item.takoverable || false;
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(String(domain))}</td><td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(cname))}</td><td style="font-size:12px;color:var(--text-secondary)">${esc(String(fingerprint))}</td><td><span class="badge ${vulnerable ? 'badge-failed' : 'badge-done'}">${vulnerable ? 'VULNERABLE' : 'SAFE'}</span></td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>DOMAIN</th><th>CNAME</th><th>FINGERPRINT</th><th>STATUS</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderTechFindingsTable(items) {
+    const rows = items.map((item) => {
+      const url = item.url || '—';
+      const tech = item.tech || item.technology || item.name || '—';
+      const version = item.version || '—';
+      const category = item.category || '—';
+      return `<tr><td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(url))}</td><td><span class="badge badge-running">${esc(String(tech))}</span></td><td style="font-size:12px;color:var(--text-muted)">${esc(String(version))}</td><td style="font-size:12px;color:var(--text-secondary)">${esc(String(category))}</td></tr>`;
+    }).join('');
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>URL</th><th>TECHNOLOGY</th><th>VERSION</th><th>CATEGORY</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
 
   function renderGenericJSONTable(items) {
     const headers = Object.keys(items[0] || {});
