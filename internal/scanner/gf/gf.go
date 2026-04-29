@@ -135,9 +135,12 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 			TemplateID string `json:"template-id"` // VULN TYPE column
 			MatchedAt  string `json:"matched-at"`  // TARGET column
 			Severity   string `json:"severity"`    // SEV column
+			Module     string `json:"module"`
+			Finding    string `json:"finding"`
 			Pattern    string `json:"pattern"`     // raw pattern name
 		}
 		var findings []gfFinding
+		seen := make(map[string]struct{})
 		for _, rf := range resultFiles {
 			// Extract pattern name from filename: gf-<pattern>-results.txt
 			base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(rf), "-results.txt"), ".txt")
@@ -156,10 +159,17 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 				if l == "" {
 					continue
 				}
+				key := displayName + "|" + l
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
 				findings = append(findings, gfFinding{
 					TemplateID: displayName,
 					MatchedAt:  l,
 					Severity:   sev,
+					Module:     "gf-patterns",
+					Finding:    "Pattern-matched URL candidate",
 					Pattern:    patternName,
 				})
 			}
