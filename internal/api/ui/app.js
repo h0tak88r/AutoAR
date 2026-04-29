@@ -227,6 +227,12 @@ function authSessionPageMethod(name) {
     : null;
 }
 
+function apiClientPageMethod(name) {
+  return window.ApiClientPage && typeof window.ApiClientPage[name] === 'function'
+    ? window.ApiClientPage[name]
+    : null;
+}
+
 function localTokenGet() {
   const fn = authSessionPageMethod('localTokenGet');
   if (fn) return fn();
@@ -244,6 +250,8 @@ function localTokenClear() {
 }
 
 async function buildAuthHeaders(extra = {}) {
+  const fn = apiClientPageMethod('buildAuthHeaders');
+  if (fn) return fn(extra);
   const h = { ...extra };
   const tok = state._authAccessToken || localTokenGet();
   if (tok) h.Authorization = `Bearer ${tok}`;
@@ -251,6 +259,8 @@ async function buildAuthHeaders(extra = {}) {
 }
 
 function handleAuthError() {
+  const fn = apiClientPageMethod('handleAuthError');
+  if (fn) return fn();
   localTokenClear();
   state._authAccessToken = null;
   state._dashboardStarted = false;
@@ -258,6 +268,8 @@ function handleAuthError() {
 }
 
 async function apiFetch(path) {
+  const fn = apiClientPageMethod('apiFetch');
+  if (fn) return fn(path);
   const headers = await buildAuthHeaders();
   const res = await fetch(`${API}${path}`, { headers });
   if (res.status === 401) {
@@ -269,6 +281,8 @@ async function apiFetch(path) {
 }
 
 async function apiPost(path, body, customHeaders = {}) {
+  const fn = apiClientPageMethod('apiPost');
+  if (fn) return fn(path, body, customHeaders);
   const headers = await buildAuthHeaders({ 'Content-Type': 'application/json', ...customHeaders });
   const res = await fetch(`${API}${path}`, {
     method: 'POST',
@@ -287,6 +301,8 @@ async function apiPost(path, body, customHeaders = {}) {
 }
 
 async function apiDelete(path) {
+  const fn = apiClientPageMethod('apiDelete');
+  if (fn) return fn(path);
   const headers = await buildAuthHeaders();
   const res = await fetch(`${API}${path}`, { method: 'DELETE', headers });
   if (res.status === 401) {
@@ -2517,10 +2533,15 @@ async function submitNucleiModal() {
 // Expose to window for modularized pages
 window.API = API;
 window.state = state;
+window.localTokenGet = localTokenGet;
+window.localTokenSet = localTokenSet;
+window.localTokenClear = localTokenClear;
 window.apiFetch = apiFetch;
 window.apiPost = apiPost;
 window.apiDelete = apiDelete;
 window.showToast = showToast;
+window.showAuthGate = showAuthGate;
+window.hideAuthGate = hideAuthGate;
 window.navigateTo = navigateTo;
 window.buildAuthHeaders = buildAuthHeaders;
 window.esc = esc;
