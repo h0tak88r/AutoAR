@@ -93,12 +93,20 @@ const state = {
 
 const VIEWS = ['overview', 'scans', 'domains', 'subdomains', 'targets', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'];
 
+function navigationUIPageMethod(name) {
+  return window.NavigationUIPage && typeof window.NavigationUIPage[name] === 'function'
+    ? window.NavigationUIPage[name]
+    : null;
+}
+
 function pathScanId() {
   const m = String(location.pathname || '').match(/^\/scans\/([^/]+)\/?$/);
   return m ? decodeURIComponent(m[1]) : null;
 }
 
 function openAuditorInNewTab(view) {
+  const fn = navigationUIPageMethod('openAuditorInNewTab');
+  if (fn) return fn(view);
   const tok = state._authAccessToken || localTokenGet();
   const pathMap = { 'apkauditor': '/ui/apkauditor/', 'ipaauditor': '/ui/ipaauditor/', 'adbauditor': '/ui/adbauditor/', 'securitylab': '/ui/securitylab/' };
   const targetPath = pathMap[view] || '/ui/apkauditor/';
@@ -204,17 +212,9 @@ async function openScanResultsPage(scanId, opts = {}) {
 
 
 function viewTitle(v) {
-  return {
-    overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
-    targets: 'Bug Bounty Targets',
-    keyhacks: 'Keyhacks',
-    monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
-    'report-templates': 'Report Templates',
-    apkauditor: '🤖 APK Auditor',
-    ipaauditor: '🍏 IPA Auditor',
-    adbauditor: '⚡ ADB Auditor',
-    securitylab: '🧪 Security Lab'
-  }[v] || v;
+  const fn = navigationUIPageMethod('viewTitle');
+  if (fn) return fn(v);
+  return v;
 }
 
 // ── API Helpers (Local JWT auth) ─────────────────────────────────────────────
