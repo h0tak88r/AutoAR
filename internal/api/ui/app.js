@@ -7,10 +7,6 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const APP_CONFIG_STATE = window.AppConfigState || {};
-const API = APP_CONFIG_STATE.API || '';
-const POLL_INTERVAL = APP_CONFIG_STATE.POLL_INTERVAL || 15000;
-const POLL_FAST_SCANS = APP_CONFIG_STATE.POLL_FAST_SCANS || 3500;
-const POLL_FAST_ANY = APP_CONFIG_STATE.POLL_FAST_ANY || 7000;
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function resolvePageMethod(pageKey, name) {
@@ -37,8 +33,6 @@ async function copyToClipboard(text) {
 const state = APP_CONFIG_STATE.state || {};
 
 // ── Router ────────────────────────────────────────────────────────────────────
-
-const VIEWS = APP_CONFIG_STATE.VIEWS || [];
 
 function pathScanId() {
   return callPageMethod('RouterCorePage', 'pathScanId', [], null);
