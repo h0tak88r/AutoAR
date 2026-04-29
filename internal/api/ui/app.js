@@ -10,9 +10,6 @@ const API = '';          // same origin
 const POLL_INTERVAL = 15000; // idle refresh
 const POLL_FAST_SCANS = 3500; // Scans view while workers are active
 const POLL_FAST_ANY = 7000;   // any view while ≥1 active scan
-const BASE = '/ui';
-
-
 // Scan detail real-time refresh state (declared early so openScanResultsPage can use them)
 let _scanDetailRefreshTimer = null;
 let _scanDetailRefreshId = null;
