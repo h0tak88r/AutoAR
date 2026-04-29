@@ -437,57 +437,15 @@ function wireShellOnce() {
   if (fn) return fn();
 }
 
+function dashboardBootstrapPageMethod(name) {
+  return window.DashboardBootstrapPage && typeof window.DashboardBootstrapPage[name] === 'function'
+    ? window.DashboardBootstrapPage[name]
+    : null;
+}
+
 async function startDashboard() {
-  if (state._dashboardStarted) return;
-  hideAuthGate();
-
-  const so = document.getElementById('sign-out-btn');
-  if (so) {
-    so.style.display = state.config?.auth_enabled ? 'block' : 'none';
-    so.onclick = () => {
-      localTokenClear();
-      state._authAccessToken = null;
-      state._dashboardStarted = false;
-      showAuthGate();
-      wireAuthForm();
-    };
-  }
-
-  wireShellOnce();
-  const backBtn = document.getElementById('scan-detail-back');
-  if (backBtn && !backBtn.dataset.wired) {
-    backBtn.dataset.wired = '1';
-    backBtn.addEventListener('click', () => navigateTo('overview'));
-  }
-  if (!window.__autoarPopstate) {
-    window.__autoarPopstate = true;
-    window.addEventListener('popstate', () => {
-      const sid = pathScanId();
-      if (sid) {
-        openScanResultsPage(sid, { noHistory: true });
-      } else {
-        state.scanDetailId = null;
-        state.view = 'overview';
-        document.getElementById('view-scan-detail')?.classList.remove('active');
-        VIEWS.forEach(v => {
-          document.getElementById(`view-${v}`)?.classList.toggle('active', v === 'overview');
-          document.getElementById(`nav-${v}`)?.classList.toggle('active', v === 'overview');
-        });
-        document.getElementById('topbar-title').textContent = 'Overview';
-        refreshCurrentView();
-        startPolling();
-      }
-    });
-  }
-  startMetricsPolling();
-  await loadStats();
-  const deepScan = pathScanId();
-  if (deepScan) {
-    await openScanResultsPage(deepScan, { replace: true });
-  } else {
-    navigateTo('overview');
-  }
-  state._dashboardStarted = true;
+  const fn = dashboardBootstrapPageMethod('startDashboard');
+  if (fn) return fn();
 }
 
 async function loadStats() {
@@ -2202,41 +2160,8 @@ function manualRefresh() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 async function boot() {
-  updateClock();
-  setInterval(updateClock, 1000);
-
-  await loadConfig();
-
-  if (state.config?.auth_enabled) {
-    // Try to restore token from localStorage
-    const stored = localTokenGet();
-    if (stored) {
-      // Quick validation: check if token is not expired by verifying we get a 200 from /api/config
-      // (a lightweight endpoint; real validation is done server-side on every protected call)
-      state._authAccessToken = stored;
-      // Do a quick ping to ensure token is still valid
-      try {
-        const probe = await fetch(`${API}/api/dashboard/stats`, {
-          headers: { Authorization: `Bearer ${stored}` },
-        });
-        if (probe.status === 401) {
-          localTokenClear();
-          state._authAccessToken = null;
-          showAuthGate();
-          wireAuthForm();
-          return;
-        }
-      } catch {
-        // Network error — still try to start (will fail gracefully per-request)
-      }
-    } else {
-      showAuthGate();
-      wireAuthForm();
-      return;
-    }
-  }
-
-  await startDashboard();
+  const fn = dashboardBootstrapPageMethod('boot');
+  if (fn) return fn();
 }
 
 document.addEventListener('DOMContentLoaded', boot);
@@ -2423,6 +2348,7 @@ window.apiDelete = apiDelete;
 window.showToast = showToast;
 window.showAuthGate = showAuthGate;
 window.hideAuthGate = hideAuthGate;
+window.wireAuthForm = wireAuthForm;
 window.navigateTo = navigateTo;
 window.openAuditorInNewTab = openAuditorInNewTab;
 window.buildAuthHeaders = buildAuthHeaders;
@@ -2442,6 +2368,7 @@ window.refreshCurrentView = refreshCurrentView;
 window.renderRecentChanges = renderRecentChanges;
 window.startDashboard = startDashboard;
 window.startPolling = startPolling;
+window.startMetricsPolling = startMetricsPolling;
 window.manualRefresh = manualRefresh;
 window.VIEWS = VIEWS;
 window.POLL_INTERVAL = POLL_INTERVAL;
@@ -2467,6 +2394,10 @@ window.copyAllSubdomainsMatching = copyAllSubdomainsMatching;
 window.renderDomainGrid = renderDomainGrid;
 window.refreshScanDetailIfRunning = refreshScanDetailIfRunning;
 window.renderScanDetailView = renderScanDetailView;
+window.pathScanId = pathScanId;
+window.openScanResultsPage = openScanResultsPage;
+window.wireShellOnce = wireShellOnce;
+window.updateClock = updateClock;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
