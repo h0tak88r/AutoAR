@@ -134,6 +134,7 @@ func Run(opts Options) (*Result, error) {
 				StatusCode  int      `json:"http_status"`
 				Type        string   `json:"type"`
 				Severity    string   `json:"severity"`
+				Module      string   `json:"module"`
 				Description string   `json:"description"`
 			}
 			out := make([]jsonFinding, 0, len(findings))
@@ -153,6 +154,7 @@ func Run(opts Options) (*Result, error) {
 					StatusCode:  f.StatusCode,
 					Type:        "DNS Misconfiguration / Dangling Record (CF-1016)",
 					Severity:    "high",
+					Module:      "cf1016",
 					Description: desc,
 				})
 			}
@@ -160,7 +162,7 @@ func Run(opts Options) (*Result, error) {
 				log.Printf("[cf1016] Warning: could not write JSON output: %v", jErr)
 			}
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "dns-takeover", "cf1016-vulnerabilities.json")
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "cf1016", "cf1016-vulnerabilities.json")
 		}
 	}
 

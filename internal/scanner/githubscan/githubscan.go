@@ -160,6 +160,7 @@ func Run(opts Options) (*Result, error) {
 			}
 			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 			findings := make([]githubFinding, 0, len(lines))
+			seen := make(map[string]struct{}, len(lines))
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
 				if line == "" || !strings.HasPrefix(line, "{") {
@@ -184,6 +185,11 @@ func Run(opts Options) (*Result, error) {
 				if secret.Verified {
 					severity = "high"
 				}
+				key := template + "|" + matchedAt + "|" + fmt.Sprint(secret.Verified)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
 				findings = append(findings, githubFinding{
 					TemplateID: template,
 					MatchedAt:  matchedAt,
