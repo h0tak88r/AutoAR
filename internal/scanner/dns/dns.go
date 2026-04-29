@@ -298,15 +298,11 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 			if err != nil || info.Size() == 0 {
 				continue
 			}
-			data, err := os.ReadFile(p)
+			lines, err := readNonEmptyLines(p)
 			if err != nil {
 				continue
 			}
-			for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-				if strings.TrimSpace(l) != "" {
-					allTextFindings = append(allTextFindings, l)
-				}
-			}
+			allTextFindings = append(allTextFindings, lines...)
 		}
 		// Write combined text findings as structured JSON for the dashboard
 		if len(allTextFindings) > 0 {
@@ -327,11 +323,8 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 			if err != nil {
 				continue
 			}
-			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), name)
-			if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
-				if _, idxErr := utils.IndexExistingResultFile(scanID, scanFile); idxErr != nil {
-					log.Printf("[WARN] Failed to index nuclei DNS file %s: %v", name, idxErr)
-				}
+			if err := utils.WriteTextToScanDir(scanID, name, data); err != nil {
+				log.Printf("[WARN] Failed to publish nuclei DNS file %s: %v", name, err)
 			}
 		}
 
