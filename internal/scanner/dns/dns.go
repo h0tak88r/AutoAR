@@ -2,25 +2,29 @@ package dns
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
-	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
+	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
-	"regexp"
-	"net"
-	"errors"
+	nucleiSDK "github.com/projectdiscovery/nuclei/v3/lib"
+	nucleiOutput "github.com/projectdiscovery/nuclei/v3/pkg/output"
 )
 
 // Paths and filenames used by the legacy bash dns_takeover.sh script.
@@ -422,11 +426,6 @@ func DanglingIP(domain string) error {
 // ---- Implementation helpers (ported from modules/dns_takeover.sh) ----
 
 func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
-	if _, err := exec.LookPath("nuclei"); err != nil {
-		log.Printf("[WARN] nuclei not found in PATH, skipping takeover templates")
-		return nil
-	}
-
 	// discover public templates
 	publicDirs := []string{
 		"/app/nuclei-templates",
@@ -449,10 +448,7 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 	if publicDir != "" {
 		out := filepath.Join(findingsDir, "nuclei-takeover-public.json")
 		log.Printf("[INFO] Running Nuclei public takeover templates from %s", publicDir)
-		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(publicDir, "http", "takeovers"), "-jsonl", "-silent", "-o", out)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := runNucleiTakeoverSDK(subsFile, filepath.Join(publicDir, "http", "takeovers"), out); err != nil {
 			log.Printf("[WARN] Nuclei public takeover failed: %v", err)
 		} else {
 			count, _ := countLines(out)
@@ -494,10 +490,7 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 	if customDir != "" {
 		out := filepath.Join(findingsDir, "nuclei-takeover-custom.json")
 		log.Printf("[INFO] Running Nuclei custom takeover templates from %s", customDir)
-		cmd := exec.Command("nuclei", "-l", subsFile, "-t", filepath.Join(customDir, "http", "takeovers"), "-jsonl", "-silent", "-o", out)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := runNucleiTakeoverSDK(subsFile, filepath.Join(customDir, "http", "takeovers"), out); err != nil {
 			log.Printf("[WARN] Nuclei custom takeover failed: %v", err)
 		} else {
 			count, _ := countLines(out)
@@ -517,6 +510,79 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 	}
 
 	return nil
+}
+
+func runNucleiTakeoverSDK(targetFile, templateDir, outputFile string) error {
+	targets, err := readNonEmptyLines(targetFile)
+	if err != nil {
+		return fmt.Errorf("read targets: %w", err)
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("no targets found in %s", targetFile)
+	}
+	if err := utils.EnsureDir(filepath.Dir(outputFile)); err != nil {
+		return fmt.Errorf("ensure output dir: %w", err)
+	}
+	fh, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("create output file: %w", err)
+	}
+	defer fh.Close()
+
+	writer, err := nucleiOutput.NewWriter(
+		nucleiOutput.WithWriter(fh),
+		nucleiOutput.WithJson(true, false),
+	)
+	if err != nil {
+		return fmt.Errorf("init nuclei output writer: %w", err)
+	}
+	defer writer.Close()
+
+	ne, err := nucleiSDK.NewNucleiEngineCtx(
+		context.Background(),
+		nucleiSDK.DisableUpdateCheck(),
+		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
+		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{
+			Templates: []string{templateDir},
+		}),
+		nucleiSDK.WithConcurrency(nucleiSDK.Concurrency{
+			TemplateConcurrency:           max(1, min(25, len(targets))),
+			HostConcurrency:               max(1, min(50, len(targets))),
+			HeadlessHostConcurrency:       10,
+			HeadlessTemplateConcurrency:   10,
+			JavascriptTemplateConcurrency: 10,
+			TemplatePayloadConcurrency:    25,
+			ProbeConcurrency:              50,
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("init nuclei sdk: %w", err)
+	}
+	defer ne.Close()
+
+	ne.LoadTargets(targets, false)
+	writeErr := error(nil)
+	err = ne.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
+		if event == nil || writeErr != nil {
+			return
+		}
+		// Marshal+unmarshal creates a plain ResultEvent value detached from any SDK-internal references.
+		raw, marshalErr := json.Marshal(event)
+		if marshalErr != nil {
+			return
+		}
+		var stable nucleiOutput.ResultEvent
+		if unmarshalErr := json.Unmarshal(raw, &stable); unmarshalErr != nil {
+			return
+		}
+		if wErr := writer.Write(&stable); wErr != nil {
+			writeErr = wErr
+		}
+	})
+	if writeErr != nil {
+		return writeErr
+	}
+	return err
 }
 
 func runDNSReaper(domainDir, findingsDir, subsFile string) error {
@@ -1223,6 +1289,13 @@ func countStatus(statusMap map[string]string, status string) int {
 
 func min(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b
