@@ -426,102 +426,15 @@ function wireAuthForm() {
   if (fn) return fn();
 }
 
+function shellWiringPageMethod(name) {
+  return window.ShellWiringPage && typeof window.ShellWiringPage[name] === 'function'
+    ? window.ShellWiringPage[name]
+    : null;
+}
+
 function wireShellOnce() {
-  if (state._shellWired) return;
-  state._shellWired = true;
-
-  VIEWS.forEach(v => {
-    const el = document.getElementById(`nav-${v}`);
-    if (el) {
-      el.addEventListener('click', () => {
-        if (el.getAttribute('data-newtab') === 'true') {
-          openAuditorInNewTab(v);
-        } else {
-          navigateTo(v);
-        }
-      });
-    }
-  });
-
-  const refreshBtn = document.getElementById('refresh-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', manualRefresh);
-
-  const dsearch = document.getElementById('domain-search');
-  if (dsearch) dsearch.addEventListener('input', renderDomainGrid);
-
-  const ssearch = document.getElementById('subdomains-search');
-  if (ssearch) {
-    let subSearchDebounce;
-    ssearch.addEventListener('input', (e) => {
-      clearTimeout(subSearchDebounce);
-      subSearchDebounce = setTimeout(() => loadSubdomains(1, e.target.value.trim()), 300);
-    });
-  }
-  const copyAllSubsBtn = document.getElementById('copy-all-subs-btn');
-  if (copyAllSubsBtn) copyAllSubsBtn.addEventListener('click', () => copyAllSubdomainsMatching());
-
-  const launchBtn = document.getElementById('launch-btn');
-  if (launchBtn) launchBtn.addEventListener('click', triggerScan);
-  const launchType = document.getElementById('launch-type');
-  const launchTargetMode = document.getElementById('launch-target-mode');
-  if (launchType) {
-    launchType.addEventListener('change', () => syncLaunchPlaceholder(true));
-  }
-  if (launchTargetMode) launchTargetMode.addEventListener('change', () => syncLaunchPlaceholder(false));
-  const launchTarget = document.getElementById('launch-target');
-  const launchTargetList = document.getElementById('launch-target-list');
-  if (launchTarget) launchTarget.addEventListener('input', updateLaunchPreview);
-  if (launchTargetList) launchTargetList.addEventListener('input', updateLaunchPreview);
-  document.addEventListener('input', (e) => {
-    if (e.target && e.target.matches('[data-flag-key]')) updateLaunchPreview();
-  });
-  document.addEventListener('change', (e) => {
-    if (e.target && e.target.matches('[data-flag-key]')) updateLaunchPreview();
-  });
-  syncLaunchPlaceholder(true);
-
-  const urlStrat = document.getElementById('monitor-url-strategy');
-  if (urlStrat) urlStrat.addEventListener('change', syncMonitorUrlPatternVisibility);
-  syncMonitorUrlPatternVisibility();
-
-  const urlInput = document.getElementById('monitor-url-input');
-  if (urlInput) {
-    urlInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        quickAddUrlMonitor();
-      }
-    });
-  }
-  const subInput = document.getElementById('monitor-sub-domain-input');
-  if (subInput) {
-    subInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        quickAddSubdomainMonitor();
-      }
-    });
-  }
-  const khSearch = document.getElementById('keyhacks-search');
-  if (khSearch) {
-    let khDebounce;
-    khSearch.addEventListener('input', (e) => {
-      clearTimeout(khDebounce);
-      khDebounce = setTimeout(() => loadKeyhacks(e.target.value.trim()), 300);
-    });
-  }
-
-
-  const rtSearch = document.getElementById('report-templates-search');
-  if (rtSearch) {
-    let rtDebounce;
-    rtSearch.addEventListener('input', (e) => {
-      clearTimeout(rtDebounce);
-      rtDebounce = setTimeout(() => renderReportTemplates(e.target.value.trim()), 300);
-    });
-  }
-
-  wireR2BrowserOnce();
+  const fn = shellWiringPageMethod('wireShellOnce');
+  if (fn) return fn();
 }
 
 async function startDashboard() {
@@ -2555,6 +2468,7 @@ window.showToast = showToast;
 window.showAuthGate = showAuthGate;
 window.hideAuthGate = hideAuthGate;
 window.navigateTo = navigateTo;
+window.openAuditorInNewTab = openAuditorInNewTab;
 window.buildAuthHeaders = buildAuthHeaders;
 window.esc = esc;
 window.fmtDate = fmtDate;
@@ -2571,6 +2485,20 @@ window.loadStats = loadStats;
 window.refreshCurrentView = refreshCurrentView;
 window.renderRecentChanges = renderRecentChanges;
 window.startDashboard = startDashboard;
+window.manualRefresh = manualRefresh;
+window.VIEWS = VIEWS;
+window.triggerScan = triggerScan;
+window.syncLaunchPlaceholder = syncLaunchPlaceholder;
+window.updateLaunchPreview = updateLaunchPreview;
+window.syncMonitorUrlPatternVisibility = syncMonitorUrlPatternVisibility;
+window.quickAddUrlMonitor = quickAddUrlMonitor;
+window.quickAddSubdomainMonitor = quickAddSubdomainMonitor;
+window.loadKeyhacks = loadKeyhacks;
+window.renderReportTemplates = renderReportTemplates;
+window.wireR2BrowserOnce = wireR2BrowserOnce;
+window.loadSubdomains = loadSubdomains;
+window.copyAllSubdomainsMatching = copyAllSubdomainsMatching;
+window.renderDomainGrid = renderDomainGrid;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
