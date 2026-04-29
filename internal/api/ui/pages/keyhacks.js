@@ -22,6 +22,7 @@
   ];
 
   let allTemplates = null;
+  let templatesLoading = null;
 
   function escapeHTML(str) {
     if (!str) return '';
@@ -58,10 +59,22 @@
     return hay.includes(q);
   }
 
-  function ensureTemplatesLoaded() {
+  async function ensureKeyhacksAllTemplatesLoaded() {
     if (Array.isArray(allTemplates) && allTemplates.length) return allTemplates;
-    allTemplates = window.BUNDLED_KEYHACK_TEMPLATES || [];
-    return allTemplates;
+    if (templatesLoading) return templatesLoading;
+    templatesLoading = window.apiFetch('/api/keyhacks')
+      .then((templates) => {
+        allTemplates = Array.isArray(templates) ? templates : [];
+        return allTemplates;
+      })
+      .catch((e) => {
+        allTemplates = [];
+        throw e;
+      })
+      .finally(() => {
+        templatesLoading = null;
+      });
+    return templatesLoading;
   }
 
   function commandTemplateForToken(t, token) {
@@ -80,7 +93,13 @@
       return;
     }
 
-    const templates = ensureTemplatesLoaded();
+    let templates = [];
+    try {
+      templates = await ensureKeyhacksAllTemplatesLoaded();
+    } catch (e) {
+      out.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading keyhacks</div><div class="empty-subtitle">${escapeHTML(e.message)}</div></div>`;
+      return;
+    }
     const detections = detectKeyProvidersInText(token);
     if (!detections.length) {
       out.innerHTML = '<div class="empty-state"><div class="empty-title">No known key patterns detected</div><div class="empty-subtitle">Try searching templates by provider name.</div></div>';
@@ -126,10 +145,10 @@
       return;
     }
 
-    const total = ensureTemplatesLoaded().length;
+    const total = templates.length;
     let html = `
       <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title"><span class="card-title-icon">🔍</span>API Key Inspector — Browser-Based (${total} templates)</div></div>
+      <div class="card-header"><div class="card-title"><span class="card-title-icon">🔍</span>API Key Inspector — DB-Based (${total} templates)</div></div>
       <div class="card-body">
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <input class="search-input" id="keyhacks-key-input" placeholder="Paste key/token for detection..." autocomplete="off" style="flex:1;min-width:260px" />
@@ -168,16 +187,14 @@
     const container = document.getElementById('keyhacks-container');
     if (!container) return;
     try {
-      ensureTemplatesLoaded();
       const q = String(query || '').toLowerCase().trim();
-      const data = !q
-        ? allTemplates
-        : (allTemplates || []).filter((t) => {
-            const k = String(t?.Keyname || '').toLowerCase();
-            const d = String(t?.Description || '').toLowerCase();
-            return k.includes(q) || d.includes(q);
-          });
-      renderKeyhacks(data);
+      if (!q) {
+        const templates = await ensureKeyhacksAllTemplatesLoaded();
+        renderKeyhacks(templates);
+        return;
+      }
+      const data = await window.apiFetch(`/api/keyhacks/search?q=${encodeURIComponent(q)}`);
+      renderKeyhacks(Array.isArray(data) ? data : []);
     } catch (e) {
       container.innerHTML = `<div class="empty-state"><div class="empty-title" style="color:var(--accent-red)">Error loading templates</div><div class="empty-subtitle">${escapeHTML(e.message)}</div></div>`;
     }
