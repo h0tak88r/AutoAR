@@ -31,30 +31,6 @@ function clipboardUtilsPageMethod(name) {
 async function copyToClipboard(text) {
   const fn = clipboardUtilsPageMethod('copyToClipboard');
   if (fn) return fn(text);
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch (e) { }
-  }
-
-  // Fallback
-  const textArea = document.createElement('textarea');
-  textArea.value = text;
-  // Position out of view
-  textArea.style.position = 'fixed';
-  textArea.style.top = '0';
-  textArea.style.left = '0';
-  textArea.style.opacity = '0';
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-  try {
-    const successful = document.execCommand('copy');
-    if (!successful) throw new Error('execCommand returned false');
-  } finally {
-    document.body.removeChild(textArea);
-  }
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -129,19 +105,6 @@ function pathScanId() {
 function openAuditorInNewTab(view) {
   const fn = navigationUIPageMethod('openAuditorInNewTab');
   if (fn) return fn(view);
-  const tok = state._authAccessToken || localTokenGet();
-  const pathMap = { 'apkauditor': '/ui/apkauditor/', 'ipaauditor': '/ui/ipaauditor/', 'adbauditor': '/ui/adbauditor/', 'securitylab': '/ui/securitylab/' };
-  const targetPath = pathMap[view] || '/ui/apkauditor/';
-  
-  if (tok) {
-    // Stamp the cookie so the new tab's request passes the server-side auth guard
-    // We set it for the specific subpaths
-    document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
-    document.cookie = `autoar_token=${tok}; path=/ui/ipaauditor; max-age=3600; SameSite=Strict`;
-    document.cookie = `autoar_token=${tok}; path=/ui/adbauditor; max-age=3600; SameSite=Strict`;
-    document.cookie = `autoar_token=${tok}; path=/ui/securitylab; max-age=3600; SameSite=Strict`;
-  }
-  window.open(targetPath, '_blank');
 }
 
 function navigateTo(view) {
@@ -197,68 +160,30 @@ function localTokenClear() {
 async function buildAuthHeaders(extra = {}) {
   const fn = apiClientPageMethod('buildAuthHeaders');
   if (fn) return fn(extra);
-  const h = { ...extra };
-  const tok = state._authAccessToken || localTokenGet();
-  if (tok) h.Authorization = `Bearer ${tok}`;
-  return h;
+  return { ...extra };
 }
 
 function handleAuthError() {
   const fn = apiClientPageMethod('handleAuthError');
   if (fn) return fn();
-  localTokenClear();
-  state._authAccessToken = null;
-  state._dashboardStarted = false;
-  showAuthGate();
 }
 
 async function apiFetch(path) {
   const fn = apiClientPageMethod('apiFetch');
   if (fn) return fn(path);
-  const headers = await buildAuthHeaders();
-  const res = await fetch(`${API}${path}`, { headers });
-  if (res.status === 401) {
-    handleAuthError();
-    throw new Error('Session expired — sign in again');
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  throw new Error('apiFetch unavailable');
 }
 
 async function apiPost(path, body, customHeaders = {}) {
   const fn = apiClientPageMethod('apiPost');
   if (fn) return fn(path, body, customHeaders);
-  const headers = await buildAuthHeaders({ 'Content-Type': 'application/json', ...customHeaders });
-  const res = await fetch(`${API}${path}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  if (res.status === 401) {
-    handleAuthError();
-    throw new Error('Session expired — sign in again');
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(err.error || `HTTP ${res.status}`);
-  }
-  return res.json();
+  throw new Error('apiPost unavailable');
 }
 
 async function apiDelete(path) {
   const fn = apiClientPageMethod('apiDelete');
   if (fn) return fn(path);
-  const headers = await buildAuthHeaders();
-  const res = await fetch(`${API}${path}`, { method: 'DELETE', headers });
-  if (res.status === 401) {
-    handleAuthError();
-    throw new Error('Session expired — sign in again');
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(err.error || `HTTP ${res.status}`);
-  }
-  return res.json();
+  throw new Error('apiDelete unavailable');
 }
 
 function showAuthGate(hintMsg) {
@@ -1346,24 +1271,14 @@ async function handleLaunchFileUpload(inputEl) {
 function esc(s) {
   const fn = htmlEscapePageMethod('esc');
   if (fn) return fn(s);
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(s ?? '');
 }
 
 /** Escape for HTML attribute values (e.g. data-r2-prefix). */
 function escAttr(s) {
   const fn = htmlEscapePageMethod('escAttr');
   if (fn) return fn(s);
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;');
+  return String(s ?? '');
 }
 
 function uiHelpersMethod(name) {
