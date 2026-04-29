@@ -334,16 +334,33 @@ func Run(opts Options) (*Result, error) {
 	// Write structured JSON for the dashboard
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		type aemFinding struct {
-			TemplateID string `json:"template-id"`
-			MatchedAt  string `json:"matched-at"`
-			Severity   string `json:"severity"`
+			TemplateID  string `json:"template-id"`
+			MatchedAt   string `json:"matched-at"`
+			Severity    string `json:"severity"`
+			Description string `json:"description,omitempty"`
+			Module      string `json:"module"`
 		}
 		var findings []aemFinding
+		seen := make(map[string]struct{}, len(allFindings))
 		for _, f := range allFindings {
+			if strings.TrimSpace(f.Name) == "" || strings.TrimSpace(f.URL) == "" {
+				continue
+			}
+			sev := strings.TrimSpace(strings.ToLower(f.Severity))
+			if sev == "" {
+				sev = "medium"
+			}
+			key := f.Name + "|" + f.URL + "|" + sev
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
 			findings = append(findings, aemFinding{
-				TemplateID: f.Name,
-				MatchedAt:  f.URL,
-				Severity:   f.Severity,
+				TemplateID:  f.Name,
+				MatchedAt:   f.URL,
+				Severity:    sev,
+				Description: f.Description,
+				Module:      "aem-scan",
 			})
 		}
 		if len(findings) > 0 {
