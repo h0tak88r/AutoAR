@@ -218,7 +218,7 @@ func DetectTech(domain string, threads int) (*Result, error) {
 				log.Printf("[WARN] Failed to write tech JSON: %v", err)
 			}
 		} else {
-			_ = utils.WriteNoFindingsJSON(scanID, domain, "recon", "tech-detect.json")
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "tech-detect", "tech-detect.json")
 		}
 	}
 
