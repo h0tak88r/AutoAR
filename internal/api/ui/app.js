@@ -774,52 +774,35 @@ function updateStatusDot() {
 
 // ── Scan Launcher ─────────────────────────────────────────────────────────────
 
-function launcherPageMethod(name) {
-  return resolvePageMethod('LauncherPage', name);
-}
-
-function htmlEscapePageMethod(name) {
-  return resolvePageMethod('HtmlEscapePage', name);
-}
-
 function syncLaunchPlaceholder(rebuildModes = false) {
-  const fn = launcherPageMethod('syncLaunchPlaceholder');
-  if (fn) return fn(rebuildModes);
+  return callPageMethod('LauncherPage', 'syncLaunchPlaceholder', [rebuildModes]);
 }
 
 function renderLaunchFlags() {
-  const fn = launcherPageMethod('renderLaunchFlags');
-  if (fn) return fn();
+  return callPageMethod('LauncherPage', 'renderLaunchFlags');
 }
 
 function updateLaunchPreview() {
-  const fn = launcherPageMethod('updateLaunchPreview');
-  if (fn) return fn();
+  return callPageMethod('LauncherPage', 'updateLaunchPreview');
 }
 
 async function triggerScan() {
-  const fn = launcherPageMethod('triggerScan');
-  if (fn) return fn();
+  return callPageMethod('LauncherPage', 'triggerScan');
 }
 
 async function handleLaunchFileUpload(inputEl) {
-  const fn = launcherPageMethod('handleLaunchFileUpload');
-  if (fn) return fn(inputEl);
+  return callPageMethod('LauncherPage', 'handleLaunchFileUpload', [inputEl]);
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function esc(s) {
-  const fn = htmlEscapePageMethod('esc');
-  if (fn) return fn(s);
-  return String(s ?? '');
+  return callPageMethod('HtmlEscapePage', 'esc', [s], String(s ?? ''));
 }
 
 /** Escape for HTML attribute values (e.g. data-r2-prefix). */
 function escAttr(s) {
-  const fn = htmlEscapePageMethod('escAttr');
-  if (fn) return fn(s);
-  return String(s ?? '');
+  return callPageMethod('HtmlEscapePage', 'escAttr', [s], String(s ?? ''));
 }
 
 function uiHelpersMethod(name) {
