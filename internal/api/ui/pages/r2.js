@@ -1,5 +1,10 @@
 (() => {
-  const { esc, escAttr, fmtDate, fmtSize, fileIcon, emptyState } = window;
+  const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
+  const escAttr = (...args) => (typeof window.escAttr === 'function' ? window.escAttr(...args) : String(args[0] ?? ''));
+  const fmtDate = (...args) => (typeof window.fmtDate === 'function' ? window.fmtDate(...args) : '—');
+  const fmtSize = (...args) => (typeof window.fmtSize === 'function' ? window.fmtSize(...args) : '0 B');
+  const fileIcon = (...args) => (typeof window.fileIcon === 'function' ? window.fileIcon(...args) : '📄');
+  const emptyState = (...args) => (typeof window.emptyState === 'function' ? window.emptyState(...args) : '');
 
   async function loadR2(prefix = '') {
     window.state.r2.prefix = prefix;
