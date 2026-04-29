@@ -549,6 +549,12 @@ function wireR2BrowserOnce() {
   if (fn) return fn();
 }
 
+function pollingPageMethod(name) {
+  return window.PollingPage && typeof window.PollingPage[name] === 'function'
+    ? window.PollingPage[name]
+    : null;
+}
+
 function r2UpdateDeleteSelectedVisibility() {
   const fn = r2PageMethod('r2UpdateDeleteSelectedVisibility');
   if (fn) return fn();
@@ -752,63 +758,13 @@ async function loadDomainSubdomains(domain) {
 // ── Polling ───────────────────────────────────────────────────────────────────
 
 function startPolling() {
-  if (state.pollTimer) {
-    clearTimeout(state.pollTimer);
-    state.pollTimer = null;
-  }
-  const tick = async () => {
-    try {
-      await loadStats();
-      await loadScans();
-      if (state.view === 'monitor') await loadMonitor();
-
-      // If on scan detail, only trigger refresh if the scan being viewed is actually active
-      if (state.view === 'scan-detail' && state.scanDetailId) {
-        const activeIds = (state.scans?.active_scans || []).map(s => String(s.id || s.Id || ''));
-        if (activeIds.includes(String(state.scanDetailId))) {
-          refreshScanDetailIfRunning(state.scanDetailId);
-        }
-      }
-    } catch (e) { /* ignore */ }
-
-    const n = state.stats?.active_scans ?? 0;
-    const onScans = false; // scans view removed
-
-    // Only fast-poll if on Scans list or viewing a scan that is actually running
-    let isViewingActiveScan = false;
-    if (state.view === 'scan-detail' && state.scanDetailId) {
-      const activeIds = (state.scans?.active_scans || []).map(s => String(s.id || s.Id || ''));
-      if (activeIds.includes(String(state.scanDetailId))) isViewingActiveScan = true;
-    }
-
-    let ms = POLL_INTERVAL;
-    if ((onScans || isViewingActiveScan) && n > 0) ms = POLL_FAST_SCANS;
-    else if (n > 0) ms = POLL_FAST_ANY;
-
-    state.pollTimer = setTimeout(tick, ms);
-  };
-  state.pollTimer = setTimeout(tick, 600);
+  const fn = pollingPageMethod('startPolling');
+  if (fn) return fn();
 }
 
 function refreshCurrentView() {
-  switch (state.view) {
-    case 'overview': loadStats(); loadDomains(); loadScans(); break;
-    case 'scans': loadScans(); break;
-    case 'domains': loadDomains(); break;
-    case 'subdomains': loadSubdomains(); break;
-    case 'targets': loadTargetsPlatforms(); break;
-    case 'monitor': loadMonitor(); break;
-    case 'keyhacks': loadKeyhacks(); break;
-    case 'report-templates': renderReportTemplates(); break;
-    case 'r2': loadR2(state.r2.prefix); break;
-    case 'settings': loadConfig(); break;
-    case 'scan-detail':
-      if (state.scanDetailId) {
-        state.scanDetailUI.filesPage = 1;
-        renderScanDetailView(state.scanDetailId);
-      }
-      break;
-  }
+  const fn = pollingPageMethod('refreshCurrentView');
+  if (fn) return fn();
 }
 
 /** Pagination: previous page of files */
@@ -2485,8 +2441,12 @@ window.loadStats = loadStats;
 window.refreshCurrentView = refreshCurrentView;
 window.renderRecentChanges = renderRecentChanges;
 window.startDashboard = startDashboard;
+window.startPolling = startPolling;
 window.manualRefresh = manualRefresh;
 window.VIEWS = VIEWS;
+window.POLL_INTERVAL = POLL_INTERVAL;
+window.POLL_FAST_ANY = POLL_FAST_ANY;
+window.POLL_FAST_SCANS = POLL_FAST_SCANS;
 window.triggerScan = triggerScan;
 window.syncLaunchPlaceholder = syncLaunchPlaceholder;
 window.updateLaunchPreview = updateLaunchPreview;
@@ -2497,8 +2457,16 @@ window.loadKeyhacks = loadKeyhacks;
 window.renderReportTemplates = renderReportTemplates;
 window.wireR2BrowserOnce = wireR2BrowserOnce;
 window.loadSubdomains = loadSubdomains;
+window.loadDomains = loadDomains;
+window.loadScans = loadScans;
+window.loadMonitor = loadMonitor;
+window.loadR2 = loadR2;
+window.loadConfig = loadConfig;
+window.loadTargetsPlatforms = loadTargetsPlatforms;
 window.copyAllSubdomainsMatching = copyAllSubdomainsMatching;
 window.renderDomainGrid = renderDomainGrid;
+window.refreshScanDetailIfRunning = refreshScanDetailIfRunning;
+window.renderScanDetailView = renderScanDetailView;
 
 // More helpers for modularized pages
 window.getModuleDisplayInfo = getModuleDisplayInfo;
