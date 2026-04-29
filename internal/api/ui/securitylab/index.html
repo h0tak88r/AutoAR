@@ -282,7 +282,7 @@
         const line = rawLine.replace(/\t/g, '  ');
         const t = line.trim();
         if (!t || t.startsWith('#')) continue;
-        if (t.endsWith(':') && (t === 'regexes:' || t === 'regex:' || t === 'items:')) continue;
+        if (t.endsWith(':') && (t === 'regexes:' || t === 'regex:' || t === 'items:' || t === 'patterns:')) continue;
 
         if (t.startsWith('- ')) {
           push();
