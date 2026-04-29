@@ -1802,72 +1802,10 @@ function detectResultType(items, file) {
 
 /** Render appropriate table based on result type */
 function renderResultTable(items, type, file) {
-  const module = file.module || detectModuleFromFileName(file.file_name);
-  const moduleInfo = getModuleDisplayInfo(module);
-
-  const header = `
-    <div class="result-table-header">
-      <div class="result-table-title">
-        ${moduleInfo.icon} ${moduleInfo.name} Results
-        <span style="font-size:12px;color:var(--text-muted);margin-left:8px">(${items.length} items)</span>
-      </div>
-    </div>`;
-
-  switch (type) {
-    case 'subdomain-list':
-      return header + renderSubdomainListTable(items);
-
-    case 'subdomain-object':
-      return header + renderSubdomainObjectTable(items);
-
-    case 'httpx-results':
-      return header + renderHTTPXTable(items);
-
-    case 'nuclei-findings':
-      return header + renderNucleiTable(items);
-
-    case 'zerodays-findings':
-      return header + renderZeroDaysTable(items);
-
-    case 'js-findings':
-      return header + renderJSFindingsTable(items);
-
-    case 'xss-findings':
-      return header + renderXSSFindingsTable(items);
-
-    case 'sqli-findings':
-      return header + renderSQLiFindingsTable(items);
-
-    case 'url-list':
-      return header + renderURLListTable(items);
-
-    case 'backup-findings':
-      return header + renderBackupFindingsTable(items);
-
-    case 'misconfig-findings':
-      return header + renderMisconfigTable(items);
-
-    case 'port-results':
-      return header + renderPortResultsTable(items);
-
-    case 's3-findings':
-      return header + renderS3FindingsTable(items);
-
-    case 'dns-findings':
-      return header + renderDNSFindingsTable(items);
-
-    case 'aem-findings':
-      return header + renderAEMTable(items);
-
-    case 'tech-findings':
-      return header + renderTechFindingsTable(items);
-
-    case 'generic-json':
-      return header + renderGenericJSONTable(items);
-
-    default:
-      return header + renderGenericJSONTable(items);
+  if (window.ResultTablesPage && typeof window.ResultTablesPage.renderResultTable === 'function') {
+    return window.ResultTablesPage.renderResultTable(items, type, file);
   }
+  return renderGenericJSONTable(items);
 }
 
 /** Render subdomain list (simple strings) */
