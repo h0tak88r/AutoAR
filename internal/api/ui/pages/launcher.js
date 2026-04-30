@@ -21,8 +21,8 @@
     dns_takeover: { path: 'dns-takeover', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_cf1016: { path: 'dns-cf1016', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
     s3: { path: 's3', modes: ['bucket', 'bucket_list'], placeholders: { bucket: 'bucket-name', bucket_list: 'one bucket per line' } },
-    github: { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository', repo_list: 'one owner/repo per line' } },
-    github_org: { path: 'github_org', modes: ['repo', 'repo_list'], placeholders: { repo: 'org-name', repo_list: 'one org per line' } },
+    github: { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository or github.com/owner/repo', repo_list: 'one owner/repo per line' } },
+    github_org: { path: 'github_org', modes: ['domain', 'domain_list'], placeholders: { domain: 'org-name or github.com/org', domain_list: 'one org per line' } },
     zerodays: { path: 'zerodays', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     ffuf: { path: 'ffuf', modes: ['target', 'target_list'], placeholders: { target: 'https://example.com/FUZZ', target_list: 'one FUZZ URL per line' } },
     jwt: { path: 'jwt', modes: ['token'], placeholders: { token: 'JWT token' } },
@@ -34,7 +34,7 @@
     subdomain: 'Subdomain',
     url: 'URL',
     target: 'Target URL',
-    repo: 'Repository / Org',
+    repo: 'Repository',
     bucket: 'Bucket',
     token: 'Token',
     file_path: 'File path',
@@ -114,17 +114,47 @@
       .filter(Boolean);
   }
 
+  function normalizeGithubRepoInput(value) {
+    const input = String(value || '').trim();
+    if (!input) return '';
+    const noProto = input.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+    if (/^github\.com\//i.test(noProto)) {
+      const parts = noProto.split('/').filter(Boolean);
+      if (parts.length >= 3) {
+        const owner = parts[1];
+        const repo = parts[2].replace(/\.git$/i, '');
+        return owner && repo ? `${owner}/${repo}` : '';
+      }
+    }
+    return input.replace(/\.git$/i, '');
+  }
+
+  function normalizeGithubOrgInput(value) {
+    const input = String(value || '').trim();
+    if (!input) return '';
+    const noProto = input.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+    if (/^github\.com\//i.test(noProto)) {
+      const parts = noProto.split('/').filter(Boolean);
+      return parts[1] || '';
+    }
+    return input.replace(/^@/, '').split('/')[0].trim();
+  }
+
   function buildScanRequestBodies(spec, mode, rawInput) {
     const values = parseTargets(rawInput);
     const bodies = [];
     const extras = spec.extra || {};
 
     for (const item of values) {
+      const normalizedItem = spec.path === 'github_org'
+        ? normalizeGithubOrgInput(item)
+        : (spec.path === 'github' ? normalizeGithubRepoInput(item) : item);
+      if (!normalizedItem) continue;
       const body = { ...extras };
       switch (mode) {
         case 'domain':
         case 'domain_list':
-          body.domain = item;
+          body.domain = normalizedItem;
           break;
         case 'subdomain':
         case 'subdomain_list':
@@ -138,8 +168,8 @@
           break;
         case 'repo':
         case 'repo_list':
-          if (spec.path === 'github_org') body.org = item;
-          else body.repo = item;
+          if (spec.path === 'github_org') body.domain = normalizeGithubOrgInput(normalizedItem);
+          else body.repo = normalizedItem;
           break;
         case 'bucket':
         case 'bucket_list':
@@ -158,7 +188,7 @@
           body.file_path = item;
           break;
         default:
-          body.domain = item;
+          body.domain = normalizedItem;
           break;
       }
       bodies.push(body);
@@ -344,7 +374,8 @@
         window.showToast('success', 'Scan started', `${scanIds.length} started${scanIds.length === 1 ? ` (ID: ${scanIds[0]})` : ''}`);
       }
       if (failures.length) {
-        window.showToast('error', 'Some launches failed', `${failures.length} failed`);
+        const firstError = failures[0] ? ` First error: ${failures[0]}` : '';
+        window.showToast('error', 'Some launches failed', `${failures.length} failed.${firstError}`);
       }
       singleInput.value = '';
       listInput.value = '';
