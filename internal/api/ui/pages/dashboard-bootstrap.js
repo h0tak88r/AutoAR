@@ -20,7 +20,7 @@
     const backBtn = document.getElementById('scan-detail-back');
     if (backBtn && !backBtn.dataset.wired) {
       backBtn.dataset.wired = '1';
-      backBtn.addEventListener('click', () => window.navigateTo('overview'));
+      backBtn.addEventListener('click', () => window.navigateTo('scans'));
     }
     if (!window.__autoarPopstate) {
       window.__autoarPopstate = true;
