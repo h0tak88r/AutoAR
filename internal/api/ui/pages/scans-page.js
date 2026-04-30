@@ -265,11 +265,15 @@
             <option value="subdomain_scan">subdomain_scan (workflow)</option>
             <option value="lite" selected>lite (full pipeline)</option>
             <option value="recon">recon (Asset Discovery)</option>
+            <option value="subdomains">subdomains</option>
+            <option value="livehosts">livehosts</option>
+            <option value="cnames">cnames</option>
             <option value="urls">urls</option>
             <option value="js">js</option>
             <option value="reflection">reflection</option>
             <option value="nuclei">nuclei</option>
             <option value="ports">ports</option>
+            <option value="tech">tech</option>
             <option value="gf">gf</option>
             <option value="backup">backup</option>
             <option value="misconfig">misconfig</option>
@@ -284,7 +288,7 @@
           <optgroup label="Cloud &amp; source">
             <option value="s3">s3 (bucket)</option>
             <option value="github">github (repo)</option>
-            <option value="github_org">github_org</option>
+            <option value="github_org">github_org (organization)</option>
           </optgroup>
           <optgroup label="Advanced">
             <option value="zerodays">zerodays</option>
