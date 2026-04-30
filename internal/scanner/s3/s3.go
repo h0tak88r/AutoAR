@@ -34,7 +34,8 @@ type Options struct {
 // Run executes s3 command based on action
 func Run(opts Options) error {
 	if opts.Action == "" {
-		return fmt.Errorf("action is required")
+		// API launcher submits only bucket/region for /scan/s3, so default to scan.
+		opts.Action = "scan"
 	}
 
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
@@ -254,6 +255,10 @@ func handleScan(opts Options, resultsDir string) error {
 	scanSuccess := false
 	objectCount := 0
 	var scanMethod string
+	permList := false
+	permRead := false
+	permWrite := false
+	permDelete := false
 	
 	if hasCredentials {
 		// Try authenticated scan
@@ -357,6 +362,12 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 	}
 
+	// Explicit unauthenticated permission probes for list/read/write/delete semantics.
+	permList, permRead, permWrite, permDelete = probeBucketPermissions(opts.Bucket, opts.Region, logFileHandle)
+	if permWrite && scanMethod == "none (not accessible)" {
+		scanMethod = "unauthenticated (writeable)"
+	}
+
 	// Check if results file has content (for logging)
 	fileInfo, err := os.Stat(outputFile)
 	_ = err
@@ -385,23 +396,40 @@ func handleScan(opts Options, resultsDir string) error {
 			Finding     string `json:"finding"`
 			ObjectCount int    `json:"object_count"`
 			ScanMethod  string `json:"scan_method"`
+			CanList     bool   `json:"can_list"`
+			CanRead     bool   `json:"can_read"`
+			CanWrite    bool   `json:"can_write"`
+			CanDelete   bool   `json:"can_delete"`
 		}
 		var findings []s3Finding
-		if objectCount > 0 {
-			finding := "Public S3 Bucket"
+		if objectCount > 0 || permList || permRead || permWrite || permDelete {
+			finding := "S3 bucket permission exposure"
 			if scanMethod != "" {
-				finding = fmt.Sprintf("Public S3 Bucket (%s)", scanMethod)
+				finding = fmt.Sprintf("S3 bucket permission exposure (%s)", scanMethod)
+			}
+			severity := "info"
+			status := "restricted"
+			if permWrite {
+				severity = "critical"
+				status = "public-write"
+			} else if permList || permRead {
+				severity = "high"
+				status = "public-read"
 			}
 			findings = append(findings, s3Finding{
 				Target:      bucketURL,
 				Bucket:      opts.Bucket,
-				Status:      "public",
-				Vulnerable:  true,
-				Severity:    "high",
+				Status:      status,
+				Vulnerable:  permList || permRead || permWrite || permDelete || objectCount > 0,
+				Severity:    severity,
 				Module:      "s3-scan",
 				Finding:     finding,
 				ObjectCount: objectCount,
 				ScanMethod:  scanMethod,
+				CanList:     permList,
+				CanRead:     permRead,
+				CanWrite:    permWrite,
+				CanDelete:   permDelete,
 			})
 			if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", findings); err != nil {
 				log.Printf("[WARN] Failed to write S3 JSON: %v", err)
@@ -412,6 +440,64 @@ func handleScan(opts Options, resultsDir string) error {
 	}
 
 	return nil
+}
+
+func probeBucketPermissions(bucketName, region string, logFile io.Writer) (canList, canRead, canWrite, canDelete bool) {
+	client := &http.Client{Timeout: 8 * time.Second}
+	urls := []string{
+		fmt.Sprintf("https://%s.s3.amazonaws.com", bucketName),
+	}
+	if region != "" {
+		urls = append(urls, fmt.Sprintf("https://%s.s3-%s.amazonaws.com", bucketName, region))
+	}
+	testKey := fmt.Sprintf("autoar-perm-test-%d.txt", time.Now().UnixNano())
+	testBody := []byte("autoar permission test")
+	for _, base := range urls {
+		// list
+		if req, err := http.NewRequest("GET", base+"/?max-keys=1", nil); err == nil {
+			if resp, err := client.Do(req); err == nil {
+				if resp.StatusCode == http.StatusOK {
+					canList = true
+				}
+				resp.Body.Close()
+			}
+		}
+		// write/put
+		if req, err := http.NewRequest("PUT", base+"/"+testKey, strings.NewReader(string(testBody))); err == nil {
+			req.Header.Set("Content-Type", "text/plain")
+			if resp, err := client.Do(req); err == nil {
+				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusNoContent {
+					canWrite = true
+				}
+				resp.Body.Close()
+			}
+		}
+		// read
+		if req, err := http.NewRequest("GET", base+"/"+testKey, nil); err == nil {
+			if resp, err := client.Do(req); err == nil {
+				if resp.StatusCode == http.StatusOK {
+					canRead = true
+				}
+				resp.Body.Close()
+			}
+		}
+		// delete cleanup
+		if req, err := http.NewRequest("DELETE", base+"/"+testKey, nil); err == nil {
+			if resp, err := client.Do(req); err == nil {
+				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusAccepted {
+					canDelete = true
+				}
+				resp.Body.Close()
+			}
+		}
+		if canList || canRead || canWrite || canDelete {
+			break
+		}
+	}
+	if logFile != nil {
+		fmt.Fprintf(logFile, "[INFO] Permission probe: list=%t read=%t write=%t delete=%t\n", canList, canRead, canWrite, canDelete)
+	}
+	return
 }
 
 // newS3Client creates an S3 client using AWS configuration.

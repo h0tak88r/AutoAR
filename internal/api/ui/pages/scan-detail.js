@@ -1097,9 +1097,50 @@
     };
 
     const showAssetsView = async () => { if (_assetsCache) { renderAssetsGrid(assetsContent, _assetsCache); return; } if (_assetsLoading) return; _assetsLoading = true; assetsContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Building asset inventory…</div>'; try { const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/assets`); _assetsCache = data.assets || []; renderAssetsGrid(assetsContent, _assetsCache); } catch (e) { assetsContent.innerHTML = `<div style="padding:24px;color:var(--accent-red)">Failed: ${esc(e.message)}</div>`; } finally { _assetsLoading = false; } };
-    const showURLsView = () => { standardView.style.display = 'none'; assetsView.style.display = 'none'; urlsView.style.display = 'block'; loadURLsView(); };
-    const loadURLsView = async () => { try { const qs = new URLSearchParams({ page: 1, limit: 500, type: 'all', q: '' }).toString(); const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?${qs}`); renderURLsTable(data.urls || [], data.total || 0, 1); } catch (e) {} };
-    const renderURLsTable = (urls, total, page) => { urlsContent.innerHTML = `<table style="width:100%"><tbody>${urls.map((e, i) => `<tr><td style="padding:5px 12px;font-size:11px"><a href="${esc(e.url)}" target="_blank" style="color:var(--accent-cyan);text-decoration:none">${esc(e.url)}</a></td></tr>`).join('')}</tbody></table>`; };
+    let _urlsCache = [];
+    const getUrlValue = (entry) => String(entry?.url || entry?.target || entry?.value || '').trim();
+    const isLikelyJSURL = (u) => /\.m?jsx?(\?|$)/i.test(u) || /\/js(?:\/|$)|javascript/i.test(u);
+    const isLikelyInterestingURL = (u) => /(admin|login|signin|auth|oauth|token|api|graphql|debug|internal|config|backup|secret|key|panel|wp-admin|\.env|\.git|redirect|callback|upload|download|execute|cmd|console)/i.test(u);
+
+    const showURLsView = () => {
+      standardView.style.display = 'none';
+      assetsView.style.display = 'none';
+      urlsView.style.display = 'block';
+      loadURLsView();
+    };
+    const loadURLsView = async () => {
+      try {
+        const qs = new URLSearchParams({ page: 1, limit: 5000, type: 'all', q: '' }).toString();
+        const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?${qs}`);
+        _urlsCache = Array.isArray(data.urls) ? data.urls : [];
+        renderURLsTable(_urlsCache);
+      } catch (e) {}
+    };
+    const renderURLsTable = (urls) => {
+      const countEl = root.querySelector('#recon-urls-count');
+      if (countEl) countEl.textContent = `${urls.length} URL${urls.length === 1 ? '' : 's'}`;
+      if (!urls.length) {
+        urlsContent.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);font-size:12px">No URLs match the current filters.</div>';
+        return;
+      }
+      urlsContent.innerHTML = `<table style="width:100%"><tbody>${urls.map((e) => {
+        const url = getUrlValue(e);
+        return `<tr><td style="padding:5px 12px;font-size:11px"><a href="${esc(url)}" target="_blank" style="color:var(--accent-cyan);text-decoration:none">${esc(url)}</a></td></tr>`;
+      }).join('')}</tbody></table>`;
+    };
+    const applyURLsFilters = () => {
+      const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
+      const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
+      const filtered = _urlsCache.filter((entry) => {
+        const url = getUrlValue(entry);
+        if (!url) return false;
+        if (q && !url.toLowerCase().includes(q)) return false;
+        if (mode === 'js' && !isLikelyJSURL(url)) return false;
+        if (mode === 'interesting' && !isLikelyInterestingURL(url)) return false;
+        return true;
+      });
+      renderURLsTable(filtered);
+    };
 
     // Initial setup
     const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode; if (uiS.quickChip) quickChip = uiS.quickChip;
@@ -1129,6 +1170,40 @@
     
     root.addEventListener('click', e => { const r = e.target.closest('.findings-row'); if (r && !e.target.closest('input,a,button')) { const idx = Number(r.dataset.rowIndex); if (currentRenderedRows[idx]) openDrawerForRow(currentRenderedRows[idx]); } });
     if (drawerClose) drawerClose.addEventListener('click', () => drawer.style.display = 'none');
+    const urlsSearchInput = root.querySelector('#recon-urls-search');
+    const urlsTypeSel = root.querySelector('#recon-urls-type');
+    const urlsCopyBtn = root.querySelector('#recon-urls-copy');
+    const urlsExportBtn = root.querySelector('#recon-urls-export');
+    if (urlsSearchInput) urlsSearchInput.addEventListener('input', applyURLsFilters);
+    if (urlsTypeSel) urlsTypeSel.addEventListener('change', applyURLsFilters);
+    if (urlsCopyBtn) urlsCopyBtn.addEventListener('click', async () => {
+      const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
+      const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
+      const lines = _urlsCache
+        .map(getUrlValue)
+        .filter(Boolean)
+        .filter((url) => (!q || url.toLowerCase().includes(q)) && (mode !== 'js' || isLikelyJSURL(url)) && (mode !== 'interesting' || isLikelyInterestingURL(url)));
+      if (!lines.length) return;
+      try { await copyToClipboard(lines.join('\n')); } catch (_) {}
+    });
+    if (urlsExportBtn) urlsExportBtn.addEventListener('click', () => {
+      const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
+      const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
+      const lines = _urlsCache
+        .map(getUrlValue)
+        .filter(Boolean)
+        .filter((url) => (!q || url.toLowerCase().includes(q)) && (mode !== 'js' || isLikelyJSURL(url)) && (mode !== 'interesting' || isLikelyInterestingURL(url)));
+      if (!lines.length) return;
+      const blob = new Blob([`${lines.join('\n')}\n`], { type: 'text/plain;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = `scan-${scanId}-urls.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    });
     
     function openDrawerForRow(r) { drawerBody.innerHTML = `<pre style="padding:12px;font-size:11px;color:var(--text-primary)">${esc(JSON.stringify(r, null, 2))}</pre>`; drawer.style.display = 'block'; }
   }
