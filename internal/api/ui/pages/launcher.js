@@ -62,6 +62,10 @@
     nuclei: [{ key: 'mode', label: 'Mode', type: 'select', options: ['full', 'cves', 'panels', 'default-logins', 'vulnerabilities'], advanced: false }],
     dns: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['takeover', 'dangling-ip'], advanced: false }],
     dns_dangling: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['dangling-ip', 'takeover'], advanced: false }],
+    s3: [
+      { key: 'region', label: 'Region (optional)', type: 'text', advanced: false },
+      { key: 'threads', label: 'Threads (reserved)', type: 'number', min: 1, advanced: true },
+    ],
     ffuf: [
       { key: 'threads', label: 'Threads', type: 'number', min: 1, advanced: false },
       { key: 'recursion', label: 'Enable recursion', type: 'bool', advanced: false },
@@ -222,6 +226,9 @@
     help.textContent = isList
       ? 'Bulk mode: one target per line (comma also supported).'
       : `Single target mode: ${LAUNCH_MODE_LABELS[mode] || mode}.`;
+    if (document.getElementById('launch-type')?.value === 's3') {
+      help.textContent += ' S3 scan probes unauthenticated LIST/READ/PUT/DELETE behavior and records exposed permissions.';
+    }
 
     const uploadWrapperId = 'launch-upload-wrapper';
     let wrapper = document.getElementById(uploadWrapperId);
