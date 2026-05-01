@@ -50,13 +50,8 @@
   const SCAN_FLAG_DEFS = {
     domain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
     subdomain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
-    lite: [
-      { key: 'skip_js', label: 'Skip JS phase', type: 'bool', advanced: false },
-      { key: 'phase_timeout', label: 'Phase timeout (sec)', type: 'number', min: 60, advanced: false },
-      { key: 'timeout_livehosts', label: 'Livehosts timeout (sec)', type: 'number', min: 0, advanced: true },
-      { key: 'timeout_reflection', label: 'Reflection timeout (sec)', type: 'number', min: 0, advanced: true },
-      { key: 'timeout_js', label: 'JS timeout (sec)', type: 'number', min: 0, advanced: true },
-      { key: 'timeout_nuclei', label: 'Nuclei timeout (sec)', type: 'number', min: 0, advanced: true },
+    recon: [
+      { key: 'threads', label: 'Threads', type: 'number', min: 1, max: 500, advanced: false },
     ],
     nuclei: [{ key: 'mode', label: 'Mode', type: 'select', options: ['full', 'cves', 'panels', 'default-logins', 'vulnerabilities'], advanced: false }],
     dns: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['takeover', 'dangling-ip'], advanced: false }],
