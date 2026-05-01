@@ -674,7 +674,7 @@ func scanGitHub(c *gin.Context) {
 	repo := *req.Repo
 	scanID := generateScanID()
 	go RunScanInProcess(scanID, "github", repo, func() error {
-		_, err := githubmod.Run(githubmod.Options{Repo: repo})
+		_, err := githubmod.Run(githubmod.Options{Mode: githubmod.ModeRepo, Repo: repo})
 		return err
 	})
 	okStarted(c, scanID, fmt.Sprintf("GitHub scan started for %s", repo))
@@ -699,7 +699,7 @@ func scanGitHubOrg(c *gin.Context) {
 	}
 	scanID := generateScanID()
 	go RunScanInProcess(scanID, "github_org", org, func() error {
-		_, err := githubmod.Run(githubmod.Options{Org: org})
+		_, err := githubmod.Run(githubmod.Options{Mode: githubmod.ModeOrg, Org: org})
 		return err
 	})
 okStarted(c, scanID, fmt.Sprintf("GitHub organization scan started for %s", org))
