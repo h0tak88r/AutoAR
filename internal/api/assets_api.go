@@ -147,7 +147,7 @@ func buildAssets(scanID string) []AssetEntry {
 	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
 		st := scan.ScanType
 		subdomainScanTypes := map[string]bool{
-			"domain_run": true, "subdomain_run": true, "recon": true, "lite": true,
+			"domain_run": true, "subdomain_run": true, "recon": true,
 			"subdomains": true, "livehosts": true, "dns_cf1016": true, "dns-cf1016": true,
 		}
 		if subdomainScanTypes[st] {

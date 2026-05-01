@@ -567,7 +567,6 @@ func SetupAPI() *gin.Engine {
 		api.POST("/github", scanGitHub)
 		api.POST("/github_org", scanGitHubOrg)
 		api.POST("/recon", scanRecon) // Unified asset discovery: subdomains, livehosts, tech, cnames
-		api.POST("/lite", scanLite)
 		api.POST("/ffuf", scanFFuf)           // FFuf fuzzing
 		api.POST("/backup", scanBackup)       // Backup file discovery
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
@@ -1016,10 +1015,7 @@ func docsHandler(c *gin.Context) {
                 <div class="description">GitHub organization scanning</div>
             </div>
 
-            <div class="endpoint">
-                <div class="endpoint-path"><span class="method post">POST</span> /scan/lite</div>
-                <div class="description">Lite scan: Comprehensive automated scan workflow. Runs livehosts → reflection → JS → CNAME → backup → DNS → misconfig → nuclei phases sequentially with real-time progress updates.</div>
-            </div>
+            
 
             <div class="endpoint">
                 <div class="endpoint-path"><span class="method post">POST</span> /scan/ffuf</div>
@@ -1593,7 +1589,7 @@ func indexScanArtifacts(scanID, scanType, target string) {
 	// Scan types that write to new-results/<target>/ (the full domain dir).
 	// These are workflow scans that own the entire target directory.
 	domainRootTypes := map[string]bool{
-		"domain_run": true, "subdomain_run": true, "lite": true,
+		"domain_run": true, "subdomain_run": true,
 		"subdomains": true, "livehosts": true, "cnames": true,
 		"urls": true, "js": true, "jsscan": true, "reflection": true,
 		"nuclei": true, "tech": true, "ports": true, "gf": true,
@@ -1730,7 +1726,6 @@ func workflowScanR2Prefixes(target string) []string {
 	}
 	add("new-results/" + h + "/")
 	add("results/" + h + "/")
-	add("lite/" + h + "/")
 	add("new-results/misconfig/" + h + "/")
 	add("misconfig/" + h + "/")
 	return out

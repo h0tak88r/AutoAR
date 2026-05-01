@@ -103,7 +103,6 @@ You control the AutoAR security tool via JSON actions.
 | autoar s3 enum -b ROOT_DOMAIN | Enumerate S3/cloud buckets (outputs JSON) |
 | autoar github scan -r OWNER/REPO | Scan GitHub repo for secrets (outputs txt) |
 | autoar zerodays scan -d DOMAIN | CVE/zero-day scan on live hosts (outputs JSON) |
-| autoar lite run -d DOMAIN | Fast recon workflow (subdomains+live+tech+nuclei) |
 | autoar domain run -d DOMAIN | Full deep-recon workflow |
 | autoar status --json | Poll active scan progress: {"active_scans":[{"target":"","scan_type":"","status":"","current_phase":0,"total_phases":0,"phase_name":""}]} |
 | autoar explain PATH | Feed any result file to AI for triage: returns markdown analysis |

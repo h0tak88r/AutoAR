@@ -26,7 +26,6 @@ import (
 	gfmod "github.com/h0tak88r/AutoAR/internal/scanner/gf"
 	githubmod "github.com/h0tak88r/AutoAR/internal/scanner/githubscan"
 	jsscanmod "github.com/h0tak88r/AutoAR/internal/scanner/jsscan"
-	litemod "github.com/h0tak88r/AutoAR/internal/scanner/lite"
 	livehostsmod "github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	misconfigmod "github.com/h0tak88r/AutoAR/internal/scanner/misconfig"
 	nucleimod "github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
@@ -706,51 +705,9 @@ func scanGitHubOrg(c *gin.Context) {
 	okStarted(c, scanID, fmt.Sprintf("GitHub organization scan started for %s", org))
 }
 
-// ── Lite workflow ─────────────────────────────────────────────────────────────
-
-func scanLite(c *gin.Context) {
-	var req ScanRequest
-	if !bindOrBad(c, &req) {
-		return
-	}
-	if !requireField(c, req.Domain, "Domain") {
-		return
-	}
-	domain := *req.Domain
-	opts := litemod.Options{
-		Domain:   domain,
-		Timeouts: make(map[string]int),
-	}
-	if req.SkipJS != nil {
-		opts.SkipJS = *req.SkipJS
-	}
-	if req.PhaseTimeout != nil && *req.PhaseTimeout > 0 {
-		opts.PhaseTimeoutDefault = *req.PhaseTimeout
-	}
-	if req.TimeoutLivehosts != nil {
-		opts.Timeouts["livehosts"] = *req.TimeoutLivehosts
-	}
-	if req.TimeoutReflection != nil {
-		opts.Timeouts["reflection"] = *req.TimeoutReflection
-	}
-	if req.TimeoutJS != nil {
-		opts.Timeouts["js"] = *req.TimeoutJS
-	}
-	if req.TimeoutNuclei != nil {
-		opts.Timeouts["nuclei"] = *req.TimeoutNuclei
-	}
-	msg := fmt.Sprintf("Lite scan started for %s", domain)
-	if opts.SkipJS {
-		msg += " (JavaScript scanning skipped)"
-	}
-	scanID := generateScanID()
-	go RunScanInProcess(scanID, "lite", domain, func() error {
-		_, err := litemod.RunLite(opts)
-		return err
-	})
-	okStarted(c, scanID, msg)
 }
-func scanApkX(c *gin.Context) {
+
+// ── APK/X APK analysis ───────────────────────────────────────────────
 	var req ScanRequest
 	if !bindOrBad(c, &req) {
 		return

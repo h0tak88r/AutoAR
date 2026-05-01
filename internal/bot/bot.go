@@ -631,8 +631,6 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleScanDomain(s, i)
 	case "scan_subdomain":
 		handleScanSubdomain(s, i)
-	case "lite_scan":
-		handleLiteScan(s, i)
 	case "fast_look":
 		handleFastLook(s, i)
 	case "domain_run":

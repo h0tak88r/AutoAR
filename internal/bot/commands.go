@@ -21,25 +21,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	domainmod "github.com/h0tak88r/AutoAR/internal/scanner/domain"
-	litemod "github.com/h0tak88r/AutoAR/internal/scanner/lite"
 	subdomainmod "github.com/h0tak88r/AutoAR/internal/scanner/subdomain"
 )
-
-// UploadedFileInfo holds information about an uploaded file (for lite scans)
-type UploadedFileInfo struct {
-	Phase     string `json:"phase"`
-	FileName  string `json:"file_name"`
-	FilePath  string `json:"file_path"`
-	Size      int64  `json:"size"`
-	SizeHuman string `json:"size_human"`
-	URL       string `json:"url"`
-}
-
-// LiteScanUploads holds all uploaded files information (for lite scans)
-type LiteScanUploads struct {
-	Domain string             `json:"domain"`
-	Files  []UploadedFileInfo `json:"files"`
-}
 
 // DomainScanUploads holds all uploaded files information (for domain_run scans)
 type DomainScanUploads struct {
@@ -567,11 +550,10 @@ func runScanBackground(scanID, scanType, target string, command []string, s *dis
 	// IMPORTANT: Send files BEFORE cleanup, otherwise files will be deleted
 	// Skip sending files for modules that handle their own messaging: dns, aem, misconfig, ffuf
 	// Skip domain_run and subdomain_run - they upload to R2 and are summarized via embed
-	// Skip lite - it sends files in real-time during the scan via utils.SendPhaseFiles
 	if err == nil && scanType != "dns" && scanType != "dns_takeover" && scanType != "dns_cname" &&
 		scanType != "dns_ns" && scanType != "dns_azure_aws" && scanType != "dns_dnsreaper" &&
 		scanType != "dns_dangling_ip" && scanType != "aem_scan" && scanType != "misconfig" && scanType != "ffuf" &&
-		scanType != "domain_run" && scanType != "subdomain_run" && scanType != "lite" {
+		scanType != "domain_run" && scanType != "subdomain_run" {
 		// Wait for files to be written to disk with retry logic
 		// Some commands (like subdomains) may take longer to write files
 		maxRetries := 5
@@ -767,60 +749,6 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanI
 			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
 			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
 			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
-		}
-	case "lite":
-		// Lite scan sends multiple result files from all phases
-		// Subdomains
-		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, target, "subs", "all-subs.txt"),
-			filepath.Join(resultsDir, target, "subs", "live-subs.txt"),
-		)
-		// CNAME records
-		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, target, "subs", "cname-records.txt"),
-		)
-		// URLs
-		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, target, "urls", "all-urls.txt"),
-			filepath.Join(resultsDir, target, "urls", "js-urls.txt"),
-		)
-		// JS vulnerabilities
-		jsDir := filepath.Join(resultsDir, target, "vulnerabilities", "js")
-		if matches, err := filepath.Glob(filepath.Join(jsDir, "*.txt")); err == nil {
-			resultFiles = append(resultFiles, matches...)
-		}
-		// Reflection/KXSS
-		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, target, "vulnerabilities", "kxss-results.txt"),
-		)
-		// Backup scan results
-		// Sanitize domain for filesystem (remove protocol, replace : with -)
-		sanitizedTarget := target
-		if strings.HasPrefix(target, "http://") {
-			sanitizedTarget = strings.TrimPrefix(target, "http://")
-		} else if strings.HasPrefix(target, "https://") {
-			sanitizedTarget = strings.TrimPrefix(target, "https://")
-		}
-		sanitizedTarget = strings.ReplaceAll(sanitizedTarget, ":", "-")
-		sanitizedTarget = strings.TrimRight(sanitizedTarget, "/")
-		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, sanitizedTarget, "backup", "fuzzuli-results.txt"),
-		)
-		// DNS takeover results
-		dnsDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
-		resultFiles = append(resultFiles,
-			filepath.Join(dnsDir, "dns-takeover-summary.txt"),
-		)
-		// Misconfiguration scan results
-		resultFiles = append(resultFiles,
-			filepath.Join(resultsDir, "misconfig", target, "scan-results.txt"),
-		)
-		// Nuclei results (if any)
-		// Nuclei writes files directly to vulnerabilities/ directory (not vulnerabilities/nuclei/)
-		// Files are named: nuclei-custom-others.txt, nuclei-public-http.txt, nuclei-custom-cves.txt, etc.
-		vulnDir := filepath.Join(resultsDir, target, "vulnerabilities")
-		if matches, err := filepath.Glob(filepath.Join(vulnDir, "nuclei-*.txt")); err == nil {
-			resultFiles = append(resultFiles, matches...)
 		}
 	case "dns_takeover":
 		domainDir := filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover")
@@ -1443,87 +1371,6 @@ func handleScanSubdomain(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	go runScanBackground(scanID, "subdomain", subdomain, command, s, i)
-}
-
-// Lite Scan
-func handleLiteScan(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	options := i.ApplicationCommandData().Options
-	domain := ""
-	skipJS := false
-	phaseTimeout := 3600
-	var timeoutLivehosts, timeoutReflection, timeoutJS, timeoutNuclei *int
-
-	for _, opt := range options {
-		switch opt.Name {
-		case "domain":
-			domain = opt.StringValue()
-		case "skip_js":
-			skipJS = opt.BoolValue()
-		case "phase_timeout":
-			phaseTimeout = int(opt.IntValue())
-		case "timeout_livehosts":
-			val := int(opt.IntValue())
-			timeoutLivehosts = &val
-		case "timeout_reflection":
-			val := int(opt.IntValue())
-			timeoutReflection = &val
-		case "timeout_js":
-			val := int(opt.IntValue())
-			timeoutJS = &val
-		case "timeout_nuclei":
-			val := int(opt.IntValue())
-			timeoutNuclei = &val
-		}
-	}
-
-	if domain == "" {
-		respond(s, i, "❌ Domain is required", false)
-		return
-	}
-
-	scanID := fmt.Sprintf("lite_%d", time.Now().Unix())
-
-	desc := fmt.Sprintf("**Target:** `%s`\n**Default per-phase timeout:** %ds", domain, phaseTimeout)
-	if skipJS {
-		desc += "\n**JS Phase:** skipped"
-	}
-	embed := &discordgo.MessageEmbed{
-		Title:       "🔍 AutoAR Lite Scan",
-		Description: desc,
-		Color:       0x3498db,
-	}
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}},
-	})
-
-	threadID := createScanThread(s, i, scanID, "Lite Scan", domain)
-
-	// Build lite options — copy pointers before goroutine capture.
-	liteOpts := litemod.Options{
-		Domain:              domain,
-		SkipJS:              skipJS,
-		PhaseTimeoutDefault: phaseTimeout,
-		Timeouts:            make(map[string]int),
-	}
-	if timeoutLivehosts != nil {
-		liteOpts.Timeouts["livehosts"] = *timeoutLivehosts
-	}
-	if timeoutReflection != nil {
-		liteOpts.Timeouts["reflection"] = *timeoutReflection
-	}
-	if timeoutJS != nil {
-		liteOpts.Timeouts["js"] = *timeoutJS
-	}
-	if timeoutNuclei != nil {
-		liteOpts.Timeouts["nuclei"] = *timeoutNuclei
-	}
-	_ = threadID // used for context; runScanInProcess manages DB
-
-	go api.RunScanInProcess(scanID, "lite", domain, func() error {
-		_, err := litemod.RunLite(liteOpts)
-		return err
-	})
 }
 
 // Fast Look

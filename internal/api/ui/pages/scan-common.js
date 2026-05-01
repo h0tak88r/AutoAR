@@ -78,7 +78,6 @@
       case 'ffuf': return `[ ⚪ ] FFuf — No hidden directories found for ${t}`;
       case 'dns': return `[ ⚪ ] DNS takeover — No vulnerable records or dangling IPs found for ${t}`;
       case 'cf1016': return `[ ⚪ ] CF1016 dangling DNS — No missing Cloudflare origins found for ${t}`;
-      case 'lite': return `[ ⚪ ] Lite Workflow — No result files were indexed for ${t}. Check Discord (if used) for per-phase summaries, or confirm R2 / artifact indexing.`;
       case 'apkx': return `[ ⚪ ] Apkx — No files indexed yet for ${t}. Results are stored in R2 — use Browse R2 to view them, or trigger a Rescan.`;
       default: {
         const name = st ? st.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Scan';
