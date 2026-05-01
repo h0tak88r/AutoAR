@@ -24,6 +24,16 @@ import (
 	subdomainmod "github.com/h0tak88r/AutoAR/internal/scanner/subdomain"
 )
 
+// UploadedFileInfo holds information about an uploaded file
+type UploadedFileInfo struct {
+	Phase     string `json:"phase"`
+	FileName  string `json:"file_name"`
+	FilePath  string `json:"file_path"`
+	Size      int64  `json:"size"`
+	SizeHuman string `json:"size_human"`
+	URL       string `json:"url"`
+}
+
 // DomainScanUploads holds all uploaded files information (for domain_run scans)
 type DomainScanUploads struct {
 	Domain string             `json:"domain"`
