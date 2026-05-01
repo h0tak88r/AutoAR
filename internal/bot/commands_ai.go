@@ -61,7 +61,6 @@ You help security researchers by understanding their natural-language requests a
 |---------------|-------------|
 | domain_run    | Full domain workflow: subdomain enum → live hosts → URLs/JS → reflection → ports → nuclei → tech → DNS → backup → misconfig |
 | subdomain_run | Full single-subdomain workflow: live check → all scans |
-| lite_scan     | Lighter full scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig |
 | fast_look     | Quick recon: subdomain enum → live hosts → URL/JS collection |
 | subdomains    | Enumerate subdomains for a domain |
 | livehosts     | Filter which subdomains/IPs are currently live (HTTP-probe) |
@@ -387,12 +386,6 @@ func runAICommand(s *discordgo.Session, i *discordgo.InteractionCreate, cmd aiCm
 		}
 		target = t
 		command = []string{utils.GetAutoarScriptPath(), "subdomain", "run", "-s", target}
-
-	case "lite_scan", "lite":
-		if domain == "" {
-			return fmt.Errorf("lite_scan requires a domain")
-		}
-		command = []string{utils.GetAutoarScriptPath(), "lite", "scan", "-d", domain}
 
 	case "fast_look", "fastlook":
 		if domain == "" {

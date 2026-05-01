@@ -18,7 +18,7 @@ window.AppConfigState = {
     subdomains: [],
     loading: {},
     error: {},
-    scanType: 'lite',
+    scanType: 'recon',
     scanTarget: '',
     pollTimer: null,
     scanDetailId: null,

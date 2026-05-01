@@ -68,20 +68,6 @@ func registerAllCommands(s *discordgo.Session) {
 			},
 		},
 		{
-			Name:        "lite_scan",
-			Description: "Full scan: livehosts → reflection → JS → CNAME → backup → DNS → misconfig",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "domain", Description: "The domain to scan", Required: true},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "verbose", Description: "Enable verbose output", Required: false},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_js", Description: "Skip JavaScript scanning step", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "phase_timeout", Description: "Default per-phase timeout in seconds (default: 3600)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "timeout_livehosts", Description: "Override timeout for livehosts phase (seconds)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "timeout_reflection", Description: "Override timeout for reflection phase (seconds)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "timeout_js", Description: "Override timeout for JS phase (seconds)", Required: false},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "timeout_nuclei", Description: "Override timeout for nuclei phase (seconds)", Required: false},
-			},
-		},
-		{
 			Name:        "fast_look",
 			Description: "Quick reconnaissance: subdomain enumeration → live host filtering → URL/JS collection",
 			Options: []*discordgo.ApplicationCommandOption{
