@@ -702,12 +702,12 @@ func scanGitHubOrg(c *gin.Context) {
 		_, err := githubmod.Run(githubmod.Options{Org: org})
 		return err
 	})
-	okStarted(c, scanID, fmt.Sprintf("GitHub organization scan started for %s", org))
-}
-
+okStarted(c, scanID, fmt.Sprintf("GitHub organization scan started for %s", org))
 }
 
 // ── APK/X APK analysis ───────────────────────────────────────────────
+
+func scanApkX(c *gin.Context) {
 	var req ScanRequest
 	if !bindOrBad(c, &req) {
 		return
