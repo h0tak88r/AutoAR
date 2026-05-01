@@ -260,39 +260,40 @@
       <div class="scan-launcher-title">🚀 Quick Scan Launcher</div>
       <div class="scan-form">
         <select id="launch-type">
-          <optgroup label="Workflow &amp; recon">
-            <option value="domain_scan">domain_scan (workflow)</option>
-            <option value="subdomain_scan">subdomain_scan (workflow)</option>
+          <optgroup label="Workflows">
             <option value="recon" selected>recon (Asset Discovery)</option>
+            <option value="domain_scan">domain_scan (Full Workflow)</option>
+            <option value="subdomain_scan">subdomain_scan (Single Subdomain)</option>
+          </optgroup>
+          <optgroup label="Modules">
             <option value="subdomains">subdomains</option>
             <option value="livehosts">livehosts</option>
-            <option value="cnames">cnames</option>
             <option value="urls">urls</option>
-            <option value="js">js</option>
-            <option value="reflection">reflection</option>
+            <option value="tech">tech</option>
             <option value="nuclei">nuclei</option>
             <option value="ports">ports</option>
-            <option value="tech">tech</option>
-            <option value="gf">gf</option>
-            <option value="backup">backup</option>
-            <option value="misconfig">misconfig</option>
-            <option value="apkx">apkx (APK analysis)</option>
           </optgroup>
           <optgroup label="DNS">
             <option value="dns">dns (takeover)</option>
             <option value="dns_dangling">dns (dangling-ip)</option>
-            <option value="dns_takeover">dns-takeover (legacy)</option>
-            <option value="dns_cf1016">dns-cf1016 (Cloudflare 1016)</option>
+            <option value="dns_cf1016">dns-cf1016</option>
           </optgroup>
           <optgroup label="Cloud &amp; source">
             <option value="s3">s3 (bucket)</option>
-            <option value="github">github (repo)</option>
-            <option value="github_org">github_org (organization)</option>
+            <option value="github">github</option>
+            <option value="github_org">github_org</option>
           </optgroup>
           <optgroup label="Advanced">
+            <option value="cnames">cnames</option>
+            <option value="js">js</option>
+            <option value="reflection">reflection</option>
+            <option value="gf">gf</option>
+            <option value="backup">backup</option>
+            <option value="misconfig">misconfig</option>
             <option value="zerodays">zerodays</option>
-            <option value="ffuf">ffuf (URL + FUZZ)</option>
-            <option value="jwt">jwt (token)</option>
+            <option value="ffuf">ffuf</option>
+            <option value="jwt">jwt</option>
+            <option value="apkx">apkx</option>
           </optgroup>
         </select>
         <select id="launch-target-mode"></select>
