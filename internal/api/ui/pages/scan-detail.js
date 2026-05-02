@@ -603,6 +603,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       buckets: '🪣 S3 Buckets',
       ports: '📡 Ports',
       reflection: '🔎 Reflection',
+      'github-scan': '🐦 GitHub Secrets',
       other: '📁 Other',
     };
 
