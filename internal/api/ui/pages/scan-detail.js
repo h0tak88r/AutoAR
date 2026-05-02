@@ -543,8 +543,10 @@
 
         const looksLikeJSMatcher = /^\s*\[[^\]]+\].*->/i.test(finding) || file.includes('js-secret') || file.includes('js-exposure');
         const looksLikeJSURL = file.includes('js-url') || /\.m?jsx?(\?|$)/i.test(target);
+        const looksLikeGitHub = file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table');
 
-        if (looksLikeJSMatcher) kind = 'js-analysis';
+        if (looksLikeGitHub) kind = 'github-scan';
+        else if (looksLikeJSMatcher) kind = 'js-analysis';
         else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
         if (isAPKScan) kind = 'apkx';
 
@@ -576,7 +578,7 @@
         return true;
       });
 
-    const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github', 'sqlmap', 'aem-findings']);
+    const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'sqlmap', 'aem-findings']);
     const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
 
     const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run';
