@@ -173,47 +173,10 @@
             </div>
           </div>`;
       } else {
-        const reportCard = `
-          <div class="modern-card" id="scan-report-card">
-            <div class="card-header">
-              <div class="card-title"><span class="card-title-icon">📄</span>Generate Report</div>
-            </div>
-            <div style="padding:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-              <select id="scan-report-template-sel" style="
-                flex:1;min-width:180px;
-                padding:8px 12px;
-                background:var(--bg-input);
-                border:1px solid var(--border);
-                border-radius:8px;
-                color:var(--text-primary);
-                font-size:13px
-              ">
-                <option value="default">Default template</option>
-              </select>
-              <button id="scan-report-preview-btn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">
-                👁 Preview
-              </button>
-              <a id="scan-report-download-btn" class="btn btn-primary" style="font-size:12px;padding:8px 14px;text-decoration:none" href="#" download>
-                ⬇ Download .md
-              </a>
-            </div>
-            <div id="scan-report-preview" style="
-              display:none;
-              padding:16px;
-              border-top:1px solid var(--border);
-              max-height:400px;
-              overflow-y:auto;
-              font-size:13px;
-              white-space:pre-wrap;
-              color:var(--text-primary)
-            "></div>
-          </div>`;
-
         html = `
           <div class="scan-detail-modern">
             ${zipBanner}
             ${manifestCard}
-            ${reportCard}
             ${emptyBanner}
             
             <div class="modern-card">
@@ -229,52 +192,6 @@
       }
 
       container.innerHTML = html;
-
-      // Wire report generation card
-      const reportTemplateSel = document.getElementById('scan-report-template-sel');
-      const reportPreviewBtn  = document.getElementById('scan-report-preview-btn');
-      const reportDownloadBtn = document.getElementById('scan-report-download-btn');
-      const reportPreviewDiv  = document.getElementById('scan-report-preview');
-
-      if (reportTemplateSel) {
-        apiFetch('/api/report-templates').then(resp => {
-          const templates = Array.isArray(resp) ? resp : (resp?.templates || []);
-          templates.forEach(t => {
-            const opt = document.createElement('option');
-            opt.value = t.name || t;
-            opt.textContent = t.name || t;
-            if (opt.value !== 'default') reportTemplateSel.appendChild(opt);
-          });
-        }).catch(() => {});
-      }
-
-      if (reportDownloadBtn && reportTemplateSel) {
-        const buildReportUrl = () => {
-          const tmpl = encodeURIComponent(reportTemplateSel.value || 'default');
-          return `/api/scans/${encodeURIComponent(scanId)}/report?template=${tmpl}&format=markdown`;
-        };
-        reportDownloadBtn.href = buildReportUrl();
-        reportTemplateSel.addEventListener('change', () => {
-          reportDownloadBtn.href = buildReportUrl();
-          if (reportPreviewDiv && reportPreviewDiv.style.display !== 'none') {
-            previewReport();
-          }
-        });
-      }
-
-      const previewReport = async () => {
-        if (!reportPreviewDiv || !reportTemplateSel) return;
-        const tmpl = encodeURIComponent(reportTemplateSel.value || 'default');
-        try {
-          const r = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/report?template=${tmpl}&format=json`);
-          reportPreviewDiv.textContent = r.rendered || '(empty)';
-          reportPreviewDiv.style.display = 'block';
-        } catch (e) {
-          reportPreviewDiv.textContent = 'Error loading preview: ' + e.message;
-          reportPreviewDiv.style.display = 'block';
-        }
-      };
-      if (reportPreviewBtn) reportPreviewBtn.addEventListener('click', previewReport);
 
       window.wireScanFileRows(container, scanId);
       window.wireScanDetailFilters(scanId, files);
@@ -606,7 +523,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'github', 'sqlmap', 'aem-findings']);
     const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || r.module === 'github-scan' || r.module === 'github' ? k === 'github-scan' : k)).length), 0);
 
-    const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run';
+    const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run' || stNorm === 'domain_run';
     const isGitHubScan = /github/.test(stNorm) || allRows.some(r => r.module === 'github-scan' || r.module === 'github');
     let activeKind = isReconScan ? 'assets' : 'urls';
     if (isGitHubScan && allRows.some(r => r.module === 'github-scan' || r.module === 'github')) {
@@ -992,6 +909,11 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
         if (!VULN_KINDS.has(k)) return false;
         if (searchModule !== 'all' && window.normalizeModuleKey(r.module) !== searchModule) return false;
       } else if (k !== activeKind) return false;
+
+      // Optional module narrow (all standard tabs except per-module rails, already constrained above)
+      if (searchModule !== 'all' && !String(activeKind || '').startsWith('mod:') && activeKind !== 'vuln') {
+        if (window.normalizeModuleKey(r.module) !== searchModule) return false;
+      }
       
       if (activeKind === 'urls' && searchJsOnly && !r.is_js) return false;
       if (searchHost && !String(r.host || r.target || '').toLowerCase().includes(searchHost)) return false;
@@ -1024,9 +946,9 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
           <section style="min-width:0;position:relative">
             <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
             <div id="recon-severity-bar" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.6);display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
-            <div id="recon-filter-bar" style="display:grid;grid-template-columns:minmax(200px,1.5fr) 140px 140px minmax(180px,1fr) auto;gap:8px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
-              <input id="recon-filter-host" type="search" placeholder="🔍 Filter by target URL..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
-              <select id="recon-filter-severity" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+            <div id="recon-filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
+              <input id="recon-filter-host" type="search" placeholder="🔍 Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+              <select id="recon-filter-severity" title="Severity" style="flex:0 0 auto;min-width:132px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
                 <option value="any">Any Severity</option>
                 <option value="critical">🔴 Critical</option>
                 <option value="high">🟠 High</option>
@@ -1034,17 +956,19 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
                 <option value="low">🔵 Low</option>
                 <option value="info">🟢 Info</option>
               </select>
-              <select id="recon-filter-module" style="display:${activeKind === 'vuln' ? 'block' : 'none'};padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
-                <option value="all">All Modules</option>
+              <select id="recon-filter-module" title="Module (optional narrow)" style="flex:1 1 140px;min-width:140px;max-width:240px;display:none;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+                <option value="all">All modules</option>
               </select>
-              <input id="recon-filter-title" type="search" placeholder="🔍 Filter by type / finding..." style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
-              <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--text-muted);white-space:nowrap">
-                <span><span id="recon-unified-shown">0</span> rows</span>
-              </div>
+              <input id="recon-filter-title" type="search" placeholder="🔍 Finding / title…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+              <span style="flex:0 0 auto;margin-left:auto;font-size:11px;color:var(--text-muted);white-space:nowrap"><span id="recon-unified-shown">0</span> rows</span>
             </div>
             <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.38)">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap">📋 Copy selected</button>
+                <button type="button" id="recon-copy-selected-json" title="Copy checked rows as JSON (current page)" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap">📋 Copy JSON</button>
+              </div>
               <div id="recon-quick-chips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
-              <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+              <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <select id="recon-view-mode" style="padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
                   <option value="smart">Smart columns</option>
                   <option value="raw">Raw columns</option>
@@ -1251,11 +1175,60 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       }
       const pag = root.querySelector('#recon-pagination');
       if (pag) { if (totalPages <= 1) pag.style.display = 'none'; else { pag.style.display = 'flex'; pag.innerHTML = `<button id="recon-prev" class="btn btn-sm" ${_currentPage === 1 ? 'disabled' : ''}>← Prev</button> <span style="color:var(--text-secondary);font-weight:600">Page ${_currentPage} of ${totalPages}</span> <button id="recon-next" class="btn btn-sm" ${_currentPage === totalPages ? 'disabled' : ''}>Next →</button> <span style="color:var(--text-muted);margin-left:auto">${filtered.length} total rows</span>`; pag.querySelector('#recon-prev').onclick = () => { if (_currentPage > 1) { _currentPage--; renderBody(); wrap.scrollTop = 0; } }; pag.querySelector('#recon-next').onclick = () => { if (_currentPage < totalPages) { _currentPage++; renderBody(); wrap.scrollTop = 0; } }; } }
+
+      refreshModuleFilterVisibility();
+      bindFindingsSelectAllCheckbox();
+    };
+
+    const refreshModuleFilterVisibility = () => {
+      const m = root.querySelector('#recon-filter-module');
+      if (!m) return;
+      const hideRail = activeKind === 'assets' || activeKind === 'urls';
+      const ak = String(activeKind || '');
+      const pinnedMod = ak.startsWith('mod:') || ak.startsWith('apkcat:');
+      const showModule = !hideRail && !pinnedMod && usedModulesRaw.length > 1;
+      m.style.display = showModule ? '' : 'none';
+      if (!showModule || hideRail || pinnedMod) {
+        if (pinnedMod || hideRail) {
+          searchModule = 'all';
+          m.value = 'all';
+        }
+      }
+    };
+
+    function bindFindingsSelectAllCheckbox() {
+      const theadBox = root.querySelector('#findings-select-all');
+      const tbodyEl = root.querySelector('#recon-unified-tbody');
+      if (!theadBox || !tbodyEl || standardView.style.display === 'none') return;
+      const syncHeader = () => {
+        const cbs = Array.from(tbodyEl.querySelectorAll('.finding-chk'));
+        const n = cbs.filter((c) => c.checked).length;
+        theadBox.indeterminate = n > 0 && n < cbs.length;
+        theadBox.checked = cbs.length > 0 && n === cbs.length;
+      };
+      theadBox.onclick = () => {
+        tbodyEl.querySelectorAll('.finding-chk').forEach((cb) => {
+          cb.checked = theadBox.checked;
+        });
+        theadBox.indeterminate = false;
+      };
+      tbodyEl.querySelectorAll('.finding-chk').forEach((cb) => {
+        cb.onchange = syncHeader;
+      });
+      syncHeader();
+    }
+
+    const findingRowPlainLine = (r) => {
+      const target = String(r.target || r.host || '—').replace(/\t/g, ' ');
+      const sev = String(r.severity || '').replace(/\t/g, ' ');
+      const finding = String(r.finding || r.title || '—').replace(/\t|\n/g, ' ');
+      const mod = String(r.module || '').replace(/\t/g, ' ');
+      return `${target}\t${sev}\t${finding}\t${mod}`;
     };
 
     const switchReconView = (kind) => {
       activeKind = kind; persistUIState(); renderTabs();
-      const m = root.querySelector('#recon-filter-module'); if (m) { const isM = String(activeKind).startsWith('mod:'); m.style.display = (activeKind === 'vuln' && !isM) ? 'block' : 'none'; if (activeKind !== 'vuln' || isM) { m.value = 'all'; searchModule = 'all'; } }
+      refreshModuleFilterVisibility();
       if (activeKind === 'assets') { standardView.style.display = 'none'; assetsView.style.display = 'block'; urlsView.style.display = 'none'; showAssetsView(); }
       else if (activeKind === 'urls') { assetsView.style.display = 'none'; showURLsView(); }
       else { standardView.style.display = 'block'; assetsView.style.display = 'none'; urlsView.style.display = 'none'; _currentPage = 1; renderBody(); }
@@ -1330,6 +1303,46 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
     const applyF = () => { searchHost = hostI?.value.toLowerCase().trim(); searchTitle = titleI?.value.toLowerCase().trim(); filterSeverity = sevS?.value; _currentPage = 1; renderBody(); };
     if (hostI) hostI.addEventListener('input', applyF); if (titleI) titleI.addEventListener('input', applyF); if (sevS) sevS.addEventListener('change', applyF);
+
+    const collectCheckedFindingRows = () => {
+      const tbodyEl = root.querySelector('#recon-unified-tbody');
+      if (!tbodyEl) return [];
+      const out = [];
+      tbodyEl.querySelectorAll('.finding-chk:checked').forEach((cb) => {
+        const tr = cb.closest('tr');
+        if (!tr || tr.classList.contains('virtual-pad-top') || tr.classList.contains('virtual-pad-bottom')) return;
+        const i = Number(tr.dataset.rowIndex);
+        if (!Number.isNaN(i) && currentRenderedRows[i]) out.push(currentRenderedRows[i]);
+      });
+      return out;
+    };
+    const copyTsvBtn = root.querySelector('#recon-copy-selected-tsv');
+    const copyJsonBtn = root.querySelector('#recon-copy-selected-json');
+    if (copyTsvBtn) {
+      copyTsvBtn.addEventListener('click', async () => {
+        const rows = collectCheckedFindingRows();
+        if (!rows.length) { showToast('info', 'Nothing selected', 'Select one or more rows on this page, then copy.'); return; }
+        const text = ['TARGET\tSEVERITY\tFINDING\tMODULE', ...rows.map(findingRowPlainLine)].join('\n');
+        try {
+          await copyToClipboard(text);
+          showToast('success', 'Copied', `${rows.length} row(s) as TSV`);
+        } catch (e) {
+          showToast('error', 'Copy failed', e.message || String(e));
+        }
+      });
+    }
+    if (copyJsonBtn) {
+      copyJsonBtn.addEventListener('click', async () => {
+        const rows = collectCheckedFindingRows();
+        if (!rows.length) { showToast('info', 'Nothing selected', 'Select one or more rows on this page, then copy.'); return; }
+        try {
+          await copyToClipboard(JSON.stringify(rows, null, 2));
+          showToast('success', 'Copied', `${rows.length} row(s) as JSON`);
+        } catch (e) {
+          showToast('error', 'Copy failed', e.message || String(e));
+        }
+      });
+    }
     
     if (wrap) wrap.addEventListener('scroll', () => { _virtualScrollTop = wrap.scrollTop; if (currentRenderedRows.length > 150) renderBody(); });
     
