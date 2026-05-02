@@ -18,7 +18,7 @@
       } catch (e) { /* ignore */ }
 
       const n = state.stats?.active_scans ?? 0;
-      const onScans = false;
+      const onScans = state.view === 'scans';
       let isViewingActiveScan = false;
       if (state.view === 'scan-detail' && state.scanDetailId) {
         const activeIds = (state.scans?.active_scans || []).map((s) => String(s.id || s.Id || ''));
@@ -28,10 +28,12 @@
       let ms = window.POLL_INTERVAL;
       if ((onScans || isViewingActiveScan) && n > 0) ms = window.POLL_FAST_SCANS;
       else if (n > 0) ms = window.POLL_FAST_ANY;
+      // Scans page should not aggressively rerender launcher/UI controls.
+      if (onScans) ms = Math.max(ms, 30000);
 
       state.pollTimer = setTimeout(tick, ms);
     };
-    state.pollTimer = setTimeout(tick, 600);
+    state.pollTimer = setTimeout(tick, 1500);
   }
 
   function refreshCurrentView() {
