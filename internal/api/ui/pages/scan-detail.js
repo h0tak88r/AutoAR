@@ -526,7 +526,8 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run' || stNorm === 'domain_run';
     const isGitHubScan = /github/.test(stNorm) || allRows.some(r => r.module === 'github-scan' || r.module === 'github');
     let activeKind = isReconScan ? 'assets' : 'urls';
-    if (isGitHubScan && allRows.some(r => r.module === 'github-scan' || r.module === 'github')) {
+    if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
+    if (!isReconScan && isGitHubScan && allRows.some(r => window.normalizeModuleKey(r.module) === 'github-scan')) {
       activeKind = 'mod:github-scan';
     }
     let searchHost = '';
@@ -550,6 +551,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       reflection: '🔎 Reflection',
       'github-scan': '🐦 GitHub Secrets',
       other: '📁 Other',
+      github: '🐙 GitHub Secrets',
     };
 
     const dynamicKinds = [...new Set(allRows.map(r => r.kind || 'other'))];
@@ -561,7 +563,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
 
     dynamicKinds.forEach(k => {
       if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k) || k === 'github-scan') {
-        if (['js-analysis', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'github-scan'].includes(k)) {
+        if (['js-analysis', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'github-scan', 'github'].includes(k)) {
           DATASET_TABS.push([k, TAB_LABELS[k] || k]);
         }
         return;
@@ -873,7 +875,8 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     let currentRenderedRows = [];
     let _virtualScrollTop = 0;
     const presetStorageKey = `autoar.recon.filtersets.${stNorm || 'generic'}`;
-    const uiStateKey = `autoar.recon.uistate.${scanId}`;
+    // Per-scan id so a saved "Assets" tab from a domain recon does not blank GitHub / other scans.
+    const uiStateKey = `autoar.recon.uistate.${encodeURIComponent(scanId)}`;
     const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
     let savedFilterSets = {};
 

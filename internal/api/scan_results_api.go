@@ -289,6 +289,9 @@ func inferModuleFromFileName(name string) string {
 		return "httpx"
 	case strings.Contains(n, "js-url") || strings.Contains(n, "jsurl"):
 		return "js-analysis"
+	// GitHub TruffleHog aggregate — must win over generic "secret" substring match.
+	case strings.Contains(n, "github-secret") || strings.Contains(n, "github-secrets") || (strings.Contains(n, "github") && strings.Contains(n, "secret")):
+		return "github-scan"
 	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure") || strings.Contains(n, "secret"):
 		return "js-analysis"
 	case strings.Contains(n, "apk") || strings.Contains(n, "androidmanifest") || strings.Contains(n, "jadx") || strings.Contains(n, "dex"):
@@ -996,6 +999,9 @@ func inferReconKind(fileName string) string {
 		return "apkx"
 	}
 	switch {
+	// GitHub secret findings (dashboard tabs + filters)
+	case strings.Contains(b, "github-secret") || strings.Contains(b, "github-secrets"):
+		return "github"
 	// Log files
 	case strings.HasSuffix(b, ".log"):
 		return "logs"
