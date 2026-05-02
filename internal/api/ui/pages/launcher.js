@@ -156,7 +156,13 @@
           break;
         case 'subdomain':
         case 'subdomain_list':
-          body.subdomain = item;
+          // Some endpoints (e.g. /scan/backup) intentionally accept only "domain"
+          // but can still operate on a single subdomain value.
+          if (spec.path === 'backup' || spec.path === 'tech' || spec.path === 'ports' || spec.path === 'gf' || spec.path === 'misconfig' || spec.path === 'recon' || spec.path === 'domain_run') {
+            body.domain = item;
+          } else {
+            body.subdomain = item;
+          }
           break;
         case 'url':
         case 'url_list':
