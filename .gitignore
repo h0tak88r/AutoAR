@@ -51,6 +51,9 @@ logs/
 # Test files and directories
 test-*
 *test*
+!tests/
+!tests/ui/
+!tests/ui/*.test.js
 tmp_*
 
 # Secrets and API keys (but allow keyhack module and scripts)
