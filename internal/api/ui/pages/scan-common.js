@@ -91,10 +91,11 @@
     const n = String(fileName || '').toLowerCase();
     if (!n) return 'unknown';
     if (n.includes('/apkx/') || n.includes('\\apkx\\')) return 'apkx';
+    if (n.includes('github') || n.includes('trufflehog') || n.includes('github-secrets') || n.includes('secrets_table')) return 'github-scan';
     if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
     if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
     if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';
-    if (n.includes('js-urls') || n.includes('javascript') || n.includes('js-')) return 'js-analysis';
+    if (n.includes('js-urls') || n.includes('javascript')) return 'js-analysis';
     if (n.includes('apk') || n.includes('androidmanifest') || n.includes('jadx') || n.includes('dex')) return 'apkx';
     if (n.includes('kxss') || n.includes('dalfox') || n.includes('xss-reflection')) return 'xss-detection';
     if (n.includes('reflection')) return 'xss-detection';
