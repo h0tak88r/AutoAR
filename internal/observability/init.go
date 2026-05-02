@@ -59,7 +59,9 @@ func InitializeTracing(exporterType string) error {
 func StartSpan(ctx context.Context, name string) (context.Context, func()) {
 	tracer := otel.Tracer("autoar")
 	ctx, span := tracer.Start(ctx, name)
-	return ctx, span.End
+	return ctx, func() {
+		span.End()
+	}
 }
 
 // LogWithTrace adds trace/span information to zerolog logger for correlation.
