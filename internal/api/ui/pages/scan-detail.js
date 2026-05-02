@@ -495,7 +495,7 @@
           const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?file_name=${encodeURIComponent(f.file_name)}&page=1&per_page=500`);
           const rows = window.previewDataToFlatRows(data, f).map((r) => ({
             ...r,
-            kind: window.inferKindFromFileName(r.file),
+            kind: window.detectModuleFromFileName(r.file, r.module),
             category: window.categorizeScanArtifactFile(r.file),
           }));
           allRows.push(...rows);
@@ -505,7 +505,7 @@
             module: detectModuleFromFileName(f.file_name, f.module),
             source: f.source || '—',
             category: window.categorizeScanArtifactFile(f.file_name),
-            kind: window.inferKindFromFileName(f.file_name),
+            kind: window.detectModuleFromFileName(f.file_name, f.module),
             severity: '—',
             target: '—',
             finding: `[Error reading file] ${e.message || e}`,
@@ -532,7 +532,7 @@
 
     allRows = allRows
       .map((r) => {
-        let kind = String(r.kind || window.inferKindFromFileName(r.file) || 'other').toLowerCase().trim();
+        let kind = String(r.kind || window.detectModuleFromFileName(r.file, r.module) || 'other').toLowerCase().trim();
         const file = String(r.file || '').toLowerCase();
         const target = String(r.target || r.host || '').toLowerCase();
         const finding = String(r.title || r.finding || '').trim();
