@@ -16,8 +16,23 @@
       case 'gf-patterns': return ['TARGET', 'PATTERN', 'VALUE', 'SOURCE'];
       case 'misconfig': return ['TARGET', 'SEV', 'SERVICE', 'FINDING'];
       case 'ffuf-fuzzing': return ['URL', 'STATUS', 'WORD', 'LENGTH'];
+      case 'github-scan': return ['TARGET / SOURCE', 'SEV', 'DETECTOR', 'VERIFIED / LOCATION'];
       default: return ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'];
     }
+  }
+
+  function getRawValue(raw, keys) {
+    if (!raw || typeof raw !== 'object') return '';
+    for (const k of keys) {
+      if (Object.prototype.hasOwnProperty.call(raw, k) && raw[k] != null && raw[k] !== '') return raw[k];
+    }
+    const lowered = {};
+    Object.keys(raw).forEach((k) => { lowered[String(k).toLowerCase()] = raw[k]; });
+    for (const k of keys) {
+      const lk = String(k).toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(lowered, lk) && lowered[lk] != null && lowered[lk] !== '') return lowered[lk];
+    }
+    return '';
   }
 
   function renderDefaultRow(r, idx, modInfo, sevMeta) {
@@ -185,6 +200,35 @@
       c2 = `<td style="padding:7px 10px;text-align:center;white-space:nowrap"><span style="font-size:11px;color:var(--accent-cyan);font-family:var(--font-mono,monospace)">${esc(status)}</span></td>`;
       c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--accent-purple)">${esc(pathWord)}</span></td>`;
       c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(length)}</span></td>`;
+    } else if (moduleTab === 'github-scan') {
+      const raw = (r.raw && typeof r.raw === 'object') ? r.raw : {};
+      const sourceMetadata = getRawValue(raw, ['source_metadata', 'SourceMetadata']) || {};
+      const sourceData = (sourceMetadata && typeof sourceMetadata === 'object')
+        ? (getRawValue(sourceMetadata, ['data', 'Data']) || {})
+        : {};
+      const detector = String(getRawValue(raw, ['detector_name', 'DetectorName', 'detector', 'template_id', 'templateId']) || r.finding || 'Unknown detector');
+      const verified = getRawValue(raw, ['verified', 'Verified']);
+      const redacted = String(getRawValue(raw, ['redacted', 'Redacted']) || '');
+      const sourceFile = String((sourceData && typeof sourceData === 'object') ? getRawValue(sourceData, ['file', 'File']) : '');
+      const sourceLine = String((sourceData && typeof sourceData === 'object') ? getRawValue(sourceData, ['line', 'Line']) : '');
+      const sourceLink = String((sourceData && typeof sourceData === 'object') ? getRawValue(sourceData, ['link', 'Link']) : '');
+
+      const targetUrl = sourceLink || String(r.target || '');
+      const sourceLabel = sourceFile ? `${sourceFile}${sourceLine ? `:${sourceLine}` : ''}` : (targetUrl || displayTarget || '—');
+      if (targetUrl) {
+        displayTarget = targetUrl;
+        href = targetUrl;
+      } else {
+        displayTarget = sourceLabel;
+        href = '#';
+      }
+      const sevLabel = String(sevMeta.label || (String(r.severity || '').toUpperCase() || 'MED'));
+      const verifiedLabel = (String(verified).toLowerCase() === 'true') ? 'Verified' : 'Unverified';
+      const verifiedColor = (String(verified).toLowerCase() === 'true') ? '#22c55e' : '#94a3b8';
+      const detectorText = redacted ? `${detector} - ${redacted}` : detector;
+      c2 = `<td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevLabel)}</span></td>`;
+      c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(detectorText)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);">${esc(detectorText.length > 120 ? `${detectorText.slice(0, 117)}...` : detectorText)}</span></td>`;
+      c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:${verifiedColor};font-size:11px;font-weight:600">${esc(verifiedLabel)}</span><span style="color:var(--text-muted);font-family:var(--font-mono,monospace);font-size:10px;margin-left:6px">${esc(sourceLabel)}</span></td>`;
     }
     tdTarget = isApkUnifiedTab ? `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</span></td>` : `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</a></td>`;
     return `<tr class="findings-row" data-target="${escAttr(displayTarget)}" data-finding="${escAttr(isApkUnifiedTab ? apkMatcherValue : finding)}" data-severity="${escAttr(isApkUnifiedTab ? (apkCategoryLabel || 'APK Analysis') : (r.severity || ''))}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}"><td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>${tdTarget}${c2}${c3}${c4}</tr>`;

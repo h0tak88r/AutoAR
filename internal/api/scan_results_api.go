@@ -939,6 +939,73 @@ func minInt(a, b int) int {
 }
 
 func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFinding {
+	// TruffleHog scanner-native finding object (GitHub secrets).
+	// Keep raw fields intact for dynamic frontend rendering while extracting
+	// stable summary columns.
+	if v["DetectorName"] != nil || v["detector_name"] != nil || v["SourceMetadata"] != nil || v["source_metadata"] != nil {
+		getAny := func(m map[string]interface{}, keys ...string) interface{} {
+			for _, k := range keys {
+				if val, ok := m[k]; ok {
+					return val
+				}
+			}
+			lower := map[string]interface{}{}
+			for k, val := range m {
+				lower[strings.ToLower(k)] = val
+			}
+			for _, k := range keys {
+				if val, ok := lower[strings.ToLower(k)]; ok {
+					return val
+				}
+			}
+			return nil
+		}
+		asMap := func(x interface{}) map[string]interface{} {
+			if m, ok := x.(map[string]interface{}); ok {
+				return m
+			}
+			return map[string]interface{}{}
+		}
+		detector := strings.TrimSpace(fmt.Sprint(getAny(v, "DetectorName", "detector_name", "detector", "templateId", "template_id")))
+		if detector == "" || detector == "<nil>" {
+			detector = "GitHub Secret"
+		}
+		verifiedRaw := getAny(v, "Verified", "verified")
+		verified := strings.EqualFold(strings.TrimSpace(fmt.Sprint(verifiedRaw)), "true")
+		sev := firstNonEmpty(
+			fmt.Sprint(getAny(v, "severity", "Severity")),
+			func() string {
+				if verified {
+					return "high"
+				}
+				return "medium"
+			}(),
+		)
+		sourceMeta := asMap(getAny(v, "SourceMetadata", "source_metadata"))
+		sourceData := asMap(getAny(sourceMeta, "Data", "data"))
+		link := strings.TrimSpace(fmt.Sprint(getAny(sourceData, "Link", "link")))
+		file := strings.TrimSpace(fmt.Sprint(getAny(sourceData, "File", "file")))
+		line := strings.TrimSpace(fmt.Sprint(getAny(sourceData, "Line", "line")))
+		target := firstNonEmpty(link, file, fallback, "—")
+		location := strings.TrimSpace(strings.Trim(link+" "+file+" "+line, " "))
+		findingText := detector
+		if location != "" {
+			findingText = detector + " — " + location
+		}
+		normRaw := make(map[string]interface{}, len(v)+8)
+		for k, val := range v {
+			normRaw[k] = val
+			normRaw[strings.ReplaceAll(k, "-", "_")] = val
+			normRaw[strings.ToLower(strings.ReplaceAll(k, "-", "_"))] = val
+		}
+		return parsedFinding{
+			Severity: sev,
+			Target:   target,
+			Finding:  findingText,
+			Raw:      normRaw,
+		}
+	}
+
 	// CF1016 structured finding: {target, subdomain, cloudflare_ips, http_status, type, severity, description}
 	if cfType, ok := v["cloudflare_ips"]; ok && cfType != nil {
 		subdomain := strings.TrimSpace(fmt.Sprint(v["target"]))
