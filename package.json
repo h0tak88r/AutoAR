@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "test:ui": "node --test tests/ui/*.test.js"
+  }
+}

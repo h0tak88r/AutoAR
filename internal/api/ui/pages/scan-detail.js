@@ -410,9 +410,28 @@
     const st = String(status || '').toLowerCase();
     if (/completed|done|success/.test(st)) return 'badge-done';
     if (/running|starting|queued|active/.test(st)) return 'badge-running';
+    if (/pending|not_started|skipped/.test(st)) return 'badge-neutral';
     if (/paused|cancelling/.test(st)) return 'badge-starting';
     if (/failed|error|cancel/.test(st)) return 'badge-failed';
     return 'badge-neutral';
+  }
+
+  function manifestArtifactLabel(moduleEntry) {
+    const files = Array.isArray(moduleEntry?.output_files) ? moduleEntry.output_files : [];
+    const status = String(moduleEntry?.status || '').toLowerCase();
+    if (files.length) return `${files.length} file${files.length === 1 ? '' : 's'}`;
+    if (/completed|done|success/.test(status)) return '0 files (empty)';
+    if (/failed|error|cancel/.test(status)) return '0 files (failed)';
+    if (/running|starting|queued|active/.test(status)) return 'waiting';
+    return 'not run';
+  }
+
+  function manifestStartedLabel(moduleEntry) {
+    const raw = moduleEntry?.started_at || moduleEntry?.start_time || '';
+    if (!raw) return '—';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString();
   }
 
   function renderScanManifestCard(manifest, scan) {
@@ -430,13 +449,14 @@
         </div>
         <div class="card-body" style="padding:0">
           <table class="dashboard-table" style="width:100%">
-            <thead><tr><th>Phase</th><th>Status</th><th>Started</th><th>Duration</th></tr></thead>
+            <thead><tr><th>Phase</th><th>Status</th><th>Artifacts</th><th>Started</th><th>Duration</th></tr></thead>
             <tbody id="scan-manifest-tbody">
               ${modules.map(m => `
                 <tr>
-                  <td style="font-weight:600;font-size:13px">${esc(m.name)}</td>
+                  <td style="font-weight:600;font-size:13px">${esc(m.module || m.name || 'unknown')}</td>
                   <td><span class="badge ${manifestStatusBadge(m.status)}">${esc(m.status)}</span></td>
-                  <td style="font-size:11px;color:var(--text-muted)">${m.start_time ? new Date(m.start_time).toLocaleTimeString() : '—'}</td>
+                  <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${manifestArtifactLabel(m)}</td>
+                  <td style="font-size:11px;color:var(--text-muted)">${manifestStartedLabel(m)}</td>
                   <td style="font-family:monospace;font-size:12px">${formatManifestDuration(m.duration_ms)}</td>
                 </tr>
               `).join('')}
@@ -454,9 +474,10 @@
     if (tbody) {
       tbody.innerHTML = modules.map(m => `
         <tr>
-          <td style="font-weight:600;font-size:13px">${esc(m.name)}</td>
+          <td style="font-weight:600;font-size:13px">${esc(m.module || m.name || 'unknown')}</td>
           <td><span class="badge ${manifestStatusBadge(m.status)}">${esc(m.status)}</span></td>
-          <td style="font-size:11px;color:var(--text-muted)">${m.start_time ? new Date(m.start_time).toLocaleTimeString() : '—'}</td>
+          <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${manifestArtifactLabel(m)}</td>
+          <td style="font-size:11px;color:var(--text-muted)">${manifestStartedLabel(m)}</td>
           <td style="font-family:monospace;font-size:12px">${formatManifestDuration(m.duration_ms)}</td>
         </tr>
       `).join('');
@@ -1397,5 +1418,9 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     loadReconUnifiedTable,
     wireScanDetailFilters,
     clearApkxCacheForScan,
+    renderScanManifestCard,
+    manifestArtifactLabel,
+    manifestStartedLabel,
+    manifestStatusBadge,
   };
 })();

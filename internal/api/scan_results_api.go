@@ -60,12 +60,17 @@ func apiGetScanManifest(c *gin.Context) {
 	if readErr == nil && len(raw) > 0 {
 		var m scanExecutionManifest
 		if err := json.Unmarshal(raw, &m); err == nil {
+			if modules := workflowPhaseManifestModules(rec); len(modules) > 0 {
+				m.Modules = modules
+			}
 			// Keep manifest fresh for running scans by updating status from DB.
 			if len(m.Modules) > 0 && strings.TrimSpace(rec.Status) != "" {
-				m.Modules[0].Status = rec.Status
-				if strings.EqualFold(rec.Status, "running") {
-					m.Modules[0].CompletedAt = time.Time{}
-					m.Modules[0].DurationMS = time.Since(rec.StartedAt).Milliseconds()
+				if len(m.Modules) == 1 {
+					m.Modules[0].Status = rec.Status
+					if strings.EqualFold(rec.Status, "running") {
+						m.Modules[0].CompletedAt = time.Time{}
+						m.Modules[0].DurationMS = time.Since(rec.StartedAt).Milliseconds()
+					}
 				}
 			}
 			c.JSON(http.StatusOK, gin.H{"scan_id": scanID, "manifest": m})
@@ -75,26 +80,30 @@ func apiGetScanManifest(c *gin.Context) {
 
 	// Fallback for older scans without manifest file.
 	now := time.Now()
-	module := moduleExecutionEntry{
-		Module:         strings.TrimSpace(rec.ScanType),
-		Status:         strings.TrimSpace(rec.Status),
-		StartedAt:      rec.StartedAt,
-		ScannerVersion: version.Version,
-		Command:        strings.TrimSpace(rec.Command),
-		OutputFiles:    collectScanOutputFiles(scanID),
-	}
-	if rec.CompletedAt != nil {
-		module.CompletedAt = *rec.CompletedAt
-		module.DurationMS = rec.CompletedAt.Sub(rec.StartedAt).Milliseconds()
-	} else {
-		module.DurationMS = now.Sub(rec.StartedAt).Milliseconds()
+	modules := workflowPhaseManifestModules(rec)
+	if len(modules) == 0 {
+		module := moduleExecutionEntry{
+			Module:         strings.TrimSpace(rec.ScanType),
+			Status:         strings.TrimSpace(rec.Status),
+			StartedAt:      rec.StartedAt,
+			ScannerVersion: version.Version,
+			Command:        strings.TrimSpace(rec.Command),
+			OutputFiles:    collectScanOutputFiles(scanID),
+		}
+		if rec.CompletedAt != nil {
+			module.CompletedAt = *rec.CompletedAt
+			module.DurationMS = rec.CompletedAt.Sub(rec.StartedAt).Milliseconds()
+		} else {
+			module.DurationMS = now.Sub(rec.StartedAt).Milliseconds()
+		}
+		modules = []moduleExecutionEntry{module}
 	}
 	manifest := scanExecutionManifest{
 		ScanID:    scanID,
 		ScanType:  strings.TrimSpace(rec.ScanType),
 		Target:    strings.TrimSpace(rec.Target),
 		StartedAt: rec.StartedAt,
-		Modules:   []moduleExecutionEntry{module},
+		Modules:   modules,
 	}
 	if rec.CompletedAt != nil {
 		manifest.CompletedAt = *rec.CompletedAt
@@ -112,6 +121,128 @@ type fileEntry struct {
 	Category  string `json:"category,omitempty"`
 	Source    string `json:"source,omitempty"` // "local", "db", "r2"
 	PublicURL string `json:"public_url,omitempty"`
+}
+
+type workflowPhaseSpec struct {
+	Module      string
+	Description string
+}
+
+var subdomainWorkflowPhaseSpecs = []workflowPhaseSpec{
+	{Module: "httpx", Description: "Live host check"},
+	{Module: "dns-takeover", Description: "[Stage 2] CNAME collection"},
+	{Module: "tech-detect", Description: "[Stage 2] Technology detection"},
+	{Module: "port-scan", Description: "[Stage 2] Port scan"},
+	{Module: "url-collection", Description: "[Stage 2] URL collection"},
+	{Module: "js-analysis", Description: "[Stage 2] JS scan"},
+	{Module: "aem", Description: "[Stage 2] AEM scan"},
+	{Module: "dns-takeover", Description: "[Stage 2] DNS scan"},
+	{Module: "s3-scan", Description: "[Stage 2] S3 bucket enumeration and scanning"},
+	{Module: "backup-detection", Description: "[Stage 2] Backup scan"},
+	{Module: "zerodays", Description: "[Stage 2] Zerodays scan"},
+	{Module: "dependency-confusion", Description: "[Stage 2] WordPress confusion"},
+	{Module: "dependency-confusion", Description: "[Stage 2] Dependency confusion"},
+	{Module: "misconfig", Description: "[Stage 2] Misconfig scan"},
+	{Module: "gf-patterns", Description: "[Stage 3] GF scan"},
+	{Module: "reflection", Description: "[Stage 3] Reflection scan"},
+	{Module: "ffuf-fuzzing", Description: "[Stage 3] FFuf fuzzing"},
+	{Module: "nuclei", Description: "[Stage 3] Nuclei scan (final)"},
+}
+
+func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
+	if rec == nil {
+		return nil
+	}
+	scanType := strings.ToLower(strings.TrimSpace(rec.ScanType))
+	if scanType != "subdomain_run" && scanType != "domain_run" {
+		return nil
+	}
+
+	completed := stringSet(rec.CompletedPhases)
+	failed := stringSet(rec.FailedPhases)
+	outputsByModule := collectScanOutputFilesByModule(rec.ScanID)
+	modules := make([]moduleExecutionEntry, 0, len(subdomainWorkflowPhaseSpecs))
+	now := time.Now()
+
+	for _, spec := range subdomainWorkflowPhaseSpecs {
+		status := "pending"
+		completedAt := time.Time{}
+		durationMS := int64(0)
+
+		if _, ok := completed[spec.Description]; ok {
+			status = "completed"
+			if rec.CompletedAt != nil {
+				completedAt = *rec.CompletedAt
+				durationMS = completedAt.Sub(rec.StartedAt).Milliseconds()
+			}
+		}
+		if _, ok := failed[spec.Description]; ok {
+			status = "failed"
+			if rec.CompletedAt != nil {
+				completedAt = *rec.CompletedAt
+				durationMS = completedAt.Sub(rec.StartedAt).Milliseconds()
+			}
+		}
+		if strings.EqualFold(strings.TrimSpace(rec.PhaseName), spec.Description) && strings.EqualFold(strings.TrimSpace(rec.Status), "running") {
+			status = "running"
+			durationMS = now.Sub(rec.StartedAt).Milliseconds()
+		}
+
+		modules = append(modules, moduleExecutionEntry{
+			Module:         spec.Module,
+			Status:         status,
+			StartedAt:      rec.StartedAt,
+			CompletedAt:    completedAt,
+			DurationMS:     durationMS,
+			OutputFiles:    outputsByModule[spec.Module],
+			ScannerVersion: version.Version,
+			Command:        spec.Description,
+		})
+	}
+
+	return modules
+}
+
+func stringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out[value] = struct{}{}
+		}
+	}
+	return out
+}
+
+func collectScanOutputFilesByModule(scanID string) map[string][]string {
+	out := make(map[string][]string)
+	arts, err := db.ListScanArtifacts(scanID)
+	if err != nil {
+		return out
+	}
+	seen := make(map[string]map[string]struct{})
+	for _, a := range arts {
+		if a == nil {
+			continue
+		}
+		name := strings.TrimSpace(a.FileName)
+		if name == "" {
+			continue
+		}
+		module := strings.TrimSpace(a.Module)
+		if module == "" {
+			module = inferModuleFromFileName(filepath.Base(name))
+		}
+		if seen[module] == nil {
+			seen[module] = make(map[string]struct{})
+		}
+		if _, ok := seen[module][name]; ok {
+			continue
+		}
+		seen[module][name] = struct{}{}
+		out[module] = append(out[module], name)
+	}
+	return out
 }
 
 func parseScanResultsPagination(c *gin.Context) (page, perPage int) {
