@@ -680,7 +680,11 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
 
     let _assetsLoading = false;
     let _currentPage = 1;
-    const _pageSize = 250;
+    const isGitHubTableKind = (k) => {
+      const kk = String(k || '').toLowerCase();
+      return kk === 'github-scan' || kk === 'mod:github-scan' || kk === 'github';
+    };
+    const pageSizeForKind = () => isGitHubTableKind(activeKind) ? 1200 : 250;
 
     const parseStatusCode = (v) => {
       const m = String(v || '').match(/\b([1-5][0-9]{2})\b/);
@@ -710,6 +714,40 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     };
 
     allRows = allRows.map(rowToGrid);
+    const trufflehogSource = (raw) => {
+      const r = raw && typeof raw === 'object' ? raw : {};
+      const meta = r.SourceMetadata || r.source_metadata || {};
+      const data = (meta && typeof meta === 'object') ? (meta.Data || meta.data || {}) : {};
+      const git = (data && typeof data === 'object') ? (data.Git || data.git || {}) : {};
+      const fs = (data && typeof data === 'object') ? (data.Filesystem || data.filesystem || {}) : {};
+      const link = String(data.Link || data.link || git.Link || git.link || '').trim();
+      const file = String(data.File || data.file || git.File || git.file || git.Path || git.path || fs.File || fs.file || fs.Path || fs.path || '').trim();
+      const line = String(data.Line || data.line || git.Line || git.line || fs.Line || fs.line || '').trim();
+      return { link, file, line };
+    };
+    const renderGitHubExpandedRow = (r, rowIdx, sevMeta) => {
+      const raw = r.raw && typeof r.raw === 'object' ? r.raw : {};
+      const detector = String(raw.DetectorName || raw.detector_name || raw.detector || r.finding || 'Unknown').replace(/\s+—\s+.*$/, '').trim();
+      const redacted = String(raw.Redacted || raw.redacted || '').trim();
+      const verified = String(raw.Verified ?? raw.verified ?? '').toLowerCase() === 'true';
+      const { link, file, line } = trufflehogSource(raw);
+      const sourceFile = file || '—';
+      const sourceLine = line || '—';
+      const sourceLink = link || '—';
+      const redactedShort = redacted.length > 80 ? `${redacted.slice(0, 77)}...` : redacted || '—';
+      const linkLabel = sourceLink.length > 70 ? `${sourceLink.slice(0, 67)}...` : sourceLink;
+      const fileLabel = sourceFile.length > 60 ? `${sourceFile.slice(0, 57)}...` : sourceFile;
+      return `<tr class="findings-row" data-row-index="${rowIdx}" style="cursor:pointer;${rowIdx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+        <td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>
+        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(detector)}" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);font-weight:600">${esc(detector || '—')}</span></td>
+        <td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span></td>
+        <td style="padding:7px 10px;text-align:center"><span style="font-size:11px;font-family:var(--font-mono,monospace);color:${verified ? '#22c55e' : '#94a3b8'};font-weight:700">${verified ? 'true' : 'false'}</span></td>
+        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(redacted || '—')}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(redactedShort)}</span></td>
+        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(sourceFile)}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(fileLabel)}</span></td>
+        <td style="padding:7px 10px;text-align:center"><span style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(sourceLine)}</span></td>
+        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sourceLink !== '—' ? `<a href="${esc(sourceLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-family:var(--font-mono,monospace);font-size:11px">${esc(linkLabel)}</a>` : `<span style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-muted)">—</span>`}</td>
+      </tr>`;
+    };
 
     const extractApkPackageInfo = (rows) => {
       const info = {};
@@ -1066,6 +1104,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     const renderBody = () => {
       renderSeverityBar();
       const filtered = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
+      const _pageSize = pageSizeForKind();
       const totalPages = Math.ceil(filtered.length / _pageSize) || 1;
       if (_currentPage > totalPages) _currentPage = totalPages;
       const slice = filtered.slice((_currentPage - 1) * _pageSize, _currentPage * _pageSize);
@@ -1073,8 +1112,15 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       wrap = root.querySelector('.result-table-wrap');
       if (shown) shown.textContent = String(filtered.length);
       if (headRow) {
-        const cols = presetMode === 'raw' ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'] : window.getUnifiedTableColumns(activeKind);
-        headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th style="position:relative">${esc(cols[0])}<span class="col-resizer" data-col-index="1" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="text-align:center;position:relative">${esc(cols[1])}<span class="col-resizer" data-col-index="2" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="position:relative">${esc(cols[2])}<span class="col-resizer" data-col-index="3" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="width:16%">${esc(cols[3])}</th>`;
+        const colgroup = root.querySelector('#recon-colgroup');
+        if (isGitHubTableKind(activeKind)) {
+          if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:20%"><col style="width:7%"><col style="width:8%"><col style="width:16%"><col style="width:19%"><col style="width:6%"><col style="width:24%">`;
+          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th>DETECTORNAME</th><th style="text-align:center">SEV</th><th style="text-align:center">VERIFIED</th><th>REDACTED</th><th>SOURCE FILE</th><th style="text-align:center">LINE</th><th>SOURCE LINK</th>`;
+        } else {
+          if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:31%"><col style="width:8%"><col style="width:43%"><col style="width:16%">`;
+          const cols = presetMode === 'raw' ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'] : window.getUnifiedTableColumns(activeKind);
+          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th style="position:relative">${esc(cols[0])}<span class="col-resizer" data-col-index="1" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="text-align:center;position:relative">${esc(cols[1])}<span class="col-resizer" data-col-index="2" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="position:relative">${esc(cols[2])}<span class="col-resizer" data-col-index="3" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="width:16%">${esc(cols[3])}</th>`;
+        }
       }
       if (tbody) {
         currentRenderedRows = slice;
@@ -1087,12 +1133,16 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
           const rowIdx = vStart + idx, sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
           const sevMeta = { critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' }, high: { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' }, medium: { color: '#f6e05e', bg: '#f6e05e20', label: 'MED' }, low: { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW' }, info: { color: '#68d391', bg: '#68d39120', label: 'INFO' }, warning: { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' }, }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
           const modInfo = getModuleDisplayInfo(r.module);
+          if (isGitHubTableKind(activeKind)) {
+            return renderGitHubExpandedRow(r, rowIdx, sevMeta);
+          }
           if (presetMode === 'raw') {
             return attachRowIndex(window.renderDefaultRow(r, rowIdx, modInfo, sevMeta), rowIdx);
           }
           return attachRowIndex(window.renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta), rowIdx);
         }).join('');
-        tbody.innerHTML = slice.length ? `${topPad ? `<tr class="virtual-pad-top"><td colspan="5" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="5" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}` : '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>';
+        const colSpan = isGitHubTableKind(activeKind) ? 8 : 5;
+        tbody.innerHTML = slice.length ? `${topPad ? `<tr class="virtual-pad-top"><td colspan="${colSpan}" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="${colSpan}" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}` : `<tr><td colspan="${colSpan}" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>`;
       }
       const pag = root.querySelector('#recon-pagination');
       if (pag) { if (totalPages <= 1) pag.style.display = 'none'; else { pag.style.display = 'flex'; pag.innerHTML = `<button id="recon-prev" class="btn btn-sm" ${_currentPage === 1 ? 'disabled' : ''}>← Prev</button> <span style="color:var(--text-secondary);font-weight:600">Page ${_currentPage} of ${totalPages}</span> <button id="recon-next" class="btn btn-sm" ${_currentPage === totalPages ? 'disabled' : ''}>Next →</button> <span style="color:var(--text-muted);margin-left:auto">${filtered.length} total rows</span>`; pag.querySelector('#recon-prev').onclick = () => { if (_currentPage > 1) { _currentPage--; renderBody(); wrap.scrollTop = 0; } }; pag.querySelector('#recon-next').onclick = () => { if (_currentPage < totalPages) { _currentPage++; renderBody(); wrap.scrollTop = 0; } }; } }
