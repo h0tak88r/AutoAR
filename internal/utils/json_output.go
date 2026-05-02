@@ -56,7 +56,10 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 	}
 
 	module := ""
-	if strings.Contains(fileName, "url") {
+	lf := strings.ToLower(fileName)
+	if strings.Contains(lf, "github-secret") || strings.Contains(lf, "trufflehog") {
+		module = "github-scan"
+	} else if strings.Contains(fileName, "url") {
 		module = "url-collection"
 	} else if strings.Contains(fileName, "subdomain") {
 		module = "subdomain-enum"

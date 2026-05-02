@@ -16,9 +16,22 @@
       case 'gf-patterns': return ['TARGET', 'PATTERN', 'VALUE', 'SOURCE'];
       case 'misconfig': return ['TARGET', 'SEV', 'SERVICE', 'FINDING'];
       case 'ffuf-fuzzing': return ['URL', 'STATUS', 'WORD', 'LENGTH'];
-      case 'github-scan': return ['TARGET / SOURCE', 'SEV', 'DETECTOR', 'VERIFIED / LOCATION'];
+      case 'github-scan': return ['DetectorName', 'Severity', 'Verified', 'Source'];
       default: return ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'];
     }
+  }
+
+  function trufflehogSourceCells(raw) {
+    if (!raw || typeof raw !== 'object') return { link: '', file: '', line: '' };
+    const meta = raw.SourceMetadata || raw.source_metadata;
+    const data = meta && typeof meta === 'object' ? (meta.Data || meta.data) : null;
+    const d = data && typeof data === 'object' ? data : {};
+    const git = (d.Git || d.git) && typeof (d.Git || d.git) === 'object' ? (d.Git || d.git) : null;
+    const fs = (d.Filesystem || d.filesystem) && typeof (d.Filesystem || d.filesystem) === 'object' ? (d.Filesystem || d.filesystem) : null;
+    const link = String(d.link || d.Link || (git && (git.link || git.Link)) || '').trim();
+    const file = String(d.file || d.File || (git && (git.file || git.File || git.path || git.Path)) || (fs && (fs.file || fs.File || fs.path || fs.Path)) || '').trim();
+    const line = String(d.line || d.Line || (git && (git.line || git.Line)) || (fs && (fs.line || fs.Line)) || '').trim();
+    return { link, file, line };
   }
 
   function getRawValue(raw, keys) {
@@ -202,35 +215,32 @@
       c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(length)}</span></td>`;
     } else if (moduleTab === 'github-scan') {
       const raw = (r.raw && typeof r.raw === 'object') ? r.raw : {};
-      const sourceMetadata = getRawValue(raw, ['source_metadata', 'SourceMetadata']) || {};
-      const sourceData = (sourceMetadata && typeof sourceMetadata === 'object')
-        ? (getRawValue(sourceMetadata, ['data', 'Data']) || {})
-        : {};
-      const detector = String(getRawValue(raw, ['detector_name', 'DetectorName', 'detector', 'template_id', 'templateId']) || r.finding || 'Unknown detector');
-      const verified = getRawValue(raw, ['verified', 'Verified']);
-      const redacted = String(getRawValue(raw, ['redacted', 'Redacted']) || '');
-      const sourceFile = String((sourceData && typeof sourceData === 'object') ? getRawValue(sourceData, ['file', 'File']) : '');
-      const sourceLine = String((sourceData && typeof sourceData === 'object') ? getRawValue(sourceData, ['line', 'Line']) : '');
-      const sourceLink = String((sourceData && typeof sourceData === 'object') ? getRawValue(sourceData, ['link', 'Link']) : '');
-
-      const targetUrl = sourceLink || String(r.target || '');
-      const sourceLabel = sourceFile ? `${sourceFile}${sourceLine ? `:${sourceLine}` : ''}` : (targetUrl || displayTarget || '—');
-      if (targetUrl) {
-        displayTarget = targetUrl;
-        href = targetUrl;
-      } else {
-        displayTarget = sourceLabel;
-        href = '#';
-      }
-      const sevLabel = String(sevMeta.label || (String(r.severity || '').toUpperCase() || 'MED'));
-      const verifiedLabel = (String(verified).toLowerCase() === 'true') ? 'Verified' : 'Unverified';
+      const { link: thLink, file: thFile, line: thLine } = trufflehogSourceCells(raw);
+      const detector = String(getRawValue(raw, ['DetectorName', 'detector_name', 'detector', 'template_id', 'templateId']) || '').trim() || String(r.finding || 'Unknown').replace(/\s+—\s+.*$/, '').trim() || '—';
+      const verified = getRawValue(raw, ['Verified', 'verified']);
+      const redacted = String(getRawValue(raw, ['Redacted', 'redacted']) || '').trim();
+      const verifiedLabel = (String(verified).toLowerCase() === 'true') ? 'true' : 'false';
       const verifiedColor = (String(verified).toLowerCase() === 'true') ? '#22c55e' : '#94a3b8';
-      const detectorText = redacted ? `${detector} - ${redacted}` : detector;
+      const sevLabel = String(sevMeta.label || (String(r.severity || '').toUpperCase() || 'MED'));
+      const sourceBits = [];
+      if (thFile) sourceBits.push(thLine ? `${thFile}:${thLine}` : thFile);
+      else if (thLine) sourceBits.push(`line ${thLine}`);
+      if (thLink) sourceBits.push(thLink);
+      let sourceLabel = sourceBits.length ? sourceBits.join(' · ') : '—';
+      if (sourceLabel === '—' && r.target && String(r.target).trim() && String(r.target).trim() !== '—') {
+        sourceLabel = String(r.target).trim();
+      }
+      displayTarget = redacted ? `${detector} (${redacted})` : detector;
+      href = '#';
       c2 = `<td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevLabel)}</span></td>`;
-      c3 = `<td style="padding:7px 10px;max-width:0;overflow:hidden"><span title="${esc(detectorText)}" style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);">${esc(detectorText.length > 120 ? `${detectorText.slice(0, 117)}...` : detectorText)}</span></td>`;
-      c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:${verifiedColor};font-size:11px;font-weight:600">${esc(verifiedLabel)}</span><span style="color:var(--text-muted);font-family:var(--font-mono,monospace);font-size:10px;margin-left:6px">${esc(sourceLabel)}</span></td>`;
+      c3 = `<td style="padding:7px 10px;text-align:center;white-space:nowrap"><span style="color:${verifiedColor};font-size:11px;font-weight:700;font-family:var(--font-mono,monospace)">${esc(verifiedLabel)}</span></td>`;
+      const srcTitle = sourceLabel.length > 200 ? `${sourceLabel.slice(0, 197)}…` : sourceLabel;
+      const srcCell = thLink && sourceLabel.includes(thLink)
+        ? `<a href="${esc(thLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-size:11px;font-family:var(--font-mono,monospace)">${esc(srcTitle)}</a>`
+        : `<span title="${esc(sourceLabel)}" style="font-size:11px;font-family:var(--font-mono,monospace);color:var(--text-secondary)">${esc(srcTitle.length > 90 ? `${srcTitle.slice(0, 88)}…` : srcTitle)}</span>`;
+      c4 = `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${srcCell}</td>`;
     }
-    tdTarget = isApkUnifiedTab ? `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</span></td>` : `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</a></td>`;
+    tdTarget = isApkUnifiedTab ? `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</span></td>` : (moduleTab === 'github-scan' ? `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(displayTarget)}" style="color:var(--text-primary);font-family:var(--font-mono,monospace);font-size:11.5px;font-weight:600">${esc(displayTarget)}</span></td>` : `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(displayTarget)}" style="color:var(--accent-cyan);text-decoration:none;font-family:var(--font-mono,monospace);font-size:11.5px">${esc(displayTarget)}</a></td>`);
     return `<tr class="findings-row" data-target="${escAttr(displayTarget)}" data-finding="${escAttr(isApkUnifiedTab ? apkMatcherValue : finding)}" data-severity="${escAttr(isApkUnifiedTab ? (apkCategoryLabel || 'APK Analysis') : (r.severity || ''))}" data-module="${escAttr(r.module || '')}" data-href="${escAttr(href)}" style="cursor:pointer;${idx % 2 ? 'background:rgba(255,255,255,.012)' : ''}"><td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>${tdTarget}${c2}${c3}${c4}</tr>`;
   }
 

@@ -866,12 +866,19 @@ func inferReconKind(fileName string) string {
 	// Log files
 	case strings.HasSuffix(b, ".log"):
 		return "logs"
+	// GitHub / TruffleHog (must run before generic "secret" + ".json" heuristics)
+	case strings.Contains(full, "github/repos/") || strings.Contains(full, `github\repos\`) ||
+		strings.Contains(full, "github/orgs/") || strings.Contains(full, `github\orgs\`) ||
+		strings.Contains(b, "github-secret") || strings.Contains(b, "trufflehog") ||
+		strings.Contains(b, "secrets_table") ||
+		(strings.HasSuffix(b, "secrets.json") && strings.Contains(full, "github/")):
+		return "github-scan"
 	// JS URLs
 	case strings.Contains(b, "js-url") || strings.Contains(b, "jsurl") || strings.Contains(b, "js-enum"):
 		return "js_urls"
-	// JS secrets / exposures -> js-analysis
+	// JS secrets / exposures -> js-analysis (do not use strings.Contains(b,"js") — it matches ".json")
 	case strings.Contains(b, "js-secret") || strings.Contains(b, "js-exposure") ||
-		((strings.Contains(b, "secret") || strings.Contains(b, "exposure")) && strings.Contains(b, "js")):
+		(strings.Contains(b, "javascript") && (strings.Contains(b, "secret") || strings.Contains(b, "exposure"))):
 		return "js-analysis"
 	// Subdomains
 	case strings.Contains(b, "all-subs") || strings.Contains(b, "live-subs") || strings.HasSuffix(b, "subs.txt") ||
@@ -938,6 +945,96 @@ func minInt(a, b int) int {
 	return b
 }
 
+// thJSONStr converts JSON-decoded values to clean display strings (never "<nil>").
+func thJSONStr(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" || s == "<nil>" {
+			return ""
+		}
+		return s
+	case float64:
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%d", int64(t))
+		}
+		return strings.TrimSpace(fmt.Sprint(t))
+	case json.Number:
+		s := strings.TrimSpace(t.String())
+		if s == "<nil>" {
+			return ""
+		}
+		return s
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	case map[string]interface{}, []interface{}:
+		return ""
+	default:
+		s := strings.TrimSpace(fmt.Sprint(t))
+		if s == "" || s == "<nil>" {
+			return ""
+		}
+		return s
+	}
+}
+
+func thGetMap(m map[string]interface{}, keys ...string) map[string]interface{} {
+	if m == nil {
+		return nil
+	}
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			if child, ok := v.(map[string]interface{}); ok {
+				return child
+			}
+		}
+	}
+	lower := map[string]interface{}{}
+	for k, v := range m {
+		lower[strings.ToLower(k)] = v
+	}
+	for _, k := range keys {
+		if v, ok := lower[strings.ToLower(k)]; ok {
+			if child, ok := v.(map[string]interface{}); ok {
+				return child
+			}
+		}
+	}
+	return nil
+}
+
+// trufflehogSourceParts reads Link/File/Line from TruffleHog SourceMetadata.Data,
+// including Git and Filesystem nested shapes.
+func trufflehogSourceParts(v map[string]interface{}) (link, file, line string) {
+	meta := thGetMap(v, "SourceMetadata", "source_metadata")
+	if meta == nil {
+		return "", "", ""
+	}
+	data := thGetMap(meta, "Data", "data")
+	if data == nil {
+		return "", "", ""
+	}
+	link = firstNonEmpty(thJSONStr(data["Link"]), thJSONStr(data["link"]))
+	file = firstNonEmpty(thJSONStr(data["File"]), thJSONStr(data["file"]))
+	line = firstNonEmpty(thJSONStr(data["Line"]), thJSONStr(data["line"]))
+	if git := thGetMap(data, "Git", "git"); git != nil {
+		link = firstNonEmpty(link, thJSONStr(git["link"]), thJSONStr(git["Link"]))
+		file = firstNonEmpty(file, thJSONStr(git["file"]), thJSONStr(git["File"]), thJSONStr(git["path"]), thJSONStr(git["Path"]))
+		line = firstNonEmpty(line, thJSONStr(git["line"]), thJSONStr(git["Line"]))
+	}
+	if fs := thGetMap(data, "Filesystem", "filesystem"); fs != nil {
+		file = firstNonEmpty(file, thJSONStr(fs["file"]), thJSONStr(fs["File"]), thJSONStr(fs["path"]), thJSONStr(fs["Path"]))
+		line = firstNonEmpty(line, thJSONStr(fs["line"]), thJSONStr(fs["Line"]))
+	}
+	return link, file, line
+}
+
 func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFinding {
 	// TruffleHog scanner-native finding object (GitHub secrets).
 	// Keep raw fields intact for dynamic frontend rendering while extracting
@@ -960,20 +1057,15 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 			}
 			return nil
 		}
-		asMap := func(x interface{}) map[string]interface{} {
-			if m, ok := x.(map[string]interface{}); ok {
-				return m
-			}
-			return map[string]interface{}{}
-		}
-		detector := strings.TrimSpace(fmt.Sprint(getAny(v, "DetectorName", "detector_name", "detector", "templateId", "template_id")))
-		if detector == "" || detector == "<nil>" {
-			detector = "GitHub Secret"
-		}
+		detector := firstNonEmpty(
+			thJSONStr(getAny(v, "DetectorName", "detector_name", "detector")),
+			thJSONStr(getAny(v, "templateId", "template_id")),
+			"GitHub Secret",
+		)
 		verifiedRaw := getAny(v, "Verified", "verified")
-		verified := strings.EqualFold(strings.TrimSpace(fmt.Sprint(verifiedRaw)), "true")
+		verified := strings.EqualFold(strings.TrimSpace(thJSONStr(verifiedRaw)), "true")
 		sev := firstNonEmpty(
-			fmt.Sprint(getAny(v, "severity", "Severity")),
+			thJSONStr(getAny(v, "severity", "Severity")),
 			func() string {
 				if verified {
 					return "high"
@@ -981,13 +1073,16 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 				return "medium"
 			}(),
 		)
-		sourceMeta := asMap(getAny(v, "SourceMetadata", "source_metadata"))
-		sourceData := asMap(getAny(sourceMeta, "Data", "data"))
-		link := strings.TrimSpace(fmt.Sprint(getAny(sourceData, "Link", "link")))
-		file := strings.TrimSpace(fmt.Sprint(getAny(sourceData, "File", "file")))
-		line := strings.TrimSpace(fmt.Sprint(getAny(sourceData, "Line", "line")))
+		link, file, line := trufflehogSourceParts(v)
 		target := firstNonEmpty(link, file, fallback, "—")
-		location := strings.TrimSpace(strings.Trim(link+" "+file+" "+line, " "))
+		locParts := []string{}
+		for _, p := range []string{link, file, line} {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				locParts = append(locParts, p)
+			}
+		}
+		location := strings.TrimSpace(strings.Join(locParts, " · "))
 		findingText := detector
 		if location != "" {
 			findingText = detector + " — " + location

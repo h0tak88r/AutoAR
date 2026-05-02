@@ -550,12 +550,16 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
         else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
         if (isAPKScan) kind = 'apkx';
 
-        const isJS = kind === 'js_urls' || looksLikeJSURL;
+        // Do not treat GitHub/TruffleHog rows as JS just because the blob URL ends in .js
+        const isJS = kind !== 'github-scan' && (kind === 'js_urls' || looksLikeJSURL);
         if (kind === 'js_urls') kind = 'urls';
 
-        const normalizedModule = (moduleNorm === 'unknown' && (kind === 'js-analysis' || isJS))
-          ? 'js-analysis'
-          : (isAPKScan ? 'apkx' : moduleNorm);
+        let normalizedModule = isAPKScan ? 'apkx' : moduleNorm;
+        if (kind === 'github-scan') {
+          normalizedModule = 'github-scan';
+        } else if (moduleNorm === 'unknown' && (kind === 'js-analysis' || isJS)) {
+          normalizedModule = 'js-analysis';
+        }
 
         return {
           ...r,
