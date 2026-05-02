@@ -266,8 +266,6 @@
             <option value="subdomain_scan">subdomain_scan (Single Subdomain)</option>
           </optgroup>
           <optgroup label="Modules">
-            <option value="subdomains">subdomains</option>
-            <option value="livehosts">livehosts</option>
             <option value="urls">urls</option>
             <option value="tech">tech</option>
             <option value="nuclei">nuclei</option>
@@ -284,7 +282,6 @@
             <option value="github_org">github_org</option>
           </optgroup>
           <optgroup label="Advanced">
-            <option value="cnames">cnames</option>
             <option value="js">js</option>
             <option value="reflection">reflection</option>
             <option value="gf">gf</option>
