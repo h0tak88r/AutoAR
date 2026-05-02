@@ -24,6 +24,7 @@ window.AppConfigState = {
     scanDetailId: null,
     scanDetailUI: { filesPage: 1, filesPerPage: 200, previewPage: 1, previewPerPage: 100, selectedFileName: null },
     scanListUI: { search: '', statusFilter: 'all', typeFilter: 'all' },
+    scanLaunchUI: { scanType: 'recon', targetMode: 'domain', target: '', targetList: '' },
     _sbClient: null,
     _authAccessToken: null,
     _sbAuthListener: false,

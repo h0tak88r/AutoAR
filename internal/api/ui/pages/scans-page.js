@@ -240,6 +240,7 @@
     const scanErr = window.state.error.scans;
     const { active_scans = [], recent_scans = [] } = window.state.scans;
     const sUI = window.state.scanListUI;
+    const lUI = window.state.scanLaunchUI || { scanType: 'recon', targetMode: 'domain', target: '', targetList: '' };
     const filterFn = (s) => {
       const target = (s.target || s.Target || '').toLowerCase();
       const type = (s.scan_type || s.ScanType || '').toLowerCase();
@@ -261,41 +262,41 @@
       <div class="scan-form">
         <select id="launch-type">
           <optgroup label="Workflows">
-            <option value="recon" selected>recon (Asset Discovery)</option>
-            <option value="domain_scan">domain_scan (Full Workflow)</option>
-            <option value="subdomain_scan">subdomain_scan (Single Subdomain)</option>
+            <option value="recon" ${lUI.scanType === 'recon' ? 'selected' : ''}>recon (Asset Discovery)</option>
+            <option value="domain_scan" ${lUI.scanType === 'domain_scan' ? 'selected' : ''}>domain_scan (Full Workflow)</option>
+            <option value="subdomain_scan" ${lUI.scanType === 'subdomain_scan' ? 'selected' : ''}>subdomain_scan (Single Subdomain)</option>
           </optgroup>
           <optgroup label="Modules">
-            <option value="urls">urls</option>
-            <option value="tech">tech</option>
-            <option value="nuclei">nuclei</option>
-            <option value="ports">ports</option>
+            <option value="urls" ${lUI.scanType === 'urls' ? 'selected' : ''}>urls</option>
+            <option value="tech" ${lUI.scanType === 'tech' ? 'selected' : ''}>tech</option>
+            <option value="nuclei" ${lUI.scanType === 'nuclei' ? 'selected' : ''}>nuclei</option>
+            <option value="ports" ${lUI.scanType === 'ports' ? 'selected' : ''}>ports</option>
           </optgroup>
           <optgroup label="DNS">
-            <option value="dns">dns (takeover)</option>
-            <option value="dns_dangling">dns (dangling-ip)</option>
-            <option value="dns_cf1016">dns-cf1016</option>
+            <option value="dns" ${lUI.scanType === 'dns' ? 'selected' : ''}>dns (takeover)</option>
+            <option value="dns_dangling" ${lUI.scanType === 'dns_dangling' ? 'selected' : ''}>dns (dangling-ip)</option>
+            <option value="dns_cf1016" ${lUI.scanType === 'dns_cf1016' ? 'selected' : ''}>dns-cf1016</option>
           </optgroup>
           <optgroup label="Cloud &amp; source">
-            <option value="s3">s3 (bucket)</option>
-            <option value="github">github</option>
-            <option value="github_org">github_org</option>
+            <option value="s3" ${lUI.scanType === 's3' ? 'selected' : ''}>s3 (bucket)</option>
+            <option value="github" ${lUI.scanType === 'github' ? 'selected' : ''}>github</option>
+            <option value="github_org" ${lUI.scanType === 'github_org' ? 'selected' : ''}>github_org</option>
           </optgroup>
           <optgroup label="Advanced">
-            <option value="js">js</option>
-            <option value="reflection">reflection</option>
-            <option value="gf">gf</option>
-            <option value="backup">backup</option>
-            <option value="misconfig">misconfig</option>
-            <option value="zerodays">zerodays</option>
-            <option value="ffuf">ffuf</option>
-            <option value="jwt">jwt</option>
-            <option value="apkx">apkx</option>
+            <option value="js" ${lUI.scanType === 'js' ? 'selected' : ''}>js</option>
+            <option value="reflection" ${lUI.scanType === 'reflection' ? 'selected' : ''}>reflection</option>
+            <option value="gf" ${lUI.scanType === 'gf' ? 'selected' : ''}>gf</option>
+            <option value="backup" ${lUI.scanType === 'backup' ? 'selected' : ''}>backup</option>
+            <option value="misconfig" ${lUI.scanType === 'misconfig' ? 'selected' : ''}>misconfig</option>
+            <option value="zerodays" ${lUI.scanType === 'zerodays' ? 'selected' : ''}>zerodays</option>
+            <option value="ffuf" ${lUI.scanType === 'ffuf' ? 'selected' : ''}>ffuf</option>
+            <option value="jwt" ${lUI.scanType === 'jwt' ? 'selected' : ''}>jwt</option>
+            <option value="apkx" ${lUI.scanType === 'apkx' ? 'selected' : ''}>apkx</option>
           </optgroup>
         </select>
         <select id="launch-target-mode"></select>
-        <input type="text" id="launch-target" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
-        <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none"></textarea>
+        <input type="text" id="launch-target" value="${window.esc(lUI.target || '')}" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
+        <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none">${window.esc(lUI.targetList || '')}</textarea>
         <button class="btn-primary" id="launch-btn">
           <span>▶</span>
           <span>Launch</span>
@@ -338,12 +339,17 @@
     const launchTarget = container.querySelector('#launch-target');
     const launchTargetList = container.querySelector('#launch-target-list');
     if (launchBtn) launchBtn.onclick = window.triggerScan;
-    if (launchType) launchType.onchange = () => window.syncLaunchPlaceholder(true);
+    if (launchType) launchType.onchange = () => {
+      window.state.scanLaunchUI = window.state.scanLaunchUI || {};
+      window.state.scanLaunchUI.scanType = launchType.value;
+      window.syncLaunchPlaceholder(true);
+    };
     if (launchTargetMode) launchTargetMode.onchange = () => window.syncLaunchPlaceholder(false);
     if (launchTarget) launchTarget.oninput = window.updateLaunchPreview;
     if (launchTargetList) launchTargetList.oninput = window.updateLaunchPreview;
     container.oninput = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
     container.onchange = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
+    if (launchTargetMode && lUI.targetMode) launchTargetMode.dataset.preferred = lUI.targetMode;
     window.syncLaunchPlaceholder(true);
   }
 
