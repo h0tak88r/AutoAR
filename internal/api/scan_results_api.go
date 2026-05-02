@@ -140,7 +140,7 @@ var subdomainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "s3-scan", Description: "[Stage 2] S3 bucket enumeration and scanning"},
 	{Module: "backup-detection", Description: "[Stage 2] Backup scan"},
 	{Module: "zerodays", Description: "[Stage 2] Zerodays scan"},
-	{Module: "dependency-confusion", Description: "[Stage 2] WordPress confusion"},
+	{Module: "wordpress-confusion", Description: "[Stage 2] WordPress confusion"},
 	{Module: "dependency-confusion", Description: "[Stage 2] Dependency confusion"},
 	{Module: "misconfig", Description: "[Stage 2] Misconfig scan"},
 	{Module: "gf-patterns", Description: "[Stage 3] GF scan"},
@@ -319,6 +319,8 @@ func inferModuleFromFileName(name string) string {
 		return "backup-detection"
 	case strings.Contains(n, "reflection") || strings.Contains(n, "kxss") || strings.Contains(n, "dalfox") || strings.Contains(n, "xss"):
 		return "reflection"
+	case strings.Contains(n, "wp-confusion") || strings.Contains(n, "wp_confusion"):
+		return "wordpress-confusion"
 	case strings.Contains(n, "confusion") || strings.Contains(n, "depconf"):
 		return "dependency-confusion"
 	case strings.HasSuffix(n, "urls.txt") || strings.Contains(n, "all-urls.txt") || strings.Contains(n, "wayback"):

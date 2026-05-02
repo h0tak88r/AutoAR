@@ -118,4 +118,6 @@ test('module detection covers subdomain workflow artifacts', () => {
   assert.equal(detectModuleFromFileName('gf-xss.txt'), 'gf-patterns');
   assert.equal(detectModuleFromFileName('s3-buckets.txt'), 's3-scan');
   assert.equal(detectModuleFromFileName('tech-detect.json'), 'tech-detect');
+  assert.equal(detectModuleFromFileName('wp-confusion-vulnerabilities.json'), 'wordpress-confusion');
+  assert.equal(detectModuleFromFileName('depconfusion-vulnerabilities.json'), 'dependency-confusion');
 });

@@ -110,7 +110,8 @@
     if (n.includes('misconfig')) return 'misconfig';
     if (n.includes('exposure')) return 'exposure';
     if (n.includes('cname')) return 'dns-takeover';
-    if (n.includes('depconfusion') || n.includes('confused')) return 'dependency-confusion';
+    if (n.includes('wp-confusion') || n.includes('wp_confusion')) return 'wordpress-confusion';
+    if (n.includes('depconfusion')) return 'dependency-confusion';
     if (n.includes('s3') || n.includes('bucket')) return 's3-scan';
     if (n.includes('aem')) return 'aem';
     if (n.includes('gospider')) return 'url-enum';
@@ -135,6 +136,8 @@
       'dns-cf1016': 'dns-takeover',
       'dep-confusion': 'dependency-confusion',
       dependency_confusion: 'dependency-confusion',
+      'wp-confusion': 'wordpress-confusion',
+      wordpress_confusion: 'wordpress-confusion',
       unknowns: 'unknown',
       apk: 'apkx',
       'apk-analysis': 'apkx',
@@ -158,7 +161,8 @@
       zerodays: { icon: '💣', name: 'Zero-Days', color: '#dc2626' },
       'backup-detection': { icon: '📂', name: 'Backup Files', color: '#94a3b8' },
       misconfig: { icon: '⚙️', name: 'Misconfig', color: '#f59e0b' },
-      'dependency-confusion': { icon: '🧶', name: 'Dep Confusion', color: '#a855f7' },
+      'wordpress-confusion': { icon: '🔌', name: 'WP Plugin Confusion', color: '#a855f7' },
+      'dependency-confusion': { icon: '🧶', name: 'Dep Confusion', color: '#c084fc' },
       's3-scan': { icon: '☁️', name: 'S3 Buckets', color: '#0ea5e9' },
       aem: { icon: '🧱', name: 'AEM Enum', color: '#f97316' },
       'dns-takeover': { icon: '📍', name: 'DNS', color: '#06b6d4' },
