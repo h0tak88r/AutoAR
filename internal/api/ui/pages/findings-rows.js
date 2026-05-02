@@ -123,7 +123,15 @@
 
   function renderRowForUnifiedTab(r, idx, activeKind, modInfo, sevMeta) {
     const active = String(activeKind || '');
-    const moduleTab = active.startsWith('mod:') ? active.slice(4) : (active === 'misconfig' ? 'misconfig' : '');
+    const moduleTab = active.startsWith('mod:') ? active.slice(4) : (
+      active === 'misconfig' ? 'misconfig'
+        : active === 'nuclei' ? 'nuclei'
+          : active === 'ffuf' ? 'ffuf-fuzzing'
+            : active === 'github-scan' ? 'github-scan'
+              : active === 'js-analysis' ? 'js-analysis'
+                : active === 'gf-patterns' ? 'gf-patterns'
+                  : (active === 'apkx' || active.startsWith('apkcat:')) ? 'apkx' : ''
+    );
     const isApkCategoryTab = active.startsWith('apkcat:');
     const isApkUnifiedTab = active === 'apkx' || isApkCategoryTab;
     const target = String(r.host || r.target || '-');
