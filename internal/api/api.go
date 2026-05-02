@@ -1766,12 +1766,20 @@ func IndexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 	switch st {
 	case "domain_run", "subdomain_run":
 		r2Prefixes = workflowScanR2Prefixes(target)
-	case "github", "github_org":
+	case "github", "github_org": 
+		slug := target
+		if strings.Contains(target, "/") {
+			parts := strings.Split(target, "/")
+			slug = parts[len(parts)-1]
+		}
 		r2Prefixes = []string{
 			"new-results/" + scanID + "/",
+			"new-results/" + scanID + "/github-secrets.json",
+			"new-results/github/repos/" + slug + "/",
 			"new-results/github/repos/" + target + "/",
 			"new-results/github/orgs/" + target + "/",
 		}
+		log.Printf("[indexWorkflowArtifactsFromR2] github scan: scanID=%s target=%s slug=%s", scanID, target, slug)
 	}
 
 	if len(r2Prefixes) == 0 || strings.TrimSpace(scanID) == "" || !r2storage.IsEnabled() {
