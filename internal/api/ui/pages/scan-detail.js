@@ -725,6 +725,78 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       const line = String(data.Line || data.line || git.Line || git.line || fs.Line || fs.line || '').trim();
       return { link, file, line };
     };
+    const dynamicValue = (r, key) => {
+      const raw = r && r.raw && typeof r.raw === 'object' ? r.raw : {};
+      const lk = String(key || '').toLowerCase();
+      if (lk === 'source_file' || lk === 'file') {
+        return trufflehogSource(raw).file || '';
+      }
+      if (lk === 'source_line' || lk === 'line') {
+        return trufflehogSource(raw).line || '';
+      }
+      if (lk === 'source_link' || lk === 'link' || lk === 'url') {
+        return trufflehogSource(raw).link || '';
+      }
+      const direct = raw[key];
+      if (direct != null && direct !== '') return direct;
+      const keys = Object.keys(raw);
+      const matched = keys.find((k) => String(k).toLowerCase() === lk);
+      if (!matched) return '';
+      return raw[matched];
+    };
+    const toCellText = (v) => {
+      if (v == null) return '';
+      if (typeof v === 'string') {
+        const s = v.trim();
+        if (s === '' || s === '<nil>' || s === 'null') return '';
+        return s;
+      }
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      try { return JSON.stringify(v); } catch (_) { return String(v); }
+    };
+    const titleCase = (s) => String(s || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const collectDynamicColumns = (rows) => {
+      const preferred = ['DetectorName', 'severity', 'Verified', 'Redacted', 'source_file', 'source_line', 'source_link'];
+      const discovered = [];
+      rows.forEach((r) => {
+        if (!r || !r.raw || typeof r.raw !== 'object') return;
+        Object.keys(r.raw).forEach((k) => {
+          if (!discovered.includes(k)) discovered.push(k);
+        });
+      });
+      const low = new Set(discovered.map((k) => String(k).toLowerCase()));
+      const out = [];
+      preferred.forEach((k) => {
+        if (k.startsWith('source_')) {
+          out.push(k);
+          return;
+        }
+        const m = discovered.find((x) => String(x).toLowerCase() === String(k).toLowerCase());
+        if (m) out.push(m);
+      });
+      discovered.forEach((k) => {
+        const lk = String(k).toLowerCase();
+        if (['sourcemetadata', 'source_metadata', 'raw'].includes(lk)) return;
+        if (!out.includes(k)) out.push(k);
+      });
+      return out.slice(0, 8);
+    };
+    const renderDynamicRawRow = (r, rowIdx, sevMeta, cols) => {
+      const cells = cols.map((k) => {
+        const val = toCellText(dynamicValue(r, k));
+        const short = val.length > 90 ? `${val.slice(0, 87)}...` : val;
+        const isLink = (String(k).toLowerCase().includes('link') || String(k).toLowerCase().includes('url')) && /^https?:\/\//i.test(val);
+        if (isLink) {
+          return `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="${esc(val)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-family:var(--font-mono,monospace);font-size:11px">${esc(short)}</a></td>`;
+        }
+        return `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(val || '—')}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(short || '—')}</span></td>`;
+      }).join('');
+      return `<tr class="findings-row" data-row-index="${rowIdx}" style="cursor:pointer;${rowIdx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+        <td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>
+        <td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span></td>
+        ${cells}
+      </tr>`;
+    };
     const renderGitHubExpandedRow = (r, rowIdx, sevMeta) => {
       const raw = r.raw && typeof r.raw === 'object' ? r.raw : {};
       const detector = String(raw.DetectorName || raw.detector_name || raw.detector || r.finding || 'Unknown').replace(/\s+—\s+.*$/, '').trim();
@@ -1104,6 +1176,9 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     const renderBody = () => {
       renderSeverityBar();
       const filtered = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
+      const dynamicRawMode = filtered.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
+        (isGitHubTableKind(activeKind) || String(activeKind || '').startsWith('mod:'));
+      const dynamicCols = dynamicRawMode ? collectDynamicColumns(filtered) : [];
       const _pageSize = pageSizeForKind();
       const totalPages = Math.ceil(filtered.length / _pageSize) || 1;
       if (_currentPage > totalPages) _currentPage = totalPages;
@@ -1113,7 +1188,10 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       if (shown) shown.textContent = String(filtered.length);
       if (headRow) {
         const colgroup = root.querySelector('#recon-colgroup');
-        if (isGitHubTableKind(activeKind)) {
+        if (dynamicRawMode) {
+          if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:7%">${dynamicCols.map(() => '<col style="width:18%">').join('')}`;
+          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th style="text-align:center">SEV</th>${dynamicCols.map((k) => `<th>${esc(titleCase(k))}</th>`).join('')}`;
+        } else if (isGitHubTableKind(activeKind)) {
           if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:20%"><col style="width:7%"><col style="width:8%"><col style="width:16%"><col style="width:19%"><col style="width:6%"><col style="width:24%">`;
           headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th>DETECTORNAME</th><th style="text-align:center">SEV</th><th style="text-align:center">VERIFIED</th><th>REDACTED</th><th>SOURCE FILE</th><th style="text-align:center">LINE</th><th>SOURCE LINK</th>`;
         } else {
@@ -1133,6 +1211,9 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
           const rowIdx = vStart + idx, sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
           const sevMeta = { critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' }, high: { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' }, medium: { color: '#f6e05e', bg: '#f6e05e20', label: 'MED' }, low: { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW' }, info: { color: '#68d391', bg: '#68d39120', label: 'INFO' }, warning: { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' }, }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
           const modInfo = getModuleDisplayInfo(r.module);
+          if (dynamicRawMode) {
+            return renderDynamicRawRow(r, rowIdx, sevMeta, dynamicCols);
+          }
           if (isGitHubTableKind(activeKind)) {
             return renderGitHubExpandedRow(r, rowIdx, sevMeta);
           }
@@ -1141,7 +1222,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
           }
           return attachRowIndex(window.renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta), rowIdx);
         }).join('');
-        const colSpan = isGitHubTableKind(activeKind) ? 8 : 5;
+        const colSpan = dynamicRawMode ? (2 + dynamicCols.length) : (isGitHubTableKind(activeKind) ? 8 : 5);
         tbody.innerHTML = slice.length ? `${topPad ? `<tr class="virtual-pad-top"><td colspan="${colSpan}" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="${colSpan}" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}` : `<tr><td colspan="${colSpan}" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>`;
       }
       const pag = root.querySelector('#recon-pagination');
