@@ -82,9 +82,6 @@ func Run(opts Options) (*Result, error) {
 	tablePath := filepath.Join(baseDir, "secrets_table.txt")
 	logPath := filepath.Join(baseDir, "trufflehog.log")
 
-	// Also write github-secrets.json for UI detection
-	githubJSONPath := filepath.Join(baseDir, "github-secrets.json")
-
 	cmd, err := buildTrufflehogCommand(opts)
 	if err != nil {
 		return nil, err
