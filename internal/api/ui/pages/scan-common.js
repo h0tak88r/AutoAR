@@ -91,7 +91,7 @@
     const n = String(fileName || '').toLowerCase();
     if (!n) return 'unknown';
     if (n.includes('/apkx/') || n.includes('\\apkx\\')) return 'apkx';
-    if (n.includes('github') || n.includes('trufflehog') || n.includes('github-secrets') || n.includes('secrets_table')) return 'github-scan';
+    if (n.includes('github') || n.includes('trufflehog') || n.includes('github-secrets') || n.includes('secrets_table') || (n.includes('secrets') && n.endsWith('.json'))) return 'github-scan';
     if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
     if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
     if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';

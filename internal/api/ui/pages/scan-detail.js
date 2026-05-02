@@ -541,9 +541,9 @@
         if (kind === 'js-urls') kind = 'js_urls';
         if (kind === 'unknown' || kind === 'unknowns') kind = 'other';
 
-        const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.includes('js-') && !file.includes('trufflehog') && !file.includes('github'))) && !file.includes('trufflehog') && !file.includes('github-secrets');
+const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.includes('js-') && !file.includes('trufflehog') && !file.includes('github'))) && !file.includes('trufflehog') && !file.includes('github-secrets');
         const looksLikeJSURL = file.includes('js-url') || /\.m?jsx?(\?|$)/i.test(target);
-        const looksLikeGitHub = file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table') || file.includes('secrets.json') || file.includes('github-secrets');
+        const looksLikeGitHub = file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table') || file.includes('github-secrets') || (file.includes('secrets') && file.endsWith('.json'));
 
         if (looksLikeGitHub) kind = 'github-scan';
         else if (looksLikeJSMatcher) kind = 'js-analysis';

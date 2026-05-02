@@ -79,7 +79,6 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	jsonPath := filepath.Join(baseDir, "secrets.json")
-	tablePath := filepath.Join(baseDir, "secrets_table.txt")
 	logPath := filepath.Join(baseDir, "trufflehog.log")
 
 	cmd, err := buildTrufflehogCommand(opts)
@@ -127,21 +126,8 @@ func Run(opts Options) (*Result, error) {
 	result := &Result{
 		BaseDir:    baseDir,
 		JSONPath:   jsonPath,
-		TablePath:  tablePath,
 		LogPath:    logPath,
 		TargetName: target,
-	}
-
-	if runErr != nil {
-		// Still generate table so caller can inspect what (if anything) was found
-		_ = generateSecretsTable(jsonPath, tablePath)
-		return result, fmt.Errorf("trufflehog command failed: %w", runErr)
-	}
-
-	// Generate secrets table from JSON
-	if err := generateSecretsTable(jsonPath, tablePath); err != nil {
-		// Log error but don't fail the scan
-		fmt.Printf("[WARN] Failed to generate secrets table: %v\n", err)
 	}
 
 	// Write JSON results to scan directory (local-first)

@@ -182,7 +182,7 @@ func inferModuleFromFileName(name string) string {
 		return "port-scan"
 	case strings.Contains(n, "aem"):
 		return "aem-scan"
-	case strings.Contains(n, "github") || strings.Contains(n, "github-scan") || strings.Contains(n, "gh-") || strings.Contains(n, "github-secrets") || strings.Contains(n, "secrets_table"):
+	case strings.Contains(n, "github") || strings.Contains(n, "github-scan") || strings.Contains(n, "gh-") || strings.Contains(n, "github-secrets") || strings.Contains(n, "secrets_table") || (strings.Contains(n, "secrets") && strings.HasSuffix(n, ".json")):
 		return "github-scan"
 	case strings.Contains(n, "backup") || strings.Contains(n, "fuzzuli"):
 		return "backup-detection"
