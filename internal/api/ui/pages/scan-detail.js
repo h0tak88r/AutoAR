@@ -1179,7 +1179,8 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       // Dynamic raw table is intentionally limited to GitHub/TruffleHog views.
       // Other modules (e.g. nuclei) have dedicated renderers with stable UX.
       const dynamicRawMode = filtered.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
-        isGitHubTableKind(activeKind);
+        isGitHubTableKind(activeKind) &&
+        !/nuclei/.test(String(activeKind || '').toLowerCase());
       const dynamicCols = dynamicRawMode ? collectDynamicColumns(filtered) : [];
       const _pageSize = pageSizeForKind();
       const totalPages = Math.ceil(filtered.length / _pageSize) || 1;
