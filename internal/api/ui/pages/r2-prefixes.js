@@ -78,6 +78,8 @@
     if (st === 'github') {
       const slug = t;
       return uniquePrefixList([
+        `new-results/${scanID}/`,
+        `new-results/${scanID}/github-secrets.json`,
         `new-results/github/repos/${slug}/`,
         `github/repos/${slug}/`,
         ...domainTriad(host),
@@ -86,6 +88,8 @@
 
     if (st === 'github_org') {
       return uniquePrefixList([
+        `new-results/${scanID}/`,
+        `new-results/${scanID}/github-secrets.json`,
         `new-results/github/orgs/${t}/`,
         `github/orgs/${t}/`,
       ]);
