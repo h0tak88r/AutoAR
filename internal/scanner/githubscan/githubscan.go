@@ -134,22 +134,16 @@ func Run(opts Options) (*Result, error) {
 	if scanID := utils.GetCurrentScanID(); scanID != "" && result != nil {
 		data, readErr := os.ReadFile(result.JSONPath)
 		if readErr == nil && len(data) > 0 {
-			type githubFinding struct {
-				TemplateID string `json:"template-id"`
-				MatchedAt  string `json:"matched-at"`
-				Severity   string `json:"severity"`
-				Module     string `json:"module"`
-				Detector   string `json:"detector,omitempty"`
-				Verified   bool   `json:"verified"`
-				SourceFile string `json:"source_file,omitempty"`
-				Line       int    `json:"line,omitempty"`
-			}
 			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			findings := make([]githubFinding, 0, len(lines))
+			findings := make([]map[string]interface{}, 0, len(lines))
 			seen := make(map[string]struct{}, len(lines))
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
 				if line == "" || !strings.HasPrefix(line, "{") {
+					continue
+				}
+				var native map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &native); err != nil {
 					continue
 				}
 				var secret TruffleHogSecret
@@ -176,16 +170,15 @@ func Run(opts Options) (*Result, error) {
 					continue
 				}
 				seen[key] = struct{}{}
-				findings = append(findings, githubFinding{
-					TemplateID: template,
-					MatchedAt:  matchedAt,
-					Severity:   severity,
-					Module:     "github-secrets",
-					Detector:   secret.DetectorName,
-					Verified:   secret.Verified,
-					SourceFile: secret.SourceMetadata.Data.File,
-					Line:       secret.SourceMetadata.Data.Line,
-				})
+				// Keep scanner-native payload, add dashboard-friendly helpers.
+				native["severity"] = severity
+				native["module"] = "github-secrets"
+				native["templateId"] = template
+				native["matchedAt"] = matchedAt
+				if strings.TrimSpace(secret.Redacted) != "" {
+					native["Redacted"] = secret.Redacted
+				}
+				findings = append(findings, native)
 			}
 			if len(findings) > 0 {
 				if err := utils.WriteJSONToScanDir(scanID, "github-secrets.json", findings); err != nil {
