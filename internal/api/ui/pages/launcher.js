@@ -13,7 +13,7 @@
     tech: { path: 'tech', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     ports: { path: 'ports', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     gf: { path: 'gf', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
-    backup: { path: 'backup', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
+    backup: { path: 'backup', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
     misconfig: { path: 'misconfig', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'takeover' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_dangling: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'dangling-ip' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
@@ -204,6 +204,8 @@
 
     if (rebuildModes) {
       modeSel.innerHTML = (spec.modes || []).map((m) => `<option value="${esc(m)}">${esc(LAUNCH_MODE_LABELS[m] || m)}</option>`).join('');
+      const preferred = modeSel.dataset.preferred || window.state?.scanLaunchUI?.targetMode || '';
+      if (preferred && (spec.modes || []).includes(preferred)) modeSel.value = preferred;
     }
     if (!modeSel.value || !(spec.modes || []).includes(modeSel.value)) {
       modeSel.value = (spec.modes && spec.modes[0]) || 'domain';
@@ -324,6 +326,13 @@
       return;
     }
     const raw = (mode && mode.endsWith('_list') ? listInput?.value : singleInput?.value || '').trim();
+    if (window.state) {
+      window.state.scanLaunchUI = window.state.scanLaunchUI || { scanType: 'recon', targetMode: 'domain', target: '', targetList: '' };
+      window.state.scanLaunchUI.scanType = key || window.state.scanLaunchUI.scanType;
+      window.state.scanLaunchUI.targetMode = mode || window.state.scanLaunchUI.targetMode;
+      window.state.scanLaunchUI.target = singleInput?.value || '';
+      window.state.scanLaunchUI.targetList = listInput?.value || '';
+    }
     const bodies = raw ? buildScanRequestBodies(spec, mode, raw) : [];
     const flags = collectFlagValues();
     const previewBodies = bodies.slice(0, 2).map((b) => ({ ...b, ...flags }));
