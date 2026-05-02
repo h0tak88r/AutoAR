@@ -98,8 +98,8 @@
     if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
     if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';
     if (n.includes('js-urls') || n.includes('javascript')) return 'js-analysis';
-    // Generic "secret" AFTER GitHub check
-    if (n.includes('js-secret') || n.includes('js-exposure') || (n.includes('secret') && !n.includes('github'))) return 'js-analysis';
+    // JS secret artifacts only (avoid matching trufflehog "secrets.json" via substring "secret")
+    if (n.includes('js-secret') || n.includes('js-exposure')) return 'js-analysis';
     if (n.includes('apk') || n.includes('androidmanifest') || n.includes('jadx') || n.includes('dex')) return 'apkx';
     if (n.includes('kxss') || n.includes('dalfox') || n.includes('xss-reflection')) return 'xss-detection';
     if (n.includes('reflection')) return 'xss-detection';
@@ -138,6 +138,8 @@
       unknowns: 'unknown',
       apk: 'apkx',
       'apk-analysis': 'apkx',
+      github: 'github-scan',
+      'github-secrets': 'github-scan',
     };
     return aliases[raw] || raw;
   }
@@ -162,7 +164,7 @@
       'dns-takeover': { icon: '📍', name: 'DNS', color: '#06b6d4' },
       'tech-detect': { icon: '🔬', name: 'Tech Detect', color: '#a855f7' },
       'port-scan': { icon: '📡', name: 'Port Scan', color: '#64748b' },
-      'github-scan': { icon: '🐦', name: 'GitHub Recon', color: '#94a3b8' },
+      'github-scan': { icon: '🐦', name: 'GitHub Secrets', color: '#94a3b8' },
       reflection: { icon: '🔎', name: 'Reflection', color: '#f97316' },
       'ffuf-fuzzing': { icon: '🎲', name: 'FFUF Fuzzing', color: '#f43f5e' },
       'url-collection': { icon: '🔗', name: 'URL Collection', color: '#38bdf8' },
