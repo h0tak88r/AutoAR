@@ -10,6 +10,7 @@ import (
 
 	"github.com/h0tak88r/AutoAR/internal/bot"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
+	"github.com/h0tak88r/AutoAR/internal/observability"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -22,6 +23,9 @@ func Main() {
 	} else {
 		fmt.Println("[ + ]Loaded environment variables from .env file")
 	}
+
+	// Initialize observability package (logging, tracing)
+	observability.Initialize()
 
 	// Read configuration from environment (after .env is loaded)
 	autoarModeEnv := utils.GetEnv("AUTOAR_MODE", "discord")
