@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install external Go-based CLI tools used by AutoAR (only those requested explicitly by subshells)
-RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    GOBIN=/go/bin go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+# Install external tools used by AutoAR (httpx, interlace, trufflehog)
+# Note: Nuclei uses SDK (go.mod), no binary needed
+RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
     GOBIN=/go/bin go install -v github.com/codingo/interlace@latest || true
 
 # Install TruffleHog (binary handled via custom build)
@@ -85,10 +85,6 @@ COPY --from=builder /app/autoar-entrypoint /usr/local/bin/autoar-entrypoint
 # Create main.sh symlink to autoar for backward compatibility
 RUN ln -sf /usr/local/bin/autoar /app/main.sh && \
     chmod +x /usr/local/bin/autoar 2>/dev/null || true
-
-# Install Nuclei templates to a known location
-RUN nuclei -update-templates -ud /app/nuclei-templates || true
-
 
 # Ensure directories exist
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
