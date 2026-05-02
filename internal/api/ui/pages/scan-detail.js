@@ -578,12 +578,15 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
         return true;
       });
 
-    const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'sqlmap', 'aem-findings']);
-    const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || 'other') === k).length), 0);
+    const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'github', 'sqlmap', 'aem-findings']);
+    const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || r.module === 'github-scan' || r.module === 'github' ? k === 'github-scan' : k)).length), 0);
 
     const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run';
+    const isGitHubScan = /github/.test(stNorm) || allRows.some(r => r.module === 'github-scan' || r.module === 'github');
     let activeKind = isReconScan ? 'assets' : 'urls';
-    if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
+    if (isGitHubScan && allRows.some(r => r.module === 'github-scan' || r.module === 'github')) {
+      activeKind = 'mod:github-scan';
+    }
     let searchHost = '';
     let searchTitle = '';
     let searchModule = 'all';
@@ -615,8 +618,8 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     }
 
     dynamicKinds.forEach(k => {
-      if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k)) {
-        if (['js-analysis', 'gf-patterns', 'nuclei', 'ffuf', 'reflection'].includes(k)) {
+      if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k) || k === 'github-scan') {
+        if (['js-analysis', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'github-scan'].includes(k)) {
           DATASET_TABS.push([k, TAB_LABELS[k] || k]);
         }
         return;
@@ -818,7 +821,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     let currentRenderedRows = [];
     let _virtualScrollTop = 0;
     const presetStorageKey = `autoar.recon.filtersets.${stNorm || 'generic'}`;
-    const uiStateKey = `autoar.recon.uistate.${stNorm || 'generic'}`;
+    const uiStateKey = `autoar.recon.uistate.${scanId}`;
     const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
     let savedFilterSets = {};
 

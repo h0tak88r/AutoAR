@@ -91,11 +91,15 @@
     const n = String(fileName || '').toLowerCase();
     if (!n) return 'unknown';
     if (n.includes('/apkx/') || n.includes('\\apkx\\')) return 'apkx';
-    if (n.includes('github') || n.includes('trufflehog') || n.includes('github-secrets') || n.includes('secrets_table') || (n.includes('secrets') && n.endsWith('.json'))) return 'github-scan';
+    // GitHub must be BEFORE generic "secret" match
+    if (n.includes('github-secret') || n.includes('github-secrets') || (n.includes('github') && n.includes('secret'))) return 'github-scan';
+    if (n.includes('github') || n.includes('trufflehog') || n.includes('secrets') || (n.endsWith('.json') && n.includes('github'))) return 'github-scan';
     if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
     if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
     if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';
     if (n.includes('js-urls') || n.includes('javascript')) return 'js-analysis';
+    // Generic "secret" AFTER GitHub check
+    if (n.includes('js-secret') || n.includes('js-exposure') || (n.includes('secret') && !n.includes('github'))) return 'js-analysis';
     if (n.includes('apk') || n.includes('androidmanifest') || n.includes('jadx') || n.includes('dex')) return 'apkx';
     if (n.includes('kxss') || n.includes('dalfox') || n.includes('xss-reflection')) return 'xss-detection';
     if (n.includes('reflection')) return 'xss-detection';
