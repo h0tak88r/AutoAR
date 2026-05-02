@@ -61,11 +61,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 
 	// Initialize logger if not already initialized
 	if utils.Log == nil {
-		logConfig := utils.DefaultLogConfig()
-		logConfig.Level = os.Getenv("LOG_LEVEL")
-		if logConfig.Level == "" {
-			logConfig.Level = "info"
-		}
+		logConfig := utils.LogConfigFromEnv("autoar-bot.log")
 		if err := utils.InitLogger(logConfig); err != nil {
 			log.Printf("[WARN] Failed to initialize logger: %v", err)
 		} else {

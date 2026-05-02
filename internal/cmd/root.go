@@ -3,10 +3,10 @@ package cmd
 import (
 	"os"
 
-	"github.com/spf13/cobra"
-	"github.com/sirupsen/logrus"
+	"github.com/h0tak88r/AutoAR/internal/observability"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/h0tak88r/AutoAR/internal/version"
+	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
@@ -28,17 +28,18 @@ func Execute() {
 func init() {
 	// Initialize global flags and configuration here
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "Set log level (debug, info, warn, error)")
-	
+
 	cobra.OnInitialize(func() {
-		logLevel, _ := rootCmd.Flags().GetString("log-level")
+		logLevel, _ := rootCmd.PersistentFlags().GetString("log-level")
+		observability.Init()
 		setupLogger(logLevel)
 	})
 }
 
 func setupLogger(level string) {
-	config := utils.DefaultLogConfig()
+	config := utils.LogConfigFromEnv("autoar-bot.log")
 	config.Level = level
 	if err := utils.InitLogger(config); err != nil {
-		logrus.Errorf("Failed to initialize logger: %v", err)
+		observability.Logger.Error().Err(err).Msg("Failed to initialize logger")
 	}
 }

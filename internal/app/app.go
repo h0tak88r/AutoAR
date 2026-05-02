@@ -33,14 +33,9 @@ func StartAPI() error {
 	apiPortEnv := utils.GetEnv("API_PORT", "8000")
 
 	// Initialize Logger
-	logConfig := utils.LogConfig{
-		Level:      "info",
-		FilePath:   "api.log",
-		MaxSize:    100,
-		MaxAge:     7,
-		MaxBackups: 3,
-		Compress:   true,
-		JSONFormat: true,
+	logConfig := utils.LogConfigFromEnv("api.log")
+	if os.Getenv("LOG_JSON") == "" {
+		logConfig.JSONFormat = true
 	}
 	if err := utils.InitLogger(logConfig); err != nil {
 		log.Printf("[WARN] Failed to initialize API logger: %v", err)

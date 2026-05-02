@@ -29,11 +29,15 @@ require (
 	github.com/projectdiscovery/nuclei/v3 v3.7.1
 	github.com/projectdiscovery/subfinder/v2 v2.6.7
 	github.com/projectdiscovery/tlsx v1.2.2
+	github.com/rs/zerolog v1.28.0
 	github.com/sa7mon/s3scanner v0.0.0-20251106040855-9e26bc46e8ee
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.10.2
 	github.com/sw33tLie/bbscope v0.0.0-20251113222800-c453973e83dd
+	go.opentelemetry.io/otel v1.38.0
+	go.opentelemetry.io/otel/sdk v1.38.0
+	go.opentelemetry.io/otel/trace v1.38.0
 	golang.org/x/net v0.52.0
 	golang.org/x/time v0.14.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -357,7 +361,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
-	github.com/rs/zerolog v1.28.0 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/sashabaranov/go-openai v1.37.0 // indirect
@@ -432,9 +435,7 @@ require (
 	go.mongodb.org/mongo-driver v1.17.9 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0 // indirect
-	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
-	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
