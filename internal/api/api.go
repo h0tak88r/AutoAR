@@ -1766,6 +1766,12 @@ func IndexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 	switch st {
 	case "domain_run", "subdomain_run":
 		r2Prefixes = workflowScanR2Prefixes(target)
+	case "github", "github_org":
+		r2Prefixes = []string{
+			"new-results/" + scanID + "/",
+			"new-results/github/repos/" + target + "/",
+			"new-results/github/orgs/" + target + "/",
+		}
 	}
 
 	if len(r2Prefixes) == 0 || strings.TrimSpace(scanID) == "" || !r2storage.IsEnabled() {
