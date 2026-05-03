@@ -339,12 +339,12 @@
     const files = Array.isArray(moduleEntry?.output_files) ? moduleEntry.output_files : [];
     const status = String(moduleEntry?.status || '').toLowerCase();
     if (files.length) return `${files.length} file${files.length === 1 ? '' : 's'}`;
-    if (/completed|done|success/.test(status)) return '0 files (empty)';
-    if (/skipped/.test(status)) return 'skipped';
-    if (/failed|error|cancel/.test(status)) return '0 files (failed)';
-    if (/running|starting|queued|active/.test(status)) return 'waiting';
-    if (/unknown/.test(status)) return '?';
-    return 'not run';
+    if (/completed|done|success/.test(status)) return '0 results (empty)';
+    if (/skipped/.test(status)) return 'no results/skipped';
+    if (/failed|error|cancel/.test(status)) return 'failed';
+    if (/running|starting|queued|active/.test(status)) return 'processing...';
+    if (/unknown/.test(status)) return '—';
+    return 'pending';
   }
 
   function manifestStartedLabel(moduleEntry) {

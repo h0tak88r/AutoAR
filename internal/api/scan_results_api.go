@@ -170,10 +170,6 @@ func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 	scanFailed := strings.EqualFold(strings.TrimSpace(rec.Status), "failed") ||
 		strings.EqualFold(strings.TrimSpace(rec.Status), "error")
 
-	// If CompletedPhases is empty but the scan finished, we can still infer
-	// per-phase status from whether the phase produced output files.
-	noPhasesTracked := len(completed) == 0 && len(failed) == 0
-
 	for _, spec := range subdomainWorkflowPhaseSpecs {
 		status := "pending"
 		completedAt := time.Time{}
@@ -199,23 +195,23 @@ func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 			status = "running"
 			durationMS = now.Sub(rec.StartedAt).Milliseconds()
 
-		// ── Smart inference when no per-phase tracking was stored ──────────
-		} else if noPhasesTracked {
+		// ── Smart inference for any phase not explicitly tracked ──────────
+		} else {
 			if hasArtifacts {
-				// Phase ran and produced files → completed.
+				// Phase produced files -> definitely ran.
 				status = "completed"
 				if rec.CompletedAt != nil {
 					completedAt = *rec.CompletedAt
 					durationMS = completedAt.Sub(rec.StartedAt).Milliseconds()
 				}
 			} else if scanCompleted {
-				// Scan finished but phase left no files → was skipped / not applicable.
+				// Scan finished, no files found for this module.
 				status = "skipped"
 			} else if scanFailed {
-				// Scan failed and we don't know which phase caused it.
-				status = "unknown"
+				// Overall scan failed, this phase likely never reached.
+				status = "failed"
 			}
-			// else: still "pending" (scan is still running and hasn't reached this phase)
+			// else: remains "pending" (scan still running and hasn't reached this phase yet)
 		}
 
 		modules = append(modules, moduleExecutionEntry{
