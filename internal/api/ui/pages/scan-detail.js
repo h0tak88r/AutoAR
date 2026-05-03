@@ -327,9 +327,11 @@
     const st = String(status || '').toLowerCase();
     if (/completed|done|success/.test(st)) return 'badge-done';
     if (/running|starting|queued|active/.test(st)) return 'badge-running';
-    if (/pending|not_started|skipped/.test(st)) return 'badge-neutral';
+    if (/skipped|not_started/.test(st)) return 'badge-neutral';
+    if (/pending/.test(st)) return 'badge-neutral';
     if (/paused|cancelling/.test(st)) return 'badge-starting';
     if (/failed|error|cancel/.test(st)) return 'badge-failed';
+    if (/unknown/.test(st)) return 'badge-starting';
     return 'badge-neutral';
   }
 
@@ -338,8 +340,10 @@
     const status = String(moduleEntry?.status || '').toLowerCase();
     if (files.length) return `${files.length} file${files.length === 1 ? '' : 's'}`;
     if (/completed|done|success/.test(status)) return '0 files (empty)';
+    if (/skipped/.test(status)) return 'skipped';
     if (/failed|error|cancel/.test(status)) return '0 files (failed)';
     if (/running|starting|queued|active/.test(status)) return 'waiting';
+    if (/unknown/.test(status)) return '?';
     return 'not run';
   }
 
