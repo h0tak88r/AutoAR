@@ -1018,6 +1018,7 @@ func parseAPKStructuredLine(line string) (path, matcher, ctx string) {
 	return path, matcher, ctx
 }
 
+
 // inferReconKind maps artifact filenames to a stable dataset key for unified recon tables.
 func inferReconKind(fileName string) string {
 	full := strings.ToLower(strings.TrimSpace(fileName))
@@ -1299,6 +1300,41 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 			Severity: sev,
 			Target:   subdomain,
 			Finding:  findingLabel,
+		}
+	}
+
+	// ── FFUF fuzzing native JSON ─────────────────────────────────────────────
+	// Written by writeFfufJSON in the ffuf scanner. Fields: url, status_code,
+	// word, path, content_length, content_lines, content_words, module.
+	if modStr := strings.ToLower(strings.TrimSpace(fmt.Sprint(v["module"]))); modStr == "ffuf-fuzzing" {
+		url := firstNonEmpty(fmt.Sprint(v["url"]), fmt.Sprint(v["matched-at"]), fmt.Sprint(v["matched_at"]))
+		word := firstNonEmpty(fmt.Sprint(v["word"]), fmt.Sprint(v["path"]), "—")
+		contentLen := firstNonEmpty(fmt.Sprint(v["content_length"]), "")
+		// Build a compact finding label: word [size]
+		findingLabel := word
+		if contentLen != "" && contentLen != "0" && contentLen != "<nil>" {
+			findingLabel = fmt.Sprintf("%s [%s bytes]", word, contentLen)
+		}
+		// Populate Raw with all ffuf-native fields for the frontend registry
+		normRaw := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			normRaw[strings.ReplaceAll(k, "-", "_")] = val
+		}
+		// Ensure the frontend extractor can find the canonical keys
+		normRaw["url"] = url
+		normRaw["matched_at"] = url
+		normRaw["status_code"] = v["status_code"]
+		normRaw["word"] = word
+		normRaw["content_length"] = v["content_length"]
+		normRaw["content_lines"] = v["content_lines"]
+		normRaw["content_words"] = v["content_words"]
+		return parsedFinding{
+			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
+			Target:   url,
+			Finding:  findingLabel,
+			Module:   "ffuf-fuzzing",
+			Kind:     "ffuf",
+			Raw:      normRaw,
 		}
 	}
 
