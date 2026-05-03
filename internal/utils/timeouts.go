@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"log"
 	"os"
 	"strconv"
 )
@@ -45,7 +44,7 @@ func GetTimeout(key string, defaultVal int) int {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			return n
 		}
-		log.Printf("[WARN] Invalid value for %s: %q — using default %d", envKey, v, defaultVal)
+		GetLogger().Warnf("[WARN] invalid value for %s: %q — using default %d", envKey, v, defaultVal)
 	}
 
 	// 3. Hardcoded default

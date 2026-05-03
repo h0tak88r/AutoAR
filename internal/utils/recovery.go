@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"log"
 	"time"
 )
 
@@ -38,14 +37,14 @@ func ExecuteWithRecovery(ctx context.Context, strategy RecoveryStrategy, fn func
 		
 		// Check if retryable
 		if !IsRetryable(err) {
-			log.Printf("[RECOVERY] Error not retryable: %v", err)
+			GetLogger().WithError(err).Warn("[RECOVERY] error not retryable")
 			break
 		}
 		
 		// Check if should retry
 		if attempt < strategy.MaxRetries {
-			log.Printf("[RECOVERY] Attempt %d/%d failed: %v. Retrying in %v...", 
-				attempt, strategy.MaxRetries, err, strategy.RetryDelay)
+			GetLogger().WithError(err).Warnf("[RECOVERY] attempt %d/%d failed, retrying in %v",
+				attempt, strategy.MaxRetries, strategy.RetryDelay)
 			
 			select {
 			case <-time.After(strategy.RetryDelay):
@@ -60,7 +59,7 @@ func ExecuteWithRecovery(ctx context.Context, strategy RecoveryStrategy, fn func
 	
 	// All retries failed
 	if strategy.SkipOnFailure {
-		log.Printf("[RECOVERY] Skipping after %d failed attempts: %v", strategy.MaxRetries, lastErr)
+		GetLogger().WithError(lastErr).Warnf("[RECOVERY] skipping after %d failed attempts", strategy.MaxRetries)
 		return nil // Skip and continue
 	}
 	

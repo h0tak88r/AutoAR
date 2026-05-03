@@ -2,7 +2,6 @@ package utils
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -44,14 +43,14 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 
 	// Checkpoint: Skip if phase already completed successfully
 	if scanID != "" && db.IsPhaseCompleted(scanID, description) {
-		log.Printf("[SKIP] Step %d/%d: %s (already completed)", step, total, description)
+		GetLogger().WithField("step", step).WithField("total", total).Infof("[SKIP] %s (already completed)", description)
 		return nil
 	}
 
 	// Await occupancy in the worker pool
 	phaseSemaphore <- struct{}{}
 
-	log.Printf("[INFO] Step %d/%d: %s", step, total, description)
+	GetLogger().WithField("step", step).WithField("total", total).Infof("[INFO] %s", description)
 	if scanID != "" {
 		progress := &db.ScanProgress{
 			CurrentPhase:   step,
@@ -84,9 +83,9 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 
 	if err != nil {
 		if err == ErrTimeout {
-			log.Printf("[WARN] %s timed out", description)
+			GetLogger().Warnf("[WARN] %s timed out", description)
 		} else {
-			log.Printf("[ERROR] %s failed: %v", description, err)
+			GetLogger().WithError(err).Errorf("[ERROR] %s failed", description)
 		}
 
 		if scanID != "" {
@@ -96,7 +95,7 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		return err
 	}
 
-	log.Printf("[OK] %s completed", description)
+	GetLogger().Infof("[OK] %s completed", description)
 	if scanID != "" {
 		_ = db.AppendScanPhase(scanID, description, false)
 	}
