@@ -1,3 +1,12 @@
+// Package utils provides shared, cross-cutting utilities for AutoAR:
+// structured logging, HTTP client pooling, rate-limiting, concurrent uploads,
+// scan-context tracking, pattern matching, and more.
+//
+// Logging
+//
+// All packages should use the global [Log] instance (or the safe accessor
+// [GetLogger]) rather than the stdlib log package. Call [InitLogger] once at
+// startup to configure the log level, file rotation, and format.
 package utils
 
 import (
@@ -12,22 +21,24 @@ import (
 )
 
 var (
-	// Log is the global logger instance.
+	// Log is the global logrus logger instance, shared across all packages.
+	// It is nil until [InitLogger] is called; use [GetLogger] for safe access.
 	Log *logrus.Logger
 )
 
-// LogConfig holds logging configuration.
+// LogConfig holds configuration for the rotating file logger.
 type LogConfig struct {
 	Level      string // debug, info, warn, error
-	FilePath   string // Path to log file; "-" disables file logging
-	MaxSize    int    // Max size in MB before rotation
-	MaxAge     int    // Max days to keep old logs
-	MaxBackups int    // Max number of old logs to keep
-	Compress   bool   // Compress old logs
-	JSONFormat bool   // Use JSON format
+	FilePath   string // destination log file (rotated by lumberjack); "-" disables file logging
+	MaxSize    int    // max megabytes per log file before rotation
+	MaxAge     int    // max days to retain old log files
+	MaxBackups int    // max number of old log files to keep
+	Compress   bool   // gzip-compress rotated files
+	JSONFormat bool   // true → JSON to file; false → coloured text to stdout+file
 }
 
-// DefaultLogConfig returns default logging configuration.
+// DefaultLogConfig returns a production-ready LogConfig with 100 MB rotation,
+// 7-day retention, and JSON output to "autoar-bot.log".
 func DefaultLogConfig() LogConfig {
 	return LogConfig{
 		Level:      "info",
@@ -58,7 +69,10 @@ func LogConfigFromEnv(defaultFile string) LogConfig {
 	return config
 }
 
-// InitLogger initializes the global logger with optional file rotation.
+// InitLogger configures and activates the global [Log] instance.
+// When JSONFormat is true, structured JSON is written to the rotating file only.
+// When false, coloured text is written to both stdout and the file.
+// Returns an error if the log directory cannot be created.
 func InitLogger(config LogConfig) error {
 	logger := logrus.New()
 
@@ -100,8 +114,9 @@ func InitLogger(config LogConfig) error {
 	return nil
 }
 
-// GetLogger returns the global logger instance. If not initialized, it returns
-// a console logger so early startup paths still produce useful diagnostics.
+// GetLogger returns the global logger, initialising a default one if needed.
+// Safe to call before [InitLogger]; the returned instance writes to stdout
+// until the full logger is configured.
 func GetLogger() *logrus.Logger {
 	if Log == nil {
 		_ = InitLogger(LogConfig{
@@ -113,8 +128,9 @@ func GetLogger() *logrus.Logger {
 	return Log
 }
 
-// CloseLogger is kept for compatibility with callers that want an explicit
-// shutdown hook. Lumberjack does not require closing.
+// CloseLogger flushes and closes the underlying log file, if any.
+// Call this from a shutdown hook to avoid truncated log entries.
+// Kept for compatibility; lumberjack does not require an explicit close.
 func CloseLogger() {}
 
 func buildLogWriter(config LogConfig) (io.Writer, error) {

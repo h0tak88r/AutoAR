@@ -3,7 +3,6 @@ package utils
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 )
@@ -111,8 +110,8 @@ func RetryWithBackoff(ctx context.Context, config RetryConfig, fn func() error) 
 		}
 		
 		// Log retry attempt
-		log.Printf("[RETRY] Attempt %d/%d failed: %v. Retrying in %v...", 
-			attempt, config.MaxAttempts, err, delay)
+		GetLogger().WithError(err).Warnf("[RETRY] attempt %d/%d failed, retrying in %v",
+			attempt, config.MaxAttempts, delay)
 		
 		// Wait with context cancellation support
 		select {

@@ -1,6 +1,15 @@
-# Configuration files with secrets
+# ─────────────────────────────────────────────────────────────────────────────
+# SECURITY: never commit secrets or local configuration
+# ─────────────────────────────────────────────────────────────────────────────
 autoar.yaml
+
+# Environment / secret files — all variants
 .env
+.env.*
+!.env.example
+!env.example
+*.env
+
 *.log
 *.pid
 
@@ -95,8 +104,8 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 autoar.exe
 all-roots.txt
 roots.txt
+# Note: .env already covered above — kept here for clarity
 .evn.example
-.env
 .sql.gz
 autoar
 .db-shm
