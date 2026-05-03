@@ -127,12 +127,54 @@
       ],
       extract(r) {
         const raw = r.raw || {};
-        const url = s(raw.matched_at || raw.url || r.target || r.host || '—');
+
+        // ── Structured row (JSON from ffuf) ──────────────────────────────
+        // raw has status_code / url / word / content_length
+        if (raw.url || raw.matched_at || raw.status_code != null) {
+          const url = s(raw.matched_at || raw.url || r.target || '—');
+          return {
+            url:    { href: toHref(url), label: url },
+            status: s(raw.status_code || raw.status || r.status || r.status_code || '—'),
+            word:   s(raw.word || raw.input?.FUZZ || r.word || r.path || '—'),
+            length: s(raw.content_length || raw.length || r.content_length || '—'),
+          };
+        }
+
+        // ── Text-format row ───────────────────────────────────────────────
+        // FFUF stdout line format: "[200] url (Size: 114, Lines: 1, Words: 2)"
+        // stored verbatim in r.target or r.finding
+        const line = s(r.target || r.finding || '');
+
+        // Extract status code [NNN]
+        const statusMatch = line.match(/^\[(\d{3})\]/);
+        const status = statusMatch ? statusMatch[1] : '—';
+
+        // Extract URL — the bare URL after the status code, before " (Size"
+        const urlMatch = line.match(/^\[\d{3}\]\s+(https?:\/\/[^\s(]+)/);
+        let url = urlMatch ? urlMatch[1] : line;
+        // Strip trailing " (Size: ...)"
+        url = url.replace(/\s*\(Size:.*$/, '').trim();
+
+        // Extract content-length from "(Size: NNN"
+        const sizeMatch = line.match(/Size:\s*(\d+)/);
+        const length = sizeMatch ? sizeMatch[1] : s(r.content_length || r.length || '—');
+
+        // Derive word: last path segment of the URL
+        let word = s(r.word || raw.word || r.path || '—');
+        if (word === '—' && url && url !== '—') {
+          try {
+            const u = new URL(url);
+            const seg = u.pathname.split('/').filter(Boolean).pop();
+            if (seg) word = '/' + seg;
+            else if (u.pathname && u.pathname !== '/') word = u.pathname;
+          } catch (_) {}
+        }
+
         return {
           url:    { href: toHref(url), label: url },
-          status: s(r.status || r.status_code || raw.status_code || raw.status || '—'),
-          word:   s(r.word || raw.word || r.path || r.finding_type || '—'),
-          length: s(r.content_length || r.length || raw.content_length || raw.length || '—'),
+          status,
+          word,
+          length,
         };
       },
     },
