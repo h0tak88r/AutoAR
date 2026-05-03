@@ -2,7 +2,7 @@ package domain
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"sync"
@@ -90,7 +90,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		_ = os.MkdirAll(subsDir, 0755)
 		return utils.WriteLines(filepath.Join(subsDir, "all-subs.txt"), subs)
 	}); err != nil {
-		log.Printf("[WARN] Subdomain enumeration failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Subdomain enumeration failed: %v", err)
 	}
 
 	// Phase 2: Host Discovery

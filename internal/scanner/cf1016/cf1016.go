@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net"
 	"net/http"
 	"os"
@@ -110,14 +110,14 @@ func Run(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("cf1016: failed to load subdomains: %w", err)
 	}
 	if len(subdomains) == 0 {
-		log.Printf("[cf1016] No subdomains to scan")
+		logger.GetLogger().Infof("[cf1016] No subdomains to scan")
 		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "cf1016", "cf1016-vulnerabilities.json")
 		}
 		return &Result{}, nil
 	}
 
-	log.Printf("[cf1016] Scanning %d subdomains for Cloudflare 1016 dangling records (threads=%d)", len(subdomains), opts.Threads)
+	logger.GetLogger().Infof("[cf1016] Scanning %d subdomains for Cloudflare 1016 dangling records (threads=%d)", len(subdomains), opts.Threads)
 
 	findings := scanConcurrent(subdomains, opts.Threads, opts.Timeout)
 
@@ -159,7 +159,7 @@ func Run(opts Options) (*Result, error) {
 				})
 			}
 			if jErr := utils.WriteJSONToScanDir(scanID, "cf1016-vulnerabilities.json", out); jErr != nil {
-				log.Printf("[cf1016] Warning: could not write JSON output: %v", jErr)
+				logger.GetLogger().Infof("[cf1016] Warning: could not write JSON output: %v", jErr)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "cf1016", "cf1016-vulnerabilities.json")
@@ -182,15 +182,15 @@ func Run(opts Options) (*Result, error) {
 					httpsURL, httpsURL,
 					f.StatusCode, f.StatusCode,
 				); uErr != nil {
-					log.Printf("[cf1016] Warning: failed to update live status for %s: %v", f.Subdomain, uErr)
+					logger.GetLogger().Infof("[cf1016] Warning: failed to update live status for %s: %v", f.Subdomain, uErr)
 				} else {
-					log.Printf("[cf1016] Marked %s as live (HTTP %d)", f.Subdomain, f.StatusCode)
+					logger.GetLogger().Infof("[cf1016] Marked %s as live (HTTP %d)", f.Subdomain, f.StatusCode)
 				}
 			}
 		}
 	}
 
-	log.Printf("[cf1016] Done. Found %d dangling Cloudflare 1016 records", len(findings))
+	logger.GetLogger().Infof("[cf1016] Done. Found %d dangling Cloudflare 1016 records", len(findings))
 
 	return &Result{Findings: findings}, nil
 }
@@ -221,10 +221,10 @@ func loadSubdomains(opts Options) ([]string, error) {
 
 		// Fallback: If no files exist but domain is provided, perform auto-enumeration
 		if filePath == "" {
-			log.Printf("[cf1016] No subdomain file found for %s, performing auto-enumeration...", opts.Domain)
+			logger.GetLogger().Infof("[cf1016] No subdomain file found for %s, performing auto-enumeration...", opts.Domain)
 			subs, err := subdomains.EnumerateSubdomains(opts.Domain, 100)
 			if err == nil && len(subs) > 0 {
-				log.Printf("[cf1016] Auto-enumerated %d subdomains for %s", len(subs), opts.Domain)
+				logger.GetLogger().Infof("[cf1016] Auto-enumerated %d subdomains for %s", len(subs), opts.Domain)
 				return subs, nil
 			}
 		}
@@ -371,7 +371,7 @@ func checkSubdomain(subdomain string, timeout time.Duration) (Finding, bool) {
 		return Finding{}, false
 	}
 
-	log.Printf("[cf1016] FOUND dangling record: %s -> %v (HTTP %d, error code: 1016)", hostname, ips, resp.StatusCode)
+	logger.GetLogger().Infof("[cf1016] FOUND dangling record: %s -> %v (HTTP %d, error code: 1016)", hostname, ips, resp.StatusCode)
 	return Finding{
 		Subdomain:  hostname,
 		IPs:        ips,

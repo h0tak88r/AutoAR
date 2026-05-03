@@ -2,7 +2,7 @@ package git
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 
@@ -27,7 +27,7 @@ type Result struct {
 // Run performs the git dump and secret scan
 func Run(opts Options) (*Result, error) {
 	// 1. Create output directory
-	log.Printf("[INFO] Git scan: Dumping .git from %s to %s", opts.URL, opts.OutputDir)
+	logger.GetLogger().Infof("[INFO] Git scan: Dumping .git from %s to %s", opts.URL, opts.OutputDir)
 	if err := ensureDir(opts.OutputDir); err != nil {
 		return nil, fmt.Errorf("failed to create output dir: %w", err)
 	}
@@ -35,10 +35,10 @@ func Run(opts Options) (*Result, error) {
 	// 2. Run goop to dump the repository (using library)
 	// goop.Clone(url, dir, force, keep)
 	// force=false (don't delete if exists - we expect empty dir), keep=false (doesn't matter if empty)
-	log.Printf("[INFO] Git scan: Starting goop clone (library)...")
+	logger.GetLogger().Infof("[INFO] Git scan: Starting goop clone (library)...")
 	err := goop.Clone(opts.URL, opts.OutputDir, false, false)
 	if err != nil {
-		log.Printf("[WARN] goop clone failed: %v", err)
+		logger.GetLogger().Infof("[WARN] goop clone failed: %v", err)
 		// Continue to verify if anything was dumped
 	}
 
@@ -49,11 +49,11 @@ func Run(opts Options) (*Result, error) {
 
 	// 4. Scan for secrets
 	secretsFile := filepath.Join(filepath.Dir(opts.OutputDir), "git-secrets.txt")
-	log.Printf("[INFO] Git scan: Scanning dump for secrets...")
+	logger.GetLogger().Infof("[INFO] Git scan: Scanning dump for secrets...")
 
 	count, err := scanCallback(opts.OutputDir, secretsFile, opts.ScannerDir)
 	if err != nil {
-		log.Printf("[WARN] Secrets scan failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Secrets scan failed: %v", err)
 	}
 
 	return &Result{

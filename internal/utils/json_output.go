@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,17 +82,17 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 	if r2storage.IsEnabled() {
 		artifact.R2Key = toScanR2Key(filePath)
 		artifact.PublicURL = r2storage.UploadResultFileAndLog(filePath, artifact.R2Key)
-		log.Printf("[JSON] Uploaded %s → R2:%s", fileName, artifact.R2Key)
+		GetLogger().Infof("[JSON] Uploaded %s → R2:%s", fileName, artifact.R2Key)
 	}
 
 	// Index in DB so dashboard /results/summary can find it
 	if artifact.ScanID != "" {
 		if err := db.AppendScanArtifact(artifact); err != nil {
-			log.Printf("[JSON] failed to index artifact %s for scan %s: %v", fileName, scanID, err)
+			GetLogger().Errorf("[JSON] failed to index artifact %s for scan %s: %v", fileName, scanID, err)
 		}
 	}
 
-	log.Printf("[JSON] Wrote %s (%d bytes) for scan %s", fileName, len(raw), scanID)
+	GetLogger().Infof("[JSON] Wrote %s (%d bytes) for scan %s", fileName, len(raw), scanID)
 	return nil
 }
 
@@ -122,16 +121,16 @@ func WriteTextToScanDir(scanID, fileName string, content []byte) error {
 	if len(content) > 0 && r2storage.IsEnabled() {
 		artifact.R2Key = toScanR2Key(filePath)
 		artifact.PublicURL = r2storage.UploadResultFileAndLog(filePath, artifact.R2Key)
-		log.Printf("[JSON] Uploaded %s → R2:%s", fileName, artifact.R2Key)
+		GetLogger().Infof("[JSON] Uploaded %s → R2:%s", fileName, artifact.R2Key)
 	}
 
 	if artifact.ScanID != "" {
 		if err := db.AppendScanArtifact(artifact); err != nil {
-			log.Printf("[JSON] failed to index artifact %s for scan %s: %v", fileName, scanID, err)
+			GetLogger().Errorf("[JSON] failed to index artifact %s for scan %s: %v", fileName, scanID, err)
 		}
 	}
 
-	log.Printf("[JSON] Wrote %s (%d bytes) for scan %s", fileName, len(content), scanID)
+	GetLogger().Infof("[JSON] Wrote %s (%d bytes) for scan %s", fileName, len(content), scanID)
 	return nil
 }
 
@@ -172,7 +171,7 @@ func WriteNoFindingsJSON(scanID, target, scanType, fileName string) error {
 			"type":     scanType,
 		},
 	}
-	log.Printf("[JSON] Writing 'No findings' result for %s (scan %s)", scanType, scanID)
+	GetLogger().Infof("[JSON] Writing 'No findings' result for %s (scan %s)", scanType, scanID)
 	return WriteJSONToScanDir(scanID, fileName, payload)
 }
 

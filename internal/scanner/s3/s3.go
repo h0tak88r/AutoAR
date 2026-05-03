@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -79,16 +79,16 @@ func handleEnum(opts Options, resultsDir string) error {
 	outputFile := filepath.Join(outputDir, "buckets.txt")
 	logFile := filepath.Join(outputDir, "enum.log")
 
-	log.Printf("[INFO] S3 enumeration: Starting enumeration for root domain: %s", opts.Root)
-	log.Printf("[INFO] S3 enumeration: Output directory: %s", outputDir)
-	log.Printf("[INFO] S3 enumeration: Results will be saved to: %s", outputFile)
+	logger.GetLogger().Infof("[INFO] S3 enumeration: Starting enumeration for root domain: %s", opts.Root)
+	logger.GetLogger().Infof("[INFO] S3 enumeration: Output directory: %s", outputDir)
+	logger.GetLogger().Infof("[INFO] S3 enumeration: Results will be saved to: %s", outputFile)
 
 	// Use S3Scanner package for enumeration
-	log.Printf("[INFO] S3 enumeration: Using S3Scanner package for enumeration")
+	logger.GetLogger().Infof("[INFO] S3 enumeration: Using S3Scanner package for enumeration")
 	
 	// Generate bucket name patterns
 	bucketPatterns := generateBucketNames(opts.Root)
-	log.Printf("[INFO] S3 enumeration: Generated %d bucket name patterns to test", len(bucketPatterns))
+	logger.GetLogger().Infof("[INFO] S3 enumeration: Generated %d bucket name patterns to test", len(bucketPatterns))
 	
 	// Create output files
 	outFile, err := os.Create(outputFile)
@@ -114,7 +114,7 @@ func handleEnum(opts Options, resultsDir string) error {
 	if threads <= 0 {
 		threads = 50 // Default to 50 concurrent requests
 	}
-	log.Printf("[INFO] S3 enumeration: Using %d concurrent threads for bucket testing", threads)
+	logger.GetLogger().Infof("[INFO] S3 enumeration: Using %d concurrent threads for bucket testing", threads)
 
 	// Create channels for bucket processing
 	bucketsChan := make(chan bucket.Bucket, threads)
@@ -150,11 +150,11 @@ func handleEnum(opts Options, resultsDir string) error {
 					mu.Lock()
 					if _, werr := fmt.Fprintf(outFile, "%s\n", result.Name); werr != nil {
 						mu.Unlock()
-						log.Printf("[ERROR] Failed to write bucket name: %v", werr)
+						logger.GetLogger().Infof("[ERROR] Failed to write bucket name: %v", werr)
 						continue
 					}
 					fmt.Fprintf(logFileHandle, "[OK] Found bucket: %s (region: %s)\n", result.Name, result.Region)
-					log.Printf("[OK] S3 enumeration: Found bucket: %s (region: %s)", result.Name, result.Region)
+					logger.GetLogger().Infof("[OK] S3 enumeration: Found bucket: %s (region: %s)", result.Name, result.Region)
 					foundCount++
 					foundBuckets = append(foundBuckets, result.Name)
 					mu.Unlock()
@@ -177,13 +177,13 @@ func handleEnum(opts Options, resultsDir string) error {
 	// Wait for all workers to complete
 	wg.Wait()
 
-	log.Printf("[INFO] S3 enumeration: Found %d bucket(s) out of %d tested", foundCount, len(bucketPatterns))
+	logger.GetLogger().Infof("[INFO] S3 enumeration: Found %d bucket(s) out of %d tested", foundCount, len(bucketPatterns))
 	fmt.Printf("[OK] S3 enumeration completed for %s\n", opts.Root)
 	fmt.Printf("[INFO] Buckets found: %d out of %d tested\n", foundCount, len(bucketPatterns))
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
 	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
 	
-	log.Printf("[OK] S3 enumeration completed for %s (results: %s, log: %s)", opts.Root, outputFile, logFile)
+	logger.GetLogger().Infof("[OK] S3 enumeration completed for %s (results: %s, log: %s)", opts.Root, outputFile, logFile)
 
 	// Publish structured enum results for dashboard parsing.
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
@@ -210,7 +210,7 @@ func handleEnum(opts Options, resultsDir string) error {
 		}
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "s3-buckets.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write S3 enum JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write S3 enum JSON: %v", err)
 			}
 		}
 	}
@@ -231,9 +231,9 @@ func handleScan(opts Options, resultsDir string) error {
 	outputFile := filepath.Join(outputDir, "scan-results.txt")
 	logFile := filepath.Join(outputDir, "scan.log")
 
-	log.Printf("[INFO] S3 scan: Starting scan for bucket: %s", opts.Bucket)
-	log.Printf("[INFO] S3 scan: Output directory: %s", outputDir)
-	log.Printf("[INFO] S3 scan: Results will be saved to: %s", outputFile)
+	logger.GetLogger().Infof("[INFO] S3 scan: Starting scan for bucket: %s", opts.Bucket)
+	logger.GetLogger().Infof("[INFO] S3 scan: Output directory: %s", outputDir)
+	logger.GetLogger().Infof("[INFO] S3 scan: Results will be saved to: %s", outputFile)
 
 	outFile, err := os.Create(outputFile)
 	if err != nil {
@@ -249,7 +249,7 @@ func handleScan(opts Options, resultsDir string) error {
 
 	// Check if credentials are available
 	hasCredentials := os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != ""
-	log.Printf("[INFO] S3 scan: AWS credentials available: %v", hasCredentials)
+	logger.GetLogger().Infof("[INFO] S3 scan: AWS credentials available: %v", hasCredentials)
 	fmt.Fprintf(logFileHandle, "[INFO] S3 scan: AWS credentials available: %v\n", hasCredentials)
 	
 	scanSuccess := false
@@ -262,12 +262,12 @@ func handleScan(opts Options, resultsDir string) error {
 	
 	if hasCredentials {
 		// Try authenticated scan
-		log.Printf("[INFO] S3 scan: Attempting authenticated scan using AWS SDK")
+		logger.GetLogger().Infof("[INFO] S3 scan: Attempting authenticated scan using AWS SDK")
 		fmt.Fprintf(logFileHandle, "[INFO] Attempting authenticated scan using AWS SDK\n")
 		ctx := context.Background()
 		s3Client, err := newS3Client(ctx, opts.Region)
 		if err == nil {
-			log.Printf("[INFO] S3 scan: Authenticated S3 client created successfully")
+			logger.GetLogger().Infof("[INFO] S3 scan: Authenticated S3 client created successfully")
 			fmt.Fprintf(logFileHandle, "[INFO] Using authenticated S3 client for scanning\n")
 			paginator := s3.NewListObjectsV2Paginator(s3Client, &s3.ListObjectsV2Input{
 				Bucket: aws.String(opts.Bucket),
@@ -277,12 +277,12 @@ func handleScan(opts Options, resultsDir string) error {
 			for paginator.HasMorePages() {
 				page, err := paginator.NextPage(ctx)
 				if err != nil {
-					log.Printf("[WARN] S3 scan: Authenticated scan failed on page %d: %v", pageCount+1, err)
+					logger.GetLogger().Infof("[WARN] S3 scan: Authenticated scan failed on page %d: %v", pageCount+1, err)
 					fmt.Fprintf(logFileHandle, "[WARN] Authenticated scan failed on page %d: %v, falling back to unauthenticated testing\n", pageCount+1, err)
 					break
 				}
 				pageCount++
-				log.Printf("[INFO] S3 scan: Processing page %d (found %d objects so far)", pageCount, objectCount)
+				logger.GetLogger().Infof("[INFO] S3 scan: Processing page %d (found %d objects so far)", pageCount, objectCount)
 				
 				for _, obj := range page.Contents {
 					t := aws.ToTime(obj.LastModified)
@@ -292,7 +292,7 @@ func handleScan(opts Options, resultsDir string) error {
 					}
 					objectCount++
 					if objectCount%100 == 0 {
-						log.Printf("[INFO] S3 scan: Processed %d objects...", objectCount)
+						logger.GetLogger().Infof("[INFO] S3 scan: Processed %d objects...", objectCount)
 					}
 				}
 				scanSuccess = true
@@ -300,11 +300,11 @@ func handleScan(opts Options, resultsDir string) error {
 			
 			if scanSuccess {
 				scanMethod = "authenticated"
-				log.Printf("[OK] S3 scan: Authenticated scan completed successfully - found %d object(s)", objectCount)
+				logger.GetLogger().Infof("[OK] S3 scan: Authenticated scan completed successfully - found %d object(s)", objectCount)
 				fmt.Fprintf(logFileHandle, "[OK] Authenticated scan completed - found %d object(s)\n", objectCount)
 			}
 		} else {
-			log.Printf("[WARN] S3 scan: Failed to create authenticated client: %v", err)
+			logger.GetLogger().Infof("[WARN] S3 scan: Failed to create authenticated client: %v", err)
 			fmt.Fprintf(logFileHandle, "[WARN] Failed to create authenticated client: %v, falling back to unauthenticated testing\n", err)
 		}
 	}
@@ -312,10 +312,10 @@ func handleScan(opts Options, resultsDir string) error {
 	// Fallback to unauthenticated HTTP testing if no credentials or authenticated scan failed
 	if !hasCredentials || !scanSuccess {
 		if !hasCredentials {
-			log.Printf("[INFO] S3 scan: No AWS credentials found, using unauthenticated HTTP testing")
+			logger.GetLogger().Infof("[INFO] S3 scan: No AWS credentials found, using unauthenticated HTTP testing")
 			fmt.Fprintf(logFileHandle, "[INFO] No AWS credentials found, using unauthenticated HTTP testing\n")
 		} else {
-			log.Printf("[INFO] S3 scan: Authenticated scan failed, trying unauthenticated HTTP testing")
+			logger.GetLogger().Infof("[INFO] S3 scan: Authenticated scan failed, trying unauthenticated HTTP testing")
 			fmt.Fprintf(logFileHandle, "[INFO] Authenticated scan failed, trying unauthenticated HTTP testing\n")
 		}
 		fmt.Printf("[INFO] Testing bucket %s without authentication (public access check)...\n", opts.Bucket)
@@ -324,7 +324,7 @@ func handleScan(opts Options, resultsDir string) error {
 		if opts.Region != "" {
 			regions = []string{opts.Region}
 		}
-		log.Printf("[INFO] S3 scan: Testing %d region(s) for public access", len(regions))
+		logger.GetLogger().Infof("[INFO] S3 scan: Testing %d region(s) for public access", len(regions))
 		
 		var foundURL string
 		totalURLsTested := 0
@@ -336,15 +336,15 @@ func handleScan(opts Options, resultsDir string) error {
 				fmt.Sprintf("https://s3-%s.amazonaws.com/%s/?list-type=2", region, opts.Bucket),
 			}
 			
-			log.Printf("[INFO] S3 scan: Testing region %s (%d URL format(s))", region, len(urls))
+			logger.GetLogger().Infof("[INFO] S3 scan: Testing region %s (%d URL format(s))", region, len(urls))
 			for _, testURL := range urls {
 				totalURLsTested++
-				log.Printf("[DEBUG] S3 scan: Testing URL: %s", testURL)
+				logger.GetLogger().Infof("[DEBUG] S3 scan: Testing URL: %s", testURL)
 				if objects := scanBucketPublicAccess(testURL, opts.Bucket, outFile, logFileHandle); len(objects) > 0 {
 					foundURL = testURL
 					objectCount = len(objects)
 					scanMethod = "unauthenticated (public)"
-					log.Printf("[OK] S3 scan: Found publicly accessible bucket via %s - %d object(s)", testURL, len(objects))
+					logger.GetLogger().Infof("[OK] S3 scan: Found publicly accessible bucket via %s - %d object(s)", testURL, len(objects))
 					fmt.Fprintf(logFileHandle, "[OK] Found publicly accessible bucket via %s - %d object(s)\n", testURL, len(objects))
 					break
 				}
@@ -355,7 +355,7 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 		
 		if foundURL == "" {
-			log.Printf("[WARN] S3 scan: Bucket %s is not publicly accessible or does not exist (tested %d URL(s))", opts.Bucket, totalURLsTested)
+			logger.GetLogger().Infof("[WARN] S3 scan: Bucket %s is not publicly accessible or does not exist (tested %d URL(s))", opts.Bucket, totalURLsTested)
 			fmt.Fprintf(logFileHandle, "[INFO] Bucket %s is not publicly accessible or does not exist (tested %d URL(s))\n", opts.Bucket, totalURLsTested)
 			fmt.Printf("[WARN] Could not access bucket %s without authentication. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY for authenticated access.\n", opts.Bucket)
 			scanMethod = "none (not accessible)"
@@ -380,7 +380,7 @@ func handleScan(opts Options, resultsDir string) error {
 	fmt.Printf("[INFO] Objects found: %d\n", objectCount)
 	fmt.Printf("[INFO] Results saved to: %s\n", outputFile)
 	fmt.Printf("[INFO] Log saved to: %s\n", logFile)
-	log.Printf("[OK] S3 scan completed for bucket: %s (method: %s, objects: %d, results: %s, log: %s)", opts.Bucket, scanMethod, objectCount, outputFile, logFile)
+	logger.GetLogger().Infof("[OK] S3 scan completed for bucket: %s (method: %s, objects: %d, results: %s, log: %s)", opts.Bucket, scanMethod, objectCount, outputFile, logFile)
 
 	// Write structured JSON for the dashboard — the vulnerability is the publicly
 	// accessible bucket. One finding = one accessible bucket + object count as evidence.
@@ -432,7 +432,7 @@ func handleScan(opts Options, resultsDir string) error {
 				CanDelete:   permDelete,
 			})
 			if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write S3 JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write S3 JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Bucket, "s3-scan", "s3-vulnerabilities.json")
@@ -608,18 +608,18 @@ func scanBucketPublicAccess(url, bucketName string, outFile *os.File, logFile *o
 	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Printf("[DEBUG] S3 scan: Failed to create request for %s: %v", url, err)
+		logger.GetLogger().Infof("[DEBUG] S3 scan: Failed to create request for %s: %v", url, err)
 		return nil
 	}
 	
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[DEBUG] S3 scan: Request failed for %s: %v", url, err)
+		logger.GetLogger().Infof("[DEBUG] S3 scan: Request failed for %s: %v", url, err)
 		return nil
 	}
 	defer resp.Body.Close()
 	
-	log.Printf("[DEBUG] S3 scan: Response status for %s: %d", url, resp.StatusCode)
+	logger.GetLogger().Infof("[DEBUG] S3 scan: Response status for %s: %d", url, resp.StatusCode)
 	
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -628,7 +628,7 @@ func scanBucketPublicAccess(url, bucketName string, outFile *os.File, logFile *o
 	// Parse XML response (S3 ListObjectsV2 XML format)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[WARN] S3 scan: Failed to read response body for %s: %v", url, err)
+		logger.GetLogger().Infof("[WARN] S3 scan: Failed to read response body for %s: %v", url, err)
 		return nil
 	}
 	
@@ -639,7 +639,7 @@ func scanBucketPublicAccess(url, bucketName string, outFile *os.File, logFile *o
 	
 	// Split by <Contents> to process each object
 	contents := strings.Split(bodyStr, "<Contents>")
-	log.Printf("[DEBUG] S3 scan: Found %d object entry(ies) in XML response", len(contents)-1)
+	logger.GetLogger().Infof("[DEBUG] S3 scan: Found %d object entry(ies) in XML response", len(contents)-1)
 	
 	for i := 1; i < len(contents); i++ {
 		content := contents[i]
@@ -678,7 +678,7 @@ func scanBucketPublicAccess(url, bucketName string, outFile *os.File, logFile *o
 	}
 	
 	if len(objects) > 0 {
-		log.Printf("[OK] S3 scan: Found %d publicly accessible object(s) in bucket %s via %s", len(objects), bucketName, url)
+		logger.GetLogger().Infof("[OK] S3 scan: Found %d publicly accessible object(s) in bucket %s via %s", len(objects), bucketName, url)
 		fmt.Fprintf(logFile, "[OK] Found %d publicly accessible objects in bucket %s via %s\n", len(objects), bucketName, url)
 	}
 	

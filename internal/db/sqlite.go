@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/h0tak88r/AutoAR/internal/logger"
 )
 
 // SQLiteDB implements the DB interface for SQLite
@@ -61,7 +62,7 @@ func (s *SQLiteDB) Init() error {
 
 	s.db = db
 	if os.Getenv("AUTOAR_SILENT") != "true" {
-		log.Printf("[INFO] Connected to SQLite database at %s", dbPath)
+		logger.GetLogger().Infof("[INFO] Connected to SQLite database at %s", dbPath)
 	}
 	return nil
 }
@@ -283,22 +284,22 @@ func (s *SQLiteDB) InitSchema() error {
 	}
 	// Migrate techs/cnames back to SQLite database subdomains
 	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN techs TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
-		log.Printf("[WARN] Failed to add subdomains.techs column: %v", merr)
+		logger.GetLogger().Warnf("[WARN] Failed to add subdomains.techs column: %v", merr)
 	}
 	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN cnames TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
-		log.Printf("[WARN] Failed to add subdomains.cnames column: %v", merr)
+		logger.GetLogger().Warnf("[WARN] Failed to add subdomains.cnames column: %v", merr)
 	}
 	// Migrate scan_artifacts table: add module and category columns
 	if _, merr := s.db.Exec(`ALTER TABLE scan_artifacts ADD COLUMN module TEXT`); merr != nil {
 		low := strings.ToLower(merr.Error())
 		if !strings.Contains(low, "duplicate column") {
-			log.Printf("[WARN] Failed to add module column: %v", merr)
+			logger.GetLogger().Warnf("[WARN] Failed to add module column: %v", merr)
 		}
 	}
 	if _, merr := s.db.Exec(`ALTER TABLE scan_artifacts ADD COLUMN category TEXT`); merr != nil {
 		low := strings.ToLower(merr.Error())
 		if !strings.Contains(low, "duplicate column") {
-			log.Printf("[WARN] Failed to add category column: %v", merr)
+			logger.GetLogger().Warnf("[WARN] Failed to add category column: %v", merr)
 		}
 	}
 	// Deduplicate legacy artifact rows before enforcing uniqueness.
@@ -312,10 +313,10 @@ func (s *SQLiteDB) InitSchema() error {
 		CREATE UNIQUE INDEX IF NOT EXISTS scan_artifacts_scan_r2_key_uniq
 		ON scan_artifacts (scan_id, r2_key);
 	`); idxErr != nil {
-		log.Printf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
+		logger.GetLogger().Warnf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
 	}
 	if os.Getenv("AUTOAR_SILENT") != "true" {
-		log.Printf("[OK] Database schema initialized")
+		logger.GetLogger().Info("[OK] Database schema initialized")
 	}
 	return nil
 }
@@ -368,7 +369,7 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 		return fmt.Errorf("failed to get domain ID: %v", err)
 	}
 
-	log.Printf("[INFO] Batch inserting %d subdomains for %s (domain_id: %d)", len(subdomains), domain, domainID)
+	logger.GetLogger().Infof("[INFO] Batch inserting %d subdomains for %s (domain_id: %d)", len(subdomains), domain, domainID)
 
 	// Use transaction for better performance
 	tx, err := s.db.Begin()
@@ -401,7 +402,7 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 
 		_, err := stmt.Exec(domainID, subdomain, isLive, now, now)
 		if err != nil {
-			log.Printf("[WARN] Failed to insert subdomain %s: %v", subdomain, err)
+			logger.GetLogger().Warnf("[WARN] Failed to insert subdomain %s: %v", subdomain, err)
 			continue
 		}
 		count++
@@ -411,7 +412,7 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 		return fmt.Errorf("failed to commit transaction: %v", err)
 	}
 
-	log.Printf("[OK] Inserted %d subdomains for %s", count, domain)
+	logger.GetLogger().Infof("[OK] Inserted %d subdomains for %s", count, domain)
 	return nil
 }
 

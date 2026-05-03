@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// CommandRunner handles execution of external commands with logging and timeout
+// CommandRunner handles execution of external commands with logging and timeout.
 type CommandRunner struct {
 	Timeout time.Duration
 	Dir     string
 	Env     []string
 }
 
-// NewCommandRunner creates a new CommandRunner with optional timeout
+// NewCommandRunner creates a new CommandRunner with optional timeout.
 func NewCommandRunner(timeout time.Duration) *CommandRunner {
 	return &CommandRunner{
 		Timeout: timeout,
@@ -24,7 +24,7 @@ func NewCommandRunner(timeout time.Duration) *CommandRunner {
 	}
 }
 
-// Run executes a command and returns its output
+// Run executes a command and returns its combined stdout/stderr output.
 func (c *CommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmdCtx := ctx
 	var cancel context.CancelFunc
@@ -57,8 +57,8 @@ func (c *CommandRunner) Run(ctx context.Context, name string, args ...string) ([
 	return output, nil
 }
 
-// RunSilent executes a command without capturing output (returns stdout/stderr pipes if needed, or just runs it)
-// This is a simple wrapper for cmd.Run() with logging
+// RunSilent executes a command without capturing output into a buffer.
+// Returns an error if execution fails or times out.
 func (c *CommandRunner) RunSilent(ctx context.Context, name string, args ...string) error {
 	cmdCtx := ctx
 	var cancel context.CancelFunc

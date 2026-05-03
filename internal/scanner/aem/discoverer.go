@@ -3,7 +3,7 @@ package aem
 import (
 	"encoding/json"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"strings"
 	"sync"
 )
@@ -464,7 +464,7 @@ func DiscoverAEMFromURLs(urls []string, client *HTTPClient, workers int) []strin
 	var found []string
 	for url := range results {
 		found = append(found, url)
-		log.Printf("[AEM] Discovered AEM instance: %s", url)
+		logger.GetLogger().Infof("[AEM] Discovered AEM instance: %s", url)
 	}
 
 	return found

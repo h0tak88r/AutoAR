@@ -2,7 +2,7 @@ package gf
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +52,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 		// Use provided URLs file directly (e.g., from subdomain workflow)
 		urlsFile = opts.URLsFile
 		urlsCleanup = func() {} // caller owns this file
-		log.Printf("[INFO] Using provided URLs file: %s", urlsFile)
+		logger.GetLogger().Infof("[INFO] Using provided URLs file: %s", urlsFile)
 	} else {
 		// Obtain an ephemeral temp file from the URL corpus.
 		// WriteTempURLFile falls back to the on-disk all-urls.txt if found.
@@ -61,7 +61,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 		if tmpErr != nil {
 			// No existing URLs corpus — run fastlook to build one, then retry.
 			if !opts.SkipCheck {
-				log.Printf("[INFO] No URLs found for %s, running fastlook first", opts.Domain)
+				logger.GetLogger().Infof("[INFO] No URLs found for %s, running fastlook first", opts.Domain)
 				if _, flErr := fastlook.RunFastlook(opts.Domain, nil); flErr != nil {
 					return nil, fmt.Errorf("failed to run fastlook: %w", flErr)
 				}
@@ -83,30 +83,30 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 	var resultFiles []string
 	totalMatches := 0
 
-	log.Printf("[INFO] Running built-in GF patterns on %s", urlsFile)
+	logger.GetLogger().Infof("[INFO] Running built-in GF patterns on %s", urlsFile)
 	for _, pattern := range patterns {
 		outDir := filepath.Join(baseDir, pattern)
 		if err := utils.EnsureDir(outDir); err != nil {
-			log.Printf("[WARN] Failed to create dir for pattern %s: %v", pattern, err)
+			logger.GetLogger().Infof("[WARN] Failed to create dir for pattern %s: %v", pattern, err)
 			continue
 		}
 
 		outFile := filepath.Join(outDir, ResultFileForPattern(pattern))
 		if err := runGFPattern(urlsFile, pattern, outFile); err != nil {
-			log.Printf("[WARN] GF pattern %s failed: %v", pattern, err)
+			logger.GetLogger().Infof("[WARN] GF pattern %s failed: %v", pattern, err)
 			continue
 		}
 
 		if count, _ := countLines(outFile); count > 0 {
-			log.Printf("[OK] GF %s: Found %d matches", pattern, count)
+			logger.GetLogger().Infof("[OK] GF %s: Found %d matches", pattern, count)
 			resultFiles = append(resultFiles, outFile)
 			totalMatches += count
 		} else {
-			log.Printf("[INFO] GF %s: No matches found", pattern)
+			logger.GetLogger().Infof("[INFO] GF %s: No matches found", pattern)
 		}
 	}
 
-	log.Printf("[OK] GF scan completed: %d total matches across all patterns", totalMatches)
+	logger.GetLogger().Infof("[OK] GF scan completed: %d total matches across all patterns", totalMatches)
 
 	// Write JSON results to scan directory (local-first)
 	// Emit structured per-pattern finding objects so the dashboard can show:
@@ -176,7 +176,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 		}
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "gf-vulnerabilities.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write GF JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write GF JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "gf-patterns", "gf-vulnerabilities.json")

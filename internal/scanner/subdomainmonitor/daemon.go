@@ -3,7 +3,7 @@ package subdomainmonitor
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"sync"
 	"time"
 
@@ -39,7 +39,7 @@ func StartDaemon() error {
 	stopDaemon = make(chan struct{})
 	stopOnce = sync.Once{}
 
-	log.Println("[INFO] Starting subdomain monitoring daemon...")
+	logger.GetLogger().Infoln("[INFO] Starting subdomain monitoring daemon...")
 
 	daemonWg.Add(1)
 	go func() {
@@ -59,7 +59,7 @@ func StopDaemon() error {
 		return fmt.Errorf("daemon is not running")
 	}
 
-	log.Println("[INFO] Stopping subdomain monitoring daemon...")
+	logger.GetLogger().Infoln("[INFO] Stopping subdomain monitoring daemon...")
 
 	stopOnce.Do(func() {
 		if stopDaemon != nil {
@@ -70,7 +70,7 @@ func StopDaemon() error {
 	daemonWg.Wait()
 	daemonRunning = false
 
-	log.Println("[OK] Subdomain monitoring daemon stopped")
+	logger.GetLogger().Infoln("[OK] Subdomain monitoring daemon stopped")
 	return nil
 }
 
@@ -100,7 +100,7 @@ func runDaemonLoop() {
 func checkAllRunningTargets() {
 	targets, err := db.ListSubdomainMonitorTargets()
 	if err != nil {
-		log.Printf("[ERROR] Failed to list subdomain monitor targets: %v", err)
+		logger.GetLogger().Infof("[ERROR] Failed to list subdomain monitor targets: %v", err)
 		return
 	}
 
@@ -124,7 +124,7 @@ func checkAllRunningTargets() {
 		}
 
 		go func(t db.SubdomainMonitorTarget) {
-			log.Printf("[INFO] Running subdomain monitoring for %s (interval: %ds)", t.Domain, t.Interval)
+			logger.GetLogger().Infof("[INFO] Running subdomain monitoring for %s (interval: %ds)", t.Domain, t.Interval)
 
 			result, err := MonitorSubdomains(MonitorOptions{
 				Domain:   t.Domain,
@@ -133,24 +133,24 @@ func checkAllRunningTargets() {
 				Notify:   true,
 			})
 			if err != nil {
-				log.Printf("[ERROR] Failed to monitor subdomains for %s: %v", t.Domain, err)
+				logger.GetLogger().Infof("[ERROR] Failed to monitor subdomains for %s: %v", t.Domain, err)
 				return
 			}
 
 			// Update last_run_at (the fix for the timer bug)
 			if err := db.UpdateSubdomainMonitorLastRun(t.ID); err != nil {
-				log.Printf("[WARN] Failed to update last_run_at for %s: %v", t.Domain, err)
+				logger.GetLogger().Infof("[WARN] Failed to update last_run_at for %s: %v", t.Domain, err)
 			}
 
 			totalChanges := len(result.NewSubdomains) + len(result.StatusChanges) +
 				len(result.BecameLive) + len(result.BecameDead)
 			if totalChanges > 0 {
-				log.Printf("[OK] Monitor %s: %d new, %d status changes, %d live, %d dead",
+				logger.GetLogger().Infof("[OK] Monitor %s: %d new, %d status changes, %d live, %d dead",
 					t.Domain, len(result.NewSubdomains), len(result.StatusChanges),
 					len(result.BecameLive), len(result.BecameDead))
 				persistAndNotifyChanges(t, result)
 			} else {
-				log.Printf("[OK] Monitor %s: no changes", t.Domain)
+				logger.GetLogger().Infof("[OK] Monitor %s: no changes", t.Domain)
 			}
 		}(target)
 	}
@@ -177,12 +177,12 @@ func persistAndNotifyChanges(t db.SubdomainMonitorTarget, result *MonitorResult)
 			Detail:     string(detail),
 			Notified:   true,
 		}); err != nil {
-			log.Printf("[WARN] Failed to persist monitor change for %s: %v", change.Subdomain, err)
+			logger.GetLogger().Infof("[WARN] Failed to persist monitor change for %s: %v", change.Subdomain, err)
 		}
 	}
 
 	msg := formatChangeAlert(t.Domain, result)
-	log.Printf("[SUBDOMAIN-MONITOR] Alert: %s", msg)
+	logger.GetLogger().Infof("[SUBDOMAIN-MONITOR] Alert: %s", msg)
 	utils.SendMonitorWebhook(msg)
 }
 

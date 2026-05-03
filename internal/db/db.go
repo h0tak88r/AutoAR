@@ -2,10 +2,11 @@ package db
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/h0tak88r/AutoAR/internal/logger"
 )
 
 var (
@@ -43,7 +44,7 @@ func Init() error {
 		}
 		dbInstance = pgDB
 		if os.Getenv("AUTOAR_SILENT") != "true" {
-			log.Printf("[INFO] Using PostgreSQL database")
+			logger.GetLogger().Info("[INFO] Using PostgreSQL database")
 		}
 		return nil
 
@@ -54,7 +55,7 @@ func Init() error {
 		}
 		dbInstance = sqliteDB
 		if os.Getenv("AUTOAR_SILENT") != "true" {
-			log.Printf("[INFO] Using SQLite database")
+			logger.GetLogger().Info("[INFO] Using SQLite database")
 		}
 		return nil
 

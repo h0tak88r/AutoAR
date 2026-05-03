@@ -3,7 +3,7 @@ package tech
 import (
 	"bufio"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +46,7 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	// Get live hosts file (checks file first, then database)
 	liveHostsFile, err := livehosts.GetLiveHostsFile(domain)
 	if err != nil {
-		log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
+		logger.GetLogger().Infof("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
 		// Fallback: try to create it by running livehosts
 		_, err2 := livehosts.FilterLiveHosts(domain, threads, false)
 		if err2 != nil {
@@ -90,7 +90,7 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	}
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No live hosts found for %s; skipping tech detection", domain)
+		logger.GetLogger().Infof("[WARN] No live hosts found for %s; skipping tech detection", domain)
 		return &Result{
 			Domain:     domain,
 			Hosts:      0,
@@ -98,7 +98,7 @@ func DetectTech(domain string, threads int) (*Result, error) {
 		}, nil
 	}
 
-	log.Printf("[INFO] Running technology detection with %d threads", threads)
+	logger.GetLogger().Infof("[INFO] Running technology detection with %d threads", threads)
 
 	// Configure httpx options for tech detection
 	options := runner.Options{
@@ -209,13 +209,13 @@ func DetectTech(domain string, threads int) (*Result, error) {
 	// Run enumeration
 	httpxRunner.RunEnumeration()
 
-	log.Printf("[OK] Technology detection completed for %d hosts", count)
+	logger.GetLogger().Infof("[OK] Technology detection completed for %d hosts", count)
 
 	// Write structured JSON for the dashboard (recon / tech assets).
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if len(techResults) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "tech-detect.json", techResults); err != nil {
-				log.Printf("[WARN] Failed to write tech JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write tech JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "tech-detect", "tech-detect.json")

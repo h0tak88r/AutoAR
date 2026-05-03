@@ -3,7 +3,7 @@ package sqlmap
 import (
 	"bufio"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,14 +50,14 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 
 	// Ensure GF results exist
 	if _, err := os.Stat(inFile); err != nil {
-		log.Printf("[INFO] No SQLi candidates found, running GF scan first")
+		logger.GetLogger().Infof("[INFO] No SQLi candidates found, running GF scan first")
 		if _, err := gf.ScanGF(domain); err != nil {
 			return nil, fmt.Errorf("failed to run GF scan: %w", err)
 		}
 	}
 
 	if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
-		log.Printf("[WARN] No SQLi candidate file at %s", inFile)
+		logger.GetLogger().Infof("[WARN] No SQLi candidate file at %s", inFile)
 		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "sql-detection", "sqlmap-results.json")
 		}
@@ -72,7 +72,7 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 	defer os.Remove(tempURLs)
 
 	if info, err := os.Stat(tempURLs); err != nil || info.Size() == 0 {
-		log.Printf("[WARN] No valid URLs for sqlmap")
+		logger.GetLogger().Infof("[WARN] No valid URLs for sqlmap")
 		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "sql-detection", "sqlmap-results.json")
 		}
@@ -80,14 +80,14 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 	}
 
 	// Run sqlmap via native Go concurrency (replaces interlace limitation)
-	log.Printf("[INFO] Running sqlmap natively with %d threads", threads)
+	logger.GetLogger().Infof("[INFO] Running sqlmap natively with %d threads", threads)
 	structuredFindings, err := runSQLMapMultiThread(tempURLs, outFile, threads)
 	if err != nil {
-		log.Printf("[WARN] sqlmap scan failed: %v", err)
+		logger.GetLogger().Infof("[WARN] sqlmap scan failed: %v", err)
 	}
 
 	count, _ := countLines(outFile)
-	log.Printf("[OK] SQLMap scan completed, found %d findings", count)
+	logger.GetLogger().Infof("[OK] SQLMap scan completed, found %d findings", count)
 
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if len(structuredFindings) > 0 {

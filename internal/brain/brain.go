@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -134,12 +134,12 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 	// Seed with user request
 	firstUserMsg := fmt.Sprintf("User request: %s", userRequest)
 
-	log.Printf("[AGENT] Starting agent loop for: %s", userRequest)
+	logger.GetLogger().Infof("[AGENT] Starting agent loop for: %s", userRequest)
 
 	runner := utils.NewCommandRunner(5 * time.Minute)
 
 	for iter := 0; iter < MaxAgentIterations; iter++ {
-		log.Printf("[AGENT] Iteration %d/%d", iter+1, MaxAgentIterations)
+		logger.GetLogger().Infof("[AGENT] Iteration %d/%d", iter+1, MaxAgentIterations)
 
 		var aiReply string
 		var err error
@@ -153,7 +153,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 			return nil, fmt.Errorf("AI call failed at iter %d: %w", iter+1, err)
 		}
 
-		log.Printf("[AGENT] AI reply (raw): %s", aiReply)
+		logger.GetLogger().Infof("[AGENT] AI reply (raw): %s", aiReply)
 
 		// Append assistant reply to history
 		history = append(history, Message{Role: "assistant", Content: aiReply})
@@ -167,21 +167,21 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 				break
 			}
 			if attempt == 0 {
-				log.Printf("[AGENT] Bad JSON (attempt %d): %v — asking AI to retry", attempt+1, err)
+				logger.GetLogger().Infof("[AGENT] Bad JSON (attempt %d): %v — asking AI to retry", attempt+1, err)
 				history = append(history, Message{
 					Role:    "user",
 					Content: "Your last response was not valid JSON. Please respond with EXACTLY one JSON action object and nothing else. Example: {\"action\":\"run_command\",\"command\":\"autoar subdomains get -d example.com\",\"reason\":\"start recon\"}",
 				})
 				aiReply, err = ChatWithAI(history, "", "")
 				if err != nil {
-					log.Printf("[AGENT] AI retry call failed: %v — skipping iteration", err)
+					logger.GetLogger().Infof("[AGENT] AI retry call failed: %v — skipping iteration", err)
 					break
 				}
 				history = append(history, Message{Role: "assistant", Content: aiReply})
 			}
 		}
 		if action == nil {
-			log.Printf("[AGENT] Could not parse action after retries — skipping iteration")
+			logger.GetLogger().Infof("[AGENT] Could not parse action after retries — skipping iteration")
 			history = append(history, Message{Role: "user", Content: "Skipping this turn due to invalid response. Please continue with a valid JSON action."})
 			continue
 		}
@@ -196,7 +196,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 			if progressFn != nil {
 				progressFn(msg)
 			}
-			log.Printf("[AGENT] Running: %s", action.Command)
+			logger.GetLogger().Infof("[AGENT] Running: %s", action.Command)
 
 			parts := strings.Fields(action.Command)
 			var output []byte
@@ -207,7 +207,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 			var toolResult string
 			if err != nil {
 				toolResult = fmt.Sprintf("Command failed: %v\nOutput:\n%s", err, string(output))
-				log.Printf("[AGENT] Command error: %v", err)
+				logger.GetLogger().Infof("[AGENT] Command error: %v", err)
 			} else {
 				toolResult = string(output)
 				if len(toolResult) == 0 {
@@ -237,11 +237,11 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 
 		case "done":
 			result.Summary = action.Summary
-			log.Printf("[AGENT] Agent done: %s", action.Summary)
+			logger.GetLogger().Infof("[AGENT] Agent done: %s", action.Summary)
 			return result, nil
 
 		default:
-			log.Printf("[AGENT] Unknown action: %s — stopping", action.Action)
+			logger.GetLogger().Infof("[AGENT] Unknown action: %s — stopping", action.Action)
 			return result, nil
 		}
 	}
@@ -333,12 +333,12 @@ func ExecuteAutonomous(resultContent string) (string, error) {
 	}
 
 	// Step 1: Build appropriate prompt based on content type
-	log.Printf("[BRAIN] Requesting autonomous commands from AI...")
+	logger.GetLogger().Infof("[BRAIN] Requesting autonomous commands from AI...")
 
 	var commandPrompt string
 
 	if isJSSecretsContent(resultContent) {
-		log.Printf("[BRAIN] Detected JS secrets format, using specialized triage prompt")
+		logger.GetLogger().Infof("[BRAIN] Detected JS secrets format, using specialized triage prompt")
 		commandPrompt = fmt.Sprintf(`You are an expert bug bounty hunter triaging JS secrets findings.
 
 The input is a list of secrets found in JavaScript files. Each line has the format:
@@ -394,13 +394,13 @@ Scan Results:
 %s`, resultContent)
 	}
 
-	log.Printf("[BRAIN] Sending prompt to AI (length: %d)...", len(commandPrompt))
+	logger.GetLogger().Infof("[BRAIN] Sending prompt to AI (length: %d)...", len(commandPrompt))
 	startTime := time.Now()
 	cmdResp, err := callAI(commandPrompt, openRouterKey, geminiKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to get commands from AI: %w", err)
 	}
-	log.Printf("[BRAIN] Received AI response in %v", time.Since(startTime))
+	logger.GetLogger().Infof("[BRAIN] Received AI response in %v", time.Since(startTime))
 
 	// Parse commands
 	var cmdList AICommandList
@@ -412,22 +412,22 @@ Scan Results:
 	cleanJSON = strings.TrimSpace(cleanJSON)
 
 	if err := json.Unmarshal([]byte(cleanJSON), &cmdList); err != nil {
-		log.Printf("[BRAIN] Error parsing JSON: %v. Response was: %s", err, cleanJSON)
+		logger.GetLogger().Infof("[BRAIN] Error parsing JSON: %v. Response was: %s", err, cleanJSON)
 		return "", fmt.Errorf("failed to parse AI commands JSON: %w", err)
 	}
-	log.Printf("[BRAIN] AI suggested %d commands", len(cmdList.Commands))
+	logger.GetLogger().Infof("[BRAIN] AI suggested %d commands", len(cmdList.Commands))
 
 	if len(cmdList.Commands) == 0 {
 		return "AI suggested no follow-up commands.", nil
 	}
 
 	// Step 2: Execute commands
-	log.Printf("[BRAIN] Executing %d AI-suggested commands...", len(cmdList.Commands))
+	logger.GetLogger().Infof("[BRAIN] Executing %d AI-suggested commands...", len(cmdList.Commands))
 	var executionResults bytes.Buffer
 	runner := utils.NewCommandRunner(2 * time.Minute)
 
 	for i, cmd := range cmdList.Commands {
-		log.Printf("[BRAIN] [%d/%d] Executing: %s", i+1, len(cmdList.Commands), cmd.Command)
+		logger.GetLogger().Infof("[BRAIN] [%d/%d] Executing: %s", i+1, len(cmdList.Commands), cmd.Command)
 		executionResults.WriteString(fmt.Sprintf("\n--- Command: %s ---\nDescription: %s\n", cmd.Command, cmd.Description))
 
 		// Parse command string into name and args
@@ -439,16 +439,16 @@ Scan Results:
 		cmdStartTime := time.Now()
 		output, err := runner.Run(context.Background(), parts[0], parts[1:]...)
 		if err != nil {
-			log.Printf("[BRAIN] [%d/%d] Command failed after %v: %v", i+1, len(cmdList.Commands), time.Since(cmdStartTime), err)
+			logger.GetLogger().Infof("[BRAIN] [%d/%d] Command failed after %v: %v", i+1, len(cmdList.Commands), time.Since(cmdStartTime), err)
 			executionResults.WriteString(fmt.Sprintf("Error: %v\nOutput: %s\n", err, string(output)))
 		} else {
-			log.Printf("[BRAIN] [%d/%d] Command completed in %v", i+1, len(cmdList.Commands), time.Since(cmdStartTime))
+			logger.GetLogger().Infof("[BRAIN] [%d/%d] Command completed in %v", i+1, len(cmdList.Commands), time.Since(cmdStartTime))
 			executionResults.WriteString(fmt.Sprintf("Output:\n%s\n", string(output)))
 		}
 	}
 
 	// Step 3: Analyze command outputs for vulnerabilities
-	log.Printf("[BRAIN] Analyzing execution outputs for vulnerabilities...")
+	logger.GetLogger().Infof("[BRAIN] Analyzing execution outputs for vulnerabilities...")
 	analysisPrompt := fmt.Sprintf(`You are an expert security researcher.
 I have executed the following follow-up commands.
 Analyze the outputs and identify any confirmed vulnerabilities or high-interest findings.
@@ -458,13 +458,13 @@ Specifically look for: exposed storage, valid API keys, RCE, SSRF, or clear misc
 Command Outputs:
 %s`, executionResults.String())
 
-	log.Printf("[BRAIN] Sending analysis prompt to AI (length: %d)...", len(analysisPrompt))
+	logger.GetLogger().Infof("[BRAIN] Sending analysis prompt to AI (length: %d)...", len(analysisPrompt))
 	analysisStartTime := time.Now()
 	finalAnalysis, err := callAI(analysisPrompt, openRouterKey, geminiKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to analyze execution results: %w", err)
 	}
-	log.Printf("[BRAIN] Final analysis received in %v", time.Since(analysisStartTime))
+	logger.GetLogger().Infof("[BRAIN] Final analysis received in %v", time.Since(analysisStartTime))
 
 	return finalAnalysis, nil
 }
@@ -478,7 +478,7 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
+		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
 	}
 
 	if zaiKey != "" {
@@ -486,7 +486,7 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[BRAIN] Z.ai failed, falling back to direct Gemini: %v", err)
+		logger.GetLogger().Infof("[BRAIN] Z.ai failed, falling back to direct Gemini: %v", err)
 	}
 
 	if geminiKey != "" {
@@ -648,7 +648,7 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
+		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
 	}
 
 	zaiKey := os.Getenv("ZHIPU_API_KEY")
@@ -657,7 +657,7 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[BRAIN] Z.ai failed, falling back to Gemini: %v", err)
+		logger.GetLogger().Infof("[BRAIN] Z.ai failed, falling back to Gemini: %v", err)
 	}
 
 	if geminiKey != "" {

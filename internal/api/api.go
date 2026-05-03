@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"net/http"
 	"os"
@@ -152,7 +151,7 @@ func initRuntimeResourceLimits() {
 
 		// Reinitialize semaphore with final configured capacity.
 		scanSemaphore = make(chan struct{}, maxConcurrentScans)
-		log.Printf("[resource-limits] concurrent=%d, max_results=%d, cache_bytes=%d, output_capture_bytes=%d, min_free_mem_bytes=%d",
+		utils.GetLogger().Infof("[resource-limits] concurrent=%d, max_results=%d, cache_bytes=%d, output_capture_bytes=%d, min_free_mem_bytes=%d",
 			maxConcurrentScans, maxScanResults, maxScanResultsBytes, scanOutputCaptureBytes, minRuntimeFreeMemBytes)
 	})
 }
@@ -288,7 +287,7 @@ func writeScanManifest(scanID, scanType, target string, startedAt, completedAt t
 	}
 	outDir := utils.GetScanResultsDir(scanID)
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		log.Printf("[manifest] mkdir failed for %s: %v", scanID, err)
+		utils.GetLogger().Infof("[manifest] mkdir failed for %s: %v", scanID, err)
 		return
 	}
 	manifest := scanExecutionManifest{
@@ -301,12 +300,12 @@ func writeScanManifest(scanID, scanType, target string, startedAt, completedAt t
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		log.Printf("[manifest] marshal failed for %s: %v", scanID, err)
+		utils.GetLogger().Infof("[manifest] marshal failed for %s: %v", scanID, err)
 		return
 	}
 	path := filepath.Join(outDir, "scan-manifest.json")
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		log.Printf("[manifest] write failed for %s: %v", scanID, err)
+		utils.GetLogger().Infof("[manifest] write failed for %s: %v", scanID, err)
 	}
 }
 
@@ -414,15 +413,15 @@ func reconcileStaleScansOnStartup() {
 		return
 	}
 	if err := db.EnsureSchema(); err != nil {
-		log.Printf("[WARN] EnsureSchema during stale scan reconcile: %v", err)
+		utils.GetLogger().Infof("[WARN] EnsureSchema during stale scan reconcile: %v", err)
 	}
 	n, err := db.FailStaleActiveScans()
 	if err != nil {
-		log.Printf("[WARN] Stale scan reconcile: %v", err)
+		utils.GetLogger().Infof("[WARN] Stale scan reconcile: %v", err)
 		return
 	}
 	if n > 0 {
-		log.Printf("[INFO] Marked %d interrupted scan(s) as failed (API restart — no running worker).", n)
+		utils.GetLogger().Infof("[INFO] Marked %d interrupted scan(s) as failed (API restart — no running worker).", n)
 	}
 }
 
@@ -433,9 +432,9 @@ func SetupAPI() *gin.Engine {
 	// Initialize DB once at startup — all scan goroutines share this connection.
 	// db.Init and db.EnsureSchema are idempotent (sync.Once internally).
 	if err := db.Init(); err != nil {
-		log.Printf("[WARN] DB init at startup: %v", err)
+		utils.GetLogger().Infof("[WARN] DB init at startup: %v", err)
 	} else if err := db.EnsureSchema(); err != nil {
-		log.Printf("[WARN] DB schema at startup: %v", err)
+		utils.GetLogger().Infof("[WARN] DB schema at startup: %v", err)
 	}
 
 	gin.SetMode(gin.ReleaseMode)
@@ -733,7 +732,7 @@ func corsMiddleware() gin.HandlerFunc {
 	// #3: Warn once at startup if the API accepts cross-origin requests from any origin.
 	allowedOrigins := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
 	if allowedOrigins == "" {
-		log.Printf("[WARN] CORS_ALLOWED_ORIGINS is not set — API accepts cross-origin requests from ANY origin. Set CORS_ALLOWED_ORIGINS in production.")
+		utils.GetLogger().Infof("[WARN] CORS_ALLOWED_ORIGINS is not set — API accepts cross-origin requests from ANY origin. Set CORS_ALLOWED_ORIGINS in production.")
 	}
 
 	return func(c *gin.Context) {
@@ -1306,7 +1305,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	}
 
 	if ok, msg := runtimeMemoryPreflightCheck(); !ok {
-		log.Printf("[executeScan] refusing to start scan %s (%s): %s", scanID, scanType, msg)
+		utils.GetLogger().Infof("[executeScan] refusing to start scan %s (%s): %s", scanID, scanType, msg)
 		completedAt := time.Now()
 		_ = db.Init()
 		_ = db.EnsureSchema()
@@ -1379,7 +1378,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		Command:     strings.Join(command, " "),
 	}
 	if err := db.CreateScan(dbRecord); err != nil {
-		log.Printf("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
+		utils.GetLogger().Infof("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
 	}
 	writeScanManifest(scanID, scanType, target, startedAt, time.Time{}, moduleExecutionEntry{
 		Module:         scanType,
@@ -1393,7 +1392,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
 
 	if target == "demo.autoar.com" || target == "keyword.com" || target == "0x88.autoar" {
-		log.Printf("[executeScan] DEMO intercepted. Generating mock artifacts for %s", target)
+		utils.GetLogger().Infof("[executeScan] DEMO intercepted. Generating mock artifacts for %s", target)
 		go generateMockResults(scanID, target, scanType, startedAt, command)
 		return
 	}
@@ -1409,7 +1408,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	cmd.Stderr = multi
 
 	if err := cmd.Start(); err != nil {
-		log.Printf("[executeScan] Failed to start scan %s: %v", scanID, err)
+		utils.GetLogger().Infof("[executeScan] Failed to start scan %s: %v", scanID, err)
 		completedAt := time.Now()
 		_ = db.UpdateScanResult(scanID, "failed", "")
 		ScansMutex.Lock()
@@ -1446,7 +1445,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		finalStatus = "cancelled"
 	} else if err != nil {
 		finalStatus = "failed"
-		log.Printf("[executeScan] Scan %s (%s) failed: %v", scanID, scanType, err)
+		utils.GetLogger().Infof("[executeScan] Scan %s (%s) failed: %v", scanID, scanType, err)
 	}
 
 	// Extract R2 result URL from output if any
@@ -1455,12 +1454,12 @@ func executeScan(scanID string, command []string, scanType string) {
 		resultURL = utils.ExtractR2ZipURLFromOutput(string(output))
 	}
 	if resultURL != "" {
-		log.Printf("[executeScan] Extracted result URL for scan %s: %s", scanID, resultURL)
+		utils.GetLogger().Infof("[executeScan] Extracted result URL for scan %s: %s", scanID, resultURL)
 	}
 
 	// Update DB status and result URL
 	if dbErr := db.UpdateScanResult(scanID, finalStatus, resultURL); dbErr != nil {
-		log.Printf("[executeScan] Failed to update DB status for %s: %v", scanID, dbErr)
+		utils.GetLogger().Infof("[executeScan] Failed to update DB status for %s: %v", scanID, dbErr)
 	}
 
 	// Count findings for final notification
@@ -1514,13 +1513,13 @@ func executeScan(scanID string, command []string, scanType string) {
 				rootDomain = sub
 			}
 			if _, err := db.InsertOrGetDomain(rootDomain); err != nil {
-				log.Printf("[executeScan] failed to upsert domain %s for subdomain_run: %v", rootDomain, err)
+				utils.GetLogger().Infof("[executeScan] failed to upsert domain %s for subdomain_run: %v", rootDomain, err)
 				return
 			}
 			if err := db.InsertSubdomain(rootDomain, sub, true, "https://"+sub, "", 200, 0); err != nil {
-				log.Printf("[executeScan] failed to insert subdomain %s under %s: %v", sub, rootDomain, err)
+				utils.GetLogger().Infof("[executeScan] failed to insert subdomain %s under %s: %v", sub, rootDomain, err)
 			} else {
-				log.Printf("[executeScan] indexed subdomain %s under root domain %s", sub, rootDomain)
+				utils.GetLogger().Infof("[executeScan] indexed subdomain %s under root domain %s", sub, rootDomain)
 			}
 		}(target)
 	}
@@ -1529,10 +1528,10 @@ func executeScan(scanID string, command []string, scanType string) {
 	_ = os.WriteFile(logPath, output, 0644)
 	if _, statErr := os.Stat(logPath); statErr == nil {
 		if _, err := utils.IndexExistingResultFile(scanID, logPath); err != nil {
-			log.Printf("[executeScan] Failed to index scan.log: %v", err)
+			utils.GetLogger().Infof("[executeScan] Failed to index scan.log: %v", err)
 		}
 	} else if !os.IsNotExist(statErr) {
-		log.Printf("[executeScan] scan.log stat failed: %v", statErr)
+		utils.GetLogger().Infof("[executeScan] scan.log stat failed: %v", statErr)
 	}
 
 	// Index any final tool-generated artifacts (nuclei/ffuf/gf/tech/etc) that bypass wrappers.
@@ -1681,14 +1680,14 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			if _, statErr := os.Stat(destPath); statErr != nil {
 				if data, readErr := os.ReadFile(path); readErr == nil {
 					if writeErr := os.WriteFile(destPath, data, 0644); writeErr != nil {
-						log.Printf("[executeScan] failed to copy %s to scan dir: %v", fileName, writeErr)
+						utils.GetLogger().Infof("[executeScan] failed to copy %s to scan dir: %v", fileName, writeErr)
 					}
 				}
 			}
 
 			// Legacy: still index for backward compat
 			if _, idxErr := utils.IndexExistingResultFile(scanID, path); idxErr != nil {
-				log.Printf("[executeScan] index artifact failed (%s): %v", path, idxErr)
+				utils.GetLogger().Infof("[executeScan] index artifact failed (%s): %v", path, idxErr)
 			}
 			return nil
 		})
@@ -1779,7 +1778,7 @@ func IndexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 			"new-results/github/repos/" + target + "/",
 			"new-results/github/orgs/" + target + "/",
 		}
-		log.Printf("[indexWorkflowArtifactsFromR2] github scan: scanID=%s target=%s slug=%s", scanID, target, slug)
+		utils.GetLogger().Infof("[indexWorkflowArtifactsFromR2] github scan: scanID=%s target=%s slug=%s", scanID, target, slug)
 	}
 
 	if len(r2Prefixes) == 0 || strings.TrimSpace(scanID) == "" || !r2storage.IsEnabled() {
@@ -1789,7 +1788,7 @@ func IndexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 	for _, prefix := range r2Prefixes {
 		objs, err := r2storage.ListObjectsRecursive(prefix)
 		if err != nil {
-			log.Printf("[indexWorkflowArtifactsFromR2] list prefix %q: %v", prefix, err)
+			utils.GetLogger().Infof("[indexWorkflowArtifactsFromR2] list prefix %q: %v", prefix, err)
 			continue
 		}
 		for _, o := range objs {
@@ -1816,7 +1815,7 @@ func IndexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 				CreatedAt: o.LastModified,
 			}
 			if err := db.AppendScanArtifact(art); err != nil {
-				log.Printf("[indexWorkflowArtifactsFromR2] append %s: %v", o.Key, err)
+				utils.GetLogger().Infof("[indexWorkflowArtifactsFromR2] append %s: %v", o.Key, err)
 			}
 		}
 	}
@@ -1869,7 +1868,7 @@ func shouldSkipArtifact(path string) bool {
 
 // sendFileToDiscord handles file uploads from modules
 func sendFileToDiscord(c *gin.Context) {
-	log.Printf("[API] [sendFileToDiscord] Received file send request")
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Received file send request")
 
 	var req struct {
 		ScanID      string `json:"scan_id"`
@@ -1879,43 +1878,43 @@ func sendFileToDiscord(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to bind JSON: %v", err)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to bind JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	log.Printf("[API] [sendFileToDiscord] Request details - FilePath: %s, ChannelID: %s, ScanID: %s, Description: %s",
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Request details - FilePath: %s, ChannelID: %s, ScanID: %s, Description: %s",
 		req.FilePath, req.ChannelID, req.ScanID, req.Description)
 
 	// Get channel ID - priority: request > scan_id lookup > environment > default
 	var channelID string
 	if req.ChannelID != "" {
 		channelID = req.ChannelID
-		log.Printf("[API] [sendFileToDiscord] Using channel ID from request: %s", channelID)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] Using channel ID from request: %s", channelID)
 	} else if req.ScanID != "" {
 		channelID = GetChannelID(req.ScanID)
-		log.Printf("[API] [sendFileToDiscord] Looked up channel ID from scan ID %s: %s", req.ScanID, channelID)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] Looked up channel ID from scan ID %s: %s", req.ScanID, channelID)
 	}
 
 	if channelID == "" {
 		// Try to get from environment (set by modules)
 		channelID = os.Getenv("AUTOAR_CURRENT_CHANNEL_ID")
-		log.Printf("[API] [sendFileToDiscord] Tried environment variable AUTOAR_CURRENT_CHANNEL_ID: %s", channelID)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] Tried environment variable AUTOAR_CURRENT_CHANNEL_ID: %s", channelID)
 	}
 
 	if channelID == "" {
 		// Try default channel from environment
 		channelID = os.Getenv("DISCORD_DEFAULT_CHANNEL_ID")
-		log.Printf("[API] [sendFileToDiscord] Tried environment variable DISCORD_DEFAULT_CHANNEL_ID: %s", channelID)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] Tried environment variable DISCORD_DEFAULT_CHANNEL_ID: %s", channelID)
 	}
 
 	if channelID == "" {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] No channel ID found")
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] No channel ID found")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no channel ID found. Provide channel_id, scan_id, or set AUTOAR_CURRENT_CHANNEL_ID"})
 		return
 	}
 
-	log.Printf("[API] [sendFileToDiscord] Using channel ID: %s", channelID)
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Using channel ID: %s", channelID)
 
 	// Check if we should send to a thread instead of the channel
 	threadID := ""
@@ -1923,7 +1922,7 @@ func sendFileToDiscord(c *gin.Context) {
 		ScansMutex.RLock()
 		if scan, ok := ActiveScans[req.ScanID]; ok && scan.ThreadID != "" {
 			threadID = scan.ThreadID
-			log.Printf("[API] [sendFileToDiscord] Found thread ID %s for scan %s", threadID, req.ScanID)
+			utils.GetLogger().Infof("[API] [sendFileToDiscord] Found thread ID %s for scan %s", threadID, req.ScanID)
 		}
 		ScansMutex.RUnlock()
 	}
@@ -1934,7 +1933,7 @@ func sendFileToDiscord(c *gin.Context) {
 		for _, scan := range ActiveScans {
 			if scan.ChannelID == channelID && scan.ThreadID != "" {
 				threadID = scan.ThreadID
-				log.Printf("[API] [sendFileToDiscord] Found thread ID %s for channel %s", threadID, channelID)
+				utils.GetLogger().Infof("[API] [sendFileToDiscord] Found thread ID %s for channel %s", threadID, channelID)
 				break
 			}
 		}
@@ -1945,21 +1944,21 @@ func sendFileToDiscord(c *gin.Context) {
 	targetID := channelID
 	if threadID != "" {
 		targetID = threadID
-		log.Printf("[API] [sendFileToDiscord] Sending to thread %s (instead of channel %s)", threadID, channelID)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] Sending to thread %s (instead of channel %s)", threadID, channelID)
 	}
 
 	// Check if file exists
-	log.Printf("[API] [sendFileToDiscord] Checking if file exists: %s", req.FilePath)
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Checking if file exists: %s", req.FilePath)
 	if info, err := os.Stat(req.FilePath); os.IsNotExist(err) {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] File not found: %s", req.FilePath)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] File not found: %s", req.FilePath)
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
 	} else if err != nil {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
 		return
 	} else {
-		log.Printf("[API] [sendFileToDiscord] File found: %s (size: %d bytes)", req.FilePath, info.Size())
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] File found: %s (size: %d bytes)", req.FilePath, info.Size())
 	}
 
 	// Get file info
@@ -1972,7 +1971,7 @@ func sendFileToDiscord(c *gin.Context) {
 	// Get file info for size check
 	fileInfo, err := os.Stat(req.FilePath)
 	if err != nil {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
 		return
 	}
@@ -1982,10 +1981,10 @@ func sendFileToDiscord(c *gin.Context) {
 
 	if useR2 {
 		// Upload to R2 and send link
-		log.Printf("[API] [sendFileToDiscord] File is large (%d bytes), uploading to R2...", fileInfo.Size())
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] File is large (%d bytes), uploading to R2...", fileInfo.Size())
 		publicURL, err := r2storage.UploadFile(req.FilePath, fileName, false)
 		if err != nil {
-			log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", err)
+			utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to upload to R2: %v", err)})
 			return
 		}
@@ -1996,7 +1995,7 @@ func sendFileToDiscord(c *gin.Context) {
 		DiscordSessionMutex.RUnlock()
 
 		if session == nil {
-			log.Printf("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
+			utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
 			return
 		}
@@ -2005,12 +2004,12 @@ func sendFileToDiscord(c *gin.Context) {
 		message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(fileInfo.Size())/1024/1024, publicURL)
 		_, err = session.ChannelMessageSend(channelID, message)
 		if err != nil {
-			log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link to Discord: %v", err)
+			utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link to Discord: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send R2 link: %v", err)})
 			return
 		}
 
-		log.Printf("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully: %s", publicURL)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully: %s", publicURL)
 		c.JSON(http.StatusOK, gin.H{
 			"message":   "file uploaded to R2 and link sent",
 			"r2_url":    publicURL,
@@ -2020,15 +2019,15 @@ func sendFileToDiscord(c *gin.Context) {
 	}
 
 	// #4: Stream file via os.Open instead of loading everything into RAM with os.ReadFile.
-	log.Printf("[API] [sendFileToDiscord] Opening file for streaming: %s", req.FilePath)
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Opening file for streaming: %s", req.FilePath)
 	fileStream, streamErr := os.Open(req.FilePath)
 	if streamErr != nil {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to open file: %v", streamErr)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to open file: %v", streamErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to open file: %v", streamErr)})
 		return
 	}
 	defer fileStream.Close()
-	log.Printf("[API] [sendFileToDiscord] Streaming %d bytes to Discord", fileInfo.Size())
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Streaming %d bytes to Discord", fileInfo.Size())
 
 	// Detect content type from the first 512 bytes without buffering the whole file.
 	header := make([]byte, 512)
@@ -2038,20 +2037,20 @@ func sendFileToDiscord(c *gin.Context) {
 	_, _ = fileStream.Seek(0, io.SeekStart)
 
 	// Get Discord session
-	log.Printf("[API] [sendFileToDiscord] Getting Discord session...")
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Getting Discord session...")
 	DiscordSessionMutex.RLock()
 	session := GlobalDiscordSession
 	DiscordSessionMutex.RUnlock()
 
 	if session == nil {
-		log.Printf("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
 		return
 	}
-	log.Printf("[API] [sendFileToDiscord] Discord session obtained")
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Discord session obtained")
 
 	// Stream file to Discord channel/thread (no memory buffer)
-	log.Printf("[API] [sendFileToDiscord] Streaming file to Discord %s: %s (description: %s)", targetID, fileName, description)
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Streaming file to Discord %s: %s (description: %s)", targetID, fileName, description)
 	_, err = session.ChannelMessageSendComplex(targetID, &discordgo.MessageSend{
 		Content: description,
 		Files: []*discordgo.File{
@@ -2066,22 +2065,22 @@ func sendFileToDiscord(c *gin.Context) {
 	if err != nil {
 		// If direct upload fails due to size, try R2 as fallback
 		if strings.Contains(err.Error(), "413") || strings.Contains(err.Error(), "too large") || strings.Contains(err.Error(), "Request entity too large") {
-			log.Printf("[API] [sendFileToDiscord] ⚠️  Discord upload failed due to size, uploading to R2 as fallback...")
+			utils.GetLogger().Infof("[API] [sendFileToDiscord] ⚠️  Discord upload failed due to size, uploading to R2 as fallback...")
 			if r2storage.IsEnabled() {
 				publicURL, r2Err := r2storage.UploadFile(req.FilePath, fileName, false)
 				if r2Err != nil {
-					log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", r2Err)
+					utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", r2Err)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file and R2 upload failed: %v (R2 error: %v)", err, r2Err)})
 					return
 				}
 				message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(fileInfo.Size())/1024/1024, publicURL)
 				_, err = session.ChannelMessageSend(targetID, message)
 				if err != nil {
-					log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link: %v", err)
+					utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link: %v", err)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send R2 link: %v", err)})
 					return
 				}
-				log.Printf("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully (fallback): %s", publicURL)
+				utils.GetLogger().Infof("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully (fallback): %s", publicURL)
 				c.JSON(http.StatusOK, gin.H{
 					"message":   "file uploaded to R2 and link sent (fallback)",
 					"r2_url":    publicURL,
@@ -2090,18 +2089,18 @@ func sendFileToDiscord(c *gin.Context) {
 				return
 			}
 		}
-		log.Printf("[API] [sendFileToDiscord] [ERROR] Failed to send file to Discord: %v", err)
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to send file to Discord: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file: %v", err)})
 		return
 	}
 
-	log.Printf("[API] [sendFileToDiscord] [SUCCESS] File sent successfully to Discord channel %s", channelID)
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] [SUCCESS] File sent successfully to Discord channel %s", channelID)
 	c.JSON(http.StatusOK, gin.H{"message": "file sent successfully"})
 }
 
 // sendMessageToDiscord handles sending text messages from modules
 func sendMessageToDiscord(c *gin.Context) {
-	log.Printf("[API] [sendMessageToDiscord] Received message send request")
+	utils.GetLogger().Infof("[API] [sendMessageToDiscord] Received message send request")
 
 	var req struct {
 		ScanID    string `json:"scan_id"`

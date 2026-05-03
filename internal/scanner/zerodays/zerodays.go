@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net"
 	"os"
 	"path/filepath"
@@ -72,14 +72,14 @@ type MongoDBFinding struct {
 // logInfo logs an info message only if not in silent mode
 func (opts Options) logInfo(format string, args ...interface{}) {
 	if !opts.Silent {
-		log.Printf(format, args...)
+		logger.GetLogger().Infof(format, args...)
 	}
 }
 
 // logWarn logs a warning message only if not in silent mode
 func (opts Options) logWarn(format string, args ...interface{}) {
 	if !opts.Silent {
-		log.Printf(format, args...)
+		logger.GetLogger().Infof(format, args...)
 	}
 }
 
@@ -211,7 +211,7 @@ func Run(opts Options) (*Result, error) {
 			}
 
 			if err := utils.WriteJSONToScanDir(scanID, "zerodays-results.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write zerodays JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write zerodays JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, target, "zerodays", "zerodays-results.json")
@@ -587,7 +587,7 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 
 	address := fmt.Sprintf("%s:%d", host, port)
 	if !silent {
-		log.Printf("[INFO] Testing MongoDB CVE-2025-14847 on %s", address)
+		logger.GetLogger().Infof("[INFO] Testing MongoDB CVE-2025-14847 on %s", address)
 	}
 
 	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
@@ -641,12 +641,12 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 		finding.Vulnerable = true
 		finding.LeakedData = leakedData
 		if !silent {
-			log.Printf("[OK] MongoDB CVE-2025-14847: Vulnerable! Leaked %d bytes from %s", len(leakedData), address)
+			logger.GetLogger().Infof("[OK] MongoDB CVE-2025-14847: Vulnerable! Leaked %d bytes from %s", len(leakedData), address)
 		}
 		
 	} else {
 		if !silent {
-			log.Printf("[INFO] MongoDB CVE-2025-14847: Not vulnerable or patched on %s", address)
+			logger.GetLogger().Infof("[INFO] MongoDB CVE-2025-14847: Not vulnerable or patched on %s", address)
 		}
 	}
 
@@ -765,7 +765,7 @@ func runNext88Scan(ctx context.Context, hosts []string, args []string, requested
 	}
 
 	if !silent {
-		log.Printf("[INFO] Running next88 scan on %d host(s) with %d threads", len(hosts), threads)
+		logger.GetLogger().Infof("[INFO] Running next88 scan on %d host(s) with %d threads", len(hosts), threads)
 	}
 
 	// Run scans using next88 library (already uses threading internally)
@@ -830,7 +830,7 @@ func SaveResults(result *Result, outputDir string) error {
 				if len(vuln.LeakedData) > 0 {
 					leakFile := filepath.Join(outputDir, fmt.Sprintf("mongodb-leaked-%s-%d.bin", strings.ReplaceAll(vuln.Host, ".", "_"), vuln.Port))
 					if err := utils.WriteFile(leakFile, vuln.LeakedData); err != nil {
-						log.Printf("[WARN] Failed to save leaked data: %v", err)
+						logger.GetLogger().Infof("[WARN] Failed to save leaked data: %v", err)
 					}
 				}
 			} else if vuln.Error != "" {
@@ -964,7 +964,7 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 	}
 	
 	if !silent {
-		log.Printf("[INFO] Scanning %d live host(s) for MongoDB port %d", len(hosts), mongoPort)
+		logger.GetLogger().Infof("[INFO] Scanning %d live host(s) for MongoDB port %d", len(hosts), mongoPort)
 	}
 	
 	// Use naabu to scan for MongoDB port
@@ -994,7 +994,7 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 				mongoHosts = append(mongoHosts, host)
 				mu.Unlock()
 				if !silent {
-					log.Printf("[OK] Found MongoDB port %d open on %s", mongoPort, host)
+					logger.GetLogger().Infof("[OK] Found MongoDB port %d open on %s", mongoPort, host)
 				}
 				break
 			}
@@ -1024,7 +1024,7 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 		// Return discovered hosts even if scan had errors
 		if len(mongoHosts) > 0 {
 			if !silent {
-				log.Printf("[WARN] Naabu scan had errors but found %d MongoDB host(s)", len(mongoHosts))
+				logger.GetLogger().Infof("[WARN] Naabu scan had errors but found %d MongoDB host(s)", len(mongoHosts))
 			}
 			return mongoHosts, nil
 		}

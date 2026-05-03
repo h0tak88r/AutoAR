@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,7 +105,7 @@ func DiscoverAEM(opts Options) ([]string, error) {
 	discoveredFile := filepath.Join(outputDir, "discovered-aem.txt")
 
 	// Discover AEM instances using native Go implementation
-	log.Printf("[AEM] Starting AEM discovery (native Go)...")
+	logger.GetLogger().Infof("[AEM] Starting AEM discovery (native Go)...")
 	discovered := DiscoverAEMFromURLs(urls, client, opts.Threads)
 
 	// Save discovered instances (only if found - empty files handled by SendPhaseFiles)
@@ -160,7 +160,7 @@ func ScanAEM(url string, opts Options) ([]Finding, error) {
 	resultsFile := filepath.Join(outputDir, "findings.json")
 
 	// Scan using native Go implementation
-	log.Printf("[AEM] Scanning %s for vulnerabilities (native Go)...", url)
+	logger.GetLogger().Infof("[AEM] Scanning %s for vulnerabilities (native Go)...", url)
 	findings := ScanAEMInstance(url, ssrfHost, client, opts.Handlers)
 
 	// Always save findings as JSON (even if empty)
@@ -230,17 +230,17 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// Step 1: Discover AEM instances
-	log.Printf("[AEM] Step 1: Discovering AEM webapps...")
+	logger.GetLogger().Infof("[AEM] Step 1: Discovering AEM webapps...")
 	discovered, err := DiscoverAEM(opts)
 	if err != nil {
-		log.Printf("[AEM] Discovery failed: %v", err)
+		logger.GetLogger().Infof("[AEM] Discovery failed: %v", err)
 		// Continue anyway, might have partial results
 	}
 	res.DiscoveredCount = len(discovered)
 
 	// If no AEM instances discovered, save JSON and return (no file created — SendPhaseFiles sends message)
 	if len(discovered) == 0 {
-		log.Printf("[AEM] No AEM instances discovered")
+		logger.GetLogger().Infof("[AEM] No AEM instances discovered")
 		
 		// Save empty results to JSON only
 		allResults := map[string]interface{}{
@@ -261,16 +261,16 @@ func Run(opts Options) (*Result, error) {
 		return res, nil
 	}
 
-	log.Printf("[AEM] Discovered %d AEM instances", len(discovered))
+	logger.GetLogger().Infof("[AEM] Discovered %d AEM instances", len(discovered))
 
 	// Step 2: Scan each discovered AEM instance
-	log.Printf("[AEM] Step 2: Scanning discovered AEM instances for vulnerabilities...")
+	logger.GetLogger().Infof("[AEM] Step 2: Scanning discovered AEM instances for vulnerabilities...")
 	allFindings := []Finding{}
 	for i, url := range discovered {
-		log.Printf("[AEM] Scanning %d/%d: %s", i+1, len(discovered), url)
+		logger.GetLogger().Infof("[AEM] Scanning %d/%d: %s", i+1, len(discovered), url)
 		findings, err := ScanAEM(url, opts)
 		if err != nil {
-			log.Printf("[AEM] Failed to scan %s: %v", url, err)
+			logger.GetLogger().Infof("[AEM] Failed to scan %s: %v", url, err)
 			continue
 		}
 		allFindings = append(allFindings, findings...)
@@ -365,7 +365,7 @@ func Run(opts Options) (*Result, error) {
 		}
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "aem-vulnerabilities.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write AEM JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write AEM JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "aem", "aem-vulnerabilities.json")
@@ -373,7 +373,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	res.Duration = time.Since(startTime)
-	log.Printf("[AEM] Scan completed: %d AEM instances, %d vulnerabilities found", res.DiscoveredCount, res.Vulnerabilities)
+	logger.GetLogger().Infof("[AEM] Scan completed: %d AEM instances, %d vulnerabilities found", res.DiscoveredCount, res.Vulnerabilities)
 
 	return res, nil
 }

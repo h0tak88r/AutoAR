@@ -2,7 +2,7 @@ package fastlook
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"time"
@@ -36,7 +36,7 @@ func RunFastlook(domain string, onFileCreated FileCallback) (*Result, error) {
 		return nil, fmt.Errorf("domain is required")
 	}
 
-	log.Printf("[INFO] Starting Fast Look (Optimized) for %s", domain)
+	logger.GetLogger().Infof("[INFO] Starting Fast Look (Optimized) for %s", domain)
 
 	resultsDir := utils.GetResultsDir()
 	res := &Result{
@@ -45,46 +45,46 @@ func RunFastlook(domain string, onFileCreated FileCallback) (*Result, error) {
 	}
 
 	// Step 1: Live host filtering (includes subdomain enumeration internally, optimized with 200 threads)
-	log.Printf("[INFO] [1/2] Filtering live hosts for %s (threads: 200)", domain)
+	logger.GetLogger().Infof("[INFO] [1/2] Filtering live hosts for %s (threads: 200)", domain)
 	startTime := time.Now()
 	
 	liveRes, err := livehosts.FilterLiveHosts(domain, 200, true) // Increased from 100 to 200
 	duration := time.Since(startTime)
 	
 	if err != nil {
-		log.Printf("[WARN] Live host filtering failed for %s: %v", domain, err)
+		logger.GetLogger().Infof("[WARN] Live host filtering failed for %s: %v", domain, err)
 	} else {
 		if liveRes != nil {
 			res.Subdomains = liveRes.TotalSubs
 			res.LiveHosts = liveRes.LiveSubs
 		}
-		log.Printf("[OK] Live host filtering completed in %s: %d live hosts out of %d subdomains", duration, res.LiveHosts, res.Subdomains)
+		logger.GetLogger().Infof("[OK] Live host filtering completed in %s: %d live hosts out of %d subdomains", duration, res.LiveHosts, res.Subdomains)
 		
 		// Send phase 1 files in real-time
 		sendFastlookPhaseFiles("livehosts", domain, onFileCreated)
 	}
 
 	// Step 2: URL/JS collection (skip subdomain enum since livehosts already did it, optimized with 200 threads)
-	log.Printf("[INFO] [2/2] Collecting URLs and JS URLs for %s (threads: 200, skip subdomain enum)", domain)
+	logger.GetLogger().Infof("[INFO] [2/2] Collecting URLs and JS URLs for %s (threads: 200, skip subdomain enum)", domain)
 	startTime = time.Now()
 	
 	urlRes, err := urls.CollectURLs(domain, 200, false) // Increased from 100 to 200
 	duration = time.Since(startTime)
 	
 	if err != nil {
-		log.Printf("[WARN] URL collection failed for %s: %v", domain, err)
+		logger.GetLogger().Infof("[WARN] URL collection failed for %s: %v", domain, err)
 	} else {
 		if urlRes != nil {
 			res.TotalURLs = urlRes.TotalURLs
 			res.JSURLs = urlRes.JSURLs
 		}
-		log.Printf("[OK] URL collection completed in %s: %d URLs, %d JS URLs", duration, res.TotalURLs, res.JSURLs)
+		logger.GetLogger().Infof("[OK] URL collection completed in %s: %d URLs, %d JS URLs", duration, res.TotalURLs, res.JSURLs)
 		
 		// Send phase 2 files in real-time
 		sendFastlookPhaseFiles("urls", domain, onFileCreated)
 	}
 
-	log.Printf("[OK] Fast Look completed for %s", domain)
+	logger.GetLogger().Infof("[OK] Fast Look completed for %s", domain)
 	return res, nil
 }
 
@@ -133,18 +133,18 @@ func sendFastlookPhaseFiles(phaseName, domain string, onFileCreated FileCallback
 		}
 		
 		if len(existingFiles) > 0 {
-			log.Printf("[DEBUG] [FASTLOOK] Sending %d file(s) for phase %s", len(existingFiles), phaseName)
+			logger.GetLogger().Infof("[DEBUG] [FASTLOOK] Sending %d file(s) for phase %s", len(existingFiles), phaseName)
 			
 			if onFileCreated != nil {
 				// Use callback for real-time file sending
 				for _, filePath := range existingFiles {
-					log.Printf("[DEBUG] [FASTLOOK] Sending file via callback: %s", filePath)
+					logger.GetLogger().Infof("[DEBUG] [FASTLOOK] Sending file via callback: %s", filePath)
 					onFileCreated(filePath)
 				}
 			} else {
 				// Fallback to utils.SendPhaseFiles for backward compatibility
 				if err := utils.SendPhaseFiles(phaseName, domain, existingFiles); err != nil {
-					log.Printf("[DEBUG] [FASTLOOK] Failed to send files for phase %s: %v", phaseName, err)
+					logger.GetLogger().Infof("[DEBUG] [FASTLOOK] Failed to send files for phase %s: %v", phaseName, err)
 				}
 			}
 		}

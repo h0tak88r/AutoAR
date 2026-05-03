@@ -3,7 +3,7 @@ package livehosts
 import (
 	"bufio"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,12 +62,12 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 		return nil, err
 	}
 
-	log.Printf("[OK] Found %d live subdomains out of %d for %s", liveCount, totalSubs, domain)
+	logger.GetLogger().Infof("[OK] Found %d live subdomains out of %d for %s", liveCount, totalSubs, domain)
 
 	// 3. Update database with live host information (optional but desirable)
 	if liveCount > 0 {
 		if err := updateDatabaseFromMap(domain, liveHostMap); err != nil {
-			log.Printf("[WARN] Failed to update database with live hosts for %s: %v", domain, err)
+			logger.GetLogger().Infof("[WARN] Failed to update database with live hosts for %s: %v", domain, err)
 		}
 	}
 
@@ -109,7 +109,7 @@ func FilterLiveHosts(domain string, threads int, silent bool) (*Result, error) {
 				})
 			}
 			if err := utils.WriteJSONToScanDir(scanID, "livehosts.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write livehosts JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write livehosts JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "livehosts", "livehosts.json")
@@ -138,13 +138,13 @@ func ensureSubdomains(domain string, threads int, subsFile string) (int, error) 
 			_ = db.InitSchema()
 			count, err := db.CountSubdomains(domain)
 			if err == nil && count > 0 {
-				log.Printf("[INFO] Found %d subdomains in database for %s, using them", count, domain)
+				logger.GetLogger().Infof("[INFO] Found %d subdomains in database for %s, using them", count, domain)
 				// Load subdomains from database and write to file
 				subs, err := db.ListSubdomains(domain)
 				if err == nil && len(subs) > 0 {
 					// Write to file for compatibility
 					if err := writeLines(subsFile, subs); err != nil {
-						log.Printf("[WARN] Failed to write subdomains from DB to file: %v", err)
+						logger.GetLogger().Infof("[WARN] Failed to write subdomains from DB to file: %v", err)
 					}
 					return len(subs), nil
 				}
@@ -156,17 +156,17 @@ func ensureSubdomains(domain string, threads int, subsFile string) (int, error) 
 	if info, err := os.Stat(subsFile); err == nil && info.Size() > 0 {
 		count, err := countLines(subsFile)
 		if err == nil {
-			log.Printf("[INFO] Using existing subdomains from %s (%d subdomains)", subsFile, count)
+			logger.GetLogger().Infof("[INFO] Using existing subdomains from %s (%d subdomains)", subsFile, count)
 			// If very few, treat as potentially stale and re-enumerate
 			if count >= 5 {
 				return count, nil
 			}
-			log.Printf("[WARN] Very few subdomains found (%d), re-enumerating...", count)
+			logger.GetLogger().Infof("[WARN] Very few subdomains found (%d), re-enumerating...", count)
 		}
 	}
 
 	// Step 3: Collect subdomains (not in database and no valid file)
-	log.Printf("[INFO] Collecting subdomains for %s", domain)
+	logger.GetLogger().Infof("[INFO] Collecting subdomains for %s", domain)
 	results, err := subdomains.EnumerateSubdomains(domain, threads)
 	if err != nil {
 		return 0, fmt.Errorf("failed to enumerate subdomains: %v", err)
@@ -178,17 +178,17 @@ func ensureSubdomains(domain string, threads int, subsFile string) (int, error) 
 	}
 
 	total := len(results)
-	log.Printf("[OK] Found %d unique subdomains for %s", total, domain)
+	logger.GetLogger().Infof("[OK] Found %d unique subdomains for %s", total, domain)
 
 	// Save to database if configured (EnumerateSubdomains already does this, but keep for compatibility)
 	if os.Getenv("DB_HOST") != "" {
 		if err := db.Init(); err == nil {
 			_ = db.InitSchema()
 			if err := db.BatchInsertSubdomains(domain, results, false); err != nil {
-				log.Printf("[WARN] Failed to save subdomains to database: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to save subdomains to database: %v", err)
 			}
 		} else {
-			log.Printf("[WARN] Database initialization failed, skipping subdomains save: %v", err)
+			logger.GetLogger().Infof("[WARN] Database initialization failed, skipping subdomains save: %v", err)
 		}
 	}
 
@@ -230,14 +230,14 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, []Liv
 	}
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No subdomains found in file")
+		logger.GetLogger().Infof("[WARN] No subdomains found in file")
 		if err := writeLines(liveFile, nil); err != nil {
 			return 0, nil, fmt.Errorf("failed to create empty live hosts file: %v", err)
 		}
 		return 0, nil, nil
 	}
 
-	log.Printf("[INFO] Filtering live hosts via httpx with %d threads", threads)
+	logger.GetLogger().Infof("[INFO] Filtering live hosts via httpx with %d threads", threads)
 
 	// Collect live hosts with their details
 	var liveHosts []string
@@ -315,7 +315,7 @@ func runHTTPX(domain string, threads int, subsFile, liveFile string) (int, []Liv
 		writer.Flush()
 	}
 
-	log.Printf("[OK] Found %d live hosts", len(liveHosts))
+	logger.GetLogger().Infof("[OK] Found %d live hosts", len(liveHosts))
 	return len(liveHosts), liveHostResults, nil
 }
 
@@ -368,7 +368,7 @@ func updateDatabaseFromMap(domain string, liveHostResults []LiveHostResult) erro
 		}
 
 		if err := db.InsertSubdomain(domain, host, true, httpURL, httpsURL, res.httpStatus, res.httpsStatus); err != nil {
-			log.Printf("[WARN] Failed to insert live subdomain %s: %v", host, err)
+			logger.GetLogger().Infof("[WARN] Failed to insert live subdomain %s: %v", host, err)
 		}
 	}
 
@@ -442,12 +442,12 @@ func GetLiveHostsFile(domain string) (string, error) {
 
 	// Step 1: Check if file exists and has content
 	if info, err := os.Stat(liveFile); err == nil && info.Size() > 0 {
-		log.Printf("[INFO] Using existing live hosts file: %s (%d bytes)", liveFile, info.Size())
+		logger.GetLogger().Infof("[INFO] Using existing live hosts file: %s (%d bytes)", liveFile, info.Size())
 		return liveFile, nil
 	}
 
 	// Step 2: File doesn't exist or is empty, try database
-	log.Printf("[INFO] Live hosts file not found or empty, checking database for %s", domain)
+	logger.GetLogger().Infof("[INFO] Live hosts file not found or empty, checking database for %s", domain)
 	
 	// Check if database is configured
 	if os.Getenv("DB_HOST") == "" && os.Getenv("SAVE_TO_DB") != "true" {
@@ -492,6 +492,6 @@ func GetLiveHostsFile(domain string) (string, error) {
 		return "", fmt.Errorf("failed to write live hosts file from database: %v", err)
 	}
 
-	log.Printf("[OK] Created live hosts file from database: %s (%d hosts)", liveFile, len(liveHosts))
+	logger.GetLogger().Infof("[OK] Created live hosts file from database: %s (%d hosts)", liveFile, len(liveHosts))
 	return liveFile, nil
 }

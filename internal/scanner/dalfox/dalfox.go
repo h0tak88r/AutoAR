@@ -2,7 +2,7 @@ package dalfox
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,7 +44,7 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 
 	// Step 1: Ensure URLs exist (run urlfinder if needed)
 	if info, err := os.Stat(urlsFile); err != nil || info.Size() == 0 {
-		log.Printf("[INFO] No URLs found for %s, running urlfinder to collect URLs...", domain)
+		logger.GetLogger().Infof("[INFO] No URLs found for %s, running urlfinder to collect URLs...", domain)
 		urlRes, err := urls.CollectURLs(domain, threads, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect URLs: %w", err)
@@ -55,14 +55,14 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 			}
 			return nil, fmt.Errorf("no URLs found for domain %s after urlfinder scan", domain)
 		}
-		log.Printf("[OK] Collected %d URLs for %s", urlRes.TotalURLs, domain)
+		logger.GetLogger().Infof("[OK] Collected %d URLs for %s", urlRes.TotalURLs, domain)
 	} else {
-		log.Printf("[INFO] Found existing URLs file with %d bytes", info.Size())
+		logger.GetLogger().Infof("[INFO] Found existing URLs file with %d bytes", info.Size())
 	}
 
 	// Step 2: Ensure GF results exist (run GF scan if needed)
 	if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
-		log.Printf("[INFO] No XSS candidates found, running GF scan to find XSS patterns...")
+		logger.GetLogger().Infof("[INFO] No XSS candidates found, running GF scan to find XSS patterns...")
 		gfRes, err := gf.ScanGF(domain)
 		if err != nil {
 			return nil, fmt.Errorf("failed to run GF scan: %w", err)
@@ -75,27 +75,27 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 		}
 		// Check if XSS pattern file was created
 		if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
-			log.Printf("[WARN] GF scan completed but no XSS patterns found for %s", domain)
+			logger.GetLogger().Infof("[WARN] GF scan completed but no XSS patterns found for %s", domain)
 			if scanID := utils.GetCurrentScanID(); scanID != "" {
 				_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
 			}
 			return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 		}
-		log.Printf("[OK] GF scan found XSS candidates, proceeding with dalfox...")
+		logger.GetLogger().Infof("[OK] GF scan found XSS candidates, proceeding with dalfox...")
 	} else {
-		log.Printf("[INFO] Found existing GF results file with %d bytes", info.Size())
+		logger.GetLogger().Infof("[INFO] Found existing GF results file with %d bytes", info.Size())
 	}
 
 	// Validate GF results file exists and has content
 	if info, err := os.Stat(inFile); err != nil || info.Size() == 0 {
-		log.Printf("[WARN] No XSS candidate file at %s", inFile)
+		logger.GetLogger().Infof("[WARN] No XSS candidate file at %s", inFile)
 		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")
 		}
 		return &Result{Domain: domain, Findings: 0, OutputFile: outFile}, nil
 	}
 
-	log.Printf("[INFO] Running dalfox (library mode) with %d threads", threads)
+	logger.GetLogger().Infof("[INFO] Running dalfox (library mode) with %d threads", threads)
 	results, err := dalfoxtool.ScanFile(inFile, dalfoxtool.Options{Threads: threads})
 	if err != nil {
 		return nil, fmt.Errorf("dalfox scan failed: %w", err)
@@ -113,16 +113,16 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 			continue
 		}
 		if _, err := f.Write(r.Raw); err != nil {
-			log.Printf("[WARN] Failed to write dalfox result for %s: %v", r.Target, err)
+			logger.GetLogger().Infof("[WARN] Failed to write dalfox result for %s: %v", r.Target, err)
 			continue
 		}
 		if _, err := f.WriteString("\n"); err != nil {
-			log.Printf("[WARN] Failed to write newline for %s: %v", r.Target, err)
+			logger.GetLogger().Infof("[WARN] Failed to write newline for %s: %v", r.Target, err)
 		}
 	}
 
 	count := len(results)
-	log.Printf("[OK] Dalfox scan completed, processed %d targets", count)
+	logger.GetLogger().Infof("[OK] Dalfox scan completed, processed %d targets", count)
 
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if count > 0 {
@@ -169,7 +169,7 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 			}
 			if len(findings) > 0 {
 				if err := utils.WriteJSONToScanDir(scanID, "dalfox-results.json", findings); err != nil {
-					log.Printf("[WARN] Failed to write dalfox JSON: %v", err)
+					logger.GetLogger().Infof("[WARN] Failed to write dalfox JSON: %v", err)
 				}
 			} else {
 				_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-results.json")

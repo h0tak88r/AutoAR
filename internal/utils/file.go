@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
+	
 	"mime"
 	"net/http"
 	"os"
@@ -147,7 +147,7 @@ func writeAndIndexResult(path string, data []byte, lineCount int, contentType st
 	// Persist artifact index for scan UI when scan id and uploaded URL are available.
 	if scanID != "" {
 		if err := db.AppendScanArtifact(artifact); err != nil {
-			log.Printf("[R2] failed to index artifact for scan %s: %v", scanID, err)
+			GetLogger().Infof("[R2] failed to index artifact for scan %s: %v", scanID, err)
 		}
 	}
 
@@ -167,7 +167,7 @@ func uploadResultAsync(path string) {
 		r2Key = strings.TrimPrefix(r2Key, "/")
 	}
 	r2storage.UploadResultFileAndLog(path, r2Key)
-	log.Printf("[R2] ✅ Auto-uploaded result file: %s", path)
+	GetLogger().Infof("[R2] ✅ Auto-uploaded result file: %s", path)
 }
 
 func toR2Key(path string) string {

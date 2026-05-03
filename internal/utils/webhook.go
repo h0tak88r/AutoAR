@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -13,10 +12,10 @@ import (
 )
 
 // SendWebhook sends a generic JSON payload to the MONITOR_WEBHOOK_URL if configured.
+// Fallback to DISCORD_WEBHOOK if MONITOR_WEBHOOK_URL is not set.
 func SendWebhook(msg string) {
 	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
 	if webhookURL == "" {
-		// Fallback to DISCORD_WEBHOOK if MONITOR_WEBHOOK_URL is not set
 		webhookURL = strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK"))
 	}
 	if webhookURL == "" {
@@ -26,13 +25,13 @@ func SendWebhook(msg string) {
 	payload := map[string]interface{}{"content": msg}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[WEBHOOK] Failed to marshal payload: %v", err)
+		GetLogger().Errorf("[WEBHOOK] Failed to marshal payload: %v", err)
 		return
 	}
 
 	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("[WEBHOOK] Failed to create request: %v", err)
+		GetLogger().Errorf("[WEBHOOK] Failed to create request: %v", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -40,14 +39,14 @@ func SendWebhook(msg string) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[WEBHOOK] Failed to send: %v", err)
+		GetLogger().Errorf("[WEBHOOK] Failed to send: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		log.Printf("[WEBHOOK] Error %d: %s", resp.StatusCode, string(b))
+		GetLogger().Errorf("[WEBHOOK] Error %d: %s", resp.StatusCode, string(b))
 	}
 }
 
@@ -79,13 +78,13 @@ func SendScanNotification(event, scanID, target, scanType, status string, findin
 	}
 }
 
-// SendWebhookLog is a no-op stub or fallback — mapping to SendWebhook.
+// SendWebhookLog sends a plain text log message to the configured webhook.
 func SendWebhookLog(msg string) error {
 	SendWebhook(msg)
 	return nil
 }
 
-// SendWebhookLogAsync is a no-op stub or fallback — mapping to SendWebhook.
+// SendWebhookLogAsync is an asynchronous version of SendWebhookLog.
 func SendWebhookLogAsync(msg string) {
 	go SendWebhook(msg)
 }

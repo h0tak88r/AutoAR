@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"regexp"
 	"strings"
@@ -44,7 +44,7 @@ func StartURLMonitorDaemon() {
 			urlDaemonRunning = false
 			urlDaemonMu.Unlock()
 		}()
-		log.Printf("[URL-MONITOR] Daemon started")
+		logger.GetLogger().Infof("[URL-MONITOR] Daemon started")
 		// Run once immediately on start
 		checkAllURLTargets()
 		ticker := time.NewTicker(60 * time.Second)
@@ -54,7 +54,7 @@ func StartURLMonitorDaemon() {
 			case <-ticker.C:
 				checkAllURLTargets()
 			case <-stopURLDaemon:
-				log.Printf("[URL-MONITOR] Daemon stopped")
+				logger.GetLogger().Infof("[URL-MONITOR] Daemon stopped")
 				return
 			}
 		}
@@ -84,7 +84,7 @@ func IsURLDaemonRunning() bool {
 func checkAllURLTargets() {
 	targets, err := db.ListMonitorTargets()
 	if err != nil {
-		log.Printf("[URL-MONITOR] Failed to list targets: %v", err)
+		logger.GetLogger().Infof("[URL-MONITOR] Failed to list targets: %v", err)
 		return
 	}
 
@@ -109,14 +109,14 @@ func checkAllURLTargets() {
 func checkTarget(client *http.Client, t db.MonitorTarget) {
 	resp, err := client.Get(t.URL)
 	if err != nil {
-		log.Printf("[URL-MONITOR] Failed to fetch %s: %v", t.URL, err)
+		logger.GetLogger().Infof("[URL-MONITOR] Failed to fetch %s: %v", t.URL, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[URL-MONITOR] Failed to read body for %s: %v", t.URL, err)
+		logger.GetLogger().Infof("[URL-MONITOR] Failed to read body for %s: %v", t.URL, err)
 		return
 	}
 
@@ -138,7 +138,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 
 	// First run — just store the baseline hash, no alert
 	if t.LastHash == "" {
-		log.Printf("[URL-MONITOR] First check for %s — storing baseline hash", t.URL)
+		logger.GetLogger().Infof("[URL-MONITOR] First check for %s — storing baseline hash", t.URL)
 		_ = db.UpdateMonitorTargetLastRun(t.ID, currentHash, false)
 		return
 	}
@@ -149,7 +149,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 	}
 
 	// Content changed → record in DB + send Discord alert
-	log.Printf("[URL-MONITOR] ⚠️  Change detected for %s (hash)", t.URL)
+	logger.GetLogger().Infof("[URL-MONITOR] ⚠️  Change detected for %s (hash)", t.URL)
 
 	detail, _ := json.Marshal(map[string]string{
 		"strategy": "hash",
@@ -177,7 +177,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 		"🔔 **URL Monitor Alert**\n**URL**: %s\n**Change**: content hash changed\n**Old hash**: `%s`\n**New hash**: `%s`\n**Timestamp**: %s",
 		t.URL, oldShort, newShort, time.Now().Format(time.RFC3339),
 	)
-	log.Printf("[URL-MONITOR] Alert: %s", msg)
+	logger.GetLogger().Infof("[URL-MONITOR] Alert: %s", msg)
 	utils.SendMonitorWebhook(msg)
 }
 
@@ -207,7 +207,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 	}
 	re, err := regexp.Compile(pat)
 	if err != nil {
-		log.Printf("[URL-MONITOR] Invalid regex for %s: %v", t.URL, err)
+		logger.GetLogger().Infof("[URL-MONITOR] Invalid regex for %s: %v", t.URL, err)
 		return
 	}
 
@@ -221,7 +221,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 	}
 
 	if baseline == "" {
-		log.Printf("[URL-MONITOR] First check for %s — storing baseline regex match", t.URL)
+		logger.GetLogger().Infof("[URL-MONITOR] First check for %s — storing baseline regex match", t.URL)
 		_ = db.UpdateMonitorTargetLastRun(t.ID, match, false)
 		return
 	}
@@ -231,7 +231,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 		return
 	}
 
-	log.Printf("[URL-MONITOR] ⚠️  Change detected for %s (regex)", t.URL)
+	logger.GetLogger().Infof("[URL-MONITOR] ⚠️  Change detected for %s (regex)", t.URL)
 
 	detailObj := map[string]string{
 		"strategy":  "regex",
@@ -264,6 +264,6 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 		"🔔 **URL Monitor Alert** (regex)\n**URL**: %s\n**Change**: matched text changed\n**Old**: `%s`\n**New**: `%s`\n**Timestamp**: %s",
 		t.URL, oldDisp, newDisp, time.Now().Format(time.RFC3339),
 	)
-	log.Printf("[URL-MONITOR] Alert: %s", msg)
+	logger.GetLogger().Infof("[URL-MONITOR] Alert: %s", msg)
 	utils.SendMonitorWebhook(msg)
 }

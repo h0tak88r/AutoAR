@@ -3,7 +3,7 @@ package subdomain
 import (
 	"context"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,14 +56,14 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 
 	// Load .env file
 	if err := envloader.LoadEnv(); err != nil {
-		log.Printf("[WARN] Failed to load .env file: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to load .env file: %v", err)
 	}
 
 	// Initialize logger if not already initialized
 	if utils.Log == nil {
 		logConfig := utils.LogConfigFromEnv("autoar-bot.log")
 		if err := utils.InitLogger(logConfig); err != nil {
-			log.Printf("[WARN] Failed to initialize logger: %v", err)
+			logger.GetLogger().Infof("[WARN] Failed to initialize logger: %v", err)
 		} else {
 			utils.Log.WithField("subdomain", subdomain).Info("Logger initialized for subdomain workflow")
 		}
@@ -112,7 +112,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	if err := utils.RunWorkflowPhase("livehosts", getNextStep(), totalSteps, "Live host check", subdomain, 0, func() error {
 		return checkAndSaveLiveSubdomain(subdomain, liveHostsFile)
 	}); err != nil {
-		log.Printf("[ERROR] Live host check failed: %v", err)
+		logger.GetLogger().Infof("[ERROR] Live host check failed: %v", err)
 		return nil, fmt.Errorf("subdomain %s is not live or check failed: %v", subdomain, err)
 	}
 
@@ -148,7 +148,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 					case err := <-done:
 						return err
 					case <-ctx.Done():
-						log.Printf("[WARN] phase %s timed out after %ds", key, timeout)
+						logger.GetLogger().Infof("[WARN] phase %s timed out after %ds", key, timeout)
 						return fmt.Errorf("phase %s timed out", key)
 					}
 				}
@@ -156,7 +156,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 				wrappedFn = fn
 			}
 			if err := utils.RunWorkflowPhase(key, getNextStep(), totalSteps, desc, subdomain, timeout, wrappedFn); err != nil {
-				log.Printf("[WARN] %s failed: %v", desc, err)
+				logger.GetLogger().Infof("[WARN] %s failed: %v", desc, err)
 			}
 		}()
 	}
@@ -295,7 +295,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 			return fmt.Errorf("no live URL found")
 		})
 	} else {
-		log.Printf("[INFO] Skipping FFUF stage for subdomain scan: %s", subdomain)
+		logger.GetLogger().Infof("[INFO] Skipping FFUF stage for subdomain scan: %s", subdomain)
 	}
 
 	runParallelPhase(&wgPhase3, "nuclei", "[Stage 3] Nuclei scan (final)", nucleiTimeout(), func() error {
@@ -313,7 +313,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 
 	wgPhase3.Wait()
 
-	log.Printf("[OK] Full subdomain scan completed for %s", subdomain)
+	logger.GetLogger().Infof("[OK] Full subdomain scan completed for %s", subdomain)
 
 	// Get subdomain directory path (resultsDir already declared earlier)
 	subdomainDir := filepath.Join(resultsDir, subdomainClean)
@@ -325,22 +325,22 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 
 	// Ensure subdomain directory exists (in case it was never created or was deleted)
 	if err := os.MkdirAll(subdomainDir, 0755); err != nil {
-		log.Printf("[WARN] Failed to ensure subdomain directory exists: %s: %v", subdomainDir, err)
+		logger.GetLogger().Infof("[WARN] Failed to ensure subdomain directory exists: %s: %v", subdomainDir, err)
 	}
 
 	// Verify directory exists before attempting zip
 	if dirInfo, err := os.Stat(subdomainDir); err != nil {
-		log.Printf("[WARN] Subdomain directory does not exist: %s (resultsDir: %s)", subdomainDir, resultsDir)
+		logger.GetLogger().Infof("[WARN] Subdomain directory does not exist: %s (resultsDir: %s)", subdomainDir, resultsDir)
 		// List what's in resultsDir for debugging
 		if entries, err := os.ReadDir(resultsDir); err == nil {
 			var names []string
 			for _, e := range entries {
 				names = append(names, e.Name())
 			}
-			log.Printf("[DEBUG] Contents of resultsDir: %v", names)
+			logger.GetLogger().Infof("[DEBUG] Contents of resultsDir: %v", names)
 		}
 	} else {
-		log.Printf("[INFO] Subdomain directory exists: %s (isDir: %v)", subdomainDir, dirInfo.IsDir())
+		logger.GetLogger().Infof("[INFO] Subdomain directory exists: %s (isDir: %v)", subdomainDir, dirInfo.IsDir())
 		// Count files in directory for debugging
 		fileCount := 0
 		filepath.Walk(subdomainDir, func(path string, info os.FileInfo, err error) error {
@@ -349,7 +349,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 			}
 			return nil
 		})
-		log.Printf("[DEBUG] Subdomain directory contains %d files", fileCount)
+		logger.GetLogger().Infof("[DEBUG] Subdomain directory contains %d files", fileCount)
 	}
 
 	// R2 upload removed - files are sent directly to Discord threads in real-time
@@ -387,9 +387,9 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		}
 		return os.Remove(path)
 	}); err != nil {
-		log.Printf("[WARN] Failed to cleanup subdomain directory %s: %v", domainDir, err)
+		logger.GetLogger().Infof("[WARN] Failed to cleanup subdomain directory %s: %v", domainDir, err)
 	} else {
-		log.Printf("[OK] Cleaned up subdomain directory: %s", domainDir)
+		logger.GetLogger().Infof("[OK] Cleaned up subdomain directory: %s", domainDir)
 	}
 
 	// Also cleanup shared module directories that write outside the subdomain directory
@@ -403,9 +403,9 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	for _, sharedDir := range sharedDirs {
 		if info, err := os.Stat(sharedDir); err == nil && info.IsDir() {
 			if err := os.RemoveAll(sharedDir); err != nil {
-				log.Printf("[WARN] Failed to cleanup shared directory %s: %v", sharedDir, err)
+				logger.GetLogger().Infof("[WARN] Failed to cleanup shared directory %s: %v", sharedDir, err)
 			} else {
-				log.Printf("[OK] Cleaned up shared module directory: %s", sharedDir)
+				logger.GetLogger().Infof("[OK] Cleaned up shared module directory: %s", sharedDir)
 			}
 		}
 	}
@@ -413,7 +413,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// Remove the subdomain directory itself if it's now empty (excluding apkx)
 	if entries, err := os.ReadDir(domainDir); err == nil && len(entries) == 0 {
 		os.Remove(domainDir)
-		log.Printf("[OK] Removed empty subdomain directory: %s", domainDir)
+		logger.GetLogger().Infof("[OK] Removed empty subdomain directory: %s", domainDir)
 	}
 
 	return &Result{Subdomain: subdomain}, nil
@@ -427,7 +427,7 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 		targets = []string{"https://" + subdomain, "http://" + subdomain}
 	}
 
-	log.Printf("[INFO] Checking if subdomain is live: %s", subdomain)
+	logger.GetLogger().Infof("[INFO] Checking if subdomain is live: %s", subdomain)
 
 	var liveHosts []string
 	var mu sync.Mutex
@@ -454,7 +454,7 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 				liveHosts = append(liveHosts, result.URL)
 			}
 			mu.Unlock()
-			log.Printf("%s [%d]", result.URL, result.StatusCode)
+			logger.GetLogger().Infof("%s [%d]", result.URL, result.StatusCode)
 		}
 	}
 
@@ -485,10 +485,10 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 	if info, err := os.Stat(liveHostsFile); err != nil {
 		return fmt.Errorf("live hosts file was not created: %s: %v", liveHostsFile, err)
 	} else {
-		log.Printf("[DEBUG] Live hosts file created: %s (size: %d bytes)", liveHostsFile, info.Size())
+		logger.GetLogger().Infof("[DEBUG] Live hosts file created: %s (size: %d bytes)", liveHostsFile, info.Size())
 	}
 
-	log.Printf("[OK] Found %d live URL(s) for %s", len(liveHosts), subdomain)
+	logger.GetLogger().Infof("[OK] Found %d live URL(s) for %s", len(liveHosts), subdomain)
 	return nil
 }
 

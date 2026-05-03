@@ -2,7 +2,7 @@ package utils
 
 import (
 	"fmt"
-	"log"
+	
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,13 +178,13 @@ func UploadResultsToR2(domain string, removeLocal bool) (map[string]string, erro
 		return nil, fmt.Errorf("results directory does not exist: %s", resultsPath)
 	}
 
-	log.Printf("[R2] 📤 Uploading results for %s to R2...", domain)
+	GetLogger().Infof("[R2] 📤 Uploading results for %s to R2...", domain)
 	urls, err := r2storage.UploadResultsDirectory(domain, resultsPath, removeLocal)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload results to R2: %w", err)
 	}
 
-	log.Printf("[R2] [ + ]Successfully uploaded %d files for %s to R2", len(urls), domain)
+	GetLogger().Infof("[R2] [ + ]Successfully uploaded %d files for %s to R2", len(urls), domain)
 	return urls, nil
 }
 
