@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,7 +86,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		// Load subdomains via DB-backed temp file (DB first, then disk fallback)
 		tmpPath, cleanupTmp, tmpErr := utils.WriteTempSubsFile(domain)
 		if tmpErr != nil {
-			log.Printf("[INFO] No subdomains in DB, enumerating for %s", domain)
+			logger.GetLogger().Infof("[INFO] No subdomains in DB, enumerating for %s", domain)
 			subs, enumErr := subdomains.EnumerateSubdomains(domain, 100)
 			if enumErr != nil {
 				return nil, fmt.Errorf("failed to enumerate subdomains: %w", enumErr)
@@ -149,7 +149,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	out := filepath.Join(subsDir, "cname-records.txt")
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No targets found; creating empty CNAME file for %s", domain)
+		logger.GetLogger().Infof("[WARN] No targets found; creating empty CNAME file for %s", domain)
 		if err := writeLines(out, nil); err != nil {
 			return nil, fmt.Errorf("failed to initialise %s: %w", out, err)
 		}
@@ -160,7 +160,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		}, nil
 	}
 
-	log.Printf("[INFO] Collecting CNAME records for %d target(s) via dnsx library (threads: %d)", len(targets), opts.Threads)
+	logger.GetLogger().Infof("[INFO] Collecting CNAME records for %d target(s) via dnsx library (threads: %d)", len(targets), opts.Threads)
 
 	// Initialize dnsx client
 	dnsClient, err := dnsx.New(dnsx.DefaultOptions)
@@ -236,7 +236,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	case <-done:
 		// Completed
 	case <-ctx.Done():
-		log.Printf("[WARN] CNAME collection timed out after %v", opts.Timeout)
+		logger.GetLogger().Infof("[WARN] CNAME collection timed out after %v", opts.Timeout)
 	}
 
 	// Write results to file
@@ -245,7 +245,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	}
 
 	count, _ := countLines(out)
-	log.Printf("[OK] Found %d CNAME records for %s", count, domain)
+	logger.GetLogger().Infof("[OK] Found %d CNAME records for %s", count, domain)
 
 	// Write JSON output to scan directory for dashboard
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
@@ -288,7 +288,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		}
 		if len(entries) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "cname-records.json", entries); err != nil {
-				log.Printf("[WARN] Failed to write CNAME JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write CNAME JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "cnames", "cname-records.json")

@@ -11,7 +11,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ShutdownManager handles graceful shutdown
+// ShutdownManager handles the lifecycle of the application during a termination event.
+// It tracks active scans and ensures they complete (or timeout) before the process exits.
 type ShutdownManager struct {
 	mu              sync.RWMutex
 	shutdownFlag    bool
@@ -27,7 +28,7 @@ var (
 	shutdownOnce          sync.Once
 )
 
-// InitShutdownManager initializes the shutdown manager
+// InitShutdownManager initializes the global singleton [ShutdownManager] instance.
 func InitShutdownManager(timeout time.Duration, logger *logrus.Logger) *ShutdownManager {
 	shutdownOnce.Do(func() {
 		if timeout == 0 {
@@ -42,7 +43,7 @@ func InitShutdownManager(timeout time.Duration, logger *logrus.Logger) *Shutdown
 	return GlobalShutdownManager
 }
 
-// GetShutdownManager returns the global shutdown manager
+// GetShutdownManager returns the global singleton [ShutdownManager] instance.
 func GetShutdownManager() *ShutdownManager {
 	if GlobalShutdownManager == nil {
 		return InitShutdownManager(5*time.Minute, GetLogger())
@@ -50,14 +51,14 @@ func GetShutdownManager() *ShutdownManager {
 	return GlobalShutdownManager
 }
 
-// RegisterShutdownHook registers a function to be called on shutdown
+// RegisterShutdownHook registers a function to be executed during the shutdown sequence.
 func (sm *ShutdownManager) RegisterShutdownHook(fn func() error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.onShutdown = append(sm.onShutdown, fn)
 }
 
-// IsShuttingDown returns true if shutdown has been initiated
+// IsShuttingDown returns true if the shutdown process has been initiated.
 func (sm *ShutdownManager) IsShuttingDown() bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

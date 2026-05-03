@@ -5,12 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -64,7 +65,7 @@ func LoadConfig() *R2Config {
 
 	// Validate required fields
 	if config.BucketName == "" || config.AccessKeyID == "" || config.SecretKey == "" {
-		log.Printf("[R2] ⚠️  R2 storage enabled but missing required configuration")
+		logger.GetLogger().Infof("[R2] ⚠️  R2 storage enabled but missing required configuration")
 		config.Enabled = false
 		return config
 	}
@@ -74,13 +75,13 @@ func LoadConfig() *R2Config {
 
 	// Initialize R2 client
 	if err := initR2Client(); err != nil {
-		log.Printf("[R2] ⚠️  Failed to initialize R2 client: %v", err)
+		logger.GetLogger().Infof("[R2] ⚠️  Failed to initialize R2 client: %v", err)
 		config.Enabled = false
 		isEnabled = false
 		return config
 	}
 
-	log.Printf("[R2] [ + ]R2 storage initialized (bucket: %s)", config.BucketName)
+	logger.GetLogger().Infof("[R2] [ + ]R2 storage initialized (bucket: %s)", config.BucketName)
 	return config
 }
 
@@ -144,18 +145,18 @@ func UploadResultFileAndLog(localPath, r2Key string) string {
 		return "" // File doesn't exist
 	}
 	if info.Size() == 0 {
-		log.Printf("[R2] ⏭️  Skipping empty file: %s", localPath)
+		logger.GetLogger().Infof("[R2] ⏭️  Skipping empty file: %s", localPath)
 		return ""
 	}
 
 	publicURL, err := UploadFile(localPath, r2Key, true) // skipTimestamp=true, key already has domain/path
 	if err != nil {
-		log.Printf("[R2] ⚠️  Failed to upload result file %s: %v", localPath, err)
+		logger.GetLogger().Infof("[R2] ⚠️  Failed to upload result file %s: %v", localPath, err)
 		return ""
 	}
 
 	// Print a very visible marker line — AI agents and log parsers use this
-	log.Printf("[R2-RESULT-URL] %s -> %s", localPath, publicURL)
+	logger.GetLogger().Infof("[R2-RESULT-URL] %s -> %s", localPath, publicURL)
 	fmt.Printf("\n🔗 R2 Result: %s\n   URL: %s\n\n", localPath, publicURL)
 	return publicURL
 }
@@ -196,7 +197,7 @@ func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) 
 		objectKey = fmt.Sprintf("%s/%s", timestamp, objectKey)
 	}
 
-	log.Printf("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, fileInfo.Size())
+	logger.GetLogger().Infof("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, fileInfo.Size())
 
 	// Upload file
 	_, err = r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
@@ -221,7 +222,7 @@ func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) 
 		publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, objectKey)
 	}
 
-	log.Printf("[R2] [ + ]File uploaded successfully: %s", publicURL)
+	logger.GetLogger().Infof("[R2] [ + ]File uploaded successfully: %s", publicURL)
 	return publicURL, nil
 }
 
@@ -245,7 +246,7 @@ func UploadFileWithReader(reader io.Reader, objectKey string, size int64, conten
 		}
 	}
 
-	log.Printf("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, size)
+	logger.GetLogger().Infof("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, size)
 
 	// Upload file
 	_, err := r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
@@ -268,7 +269,7 @@ func UploadFileWithReader(reader io.Reader, objectKey string, size int64, conten
 		publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, objectKey)
 	}
 
-	log.Printf("[R2] [ + ]File uploaded successfully: %s", publicURL)
+	logger.GetLogger().Infof("[R2] [ + ]File uploaded successfully: %s", publicURL)
 	return publicURL, nil
 }
 
@@ -466,7 +467,7 @@ func UploadFileIfNotExists(filePath, objectKey string) (string, bool, error) {
 		} else {
 			publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, existingKey)
 		}
-		log.Printf("[R2] [ + ]File already exists in R2: %s", publicURL)
+		logger.GetLogger().Infof("[R2] [ + ]File already exists in R2: %s", publicURL)
 		return publicURL, false, nil
 	}
 
@@ -520,12 +521,12 @@ func UploadDirectory(basePath, r2Prefix string, skipTimestamp bool) (map[string]
 		// Upload file (skipTimestamp for cache/backups, use timestamp for regular results)
 		publicURL, err := UploadFile(localPath, r2Key, skipTimestamp)
 		if err != nil {
-			log.Printf("[R2] ⚠️  Failed to upload %s: %v", localPath, err)
+			logger.GetLogger().Infof("[R2] ⚠️  Failed to upload %s: %v", localPath, err)
 			return nil // Continue with other files
 		}
 
 		urls[localPath] = publicURL
-		log.Printf("[R2] [ + ]Uploaded: %s -> %s", relPath, publicURL)
+		logger.GetLogger().Infof("[R2] [ + ]Uploaded: %s -> %s", relPath, publicURL)
 
 		return nil
 	})
@@ -544,7 +545,7 @@ func UploadResultsDirectory(domain, resultsPath string, removeLocal bool) (map[s
 	// Create R2 prefix: results/domain/
 	r2Prefix := fmt.Sprintf("results/%s", domain)
 
-	log.Printf("[R2] 📤 Uploading results directory to R2: %s -> %s", resultsPath, r2Prefix)
+	logger.GetLogger().Infof("[R2] 📤 Uploading results directory to R2: %s -> %s", resultsPath, r2Prefix)
 
 	// Upload directory (use timestamp for regular results to allow multiple versions)
 	urls, err := UploadDirectory(resultsPath, r2Prefix, false)
@@ -554,15 +555,15 @@ func UploadResultsDirectory(domain, resultsPath string, removeLocal bool) (map[s
 	}
 	// If we have URLs but also an error, log the error but return the URLs
 	if err != nil {
-		log.Printf("[R2] ⚠️  Some files failed to upload, but %d files were uploaded successfully", len(urls))
+		logger.GetLogger().Infof("[R2] ⚠️  Some files failed to upload, but %d files were uploaded successfully", len(urls))
 	}
 
 	// Remove local files if requested
 	if removeLocal && len(urls) > 0 {
-		log.Printf("[R2] 🗑️  Removing local files after successful upload...")
+		logger.GetLogger().Infof("[R2] 🗑️  Removing local files after successful upload...")
 		for localPath := range urls {
 			if err := os.Remove(localPath); err != nil {
-				log.Printf("[R2] ⚠️  Failed to remove local file %s: %v", localPath, err)
+				logger.GetLogger().Infof("[R2] ⚠️  Failed to remove local file %s: %v", localPath, err)
 			}
 		}
 		// Try to remove empty directories
@@ -575,7 +576,7 @@ func UploadResultsDirectory(domain, resultsPath string, removeLocal bool) (map[s
 			}
 			return nil
 		})
-		log.Printf("[R2] [ + ]Local files removed")
+		logger.GetLogger().Infof("[R2] [ + ]Local files removed")
 	}
 
 	return urls, nil
@@ -598,7 +599,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 		r2Prefix = r2Prefix + "/"
 	}
 
-	log.Printf("[R2] 📥 Downloading directory from R2: %s -> %s", r2Prefix, localPath)
+	logger.GetLogger().Infof("[R2] 📥 Downloading directory from R2: %s -> %s", r2Prefix, localPath)
 
 	// Create local directory
 	if err := os.MkdirAll(localPath, 0755); err != nil {
@@ -631,7 +632,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 
 			// Create parent directories
 			if err := os.MkdirAll(filepath.Dir(localFilePath), 0755); err != nil {
-				log.Printf("[R2] ⚠️  Failed to create directory for %s: %v", localFilePath, err)
+				logger.GetLogger().Infof("[R2] ⚠️  Failed to create directory for %s: %v", localFilePath, err)
 				continue
 			}
 
@@ -643,7 +644,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 
 			result, err := r2Client.GetObject(r2ctxBg(), getInput)
 			if err != nil {
-				log.Printf("[R2] ⚠️  Failed to download %s: %v", *obj.Key, err)
+				logger.GetLogger().Infof("[R2] ⚠️  Failed to download %s: %v", *obj.Key, err)
 				continue
 			}
 			defer result.Body.Close()
@@ -651,14 +652,14 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 			// Create local file
 			localFile, err := os.Create(localFilePath)
 			if err != nil {
-				log.Printf("[R2] ⚠️  Failed to create local file %s: %v", localFilePath, err)
+				logger.GetLogger().Infof("[R2] ⚠️  Failed to create local file %s: %v", localFilePath, err)
 				result.Body.Close()
 				continue
 			}
 
 			// Copy object content to local file
 			if _, err := io.Copy(localFile, result.Body); err != nil {
-				log.Printf("[R2] ⚠️  Failed to write to local file %s: %v", localFilePath, err)
+				logger.GetLogger().Infof("[R2] ⚠️  Failed to write to local file %s: %v", localFilePath, err)
 				localFile.Close()
 				result.Body.Close()
 				continue
@@ -674,7 +675,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 		return fmt.Errorf("no files found in R2 with prefix %s", r2Prefix)
 	}
 
-	log.Printf("[R2] [ + ]Downloaded %d files from R2 to %s", downloadedCount, localPath)
+	logger.GetLogger().Infof("[R2] [ + ]Downloaded %d files from R2 to %s", downloadedCount, localPath)
 	return nil
 }
 
@@ -848,7 +849,7 @@ func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
 	// Convert to absolute path to avoid working directory issues
 	if absPath, err := filepath.Abs(dirPath); err == nil {
 		dirPath = absPath
-		log.Printf("[R2] Using absolute path: %s", dirPath)
+		logger.GetLogger().Infof("[R2] Using absolute path: %s", dirPath)
 	}
 
 	// Verify directory exists and has files
@@ -872,9 +873,9 @@ func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
 		return nil
 	})
 	if err != nil {
-		log.Printf("[R2] Warning: error counting files: %v", err)
+		logger.GetLogger().Infof("[R2] Warning: error counting files: %v", err)
 	}
-	log.Printf("[R2] Found %d files in directory: %s", fileCount, dirPath)
+	logger.GetLogger().Infof("[R2] Found %d files in directory: %s", fileCount, dirPath)
 
 	if fileCount == 0 {
 		return "", fmt.Errorf("directory is empty: %s", dirPath)
@@ -890,20 +891,20 @@ func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
 	defer os.Remove(zipPath) // Clean up temp file
 
 	// List some files in directory for debugging
-	log.Printf("[R2] Checking files in directory: %s", dirPath)
+	logger.GetLogger().Infof("[R2] Checking files in directory: %s", dirPath)
 	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
 		if !info.IsDir() {
 			relPath, _ := filepath.Rel(dirPath, path)
-			log.Printf("[R2] Found file: %s (size: %d)", relPath, info.Size())
+			logger.GetLogger().Infof("[R2] Found file: %s (size: %d)", relPath, info.Size())
 		}
 		return nil
 	})
 
 	// Create zip archive
-	log.Printf("[R2] Creating zip archive: %s", dirPath)
+	logger.GetLogger().Infof("[R2] Creating zip archive: %s", dirPath)
 	if err := createZipArchive(dirPath, zipPath); err != nil {
 		return "", fmt.Errorf("failed to create zip archive: %w", err)
 	}
@@ -913,7 +914,7 @@ func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to stat zip file: %w", err)
 	}
-	log.Printf("[R2] Zip archive created: %s (%d bytes)", zipPath, zipInfo.Size())
+	logger.GetLogger().Infof("[R2] Zip archive created: %s (%d bytes)", zipPath, zipInfo.Size())
 
 	// Upload zip to R2
 	timestamp := time.Now().Format("20060102-150405")
@@ -924,7 +925,7 @@ func ZipAndUploadDirectory(domain, dirPath string) (string, error) {
 		return "", fmt.Errorf("failed to upload zip file: %w", err)
 	}
 
-	log.Printf("[R2] Zip file uploaded: %s", publicURL)
+	logger.GetLogger().Infof("[R2] Zip file uploaded: %s", publicURL)
 	// So API executeScan + ExtractR2ZipURLFromOutput reliably capture the zip URL from combined output
 	fmt.Fprintf(os.Stdout, "\nResults zip uploaded: %s\n", publicURL)
 	return publicURL, nil
@@ -953,7 +954,7 @@ func createZipArchive(sourceDir, zipPath string) error {
 	err = filepath.Walk(sourceDir, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Log but continue with other files
-			log.Printf("[R2] Warning: error accessing %s: %v", filePath, err)
+			logger.GetLogger().Infof("[R2] Warning: error accessing %s: %v", filePath, err)
 			return nil
 		}
 
@@ -965,7 +966,7 @@ func createZipArchive(sourceDir, zipPath string) error {
 		// Calculate relative path from source directory
 		relPath, err := filepath.Rel(sourceDir, filePath)
 		if err != nil {
-			log.Printf("[R2] Warning: failed to get relative path for %s: %v", filePath, err)
+			logger.GetLogger().Infof("[R2] Warning: failed to get relative path for %s: %v", filePath, err)
 			return nil
 		}
 
@@ -975,7 +976,7 @@ func createZipArchive(sourceDir, zipPath string) error {
 		// Open the file
 		file, err := os.Open(filePath)
 		if err != nil {
-			log.Printf("[R2] Warning: failed to open file %s: %v", filePath, err)
+			logger.GetLogger().Infof("[R2] Warning: failed to open file %s: %v", filePath, err)
 			return nil
 		}
 		defer file.Close()
@@ -983,7 +984,7 @@ func createZipArchive(sourceDir, zipPath string) error {
 		// Create zip file header
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {
-			log.Printf("[R2] Warning: failed to create zip header for %s: %v", filePath, err)
+			logger.GetLogger().Infof("[R2] Warning: failed to create zip header for %s: %v", filePath, err)
 			return nil
 		}
 		header.Name = zipEntryPath
@@ -992,14 +993,14 @@ func createZipArchive(sourceDir, zipPath string) error {
 		// Write file header
 		writer, err := zipWriter.CreateHeader(header)
 		if err != nil {
-			log.Printf("[R2] Warning: failed to create zip entry for %s: %v", filePath, err)
+			logger.GetLogger().Infof("[R2] Warning: failed to create zip entry for %s: %v", filePath, err)
 			return nil
 		}
 
 		// Copy file content to zip
 		_, err = io.Copy(writer, file)
 		if err != nil {
-			log.Printf("[R2] Warning: failed to copy file %s to zip: %v", filePath, err)
+			logger.GetLogger().Infof("[R2] Warning: failed to copy file %s to zip: %v", filePath, err)
 			return nil
 		}
 
@@ -1015,7 +1016,7 @@ func createZipArchive(sourceDir, zipPath string) error {
 		return fmt.Errorf("no files found in directory: %s", sourceDir)
 	}
 
-	log.Printf("[R2] Added %d files to zip archive", fileCount)
+	logger.GetLogger().Infof("[R2] Added %d files to zip archive", fileCount)
 	return nil
 }
 

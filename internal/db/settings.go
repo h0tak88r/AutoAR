@@ -2,7 +2,7 @@ package db
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 )
 
 // GetSetting retrieves a setting value by key.
@@ -38,7 +38,7 @@ func BulkSetSettings(settings map[string]string) error {
 	var lastErr error
 	for k, v := range settings {
 		if err := dbInstance.SetSetting(k, v); err != nil {
-			log.Printf("[WARN] Failed to save setting %s: %v", k, err)
+			logger.GetLogger().Warnf("[WARN] Failed to save setting %s: %v", k, err)
 			lastErr = err
 		}
 	}

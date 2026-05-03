@@ -3,7 +3,7 @@ package backup
 import (
 	"bufio"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +41,7 @@ func Run(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("either Domain or LiveHostsFile must be provided")
 	}
 
-	log.Printf("[DEBUG] Backup Run Options: Domain='%s', LiveHostsFile='%s', OutputDir='%s'", opts.Domain, opts.LiveHostsFile, opts.OutputDir)
+	logger.GetLogger().Infof("[DEBUG] Backup Run Options: Domain='%s', LiveHostsFile='%s', OutputDir='%s'", opts.Domain, opts.LiveHostsFile, opts.OutputDir)
 
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if resultsDir == "" {
@@ -139,7 +139,7 @@ func Run(opts Options) (*Result, error) {
 	// Prioritize LiveHostsFile over Domain when both are provided
 	switch {
 	case opts.LiveHostsFile != "":
-		log.Printf("[INFO] Backup scan: Reading live hosts from file: %s", opts.LiveHostsFile)
+		logger.GetLogger().Infof("[INFO] Backup scan: Reading live hosts from file: %s", opts.LiveHostsFile)
 		// Count hosts in file for logging
 		if lf, err := os.Open(opts.LiveHostsFile); err == nil {
 			ls := bufio.NewScanner(lf)
@@ -150,31 +150,31 @@ func Run(opts Options) (*Result, error) {
 				}
 			}
 			lf.Close()
-			log.Printf("[INFO] Backup scan: Found %d live host(s) in file", hostCount)
+			logger.GetLogger().Infof("[INFO] Backup scan: Found %d live host(s) in file", hostCount)
 		}
-		log.Printf("[INFO] Backup scan: Scanning live hosts with method %s, threads %d", opts.Method, threads)
+		logger.GetLogger().Infof("[INFO] Backup scan: Scanning live hosts with method %s, threads %d", opts.Method, threads)
 		if len(opts.Extensions) > 0 {
-			log.Printf("[INFO] Backup scan: Using custom extensions: %v", opts.Extensions)
+			logger.GetLogger().Infof("[INFO] Backup scan: Using custom extensions: %v", opts.Extensions)
 		}
 		u, err := fuzzulitool.ScanFromFile(opts.LiveHostsFile, fuzzOpts)
 		if err != nil {
 			return res, fmt.Errorf("fuzzuli scan failed: %w", err)
 		}
 		urls = u
-		log.Printf("[INFO] Backup scan: Generated %d backup file URLs from live hosts", len(urls))
+		logger.GetLogger().Infof("[INFO] Backup scan: Generated %d backup file URLs from live hosts", len(urls))
 	case opts.Domain != "":
-		log.Printf("[INFO] Backup scan: Scanning domain %s with method %s, threads %d", opts.Domain, opts.Method, threads)
+		logger.GetLogger().Infof("[INFO] Backup scan: Scanning domain %s with method %s, threads %d", opts.Domain, opts.Method, threads)
 		if len(opts.Extensions) > 0 {
-			log.Printf("[INFO] Backup scan: Using custom extensions: %v", opts.Extensions)
+			logger.GetLogger().Infof("[INFO] Backup scan: Using custom extensions: %v", opts.Extensions)
 		}
 		u, err := fuzzulitool.ScanDomain(opts.Domain, fuzzOpts)
 		if err != nil {
 			return res, fmt.Errorf("fuzzuli scan failed: %w", err)
 		}
 		urls = u
-		log.Printf("[INFO] Backup scan: Generated %d backup file URLs for domain %s", len(urls), opts.Domain)
+		logger.GetLogger().Infof("[INFO] Backup scan: Generated %d backup file URLs for domain %s", len(urls), opts.Domain)
 		if len(urls) > 0 {
-			log.Printf("[DEBUG] Backup scan: Sample URLs found: %v", urls[:min(5, len(urls))])
+			logger.GetLogger().Infof("[DEBUG] Backup scan: Sample URLs found: %v", urls[:min(5, len(urls))])
 		}
 	default:
 		return nil, fmt.Errorf("invalid options")
@@ -192,7 +192,7 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
-	log.Printf("[INFO] Backup scan: Wrote %d backup URLs to results file: %s", foundCount, resultsFile)
+	logger.GetLogger().Infof("[INFO] Backup scan: Wrote %d backup URLs to results file: %s", foundCount, resultsFile)
 
 	res.Duration = time.Since(start)
 
@@ -235,7 +235,7 @@ func Run(opts Options) (*Result, error) {
 		}
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "backup-vulnerabilities.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write backup JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write backup JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "backup-detection", "backup-vulnerabilities.json")

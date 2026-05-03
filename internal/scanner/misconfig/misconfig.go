@@ -2,7 +2,7 @@ package misconfig
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,7 +123,7 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 	}
 
-	log.Printf("[INFO] Scanning for misconfigurations using target: %s (extracted from %s)", target, opts.Target)
+	logger.GetLogger().Infof("[INFO] Scanning for misconfigurations using target: %s (extracted from %s)", target, opts.Target)
 
 	// Set defaults for performance
 	delay := opts.Delay
@@ -151,7 +151,7 @@ func handleScan(opts Options, resultsDir string) error {
 		return fmt.Errorf("failed to scan for misconfigurations: %w", err)
 	}
 
-	log.Printf("[OK] Completed misconfig scan")
+	logger.GetLogger().Infof("[OK] Completed misconfig scan")
 
 	// Always write results to file (even if empty)
 	f, err := os.Create(outputFile)
@@ -229,7 +229,7 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 		if len(vulnFindings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "misconfig-vulnerabilities.json", vulnFindings); err != nil {
-				log.Printf("[WARN] Failed to write misconfig JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write misconfig JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Target, "misconfig", "misconfig-vulnerabilities.json")

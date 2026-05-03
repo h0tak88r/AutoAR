@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Metrics holds application metrics
+// Metrics holds application-wide telemetry and performance counters.
 type Metrics struct {
 	mu sync.RWMutex
 
@@ -17,16 +17,16 @@ type Metrics struct {
 	TotalScans     int64
 
 	// Performance metrics
-	StartTime      time.Time
-	LastScanTime   time.Time
+	StartTime    time.Time
+	LastScanTime time.Time
 
 	// Error metrics
-	TotalErrors    int64
-	DiscordErrors  int64
-	ScanErrors     int64
+	TotalErrors   int64
+	DiscordErrors int64
+	ScanErrors    int64
 
 	// File metrics
-	FilesSent      int64
+	FilesSent       int64
 	FilesFailedSend int64
 }
 
@@ -36,7 +36,7 @@ var (
 	metricsOnce   sync.Once
 )
 
-// InitMetrics initializes the global metrics
+// InitMetrics initializes the global singleton [Metrics] instance.
 func InitMetrics() *Metrics {
 	metricsOnce.Do(func() {
 		GlobalMetrics = &Metrics{
@@ -46,7 +46,7 @@ func InitMetrics() *Metrics {
 	return GlobalMetrics
 }
 
-// GetMetrics returns the global metrics instance
+// GetMetrics returns the global singleton [Metrics] instance, initializing it if necessary.
 func GetMetrics() *Metrics {
 	if GlobalMetrics == nil {
 		return InitMetrics()

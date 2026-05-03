@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,12 +112,12 @@ func (c *Client) resolveWithPuredns(ctx context.Context, domains []string, threa
 		args = append(args, "-r", c.resolvers)
 	}
 
-	log.Printf("[ASR] Running puredns resolve on %d domains", len(domains))
+	logger.GetLogger().Infof("[ASR] Running puredns resolve on %d domains", len(domains))
 	cmd := exec.CommandContext(ctx, "puredns", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Printf("[WARN] puredns resolve failed: %v, falling back to dnsx", err)
+		logger.GetLogger().Infof("[WARN] puredns resolve failed: %v, falling back to dnsx", err)
 		return c.resolveWithDnsx(ctx, domains, threads)
 	}
 
@@ -146,12 +146,12 @@ func (c *Client) bruteforceFileWithPuredns(ctx context.Context, domain, wordlist
 		args = append(args, "-r", c.resolvers)
 	}
 
-	log.Printf("[ASR] Running puredns bruteforce for %s", domain)
+	logger.GetLogger().Infof("[ASR] Running puredns bruteforce for %s", domain)
 	cmd := exec.CommandContext(ctx, "puredns", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Printf("[WARN] puredns bruteforce failed: %v", err)
+		logger.GetLogger().Infof("[WARN] puredns bruteforce failed: %v", err)
 		return nil, err
 	}
 

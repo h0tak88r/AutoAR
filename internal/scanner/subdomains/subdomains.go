@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,11 +27,11 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 			_ = db.InitSchema()
 			count, err := db.CountSubdomains(domain)
 			if err == nil && count > 0 {
-				log.Printf("[INFO] Found %d subdomains in database for %s, using them", count, domain)
+				logger.GetLogger().Infof("[INFO] Found %d subdomains in database for %s, using them", count, domain)
 				// Load subdomains from database
 				subs, err := db.ListSubdomains(domain)
 				if err == nil && len(subs) > 0 {
-					log.Printf("[OK] Using %d subdomains from database for %s", len(subs), domain)
+					logger.GetLogger().Infof("[OK] Using %d subdomains from database for %s", len(subs), domain)
 					return subs, nil
 				}
 			}
@@ -56,26 +56,26 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	}
 
 	// 2. Get subdomains from API sources (lightweight, fast)
-	log.Printf("[INFO] Collecting subdomains from API sources for %s", domain)
+	logger.GetLogger().Infof("[INFO] Collecting subdomains from API sources for %s", domain)
 	apiResults := getSubdomainsFromAPIs(domain)
 	for _, subdomain := range apiResults {
 		addSubdomain(subdomain)
 	}
-	log.Printf("[INFO] Found %d subdomains from API sources", len(apiResults))
+	logger.GetLogger().Infof("[INFO] Found %d subdomains from API sources", len(apiResults))
 
 	// 3. Get subdomains from subfinder library
-	log.Printf("[INFO] Collecting subdomains using subfinder library for %s", domain)
+	logger.GetLogger().Infof("[INFO] Collecting subdomains using subfinder library for %s", domain)
 	subfinderResults, err := getSubdomainsFromSubfinder(domain, threads)
 	if err != nil {
-		log.Printf("[WARN] Subfinder enumeration failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Subfinder enumeration failed: %v", err)
 	} else {
 		for _, subdomain := range subfinderResults {
 			addSubdomain(subdomain)
 		}
-		log.Printf("[INFO] Found %d additional subdomains from subfinder", len(subfinderResults))
+		logger.GetLogger().Infof("[INFO] Found %d additional subdomains from subfinder", len(subfinderResults))
 	}
 
-	log.Printf("[OK] Found %d unique subdomains for %s", len(results), domain)
+	logger.GetLogger().Infof("[OK] Found %d unique subdomains for %s", len(results), domain)
 
 	// Write JSON results to scan directory (local-first)
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
@@ -100,7 +100,7 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 				})
 			}
 			if err := utils.WriteJSONToScanDir(scanID, "subdomains.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write subdomain JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write subdomain JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "subdomains", "subdomains.json")
@@ -113,12 +113,12 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 			_ = db.InitSchema()
 			// Ensure the domain row exists first — BatchInsertSubdomains requires it.
 			if _, domainErr := db.InsertOrGetDomain(domain); domainErr != nil {
-				log.Printf("[WARN] Failed to upsert domain %s before saving subdomains: %v", domain, domainErr)
+				logger.GetLogger().Infof("[WARN] Failed to upsert domain %s before saving subdomains: %v", domain, domainErr)
 			}
 			if err := db.BatchInsertSubdomains(domain, results, false); err != nil {
-				log.Printf("[WARN] Failed to save subdomains to database: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to save subdomains to database: %v", err)
 			} else {
-				log.Printf("[OK] Saved %d subdomains to database for %s", len(results), domain)
+				logger.GetLogger().Infof("[OK] Saved %d subdomains to database for %s", len(results), domain)
 			}
 		}
 	}
@@ -408,7 +408,7 @@ func getProviderConfig() string {
 	// Generate config from environment variables
 	generatedConfigPath, err := generateSubfinderConfigFromEnv()
 	if err != nil {
-		log.Printf("[WARN] Failed to generate subfinder config from env vars: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to generate subfinder config from env vars: %v", err)
 		return ""
 	}
 

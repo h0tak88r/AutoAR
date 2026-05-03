@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -79,16 +79,16 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			}
 			_ = utils.WriteLines(liveFile, []string{subdomainURL})
 		}
-		log.Printf("[INFO] Subdomain mode: scanning %s directly (no subdomain enumeration)", domain)
+		logger.GetLogger().Infof("[INFO] Subdomain mode: scanning %s directly (no subdomain enumeration)", domain)
 	} else {
 		// Get live hosts file (checks file first, then database)
 		liveFile, err = livehosts.GetLiveHostsFile(domain)
 		if err != nil {
-			log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
+			logger.GetLogger().Infof("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
 			// Fallback: try to create it by running livehosts
 			liveRes, err2 := livehosts.FilterLiveHosts(domain, threads, true)
 			if err2 != nil {
-				log.Printf("[WARN] livehosts filtering failed for %s: %v", domain, err2)
+				logger.GetLogger().Infof("[WARN] livehosts filtering failed for %s: %v", domain, err2)
 			} else if liveRes != nil && liveRes.LiveSubsFile != "" {
 				liveFile = liveRes.LiveSubsFile
 			}
@@ -105,7 +105,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			// URLs already collected, read and return them
 			allURLs, _ := readLines(allFile)
 			jsURLs, _ := readLines(jsFile)
-			log.Printf("[INFO] Using existing URLs for %s (%d total URLs, %d JS URLs)", dirDomain, len(allURLs), len(jsURLs))
+			logger.GetLogger().Infof("[INFO] Using existing URLs for %s (%d total URLs, %d JS URLs)", dirDomain, len(allURLs), len(jsURLs))
 			return &Result{
 				Domain:    dirDomain,
 				Threads:   threads,
@@ -121,19 +121,19 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	_ = utils.WriteLines(jsFile, nil)
 
 	// 1) Collect URLs with embedded urlfinder library
-	log.Printf("[INFO] Collecting URLs with embedded urlfinder for %s", domain)
+	logger.GetLogger().Infof("[INFO] Collecting URLs with embedded urlfinder for %s", domain)
 	if _, err := urlfindertool.FindURLsToFile(domain, allFile, urlfindertool.Options{
 		AllSources:      true,
 		SkipSubdomainEnum: skipSubdomainEnum,
 	}); err != nil {
-		log.Printf("[WARN] urlfinder library failed for %s: %v", domain, err)
+		logger.GetLogger().Infof("[WARN] urlfinder library failed for %s: %v", domain, err)
 	}
 
 	// 2) Collect URLs from external APIs (VirusTotal, Wayback, URLScan, OTX, Common Crawl)
-	log.Printf("[INFO] Collecting URLs from external APIs for %s", domain)
+	logger.GetLogger().Infof("[INFO] Collecting URLs from external APIs for %s", domain)
 	externalURLs := collectExternalURLs(domain, skipSubdomainEnum)
 	if len(externalURLs) > 0 {
-		log.Printf("[OK] Found %d URLs from external APIs", len(externalURLs))
+		logger.GetLogger().Infof("[OK] Found %d URLs from external APIs", len(externalURLs))
 		// Merge external URLs with existing URLs
 		existingURLs, _ := readLines(allFile)
 		allURLs := uniqueStrings(append(existingURLs, externalURLs...))
@@ -146,7 +146,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		if len(spiderHosts) > 50 {
 			spiderHosts = spiderHosts[:50]
 		}
-		log.Printf("[INFO] GoSpider spidering %d live hosts for %s", len(spiderHosts), domain)
+		logger.GetLogger().Infof("[INFO] GoSpider spidering %d live hosts for %s", len(spiderHosts), domain)
 		spiderResult, spiderErr := gospider.Run(gospider.Options{
 			Sites:      spiderHosts,
 			Depth:      2,
@@ -157,9 +157,9 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			JS:         true,
 		})
 		if spiderErr != nil {
-			log.Printf("[WARN] GoSpider failed for %s: %v", domain, spiderErr)
+			logger.GetLogger().Infof("[WARN] GoSpider failed for %s: %v", domain, spiderErr)
 		} else if len(spiderResult.URLs) > 0 {
-			log.Printf("[OK] GoSpider: Found %d URLs", len(spiderResult.URLs))
+			logger.GetLogger().Infof("[OK] GoSpider: Found %d URLs", len(spiderResult.URLs))
 			existingURLs2, _ := readLines(allFile)
 			merged := uniqueStrings(append(existingURLs2, spiderResult.URLs...))
 			_ = utils.WriteLines(allFile, merged)
@@ -168,20 +168,20 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 
 	// 3) Collect JS URLs with embedded jsfinder over live hosts
 	if fi, err := os.Stat(liveFile); err == nil && fi.Size() > 0 {
-		log.Printf("[INFO] Running embedded jsfinder on live hosts for %s", domain)
+		logger.GetLogger().Infof("[INFO] Running embedded jsfinder on live hosts for %s", domain)
 		liveURLs, err := readLines(liveFile)
 		if err != nil {
-			log.Printf("[WARN] Failed to read live hosts file for jsfinder: %v", err)
+			logger.GetLogger().Infof("[WARN] Failed to read live hosts file for jsfinder: %v", err)
 		} else {
 			jsMatches, err := jsfindertool.Extract(liveURLs, jsfindertool.ExtractOptions{
 				Concurrency: threads,
 				Silent:      true,
 			})
 			if err != nil {
-				log.Printf("[WARN] jsfinder library failed for %s: %v", domain, err)
+				logger.GetLogger().Infof("[WARN] jsfinder library failed for %s: %v", domain, err)
 			} else if len(jsMatches) > 0 {
 				if err := utils.WriteLines(jsFile, jsMatches); err != nil {
-					log.Printf("[WARN] Failed to write jsfinder results: %v", err)
+					logger.GetLogger().Infof("[WARN] Failed to write jsfinder results: %v", err)
 				}
 			}
 		}
@@ -205,27 +205,27 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 
 	total := len(allURLs)
 	jsCount := len(jsURLs)
-	log.Printf("[OK] Found %d total URLs; %d JavaScript URLs for %s", total, jsCount, domain)
+	logger.GetLogger().Infof("[OK] Found %d total URLs; %d JavaScript URLs for %s", total, jsCount, domain)
 
 	interestingFile := filepath.Join(urlsDir, "interesting-urls.txt")
 	interesting := FilterInterestingURLs(allURLs)
 	_ = utils.WriteLines(interestingFile, interesting)
-	log.Printf("[OK] Interesting URLs: %d written to %s", len(interesting), interestingFile)
+	logger.GetLogger().Infof("[OK] Interesting URLs: %d written to %s", len(interesting), interestingFile)
 
 	// Write JSON results to scan directory (local-first)
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if total > 0 {
 			if err := utils.WriteLinesAsJSON(scanID, dirDomain, "urls", "urls.json", allURLs); err != nil {
-				log.Printf("[WARN] Failed to write URLs JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write URLs JSON: %v", err)
 			}
 			if len(jsURLs) > 0 {
 				if err := utils.WriteLinesAsJSON(scanID, dirDomain, "js-urls", "js-urls.json", jsURLs); err != nil {
-					log.Printf("[WARN] Failed to write JS URLs JSON: %v", err)
+					logger.GetLogger().Infof("[WARN] Failed to write JS URLs JSON: %v", err)
 				}
 			}
 			if len(interesting) > 0 {
 				if err := utils.WriteLinesAsJSON(scanID, dirDomain, "interesting-urls", "interesting-urls.json", interesting); err != nil {
-					log.Printf("[WARN] Failed to write interesting URLs JSON: %v", err)
+					logger.GetLogger().Infof("[WARN] Failed to write interesting URLs JSON: %v", err)
 				}
 			}
 		} else {
@@ -430,28 +430,28 @@ func collectExternalURLs(domain string, skipSubdomainEnum bool) []string {
 func collectVirusTotalURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
 	apiKey := os.Getenv("VIRUSTOTAL_API_KEY")
 	if apiKey == "" {
-		log.Printf("[INFO] VIRUSTOTAL_API_KEY not set, skipping VirusTotal")
+		logger.GetLogger().Infof("[INFO] VIRUSTOTAL_API_KEY not set, skipping VirusTotal")
 		return nil
 	}
 
 	url := fmt.Sprintf("https://www.virustotal.com/vtapi/v2/domain/report?apikey=%s&domain=%s", apiKey, domain)
-	log.Printf("[INFO] Fetching URLs from VirusTotal for %s", domain)
+	logger.GetLogger().Infof("[INFO] Fetching URLs from VirusTotal for %s", domain)
 
 	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("[WARN] VirusTotal API request failed: %v", err)
+		logger.GetLogger().Infof("[WARN] VirusTotal API request failed: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[WARN] VirusTotal API returned status %d", resp.StatusCode)
+		logger.GetLogger().Infof("[WARN] VirusTotal API returned status %d", resp.StatusCode)
 		return nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[WARN] Failed to read VirusTotal response: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to read VirusTotal response: %v", err)
 		return nil
 	}
 
@@ -461,7 +461,7 @@ func collectVirusTotalURLs(client *http.Client, domain string, skipSubdomainEnum
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		log.Printf("[WARN] Failed to parse VirusTotal JSON: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to parse VirusTotal JSON: %v", err)
 		return nil
 	}
 
@@ -483,7 +483,7 @@ func collectVirusTotalURLs(client *http.Client, domain string, skipSubdomainEnum
 		}
 	}
 
-	log.Printf("[OK] VirusTotal: Found %d URLs", len(urls))
+	logger.GetLogger().Infof("[OK] VirusTotal: Found %d URLs", len(urls))
 	return urls
 }
 
@@ -497,23 +497,23 @@ func collectWaybackURLs(client *http.Client, domain string, skipSubdomainEnum bo
 		// For domain mode, use wildcard pattern
 		url = fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", domain)
 	}
-	log.Printf("[INFO] Fetching URLs from Wayback Machine for %s", domain)
+	logger.GetLogger().Infof("[INFO] Fetching URLs from Wayback Machine for %s", domain)
 
 	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("[WARN] Wayback Machine API request failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Wayback Machine API request failed: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[WARN] Wayback Machine API returned status %d", resp.StatusCode)
+		logger.GetLogger().Infof("[WARN] Wayback Machine API returned status %d", resp.StatusCode)
 		return nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[WARN] Failed to read Wayback Machine response: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to read Wayback Machine response: %v", err)
 		return nil
 	}
 
@@ -526,7 +526,7 @@ func collectWaybackURLs(client *http.Client, domain string, skipSubdomainEnum bo
 		}
 	}
 
-	log.Printf("[OK] Wayback Machine: Found %d URLs", len(urls))
+	logger.GetLogger().Infof("[OK] Wayback Machine: Found %d URLs", len(urls))
 	return urls
 }
 
@@ -544,7 +544,7 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Printf("[WARN] Failed to create URLScan request: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to create URLScan request: %v", err)
 		return nil
 	}
 
@@ -552,23 +552,23 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 		req.Header.Set("API-Key", apiKey)
 	}
 
-	log.Printf("[INFO] Fetching URLs from URLScan.io for %s", domain)
+	logger.GetLogger().Infof("[INFO] Fetching URLs from URLScan.io for %s", domain)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[WARN] URLScan.io API request failed: %v", err)
+		logger.GetLogger().Infof("[WARN] URLScan.io API request failed: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[WARN] URLScan.io API returned status %d", resp.StatusCode)
+		logger.GetLogger().Infof("[WARN] URLScan.io API returned status %d", resp.StatusCode)
 		return nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[WARN] Failed to read URLScan.io response: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to read URLScan.io response: %v", err)
 		return nil
 	}
 
@@ -581,7 +581,7 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		log.Printf("[WARN] Failed to parse URLScan.io JSON: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to parse URLScan.io JSON: %v", err)
 		return nil
 	}
 
@@ -592,7 +592,7 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 		}
 	}
 
-	log.Printf("[OK] URLScan.io: Found %d URLs", len(urls))
+	logger.GetLogger().Infof("[OK] URLScan.io: Found %d URLs", len(urls))
 	return urls
 }
 
@@ -600,23 +600,23 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 func collectOTXURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
 	// OTX API works with both domains and subdomains
 	url := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/url_list?limit=500", domain)
-	log.Printf("[INFO] Fetching URLs from AlienVault OTX for %s", domain)
+	logger.GetLogger().Infof("[INFO] Fetching URLs from AlienVault OTX for %s", domain)
 
 	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("[WARN] OTX API request failed: %v", err)
+		logger.GetLogger().Infof("[WARN] OTX API request failed: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[WARN] OTX API returned status %d", resp.StatusCode)
+		logger.GetLogger().Infof("[WARN] OTX API returned status %d", resp.StatusCode)
 		return nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[WARN] Failed to read OTX response: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to read OTX response: %v", err)
 		return nil
 	}
 
@@ -627,7 +627,7 @@ func collectOTXURLs(client *http.Client, domain string, skipSubdomainEnum bool) 
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		log.Printf("[WARN] Failed to parse OTX JSON: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to parse OTX JSON: %v", err)
 		return nil
 	}
 
@@ -638,7 +638,7 @@ func collectOTXURLs(client *http.Client, domain string, skipSubdomainEnum bool) 
 		}
 	}
 
-	log.Printf("[OK] OTX: Found %d URLs", len(urls))
+	logger.GetLogger().Infof("[OK] OTX: Found %d URLs", len(urls))
 	return urls
 }
 
@@ -653,23 +653,23 @@ func collectCommonCrawlURLs(client *http.Client, domain string, skipSubdomainEnu
 		// For domain mode, use wildcard pattern
 		url = fmt.Sprintf("https://index.commoncrawl.org/CC-MAIN-2023-06-index?url=*.%s/*&output=json&fl=timestamp,url,mime,status,digest", domain)
 	}
-	log.Printf("[INFO] Fetching URLs from Common Crawl for %s", domain)
+	logger.GetLogger().Infof("[INFO] Fetching URLs from Common Crawl for %s", domain)
 
 	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("[WARN] Common Crawl API request failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Common Crawl API request failed: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[WARN] Common Crawl API returned status %d", resp.StatusCode)
+		logger.GetLogger().Infof("[WARN] Common Crawl API returned status %d", resp.StatusCode)
 		return nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[WARN] Failed to read Common Crawl response: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to read Common Crawl response: %v", err)
 		return nil
 	}
 
@@ -691,6 +691,6 @@ func collectCommonCrawlURLs(client *http.Client, domain string, skipSubdomainEnu
 		}
 	}
 
-	log.Printf("[OK] Common Crawl: Found %d URLs", len(urls))
+	logger.GetLogger().Infof("[OK] Common Crawl: Found %d URLs", len(urls))
 	return urls
 }

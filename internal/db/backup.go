@@ -3,7 +3,6 @@ package db
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 )
 
 // BackupDatabase creates a backup of the database and optionally uploads to R2
@@ -35,13 +35,13 @@ func BackupDatabase(uploadToR2 bool) (string, string, error) {
 
 	var r2URL string
 	if uploadToR2 && r2storage.IsEnabled() {
-		log.Printf("[DB] Uploading database backup to R2...")
+		logger.GetLogger().Info("[DB] Uploading database backup to R2...")
 		r2URL, err = r2storage.UploadDatabaseBackup(backupPath, dbType)
 		if err != nil {
-			log.Printf("[DB] ⚠️  Failed to upload backup to R2: %v", err)
+			logger.GetLogger().Warnf("[DB] ⚠️  Failed to upload backup to R2: %v", err)
 			// Don't fail the backup if R2 upload fails
 		} else {
-			log.Printf("[DB] [ + ]Database backup uploaded to R2: %s", r2URL)
+			logger.GetLogger().Infof("[DB] [ + ]Database backup uploaded to R2: %s", r2URL)
 		}
 	}
 
@@ -94,7 +94,7 @@ func backupSQLite() (string, error) {
 		return "", fmt.Errorf("failed to copy database file: %w", err)
 	}
 
-	log.Printf("[DB] [ + ]SQLite backup created: %s", backupPath)
+	logger.GetLogger().Infof("[DB] [ + ]SQLite backup created: %s", backupPath)
 	return backupPath, nil
 }
 
@@ -150,7 +150,7 @@ func backupPostgreSQL() (string, error) {
 		return "", fmt.Errorf("backup file was not created")
 	}
 
-	log.Printf("[DB] [ + ]PostgreSQL backup created: %s", backupPath)
+	logger.GetLogger().Infof("[DB] [ + ]PostgreSQL backup created: %s", backupPath)
 	return backupPath, nil
 }
 

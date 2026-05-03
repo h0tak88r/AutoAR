@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -182,7 +182,7 @@ func ScanWPConfusion(opts ScanOptions) error {
 	if opts.Output != "" {
 		// Ensure directory exists
 		if err := os.MkdirAll(filepath.Dir(opts.Output), 0755); err != nil {
-			log.Printf("[WARN] Failed to create directory for results %s: %v", opts.Output, err)
+			logger.GetLogger().Infof("[WARN] Failed to create directory for results %s: %v", opts.Output, err)
 		}
 		
 		scanID := utils.GetCurrentScanID()

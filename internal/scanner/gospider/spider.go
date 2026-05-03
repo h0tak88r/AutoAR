@@ -8,7 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -59,7 +59,7 @@ func Run(opts Options) (*Result, error) {
 
 	binaryPath, err := exec.LookPath("gospider")
 	if err != nil {
-		log.Printf("[gospider] binary not found in PATH – skipping spidering")
+		logger.GetLogger().Infof("[gospider] binary not found in PATH – skipping spidering")
 		return &Result{}, nil
 	}
 
@@ -98,10 +98,10 @@ func Run(opts Options) (*Result, error) {
 		var out bytes.Buffer
 		cmd.Stdout = &out
 
-		log.Printf("[gospider] Crawling %s (depth=%d concurrent=%d)", site, opts.Depth, opts.Concurrent)
+		logger.GetLogger().Infof("[gospider] Crawling %s (depth=%d concurrent=%d)", site, opts.Depth, opts.Concurrent)
 		if runErr := cmd.Run(); runErr != nil {
 			// exit 1 is normal when no URLs found
-			log.Printf("[gospider] %s finished with: %v", site, runErr)
+			logger.GetLogger().Infof("[gospider] %s finished with: %v", site, runErr)
 		}
 
 		sc := bufio.NewScanner(&out)
@@ -118,6 +118,6 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
-	log.Printf("[gospider] Collected %d unique URLs across %d site(s)", len(collected), len(opts.Sites))
+	logger.GetLogger().Infof("[gospider] Collected %d unique URLs across %d site(s)", len(collected), len(opts.Sites))
 	return &Result{URLs: collected}, nil
 }

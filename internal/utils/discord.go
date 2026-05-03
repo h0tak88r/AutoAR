@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,7 +61,7 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 			if !IsFileEmpty(fp) {
 				existingFiles = append(existingFiles, fp)
 			} else {
-				log.Printf("[DISCORD] File missing/empty (attempt %d/%d): %s", attempt, maxRetries, fp)
+				GetLogger().Warnf("[DISCORD] File missing/empty (attempt %d/%d): %s", attempt, maxRetries, fp)
 			}
 		}
 		if len(existingFiles) > 0 {
@@ -74,10 +73,10 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 	}
 
 	if len(existingFiles) == 0 {
-		log.Printf("[DISCORD] No valid files for phase %s — sending status message", phaseName)
+		GetLogger().Infof("[DISCORD] No valid files for phase %s — sending status message", phaseName)
 		msg := phaseNoResultsMessage(phaseName, domain)
 		if err := sendMessageToDiscordAPI(apiHost, apiPort, channelID, scanID, msg); err != nil {
-			log.Printf("[DISCORD] Failed to send status message: %v", err)
+			GetLogger().Errorf("[DISCORD] Failed to send status message: %v", err)
 		}
 		return nil
 	}
@@ -86,7 +85,7 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 	for i, fp := range existingFiles {
 		description := buildFileDescription(phaseName, fp)
 		if err := sendSingleFileToBot(apiHost, apiPort, channelID, scanID, fp, description); err != nil {
-			log.Printf("[DISCORD] Failed to send %s: %v", filepath.Base(fp), err)
+			GetLogger().Warnf("[DISCORD] Failed to send %s: %v", filepath.Base(fp), err)
 			failCount++
 		} else {
 			successCount++
@@ -96,7 +95,7 @@ func SendPhaseFiles(phaseName, domain string, filePaths []string) error {
 		}
 	}
 
-	log.Printf("[DISCORD] Phase %s: %d sent, %d failed", phaseName, successCount, failCount)
+	GetLogger().Infof("[DISCORD] Phase %s: %d sent, %d failed", phaseName, successCount, failCount)
 	return nil
 }
 
@@ -106,7 +105,7 @@ func sendSingleFileToBot(apiHost, apiPort, channelID, scanID, filePath, descript
 	// 1. Try in-process bot session (same-process bot only).
 	if channelID != "" && SendFileFunc != nil {
 		if err := SendFileFunc(channelID, filePath, description); err == nil {
-			log.Printf("[DISCORD] Sent via bot session: %s", filepath.Base(filePath))
+			GetLogger().Infof("[DISCORD] Sent via bot session: %s", filepath.Base(filePath))
 			return nil
 		}
 	}
@@ -141,7 +140,7 @@ func sendSingleFileToBot(apiHost, apiPort, channelID, scanID, filePath, descript
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusOK {
-		log.Printf("[DISCORD] Sent via internal API: %s", filepath.Base(filePath))
+		GetLogger().Infof("[DISCORD] Sent via internal API: %s", filepath.Base(filePath))
 		return nil
 	}
 	return fmt.Errorf("internal API status %d: %s", resp.StatusCode, string(body))
@@ -426,13 +425,13 @@ func SendMonitorWebhook(msg string) {
 	// Basic generic JSON payload
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[MONITOR] Failed to marshal webhook payload: %v", err)
+		GetLogger().Errorf("[MONITOR] Failed to marshal webhook payload: %v", err)
 		return
 	}
 
 	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("[MONITOR] Failed to create webhook POST request: %v", err)
+		GetLogger().Errorf("[MONITOR] Failed to create webhook POST request: %v", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -440,15 +439,15 @@ func SendMonitorWebhook(msg string) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[MONITOR] Failed to send webhook alert: %v", err)
+		GetLogger().Errorf("[MONITOR] Failed to send webhook alert: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		log.Printf("[MONITOR] Webhook returned status %d: %s", resp.StatusCode, string(b))
+		GetLogger().Errorf("[MONITOR] Webhook returned status %d: %s", resp.StatusCode, string(b))
 	} else {
-		log.Printf("[MONITOR] Successfully sent monitor webhook alert.")
+		GetLogger().Info("[MONITOR] Successfully sent monitor webhook alert.")
 	}
 }

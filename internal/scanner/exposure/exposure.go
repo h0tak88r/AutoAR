@@ -8,7 +8,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -110,17 +110,17 @@ func Run(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("exposure: %w", err)
 	}
 	if len(hosts) == 0 {
-		log.Printf("[exposure] No hosts to scan")
+		logger.GetLogger().Infof("[exposure] No hosts to scan")
 		return &Result{}, nil
 	}
 
-	log.Printf("[exposure] Scanning %d hosts for exposed API docs and Docker artefacts (threads=%d)", len(hosts), opts.Threads)
+	logger.GetLogger().Infof("[exposure] Scanning %d hosts for exposed API docs and Docker artefacts (threads=%d)", len(hosts), opts.Threads)
 
 	findings := scanAll(hosts, opts.Threads, opts.Timeout)
 
 	outPath, err := writeOutput(opts, findings)
 	if err != nil {
-		log.Printf("[exposure] Warning: could not write output: %v", err)
+		logger.GetLogger().Infof("[exposure] Warning: could not write output: %v", err)
 	}
 
 	// Write structured JSON for the dashboard (JSON-only pipeline).
@@ -163,14 +163,14 @@ func Run(opts Options) (*Result, error) {
 		}
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "exposure-vulnerabilities.json", jfindings); err != nil {
-				log.Printf("[exposure] Warning: could not write JSON output: %v", err)
+				logger.GetLogger().Infof("[exposure] Warning: could not write JSON output: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "exposure", "exposure-vulnerabilities.json")
 		}
 	}
 
-	log.Printf("[exposure] Done. Found %d exposure(s)", len(findings))
+	logger.GetLogger().Infof("[exposure] Done. Found %d exposure(s)", len(findings))
 	return &Result{Findings: findings, Output: outPath}, nil
 }
 
@@ -308,7 +308,7 @@ func probe(client *http.Client, job probeJob) (Finding, bool) {
 
 	for _, kw := range job.kws {
 		if strings.Contains(body, kw) {
-			log.Printf("[exposure] FOUND %s on %s%s [%d] keyword=%q", job.cat, job.host, job.path, resp.StatusCode, kw)
+			logger.GetLogger().Infof("[exposure] FOUND %s on %s%s [%d] keyword=%q", job.cat, job.host, job.path, resp.StatusCode, kw)
 			return Finding{
 				Host:       job.host,
 				Path:       job.path,
@@ -321,7 +321,7 @@ func probe(client *http.Client, job probeJob) (Finding, bool) {
 
 	// If status 200 with no keyword match, still flag for manual review
 	if resp.StatusCode == 200 && len(body) > 0 {
-		log.Printf("[exposure] POSSIBLE %s on %s%s [%d] (no keyword matched)", job.cat, job.host, job.path, resp.StatusCode)
+		logger.GetLogger().Infof("[exposure] POSSIBLE %s on %s%s [%d] (no keyword matched)", job.cat, job.host, job.path, resp.StatusCode)
 		return Finding{
 			Host:       job.host,
 			Path:       job.path,

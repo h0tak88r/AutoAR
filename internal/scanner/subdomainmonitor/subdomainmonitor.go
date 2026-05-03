@@ -2,7 +2,7 @@ package subdomainmonitor
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"strings"
 	"sync"
 
@@ -88,7 +88,7 @@ func MonitorSubdomains(opts MonitorOptions) (*MonitorResult, error) {
 		}, nil
 	}
 
-	log.Printf("[INFO] Monitoring %d subdomains for %s", len(existingSubs), opts.Domain)
+	logger.GetLogger().Infof("[INFO] Monitoring %d subdomains for %s", len(existingSubs), opts.Domain)
 
 	// Create a map of existing subdomains for quick lookup
 	existingMap := make(map[string]db.SubdomainStatus)
@@ -307,14 +307,14 @@ func MonitorSubdomains(opts MonitorOptions) (*MonitorResult, error) {
 		}
 
 		if err := db.InsertSubdomain(opts.Domain, current.Subdomain, isLive, httpURL, httpsURL, current.HTTPStatus, current.HTTPSStatus); err != nil {
-			log.Printf("[WARN] Failed to update subdomain %s in database: %v", current.Subdomain, err)
+			logger.GetLogger().Infof("[WARN] Failed to update subdomain %s in database: %v", current.Subdomain, err)
 		}
 	}
 
 	// Check for completely new subdomains (not in database at all)
 	// This would require re-enumeration, which we'll skip for now to keep it focused on status monitoring
 
-	log.Printf("[OK] Monitoring complete: %d checked, %d new, %d status changes, %d became live, %d became dead",
+	logger.GetLogger().Infof("[OK] Monitoring complete: %d checked, %d new, %d status changes, %d became live, %d became dead",
 		result.TotalChecked, len(result.NewSubdomains), len(result.StatusChanges), len(result.BecameLive), len(result.BecameDead))
 
 	return result, nil

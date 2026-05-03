@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,7 +87,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	// Get an ephemeral temp file with the URL corpus for this domain.
 	urlsFile, cleanupURLs, urlErr := utils.WriteTempURLFile(opts.Domain)
 	if urlErr != nil {
-		log.Printf("[INFO] URLs file missing, collecting URLs for %s (threads: %d)", target, opts.URLThreads)
+		logger.GetLogger().Infof("[INFO] URLs file missing, collecting URLs for %s (threads: %d)", target, opts.URLThreads)
 		urlCtx, urlCancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer urlCancel()
 		urlErrChan := make(chan error, 1)
@@ -98,11 +98,11 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		select {
 		case err := <-urlErrChan:
 			if err != nil {
-				log.Printf("[WARN] Failed to collect URLs: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to collect URLs: %v", err)
 				return nil, fmt.Errorf("failed to get URLs for %s: %w", target, err)
 			}
 		case <-urlCtx.Done():
-			log.Printf("[WARN] URL collection timed out after 10 minutes")
+			logger.GetLogger().Infof("[WARN] URL collection timed out after 10 minutes")
 			return nil, fmt.Errorf("URL collection timed out for %s", target)
 		}
 		// Retry after collection
@@ -132,8 +132,8 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	}
 
 	// Run embedded kxss engine with concurrency and timeout
-	log.Printf("[INFO] Running embedded kxss reflection scan for %s (threads: %d, timeout: %v)", target, opts.Threads, opts.Timeout)
-	log.Printf("[INFO] Scanning %d URL(s) for reflection points", len(validURLs))
+	logger.GetLogger().Infof("[INFO] Running embedded kxss reflection scan for %s (threads: %d, timeout: %v)", target, opts.Threads, opts.Timeout)
+	logger.GetLogger().Infof("[INFO] Scanning %d URL(s) for reflection points", len(validURLs))
 	
 	// Scan URLs with concurrency and timeout
 	kxssResults, err := scanURLsWithConcurrency(ctx, validURLs, opts.Threads)
@@ -161,36 +161,36 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	}
 	if err != nil {
 		if err == context.DeadlineExceeded {
-			log.Printf("[WARN] kxss scan timed out after %v", opts.Timeout)
+			logger.GetLogger().Infof("[WARN] kxss scan timed out after %v", opts.Timeout)
 		} else {
-			log.Printf("[WARN] kxss scan failed: %v", err)
+			logger.GetLogger().Infof("[WARN] kxss scan failed: %v", err)
 		}
 		// Create empty file to keep downstream logic consistent
 		if err := utils.WriteFile(outFile, []byte("")); err != nil {
 			return nil, fmt.Errorf("failed to create empty output file: %w", err)
 		}
-		log.Printf("[INFO] No reflection points found after scanning %d URL(s)", len(validURLs))
+		logger.GetLogger().Infof("[INFO] No reflection points found after scanning %d URL(s)", len(validURLs))
 	} else {
 		// Write results in the same text format as original kxss
 		var lines []string
 		for _, f := range findings {
 			lines = append(lines, fmt.Sprintf("URL: %s Param: %s Unfiltered: %v ", f.MatchedAt, f.Param, f.Unfiltered))
 		}
-		log.Printf("[OK] Found %d reflection point(s) out of %d URL(s) scanned", len(findings), len(validURLs))
+		logger.GetLogger().Infof("[OK] Found %d reflection point(s) out of %d URL(s) scanned", len(findings), len(validURLs))
 		if err := utils.WriteFile(outFile, []byte(strings.Join(lines, "\n"))); err != nil {
 			return nil, fmt.Errorf("failed to write kxss results: %w", err)
 		}
 		// Filter out empty results as before
 		if err := filterEmptyLines(outFile); err != nil {
-			log.Printf("[WARN] Failed to filter empty lines: %v", err)
+			logger.GetLogger().Infof("[WARN] Failed to filter empty lines: %v", err)
 		}
 	}
 
 	reflectionCount := len(findings)
 	if reflectionCount > 0 {
-		log.Printf("[OK] Found %d reflection points", reflectionCount)
+		logger.GetLogger().Infof("[OK] Found %d reflection points", reflectionCount)
 	} else {
-		log.Printf("[INFO] No reflection points found")
+		logger.GetLogger().Infof("[INFO] No reflection points found")
 	}
 
 	// Write structured JSON for the dashboard — one object per kxss finding.
@@ -198,7 +198,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "xss-reflection-vulnerabilities.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write reflection JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write reflection JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "xss-detection", "xss-reflection-vulnerabilities.json")

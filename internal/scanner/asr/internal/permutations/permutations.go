@@ -2,7 +2,7 @@ package permutations
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"strings"
 )
 
@@ -26,7 +26,7 @@ const maxPermutationInput = 5000
 func (g *Generator) Generate(subdomains []string, domain string) []string {
 	// Cap input size to prevent OOM kills on wildcard domains
 	if len(subdomains) > maxPermutationInput {
-		log.Printf("[WARN] Permutations input capped from %d to %d subdomains to prevent OOM. Use a more targeted wordlist or disable permutations for large scans.", len(subdomains), maxPermutationInput)
+		logger.GetLogger().Infof("[WARN] Permutations input capped from %d to %d subdomains to prevent OOM. Use a more targeted wordlist or disable permutations for large scans.", len(subdomains), maxPermutationInput)
 		subdomains = subdomains[:maxPermutationInput]
 	}
 

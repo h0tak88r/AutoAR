@@ -3,6 +3,7 @@ package ffuf
 import (
 	"io"
 	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"strings"
 	"sync"
 )
@@ -37,6 +38,6 @@ func setupLogFilter() {
 		// Wrap existing writer (stderr by default)
 		currentWriter := log.Writer()
 		log.SetOutput(&LogFilter{w: currentWriter})
-		log.Printf("[DEBUG] Global log filter installed to silence FFuf noise")
+		logger.GetLogger().Infof("[DEBUG] Global log filter installed to silence FFuf noise")
 	})
 }

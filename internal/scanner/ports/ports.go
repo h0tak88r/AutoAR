@@ -2,7 +2,7 @@ package ports
 
 import (
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 
@@ -53,7 +53,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	// Get live hosts file (checks file first, then database)
 	liveHostsFile, err := livehosts.GetLiveHostsFile(domain)
 	if err != nil {
-		log.Printf("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
+		logger.GetLogger().Infof("[WARN] Failed to get live hosts file for %s: %v, attempting to create it", domain, err)
 		// Fallback: try to create it by running livehosts
 		_, err2 := livehosts.FilterLiveHosts(domain, threads, false)
 		if err2 != nil {
@@ -71,13 +71,13 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		return nil, fmt.Errorf("live hosts file not found: %s", subsFile)
 	}
 
-	log.Printf("[INFO] Running naabu port scan with %d threads (library mode)", threads)
+	logger.GetLogger().Infof("[INFO] Running naabu port scan with %d threads (library mode)", threads)
 	count, records, err := naabutool.ScanFromFile(subsFile, threads, outFile)
 	if err != nil {
-		log.Printf("[WARN] Naabu scan failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Naabu scan failed: %v", err)
 		count = 0
 	}
-	log.Printf("[OK] Port scan completed, found %d open ports", count)
+	logger.GetLogger().Infof("[OK] Port scan completed, found %d open ports", count)
 
 	// Write JSON results to scan directory (local-first)
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
@@ -98,7 +98,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		}
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "ports.json", findings); err != nil {
-				log.Printf("[WARN] Failed to write ports JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write ports JSON: %v", err)
 			}
 		} else {
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "ports", "ports.json")

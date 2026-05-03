@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"net"
 	"os"
@@ -49,7 +49,7 @@ func ensureSubdomains(domain string) (domainDir string, subsFile string, cleanup
 	if dbErr := db.Init(); dbErr == nil {
 		_ = db.InitSchema()
 		if dbSubs, dbErr := db.ListSubdomains(domain); dbErr == nil && len(dbSubs) > 0 {
-			log.Printf("[INFO] Found %d subdomains in database for %s (dns module)", len(dbSubs), domain)
+			logger.GetLogger().Infof("[INFO] Found %d subdomains in database for %s (dns module)", len(dbSubs), domain)
 			subs = dbSubs
 		}
 	}
@@ -59,20 +59,20 @@ func ensureSubdomains(domain string) (domainDir string, subsFile string, cleanup
 		subsDir := filepath.Join(domainDir, "subs")
 		diskFile := filepath.Join(subsDir, "all-subs.txt")
 		if diskSubs, readErr := readNonEmptyLines(diskFile); readErr == nil && len(diskSubs) >= 5 {
-			log.Printf("[INFO] Using existing subdomains from %s (%d subdomains)", diskFile, len(diskSubs))
+			logger.GetLogger().Infof("[INFO] Using existing subdomains from %s (%d subdomains)", diskFile, len(diskSubs))
 			subs = diskSubs
 		}
 	}
 
 	// Step 3: Live enumeration if still empty
 	if len(subs) == 0 {
-		log.Printf("[INFO] Collecting subdomains for %s (dns module)", domain)
+		logger.GetLogger().Infof("[INFO] Collecting subdomains for %s (dns module)", domain)
 		var enumErr error
 		subs, enumErr = subdomains.EnumerateSubdomains(domain, 100)
 		if enumErr != nil {
 			return "", "", cleanup, fmt.Errorf("subdomain enumeration failed: %w", enumErr)
 		}
-		log.Printf("[OK] Found %d unique subdomains for %s", len(subs), domain)
+		logger.GetLogger().Infof("[OK] Found %d unique subdomains for %s", len(subs), domain)
 	}
 
 	// Write to ephemeral temp file
@@ -152,7 +152,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		if err := writeLines(subsFile, []string{opts.Subdomain}); err != nil {
 			return fmt.Errorf("failed to write subdomain file: %w", err)
 		}
-		log.Printf("[INFO] Using provided subdomain: %s (processing domain: %s, saving results to: %s)", opts.Subdomain, opts.Domain, outputDir)
+		logger.GetLogger().Infof("[INFO] Using provided subdomain: %s (processing domain: %s, saving results to: %s)", opts.Subdomain, opts.Domain, outputDir)
 	} else if opts.LiveHostsFile != "" {
 		// Extract subdomains from live hosts file
 		// Use root domain directory for temporary files
@@ -200,7 +200,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		if err := writeLines(subsFile, subdomains); err != nil {
 			return fmt.Errorf("failed to write subdomain file: %w", err)
 		}
-		log.Printf("[INFO] Using %d subdomain(s) from live hosts file (processing domain: %s, saving results to: %s)", len(subdomains), opts.Domain, outputDir)
+		logger.GetLogger().Infof("[INFO] Using %d subdomain(s) from live hosts file (processing domain: %s, saving results to: %s)", len(subdomains), opts.Domain, outputDir)
 	} else {
 		// Standard enumeration - use root domain directory
 		var subsCleanup func()
@@ -237,7 +237,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		}
 	}
 
-	log.Printf("[INFO] Starting comprehensive DNS takeover scan for %s", opts.Domain)
+	logger.GetLogger().Infof("[INFO] Starting comprehensive DNS takeover scan for %s", opts.Domain)
 
 	// Use root domain directory for processing (temporary files), but save results to outputDir
 	// When subdomain is provided, domainDir might not be set, so use root domain directory
@@ -251,22 +251,22 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	}
 	
 	if err := runNucleiTakeover(processingDir, findingsDir, subsFile); err != nil {
-		log.Printf("[WARN] Nuclei takeover step failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Nuclei takeover step failed: %v", err)
 	}
 	if err := runDNSReaper(processingDir, findingsDir, subsFile); err != nil {
-		log.Printf("[WARN] DNSReaper step failed: %v", err)
+		logger.GetLogger().Infof("[WARN] DNSReaper step failed: %v", err)
 	}
 	if err := checkAzureAWS(processingDir, findingsDir, subsFile); err != nil {
-		log.Printf("[WARN] Azure/AWS check failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Azure/AWS check failed: %v", err)
 	}
 	if err := runNSTakeover(processingDir, findingsDir, subsFile); err != nil {
-		log.Printf("[WARN] NS takeover step failed: %v", err)
+		logger.GetLogger().Infof("[WARN] NS takeover step failed: %v", err)
 	}
 	if err := checkDanglingIPs(processingDir, findingsDir, subsFile); err != nil {
-		log.Printf("[WARN] Dangling IP check failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Dangling IP check failed: %v", err)
 	}
 	if err := checkCloudflareTunnels(processingDir, findingsDir, subsFile); err != nil {
-		log.Printf("[WARN] Cloudflare Tunnel availability check failed: %v", err)
+		logger.GetLogger().Infof("[WARN] Cloudflare Tunnel availability check failed: %v", err)
 	}
 	// CF-1016 is part of comprehensive DNS takeover coverage.
 	// Use the same subdomain input set prepared for this DNS scan.
@@ -276,7 +276,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		Threads:        100,
 		Timeout:        10 * time.Second,
 	}); err != nil {
-		log.Printf("[WARN] CF1016 step failed: %v", err)
+		logger.GetLogger().Infof("[WARN] CF1016 step failed: %v", err)
 	}
 
 	// Summary file generation removed - only raw results are sent
@@ -306,7 +306,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		// Write combined text findings as structured JSON for the dashboard
 		if len(allTextFindings) > 0 {
 			if err := utils.WriteDNSTakeoverJSON(scanID, opts.Domain, allTextFindings); err != nil {
-				log.Printf("[WARN] Failed to write DNS takeover JSON: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write DNS takeover JSON: %v", err)
 			}
 		}
 		// Index nuclei JSONL files (they have clean per-line JSON objects)
@@ -323,7 +323,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 				continue
 			}
 			if err := utils.WriteTextToScanDir(scanID, name, data); err != nil {
-				log.Printf("[WARN] Failed to publish nuclei DNS file %s: %v", name, err)
+				logger.GetLogger().Infof("[WARN] Failed to publish nuclei DNS file %s: %v", name, err)
 			}
 		}
 
@@ -332,7 +332,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		}
 	}
 
-	log.Printf("[OK] DNS takeover scan completed for %s (results in %s)", opts.Domain, findingsDir)
+	logger.GetLogger().Infof("[OK] DNS takeover scan completed for %s (results in %s)", opts.Domain, findingsDir)
 	return nil
 }
 
@@ -439,13 +439,13 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 
 	if publicDir != "" {
 		out := filepath.Join(findingsDir, "nuclei-takeover-public.json")
-		log.Printf("[INFO] Running Nuclei public takeover templates from %s", publicDir)
+		logger.GetLogger().Infof("[INFO] Running Nuclei public takeover templates from %s", publicDir)
 		if err := runNucleiTakeoverSDK(subsFile, filepath.Join(publicDir, "http", "takeovers"), out); err != nil {
-			log.Printf("[WARN] Nuclei public takeover failed: %v", err)
+			logger.GetLogger().Infof("[WARN] Nuclei public takeover failed: %v", err)
 		} else {
 			count, _ := countLines(out)
 			if count > 0 {
-				log.Printf("[OK] Nuclei public takeover found %d candidates", count)
+				logger.GetLogger().Infof("[OK] Nuclei public takeover found %d candidates", count)
 				// Send findings to webhook if configured
 				webhookURL := os.Getenv("DISCORD_WEBHOOK")
 				if webhookURL != "" {
@@ -458,7 +458,7 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 			}
 		}
 	} else {
-		log.Printf("[WARN] No Nuclei public takeover templates directory found, skipping")
+		logger.GetLogger().Infof("[WARN] No Nuclei public takeover templates directory found, skipping")
 	}
 
 	// custom templates (optional, same layout as bash script assumed)
@@ -481,13 +481,13 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 	}
 	if customDir != "" {
 		out := filepath.Join(findingsDir, "nuclei-takeover-custom.json")
-		log.Printf("[INFO] Running Nuclei custom takeover templates from %s", customDir)
+		logger.GetLogger().Infof("[INFO] Running Nuclei custom takeover templates from %s", customDir)
 		if err := runNucleiTakeoverSDK(subsFile, filepath.Join(customDir, "http", "takeovers"), out); err != nil {
-			log.Printf("[WARN] Nuclei custom takeover failed: %v", err)
+			logger.GetLogger().Infof("[WARN] Nuclei custom takeover failed: %v", err)
 		} else {
 			count, _ := countLines(out)
 			if count > 0 {
-				log.Printf("[OK] Nuclei custom takeover found %d candidates", count)
+				logger.GetLogger().Infof("[OK] Nuclei custom takeover found %d candidates", count)
 				// Send findings to webhook if configured
 				webhookURL := os.Getenv("DISCORD_WEBHOOK")
 				if webhookURL != "" {
@@ -530,7 +530,7 @@ func runNucleiTakeoverSDK(targetFile, templateDir, outputFile string) error {
 	}
 	defer writer.Close()
 	if err := ensureNucleiIgnoreFile(); err != nil {
-		log.Printf("[WARN] Failed to prepare nuclei ignore file: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to prepare nuclei ignore file: %v", err)
 	}
 
 	ne, err := nucleiSDK.NewNucleiEngineCtx(
@@ -593,15 +593,15 @@ func ensureNucleiIgnoreFile() error {
 func runDNSReaper(domainDir, findingsDir, subsFile string) error {
 	// Only run DNSReaper if docker is available and usable
 	if os.Getenv("AUTOAR_ENV") == "docker" {
-		log.Printf("[WARN] DNSReaper in Docker requires access to Docker-in-Docker; skipping unless configured")
+		logger.GetLogger().Infof("[WARN] DNSReaper in Docker requires access to Docker-in-Docker; skipping unless configured")
 		return nil
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
-		log.Printf("[WARN] docker not found, skipping DNSReaper")
+		logger.GetLogger().Infof("[WARN] docker not found, skipping DNSReaper")
 		return nil
 	}
 	if err := exec.Command("docker", "ps").Run(); err != nil {
-		log.Printf("[WARN] cannot run docker ps (permissions?); skipping DNSReaper: %v", err)
+		logger.GetLogger().Infof("[WARN] cannot run docker ps (permissions?); skipping DNSReaper: %v", err)
 		return nil
 	}
 
@@ -611,7 +611,7 @@ func runDNSReaper(domainDir, findingsDir, subsFile string) error {
 	}
 
 	out := filepath.Join(findingsDir, "dnsreaper-results.txt")
-	log.Printf("[INFO] Running DNSReaper against %s", input)
+	logger.GetLogger().Infof("[INFO] Running DNSReaper against %s", input)
 	cmd := exec.Command("docker", "run", "--rm", "-v", fmt.Sprintf("%s:/etc/dnsreaper", utils.GetRootDir()+":/etc/dnsreaper"))
 	// Note: for simplicity we assume working directory is rootDir; the original script used `$(pwd)`
 	cmd.Args = []string{"docker", "run", "--rm", "-v", fmt.Sprintf("%s:/etc/dnsreaper", utils.GetRootDir()), "punksecurity/dnsreaper", "file", "--filename", "/etc/dnsreaper/" + strings.TrimPrefix(input, utils.GetRootDir()+"/")}
@@ -623,11 +623,11 @@ func runDNSReaper(domainDir, findingsDir, subsFile string) error {
 	cmd.Stdout = f
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Printf("[WARN] DNSReaper run failed: %v", err)
+		logger.GetLogger().Infof("[WARN] DNSReaper run failed: %v", err)
 	} else {
 		count, _ := countLines(out)
 		if count > 0 {
-			log.Printf("[OK] DNSReaper found %d candidates", count)
+			logger.GetLogger().Infof("[OK] DNSReaper found %d candidates", count)
 			// Send findings to webhook if configured
 			webhookURL := os.Getenv("DISCORD_WEBHOOK")
 			if webhookURL != "" {
@@ -683,7 +683,7 @@ func checkAzureAWS(domainDir, findingsDir, subsFile string) error {
 			appendLine(comboOut, line)
 			azureCount++
 			vulnCount++
-			log.Printf("[VULN] Azure takeover candidate: %s -> %s", sub, cname)
+			logger.GetLogger().Infof("[VULN] Azure takeover candidate: %s -> %s", sub, cname)
 		}
 
 		if hasSuffix(cname, []string{".elasticbeanstalk.com", ".s3.amazonaws.com", ".elb.amazonaws.com"}) || strings.Contains(cname, ".execute-api.") {
@@ -693,7 +693,7 @@ func checkAzureAWS(domainDir, findingsDir, subsFile string) error {
 			appendLine(comboOut, line)
 			awsCount++
 			vulnCount++
-			log.Printf("[VULN] AWS takeover candidate: %s -> %s", sub, cname)
+			logger.GetLogger().Infof("[VULN] AWS takeover candidate: %s -> %s", sub, cname)
 		}
 	}
 	if err := subsScanner.Err(); err != nil {
@@ -717,7 +717,7 @@ func checkAzureAWS(domainDir, findingsDir, subsFile string) error {
 
 	// Send findings to webhook if configured
 	if azureCount > 0 || awsCount > 0 {
-		log.Printf("[OK] Azure/AWS takeover: %d Azure, %d AWS candidates found", azureCount, awsCount)
+		logger.GetLogger().Infof("[OK] Azure/AWS takeover: %d Azure, %d AWS candidates found", azureCount, awsCount)
 		webhookURL := os.Getenv("DISCORD_WEBHOOK")
 		if webhookURL != "" {
 			// Extract domain from domainDir
@@ -768,7 +768,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	}
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No subdomains found, skipping NS takeover")
+		logger.GetLogger().Infof("[WARN] No subdomains found, skipping NS takeover")
 		if scanID := utils.GetCurrentScanID(); scanID != "" {
 			domain := filepath.Base(domainDir)
 			_ = utils.WriteNoFindingsJSON(scanID, domain, "dns-takeover", "dns-takeover-vulnerabilities.json")
@@ -783,7 +783,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	}
 
 	nsServers := filepath.Join(findingsDir, "ns-servers.txt")
-	log.Printf("[INFO] Extracting NS records with dnsx (concurrent)")
+	logger.GetLogger().Infof("[INFO] Extracting NS records with dnsx (concurrent)")
 	var nsRecords []string
 	var nsMutex sync.Mutex
 
@@ -827,7 +827,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 
 	wg.Wait()
 	if err := writeLinesToFile(nsServers, nsRecords); err != nil {
-		log.Printf("[WARN] Failed to write NS servers: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to write NS servers: %v", err)
 	}
 
 	nsRaw := filepath.Join(findingsDir, "ns-takeover-raw.txt")
@@ -868,7 +868,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	}()
 	wg2.Wait()
 	if err := writeLinesToFile(nsRaw, servfailTargets); err != nil {
-		log.Printf("[WARN] Failed to write NS raw: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to write NS raw: %v", err)
 	}
 
 	nsVulnServers := filepath.Join(findingsDir, "ns-servers-vuln.txt")
@@ -909,12 +909,12 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 		wg3.Wait()
 	}
 	if err := writeLinesToFile(nsVulnServers, vulnServers); err != nil {
-		log.Printf("[WARN] Failed to write NS vuln servers: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to write NS vuln servers: %v", err)
 	}
 
 	nsRawCount, _ := countLines(nsRaw)
 	nsSrvCount, _ := countLines(nsVulnServers)
-	log.Printf("[INFO] NS takeover: %d subdomain errors, %d NS server errors", nsRawCount, nsSrvCount)
+	logger.GetLogger().Infof("[INFO] NS takeover: %d subdomain errors, %d NS server errors", nsRawCount, nsSrvCount)
 
 	// Load vulnerable providers from the grid
 	providers := loadVulnerableProviders()
@@ -927,7 +927,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	// For each SERVFAIL/REFUSED candidate, find its authoritative NAMESERVERS
 	// and check if they match any vulnerable provider fingerprints.
 	if len(servfailTargets) > 0 {
-		log.Printf("[INFO] Cross-referencing %d candidates with vulnerable provider fingerprints", len(servfailTargets))
+		logger.GetLogger().Infof("[INFO] Cross-referencing %d candidates with vulnerable provider fingerprints", len(servfailTargets))
 		jobs4 := make(chan string, len(servfailTargets))
 		var wg4 sync.WaitGroup
 		
@@ -946,7 +946,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 									vulnFindingsMutex.Lock()
 									vulnFindings = append(vulnFindings, finding)
 									vulnFindingsMutex.Unlock()
-									log.Printf("[VULN] Potential NS takeover: %s delegating to %s (%s)", target, ns, provider)
+									logger.GetLogger().Infof("[VULN] Potential NS takeover: %s delegating to %s (%s)", target, ns, provider)
 									matched = true
 									break
 								}
@@ -970,7 +970,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	}
 	
 	if err := writeLinesToFile(nsFiltered, vulnFindings); err != nil {
-		log.Printf("[WARN] Failed to write filtered NS takeover: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to write filtered NS takeover: %v", err)
 	}
 
 	// Send findings to webhook if configured
@@ -1032,7 +1032,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	}
 
 	if len(targets) == 0 {
-		log.Printf("[WARN] No subdomains found, skipping dangling IP check")
+		logger.GetLogger().Infof("[WARN] No subdomains found, skipping dangling IP check")
 		return nil
 	}
 
@@ -1042,7 +1042,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 		return fmt.Errorf("failed to create dnsx client: %w", err)
 	}
 
-	log.Printf("[INFO] Checking for dangling IPs across %d subdomains", len(targets))
+	logger.GetLogger().Infof("[INFO] Checking for dangling IPs across %d subdomains", len(targets))
 
 	// Track IPs and their associated subdomains
 	ipToSubdomains := make(map[string][]string)
@@ -1077,11 +1077,11 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	}
 
 	if totalIPs == 0 {
-		log.Printf("[INFO] No IP addresses found in DNS records")
+		logger.GetLogger().Infof("[INFO] No IP addresses found in DNS records")
 		return nil
 	}
 
-	log.Printf("[INFO] Found %d unique IP addresses, checking if they're active...", len(ipToSubdomains))
+	logger.GetLogger().Infof("[INFO] Found %d unique IP addresses, checking if they're active...", len(ipToSubdomains))
 
 	// Step 2: Check if IPs are still active using standard net/http and net packages natively
 	client := &http.Client{
@@ -1098,7 +1098,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 		ipList = append(ipList, ip)
 	}
 	if err := writeLinesToFile(tempIPFile, ipList); err != nil {
-		log.Printf("[WARN] Failed to create temp IP file: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to create temp IP file: %v", err)
 	} else {
 		defer os.Remove(tempIPFile) // Clean up temp file
 	}
@@ -1164,7 +1164,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 				}
 				appendLine(danglingOut, line)
 				danglingCandidates = append(danglingCandidates, ip)
-				log.Printf("[CANDIDATE] Potential dangling IP: %s (status: %s, %d subdomains)", ip, status, len(subdomains))
+				logger.GetLogger().Infof("[CANDIDATE] Potential dangling IP: %s (status: %s, %d subdomains)", ip, status, len(subdomains))
 			}
 		}
 	}
@@ -1173,7 +1173,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	// Do NOT append danglingCandidates again here — that would produce duplicate bare-IP rows.
 	// Summary file removed - only raw results generated
 
-	log.Printf("[OK] Dangling IP check completed: %d candidates found out of %d IPs", len(danglingCandidates), len(ipToSubdomains))
+	logger.GetLogger().Infof("[OK] Dangling IP check completed: %d candidates found out of %d IPs", len(danglingCandidates), len(ipToSubdomains))
 	
 	// Send findings to webhook if configured
 	if len(danglingCandidates) > 0 {
@@ -1237,7 +1237,7 @@ func checkCloudflareTunnels(domainDir, findingsDir, subsFile string) error {
 			// Network-level failure – likely unavailable tunnel
 			line := fmt.Sprintf("[UNREACHABLE] [SUBDOMAIN:%s] [CNAME:%s] [ERROR:%v]", sub, cname, err)
 			if err := appendLine(out, line); err != nil {
-				log.Printf("[WARN] Failed to write Cloudflare tunnel unreachable finding: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write Cloudflare tunnel unreachable finding: %v", err)
 			}
 			found++
 			continue
@@ -1258,7 +1258,7 @@ func checkCloudflareTunnels(domainDir, findingsDir, subsFile string) error {
 		if isErrorStatus && hasTunnelErrorText {
 			line := fmt.Sprintf("[TUNNEL_ERROR] [SUBDOMAIN:%s] [CNAME:%s] [STATUS:%d]", sub, cname, resp.StatusCode)
 			if err := appendLine(out, line); err != nil {
-				log.Printf("[WARN] Failed to write Cloudflare tunnel error finding: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write Cloudflare tunnel error finding: %v", err)
 			}
 			found++
 		}
@@ -1274,9 +1274,9 @@ func checkCloudflareTunnels(domainDir, findingsDir, subsFile string) error {
 		if info, err := os.Stat(out); err == nil && info.Size() > 0 {
 			utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Hygiene: Cloudflare Tunnel availability issues for %s (%d finding(s))", domain, found))
 		}
-		log.Printf("[OK] Cloudflare Tunnel availability check: %d issue(s) found", found)
+		logger.GetLogger().Infof("[OK] Cloudflare Tunnel availability check: %d issue(s) found", found)
 	} else {
-		log.Printf("[INFO] Cloudflare Tunnel availability check: no issues found")
+		logger.GetLogger().Infof("[INFO] Cloudflare Tunnel availability check: no issues found")
 	}
 
 	return nil
@@ -1577,7 +1577,7 @@ func loadVulnerableProviders() map[string]string {
 	path := filepath.Join(utils.GetRootDir(), "can-itake-over-dns.md")
 	file, err := os.Open(path)
 	if err != nil {
-		log.Printf("[WARN] Could not open %s, using fallback providers", path)
+		logger.GetLogger().Infof("[WARN] Could not open %s, using fallback providers", path)
 		return fallback
 	}
 	defer file.Close()
@@ -1615,10 +1615,10 @@ func loadVulnerableProviders() map[string]string {
 
 	// 2. If we loaded from file but database was empty, sync to database for next time
 	if len(dbProviders) == 0 {
-		log.Printf("[INFO] Populating database with %d DNS providers from %s", len(providers), path)
+		logger.GetLogger().Infof("[INFO] Populating database with %d DNS providers from %s", len(providers), path)
 		for name, fingerprint := range providers {
 			if err := db.AddVulnerableDNSProvider(name, fingerprint); err != nil {
-				log.Printf("[WARN] Failed to sync DNS provider %s to database: %v", name, err)
+				logger.GetLogger().Infof("[WARN] Failed to sync DNS provider %s to database: %v", name, err)
 			}
 		}
 	}

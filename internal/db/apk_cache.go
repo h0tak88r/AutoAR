@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/logger"
 )
 
 // APKCacheEntry represents a cached APK scan result
@@ -74,7 +75,7 @@ func GetAPKCache(hash string) (*APKCacheEntry, error) {
 		entry.CreatedAt = t
 	}
 
-	log.Printf("[CACHE] Found cached APK: hash=%s, filename=%s, age=%s", 
+	logger.GetLogger().Infof("[CACHE] Found cached APK: hash=%s, filename=%s, age=%s", 
 		hash[:16], entry.Filename, time.Since(entry.CreatedAt).Round(time.Second))
 
 	return &entry, nil
@@ -112,6 +113,6 @@ func SaveAPKCache(entry *APKCacheEntry) error {
 		return fmt.Errorf("failed to save APK cache: %w", err)
 	}
 
-	log.Printf("[CACHE] Saved APK to cache: hash=%s, filename=%s", entry.Hash[:16], entry.Filename)
+	logger.GetLogger().Infof("[CACHE] Saved APK to cache: hash=%s, filename=%s", entry.Hash[:16], entry.Filename)
 	return nil
 }

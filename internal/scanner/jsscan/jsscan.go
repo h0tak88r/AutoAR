@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -72,20 +72,20 @@ func Run(opts Options) (*Result, error) {
 	}
 	
 	// Check if URL files already exist before running collection
-	log.Printf("[INFO] JS scan: Initializing domain directory for: %s", dirDomain)
+	logger.GetLogger().Infof("[INFO] JS scan: Initializing domain directory for: %s", dirDomain)
 	domainDir, err := utils.DomainDirInit(dirDomain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init domain directory: %w", err)
 	}
-	log.Printf("[INFO] JS scan: Domain directory: %s", domainDir)
+	logger.GetLogger().Infof("[INFO] JS scan: Domain directory: %s", domainDir)
 	
 	urlsDir := filepath.Join(domainDir, "urls")
 	allFile := filepath.Join(urlsDir, "all-urls.txt")
 	jsFile := filepath.Join(urlsDir, "js-urls.txt")
 	
-	log.Printf("[INFO] JS scan: Checking for existing URL files...")
-	log.Printf("[INFO] JS scan: All URLs file: %s", allFile)
-	log.Printf("[INFO] JS scan: JS URLs file: %s", jsFile)
+	logger.GetLogger().Infof("[INFO] JS scan: Checking for existing URL files...")
+	logger.GetLogger().Infof("[INFO] JS scan: All URLs file: %s", allFile)
+	logger.GetLogger().Infof("[INFO] JS scan: JS URLs file: %s", jsFile)
 	
 	var urlRes *urls.Result
 	
@@ -94,23 +94,23 @@ func Run(opts Options) (*Result, error) {
 	jsFileExists := false
 	if info, err := os.Stat(allFile); err == nil && info.Size() > 0 {
 		allFileExists = true
-		log.Printf("[INFO] JS scan: Found existing all-urls.txt (size: %d bytes)", info.Size())
+		logger.GetLogger().Infof("[INFO] JS scan: Found existing all-urls.txt (size: %d bytes)", info.Size())
 	} else {
-		log.Printf("[INFO] JS scan: all-urls.txt not found or empty: %v", err)
+		logger.GetLogger().Infof("[INFO] JS scan: all-urls.txt not found or empty: %v", err)
 	}
 	if info, err := os.Stat(jsFile); err == nil && info.Size() > 0 {
 		jsFileExists = true
-		log.Printf("[INFO] JS scan: Found existing js-urls.txt (size: %d bytes)", info.Size())
+		logger.GetLogger().Infof("[INFO] JS scan: Found existing js-urls.txt (size: %d bytes)", info.Size())
 	} else {
-		log.Printf("[INFO] JS scan: js-urls.txt not found or empty: %v", err)
+		logger.GetLogger().Infof("[INFO] JS scan: js-urls.txt not found or empty: %v", err)
 	}
 	
 	if allFileExists && jsFileExists {
 		// Files already exist, read them instead of re-collecting
-		log.Printf("[INFO] JS scan: Using existing URL files (skipping collection)")
+		logger.GetLogger().Infof("[INFO] JS scan: Using existing URL files (skipping collection)")
 		allURLs, _ := readLines(allFile)
 		jsURLs, _ := readLines(jsFile)
-		log.Printf("[INFO] JS scan: Read %d total URLs, %d JS URLs from existing files", len(allURLs), len(jsURLs))
+		logger.GetLogger().Infof("[INFO] JS scan: Read %d total URLs, %d JS URLs from existing files", len(allURLs), len(jsURLs))
 		urlRes = &urls.Result{
 			Domain:    dirDomain,
 			Threads:   opts.Threads,
@@ -121,12 +121,12 @@ func Run(opts Options) (*Result, error) {
 		}
 	} else {
 		// Collect URLs and JS URLs (writes new-results/<domain>/urls/*)
-		log.Printf("[INFO] JS scan: URL files not found or incomplete, collecting URLs...")
-		log.Printf("[INFO] JS scan: Target: %s, Skip subdomain enum: %v, Threads: %d", target, skipSubdomainEnum, opts.Threads)
+		logger.GetLogger().Infof("[INFO] JS scan: URL files not found or incomplete, collecting URLs...")
+		logger.GetLogger().Infof("[INFO] JS scan: Target: %s, Skip subdomain enum: %v, Threads: %d", target, skipSubdomainEnum, opts.Threads)
 		// Note: urls.CollectURLs will also check for existing URLs internally
 		urlRes, err = urls.CollectURLs(target, opts.Threads, skipSubdomainEnum)
 		if err != nil {
-			log.Printf("[WARN] JS scan: Failed to collect URLs: %v. Continuing with potentially empty list.", err)
+			logger.GetLogger().Infof("[WARN] JS scan: Failed to collect URLs: %v. Continuing with potentially empty list.", err)
 			// Ensure we have a valid urlRes even on error to prevent nil pointer
 			if urlRes == nil {
 				urlRes = &urls.Result{
@@ -136,59 +136,59 @@ func Run(opts Options) (*Result, error) {
 				}
 			}
 		}
-		log.Printf("[INFO] JS scan: URL collection completed: %d total URLs, %d JS URLs", urlRes.TotalURLs, urlRes.JSURLs)
+		logger.GetLogger().Infof("[INFO] JS scan: URL collection completed: %d total URLs, %d JS URLs", urlRes.TotalURLs, urlRes.JSURLs)
 	}
 
 	jsVulnDir := filepath.Join(domainDir, "vulnerabilities", "js")
-	log.Printf("[INFO] JS scan: Creating vulnerabilities/js directory: %s", jsVulnDir)
+	logger.GetLogger().Infof("[INFO] JS scan: Creating vulnerabilities/js directory: %s", jsVulnDir)
 	if err := utils.EnsureDir(jsVulnDir); err != nil {
 		return nil, fmt.Errorf("failed to create js vulnerabilities dir: %w", err)
 	}
 
 	sourceJS := urlRes.JSFile
 	targetJS := filepath.Join(jsVulnDir, "js-urls.txt")
-	log.Printf("[INFO] JS scan: Source JS file: %s", sourceJS)
-	log.Printf("[INFO] JS scan: Target JS file: %s", targetJS)
+	logger.GetLogger().Infof("[INFO] JS scan: Source JS file: %s", sourceJS)
+	logger.GetLogger().Infof("[INFO] JS scan: Target JS file: %s", targetJS)
 
 	// Optionally filter by subdomain
 	if opts.Subdomain != "" {
-		log.Printf("[INFO] JS scan: Filtering JS URLs by subdomain: %s", opts.Subdomain)
+		logger.GetLogger().Infof("[INFO] JS scan: Filtering JS URLs by subdomain: %s", opts.Subdomain)
 		filtered, err := filterJSBySubdomain(urlRes.JSFile, opts.Subdomain, targetJS)
 		if err != nil {
 			return nil, err
 		}
 		targetJS = filtered
-		log.Printf("[INFO] JS scan: Filtered JS file saved to: %s", targetJS)
+		logger.GetLogger().Infof("[INFO] JS scan: Filtered JS file saved to: %s", targetJS)
 	} else {
 		// Simple copy
-		log.Printf("[INFO] JS scan: Copying JS URLs to vulnerabilities directory...")
+		logger.GetLogger().Infof("[INFO] JS scan: Copying JS URLs to vulnerabilities directory...")
 		if err := copyFile(sourceJS, targetJS); err != nil {
 			return nil, fmt.Errorf("failed to copy JS URLs to vulnerabilities dir: %w", err)
 		}
-		log.Printf("[INFO] JS scan: JS URLs copied successfully")
+		logger.GetLogger().Infof("[INFO] JS scan: JS URLs copied successfully")
 	}
 
 	totalJS := urlRes.JSURLs
 	if opts.Subdomain != "" {
 		// Recount for filtered file
-		log.Printf("[INFO] JS scan: Recounting JS URLs in filtered file...")
+		logger.GetLogger().Infof("[INFO] JS scan: Recounting JS URLs in filtered file...")
 		if n, err := countLines(targetJS); err == nil {
 			totalJS = n
-			log.Printf("[INFO] JS scan: Filtered file contains %d JS URLs", totalJS)
+			logger.GetLogger().Infof("[INFO] JS scan: Filtered file contains %d JS URLs", totalJS)
 		} else {
-			log.Printf("[WARN] JS scan: Failed to count lines in filtered file: %v", err)
+			logger.GetLogger().Infof("[WARN] JS scan: Failed to count lines in filtered file: %v", err)
 		}
 	}
 	
 	// Perform actual secret scanning on JS files
-	log.Printf("[INFO] JS scan: Starting secret scanning on %d JS URLs...", totalJS)
+	logger.GetLogger().Infof("[INFO] JS scan: Starting secret scanning on %d JS URLs...", totalJS)
 	secretsFile := filepath.Join(jsVulnDir, "js-secrets.txt")
 	if err := scanJSForSecrets(targetJS, secretsFile, opts.Threads); err != nil {
-		log.Printf("[WARN] JS scan: Secret scanning failed: %v", err)
+		logger.GetLogger().Infof("[WARN] JS scan: Secret scanning failed: %v", err)
 	} else {
 		scanID := utils.GetCurrentScanID()
 		if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
-			log.Printf("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
+			logger.GetLogger().Infof("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
 			
 			if scanID != "" {
 				data, readErr := os.ReadFile(secretsFile)
@@ -233,14 +233,14 @@ func Run(opts Options) (*Result, error) {
 				}
 			}
 		} else {
-			log.Printf("[INFO] JS scan: No secrets found in JS files")
+			logger.GetLogger().Infof("[INFO] JS scan: No secrets found in JS files")
 			if scanID != "" {
 				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "js-scan", "js-secrets-vulnerabilities.json")
 			}
 		}
 	}
 	
-	log.Printf("[INFO] JS scan: Final result - %d JS URLs processed", totalJS)
+	logger.GetLogger().Infof("[INFO] JS scan: Final result - %d JS URLs processed", totalJS)
 
 	return &Result{
 		Domain:     dirDomain,
@@ -388,7 +388,7 @@ func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
 	if err != nil {
 		return fmt.Errorf("failed to load secret patterns: %w", err)
 	}
-	log.Printf("[INFO] JS scan: Loaded %d secret patterns", len(patterns))
+	logger.GetLogger().Infof("[INFO] JS scan: Loaded %d secret patterns", len(patterns))
 
 	// Read JS URLs
 	jsURLs, err := readLines(jsURLsFile)
@@ -455,7 +455,7 @@ func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
 	}
 
 	wg.Wait()
-	log.Printf("[INFO] JS scan: Secret scanning completed, found %d secrets", findingsCount)
+	logger.GetLogger().Infof("[INFO] JS scan: Secret scanning completed, found %d secrets", findingsCount)
 	return nil
 }
 

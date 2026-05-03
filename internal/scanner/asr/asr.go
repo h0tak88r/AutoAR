@@ -3,7 +3,7 @@ package asr
 import (
 	"context"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 )
 
 // Options holds ASR scan options
@@ -24,7 +24,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	if opts.Progress == nil {
 		opts.Progress = func(msg string) {
-			log.Printf("[ASR] %s", msg)
+			logger.GetLogger().Infof("[ASR] %s", msg)
 		}
 	}
 

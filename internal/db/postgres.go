@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 )
 
 // PostgresDB implements the DB interface for PostgreSQL
@@ -83,7 +83,7 @@ func (p *PostgresDB) Init() error {
 	}
 
 	if os.Getenv("AUTOAR_SILENT") != "true" {
-		log.Printf("[INFO] Connected to PostgreSQL database")
+		logger.GetLogger().Info("[INFO] Connected to PostgreSQL database")
 	}
 	return nil
 }
@@ -437,11 +437,11 @@ func (p *PostgresDB) InitSchema() error {
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_artifacts_scan_r2_key_uniq
 		ON scan_artifacts(scan_id, r2_key);
 	`); idxErr != nil {
-		log.Printf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
+		logger.GetLogger().Warnf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
 	}
 
 	if os.Getenv("AUTOAR_SILENT") != "true" {
-		log.Printf("[OK] Database schema initialized")
+		logger.GetLogger().Info("[OK] Database schema initialized")
 	}
 	return nil
 }
@@ -490,7 +490,7 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 		return fmt.Errorf("failed to get domain ID: %v", err)
 	}
 
-	log.Printf("[INFO] Batch inserting %d subdomains for %s (domain_id: %d)", len(subdomains), domain, domainID)
+	logger.GetLogger().Infof("[INFO] Batch inserting %d subdomains for %s (domain_id: %d)", len(subdomains), domain, domainID)
 
 	// Use a transaction for atomic batch insert.
 	// #14: Do NOT use tx.Prepare with a named statement ("batch_insert_subdomains") —
@@ -521,7 +521,7 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 
 		_, err := tx.Exec(p.ctx, batchSQL, domainID, subdomain, isLive, time.Now())
 		if err != nil {
-			log.Printf("[WARN] Failed to insert subdomain %s: %v", subdomain, err)
+			logger.GetLogger().Warnf("[WARN] Failed to insert subdomain %s: %v", subdomain, err)
 			continue
 		}
 		count++
@@ -531,7 +531,7 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 		return fmt.Errorf("failed to commit transaction: %v", err)
 	}
 
-	log.Printf("[OK] Inserted %d subdomains for %s", count, domain)
+	logger.GetLogger().Infof("[OK] Inserted %d subdomains for %s", count, domain)
 	return nil
 }
 

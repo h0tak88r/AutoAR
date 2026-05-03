@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -500,9 +499,9 @@ func writeLocalFile(scanID, fileName string, data []byte) (string, error) {
 	if r2storage.IsEnabled() {
 		publicURL, err := r2storage.UploadFile(filePath, fileName, false)
 		if err != nil {
-			log.Printf("[R2] Failed to upload %s: %v", fileName, err)
+			utils.GetLogger().Infof("[R2] Failed to upload %s: %v", fileName, err)
 		} else {
-			log.Printf("[R2] Uploaded %s to %s", fileName, publicURL)
+			utils.GetLogger().Infof("[R2] Uploaded %s to %s", fileName, publicURL)
 		}
 	}
 

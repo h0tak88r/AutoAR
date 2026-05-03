@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,7 +149,7 @@ func runWebFromFile(opts Options, resultsDir string) error {
 	// Convert JSON to human-readable text file
 	textFile := filepath.Join(outputDir, "depconfusion-results.txt")
 	if err := convertJSONToText(res.OutputFile, textFile); err != nil {
-		log.Printf("[WARN] Failed to convert JSON to text: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to convert JSON to text: %v", err)
 	}
 
 	// Handle standardized JSON output for dashboard

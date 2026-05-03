@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -126,8 +126,8 @@ func RunFFuf(opts Options) (*Result, error) {
 		file.Close()
 	}
 
-	log.Printf("[INFO] Wordlist: %s", wordlistPath)
-	log.Printf("[INFO] Wordlist size: %d bytes, %d lines", wordlistSize, wordlistLines)
+	logger.GetLogger().Infof("[INFO] Wordlist: %s", wordlistPath)
+	logger.GetLogger().Infof("[INFO] Wordlist size: %d bytes, %d lines", wordlistSize, wordlistLines)
 
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -160,7 +160,7 @@ func RunFFuf(opts Options) (*Result, error) {
 	}
 	// Also set Wordlists for compatibility
 	conf.Wordlists = []string{absWordlist}
-	log.Printf("[DEBUG] FFuf config: URL=%s, Wordlist=%s, Threads=%d", conf.Url, absWordlist, conf.Threads)
+	logger.GetLogger().Infof("[DEBUG] FFuf config: URL=%s, Wordlist=%s, Threads=%d", conf.Url, absWordlist, conf.Threads)
 	// Config is logged above with wordlist info
 	conf.Recursion = opts.Recursion
 	if opts.RecursionDepth > 0 {
@@ -246,17 +246,17 @@ func RunFFuf(opts Options) (*Result, error) {
 		if totalProvider, ok := inputProvider.(interface{ Total() int }); ok {
 			inputProviderTotal = totalProvider.Total()
 			pos := posProvider.Position()
-			log.Printf("[INFO] Input provider initialized: position=%d, total=%d", pos, inputProviderTotal)
+			logger.GetLogger().Infof("[INFO] Input provider initialized: position=%d, total=%d", pos, inputProviderTotal)
 			if inputProviderTotal == 0 {
 				return nil, fmt.Errorf("input provider has 0 total words - wordlist may not be loaded correctly")
 			}
 			// Warn if input provider total doesn't match wordlist line count
 			if wordlistLines > 0 && inputProviderTotal != wordlistLines {
-				log.Printf("[WARN] Input provider total (%d) doesn't match wordlist line count (%d) - this may be normal if wordlist has comments or empty lines", inputProviderTotal, wordlistLines)
+				logger.GetLogger().Infof("[WARN] Input provider total (%d) doesn't match wordlist line count (%d) - this may be normal if wordlist has comments or empty lines", inputProviderTotal, wordlistLines)
 			}
 		}
 	} else {
-		log.Printf("[INFO] Input provider initialized (cannot determine total count)")
+		logger.GetLogger().Infof("[INFO] Input provider initialized (cannot determine total count)")
 	}
 
 	// Setup runner
@@ -285,7 +285,7 @@ func RunFFuf(opts Options) (*Result, error) {
 	webhookMessagesFile := filepath.Join(outputDir, "ffuf-webhook-messages.txt")
 	webhookFile, webhookErr := os.Create(webhookMessagesFile)
 	if webhookErr != nil {
-		log.Printf("[WARN] Failed to create webhook messages file: %v", webhookErr)
+		logger.GetLogger().Infof("[WARN] Failed to create webhook messages file: %v", webhookErr)
 		webhookFile = nil
 	}
 
@@ -324,10 +324,10 @@ func RunFFuf(opts Options) (*Result, error) {
 		conf.Extensions = opts.Extensions
 	}
 
-	log.Printf("[INFO] Starting fuzzing: %s", opts.Target)
-	log.Printf("[INFO] Configuration: %d threads, wordlist: %d lines", opts.Threads, wordlistLines)
+	logger.GetLogger().Infof("[INFO] Starting fuzzing: %s", opts.Target)
+	logger.GetLogger().Infof("[INFO] Configuration: %d threads, wordlist: %d lines", opts.Threads, wordlistLines)
 	if inputProviderTotal > 0 {
-		log.Printf("[INFO] Will test %d payloads", inputProviderTotal)
+		logger.GetLogger().Infof("[INFO] Will test %d payloads", inputProviderTotal)
 	}
 
 	// Validate job is properly configured before starting
@@ -354,19 +354,19 @@ func RunFFuf(opts Options) (*Result, error) {
 		requestsPerSec = float64(inputProviderTotal) / duration.Seconds()
 	}
 
-	log.Printf("[INFO] Fuzzing completed in %v", duration)
+	logger.GetLogger().Infof("[INFO] Fuzzing completed in %v", duration)
 	if inputProviderTotal > 0 {
-		log.Printf("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
+		logger.GetLogger().Infof("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
 	}
-	log.Printf("[INFO] Found %d results", found)
+	logger.GetLogger().Infof("[INFO] Found %d results", found)
 
 	// Warn if job completed suspiciously fast (less than 1 second for large wordlist)
 	if duration < time.Second && wordlistSize > 100000 {
-		log.Printf("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
+		logger.GetLogger().Infof("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
 	}
 
-	log.Printf("[OK] FFuf fuzzing completed. Found %d results", found)
-	log.Printf("[INFO] Results saved to: %s", opts.OutputFile)
+	logger.GetLogger().Infof("[OK] FFuf fuzzing completed. Found %d results", found)
+	logger.GetLogger().Infof("[INFO] Results saved to: %s", opts.OutputFile)
 
 	// Webhook file sending removed - files are now sent via utils.SendPhaseFiles from phase functions
 	// Close webhook file if it was created
@@ -389,7 +389,7 @@ func RunFFuf(opts Options) (*Result, error) {
 			customOutput.resultsMutex.Unlock()
 			if len(captured) > 0 {
 				if err := writeFfufJSON(scanID, captured); err != nil {
-					log.Printf("[WARN] Failed to write FFUF JSON: %v", err)
+					logger.GetLogger().Infof("[WARN] Failed to write FFUF JSON: %v", err)
 				}
 			} else {
 				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "ffuf", "ffuf-results.json")
@@ -557,7 +557,7 @@ func (c *customOutputProvider) Result(resp ffufpkg.Response) {
 		resp.StatusCode, result.Url, resp.ContentLength, resp.ContentLines, resp.ContentWords)
 
 	if _, err := c.outFile.WriteString(line); err != nil {
-		log.Printf("[WARN] Failed to write result: %v", err)
+		logger.GetLogger().Infof("[WARN] Failed to write result: %v", err)
 	}
 
 	// Store result
@@ -741,7 +741,7 @@ func (c *customOutputProvider) try403Bypass(originalResp ffufpkg.Response) {
 			line := fmt.Sprintf("[200] %s (Size: %d, Lines: %d, Words: %d) [403-Bypass: %s]\n",
 				testURL, contentLength, contentLines, contentWords, technique.name)
 			if _, err := c.outFile.WriteString(line); err != nil {
-				log.Printf("[WARN] Failed to write bypass result: %v", err)
+				logger.GetLogger().Infof("[WARN] Failed to write bypass result: %v", err)
 			}
 
 			// Store result
@@ -772,7 +772,7 @@ func (c *customOutputProvider) try403Bypass(originalResp ffufpkg.Response) {
 			c.resultMutex.Unlock()
 
 			// Log successful bypass
-			log.Printf("[INFO] 403 bypass successful: %s -> %s (technique: %s)", originalURL, testURL, technique.name)
+			logger.GetLogger().Infof("[INFO] 403 bypass successful: %s -> %s (technique: %s)", originalURL, testURL, technique.name)
 
 			// Stop after first successful bypass to avoid duplicates
 			return
@@ -860,17 +860,17 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 	}
 
 	opts.Wordlist = wordlistPath
-	log.Printf("[DEBUG] Using wordlist: %s (size: %d bytes)", wordlistPath, info.Size())
+	logger.GetLogger().Infof("[DEBUG] Using wordlist: %s (size: %d bytes)", wordlistPath, info.Size())
 
-	log.Printf("[INFO] Starting ffuf domain mode for %s", opts.Domain)
-	log.Printf("[INFO] Concurrency: %d hosts", opts.Concurrency)
-	log.Printf("[INFO] Wordlist: %s", opts.Wordlist)
+	logger.GetLogger().Infof("[INFO] Starting ffuf domain mode for %s", opts.Domain)
+	logger.GetLogger().Infof("[INFO] Concurrency: %d hosts", opts.Concurrency)
+	logger.GetLogger().Infof("[INFO] Wordlist: %s", opts.Wordlist)
 
 	// Step 1: Get live hosts file (checks file, then database, then collects)
 	liveHostsFile, err := livehosts.GetLiveHostsFile(opts.Domain)
 	if err != nil {
 		// File not found in results dir or database, run livehosts module
-		log.Printf("[INFO] Live hosts file not found for %s, running livehosts module...", opts.Domain)
+		logger.GetLogger().Infof("[INFO] Live hosts file not found for %s, running livehosts module...", opts.Domain)
 		liveHostsResult, err2 := livehosts.FilterLiveHosts(opts.Domain, opts.Threads, false)
 		if err2 != nil {
 			return nil, fmt.Errorf("failed to get live hosts: %w", err2)
@@ -880,7 +880,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 			return nil, fmt.Errorf("live hosts file path is empty")
 		}
 	} else {
-		log.Printf("[INFO] Using existing live hosts file: %s", liveHostsFile)
+		logger.GetLogger().Infof("[INFO] Using existing live hosts file: %s", liveHostsFile)
 	}
 
 	// Read hosts from file
@@ -925,7 +925,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 	}
 
 	if len(hosts) == 0 {
-		log.Printf("[WARN] No live hosts found for %s", opts.Domain)
+		logger.GetLogger().Infof("[WARN] No live hosts found for %s", opts.Domain)
 		return &Result{
 			Target:       opts.Domain,
 			TotalFound:   0,
@@ -935,7 +935,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 		}, nil
 	}
 
-	log.Printf("[INFO] Found %d live hosts to fuzz", len(hosts))
+	logger.GetLogger().Infof("[INFO] Found %d live hosts to fuzz", len(hosts))
 
 	// Setup output directory
 	resultsDir := utils.GetResultsDir()
@@ -990,11 +990,11 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 			// Run ffuf for this host
 			result, err := runFFufSingleTarget(hostOpts)
 			if err != nil {
-				log.Printf("[WARN] FFuf fuzzing failed for %s: %v", targetHost, err)
+				logger.GetLogger().Infof("[WARN] FFuf fuzzing failed for %s: %v", targetHost, err)
 				// Still count as scanned even if failed
 				hostsMutex.Lock()
 				hostsScanned++
-				log.Printf("[INFO] Completed %d/%d hosts: %s (failed: %v)", hostsScanned, len(hosts), targetHost, err)
+				logger.GetLogger().Infof("[INFO] Completed %d/%d hosts: %s (failed: %v)", hostsScanned, len(hosts), targetHost, err)
 				hostsMutex.Unlock()
 				return
 			}
@@ -1023,7 +1023,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 
 			hostsMutex.Lock()
 			hostsScanned++
-			log.Printf("[INFO] Completed %d/%d hosts: %s (found %d results)", hostsScanned, len(hosts), targetHost, result.TotalFound)
+			logger.GetLogger().Infof("[INFO] Completed %d/%d hosts: %s (found %d results)", hostsScanned, len(hosts), targetHost, result.TotalFound)
 			hostsMutex.Unlock()
 		}(host)
 	}
@@ -1031,9 +1031,9 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 	// Wait for all goroutines to complete
 	wg.Wait()
 
-	log.Printf("[OK] FFuf domain mode completed for %s", opts.Domain)
-	log.Printf("[INFO] Scanned %d hosts, found %d total results", hostsScanned, totalFound)
-	log.Printf("[INFO] Combined results saved to: %s", combinedOutputFile)
+	logger.GetLogger().Infof("[OK] FFuf domain mode completed for %s", opts.Domain)
+	logger.GetLogger().Infof("[INFO] Scanned %d hosts, found %d total results", hostsScanned, totalFound)
+	logger.GetLogger().Infof("[INFO] Combined results saved to: %s", combinedOutputFile)
 
 	return &Result{
 		Target:       opts.Domain,
@@ -1107,8 +1107,8 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		file.Close()
 	}
 
-	log.Printf("[INFO] Wordlist: %s", wordlistPath)
-	log.Printf("[INFO] Wordlist size: %d bytes, %d lines", wordlistSize, wordlistLines)
+	logger.GetLogger().Infof("[INFO] Wordlist: %s", wordlistPath)
+	logger.GetLogger().Infof("[INFO] Wordlist size: %d bytes, %d lines", wordlistSize, wordlistLines)
 
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1143,7 +1143,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	}
 	// Also set Wordlists for compatibility
 	conf.Wordlists = []string{absWordlist}
-	log.Printf("[DEBUG] FFuf config: URL=%s, Wordlist=%s, Threads=%d", conf.Url, absWordlist, conf.Threads)
+	logger.GetLogger().Infof("[DEBUG] FFuf config: URL=%s, Wordlist=%s, Threads=%d", conf.Url, absWordlist, conf.Threads)
 	// Config is logged above with wordlist info
 	conf.Recursion = opts.Recursion
 	if opts.RecursionDepth > 0 {
@@ -1240,17 +1240,17 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		if totalProvider, ok := inputProvider.(interface{ Total() int }); ok {
 			inputProviderTotal = totalProvider.Total()
 			pos := posProvider.Position()
-			log.Printf("[INFO] Input provider initialized: position=%d, total=%d", pos, inputProviderTotal)
+			logger.GetLogger().Infof("[INFO] Input provider initialized: position=%d, total=%d", pos, inputProviderTotal)
 			if inputProviderTotal == 0 {
 				return nil, fmt.Errorf("input provider has 0 total words - wordlist may not be loaded correctly")
 			}
 			// Warn if input provider total doesn't match wordlist line count
 			if wordlistLines > 0 && inputProviderTotal != wordlistLines {
-				log.Printf("[WARN] Input provider total (%d) doesn't match wordlist line count (%d) - this may be normal if wordlist has comments or empty lines", inputProviderTotal, wordlistLines)
+				logger.GetLogger().Infof("[WARN] Input provider total (%d) doesn't match wordlist line count (%d) - this may be normal if wordlist has comments or empty lines", inputProviderTotal, wordlistLines)
 			}
 		}
 	} else {
-		log.Printf("[INFO] Input provider initialized (cannot determine total count)")
+		logger.GetLogger().Infof("[INFO] Input provider initialized (cannot determine total count)")
 	}
 
 	// Setup runner
@@ -1279,7 +1279,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	webhookMessagesFile := filepath.Join(outputDir, "ffuf-webhook-messages.txt")
 	webhookFile, webhookErr := os.Create(webhookMessagesFile)
 	if webhookErr != nil {
-		log.Printf("[WARN] Failed to create webhook messages file: %v", webhookErr)
+		logger.GetLogger().Infof("[WARN] Failed to create webhook messages file: %v", webhookErr)
 		webhookFile = nil
 	}
 
@@ -1318,10 +1318,10 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		conf.Extensions = opts.Extensions
 	}
 
-	log.Printf("[INFO] Starting fuzzing: %s", opts.Target)
-	log.Printf("[INFO] Configuration: %d threads, wordlist: %d lines", opts.Threads, wordlistLines)
+	logger.GetLogger().Infof("[INFO] Starting fuzzing: %s", opts.Target)
+	logger.GetLogger().Infof("[INFO] Configuration: %d threads, wordlist: %d lines", opts.Threads, wordlistLines)
 	if inputProviderTotal > 0 {
-		log.Printf("[INFO] Will test %d payloads", inputProviderTotal)
+		logger.GetLogger().Infof("[INFO] Will test %d payloads", inputProviderTotal)
 	}
 
 	// Validate job is properly configured before starting
@@ -1348,15 +1348,15 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 		requestsPerSec = float64(inputProviderTotal) / duration.Seconds()
 	}
 
-	log.Printf("[INFO] Fuzzing completed in %v", duration)
+	logger.GetLogger().Infof("[INFO] Fuzzing completed in %v", duration)
 	if inputProviderTotal > 0 {
-		log.Printf("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
+		logger.GetLogger().Infof("[INFO] Tested %d/%d payloads (%.1f req/sec)", inputProviderTotal, inputProviderTotal, requestsPerSec)
 	}
-	log.Printf("[INFO] Found %d results", found)
+	logger.GetLogger().Infof("[INFO] Found %d results", found)
 
 	// Warn if job completed suspiciously fast (less than 1 second for large wordlist)
 	if duration < time.Second && wordlistSize > 100000 {
-		log.Printf("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
+		logger.GetLogger().Infof("[WARN] Job completed very quickly (%v) for large wordlist (%d bytes, %d lines) - this may indicate an issue", duration, wordlistSize, wordlistLines)
 	}
 
 	// Webhook file sending removed - files are now sent via utils.SendPhaseFiles from phase functions
@@ -1380,7 +1380,7 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 			customOutput.resultsMutex.Unlock()
 			if len(captured) > 0 {
 				if err := writeFfufJSON(scanID, captured); err != nil {
-					log.Printf("[WARN] Failed to write FFUF JSON (single): %v", err)
+					logger.GetLogger().Infof("[WARN] Failed to write FFUF JSON (single): %v", err)
 				}
 			}
 		}

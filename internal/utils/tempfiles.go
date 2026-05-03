@@ -87,6 +87,7 @@ func WriteTempHostFile(domain string) (path string, cleanup func(), err error) {
 // given domain, sourced from the database.
 //
 // Falls back to the on-disk all-subs.txt if the database has no entries.
+// The file is written to os.TempDir() and deleted by the returned cleanup function.
 func WriteTempSubsFile(domain string) (path string, cleanup func(), err error) {
 	cleanup = func() {}
 
@@ -140,8 +141,8 @@ func WriteTempSubsFile(domain string) (path string, cleanup func(), err error) {
 }
 
 // WriteTempURLFile creates an ephemeral file containing crawled URLs for the
-// given domain. URLs are read from the on-disk all-urls.txt for now;
-// a future version will query a URLs table in the DB.
+// given domain. URLs are read from the on-disk all-urls.txt.
+// The file is written to os.TempDir() and deleted by the returned cleanup function.
 func WriteTempURLFile(domain string) (path string, cleanup func(), err error) {
 	cleanup = func() {}
 
