@@ -10,6 +10,8 @@ package api
 // every scan called executeScan → exec.Command("autoar", ...).
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -17,6 +19,9 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
+
+// ErrScanCancelled is returned by RunScanInProcess when the user requested a stop.
+var ErrScanCancelled = errors.New("scan cancelled by user")
 
 // stdLog re-emits to both the global logger and the scan-local log bus.
 func stdLog(scanID, format string, args ...interface{}) {
@@ -46,14 +51,19 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		log.Printf("[runner] failed to create DB record for %s: %v", scanID, err)
 	}
 
+	// Create a cancel context so that CancelScanByID can interrupt this scan.
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx() // always release resources
+
 	ScansMutex.Lock()
 	ActiveScans[scanID] = &ScanInfo{
-		ScanID:    scanID,
-		Status:    "running",
-		ScanType:  scanType,
-		Target:    target,
-		StartedAt: startedAt,
-		Command:   fmt.Sprintf("inprocess:%s target=%s", scanType, target),
+		ScanID:     scanID,
+		Status:     "running",
+		ScanType:   scanType,
+		Target:     target,
+		StartedAt:  startedAt,
+		Command:    fmt.Sprintf("inprocess:%s target=%s", scanType, target),
+		CancelFunc: cancelCtx, // wired so CancelScanByID() can call it
 	}
 	ScansMutex.Unlock()
 
@@ -64,13 +74,45 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	// RunWorkflowPhase (called deep inside module fns) can look it up
 	// without an env var, even in concurrent in-process execution.
 	utils.SetGoroutineScanID(scanID)
-	err := fn()
+
+	// Run fn in a separate goroutine so we can watch the cancel context.
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+
+	var err error
+	select {
+	case err = <-done:
+		// fn finished normally (or with an error)
+	case <-ctx.Done():
+		// CancelScanByID was called — wait briefly for fn to acknowledge, then proceed
+		select {
+		case err = <-done:
+		case <-time.After(5 * time.Second):
+			// fn didn't return in time; treat as cancelled anyway
+		}
+		// Override any fn error with the cancellation sentinel
+		err = ErrScanCancelled
+	}
+
 	utils.ClearGoroutineScanID()
+
+	// Also honour the CancelRequested flag (set by CancelScanByID before calling cancelCtx).
+	ScansMutex.RLock()
+	si, ok := ActiveScans[scanID]
+	if ok && si != nil && si.CancelRequested {
+		err = ErrScanCancelled
+	}
+	ScansMutex.RUnlock()
 
 	completedAt := time.Now()
 	status := "completed"
 	errMsg := ""
-	if err != nil {
+	if errors.Is(err, ErrScanCancelled) {
+		status = "cancelled"
+		errMsg = "cancelled by user"
+		ScanLogf(scanID, "[%s] scan cancelled by user", scanType)
+		log.Printf("[runner] scan %s (%s) cancelled", scanID, scanType)
+	} else if err != nil {
 		status = "failed"
 		errMsg = err.Error()
 		ScanLogf(scanID, "[%s] scan FAILED: %v", scanType, err)

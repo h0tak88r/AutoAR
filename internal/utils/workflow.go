@@ -47,6 +47,12 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		return nil
 	}
 
+	// Bail out early if the user cancelled this scan between phases.
+	if IsScanCancelled(scanID) {
+		GetLogger().Infof("[CANCEL] %s — scan %s was cancelled; skipping remaining phases", description, scanID)
+		return fmt.Errorf("scan cancelled")
+	}
+
 	// Await occupancy in the worker pool
 	phaseSemaphore <- struct{}{}
 

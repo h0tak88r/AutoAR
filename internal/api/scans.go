@@ -9,12 +9,26 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
 var (
 	ActiveScans = make(map[string]*ScanInfo)
 	ScansMutex  sync.RWMutex
 )
+
+func init() {
+	// Register the cancel-check hook so utils.IsScanCancelled (called from
+	// RunWorkflowPhase) can inspect the api-layer CancelRequested flag without
+	// creating a circular import (utils → api is not allowed).
+	utils.RegisterCancelChecker(func(scanID string) bool {
+		ScansMutex.RLock()
+		defer ScansMutex.RUnlock()
+		si, ok := ActiveScans[scanID]
+		return ok && si != nil && si.CancelRequested
+	})
+}
 
 type ScanInfo struct {
 	ScanID      string
@@ -58,14 +72,26 @@ func CancelScanByID(id string) error {
 	scan.CancelRequested = true
 	ScansMutex.Unlock()
 
-	// If it's a child process, kill it
+	// If it's a child process, kill the entire process group so that
+	// sub-tools (nuclei, subfinder, etc.) are also terminated.
 	if scan.ExecCmd != nil && scan.ExecCmd.Process != nil {
-		log.Printf("[INFO] Killing child process for scan %s (pid %d)", id, scan.ExecCmd.Process.Pid)
-		// Send SIGTERM first, then SIGKILL if it doesn't stop
-		_ = scan.ExecCmd.Process.Signal(syscall.SIGTERM)
+		pid := scan.ExecCmd.Process.Pid
+		log.Printf("[INFO] Killing child process group for scan %s (pid %d)", id, pid)
+		// Since we set Setpgid=true, the child leads its own process group.
+		// Send SIGTERM to the group (negative pgid = group kill).
+		pgid, pgidErr := syscall.Getpgid(pid)
+		if pgidErr == nil {
+			_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		} else {
+			_ = scan.ExecCmd.Process.Signal(syscall.SIGTERM)
+		}
 		go func() {
 			time.Sleep(2 * time.Second)
-			_ = scan.ExecCmd.Process.Kill()
+			if pgidErr == nil {
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			} else {
+				_ = scan.ExecCmd.Process.Kill()
+			}
 		}()
 	}
 

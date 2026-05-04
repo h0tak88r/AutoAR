@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -1401,6 +1402,9 @@ func executeScan(scanID string, command []string, scanType string) {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
 	)
+	// Put the child in its own process group so that SIGTERM/SIGKILL can be
+	// sent to the whole tree (not just the direct child) on cancel.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	capture := newScanOutputCapture(scanOutputCaptureBytes)
 	// Stream output to console while capturing a bounded window.
 	multi := io.MultiWriter(os.Stdout, capture)
