@@ -313,8 +313,9 @@ func inferModuleFromFileName(name string) string {
 		return "subdomain-enum"
 	case strings.Contains(n, "live-subs"), strings.Contains(n, "httpx"), strings.Contains(n, "live-host"):
 		return "httpx"
-	case strings.Contains(n, "js-url") || strings.Contains(n, "jsurl"):
-		return "js-analysis"
+	// js-urls files are URL corpus lists (pipeline input), not JS analysis findings
+	case strings.Contains(n, "js-url") || strings.Contains(n, "jsurl") || strings.Contains(n, "js-enum"):
+		return "url-collection"
 	// GitHub TruffleHog aggregate — must win over generic "secret" substring match.
 	case strings.Contains(n, "github-secret") || strings.Contains(n, "github-secrets") || (strings.Contains(n, "github") && strings.Contains(n, "secret")):
 		return "github-scan"
@@ -1866,9 +1867,9 @@ func apiScanParsedResults(c *gin.Context) {
 		"kxss-results.txt":           "xss-reflection-vulnerabilities.json",
 		"exposure-findings.txt":      "exposure-vulnerabilities.json",
 		"wp-confusion-results.txt":   "wp-confusion-vulnerabilities.json",
-		// URL corpus files — never findings, always skip (uncommented to SHOW in URL tab)
-		// "urls.json":                      "__pipeline_input__",
-		// "js-urls.json":                   "__pipeline_input__",
+		// URL corpus files — never findings; these are pipeline inputs (lists of URLs/JS files to feed into later scanners)
+		"js-urls.json": "__pipeline_input__",
+		"js-urls.txt":  "__pipeline_input__",
 		// Subdomain / port list envelopes — raw line lists, not structured findings
 		// "subdomains.json":                "__pipeline_input__",
 		// "ports.json":                     "__pipeline_input__",

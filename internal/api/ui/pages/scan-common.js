@@ -97,7 +97,8 @@
     if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
     if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
     if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';
-    if (n.includes('js-urls') || n.includes('javascript')) return 'js-analysis';
+    // js-urls are URL corpus (pipeline input), not JS analysis findings
+    if (n.includes('js-urls') || n.includes('jsurl') || n.includes('js-enum')) return 'url-collection';
     // JS secret artifacts only (avoid matching trufflehog "secrets.json" via substring "secret")
     if (n.includes('js-secret') || n.includes('js-exposure')) return 'js-analysis';
     if (n.includes('apk') || n.includes('androidmanifest') || n.includes('jadx') || n.includes('dex')) return 'apkx';
