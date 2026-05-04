@@ -95,10 +95,32 @@ func apiScanAssets(c *gin.Context) {
 func buildAssets(scanID string) []AssetEntry {
 	byHost := map[string]*AssetEntry{}
 
+	// Load the scan record once so we can scope DB results to the right domain.
+	var scanTarget string
+	var scanType string
+	if scan, err := db.GetScan(scanID); err == nil && scan != nil {
+		scanTarget = normalizeHost(scan.Target)
+		scanType = scan.ScanType
+	}
+
+	// domainSuffix returns true if host belongs to the scanned domain.
+	// Empty scanTarget means we can't filter — accept everything.
+	belongsToScan := func(host string) bool {
+		if scanTarget == "" {
+			return true
+		}
+		host = strings.ToLower(strings.TrimSpace(host))
+		return host == scanTarget ||
+			strings.HasSuffix(host, "."+scanTarget)
+	}
+
 	getOrCreate := func(host string) *AssetEntry {
 		host = normalizeHost(host)
 		if host == "" {
 			return nil
+		}
+		if !belongsToScan(host) {
+			return nil // reject subdomains from unrelated domains
 		}
 		if e, ok := byHost[host]; ok {
 			return e
@@ -121,104 +143,50 @@ func buildAssets(scanID string) []AssetEntry {
 		return append(sl, v)
 	}
 
-	// ── 1. All subdomains ────────────────────────────────────────────────────
-	for _, name := range []string{
-		"all-subs.txt", "subdomains.txt", "enumerated-subs.txt",
-	} {
-		walkLines(scanID, name, func(line string) {
-			getOrCreate(line)
-		})
-	}
-	// Also read the new JSON envelope format (WriteLinesAsJSON: {items: ["sub1", ...]})
-	if raw, _, err := loadFileContent(scanID, "subdomains.json"); err == nil && len(raw) > 0 {
-		var wrapper map[string]interface{}
-		if json.Unmarshal(raw, &wrapper) == nil {
-			if items, ok := wrapper["items"].([]interface{}); ok {
-				for _, it := range items {
-					if s, ok := it.(string); ok {
-						getOrCreate(s)
-					}
-				}
-			}
-		}
-	}
 	// ── 1. Database-first discovery (Most complete source) ──────────────────
 	// For enumeration-style scans, pull the full record from the subdomains table.
-	if scan, err := db.GetScan(scanID); err == nil && scan.Target != "" {
-		st := scan.ScanType
-		subdomainScanTypes := map[string]bool{
-			"domain_run": true, "subdomain_run": true, "recon": true,
-			"subdomains": true, "livehosts": true, "dns_cf1016": true, "dns-cf1016": true,
-		}
-		if subdomainScanTypes[st] {
-			// The DB stores subdomains under the ROOT domain key, not a subdomain target.
-			// Try the scan target as-is first, then progressively strip labels until we
-			// find the key that exists in the domains table.
-			candidates := domainCandidates(scan.Target)
-			for _, candidate := range candidates {
-				dbEntries, err := db.ListSubdomainsWithStatus(candidate)
-				if err != nil || len(dbEntries) == 0 {
-					continue
-				}
-				for _, s := range dbEntries {
-					e := getOrCreate(s.Subdomain)
-					if e == nil { continue }
-					e.IsLive = s.IsLive
-					if s.HTTPSURL != "" {
-						e.URL = s.HTTPSURL
-					} else if s.HTTPURL != "" {
-						e.URL = s.HTTPURL
-					}
-					if s.HTTPSStatus > 0 {
-						e.StatusCode = s.HTTPSStatus
-					} else if s.HTTPStatus > 0 {
-						e.StatusCode = s.HTTPStatus
-					}
-					if s.Techs != "" {
-						for _, t := range strings.Split(s.Techs, ",") {
-							e.Technologies = appendUniq(e.Technologies, t)
-						}
-					}
-					if s.CNAMEs != "" {
-						for _, c := range strings.Split(s.CNAMEs, ",") {
-							e.CNAMEs = appendUniq(e.CNAMEs, c)
-						}
-					}
-				}
-				break // Found a match — stop trying candidates
+	subdomainScanTypes := map[string]bool{
+		"domain_run": true, "subdomain_run": true, "recon": true,
+		"subdomains": true, "livehosts": true, "dns_cf1016": true, "dns-cf1016": true,
+	}
+	if scanTarget != "" && subdomainScanTypes[scanType] {
+		// The DB stores subdomains under the ROOT domain key, not a subdomain target.
+		candidates := domainCandidates(scanTarget)
+		for _, candidate := range candidates {
+			dbEntries, err := db.ListSubdomainsWithStatus(candidate)
+			if err != nil || len(dbEntries) == 0 {
+				continue
 			}
-		}
-	}
-
-	// ── 2. Files fallback/enrichment ─────────────────────────────────────────
-	for _, name := range []string{
-		"all-subs.txt", "subdomains.txt", "enumerated-subs.txt",
-	} {
-		walkLines(scanID, name, func(line string) {
-			getOrCreate(line)
-		})
-	}
-	// Also read the new JSON envelope format (WriteLinesAsJSON: {items: ["sub1", ...]})
-	if raw, _, err := loadFileContent(scanID, "subdomains.json"); err == nil && len(raw) > 0 {
-		var wrapper map[string]interface{}
-		if json.Unmarshal(raw, &wrapper) == nil {
-			if items, ok := wrapper["items"].([]interface{}); ok {
-				for _, it := range items {
-					if s, ok := it.(string); ok {
-						getOrCreate(s)
+			for _, s := range dbEntries {
+				e := getOrCreate(s.Subdomain) // belongsToScan guard already in getOrCreate
+				if e == nil { continue }
+				e.IsLive = s.IsLive
+				if s.HTTPSURL != "" {
+					e.URL = s.HTTPSURL
+				} else if s.HTTPURL != "" {
+					e.URL = s.HTTPURL
+				}
+				if s.HTTPSStatus > 0 {
+					e.StatusCode = s.HTTPSStatus
+				} else if s.HTTPStatus > 0 {
+					e.StatusCode = s.HTTPStatus
+				}
+				if s.Techs != "" {
+					for _, t := range strings.Split(s.Techs, ",") {
+						e.Technologies = appendUniq(e.Technologies, t)
 					}
 				}
-			} else if items, ok := wrapper["subdomains"].([]interface{}); ok {
-				for _, it := range items {
-					if s, ok := it.(string); ok {
-						getOrCreate(s)
+				if s.CNAMEs != "" {
+					for _, c := range strings.Split(s.CNAMEs, ",") {
+						e.CNAMEs = appendUniq(e.CNAMEs, c)
 					}
 				}
 			}
+			break // Found a match — stop trying candidates
 		}
 	}
 
-	// ── 2. Live subdomains ───────────────────────────────────────────────────
+	// ── 2. Files enrichment ──────────────────────────────────────────────────
 	for _, name := range []string{
 		"live-subs.txt", "live-hosts.txt", "httpx.txt",
 	} {
