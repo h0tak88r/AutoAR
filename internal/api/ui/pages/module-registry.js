@@ -121,9 +121,11 @@
     ffuf: {
       columns: [
         { id: 'url',    label: 'URL',    flex: '3', type: 'link'        },
-        { id: 'status', label: 'STATUS', w: '76px', type: 'http-status', align: 'center' },
-        { id: 'word',   label: 'WORD',   flex: '1', type: 'mono'        },
-        { id: 'length', label: 'LENGTH', w: '80px', type: 'mono-muted', align: 'right'  },
+        { id: 'status', label: 'STATUS', w: '72px', type: 'http-status', align: 'center' },
+        { id: 'path',   label: 'PATH',   flex: '2', type: 'mono'        },
+        { id: 'size',   label: 'SIZE',   w: '72px', type: 'mono-muted', align: 'right'  },
+        { id: 'lines',  label: 'LINES',  w: '64px', type: 'mono-muted', align: 'right'  },
+        { id: 'words',  label: 'WORDS',  w: '64px', type: 'mono-muted', align: 'right'  },
       ],
       extract(r) {
         const raw = r.raw || {};
@@ -134,9 +136,11 @@
           const url = s(raw.matched_at || raw.url || r.target || '—');
           return {
             url:    { href: toHref(url), label: url },
-            status: s(raw.status_code || raw.status || r.status || r.status_code || '—'),
-            word:   s(raw.word || raw.input?.FUZZ || r.word || r.path || '—'),
-            length: s(raw.content_length || raw.length || r.content_length || '—'),
+            status: s(raw.status_code || raw.status || '—'),
+            path:   s(raw.word || raw.path || raw.input?.FUZZ || r.path || '—'),
+            size:   s(raw.content_length  ?? raw.length ?? '—'),
+            lines:  s(raw.content_lines   ?? '—'),
+            words:  s(raw.content_words   ?? '—'),
           };
         }
 
@@ -155,30 +159,32 @@
         // Strip trailing " (Size: ...)"
         url = url.replace(/\s*\(Size:.*$/, '').trim();
 
-        // Extract content-length from "(Size: NNN"
-        const sizeMatch = line.match(/Size:\s*(\d+)/);
-        const length = sizeMatch ? sizeMatch[1] : s(r.content_length || r.length || '—');
+        // Parse metrics from "(Size: N, Lines: N, Words: N)"
+        const sizeM  = line.match(/Size:\s*(\d+)/);
+        const linesM = line.match(/Lines:\s*(\d+)/);
+        const wordsM = line.match(/Words:\s*(\d+)/);
+        const size  = sizeM  ? sizeM[1]  : s(r.content_length || '—');
+        const lines = linesM ? linesM[1] : '—';
+        const words = wordsM ? wordsM[1] : '—';
 
-        // Derive word: always extract from the URL path — never use r.word/r.finding
-        // which may contain the full formatted line for old scans.
-        let word = '—';
-        if (url && url !== '—' && url.startsWith('http')) {
+        // Derive path from URL — always from URL, never from r.word/r.finding
+        let path = '—';
+        if (url && url.startsWith('http')) {
           try {
             const u = new URL(url);
-            const seg = u.pathname.split('/').filter(Boolean).pop();
-            if (seg) word = '/' + seg;
-            else if (u.pathname && u.pathname !== '/') word = u.pathname;
-            else word = '/';
-          } catch (_) { word = url; }
+            path = u.pathname || '/';
+          } catch (_) { path = url; }
         } else if (url && url !== '—') {
-          word = url;
+          path = url;
         }
 
         return {
           url:    { href: toHref(url), label: url },
           status,
-          word,
-          length,
+          path,
+          size,
+          lines,
+          words,
         };
       },
     },
