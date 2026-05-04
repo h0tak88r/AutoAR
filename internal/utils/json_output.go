@@ -92,31 +92,32 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		}
 
 		// Increment the scan findings counter so the Recent Scans listing shows a badge.
-		// Only count files that contain real findings (skip "no findings" placeholder writes).
+		// Blocklist approach: skip known recon/pipeline input files; count everything else.
+		// This ensures new scanners (dalfox, nuclei, custom tools) work without any code change.
 		isNoFindings := strings.Contains(fileName, "no-findings") ||
 			strings.Contains(fileName, "no_findings")
-		isVulnFile := strings.Contains(fileName, "vulnerab") ||
-			strings.Contains(fileName, "vuln") ||
-			strings.Contains(fileName, "secret") ||
-			strings.Contains(fileName, "bucket") ||
-			strings.Contains(fileName, "finding") ||
-			strings.Contains(fileName, "exploit") ||
-			strings.Contains(fileName, "takeover") ||
-			strings.Contains(fileName, "dangling") ||
-			strings.Contains(fileName, "cf1016") ||
-			strings.Contains(fileName, "exposure") ||
-			strings.Contains(fileName, "misconfig") ||
-			strings.Contains(fileName, "backup") ||
-			strings.Contains(fileName, "reflection") ||
-			strings.Contains(fileName, "ports.json") ||
-			strings.Contains(fileName, "gf-") ||
-			strings.Contains(fileName, "ffuf-results") ||
-			strings.Contains(fileName, "zeroday") ||
-			strings.Contains(fileName, "confusion") ||
-			strings.Contains(fileName, "s3-")
-		if isVulnFile && !isNoFindings && len(raw) > 10 {
+		// Recon data files — these are pipeline inputs, not vulnerability findings.
+		isReconFile := strings.Contains(fileName, "js-url") ||
+			strings.Contains(fileName, "js-urls") ||
+			strings.Contains(fileName, "all-url") ||
+			strings.Contains(fileName, "all-subs") ||
+			strings.Contains(fileName, "live-subs") ||
+			strings.Contains(fileName, "live-hosts") ||
+			strings.Contains(fileName, "livehosts") ||
+			strings.Contains(fileName, "subdomains") ||
+			strings.Contains(fileName, "enumerated-subs") ||
+			strings.Contains(fileName, "tech-detect") ||
+			strings.Contains(fileName, "cname-records") ||
+			strings.Contains(fileName, "cnames") ||
+			strings.Contains(fileName, "httpx") ||
+			strings.Contains(fileName, "wayback") ||
+			strings.Contains(fileName, "gospider") ||
+			strings.Contains(fileName, "interesting-urls") ||
+			strings.Contains(fileName, "nuclei-summary") ||
+			strings.Contains(fileName, "scan-manifest") ||
+			strings.Contains(fileName, "dns-takeover-vulnerabilities") // counted separately via WriteDNSTakeoverJSON
+		if !isReconFile && !isNoFindings && len(raw) > 10 {
 			// Count items in the JSON to get an accurate finding count.
-			// Try array root first, then look for common nested array keys.
 			findingCount := 0
 			var parsed interface{}
 			if jsonErr := json.Unmarshal(raw, &parsed); jsonErr == nil {
@@ -142,7 +143,6 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 			}
 			if findingCount > 0 {
 				// Use files_uploaded as a cumulative findings counter.
-				// Fetch the current value and add to it (best-effort; ignore errors).
 				if rec, dbErr := db.GetScan(artifact.ScanID); dbErr == nil && rec != nil {
 					_ = db.UpdateScanStats(artifact.ScanID, rec.FilesUploaded+findingCount, rec.ErrorCount)
 				}
