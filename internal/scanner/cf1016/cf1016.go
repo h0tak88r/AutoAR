@@ -191,7 +191,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// Update scan stats with the finding count so the UI can show results in the listing.
-	if scanID != "" {
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		_ = db.UpdateScanStats(scanID, len(findings), 0)
 	}
 
