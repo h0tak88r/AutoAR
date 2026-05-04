@@ -444,6 +444,10 @@ func SetupAPI() *gin.Engine {
 
 	reconcileStaleScansOnStartup()
 
+	// Backfill findings counts for old completed scans that predate the automatic counter.
+	// Runs in the background so it does not block server startup.
+	go utils.BackfillFindingsCounts()
+
 	// CORS middleware
 	r.Use(corsMiddleware())
 
@@ -505,6 +509,10 @@ func SetupAPI() *gin.Engine {
 		apiGroup.POST("/scans/:id/pause", apiPauseScan)
 		apiGroup.POST("/scans/:id/resume", apiResumeScan)
 		apiGroup.POST("/scans/:id/rescan", apiRescan)
+		apiGroup.POST("/scans/recount-findings", func(c *gin.Context) {
+			go utils.BackfillFindingsCounts()
+			c.JSON(http.StatusOK, gin.H{"status": "backfill started"})
+		})
 		apiGroup.GET("/monitor/targets", apiMonitorTargets)
 		apiGroup.GET("/monitor/subdomain-targets", apiSubdomainMonitorTargets)
 		apiGroup.GET("/monitor/changes", apiMonitorChanges)
