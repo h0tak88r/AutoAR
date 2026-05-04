@@ -140,6 +140,9 @@ type DB interface {
 	SetSetting(key, value string) error
 	GetAllSettings() (map[string]string, error)
 
+	// UpdateScanStats updates the counts for findings/files and errors.
+	UpdateScanStats(scanID string, filesUploaded, errorCount int) error
+
 	// Close closes the database connection
 	Close()
 }

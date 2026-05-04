@@ -190,6 +190,11 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
+	// Update scan stats with the finding count so the UI can show results in the listing.
+	if scanID != "" {
+		_ = db.UpdateScanStats(scanID, len(findings), 0)
+	}
+
 	logger.GetLogger().Infof("[cf1016] Done. Found %d dangling Cloudflare 1016 records", len(findings))
 
 	return &Result{Findings: findings}, nil

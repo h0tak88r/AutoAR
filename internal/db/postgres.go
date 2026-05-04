@@ -1923,6 +1923,19 @@ func (p *PostgresDB) GetAllSettings() (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// UpdateScanStats updates the counts for findings/files and errors.
+func (p *PostgresDB) UpdateScanStats(scanID string, filesUploaded, errorCount int) error {
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE scans SET
+			files_uploaded = $1,
+			error_count = $2,
+			last_update = NOW(),
+			updated_at = NOW()
+		WHERE scan_id = $3
+	`, filesUploaded, errorCount, scanID)
+	return err
+}
+
 // Close closes the database connection pool
 func (p *PostgresDB) Close() {
 	if p.pool != nil {
