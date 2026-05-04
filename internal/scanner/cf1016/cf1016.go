@@ -318,8 +318,18 @@ func scanConcurrent(subdomains []string, threads int, timeout time.Duration) []F
 	return findings
 }
 
-// checkSubdomain resolves the subdomain, checks whether all IPs belong to
-// Cloudflare, and if so performs an HTTP probe to detect error code 1016.
+// checkSubdomain probes the subdomain via HTTP and returns a Finding if the
+// response body contains the exact Cloudflare 1016 error page signature.
+//
+// Detection strategy (body-first):
+//  1. HTTP GET the subdomain (HTTPS then HTTP fallback).
+//  2. Check the response body for exact CF-1016 markers.
+//  3. Confirm the IPs are Cloudflare-owned (prevents false positives where
+//     a non-CF server happens to return text containing "1016").
+//
+// This avoids false positives like matrix.paysera.com which resolves to CF IPs
+// but returns a legitimate redirect — its body does NOT contain the CF-1016
+// error markers so it is correctly skipped.
 func checkSubdomain(subdomain string, timeout time.Duration) (Finding, bool) {
 	subdomain = strings.TrimPrefix(subdomain, "http://")
 	subdomain = strings.TrimPrefix(subdomain, "https://")
@@ -328,78 +338,90 @@ func checkSubdomain(subdomain string, timeout time.Duration) (Finding, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	ips, err := net.DefaultResolver.LookupHost(ctx, hostname)
-	if err != nil || len(ips) == 0 {
-		return Finding{}, false
-	}
-
-	// All IPs must be Cloudflare IPs for this to be a CF-proxied host.
-	allCF := true
-	for _, rawIP := range ips {
-		ip := net.ParseIP(rawIP)
-		if ip == nil {
-			allCF = false
-			break
-		}
-		inCF := false
-		for _, network := range cfNets {
-			if network.Contains(ip) {
-				inCF = true
-				break
-			}
-		}
-		if !inCF {
-			allCF = false
-			break
-		}
-	}
-
-	if !allCF {
-		return Finding{}, false
-	}
-
-	// At least one IP is Cloudflare — probe HTTP for error code 1016.
+	// ── Step 1: HTTP probe (body is the ground truth) ─────────────────────
 	client := &http.Client{
 		Timeout: timeout,
+		// Do NOT follow redirects — a CF-1016 page is never behind a redirect.
+		// Stopping at the first response also avoids hitting legitimate pages
+		// that sit behind CF load-balancers.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > 3 {
-				return http.ErrUseLastResponse
-			}
-			return nil
+			return http.ErrUseLastResponse
 		},
 	}
 
-	url := "https://" + hostname + "/"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return Finding{}, false
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
+	var resp *http.Response
+	var httpErr error
 
-	resp, err := client.Do(req)
-	if err != nil {
-		// Try plain HTTP as backup
-		url = "http://" + hostname + "/"
-		req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err2 != nil {
-			return Finding{}, false
-		}
-		req2.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
-		resp, err = client.Do(req2)
+	for _, scheme := range []string{"https", "http"} {
+		url := scheme + "://" + hostname + "/"
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return Finding{}, false
+			continue
 		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
+		resp, httpErr = client.Do(req)
+		if httpErr == nil {
+			break
+		}
+	}
+	if httpErr != nil || resp == nil {
+		return Finding{}, false
 	}
 	defer resp.Body.Close()
 
-	// Read up to 8 KB of body to look for the 1016 error string.
+	// Read up to 8 KB — the CF error page is small and always above the fold.
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	body := string(bodyBytes)
 
-	// Cloudflare embeds "error code: 1016" or "Origin DNS Error" in the HTML body.
-	bodyUpper := strings.ToUpper(body)
-	if !strings.Contains(body, "1016") && !strings.Contains(bodyUpper, "ORIGIN DNS ERROR") {
+	// ── Step 2: Strict body check — must match the exact CF-1016 wording ──
+	// Cloudflare's error page contains these strings verbatim:
+	//   "error code: 1016"   (plain-text / curl output)
+	//   "Error 1016"         (HTML title / heading)
+	//   "Origin DNS error"   (subtitle on the HTML page)
+	//
+	// We require EITHER the plain-text marker OR both HTML markers to be
+	// present. A page that only contains "1016" as a number (version, port,
+	// etc.) will NOT match.
+	bodyLower := strings.ToLower(body)
+	isCF1016 := strings.Contains(bodyLower, "error code: 1016") ||
+		(strings.Contains(bodyLower, "error 1016") && strings.Contains(bodyLower, "origin dns error"))
+
+	if !isCF1016 {
 		return Finding{}, false
+	}
+
+	// ── Step 3: Confirm Cloudflare via DNS (secondary sanity check) ────────
+	// If the body matched but IPs are NOT Cloudflare's, it's something odd —
+	// log it but do not report as a CF-1016 finding.
+	ips, dnsErr := net.DefaultResolver.LookupHost(ctx, hostname)
+	if dnsErr != nil || len(ips) == 0 {
+		// DNS failed after body already matched — still report (body is truth).
+		ips = []string{"(dns-lookup-failed)"}
+	} else {
+		allCF := true
+		for _, rawIP := range ips {
+			ip := net.ParseIP(rawIP)
+			if ip == nil {
+				allCF = false
+				break
+			}
+			inCF := false
+			for _, network := range cfNets {
+				if network.Contains(ip) {
+					inCF = true
+					break
+				}
+			}
+			if !inCF {
+				allCF = false
+				break
+			}
+		}
+		if !allCF {
+			// Body matched CF-1016 but IPs are not Cloudflare — unusual, skip.
+			logger.GetLogger().Infof("[cf1016] Body matched CF-1016 on %s but IPs %v are not all Cloudflare — skipping", hostname, ips)
+			return Finding{}, false
+		}
 	}
 
 	logger.GetLogger().Infof("[cf1016] FOUND dangling record: %s -> %v (HTTP %d, error code: 1016)", hostname, ips, resp.StatusCode)
