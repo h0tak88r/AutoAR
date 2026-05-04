@@ -596,6 +596,16 @@ func CountScansWithTargetExcluding(excludeScanID, target string) (int, error) {
 	return dbInstance.CountScansWithTargetExcluding(excludeScanID, target)
 }
 
+// UpdateScanStats updates the counts for findings/files and errors.
+func UpdateScanStats(scanID string, filesUploaded, errorCount int) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateScanStats(scanID, filesUploaded, errorCount)
+}
+
 // Close closes the database connection pool
 func Close() {
 	if dbInstance != nil {

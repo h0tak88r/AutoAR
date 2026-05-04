@@ -149,7 +149,12 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px">
           <span style="font-size:11px;color:var(--text-muted)">Phase ${currentPhase}${totalPhases > 0 ? '/' + totalPhases : ''} · ${pct}%</span>
           <div style="display:flex;gap:10px;align-items:center">
-            ${filesUploaded > 0 ? `<span style="font-size:10px;color:var(--text-muted)">📁 ${filesUploaded} files</span>` : ''}
+            ${(() => {
+    const isFindingType = ['dns_cf1016', 'dns-cf1016', 'nuclei', 'misconfig', 's3', 'github', 'github_org', 'zerodays', 'jwt'].includes(scanType);
+    const label = isFindingType ? (filesUploaded === 1 ? 'finding' : 'findings') : (filesUploaded === 1 ? 'file' : 'files');
+    const icon = isFindingType ? '🎯' : '📁';
+    return filesUploaded > 0 ? `<span style="font-size:10px;color:var(--text-muted)">${icon} ${filesUploaded} ${label}</span>` : '';
+  })()}
             ${errorCount > 0 ? `<span style="font-size:10px;color:#f59e0b">⚠ ${errorCount} error${errorCount !== 1 ? 's' : ''}</span>` : ''}
             ${lastUpdate ? `<span style="font-size:10px;color:var(--text-muted)" title="${window.esc(lastUpdate)}">updated ${elapsedStr(lastUpdate)} ago</span>` : ''}
           </div>
@@ -213,9 +218,14 @@
     const badge = window.statusBadge(status);
     const elapsed = completedAt ? elapsedBetween(startedAt, completedAt) : elapsedStr(startedAt);
     const scanID = s.scan_id || s.ScanID || '';
+    const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
+    const isFindingType = ['dns_cf1016', 'dns-cf1016', 'nuclei', 'misconfig', 's3', 'github', 'github_org', 'zerodays', 'jwt'].includes(scanType);
+    const label = isFindingType ? 'findings' : 'files';
+    const icon = isFindingType ? '🎯' : '📁';
+    const badgeHtml = filesUploaded > 0 ? `<span class="badge badge-running" style="font-size:10px;padding:2px 6px;margin-bottom:4px;display:inline-block;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);color:var(--accent-cyan);cursor:help" title="${filesUploaded} ${label} identified">${icon} ${filesUploaded} ${label}</span><br/>` : '';
     const resultsCell = resultURL
-      ? `<a href="${window.esc(resultURL)}" target="_blank" onclick="event.stopPropagation()" class="scan-result-link">Download</a>`
-      : `<button type="button" class="scan-control-btn-r2" onclick='event.stopPropagation();browseR2ForScan(${JSON.stringify(target)}, ${JSON.stringify(scanType)})'>Browse R2</button>`;
+      ? `${badgeHtml}<a href="${window.esc(resultURL)}" target="_blank" onclick="event.stopPropagation()" class="scan-result-link">Download</a>`
+      : `${badgeHtml}<button type="button" class="scan-control-btn-r2" onclick='event.stopPropagation();browseR2ForScan(${JSON.stringify(target)}, ${JSON.stringify(scanType)})'>Browse R2</button>`;
     const running = ['running', 'starting', 'paused'].includes(statusLc);
     const rescanBtn = !running
       ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.35);color:var(--accent-emerald)" onclick='event.stopPropagation();rescanScan(${JSON.stringify(scanID)})' title="Re-run with same command">🔁 Rescan</button>`

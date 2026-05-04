@@ -1862,6 +1862,19 @@ func (s *SQLiteDB) GetAllSettings() (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// UpdateScanStats updates the counts for findings/files and errors.
+func (s *SQLiteDB) UpdateScanStats(scanID string, filesUploaded, errorCount int) error {
+	_, err := s.db.Exec(`
+		UPDATE scans SET
+			files_uploaded = ?,
+			error_count = ?,
+			last_update = datetime('now'),
+			updated_at = datetime('now')
+		WHERE scan_id = ?
+	`, filesUploaded, errorCount, scanID)
+	return err
+}
+
 // Close closes the database connection
 func (s *SQLiteDB) Close() {
 	if s.db != nil {
