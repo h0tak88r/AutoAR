@@ -1,0 +1,334 @@
+# AutoAR — Architecture, Code & UI Review
+
+## Executive Summary
+AutoAR is a well-built, feature-rich bug-bounty automation platform. The foundation is solid:
+good Go module structure, a pluggable dual-DB backend (SQLite/PostgreSQL), a real-time SPA,
+and 40+ security modules. The areas that need the most attention are **API layer bloat**,
+**frontend JS architecture** (coupling/size), **CSS hygiene**, and **observability gaps**.
+
+---
+
+## 🏗️ Backend — Architecture
+
+### ✅ Strengths
+- **Clean package boundaries** — `internal/db`, `internal/utils`, `internal/r2storage`,
+  `internal/brain` are well-separated with a clear dependency direction.
+- **Pluggable DB interface** (`db.DB`) allows SQLite and Postgres with zero callsite changes.
+- **Structured logging** via `internal/logger` (just completed) — correct pattern.
+- **Graceful shutdown** (`utils/shutdown.go`) and metrics (`utils/metrics.go`) show production maturity.
+- **Concurrency primitives** — `RetryWithBackoff`, `ConcurrentFileUploader`, goroutine-local
+  scan IDs (`scancontext.go`) are solid patterns.
+
+### 🔴 Critical — API Layer God-File
+`internal/api/api.go` is **2,229 lines** and `scan_results_api.go` is **66 kB**. This is a
+serious maintainability risk.
+
+**What to do:**
+```
+internal/api/
+  api.go           → keep only gin router setup & middleware (target < 200 lines)
+  handlers/
+    scan.go        → scan CRUD + lifecycle endpoints
+    domain.go      → domain/subdomain endpoints
+    monitor.go     → monitor endpoints
+    r2.go          → R2 storage endpoints
+    settings.go    → settings/config endpoints
+    assets.go      → static file serving
+```
+
+### 🔴 Critical — Remaining Circular Dependency Risk
+`internal/utils/file.go` and `internal/utils/json_output.go` still import `internal/db`
+and `internal/r2storage`. This means `utils` is not a leaf package. If `db` ever needs a
+utility it creates another cycle.
+
+**Fix:** Move `WriteAndIndexResult`-style functions that straddle db+r2storage into a new
+`internal/pipeline` or `internal/indexer` package, keeping `utils` pure.
+
+### 🟡 Medium — Scanner Package Naming Inconsistency
+You have both `internal/scanner/subdomains/` and `internal/scanner/subdomain/` (singular vs
+plural). Same for `domain/` vs `domains/`. Pick one convention and stick to it. This causes
+confusion when searching for code.
+
+### 🟡 Medium — No Context Propagation in Scanners
+Most scanner `Run()` functions take domain/options but no `context.Context`. This means you
+can't cleanly cancel a running scan from the API without the current `os.Process.Kill()` hack.
+
+**Fix:**
+```go
+// Before
+func Run(opts Options) (*Result, error)
+
+// After
+func Run(ctx context.Context, opts Options) (*Result, error)
+```
+
+### 🟡 Medium — Missing DB Migrations
+Both `sqlite.go` and `postgres.go` run `CREATE TABLE IF NOT EXISTS` inline. This works for
+new installs but gives you no ordered migration history, making production schema changes
+risky.
+
+**Recommendation:** Adopt `golang-migrate/migrate` or `pressly/goose` with numbered migration
+files under `internal/db/migrations/`.
+
+### 🟢 Low — HTTP Client Pooling
+`internal/utils/http.go` creates a new `http.Client` on every call in some scanners. The
+client should be a package-level singleton with connection pool tuning:
+```go
+var sharedClient = &http.Client{
+    Timeout: 30 * time.Second,
+    Transport: &http.Transport{
+        MaxIdleConns:        200,
+        MaxIdleConnsPerHost: 50,
+        IdleConnTimeout:     90 * time.Second,
+    },
+}
+```
+
+### 🟢 Low — Two Logging Libraries (`logrus` + `zerolog`)
+`go.mod` includes both `github.com/sirupsen/logrus` and `github.com/rs/zerolog`. You've
+standardised on logrus. Remove zerolog to reduce binary size and avoid confusion.
+
+---
+
+## 🗄️ Database Layer
+
+### ✅ Good
+- Interface-driven design (`db.DB`) is excellent.
+- WAL mode + connection pool config on SQLite is correct.
+- `EnsureSchema` with `sync.Once` prevents repeated migrations on every API call.
+
+### 🔴 Critical — Duplicate Implementations
+`sqlite.go` is **1,871 lines** and `postgres.go` is **62 kB**. These two files implement
+the same interface with near-identical logic (just different SQL dialects). ~70% of the code
+is duplicated.
+
+**Fix:** Extract shared query-building logic into a `internal/db/base.go` that both
+implementations compose. Use `sqlx` or a minimal query helper to reduce repetition.
+
+### 🟡 Medium — No Query Parameterisation Audit
+A quick grep shows some dynamic string concatenation in list queries. All user-supplied values
+(domain names, search strings) must go through parameterised queries. Do a security audit of
+every place you build a SQL string.
+
+### 🟡 Medium — `GlobalSubdomain` exposes raw DB struct to HTTP
+`db.GlobalSubdomain` is serialised directly in API responses. You should have a separate
+DTO/response struct in the API layer so DB schema changes don't silently change the API
+contract.
+
+---
+
+## 🌐 Frontend — JavaScript Architecture
+
+### ✅ Good
+- **Modular IIFE pattern** — each page wraps itself in `(() => { ... })()`, preventing
+  global namespace pollution.
+- **`window.PageName = { ... }` export pattern** — allows inter-module calls without
+  a bundler. Clean for a no-build setup.
+- Consistent use of `esc()` / `escAttr()` for XSS prevention.
+- Good separation of concerns across 40 page modules.
+
+### 🔴 Critical — `scan-detail.js` is 91 kB / 1,443 lines
+This single file handles scan summary, file grid, live log streaming, manifest rendering,
+filter wiring, and rescan logic. It will become unmaintainable.
+
+**Split into:**
+```
+scan-detail-header.js    → title, badges, action buttons
+scan-detail-files.js     → file grid + pagination
+scan-detail-live-log.js  → WebSocket/SSE log stream
+scan-detail-manifest.js  → manifest card
+```
+
+### 🔴 Critical — Inline Styles Everywhere
+`index.html` and JS files contain thousands of hardcoded `style="..."` attributes like:
+```html
+<button style="font-size:12px;min-width:108px;border-color:var(--accent-cyan);color:var(--accent-cyan)">
+```
+This makes the design inconsistent and impossible to theme. Every style should be a CSS class.
+
+**Example fix:**
+```css
+/* styles.css */
+.btn-export-csv {
+  font-size: 12px;
+  min-width: 108px;
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+```
+```html
+<!-- index.html -->
+<button class="btn btn-ghost btn-export-csv">📥 Export CSV</button>
+```
+
+### 🔴 Critical — `findings-rows.js` — Massive Template Strings
+Lines like 106–107 are **single-line strings over 2,000 characters long** containing HTML,
+inline styles, and event handlers. This is completely unreadable and a debugging nightmare.
+
+**Fix:** Use a `buildElement()` helper or DOM API:
+```js
+function buildNucleiDetailPanel({ matchedAt, description, curlCmd }) {
+  const panel = document.createElement('div');
+  panel.className = 'nuclei-detail-panel';
+  // ... proper DOM construction
+  return panel;
+}
+```
+
+### 🟡 Medium — 40 Sequential `<script>` Tags, No Bundling
+The browser makes 40+ serial HTTP requests for JS on every page load. Even with HTTP/2
+multiplexing this adds latency and parsing time.
+
+**Options (in effort order):**
+1. **Quick win:** Concatenate all page scripts into one `pages.bundle.js` as a Makefile step.
+2. **Proper:** Use esbuild (< 1s builds, zero config) to bundle and minify.
+3. **Future:** Consider Vite if the project grows further.
+
+### 🟡 Medium — `window.state` Global Mutation
+State is stored on `window.state` and mutated from any module. There's no single source of
+truth for, e.g., the current scan ID. This makes debugging hard when multiple modules write
+to the same key.
+
+**Recommendation:** Introduce a minimal event bus:
+```js
+// state.js
+const _state = {};
+const _listeners = {};
+function setState(key, val) {
+  _state[key] = val;
+  (_listeners[key] || []).forEach(fn => fn(val));
+}
+function onState(key, fn) { (_listeners[key] = _listeners[key] || []).push(fn); }
+```
+
+### 🟡 Medium — Polling vs. WebSocket
+`polling.js` runs `setInterval`-based polling for scan updates. The backend already has SSE
+infrastructure (`scan_logbus.go`). Using SSE for the scan list and active scan progress would
+give real-time updates with less load than frequent polls.
+
+### 🟢 Low — `onclick` in HTML Attributes
+Several buttons use `onclick="someGlobal()"` in HTML:
+```html
+<button onclick="promptRunGlobalNuclei()">
+```
+This requires all functions to be on `window` and couples HTML to JS names. Use
+`addEventListener` in the module instead.
+
+---
+
+## 🎨 UI / CSS
+
+### ✅ Strengths
+- **Excellent design system** — CSS custom properties for all colours, spacing, and
+  transitions is exactly right.
+- **Responsive sidebar** with metrics bar and connection status — polished.
+- **Premium dark theme** — glassmorphism cards, gradient accents, micro-animations (hover
+  lift, badge pulse) are well done.
+- **JetBrains Mono** for code/domain names is a great choice.
+- Sticky table headers, smooth skeleton loaders, badge system all look great.
+
+### 🟡 Medium — No Responsive/Mobile Layout
+The sidebar is fixed-width with no collapse mechanism. On viewports under 900px the layout
+breaks. While this is a dashboard (mostly desktop), adding a hamburger-collapse sidebar would
+make it usable on laptops and tablets.
+
+```css
+@media (max-width: 900px) {
+  .sidebar { width: 60px; }
+  .sidebar .nav-item span:not(.nav-icon) { display: none; }
+  .logo-text, .logo-version { display: none; }
+}
+```
+
+### 🟡 Medium — `styles.css` is 3,598 Lines — No Organization
+The CSS file is a single flat file with no section demarcation beyond comments.
+
+**Recommendation (for a no-build setup, just split files):**
+```
+styles/
+  base.css        → reset, typography, scrollbar
+  layout.css      → shell, sidebar, topbar, content
+  components.css  → cards, badges, tables, buttons
+  scan.css        → scan detail, phase progress
+  r2.css          → R2 browser
+  auth.css        → login gate
+  animations.css  → keyframes
+  premium.css     → glassmorphism, glow effects
+```
+
+### 🟡 Medium — Emoji Icons vs. SVG Icons
+Navigation uses emoji (⚡📡🌐🔗👁️🎯🔑🤖🍏⚙️) which render inconsistently across
+OS/browser and don't scale cleanly. Replace with a small SVG icon set (e.g. Lucide, which
+is < 2 kB tree-shaken).
+
+### 🟢 Low — `version` is Hardcoded in HTML
+```html
+<div class="logo-version">v4.1.0</div>
+```
+This should be injected at build time or fetched from `/api/version` on load.
+
+### 🟢 Low — No Loading Indicator for Initial Bootstrap
+On first load, there's no global loading spinner before modules initialise. Users see blank
+areas until the JS poll completes. A CSS-only skeleton that's visible before JS runs would
+improve perceived performance.
+
+---
+
+## 🧪 Testing
+
+### ✅ Good
+- `utils_test.go` has solid unit tests: errors, cache, rate limiter, retry, concurrency,
+  scan context, logger — all covered.
+
+### 🔴 Critical — Zero Tests for Core Business Logic
+There are no tests for:
+- Any scanner module (subdomain enum, nuclei, ffuf, etc.)
+- Any API handler
+- The DB layer (no integration tests)
+- The brain/AI command pipeline
+
+**Minimum viable test plan:**
+1. **DB layer:** Use SQLite in-memory (`":memory:"`) for integration tests of all CRUD ops.
+2. **API handlers:** Use `httptest.NewRecorder()` + `gin.New()` to test each route.
+3. **Scanner logic:** Test the parsing/result-processing functions separately from the CLI invocation.
+
+---
+
+## 🔒 Security
+
+### 🟡 Medium — JWT Secret Fallback
+If `JWT_SECRET` env var is not set, `local_auth.go` falls back to a hardcoded or weak
+default. Make startup fail loudly if no secret is configured in production:
+```go
+secret := os.Getenv("JWT_SECRET")
+if secret == "" {
+    log.Fatal("JWT_SECRET must be set")
+}
+```
+
+### 🟡 Medium — CORS Allows All Origins
+The CORS middleware in `api.go` allows `*` by default. In production this should be
+restricted to the dashboard's own origin.
+
+### 🟢 Low — `.env` in `.gitignore` ✅
+Already done — good.
+
+---
+
+## Prioritised Action Plan
+
+| Priority | Item | Effort | Impact |
+|---|---|---|---|
+| 🔴 | Split `api.go` + `scan_results_api.go` into handlers | Medium | Maintainability |
+| 🔴 | Split `scan-detail.js` (91 kB) into focused modules | Medium | Frontend |
+| 🔴 | Add DB integration tests (SQLite in-memory) | Medium | Reliability |
+| 🔴 | Eliminate inline `style=` from HTML/JS | Large | Design consistency |
+| 🟡 | Deduplicate SQLite/Postgres implementations | Large | DB maintainability |
+| 🟡 | Move DB migration to versioned files (goose) | Medium | Ops |
+| 🟡 | Add `context.Context` to scanner `Run()` functions | Medium | Cancellation |
+| 🟡 | Bundle JS files (even a simple Makefile cat) | Small | Performance |
+| 🟡 | Add collapsible sidebar for tablet support | Small | UX |
+| 🟡 | Replace emoji nav icons with SVG | Small | Design |
+| 🟢 | Remove `zerolog` dependency | Trivial | Binary size |
+| 🟢 | Inject version from API instead of hardcoding HTML | Small | Ops |
+| 🟢 | HTTP client singleton in scanners | Small | Performance |

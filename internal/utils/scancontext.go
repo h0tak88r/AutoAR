@@ -60,3 +60,22 @@ func GetCurrentScanID() string {
 	}
 	return os.Getenv("AUTOAR_CURRENT_SCAN_ID")
 }
+
+// isCancelledFn is a hook registered by the api package to avoid a circular
+// import. utils → api is not allowed; api → utils is fine.
+var isCancelledFn func(scanID string) bool
+
+// RegisterCancelChecker lets the api package inject its cancel-check function
+// once at startup. Safe for concurrent reads after the initial registration.
+func RegisterCancelChecker(fn func(scanID string) bool) {
+	isCancelledFn = fn
+}
+
+// IsScanCancelled reports whether the scan with the given ID has been cancelled.
+// Returns false if no cancel checker has been registered.
+func IsScanCancelled(scanID string) bool {
+	if isCancelledFn == nil || scanID == "" {
+		return false
+	}
+	return isCancelledFn(scanID)
+}
