@@ -219,19 +219,42 @@ func loadSubdomains(opts Options) ([]string, error) {
 			}
 		}
 
-		// Fallback: If no files exist but domain is provided, perform auto-enumeration
+		// No file on disk — try the database next (fast, no network).
+		if filePath == "" {
+			if dbSubs, dbErr := loadSubdomainsFromDB(opts.Domain); dbErr == nil && len(dbSubs) > 0 {
+				logger.GetLogger().Infof("[cf1016] Loaded %d subdomains from DB for %s", len(dbSubs), opts.Domain)
+				return dbSubs, nil
+			}
+		}
+
+		// Last resort: auto-enumerate via passive DNS / subfinder.
 		if filePath == "" {
 			logger.GetLogger().Infof("[cf1016] No subdomain file found for %s, performing auto-enumeration...", opts.Domain)
 			subs, err := subdomains.EnumerateSubdomains(opts.Domain, 100)
 			if err == nil && len(subs) > 0 {
 				logger.GetLogger().Infof("[cf1016] Auto-enumerated %d subdomains for %s", len(subs), opts.Domain)
+				// Persist to disk so future scans and retries can use the file.
+				subsDir := filepath.Join(resultsDir, opts.Domain, "subs")
+				if mkErr := os.MkdirAll(subsDir, 0755); mkErr == nil {
+					allSubsPath := filepath.Join(subsDir, "all-subs.txt")
+					var lines strings.Builder
+					for _, s := range subs {
+						lines.WriteString(s)
+						lines.WriteByte('\n')
+					}
+					_ = os.WriteFile(allSubsPath, []byte(lines.String()), 0644)
+					logger.GetLogger().Infof("[cf1016] Wrote %d subdomains to %s", len(subs), allSubsPath)
+				}
 				return subs, nil
+			}
+			if err != nil {
+				logger.GetLogger().Infof("[cf1016] Auto-enumeration failed for %s: %v", opts.Domain, err)
 			}
 		}
 	}
 
 	if filePath == "" {
-		return nil, fmt.Errorf("no subdomains found for domain %q; ensure subdomains are enumerated or provide a file", opts.Domain)
+		return nil, fmt.Errorf("no subdomains found for domain %q; run a subdomain enumeration scan first or provide a subdomains file", opts.Domain)
 	}
 
 	f, err := os.Open(filePath)
@@ -249,6 +272,14 @@ func loadSubdomains(opts Options) ([]string, error) {
 		}
 	}
 	return subs, sc.Err()
+}
+
+// loadSubdomainsFromDB loads previously-enumerated subdomains from the database.
+func loadSubdomainsFromDB(domain string) ([]string, error) {
+	if err := db.Init(); err != nil {
+		return nil, err
+	}
+	return db.ListSubdomains(domain)
 }
 
 func scanConcurrent(subdomains []string, threads int, timeout time.Duration) []Finding {
