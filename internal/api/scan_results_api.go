@@ -589,9 +589,14 @@ func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 		}
 	}
 
-	// Fall back to bare filename if no artifact record found
+       	// Fall back to bare filename if no artifact record found.
+	// IMPORTANT: Only use a bare key if we have a scan-scoped prefix to avoid
+	// returning files from other scans/domains (e.g. "all-subs.txt" globally).
 	if r2Key == "" {
-		r2Key = fileName
+		// No indexed artifact — do NOT fall back to bare filename; that would
+		// return the last file uploaded globally under that name, which can
+		// cross-contaminate scans from different domains.
+		return nil, "", fmt.Errorf("file not found in scan artifacts: %s", fileName)
 	}
 
 	data, err := r2storage.GetObjectBytes(r2Key)
