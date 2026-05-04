@@ -159,15 +159,19 @@
         const sizeMatch = line.match(/Size:\s*(\d+)/);
         const length = sizeMatch ? sizeMatch[1] : s(r.content_length || r.length || '—');
 
-        // Derive word: last path segment of the URL
-        let word = s(r.word || raw.word || r.path || '—');
-        if (word === '—' && url && url !== '—') {
+        // Derive word: always extract from the URL path — never use r.word/r.finding
+        // which may contain the full formatted line for old scans.
+        let word = '—';
+        if (url && url !== '—' && url.startsWith('http')) {
           try {
             const u = new URL(url);
             const seg = u.pathname.split('/').filter(Boolean).pop();
             if (seg) word = '/' + seg;
             else if (u.pathname && u.pathname !== '/') word = u.pathname;
-          } catch (_) {}
+            else word = '/';
+          } catch (_) { word = url; }
+        } else if (url && url !== '—') {
+          word = url;
         }
 
         return {
