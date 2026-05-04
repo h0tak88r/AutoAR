@@ -70,14 +70,17 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
 	ScanLogf(scanID, "[%s] scan started for %s", scanType, target)
 
-	// Register the scan ID in the goroutine-local registry so that
-	// RunWorkflowPhase (called deep inside module fns) can look it up
-	// without an env var, even in concurrent in-process execution.
-	utils.SetGoroutineScanID(scanID)
-
 	// Run fn in a separate goroutine so we can watch the cancel context.
+	// IMPORTANT: SetGoroutineScanID must be called inside this goroutine
+	// because goroutine IDs are goroutine-local — the registry key is the
+	// calling goroutine's ID. If we called it from the parent, fn() would
+	// run with a different goroutine ID and GetCurrentScanID() would return "".
 	done := make(chan error, 1)
-	go func() { done <- fn() }()
+	go func() {
+		utils.SetGoroutineScanID(scanID)
+		defer utils.ClearGoroutineScanID()
+		done <- fn()
+	}()
 
 	var err error
 	select {
@@ -93,8 +96,6 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		// Override any fn error with the cancellation sentinel
 		err = ErrScanCancelled
 	}
-
-	utils.ClearGoroutineScanID()
 
 	// Also honour the CancelRequested flag (set by CancelScanByID before calling cancelCtx).
 	ScansMutex.RLock()
