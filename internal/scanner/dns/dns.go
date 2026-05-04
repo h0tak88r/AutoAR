@@ -329,12 +329,6 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 
 		if len(allTextFindings) == 0 && !foundNuclei {
 			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "dns-takeover", "dns-takeover-vulnerabilities.json")
-		} else {
-			// Update scan stats with the finding count
-			findingCount := len(allTextFindings)
-			// (foundNuclei might have more but nuclei produces multiple files, 
-			// we just want a rough count for the listing)
-			_ = db.UpdateScanStats(scanID, findingCount, 0)
 		}
 	}
 

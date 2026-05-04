@@ -90,6 +90,64 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		if err := db.AppendScanArtifact(artifact); err != nil {
 			GetLogger().Errorf("[JSON] failed to index artifact %s for scan %s: %v", fileName, scanID, err)
 		}
+
+		// Increment the scan findings counter so the Recent Scans listing shows a badge.
+		// Only count files that contain real findings (skip "no findings" placeholder writes).
+		isNoFindings := strings.Contains(fileName, "no-findings") ||
+			strings.Contains(fileName, "no_findings")
+		isVulnFile := strings.Contains(fileName, "vulnerab") ||
+			strings.Contains(fileName, "vuln") ||
+			strings.Contains(fileName, "secret") ||
+			strings.Contains(fileName, "bucket") ||
+			strings.Contains(fileName, "finding") ||
+			strings.Contains(fileName, "exploit") ||
+			strings.Contains(fileName, "takeover") ||
+			strings.Contains(fileName, "dangling") ||
+			strings.Contains(fileName, "cf1016") ||
+			strings.Contains(fileName, "exposure") ||
+			strings.Contains(fileName, "misconfig") ||
+			strings.Contains(fileName, "backup") ||
+			strings.Contains(fileName, "reflection") ||
+			strings.Contains(fileName, "ports.json") ||
+			strings.Contains(fileName, "gf-") ||
+			strings.Contains(fileName, "ffuf-results") ||
+			strings.Contains(fileName, "zeroday") ||
+			strings.Contains(fileName, "confusion") ||
+			strings.Contains(fileName, "s3-")
+		if isVulnFile && !isNoFindings && len(raw) > 10 {
+			// Count items in the JSON to get an accurate finding count.
+			// Try array root first, then look for common nested array keys.
+			findingCount := 0
+			var parsed interface{}
+			if jsonErr := json.Unmarshal(raw, &parsed); jsonErr == nil {
+				switch v := parsed.(type) {
+				case []interface{}:
+					// Filter out "no findings" sentinel objects
+					for _, item := range v {
+						if m, ok := item.(map[string]interface{}); ok {
+							if f, _ := m["finding"].(string); strings.Contains(strings.ToLower(f), "no finding") {
+								continue
+							}
+						}
+						findingCount++
+					}
+				case map[string]interface{}:
+					for _, key := range []string{"findings", "results", "items", "vulnerabilities", "matches"} {
+						if arr, ok := v[key].([]interface{}); ok {
+							findingCount = len(arr)
+							break
+						}
+					}
+				}
+			}
+			if findingCount > 0 {
+				// Use files_uploaded as a cumulative findings counter.
+				// Fetch the current value and add to it (best-effort; ignore errors).
+				if rec, dbErr := db.GetScan(artifact.ScanID); dbErr == nil && rec != nil {
+					_ = db.UpdateScanStats(artifact.ScanID, rec.FilesUploaded+findingCount, rec.ErrorCount)
+				}
+			}
+		}
 	}
 
 	GetLogger().Infof("[JSON] Wrote %s (%d bytes) for scan %s", fileName, len(raw), scanID)
