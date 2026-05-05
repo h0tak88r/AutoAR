@@ -47,8 +47,34 @@
     .item:last-child { border-bottom: 0; }
     .muted { color: var(--muted); font-size: 13px; }
     @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+    /* XSS Cheat Sheet */
+    .xss-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+    .xss-toolbar select, .xss-toolbar input { width:auto; flex:1; min-width:140px; }
+    .xss-toggle-group { display:flex; gap:4px; }
+    .xss-toggle { background:#151a33; color:var(--muted); border:1px solid var(--border); padding:5px 10px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600; white-space:nowrap; }
+    .xss-toggle.on { background:rgba(123,139,255,.18); color:var(--text); border-color:var(--accent); }
+    .xss-row { border-bottom:1px solid rgba(255,255,255,.04); padding:10px 8px; display:flex; gap:10px; align-items:flex-start; transition:background .15s; }
+    .xss-row:hover { background:rgba(255,255,255,.03); }
+    .xss-row:last-child { border-bottom:0; }
+    .xss-meta { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; align-items:center; }
+    .xss-event { font-size:11px; font-weight:700; color:var(--accent); background:rgba(123,139,255,.12); padding:2px 8px; border-radius:6px; }
+    .xss-tag { font-size:11px; font-weight:600; color:var(--ok); background:rgba(52,211,153,.1); padding:2px 7px; border-radius:6px; }
+    .xss-ui { font-size:11px; padding:2px 7px; border-radius:6px; font-weight:600; }
+    .xss-ui.auto { background:rgba(52,211,153,.08); color:var(--ok); }
+    .xss-ui.manual { background:rgba(245,158,11,.08); color:var(--warn); }
+    .xss-code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:#c5d0ff; word-break:break-all; line-height:1.5; flex:1; }
+    .xss-desc { font-size:11px; color:var(--muted); margin-top:4px; }
+    .xss-copy-btn { flex-shrink:0; background:#1a1f3b; border:1px solid var(--border); color:var(--muted); border-radius:7px; padding:4px 9px; font-size:11px; cursor:pointer; white-space:nowrap; }
+    .xss-copy-btn:hover { color:var(--text); border-color:var(--accent); }
+    .xss-group-header { padding:8px 10px; background:rgba(123,139,255,.06); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:5; }
+    .xss-group-name { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--accent); }
+    .xss-count-badge { font-size:11px; color:var(--muted); }
+    .xss-results-box { border:1px solid var(--border); border-radius:10px; overflow:auto; max-height:600px; background:#090c1a; }
+    .copy-bulk-btn { background:linear-gradient(135deg,#6577ff,#7f8fff); color:white; border:none; border-radius:8px; padding:7px 14px; cursor:pointer; font-weight:700; font-size:12px; }
   </style>
   <script src="ssrf-payloads.js"></script>
+  <script src="xss-payloads.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -60,6 +86,7 @@
       <button class="tab" data-tab="regex">Regex Workbench</button>
       <button class="tab" data-tab="depconf">Dependency Confusion</button>
       <button class="tab" data-tab="ssrf">SSRF Payloads</button>
+      <button class="tab" data-tab="xss">XSS Cheat Sheet</button>
     </div>
 
     <section class="panel active" id="panel-jwt">
@@ -173,6 +200,26 @@
       <div class="card">
         <div class="k">Generated Payloads</div>
         <div id="ssrfResults" class="list" style="max-height: 500px;"></div>
+      </div>
+    </section>
+
+    <!-- XSS Cheat Sheet Panel -->
+    <section class="panel" id="panel-xss">
+      <div class="card">
+        <div class="xss-toolbar">
+          <input id="xssSearch" placeholder="🔍 Search event, tag, or code..." />
+          <select id="xssTagFilter"><option value="">All Tags</option></select>
+          <select id="xssEventFilter"><option value="">All Events</option></select>
+          <div class="xss-toggle-group">
+            <button class="xss-toggle on" id="xssToggleAuto" title="No user interaction needed">⚡ Auto-fire</button>
+            <button class="xss-toggle on" id="xssToggleManual" title="Requires user interaction">👆 User interaction</button>
+          </div>
+          <button class="copy-bulk-btn" id="xssCopyAll">📋 Copy All Visible</button>
+        </div>
+        <div class="muted" id="xssStats" style="margin-bottom:8px">Loading...</div>
+        <div class="xss-results-box" id="xssResults">
+          <div class="item muted" style="padding:20px">Loading payloads...</div>
+        </div>
       </div>
     </section>
   </div>
@@ -656,6 +703,203 @@
     $('ssrfGenerate').addEventListener('click', renderSSRF);
     $('ssrfFilter').addEventListener('input', renderSSRF);
     if (window.SSRF_PAYLOADS) renderSSRF();
+
+    // ─────────────────────────────────────────────
+    //  XSS Cheat Sheet
+    // ─────────────────────────────────────────────
+    let xssAutoOn = true;
+    let xssManualOn = true;
+    let xssFilteredPayloads = [];
+
+    function initXSS() {
+      if (!window.XSS_PAYLOADS) {
+        $('xssResults').innerHTML = '<div class="item muted" style="padding:20px">Failed to load xss-payloads.js</div>';
+        return;
+      }
+      // Populate tag filter
+      const tags = [...new Set(window.XSS_PAYLOADS.map(p => p.tag).filter(Boolean))].sort();
+      const tagSel = $('xssTagFilter');
+      tags.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = '<' + t + '>'; tagSel.appendChild(o); });
+
+      // Populate event filter
+      const events = [...new Set(window.XSS_PAYLOADS.map(p => p.event).filter(Boolean))].sort();
+      const evSel = $('xssEventFilter');
+      events.forEach(e => { const o = document.createElement('option'); o.value = e; o.textContent = e; evSel.appendChild(o); });
+
+      renderXSS();
+    }
+
+    function renderXSS() {
+      const search = ($('xssSearch').value || '').toLowerCase();
+      const tagF = $('xssTagFilter').value;
+      const evF = $('xssEventFilter').value;
+
+      xssFilteredPayloads = window.XSS_PAYLOADS.filter(p => {
+        if (!xssAutoOn && !p.userInteraction) return false;
+        if (!xssManualOn && p.userInteraction) return false;
+        if (tagF && p.tag !== tagF) return false;
+        if (evF && p.event !== evF) return false;
+        if (search) {
+          const hay = (p.code + ' ' + p.description + ' ' + p.event + ' ' + p.tag).toLowerCase();
+          if (!hay.includes(search)) return false;
+        }
+        return true;
+      });
+
+      $('xssStats').textContent = `${xssFilteredPayloads.length} payload(s) of ${window.XSS_PAYLOADS.length} total`;
+
+      const container = $('xssResults');
+      // Clear safely — no innerHTML involved
+      while (container.firstChild) container.removeChild(container.firstChild);
+
+      if (!xssFilteredPayloads.length) {
+        const empty = document.createElement('div');
+        empty.className = 'item muted';
+        empty.style.padding = '20px';
+        empty.textContent = 'No payloads match the current filters.';
+        container.appendChild(empty);
+        return;
+      }
+
+      // Group by event
+      const grouped = {};
+      xssFilteredPayloads.forEach((p, globalIdx) => {
+        const grp = p.event || 'Other';
+        if (!grouped[grp]) grouped[grp] = [];
+        grouped[grp].push({ p, globalIdx });
+      });
+
+      const sortedGroups = Object.keys(grouped).sort();
+
+      sortedGroups.forEach(grp => {
+        const items = grouped[grp];
+
+        // --- Group header (safe: only event name + count, no payload data) ---
+        const header = document.createElement('div');
+        header.className = 'xss-group-header';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'xss-group-name';
+        nameSpan.textContent = grp;                   // safe: event name only
+        header.appendChild(nameSpan);
+
+        const countSpan = document.createElement('span');
+        countSpan.className = 'xss-count-badge';
+        countSpan.textContent = `${items.length} payload${items.length > 1 ? 's' : ''}`;
+        header.appendChild(countSpan);
+        container.appendChild(header);
+
+        items.forEach(({ p, globalIdx }) => {
+          // --- Row ---
+          const row = document.createElement('div');
+          row.className = 'xss-row';
+
+          const left = document.createElement('div');
+          left.style.cssText = 'flex:1;min-width:0';
+
+          // Meta badges
+          const meta = document.createElement('div');
+          meta.className = 'xss-meta';
+
+          if (p.event) {
+            const evBadge = document.createElement('span');
+            evBadge.className = 'xss-event';
+            evBadge.textContent = p.event;            // safe: event name
+            meta.appendChild(evBadge);
+          }
+          if (p.tag) {
+            const tagBadge = document.createElement('span');
+            tagBadge.className = 'xss-tag';
+            tagBadge.textContent = '<' + p.tag + '>';  // safe: tag name
+            meta.appendChild(tagBadge);
+          }
+          const uiClass = p.userInteraction ? 'manual' : 'auto';
+          const uiLabel = p.userInteraction ? '👆 User Interaction' : '⚡ Auto-fire';
+          const uiBadge = document.createElement('span');
+          uiBadge.className = 'xss-ui ' + uiClass;
+          uiBadge.textContent = uiLabel;               // safe: static string
+          meta.appendChild(uiBadge);
+          left.appendChild(meta);
+
+          // Code block — use textContent, NEVER innerHTML
+          const pre = document.createElement('pre');
+          pre.className = 'xss-code';
+          pre.textContent = p.code;                   // ← KEY: textContent prevents execution
+          left.appendChild(pre);
+
+          if (p.description) {
+            const desc = document.createElement('div');
+            desc.className = 'xss-desc';
+            desc.textContent = p.description;          // safe: textContent
+            left.appendChild(desc);
+          }
+
+          row.appendChild(left);
+
+          // Copy button — stores index, reads from xssFilteredPayloads at click time
+          const copyBtn = document.createElement('button');
+          copyBtn.className = 'xss-copy-btn';
+          copyBtn.textContent = 'Copy';
+          copyBtn.dataset.idx = globalIdx;             // store index, NOT the payload string
+          copyBtn.addEventListener('click', function() {
+            const payload = xssFilteredPayloads[parseInt(this.dataset.idx, 10)];
+            if (!payload) return;
+            navigator.clipboard.writeText(payload.code).then(() => {
+              this.textContent = '✓ Copied!';
+              setTimeout(() => { this.textContent = 'Copy'; }, 1500);
+            }).catch(() => {
+              // Fallback for non-https
+              const ta = document.createElement('textarea');
+              ta.value = payload.code;
+              ta.style.cssText = 'position:fixed;opacity:0';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              this.textContent = '✓';
+              setTimeout(() => { this.textContent = 'Copy'; }, 1500);
+            });
+          });
+          row.appendChild(copyBtn);
+          container.appendChild(row);
+        });
+      });
+    }
+
+    $('xssSearch').addEventListener('input', renderXSS);
+    $('xssTagFilter').addEventListener('change', renderXSS);
+    $('xssEventFilter').addEventListener('change', renderXSS);
+
+    $('xssToggleAuto').addEventListener('click', function() {
+      xssAutoOn = !xssAutoOn;
+      this.classList.toggle('on', xssAutoOn);
+      renderXSS();
+    });
+    $('xssToggleManual').addEventListener('click', function() {
+      xssManualOn = !xssManualOn;
+      this.classList.toggle('on', xssManualOn);
+      renderXSS();
+    });
+
+    $('xssCopyAll').addEventListener('click', function() {
+      if (!xssFilteredPayloads.length) return;
+      const text = xssFilteredPayloads.map(p => p.code).join('\n\n');
+      navigator.clipboard.writeText(text).then(() => {
+        this.textContent = '✓ Copied ' + xssFilteredPayloads.length + ' payloads!';
+        setTimeout(() => this.textContent = '📋 Copy All Visible', 2000);
+      });
+    });
+
+    // Init XSS when tab is activated
+    document.querySelectorAll('.tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.tab === 'xss' && window.XSS_PAYLOADS && !$('xssTagFilter').children.length > 1) {
+          initXSS();
+        }
+      });
+    });
+    // Pre-init on load
+    if (window.XSS_PAYLOADS) initXSS();
   </script>
 </body>
 </html>
