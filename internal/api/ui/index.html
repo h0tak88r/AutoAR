@@ -33,36 +33,38 @@
 <div class="shell" id="app-shell">
 
   <!-- ─── Sidebar ──────────────────────────────────────────────────────────── -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="app-sidebar">
 
     <div class="sidebar-logo">
       <div class="logo-icon"><img src="/ui/logo.png" style="width:100%;height:100%;border-radius:4px;object-fit:contain" alt="AutoAR"></div>
-      <div>
+      <div class="sidebar-logo-text">
         <div class="logo-text">AutoAR</div>
-        <div class="logo-version">v4.1.0</div>
+        <div class="logo-version" id="logo-version">v4.1.0</div>
       </div>
+      <button id="sidebar-collapse-btn" title="Collapse sidebar" aria-label="Toggle sidebar"
+              style="margin-left:auto;background:transparent;border:none;cursor:pointer;color:var(--text-muted);font-size:18px;line-height:1;padding:4px 6px;border-radius:6px;flex-shrink:0;transition:all .2s">◀</button>
     </div>
 
     <nav class="sidebar-nav">
       <div class="nav-section">
         <div class="nav-section-label">Main</div>
 
-        <div class="nav-item active" id="nav-overview">
+        <div class="nav-item active" id="nav-overview" data-label="Overview">
           <span class="nav-icon">⚡</span>
           <span>Overview</span>
         </div>
 
-        <div class="nav-item" id="nav-scans">
+        <div class="nav-item" id="nav-scans" data-label="Scans">
           <span class="nav-icon">📡</span>
           <span>Scans</span>
         </div>
 
-        <div class="nav-item" id="nav-domains">
+        <div class="nav-item" id="nav-domains" data-label="Domains">
           <span class="nav-icon">🌐</span>
           <span>Domains</span>
         </div>
 
-        <div class="nav-item" id="nav-subdomains">
+        <div class="nav-item" id="nav-subdomains" data-label="Subdomains">
           <span class="nav-icon">🔗</span>
           <span>Subdomains</span>
           <span class="nav-badge" id="subdomains-badge" style="display:none"></span>
@@ -72,39 +74,39 @@
       <div class="nav-section">
         <div class="nav-section-label">Intelligence</div>
 
-        <div class="nav-item" id="nav-monitor">
+        <div class="nav-item" id="nav-monitor" data-label="Monitor">
           <span class="nav-icon">👁️</span>
           <span>Monitor</span>
         </div>
 
-        <div class="nav-item" id="nav-targets">
+        <div class="nav-item" id="nav-targets" data-label="Targets">
           <span class="nav-icon">🎯</span>
           <span>Targets</span>
         </div>
 
-        <div class="nav-item" id="nav-keyhacks">
+        <div class="nav-item" id="nav-keyhacks" data-label="Keyhacks">
           <span class="nav-icon">🔑</span>
           <span>Keyhacks</span>
         </div>
 
-        <div class="nav-item" id="nav-apkauditor">
+        <div class="nav-item" id="nav-apkauditor" data-label="APK Auditor">
           <span class="nav-icon">🤖</span>
           <span>APK Auditor</span>
         </div>
-        <div class="nav-item" id="nav-ipaauditor">
+        <div class="nav-item" id="nav-ipaauditor" data-label="IPA Auditor">
           <span class="nav-icon">🍏</span>
           <span>IPA Auditor</span>
         </div>
-        <div class="nav-item" id="nav-adbauditor">
+        <div class="nav-item" id="nav-adbauditor" data-label="ADB Auditor">
           <span class="nav-icon">⚡</span>
           <span>ADB Auditor</span>
         </div>
-        <div class="nav-item" id="nav-securitylab">
+        <div class="nav-item" id="nav-securitylab" data-label="Security Lab">
           <span class="nav-icon">🧪</span>
           <span>Security Lab</span>
         </div>
 
-        <div class="nav-item" id="nav-r2">
+        <div class="nav-item" id="nav-r2" data-label="R2 Browser">
           <span class="nav-icon">📦</span>
           <span>R2 Browser</span>
         </div>
@@ -112,11 +114,11 @@
 
       <div class="nav-section">
         <div class="nav-section-label">System</div>
-        <div class="nav-item" id="nav-report-templates">
+        <div class="nav-item" id="nav-report-templates" data-label="Report Templates">
           <span class="nav-icon">📝</span>
           <span>Report Templates</span>
         </div>
-        <div class="nav-item" id="nav-settings">
+        <div class="nav-item" id="nav-settings" data-label="Settings">
           <span class="nav-icon">⚙️</span>
           <span>Settings</span>
         </div>

@@ -95,6 +95,82 @@ input, select, textarea { font-family: inherit; }
   flex-shrink: 0;
   z-index: 100;
   position: relative;
+  /* Smooth collapse */
+  transition: width 250ms ease;
+  overflow: hidden;
+}
+
+/* ── Collapsed sidebar ─────────────────────────────────────────────────────── */
+.sidebar.collapsed {
+  width: 60px;
+}
+
+/* Hide text labels when collapsed */
+.sidebar.collapsed .sidebar-logo-text,
+.sidebar.collapsed .nav-section-label,
+.sidebar.collapsed .nav-item > span:not(.nav-icon):not(.nav-badge),
+.sidebar.collapsed .sidebar-metrics,
+.sidebar.collapsed .status-text,
+.sidebar.collapsed .sign-out-btn {
+  display: none !important;
+}
+
+/* Centre nav items when collapsed */
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+/* Rotate toggle arrow when collapsed */
+.sidebar.collapsed #sidebar-collapse-btn {
+  transform: rotate(180deg);
+}
+
+/* Keep logo icon centered when collapsed */
+.sidebar.collapsed .sidebar-logo {
+  justify-content: center;
+  padding: 16px 0;
+}
+
+/* Persist scrollbar width so layout doesn't shift */
+.sidebar.collapsed .sidebar-nav {
+  overflow: hidden;
+}
+
+/* Footer: only show status dot when collapsed */
+.sidebar.collapsed .sidebar-footer {
+  justify-content: center;
+  padding: 12px 0;
+}
+
+/* Tooltip-on-hover for collapsed nav items */
+.sidebar.collapsed .nav-item {
+  position: relative;
+}
+
+.sidebar.collapsed .nav-item::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 70px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,.35);
+}
+
+.sidebar.collapsed .nav-item:hover::after {
+  opacity: 1;
 }
 
 .sidebar-logo {
