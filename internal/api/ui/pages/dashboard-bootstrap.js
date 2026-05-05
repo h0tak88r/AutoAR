@@ -22,6 +22,26 @@
       backBtn.dataset.wired = '1';
       backBtn.addEventListener('click', () => window.navigateTo('scans'));
     }
+
+    // Set dynamic version and wire sidebar collapse toggle
+    const versionEl = document.getElementById('logo-version');
+    if (versionEl && state.config?.version) {
+      versionEl.textContent = `v${state.config.version}`;
+    }
+    const collapseBtn = document.getElementById('sidebar-collapse-btn');
+    const sidebarEl = document.getElementById('app-sidebar');
+    if (collapseBtn && sidebarEl && !collapseBtn.dataset.wired) {
+      collapseBtn.dataset.wired = '1';
+      // Load saved state
+      if (localStorage.getItem('autoar.sidebar.collapsed') === 'true') {
+        sidebarEl.classList.add('collapsed');
+      }
+      collapseBtn.addEventListener('click', () => {
+        sidebarEl.classList.toggle('collapsed');
+        localStorage.setItem('autoar.sidebar.collapsed', sidebarEl.classList.contains('collapsed'));
+      });
+    }
+
     if (!window.__autoarPopstate) {
       window.__autoarPopstate = true;
       window.addEventListener('popstate', () => {
