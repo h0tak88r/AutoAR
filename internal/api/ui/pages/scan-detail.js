@@ -989,8 +989,8 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
               </div>
             </div>
             <div id="recon-standard-view">
-              <div class="result-table-wrap" style="max-height:640px;overflow:auto">
-                <table class="dashboard-table" style="margin:0;table-layout:fixed;width:100%">
+              <div class="result-table-wrap" style="max-height:640px;overflow-x:auto;overflow-y:auto">
+                <table id="recon-main-table" class="dashboard-table" style="margin:0;table-layout:auto;min-width:100%">
                   <colgroup id="recon-colgroup"><col style="width:36px"><col style="width:31%"><col style="width:8%"><col style="width:43%"><col style="width:16%"></colgroup>
                   <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.97);backdrop-filter:blur(4px)">
                     <tr id="recon-unified-headrow">
@@ -1150,12 +1150,28 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
           if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:20%"><col style="width:7%"><col style="width:8%"><col style="width:16%"><col style="width:19%"><col style="width:6%"><col style="width:24%">`;
           headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th>DETECTORNAME</th><th style="text-align:center">SEV</th><th style="text-align:center">VERIFIED</th><th>REDACTED</th><th>SOURCE FILE</th><th style="text-align:center">LINE</th><th>SOURCE LINK</th>`;
         } else {
-          if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:31%"><col style="width:8%"><col style="width:43%"><col style="width:16%">`;
-          const cols = presetMode === 'raw' ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE'] : window.getUnifiedTableColumns(activeKind);
-          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th style="position:relative">${esc(cols[0])}<span class="col-resizer" data-col-index="1" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="text-align:center;position:relative">${esc(cols[1])}<span class="col-resizer" data-col-index="2" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="position:relative">${esc(cols[2])}<span class="col-resizer" data-col-index="3" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th><th style="width:16%">${esc(cols[3])}</th>`;
+          // Build header dynamically from the module registry — handles any column count.
+          const cols = presetMode === 'raw'
+            ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE']
+            : window.getUnifiedTableColumns(activeKind);
+          // colgroup: checkbox col + one col per data col
+          if (colgroup) colgroup.innerHTML = `<col style="width:36px">` + cols.map(() => `<col>`).join('');
+          const thCells = cols.map((label, i) => {
+            const align = (label === 'STATUS' || label === 'SEV') ? 'text-align:center;' : '';
+            return `<th style="${align}position:relative">${esc(label)}<span class="col-resizer" data-col-index="${i+1}" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>`;
+          }).join('');
+          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>${thCells}`;
         }
       }
       if (tbody) {
+        // Adjust table min-width so wide modules (ffuf: 6 cols, github: 8 cols) can scroll horizontally
+        const mainTable = root.querySelector('#recon-main-table');
+        const activeCols = presetMode === 'raw' ? 4 : (window.ModuleRegistry?.get(activeKind)?.columns?.length || 4);
+        const totalCols = dynamicRawMode ? (2 + dynamicCols.length) : isGitHubTableKind(activeKind) ? 8 : activeCols;
+        if (mainTable) {
+          // For ≤5 data cols stay at 100%; wider tables get an explicit min-width to trigger scroll
+          mainTable.style.minWidth = totalCols <= 5 ? '100%' : (totalCols * 160 + 'px');
+        }
         currentRenderedRows = slice;
         const virtualEnabled = slice.length > 150, rowHeight = 34, overscan = 12, viewportH = Math.max(320, Math.round((wrap?.clientHeight || 640)));
         const visibleRows = Math.ceil(viewportH / rowHeight) + overscan * 2;
@@ -1177,7 +1193,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
           }
           return attachRowIndex(window.renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta), rowIdx);
         }).join('');
-        const colSpan = dynamicRawMode ? (2 + dynamicCols.length) : (isGitHubTableKind(activeKind) ? 8 : 5);
+        const colSpan = dynamicRawMode ? (2 + dynamicCols.length) : (isGitHubTableKind(activeKind) ? 8 : (totalCols + 1)); // +1 for checkbox col
         tbody.innerHTML = slice.length ? `${topPad ? `<tr class="virtual-pad-top"><td colspan="${colSpan}" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="${colSpan}" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}` : `<tr><td colspan="${colSpan}" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>`;
       }
       const pag = root.querySelector('#recon-pagination');

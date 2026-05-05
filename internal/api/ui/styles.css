@@ -1153,9 +1153,18 @@ input, select, textarea { font-family: inherit; }
 
 .result-table-wrap {
   overflow-x: auto;
-  max-height: 600px;
   overflow-y: auto;
+  max-height: 600px;
+  /* Styled scrollbar so users know the table can scroll horizontally */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(6,182,212,0.3) transparent;
 }
+
+.result-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+.result-table-wrap::-webkit-scrollbar-track { background: transparent; }
+.result-table-wrap::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.3); border-radius: 3px; }
+.result-table-wrap::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.6); }
+.result-table-wrap::-webkit-scrollbar-corner { background: transparent; }
 
 .result-table {
   width: 100%;
