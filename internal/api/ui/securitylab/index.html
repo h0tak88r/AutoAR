@@ -48,6 +48,7 @@
     .muted { color: var(--muted); font-size: 13px; }
     @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
   </style>
+  <script src="ssrf-payloads.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -58,6 +59,7 @@
       <button class="tab active" data-tab="jwt">JWT Analyzer</button>
       <button class="tab" data-tab="regex">Regex Workbench</button>
       <button class="tab" data-tab="depconf">Dependency Confusion</button>
+      <button class="tab" data-tab="ssrf">SSRF Payloads</button>
     </div>
 
     <section class="panel active" id="panel-jwt">
@@ -149,6 +151,29 @@
         <div class="muted" id="depSourcesMeta" style="margin-top:8px"></div>
       </div>
       <div class="card"><div class="k">Potential Dependency-Confusion Risks</div><div id="depResults" class="list"></div></div>
+    </section>
+
+    <section class="panel" id="panel-ssrf">
+      <div class="cols">
+        <div class="card">
+          <div class="k">Allowed Hostname</div>
+          <input id="ssrfAllowed" value="reservation.walibi.nl" />
+          <div class="k" style="margin-top:8px">Attacker Hostname</div>
+          <input id="ssrfAttacker" value="evil.com" />
+          <div class="row" style="margin-top:8px">
+            <button class="btn" id="ssrfGenerate">Generate Payloads</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">Payload Filter</div>
+          <input id="ssrfFilter" placeholder="Search description or tags..." />
+          <div class="muted" style="margin-top:8px" id="ssrfStats">0 payloads loaded</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="k">Generated Payloads</div>
+        <div id="ssrfResults" class="list" style="max-height: 500px;"></div>
+      </div>
     </section>
   </div>
 
@@ -572,6 +597,65 @@
         </div>`;
       }).join('');
     });
+
+    // SSRF Logic
+    function renderSSRF() {
+      const allowed = $('ssrfAllowed').value || 'reservation.walibi.nl';
+      const attacker = $('ssrfAttacker').value || 'evil.com';
+      const filter = $('ssrfFilter').value.toLowerCase();
+      const resultsEl = $('ssrfResults');
+      const statsEl = $('ssrfStats');
+
+      if (!window.SSRF_PAYLOADS) {
+        resultsEl.innerHTML = '<div class="item muted">Failed to load ssrf-payloads.js</div>';
+        return;
+      }
+
+      let html = '';
+      let count = 0;
+
+      window.SSRF_PAYLOADS.forEach(group => {
+        let groupHtml = '';
+        let groupCount = 0;
+        
+        (group.payloads || []).forEach(p => {
+          if (filter) {
+            const desc = (p.description || '').toLowerCase();
+            const tags = (p.tags || []).join(' ').toLowerCase();
+            if (!desc.includes(filter) && !tags.includes(filter)) return;
+          }
+
+          let pl = p.payload || '';
+          pl = pl.replace(/<allowed>/g, allowed).replace(/<attacker>/g, attacker);
+          
+          let fullUrl = (p.prefix || '') + pl + (p.suffix || '');
+          let displayUrl = escapeHTML(fullUrl);
+          
+          groupHtml += `<div class="item" style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <div style="word-break: break-all;">
+              <code style="color:var(--text); font-size:14px; display:block; margin-bottom:4px">${displayUrl}</code>
+              <span class="muted" style="font-size:11px">${escapeHTML(p.description || 'No description')}</span>
+            </div>
+            <button class="btn ghost" style="padding:4px 8px; font-size:11px" onclick="navigator.clipboard.writeText('${escapeHTML(fullUrl).replace(/'/g, "\\'")}')">Copy</button>
+          </div>`;
+          groupCount++;
+          count++;
+        });
+
+        if (groupCount > 0) {
+          html += `<div style="padding: 8px; background: rgba(123,139,255,.05); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;">
+            <b style="color:var(--accent)">${escapeHTML(group.name)}</b> <span class="muted">(${groupCount})</span>
+          </div>` + groupHtml;
+        }
+      });
+
+      resultsEl.innerHTML = html || '<div class="item muted">No payloads found.</div>';
+      statsEl.textContent = `${count} payload(s) generated.`;
+    }
+
+    $('ssrfGenerate').addEventListener('click', renderSSRF);
+    $('ssrfFilter').addEventListener('input', renderSSRF);
+    if (window.SSRF_PAYLOADS) renderSSRF();
   </script>
 </body>
 </html>
