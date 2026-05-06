@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/db"
@@ -48,11 +49,23 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		Command:    fmt.Sprintf("inprocess:%s target=%s", scanType, target),
 	}
 	if err := db.CreateScan(dbRecord); err != nil {
-		log.Printf("[runner] failed to create DB record for %s: %v", scanID, err)
+		// Without a DB record the scan would be invisible to the UI — abort rather
+		// than run an orphaned scan whose results can never be retrieved.
+		log.Printf("[runner] ABORT: failed to create DB record for %s (%s): %v", scanID, scanType, err)
+		<-scanSemaphore // release slot acquired above
+		return
 	}
 
-	// Create a cancel context so that CancelScanByID can interrupt this scan.
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	// Create a cancel context with a configurable maximum duration so that a
+	// hung scanner (e.g. waiting on an unreachable host) doesn't hold a
+	// semaphore slot forever. Default: 6 hours. Override: AUTOAR_SCAN_TIMEOUT.
+	maxDur := 6 * time.Hour
+	if d := os.Getenv("AUTOAR_SCAN_TIMEOUT"); d != "" {
+		if parsed, err := time.ParseDuration(d); err == nil && parsed > 0 {
+			maxDur = parsed
+		}
+	}
+	ctx, cancelCtx := context.WithTimeout(context.Background(), maxDur)
 	defer cancelCtx() // always release resources
 
 	ScansMutex.Lock()
@@ -79,6 +92,14 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	go func() {
 		utils.SetGoroutineScanID(scanID)
 		defer utils.ClearGoroutineScanID()
+		// Recover from any panic inside a scanner module so a nil-pointer or
+		// assertion failure doesn't crash the whole server process.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[runner] PANIC in scan %s (%s): %v", scanID, scanType, r)
+				done <- fmt.Errorf("internal panic: %v", r)
+			}
+		}()
 		done <- fn()
 	}()
 

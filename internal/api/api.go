@@ -738,15 +738,19 @@ func validateFilePath(filePath string) error {
 }
 
 func corsMiddleware() gin.HandlerFunc {
-	// #3: Warn once at startup if the API accepts cross-origin requests from any origin.
 	allowedOrigins := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
-	if allowedOrigins == "" {
-		utils.GetLogger().Infof("[WARN] CORS_ALLOWED_ORIGINS is not set — API accepts cross-origin requests from ANY origin. Set CORS_ALLOWED_ORIGINS in production.")
+	devMode := strings.EqualFold(strings.TrimSpace(os.Getenv("AUTOAR_ENV")), "development")
+
+	if allowedOrigins == "" && !devMode {
+		utils.GetLogger().Infof("[CORS] CORS_ALLOWED_ORIGINS is not set and AUTOAR_ENV != development — cross-origin requests are denied. Set CORS_ALLOWED_ORIGINS or AUTOAR_ENV=development to enable.")
+	} else if allowedOrigins == "" && devMode {
+		utils.GetLogger().Infof("[CORS] Development mode — API accepts cross-origin requests from ANY origin. Do not use AUTOAR_ENV=development in production.")
 	}
 
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 		if allowedOrigins != "" {
+			// Explicit allow-list: only echo the origin back if it matches.
 			for _, o := range strings.Split(allowedOrigins, ",") {
 				if strings.TrimSpace(o) == origin && origin != "" {
 					c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
@@ -754,9 +758,12 @@ func corsMiddleware() gin.HandlerFunc {
 					break
 				}
 			}
-		} else {
+		} else if devMode {
+			// Development only: allow all origins.
 			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		}
+		// Production default: no Access-Control-Allow-Origin header → same-origin only.
+
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
@@ -768,6 +775,7 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
 
 func rootHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
