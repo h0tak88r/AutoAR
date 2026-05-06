@@ -799,6 +799,43 @@ func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
 			return err
 		})
 		return newScanID, true
+	case "dns_cf1016", "dns-cf1016":
+		go RunScanInProcess(newScanID, "dns_cf1016", target, func() error {
+			clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
+			parts := strings.Split(clean, ".")
+			if len(parts) > 2 {
+				// Single subdomain — write to a temp file and scan only that host.
+				tmp, err := os.CreateTemp("", "autoar-cf1016-*.txt")
+				if err != nil {
+					return fmt.Errorf("cf1016 rescan: failed to create temp file: %w", err)
+				}
+				tmpPath := tmp.Name()
+				defer os.Remove(tmpPath)
+				if _, err := fmt.Fprintln(tmp, clean); err != nil {
+					tmp.Close()
+					return err
+				}
+				tmp.Close()
+				rootDomain := strings.Join(parts[len(parts)-2:], ".")
+				_, err = cf1016mod.Run(cf1016mod.Options{
+					Domain:         rootDomain,
+					SubdomainsFile: tmpPath,
+					Threads:        100,
+					Timeout:        10 * time.Second,
+					OutputDir:      filepath.Join("new-results", clean, "vulnerabilities", "dns-takeover"),
+				})
+				return err
+			}
+			// Root domain — enumerate subdomains then scan all.
+			_, err := cf1016mod.Run(cf1016mod.Options{
+				Domain:    clean,
+				Threads:   100,
+				Timeout:   10 * time.Second,
+				OutputDir: filepath.Join("new-results", clean, "vulnerabilities", "dns-takeover"),
+			})
+			return err
+		})
+		return newScanID, true
 	}
 	return "", false
 }
