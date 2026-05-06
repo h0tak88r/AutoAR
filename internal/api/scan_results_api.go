@@ -513,6 +513,10 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 
 // writeLocalFile writes content to a local file for a scan
 func writeLocalFile(scanID, fileName string, data []byte) (string, error) {
+	// #security: strip any directory components to prevent path traversal
+	// e.g. "../../etc/cron.d/evil" → "evil"
+	fileName = filepath.Base(fileName)
+
 	scanDir := getScanResultsDir(scanID)
 	if err := os.MkdirAll(scanDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create scan directory: %w", err)
@@ -523,14 +527,17 @@ func writeLocalFile(scanID, fileName string, data []byte) (string, error) {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// Upload to R2 after local storage
+	// Upload to R2 asynchronously — avoids blocking the scan write path on
+	// network latency or R2 outages.
 	if r2storage.IsEnabled() {
-		publicURL, err := r2storage.UploadFile(filePath, fileName, false)
-		if err != nil {
-			utils.GetLogger().Infof("[R2] Failed to upload %s: %v", fileName, err)
-		} else {
-			utils.GetLogger().Infof("[R2] Uploaded %s to %s", fileName, publicURL)
-		}
+		go func(fp, fn string) {
+			publicURL, err := r2storage.UploadFile(fp, fn, false)
+			if err != nil {
+				utils.GetLogger().Infof("[R2] Failed to upload %s: %v", fn, err)
+			} else {
+				utils.GetLogger().Infof("[R2] Uploaded %s to %s", fn, publicURL)
+			}
+		}(filePath, fileName)
 	}
 
 	return filePath, nil
