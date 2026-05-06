@@ -303,107 +303,13 @@
     }
   }
 
-  async function fetchScanManifest(scanId) {
-    try {
-      return await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/manifest`);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function formatManifestDuration(ms) {
-    const n = Number(ms || 0);
-    if (!Number.isFinite(n) || n <= 0) return '—';
-    const sec = Math.floor(n / 1000);
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  }
-
-  function manifestStatusBadge(status) {
-    const st = String(status || '').toLowerCase();
-    if (/completed|done|success/.test(st)) return 'badge-done';
-    if (/running|starting|queued|active/.test(st)) return 'badge-running';
-    if (/skipped|not_started/.test(st)) return 'badge-neutral';
-    if (/pending/.test(st)) return 'badge-neutral';
-    if (/paused|cancelling/.test(st)) return 'badge-starting';
-    if (/failed|error|cancel/.test(st)) return 'badge-failed';
-    if (/unknown/.test(st)) return 'badge-starting';
-    return 'badge-neutral';
-  }
-
-  function manifestArtifactLabel(moduleEntry) {
-    const files = Array.isArray(moduleEntry?.output_files) ? moduleEntry.output_files : [];
-    const status = String(moduleEntry?.status || '').toLowerCase();
-    if (files.length) return `${files.length} file${files.length === 1 ? '' : 's'}`;
-    if (/completed|done|success/.test(status)) return '0 results (empty)';
-    if (/skipped/.test(status)) return 'no results/skipped';
-    if (/failed|error|cancel/.test(status)) return 'failed';
-    if (/running|starting|queued|active/.test(status)) return 'processing...';
-    if (/unknown/.test(status)) return '—';
-    return 'pending';
-  }
-
-  function manifestStartedLabel(moduleEntry) {
-    const raw = moduleEntry?.started_at || moduleEntry?.start_time || '';
-    if (!raw) return '—';
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleTimeString();
-  }
-
-  function renderScanManifestCard(manifest, scan) {
-    const modules = Array.isArray(manifest?.modules) ? manifest.modules : [];
-    const scanStatus = scan?.status || scan?.Status || '';
-    const isActive = /running|starting|paused|cancelling/i.test(scanStatus);
-    
-    if (!modules.length && !isActive) return '';
-
-    return `
-      <div class="modern-card" style="margin-bottom:20px">
-        <div class="card-header" style="cursor:pointer" onclick="const b=this.nextElementSibling; b.style.display=b.style.display==='none'?'block':'none'">
-          <div class="card-title"><span class="card-title-icon">⚙️</span>Execution Pipeline</div>
-          <div style="font-size:11px;color:var(--text-muted)">${modules.length} phases documented</div>
-        </div>
-        <div class="card-body" style="padding:0">
-          <table class="dashboard-table" style="width:100%">
-            <thead><tr><th>Phase</th><th>Status</th><th>Artifacts</th><th>Started</th><th>Duration</th></tr></thead>
-            <tbody id="scan-manifest-tbody">
-              ${modules.map(m => `
-                <tr>
-                  <td style="font-weight:600;font-size:13px">${esc(m.module || m.name || 'unknown')}</td>
-                  <td><span class="badge ${manifestStatusBadge(m.status)}">${esc(m.status)}</span></td>
-                  <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${manifestArtifactLabel(m)}</td>
-                  <td style="font-size:11px;color:var(--text-muted)">${manifestStartedLabel(m)}</td>
-                  <td style="font-family:monospace;font-size:12px">${formatManifestDuration(m.duration_ms)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-  }
-
-  async function refreshScanManifestCard(scanId, scan) {
-    const resp = await fetchScanManifest(scanId);
-    if (!resp || !resp.manifest) return;
-    const modules = Array.isArray(resp.manifest.modules) ? resp.manifest.modules : [];
-    const tbody = document.getElementById('scan-manifest-tbody');
-    if (tbody) {
-      tbody.innerHTML = modules.map(m => `
-        <tr>
-          <td style="font-weight:600;font-size:13px">${esc(m.module || m.name || 'unknown')}</td>
-          <td><span class="badge ${manifestStatusBadge(m.status)}">${esc(m.status)}</span></td>
-          <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${manifestArtifactLabel(m)}</td>
-          <td style="font-size:11px;color:var(--text-muted)">${manifestStartedLabel(m)}</td>
-          <td style="font-family:monospace;font-size:12px">${formatManifestDuration(m.duration_ms)}</td>
-        </tr>
-      `).join('');
-    }
-  }
+  // ── Manifest helpers — delegated to scan-detail-manifest.js ──────────────
+  const fetchScanManifest       = (id)      => window.ScanDetailManifest.fetchScanManifest(id);
+  const renderScanManifestCard  = (m, s)    => window.ScanDetailManifest.renderScanManifestCard(m, s);
+  const refreshScanManifestCard = (id, s)   => window.ScanDetailManifest.refreshScanManifestCard(id, s);
+  const manifestStatusBadge     = (st)      => window.ScanDetailManifest.manifestStatusBadge(st);
+  const manifestArtifactLabel   = (e)       => window.ScanDetailManifest.manifestArtifactLabel(e);
+  const manifestStartedLabel    = (e)       => window.ScanDetailManifest.manifestStartedLabel(e);
 
   // ── Unified Findings Table Implementation ──────────────────────────────────
   async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) {
@@ -1409,42 +1315,9 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     function openDrawerForRow(r) { drawerBody.innerHTML = `<pre style="padding:12px;font-size:11px;color:var(--text-primary)">${esc(JSON.stringify(r, null, 2))}</pre>`; drawer.style.display = 'block'; }
   }
 
-  function renderAssetsGrid(container, assets) {
-    const renderRows = (list) => list.map(a => {
-      const url = a.url || (a.host ? `https://${a.host}` : '#');
-      const cname = Array.isArray(a.cnames) && a.cnames.length ? a.cnames.join(', ') : '—';
-      const tech = Array.isArray(a.technologies) && a.technologies.length ? a.technologies.join(', ') : '—';
-      return `<tr class="dashboard-table-row">
-        <td>${a.is_live ? 'Alive' : 'Dead'}</td>
-        <td><a href="${esc(url)}" target="_blank" rel="noopener" style="color:var(--accent-cyan)">${esc(a.host || '—')}</a></td>
-        <td style="text-align:center">${a.status_code || '—'}</td>
-        <td style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(cname)}</td>
-        <td>${esc(tech)}</td>
-      </tr>`;
-    }).join('');
-    container.innerHTML = `<div style="margin-bottom:12px;display:flex;gap:12px"><input id="asset-search" type="search" placeholder="Search hosts, CNAME, or tech…" style="flex:1;padding:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/></div><div style="border:1px solid var(--border);border-radius:8px;overflow:hidden"><table class="dashboard-table" style="margin:0;width:100%"><thead><tr><th>STATUS</th><th>HOST</th><th style="text-align:center">CODE</th><th>CNAME</th><th>TECHNOLOGIES</th></tr></thead><tbody id="asset-tbody">${renderRows(assets)}</tbody></table></div>`;
-    container.querySelector('#asset-search').addEventListener('input', e => {
-      const q = e.target.value.toLowerCase().trim();
-      const filtered = assets.filter(a =>
-        String(a.host || '').toLowerCase().includes(q) ||
-        (Array.isArray(a.cnames) ? a.cnames.join(' ').toLowerCase().includes(q) : false) ||
-        (Array.isArray(a.technologies) ? a.technologies.some(t => String(t).toLowerCase().includes(q)) : false)
-      );
-      container.querySelector('#asset-tbody').innerHTML = renderRows(filtered);
-    });
-  }
-
-  function wireScanDetailFilters(scanId, allFiles) {
-    const s = document.getElementById('scan-file-search'), m = document.getElementById('scan-module-filter'), c = document.getElementById('scan-category-filter'), t = document.getElementById('scan-type-filter');
-    const apply = () => {
-      const q = s?.value.toLowerCase() || '', f = { module: m?.value, category: c?.value, type: t?.value };
-      const filtered = window.filterScanFiles(allFiles, q, f);
-      const grid = document.getElementById('filtered-file-grid');
-      if (grid) grid.innerHTML = filtered.map(f => `<div class="file-grid-item" onclick="window.loadScanFilePreview('${scanId}', '${esc(f.file_name)}')"><div class="file-grid-name">${esc(f.file_name)}</div><div class="file-grid-meta">${fmtSize(f.size_bytes)} · ${f.is_json ? 'JSON' : 'TXT'}</div></div>`).join('');
-    };
-    [s,m,c,t].forEach(el => el?.addEventListener('change', apply));
-    if (s) s.addEventListener('input', apply);
-  }
+  // ── Assets & file-filter helpers — delegated to scan-detail-assets.js ────
+  const renderAssetsGrid     = (c, a)     => window.ScanDetailAssets.renderAssetsGrid(c, a);
+  const wireScanDetailFilters = (id, fs) => window.ScanDetailAssets.wireScanDetailFilters(id, fs);
 
   window.ScanDetailPage = {
     renderScanDetailView,
@@ -1454,6 +1327,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
     loadReconUnifiedTable,
     wireScanDetailFilters,
     clearApkxCacheForScan,
+    // Manifest helpers re-exported for back-compat
     renderScanManifestCard,
     manifestArtifactLabel,
     manifestStartedLabel,
