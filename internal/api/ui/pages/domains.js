@@ -67,7 +67,7 @@
         </div>
         <div class="filter-bar" style="margin-bottom:16px">
           <input class="search-input" id="subdomain-search" placeholder="Filter subdomains…"
-            oninput="window.renderSubdomainView('${window.esc(domain)}')" value="${q}">
+            oninput="window.renderSubdomainView('${window.esc(domain)}')" value="${window.esc(q)}">
         </div>
         <div class="card">
           <div class="card-body">

@@ -786,7 +786,8 @@ var execCommand = exec.Command
 // type is handled; returns "", false if the scan type is not supported.
 func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
 	newScanID = generateScanID()
-	switch scanType {
+	st := strings.ToLower(strings.TrimSpace(scanType))
+	switch st {
 	case "domain_run":
 		go RunScanInProcess(newScanID, scanType, target, func() error {
 			_, err := domainmod.RunDomain(domainmod.ScanOptions{Domain: target})

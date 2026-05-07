@@ -90,17 +90,13 @@
     if (existingModule) return existingModule;
     const n = String(fileName || '').toLowerCase();
     if (!n) return 'unknown';
+    // JS secret artifacts (check this before generic github/secret checks)
+    if (n.includes('js-secret') || n.includes('js-exposure') || n.includes('js-analysis') || n.startsWith('js-sec')) return 'js-analysis';
     if (n.includes('/apkx/') || n.includes('\\apkx\\')) return 'apkx';
     // GitHub must be BEFORE generic "secret" match
     if (n.includes('github-secret') || n.includes('github-secrets') || (n.includes('github') && n.includes('secret'))) return 'github-scan';
-    if (n.includes('github') || n.includes('trufflehog') || n.includes('secrets') || (n.endsWith('.json') && n.includes('github'))) return 'github-scan';
+    if (n.includes('github') || n.includes('trufflehog') || (n.endsWith('.json') && n.includes('github')) || n.includes('git-secret')) return 'github-scan';
     if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
-    if (n.includes('subdomain') || n.includes('subfinder') || n.includes('amass')) return 'subdomain-enum';
-    if (n.includes('live-subs') || n.includes('httpx') || n.includes('livehosts')) return 'httpx';
-    // js-urls are URL corpus (pipeline input), not JS analysis findings
-    if (n.includes('js-urls') || n.includes('jsurl') || n.includes('js-enum')) return 'url-collection';
-    // JS secret artifacts only (avoid matching trufflehog "secrets.json" via substring "secret")
-    if (n.includes('js-secret') || n.includes('js-exposure')) return 'js-analysis';
     if (n.includes('apk') || n.includes('androidmanifest') || n.includes('jadx') || n.includes('dex')) return 'apkx';
     if (n.includes('kxss') || n.includes('dalfox') || n.includes('xss-reflection')) return 'xss-detection';
     if (n.includes('reflection')) return 'xss-detection';

@@ -147,7 +147,7 @@ func buildAssets(scanID string) []AssetEntry {
 	// For enumeration-style scans, pull the full record from the subdomains table.
 	subdomainScanTypes := map[string]bool{
 		"domain_run": true, "subdomain_run": true, "recon": true,
-		"subdomains": true, "livehosts": true, "dns_cf1016": true, "dns-cf1016": true,
+		"subdomains": true, "livehosts": true,
 	}
 	if scanTarget != "" && subdomainScanTypes[scanType] {
 		// The DB stores subdomains under the ROOT domain key, not a subdomain target.
@@ -221,6 +221,26 @@ func buildAssets(scanID string) []AssetEntry {
 						if sc := intPick(obj, "StatusCode", "status_code", "statusCode"); sc > 0 && e.StatusCode == 0 {
 							e.StatusCode = sc
 						}
+					}
+				}
+			}
+		}
+	}
+
+	// Also read cf1016-vulnerabilities.json — findings are implicitly live
+	if raw, _, err := loadFileContent(scanID, "cf1016-vulnerabilities.json"); err == nil && len(raw) > 0 {
+		var arr []map[string]interface{}
+		if json.Unmarshal(raw, &arr) == nil {
+			for _, obj := range arr {
+				subdomain := strPick(obj, "subdomain", "target")
+				host := normalizeHost(subdomain)
+				if e := getOrCreate(host); e != nil {
+					e.IsLive = true
+					if e.StatusCode == 0 {
+						e.StatusCode = intPick(obj, "http_status", "status_code")
+					}
+					if e.URL == "" {
+						e.URL = "https://" + host
 					}
 				}
 			}

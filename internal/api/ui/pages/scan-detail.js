@@ -19,8 +19,11 @@
   window._scanDetailRefreshTimer = null;
   window._scanDetailRefreshId = null;
   let _assetsCache = null;
+  let _assetsLoading = false;
 
   async function renderScanDetailView(scanId) {
+    _assetsCache = null;
+    _assetsLoading = false;
     const container = document.getElementById('scan-detail-container');
     const sub = document.getElementById('scan-detail-sub');
     const apiA = document.getElementById('scan-detail-api');
@@ -296,6 +299,7 @@
         scheduleScanDetailRefresh(scanId, 4500);
       } else {
         clearScanDetailRefreshTimer();
+        _assetsCache = null; // Reset cache on auto-refresh to pick up new assets
         await renderScanDetailView(scanId);
       }
     } catch (e) {
@@ -389,9 +393,10 @@
         if (kind === 'js-urls') kind = 'js_urls';
         if (kind === 'unknown' || kind === 'unknowns') kind = 'other';
 
-const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.includes('js-') && !file.includes('trufflehog') && !file.includes('github'))) && !file.includes('trufflehog') && !file.includes('github-secrets');
+        const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.includes('js-') && !file.includes('trufflehog') && !file.includes('github'))) && !file.includes('trufflehog') && !file.includes('github-secrets');
         const looksLikeJSURL = file.includes('js-url') || /\.m?jsx?(\?|$)/i.test(target);
-        const looksLikeGitHub = file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table') || file.includes('github-secrets') || (file.includes('secrets') && file.endsWith('.json'));
+        // Exclude JS analysis files from GitHub bucket
+        const looksLikeGitHub = (file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table') || file.includes('github-secrets') || (file.includes('secrets') && file.endsWith('.json'))) && !file.startsWith('js-');
 
         if (looksLikeGitHub) kind = 'github-scan';
         else if (looksLikeJSMatcher) kind = 'js-analysis';
@@ -508,7 +513,7 @@ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.include
       if (bi !== -1) return 1;
       return a.localeCompare(b);
     });
-    const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing', 'js-analysis']);
+    const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing', 'js-analysis', 'github-scan', 'nuclei', 'ffuf', 'reflection', 'js-analysis']);
     const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
     if (hasUrlsDatasetTab) excludedModuleTabs.add('url-collection');
     const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');
