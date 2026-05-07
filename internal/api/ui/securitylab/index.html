@@ -21,9 +21,25 @@
     .wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
     .title { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
     .sub { color: var(--muted); margin: 0 0 18px; }
-    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-    .tab { background: #151a33; color: var(--muted); border: 1px solid var(--border); padding: 8px 12px; border-radius: 10px; cursor: pointer; font-weight: 600; }
-    .tab.active { color: var(--text); border-color: var(--accent); background: rgba(123,139,255,.12); }
+    .tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+    .tab { 
+      background: rgba(21, 26, 51, 0.6); 
+      color: var(--muted); 
+      border: 1px solid var(--border); 
+      padding: 10px 16px; 
+      border-radius: 12px; 
+      cursor: pointer; 
+      font-weight: 600; 
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      backdrop-filter: blur(8px);
+    }
+    .tab:hover { background: rgba(123, 139, 255, 0.1); color: var(--text); border-color: rgba(123, 139, 255, 0.4); }
+    .tab.active { 
+      color: #fff; 
+      border-color: var(--accent); 
+      background: linear-gradient(135deg, rgba(123, 139, 255, 0.25), rgba(123, 139, 255, 0.1)); 
+      box-shadow: 0 4px 15px rgba(123, 139, 255, 0.15);
+    }
     .panel { display: none; }
     .panel.active { display: block; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
@@ -58,8 +74,8 @@
     .xss-row:hover { background:rgba(255,255,255,.03); }
     .xss-row:last-child { border-bottom:0; }
     .xss-meta { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; align-items:center; }
-    .xss-event { font-size:11px; font-weight:700; color:var(--accent); background:rgba(123,139,255,.12); padding:2px 8px; border-radius:6px; }
-    .xss-tag { font-size:11px; font-weight:600; color:var(--ok); background:rgba(52,211,153,.1); padding:2px 7px; border-radius:6px; }
+    .xss-event { font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 3px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3); }
+    .xss-tag { font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #10b981, #059669); padding: 3px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3); }
     .xss-ui { font-size:11px; padding:2px 7px; border-radius:6px; font-weight:600; }
     .xss-ui.auto { background:rgba(52,211,153,.08); color:var(--ok); }
     .xss-ui.manual { background:rgba(245,158,11,.08); color:var(--warn); }
@@ -67,11 +83,41 @@
     .xss-desc { font-size:11px; color:var(--muted); margin-top:4px; }
     .xss-copy-btn { flex-shrink:0; background:#1a1f3b; border:1px solid var(--border); color:var(--muted); border-radius:7px; padding:4px 9px; font-size:11px; cursor:pointer; white-space:nowrap; }
     .xss-copy-btn:hover { color:var(--text); border-color:var(--accent); }
-    .xss-group-header { padding:8px 10px; background:rgba(123,139,255,.06); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:5; }
-    .xss-group-name { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--accent); }
-    .xss-count-badge { font-size:11px; color:var(--muted); }
-    .xss-results-box { border:1px solid var(--border); border-radius:10px; overflow:auto; max-height:600px; background:#090c1a; }
-    .copy-bulk-btn { background:linear-gradient(135deg,#6577ff,#7f8fff); color:white; border:none; border-radius:8px; padding:7px 14px; cursor:pointer; font-weight:700; font-size:12px; }
+    .xss-group-header { 
+      padding: 12px 16px; 
+      background: rgba(123, 139, 255, 0.08); 
+      border-bottom: 1px solid var(--border); 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      position: sticky; 
+      top: 0; 
+      z-index: 10;
+      backdrop-filter: blur(12px);
+    }
+    .xss-group-name { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); text-shadow: 0 0 10px rgba(123, 139, 255, 0.3); }
+    .xss-count-badge { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 20px; }
+    .xss-results-box { 
+      border: 1px solid var(--border); 
+      border-radius: 14px; 
+      overflow: auto; 
+      max-height: 650px; 
+      background: rgba(9, 12, 26, 0.7);
+      box-shadow: inset 0 0 40px rgba(0,0,0,0.4);
+    }
+    .copy-bulk-btn { 
+      background: linear-gradient(135deg, #4f46e5, #7c3aed); 
+      color: white; 
+      border: none; 
+      border-radius: 10px; 
+      padding: 8px 18px; 
+      cursor: pointer; 
+      font-weight: 700; 
+      font-size: 13px;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+    .copy-bulk-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4); }
+    .copy-bulk-btn:active { transform: translateY(0); }
   </style>
   <script src="ssrf-payloads.js"></script>
   <script src="xss-payloads.js"></script>
@@ -266,7 +312,7 @@
         $('jwtPayload').textContent = '{}';
         checks.push(['bad', 'Invalid JWT: ' + e.message]);
       }
-      $('jwtChecks').innerHTML = checks.map(([cls, msg]) => `<div class="item"><span class="pill ${cls}">${cls.toUpperCase()}</span> <span style="margin-left:8px">${msg}</span></div>`).join('');
+      $('jwtChecks').innerHTML = checks.map(([cls, msg]) => `<div class="item"><span class="pill ${cls}">${cls.toUpperCase()}</span> <span style="margin-left:8px">${escapeHTML(msg)}</span></div>`).join('');
     });
 
     $('regexRun').addEventListener('click', () => {
@@ -290,10 +336,10 @@
           if (matches.length > 500) break;
         }
         $('regexResults').innerHTML = matches.length
-          ? matches.map(x => `<div class="item"><span class="pill ok">MATCH</span> <span class="muted" style="margin-left:8px">@${x.idx}</span><div style="margin-top:6px"><code>${x.val.replace(/</g, '&lt;')}</code></div></div>`).join('')
+          ? matches.map(x => `<div class="item"><span class="pill ok">MATCH</span> <span class="muted" style="margin-left:8px">@${x.idx}</span><div style="margin-top:6px"><code>${escapeHTML(x.val)}</code></div></div>`).join('')
           : '<div class="item muted">No matches.</div>';
       } catch (e) {
-        $('regexResults').innerHTML = `<div class="item"><span class="pill bad">ERROR</span><span style="margin-left:8px">${e.message}</span></div>`;
+        $('regexResults').innerHTML = `<div class="item"><span class="pill bad">ERROR</span><span style="margin-left:8px">${escapeHTML(e.message)}</span></div>`;
       }
     });
 
@@ -746,7 +792,8 @@
         return true;
       });
 
-      $('xssStats').textContent = `${xssFilteredPayloads.length} payload(s) of ${window.XSS_PAYLOADS.length} total`;
+      const statsText = search ? `${xssFilteredPayloads.length} payload(s) matching "${escapeHTML(search)}"` : `${xssFilteredPayloads.length} payload(s) of ${window.XSS_PAYLOADS.length} total`;
+      $('xssStats').textContent = statsText;
 
       const container = $('xssResults');
       // Clear safely — no innerHTML involved
