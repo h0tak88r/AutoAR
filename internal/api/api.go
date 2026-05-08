@@ -1967,10 +1967,23 @@ func sendFileToDiscord(c *gin.Context) {
 		utils.GetLogger().Infof("[API] [sendFileToDiscord] Sending to thread %s (instead of channel %s)", threadID, channelID)
 	}
 
+	// Prevent Arbitrary File Read (Path Traversal)
+	cleanPath, err := filepath.Abs(req.FilePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file path"})
+		return
+	}
+	resultsDir, _ := filepath.Abs(utils.GetResultsDir())
+	if !strings.HasPrefix(cleanPath, resultsDir) {
+		utils.GetLogger().Warnf("[API] [sendFileToDiscord] [SECURITY] Attempted to read file outside results directory: %s", cleanPath)
+		c.JSON(http.StatusForbidden, gin.H{"error": "file must be located within the results directory"})
+		return
+	}
+
 	// Check if file exists
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Checking if file exists: %s", req.FilePath)
-	if info, err := os.Stat(req.FilePath); os.IsNotExist(err) {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] File not found: %s", req.FilePath)
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Checking if file exists: %s", cleanPath)
+	if info, err := os.Stat(cleanPath); os.IsNotExist(err) {
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] File not found: %s", cleanPath)
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
 	} else if err != nil {
@@ -1978,18 +1991,18 @@ func sendFileToDiscord(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
 		return
 	} else {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] File found: %s (size: %d bytes)", req.FilePath, info.Size())
+		utils.GetLogger().Infof("[API] [sendFileToDiscord] File found: %s (size: %d bytes)", cleanPath, info.Size())
 	}
 
 	// Get file info
-	fileName := filepath.Base(req.FilePath)
+	fileName := filepath.Base(cleanPath)
 	description := req.Description
 	if description == "" {
 		description = fmt.Sprintf("📁 %s", fileName)
 	}
 
 	// Get file info for size check
-	fileInfo, err := os.Stat(req.FilePath)
+	fileInfo, err := os.Stat(cleanPath)
 	if err != nil {
 		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
@@ -1997,12 +2010,12 @@ func sendFileToDiscord(c *gin.Context) {
 	}
 
 	// Check if file should use R2
-	useR2 := r2storage.ShouldUseR2(req.FilePath) || (r2storage.IsEnabled() && fileInfo.Size() > r2storage.GetFileSizeLimit())
+	useR2 := r2storage.ShouldUseR2(cleanPath) || (r2storage.IsEnabled() && fileInfo.Size() > r2storage.GetFileSizeLimit())
 
 	if useR2 {
 		// Upload to R2 and send link
 		utils.GetLogger().Infof("[API] [sendFileToDiscord] File is large (%d bytes), uploading to R2...", fileInfo.Size())
-		publicURL, err := r2storage.UploadFile(req.FilePath, fileName, false)
+		publicURL, err := r2storage.UploadFile(cleanPath, fileName, false)
 		if err != nil {
 			utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to upload to R2: %v", err)})
@@ -2039,8 +2052,8 @@ func sendFileToDiscord(c *gin.Context) {
 	}
 
 	// #4: Stream file via os.Open instead of loading everything into RAM with os.ReadFile.
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Opening file for streaming: %s", req.FilePath)
-	fileStream, streamErr := os.Open(req.FilePath)
+	utils.GetLogger().Infof("[API] [sendFileToDiscord] Opening file for streaming: %s", cleanPath)
+	fileStream, streamErr := os.Open(cleanPath)
 	if streamErr != nil {
 		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to open file: %v", streamErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to open file: %v", streamErr)})
@@ -2087,7 +2100,7 @@ func sendFileToDiscord(c *gin.Context) {
 		if strings.Contains(err.Error(), "413") || strings.Contains(err.Error(), "too large") || strings.Contains(err.Error(), "Request entity too large") {
 			utils.GetLogger().Infof("[API] [sendFileToDiscord] ⚠️  Discord upload failed due to size, uploading to R2 as fallback...")
 			if r2storage.IsEnabled() {
-				publicURL, r2Err := r2storage.UploadFile(req.FilePath, fileName, false)
+				publicURL, r2Err := r2storage.UploadFile(cleanPath, fileName, false)
 				if r2Err != nil {
 					utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", r2Err)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file and R2 upload failed: %v (R2 error: %v)", err, r2Err)})
