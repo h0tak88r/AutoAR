@@ -61,6 +61,7 @@ window.openScanResultsPage = openScanResultsPage;
 window.wireShellOnce = wireShellOnce;
 window.updateClock = updateClock;
 window.browseR2ForScan = browseR2ForScan;
+window.deleteScansNoFindings = deleteScansNoFindings;
 window.loadDomainSubdomains = loadDomainSubdomains;
 window.deleteDomainRecord = deleteDomainRecord;
 window.prevFilesPage = prevFilesPage;

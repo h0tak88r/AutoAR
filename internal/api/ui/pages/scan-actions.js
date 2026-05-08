@@ -78,6 +78,36 @@
     }
   }
 
+  async function deleteScansNoFindings() {
+    const { recent_scans = [] } = window.state.scans || {};
+    const ids = recent_scans.filter(s => {
+      const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
+      const statusRaw = (s.status || s.Status || '').toLowerCase();
+      const done = ['completed', 'done', 'failed', 'stopped', 'cancelled'].includes(statusRaw);
+      return done && filesUploaded === 0;
+    }).map(s => s.scan_id || s.ScanID).filter(Boolean);
+
+    if (!ids.length) {
+      window.showToast('info', 'No empty scans', 'No completed scans with 0 findings were found.');
+      return;
+    }
+
+    if (!confirm(`Found ${ids.length} completed/stopped scan(s) with 0 findings. Delete them and their artifacts?`)) return;
+
+    try {
+      const res = await window.apiPost('/api/scans/bulk-delete', { scan_ids: ids });
+      let msg = `Removed ${res.deleted} scan(s).`;
+      if (res.skipped_active) msg += ` ${res.skipped_active} skipped (still active).`;
+      if (res.failed) msg += ` ${res.failed} failed.`;
+      window.showToast(res.ok && !res.failed ? 'success' : 'error', res.ok ? 'Bulk delete done' : 'Some deletes failed', msg);
+      window.loadStats();
+      window.loadScans();
+    } catch (e) {
+      window.showToast('error', 'Bulk delete failed', e.message);
+    }
+  }
+
+
   async function pauseScan(scanID) {
     try {
       await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/pause`, {});
@@ -107,6 +137,7 @@
     toggleSelectAllRecentScans,
     deleteSelectedScans,
     clearAllScans,
+    deleteScansNoFindings,
     pauseScan,
     resumeScan,
   };
