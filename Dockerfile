@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
     cd /tmp/trufflehog && \
     go build -o /go/bin/trufflehog . && \
+    cd /app && \
     rm -rf /tmp/trufflehog && \
     go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
     go install -v github.com/jaeles-project/gospider@latest && \
