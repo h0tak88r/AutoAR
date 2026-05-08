@@ -48,9 +48,9 @@
 
   function renderNucleiTable(items) {
     const rows = items.map((item) => {
-      const template = item['template-id'] || item.template_id || item.template || '—';
+      const template = item['template-id'] || item.template_id || item.templateId || item.template || '—';
       const severity = item.info?.severity || item.severity || 'info';
-      const matchedAt = item['matched-at'] || item.matched_at || item.url || item.host || '—';
+      const matchedAt = item['matched-at'] || item.matched_at || item.matchedAt || item.url || item.host || '—';
       const description = item.info?.name || item.name || '—';
       return `<tr><td><div style="font-size:12px;color:var(--text-secondary);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(template))}</div></td><td><span class="severity-${severity.toLowerCase()}">${severity.toUpperCase()}</span></td><td><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(matchedAt))}</div></td><td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(description))}</td></tr>`;
     }).join('');

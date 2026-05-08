@@ -44,8 +44,8 @@
     if (module === 'httpx' || fileName.includes('live') || fileName.includes('httpx') || fileName.includes('livehosts')) {
       if (first.url || first.URL || first.host || first.Host || first.status_code || first.StatusCode || first.status || first.title) return 'httpx-results';
     }
-    if (module === 'nuclei' || fileName.includes('nuclei')) {
-      if (first['template-id'] || first.template_id || first.template || first.severity || first['matched-at']) return 'nuclei-findings';
+    if (module === 'nuclei' || fileName.includes('nuclei') || module === 'github-scan' || module === 'github-secrets' || fileName.includes('github') || fileName.includes('trufflehog')) {
+      if (first['template-id'] || first.template_id || first.template || first.templateId || first.severity || first['matched-at'] || first.matchedAt) return 'nuclei-findings';
     }
     if (module === 'zerodays' || fileName.includes('zeroday')) {
       if (first.cve || first.vulnerability || first.exploit) return 'zerodays-findings';
