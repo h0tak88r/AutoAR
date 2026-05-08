@@ -9,15 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install external tools used by AutoAR (httpx, interlace, trufflehog)
-# Note: Nuclei uses SDK (go.mod), no binary needed
-RUN GOBIN=/go/bin go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
-    GOBIN=/go/bin go install -v github.com/codingo/interlace@latest || true
+# Install external tools used by AutoAR that are called as subprocess binaries.
+# NOTE: httpx and nuclei are used as Go packages (go.mod), no binary needed.
+# NOTE: interlace was removed — replaced by native Go concurrency.
+# TruffleHog is called as a CLI binary by githubscan.go, so it must be installed here.
+RUN go install -v github.com/trufflesecurity/trufflehog/v3@latest
 
-# Install TruffleHog (binary handled via custom build)
-RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
-    cd /tmp/trufflehog && go build -o /go/bin/trufflehog . && \
-    rm -rf /tmp/trufflehog
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
 
