@@ -17,7 +17,6 @@ type Tool struct {
 func Run() error {
 	tools := []Tool{
 		// Core external scanners AutoAR still calls as CLIs
-		{"nuclei", "nuclei"},
 		{"trufflehog", "trufflehog"},
 
 		// General utilities used by modules and docker-compose examples
