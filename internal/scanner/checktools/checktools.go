@@ -29,11 +29,8 @@ func Run() error {
 		// Library-integrated tools:
 		// - next88 (React2Shell) is now embedded as a Go package and
 		//   does not require an external binary.
-		// - apkX analysis is embedded via internal/tools/apkx and only
-		//   requires the jadx decompiler binary on PATH.
 		// - confused2 (dependency confusion) is now embedded via
 		//   internal/tools/confused2 and does not require its CLI.
-		{"jadx (APK decompiler for apkX)", "jadx"},
 	}
 
 	fmt.Println("[check-tools] Verifying required directories and tools...")

@@ -13,7 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # NOTE: httpx and nuclei are used as Go packages (go.mod), no binary needed.
 # NOTE: interlace was removed — replaced by native Go concurrency.
 # TruffleHog is called as a CLI binary by githubscan.go, so it must be installed here.
-RUN go install -v github.com/trufflesecurity/trufflehog/v3@latest
+RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
+    cd /tmp/trufflehog && \
+    go build -o /go/bin/trufflehog . && \
+    rm -rf /tmp/trufflehog && \
+    go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    go install -v github.com/jaeles-project/gospider@latest && \
+    go install -v github.com/d3mondev/puredns/v2@latest
 
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app

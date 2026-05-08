@@ -103,7 +103,7 @@ func CancelScanByID(id string) error {
 	return nil
 }
 
-// PauseScanByID pauses a running scan child process
+// PauseScanByID pauses a running scan child process and all its sub-tools
 func PauseScanByID(id string) error {
 	ScansMutex.RLock()
 	scan, ok := ActiveScans[id]
@@ -114,11 +114,16 @@ func PauseScanByID(id string) error {
 	if scan.ExecCmd == nil || scan.ExecCmd.Process == nil {
 		return fmt.Errorf("scan %s has no active process to pause", id)
 	}
-	log.Printf("[INFO] Pausing scan %s (pid %d)", id, scan.ExecCmd.Process.Pid)
+	pid := scan.ExecCmd.Process.Pid
+	log.Printf("[INFO] Pausing scan %s (pid %d) process group", id, pid)
+	pgid, pgidErr := syscall.Getpgid(pid)
+	if pgidErr == nil {
+		return syscall.Kill(-pgid, syscall.SIGSTOP)
+	}
 	return scan.ExecCmd.Process.Signal(syscall.SIGSTOP)
 }
 
-// ResumeScanByID resumes a paused scan child process
+// ResumeScanByID resumes a paused scan child process and all its sub-tools
 func ResumeScanByID(id string) error {
 	ScansMutex.RLock()
 	scan, ok := ActiveScans[id]
@@ -129,7 +134,12 @@ func ResumeScanByID(id string) error {
 	if scan.ExecCmd == nil || scan.ExecCmd.Process == nil {
 		return fmt.Errorf("scan %s has no active process to resume", id)
 	}
-	log.Printf("[INFO] Resuming scan %s (pid %d)", id, scan.ExecCmd.Process.Pid)
+	pid := scan.ExecCmd.Process.Pid
+	log.Printf("[INFO] Resuming scan %s (pid %d) process group", id, pid)
+	pgid, pgidErr := syscall.Getpgid(pid)
+	if pgidErr == nil {
+		return syscall.Kill(-pgid, syscall.SIGCONT)
+	}
 	return scan.ExecCmd.Process.Signal(syscall.SIGCONT)
 }
 
