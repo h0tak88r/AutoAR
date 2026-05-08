@@ -126,6 +126,10 @@ async function clearAllScans() {
   return callPageMethod('ScanActionsPage', 'clearAllScans');
 }
 
+async function deleteScansNoFindings() {
+  return callPageMethod('ScanActionsPage', 'deleteScansNoFindings');
+}
+
 async function deleteDomainRecord(domain) {
   return callPageMethod('DomainActionsPage', 'deleteDomainRecord', [domain]);
 }
