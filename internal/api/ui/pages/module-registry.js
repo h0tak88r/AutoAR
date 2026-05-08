@@ -199,10 +199,22 @@
       ],
       extract(r) {
         const target = s(r.host || r.target || '-');
+        
+        let patternName = s(r.pattern || r.finding_type || '');
+        if (!patternName && r.file) {
+           patternName = r.file.replace(/\.txt$/i, '').replace(/^gf-/i, '');
+        }
+        if (!patternName) patternName = s(r.module || '—');
+        
+        let valueStr = s(r.value || r.finding || '-');
+        if (valueStr.toLowerCase() === 'gf-patterns' || valueStr.toLowerCase() === s(r.module).toLowerCase()) {
+            valueStr = '-';
+        }
+
         return {
           target:  { href: toHref(target), label: target },
-          pattern: { label: s(r.pattern || r.module || r.finding_type || '—'), color: '#a78bfa' },
-          value:   s(r.value || r.finding || '-'),
+          pattern: { label: patternName, color: '#a78bfa' },
+          value:   valueStr,
           source:  s(r.file || r.source || '—'),
         };
       },
@@ -217,7 +229,8 @@
         { id: 'module',  label: 'MODULE',  flex: '1', type: 'mod-badge'   },
       ],
       extract(r, modInfo) {
-        const file    = s(r.source_file || r.file || r.target || '-');
+        // Note: r.file is the artifact filename (e.g. js-secrets-vulnerabilities.json), not the target URL.
+        const file    = s(r.target || r.source_file || '-');
         const matcher = s(r.matcher || r.finding_type || '');
         const value   = s(r.finding || r.value || '-');
         return {
