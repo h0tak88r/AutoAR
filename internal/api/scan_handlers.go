@@ -7,16 +7,19 @@ package api
 // double-memory fork that was causing Docker OOM container restarts.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	apkxmod "github.com/h0tak88r/AutoAR/internal/scanner/apkx"
+	asrmod "github.com/h0tak88r/AutoAR/internal/scanner/asr"
 	backupmod "github.com/h0tak88r/AutoAR/internal/scanner/backup"
 	cf1016mod "github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
 	cnamesmod "github.com/h0tak88r/AutoAR/internal/scanner/cnames"
@@ -607,6 +610,44 @@ func scanZerodays(c *gin.Context) {
 		return err
 	})
 	okStarted(c, scanID, fmt.Sprintf("Zerodays scan started for %s", target))
+}
+
+// ── ASR ───────────────────────────────────────────────────────────────────────
+
+func scanASR(c *gin.Context) {
+	var req ScanRequest
+	if !bindOrBad(c, &req) {
+		return
+	}
+	if !requireField(c, req.Domain, "Domain") {
+		return
+	}
+	domain := *req.Domain
+	opts := asrmod.Options{Domain: domain}
+	
+	if req.Mode != nil && *req.Mode != "" {
+		m, err := strconv.Atoi(*req.Mode)
+		if err == nil && m >= 1 && m <= 5 {
+			opts.Mode = m
+		} else {
+			opts.Mode = 5
+		}
+	} else {
+		opts.Mode = 5 // default to deep mode
+	}
+
+	if req.Threads != nil && *req.Threads > 0 {
+		opts.Threads = *req.Threads
+	}
+	if req.Resolvers != nil && *req.Resolvers != "" {
+		opts.Resolvers = *req.Resolvers
+	}
+	
+	scanID := generateScanID()
+	go RunScanInProcess(scanID, "asr", domain, func() error {
+		return asrmod.Run(context.Background(), opts)
+	})
+	okStarted(c, scanID, fmt.Sprintf("ASR scan started for %s", domain))
 }
 
 // ── JWT ───────────────────────────────────────────────────────────────────────
