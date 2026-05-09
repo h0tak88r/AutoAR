@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -605,13 +603,13 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		outPath := filepath.Join(outDir, "nuclei-global.json")
 
 		matches := 0
-		err := nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
+		err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
 			if event != nil && event.TemplateID != "" {
 				matches++
 				msg := fmt.Sprintf("🎯 **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-					event.TemplateID, event.Info.Name, event.MatchedAt, event.Info.SeverityHolder.Severity.String())
+					event.TemplateID, event.Info.Name, event.Matched, event.Info.SeverityHolder.Severity.String())
 				utils.SendWebhookLogAsync(msg)
-				stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.MatchedAt)
+				stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.Matched)
 			}
 		})
 
