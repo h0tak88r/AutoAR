@@ -355,6 +355,7 @@ type ScanRequest struct {
 	Query             *string `json:"query"`
 	Provider          *string `json:"provider"`
 	APIKey            *string `json:"api_key"`
+	Resolvers         *string `json:"resolvers"`
 	// FFuf options
 	Target         *string            `json:"target"`          // FFuf target URL
 	Wordlist       *string            `json:"wordlist"`        // FFuf wordlist path
@@ -580,6 +581,7 @@ func SetupAPI() *gin.Engine {
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
 		api.POST("/zerodays", scanZerodays)   // Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)
 		api.POST("/jwt", scanJWT)             // JWT vulnerability scan
+		api.POST("/asr", scanASR)             // Attack Surface Reduction scan
 		api.POST("/apkx", scanApkX)           // APK analysis and MITM patching
 		api.GET("/:scan_id/status", getScanStatus)
 		api.GET("/:scan_id/results", getScanResults)

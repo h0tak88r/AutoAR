@@ -2,6 +2,7 @@
   const LAUNCH_SCAN_TYPES = {
     domain_scan: { path: 'domain_run', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     subdomain_scan: { path: 'subdomain_run', modes: ['subdomain', 'subdomain_list'], placeholders: { subdomain: 'api.example.com', subdomain_list: 'one subdomain per line' } },
+    asr: { path: 'asr', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     recon: { path: 'recon', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     subdomains: { path: 'subdomains', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     livehosts: { path: 'livehosts', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
@@ -50,6 +51,11 @@
   const SCAN_FLAG_DEFS = {
     domain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
     subdomain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
+    asr: [
+      { key: 'mode', label: 'ASR Mode', type: 'select', options: ['5', '4', '3', '2', '1'], advanced: false },
+      { key: 'threads', label: 'Threads', type: 'number', min: 1, advanced: true },
+      { key: 'resolvers', label: 'Resolvers file path', type: 'text', advanced: true },
+    ],
     recon: [
       { key: 'threads', label: 'Threads', type: 'number', min: 1, max: 500, advanced: false },
     ],
