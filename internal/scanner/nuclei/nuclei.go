@@ -579,6 +579,74 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 	return err
 }
 
+// RunGlobalTemplate executes a specific nuclei template against a list of targets using the SDK.
+func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, onResult func(event *nucleiOutput.ResultEvent)) error {
+	targets, err := readTargetLines(targetFile)
+	if err != nil {
+		return fmt.Errorf("failed to read targets: %w", err)
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("no targets found in %s", targetFile)
+	}
+	if err := utils.EnsureDir(filepath.Dir(outPath)); err != nil {
+		return fmt.Errorf("failed to ensure output dir: %w", err)
+	}
+	fh, err := os.Create(outPath)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer fh.Close()
+
+	jsonWriter, err := nucleiOutput.NewWriter(
+		nucleiOutput.WithWriter(fh),
+		nucleiOutput.WithJson(true, false),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize JSON writer: %w", err)
+	}
+	defer jsonWriter.Close()
+
+	engine, err := nucleiSDK.NewNucleiEngineCtx(
+		context.Background(),
+		nucleiSDK.DisableUpdateCheck(),
+		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
+		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{
+			Templates: []string{templatePath},
+		}),
+		nucleiSDK.WithConcurrency(nucleiSDK.Concurrency{
+			TemplateConcurrency:           max(1, min(threads, 25)),
+			HostConcurrency:               max(1, threads),
+			HeadlessHostConcurrency:       max(1, min(threads, 10)),
+			HeadlessTemplateConcurrency:   max(1, min(threads, 10)),
+			JavascriptTemplateConcurrency: max(1, min(threads, 10)),
+			TemplatePayloadConcurrency:    25,
+			ProbeConcurrency:              max(1, min(threads, 50)),
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize SDK: %w", err)
+	}
+	defer engine.Close()
+
+	engine.LoadTargets(targets, false)
+	writeErr := error(nil)
+	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
+		if event == nil || writeErr != nil {
+			return
+		}
+		if wErr := jsonWriter.Write(event); wErr != nil {
+			writeErr = wErr
+		}
+		if onResult != nil {
+			onResult(event)
+		}
+	})
+	if writeErr != nil {
+		return writeErr
+	}
+	return err
+}
+
 func extractDomainFromURL(url string) string {
 	// Simple extraction: remove http:// or https://, then take first part before /
 	url = strings.TrimPrefix(url, "http://")
