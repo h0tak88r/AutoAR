@@ -33,6 +33,8 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/h0tak88r/AutoAR/internal/version"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
+	"github.com/projectdiscovery/nuclei/v3/pkg/output"
+	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -602,41 +604,20 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		os.MkdirAll(outDir, 0755)
 		outPath := filepath.Join(outDir, "nuclei-global.json")
 
-		cmd := exec.Command("nuclei", "-l", tmpFile.Name(), "-t", templatePath, "-c", "50", "-silent", "-jsonl", "-o", outPath)
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return fmt.Errorf("stdout pipe failed: %w", err)
-		}
-		cmd.Stderr = os.Stderr // log errors to console
-
-		if err := cmd.Start(); err != nil {
-			return fmt.Errorf("nuclei start failed: %w", err)
-		}
-
 		matches := 0
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			// Nuclei JSONL format
-			var res struct {
-				TemplateID string `json:"template-id"`
-				MatchedAt  string `json:"matched-at"`
-				Host       string `json:"host"`
-				Info       struct {
-					Name     string `json:"name"`
-					Severity string `json:"severity"`
-				} `json:"info"`
-			}
-			if err := json.Unmarshal([]byte(line), &res); err == nil && res.TemplateID != "" {
+		err := nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
+			if event != nil && event.TemplateID != "" {
 				matches++
 				msg := fmt.Sprintf("🎯 **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-					res.TemplateID, res.Info.Name, res.MatchedAt, res.Info.Severity)
+					event.TemplateID, event.Info.Name, event.MatchedAt, event.Info.SeverityHolder.Severity.String())
 				utils.SendWebhookLogAsync(msg)
-				stdLog(scanID, "[VULN] %s [%s] on %s", res.Info.Name, res.Info.Severity, res.MatchedAt)
+				stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.MatchedAt)
 			}
-		}
+		})
 
-		cmd.Wait()
+		if err != nil {
+			return fmt.Errorf("nuclei SDK scan failed: %w", err)
+		}
 
 		stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches)
 		utils.SendWebhookLogAsync(fmt.Sprintf("✅ **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
