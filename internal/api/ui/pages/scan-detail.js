@@ -184,11 +184,11 @@
             
             <div class="modern-card">
               <div class="card-header">
-                <div class="card-title"><span class="card-title-icon">📊</span>Findings</div>
+                <div class="card-title"><span class="card-title-icon">📊</span>Results</div>
                 <span class="badge badge-running" id="unified-parsed-badge">${total} files</span>
               </div>
               <div id="unified-parsed-results" style="padding:16px">
-                <div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all findings...</div>
+                <div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all results...</div>
               </div>
             </div>
           </div>`;
@@ -308,12 +308,12 @@
   }
 
   // ── Manifest helpers — delegated to scan-detail-manifest.js ──────────────
-  const fetchScanManifest       = (id)      => window.ScanDetailManifest.fetchScanManifest(id);
-  const renderScanManifestCard  = (m, s)    => window.ScanDetailManifest.renderScanManifestCard(m, s);
-  const refreshScanManifestCard = (id, s)   => window.ScanDetailManifest.refreshScanManifestCard(id, s);
-  const manifestStatusBadge     = (st)      => window.ScanDetailManifest.manifestStatusBadge(st);
-  const manifestArtifactLabel   = (e)       => window.ScanDetailManifest.manifestArtifactLabel(e);
-  const manifestStartedLabel    = (e)       => window.ScanDetailManifest.manifestStartedLabel(e);
+  const fetchScanManifest = (id) => window.ScanDetailManifest.fetchScanManifest(id);
+  const renderScanManifestCard = (m, s) => window.ScanDetailManifest.renderScanManifestCard(m, s);
+  const refreshScanManifestCard = (id, s) => window.ScanDetailManifest.refreshScanManifestCard(id, s);
+  const manifestStatusBadge = (st) => window.ScanDetailManifest.manifestStatusBadge(st);
+  const manifestArtifactLabel = (e) => window.ScanDetailManifest.manifestArtifactLabel(e);
+  const manifestStartedLabel = (e) => window.ScanDetailManifest.manifestStartedLabel(e);
 
   // ── Unified Findings Table Implementation ──────────────────────────────────
   async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) {
@@ -330,7 +330,7 @@
       return;
     }
 
-    root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all findings…</div>';
+    root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all results…</div>';
     let allRows = [];
     try {
       const parsed = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/parsed?section=all&limit=5000`);
@@ -471,7 +471,7 @@
 
     const dynamicKinds = [...new Set(allRows.map(r => r.kind || 'other'))];
     const DATASET_TABS = [];
-    
+
     if (isReconScan || allRows.some(r => r.kind === 'subdomains' || r.kind === 'assets')) {
       DATASET_TABS.push(['assets', TAB_LABELS.assets]);
     }
@@ -488,7 +488,7 @@
         return;
       }
       if (!['logs', 'log', 'tech'].includes(k)) {
-         DATASET_TABS.push([k, TAB_LABELS[k] || k]);
+        DATASET_TABS.push([k, TAB_LABELS[k] || k]);
       }
     });
 
@@ -500,8 +500,8 @@
     });
 
     const preferredModuleOrder = [
-      'nuclei', 'gf-patterns', 'misconfig', 'ffuf-fuzzing', 'dns-takeover', 
-      'backup-detection', 'js-analysis', 'xss-detection', 'sql-detection', 
+      'nuclei', 'gf-patterns', 'misconfig', 'ffuf-fuzzing', 'dns-takeover',
+      'backup-detection', 'js-analysis', 'xss-detection', 'sql-detection',
       's3-scan', 'port-scan', 'zerodays', 'aem', 'github-scan'
     ];
     const usedModulesRaw = [...new Set(allRows.map(r => window.normalizeModuleKey(r.module)).filter(Boolean))];
@@ -518,7 +518,7 @@
     if (hasUrlsDatasetTab) excludedModuleTabs.add('url-collection');
     const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');
     if (hasApkxDatasetTab) excludedModuleTabs.add('apkx');
-    
+
     const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
       const info = getModuleDisplayInfo(mod);
       return [`mod:${mod}`, `${info.icon} ${info.name}`];
@@ -710,7 +710,7 @@
             Object.entries(parsed).forEach(([k, v]) => takeKV(k, v));
             consumedRow = Object.keys(parsed).length > 0;
           }
-        } catch (_) {}
+        } catch (_) { }
         const kvs = finding.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/g) || [];
         kvs.forEach((frag) => {
           const m = frag.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/);
@@ -736,13 +736,13 @@
         .then((meta) => {
           if (!meta) return;
           if (meta.package_name) apkPackageInfo.package_name = meta.package_name;
-          if (meta.version)      apkPackageInfo.version      = meta.version;
+          if (meta.version) apkPackageInfo.version = meta.version;
           if (meta.version_code) apkPackageInfo.version_code = meta.version_code;
-          if (meta.min_sdk)      apkPackageInfo.min_sdk      = meta.min_sdk;
-          if (meta.target_sdk)   apkPackageInfo.target_sdk   = meta.target_sdk;
+          if (meta.min_sdk) apkPackageInfo.min_sdk = meta.min_sdk;
+          if (meta.target_sdk) apkPackageInfo.target_sdk = meta.target_sdk;
           if (meta.task_hijacking_risk) apkPackageInfo.task_hijacking_risk = meta.task_hijacking_risk;
           if (apkMetaBar && isAPKScan) renderAPKMetaBar();
-        }).catch(() => {});
+        }).catch(() => { });
     }
 
     const apkCategoryKey = (r) => {
@@ -832,7 +832,7 @@
       if (searchModule !== 'all' && !String(activeKind || '').startsWith('mod:') && activeKind !== 'vuln') {
         if (window.normalizeModuleKey(r.module) !== searchModule) return false;
       }
-      
+
       if (activeKind === 'urls' && searchJsOnly && !r.is_js) return false;
       if (searchHost && !String(r.host || r.target || '').toLowerCase().includes(searchHost)) return false;
       if (searchTitle && !String(r.title || r.finding || '').toLowerCase().includes(searchTitle)) return false;
@@ -968,10 +968,10 @@
 
     const SEV_DEFS = [
       { key: 'critical', label: 'Critical', color: '#fc8181', bg: 'rgba(252,129,129,.13)', border: 'rgba(252,129,129,.35)' },
-      { key: 'high',     label: 'High',     color: '#f6ad55', bg: 'rgba(246,173,85,.13)',  border: 'rgba(246,173,85,.35)' },
-      { key: 'medium',   label: 'Medium',   color: '#f6e05e', bg: 'rgba(246,224,94,.13)',  border: 'rgba(246,224,94,.35)' },
-      { key: 'low',      label: 'Low',      color: '#63b3ed', bg: 'rgba(99,179,237,.13)',  border: 'rgba(99,179,237,.35)' },
-      { key: 'info',     label: 'Info',     color: '#68d391', bg: 'rgba(104,211,145,.13)', border: 'rgba(104,211,145,.35)' },
+      { key: 'high', label: 'High', color: '#f6ad55', bg: 'rgba(246,173,85,.13)', border: 'rgba(246,173,85,.35)' },
+      { key: 'medium', label: 'Medium', color: '#f6e05e', bg: 'rgba(246,224,94,.13)', border: 'rgba(246,224,94,.35)' },
+      { key: 'low', label: 'Low', color: '#63b3ed', bg: 'rgba(99,179,237,.13)', border: 'rgba(99,179,237,.35)' },
+      { key: 'info', label: 'Info', color: '#68d391', bg: 'rgba(104,211,145,.13)', border: 'rgba(104,211,145,.35)' },
     ];
 
     const renderSeverityBar = () => {
@@ -1003,7 +1003,7 @@
       else if (riskFromBackend === 'unlikely') { hijackLabel = '✅ Unlikely (minSdk ≥ 31)'; hijackColor = '#22c55e'; }
       else { hijackLabel = '? Unknown'; hijackColor = '#94a3b8'; }
 
-      const fields = [['package_name','Package ID'],['app_name','App Name'],['version','Version'],['version_code','Version Code'],['min_sdk','Min SDK'],['target_sdk','Target SDK'],['compile_sdk','Compile SDK']].filter(([k]) => apkPackageInfo[k]);
+      const fields = [['package_name', 'Package ID'], ['app_name', 'App Name'], ['version', 'Version'], ['version_code', 'Version Code'], ['min_sdk', 'Min SDK'], ['target_sdk', 'Target SDK'], ['compile_sdk', 'Compile SDK']].filter(([k]) => apkPackageInfo[k]);
       if (!fields.length && hijackLabel === '? Unknown') { apkMetaBar.style.display = 'none'; return; }
       apkMetaBar.style.display = 'flex';
       apkMetaBar.innerHTML = [...fields.map(([k, label]) => `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)"><span style="font-size:11px;color:#67e8f9">${esc(label)}:</span><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(apkPackageInfo[k])}</span></div>`), `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${hijackColor}55;border-radius:8px;background:rgba(2,6,23,.45)"><span style="font-size:11px;color:${hijackColor}">Task Hijack Risk:</span><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(hijackLabel)}</span></div>`].join('');
@@ -1022,7 +1022,7 @@
     const readCurrentFilterSet = () => ({ searchHost, searchTitle, filterSeverity, searchModule, searchJsOnly, quickChip, presetMode, });
     const applyFilterSet = (fs) => { if (!fs) return; searchHost = String(fs.searchHost || ''); searchTitle = String(fs.searchTitle || ''); filterSeverity = String(fs.filterSeverity || 'any'); searchModule = String(fs.searchModule || 'all'); searchJsOnly = !!fs.searchJsOnly; quickChip = String(fs.quickChip || 'none'); presetMode = String(fs.presetMode || 'smart'); const h = root.querySelector('#recon-filter-host'), t = root.querySelector('#recon-filter-title'), s = root.querySelector('#recon-filter-severity'); if (h) h.value = searchHost; if (t) t.value = searchTitle; if (s) s.value = filterSeverity; if (modSelect) modSelect.value = searchModule; if (viewModeSel) viewModeSel.value = presetMode; };
 
-    const chipDefs = [{ id: 'highplus', label: 'High+' },{ id: 'hasurl', label: 'Has URL' },{ id: 'exported', label: 'Exported Components' },{ id: 'secrets', label: 'Secrets' },{ id: 'onlyjs', label: 'Only JS' }];
+    const chipDefs = [{ id: 'highplus', label: 'High+' }, { id: 'hasurl', label: 'Has URL' }, { id: 'exported', label: 'Exported Components' }, { id: 'secrets', label: 'Secrets' }, { id: 'onlyjs', label: 'Only JS' }];
     const renderChips = () => { if (!chipBar) return; chipBar.innerHTML = chipDefs.map(c => { const active = quickChip === c.id; return `<button type="button" data-chip="${escAttr(c.id)}" style="padding:5px 10px;border:1px solid ${active ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${active ? 'rgba(34,211,238,.13)' : 'rgba(255,255,255,.02)'};color:${active ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">${esc(c.label)}</button>`; }).join(''); };
 
     const renderTabs = () => {
@@ -1069,7 +1069,7 @@
           if (colgroup) colgroup.innerHTML = `<col style="width:36px">` + cols.map(() => `<col>`).join('');
           const thCells = cols.map((label, i) => {
             const align = (label === 'STATUS' || label === 'SEV') ? 'text-align:center;' : '';
-            return `<th style="${align}position:relative">${esc(label)}<span class="col-resizer" data-col-index="${i+1}" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>`;
+            return `<th style="${align}position:relative">${esc(label)}<span class="col-resizer" data-col-index="${i + 1}" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>`;
           }).join('');
           headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>${thCells}`;
         }
@@ -1186,7 +1186,7 @@
         const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?${qs}`);
         _urlsCache = Array.isArray(data.urls) ? data.urls : [];
         renderURLsTable(_urlsCache);
-      } catch (e) {}
+      } catch (e) { }
     };
     const renderURLsTable = (urls) => {
       const countEl = root.querySelector('#recon-urls-count');
@@ -1233,7 +1233,7 @@
         renderBody();
       }
     });
-    
+
     const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
     const applyF = () => { searchHost = hostI?.value.toLowerCase().trim(); searchTitle = titleI?.value.toLowerCase().trim(); filterSeverity = sevS?.value; _currentPage = 1; renderBody(); };
     if (hostI) hostI.addEventListener('input', applyF); if (titleI) titleI.addEventListener('input', applyF); if (sevS) sevS.addEventListener('change', applyF);
@@ -1277,9 +1277,9 @@
         }
       });
     }
-    
+
     if (wrap) wrap.addEventListener('scroll', () => { _virtualScrollTop = wrap.scrollTop; if (currentRenderedRows.length > 150) renderBody(); });
-    
+
     root.addEventListener('click', e => { const r = e.target.closest('.findings-row'); if (r && !e.target.closest('input,a,button')) { const idx = Number(r.dataset.rowIndex); if (currentRenderedRows[idx]) openDrawerForRow(currentRenderedRows[idx]); } });
     if (drawerClose) drawerClose.addEventListener('click', () => drawer.style.display = 'none');
     const urlsSearchInput = root.querySelector('#recon-urls-search');
@@ -1296,7 +1296,7 @@
         .filter(Boolean)
         .filter((url) => (!q || url.toLowerCase().includes(q)) && (mode !== 'js' || isLikelyJSURL(url)) && (mode !== 'interesting' || isLikelyInterestingURL(url)));
       if (!lines.length) return;
-      try { await copyToClipboard(lines.join('\n')); } catch (_) {}
+      try { await copyToClipboard(lines.join('\n')); } catch (_) { }
     });
     if (urlsExportBtn) urlsExportBtn.addEventListener('click', () => {
       const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
@@ -1316,12 +1316,12 @@
       a.remove();
       URL.revokeObjectURL(href);
     });
-    
+
     function openDrawerForRow(r) { drawerBody.innerHTML = `<pre style="padding:12px;font-size:11px;color:var(--text-primary)">${esc(JSON.stringify(r, null, 2))}</pre>`; drawer.style.display = 'block'; }
   }
 
   // ── Assets & file-filter helpers — delegated to scan-detail-assets.js ────
-  const renderAssetsGrid     = (c, a)     => window.ScanDetailAssets.renderAssetsGrid(c, a);
+  const renderAssetsGrid = (c, a) => window.ScanDetailAssets.renderAssetsGrid(c, a);
   const wireScanDetailFilters = (id, fs) => window.ScanDetailAssets.wireScanDetailFilters(id, fs);
 
   window.ScanDetailPage = {
