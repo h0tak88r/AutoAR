@@ -55,7 +55,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates tini jq dnsutils libpcap0.8 \
     postgresql-client docker.io \
-    python3 python3-pip sqlmap nmap \
+    python3 sqlmap nmap \
     default-jre-headless unzip zip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -93,9 +93,7 @@ RUN ln -sf /usr/local/bin/autoar /app/main.sh && \
 RUN mkdir -p /app/new-results /app/nuclei_templates || true
 
 # Permissions
-RUN chmod +x /app/generate_config.sh 2>/dev/null || true \
-    && chmod +x /app/main.sh 2>/dev/null || true \
-    && chmod +x /usr/local/bin/autoar-entrypoint \
+RUN chmod +x /usr/local/bin/autoar-entrypoint \
     && echo "All modules are now Go-based - pure Go implementation" || true
 
 # Add a non-root user
