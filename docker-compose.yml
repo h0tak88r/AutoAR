@@ -6,123 +6,7 @@
 #   Set in .env: DB_TYPE=postgresql  DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
 
 services:
-    # Example 1: Discord Bot only (default behavior)
-    autoar-discord:
-        build:
-            context: .
-            dockerfile: Dockerfile
-            args:
-                RUN_SETUP_AT_BUILD: "true"
-        image: autoar:latest
-        container_name: autoar-discord
-        restart: unless-stopped
-        env_file:
-            - .env
-        environment:
-            # Mode Configuration
-            - AUTOAR_MODE=discord # Options: discord, api, both
 
-            # Core Configuration
-            - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-            - AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar
-            - AUTOAR_CONFIG_FILE=/app/autoar.yaml
-            - AUTOAR_RESULTS_DIR=/app/new-results
-
-            # Tool Setup
-            - RUN_SETUP=${RUN_SETUP:-false}
-            - REGENERATE_CONFIG=${REGENERATE_CONFIG:-true}
-            - TRUFFLEHOG_NO_UPDATE=true
-            - TRUFFLEHOG_AUTOUPDATE=false
-
-            # API Keys for Security Tools
-            - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-            - SECURITYTRAILS_API_KEY=${SECURITYTRAILS_API_KEY:-}
-            - SHODAN_API_KEY=${SHODAN_API_KEY:-}
-            - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY:-}
-            - WORDPRESS_API_KEY=${WORDPRESS_API_KEY:-}
-            - BEVIGIL_API_KEY=${BEVIGIL_API_KEY:-}
-            - BINARYEDGE_API_KEY=${BINARYEDGE_API_KEY:-}
-            - URLSCAN_API_KEY=${URLSCAN_API_KEY:-}
-            - CENSYS_API_ID=${CENSYS_API_ID:-}
-            - CENSYS_API_SECRET=${CENSYS_API_SECRET:-}
-            - CERTSPOTTER_API_KEY=${CERTSPOTTER_API_KEY:-}
-            - CHAOS_API_KEY=${CHAOS_API_KEY:-}
-            - FOFA_EMAIL=${FOFA_EMAIL:-}
-            - FOFA_KEY=${FOFA_KEY:-}
-            - FULLHUNT_API_KEY=${FULLHUNT_API_KEY:-}
-            - INTELX_API_KEY=${INTELX_API_KEY:-}
-            - PASSIVETOTAL_USERNAME=${PASSIVETOTAL_USERNAME:-}
-            - PASSIVETOTAL_API_KEY=${PASSIVETOTAL_API_KEY:-}
-            - QUAKE_USERNAME=${QUAKE_USERNAME:-}
-            - QUAKE_PASSWORD=${QUAKE_PASSWORD:-}
-            - THREATBOOK_API_KEY=${THREATBOOK_API_KEY:-}
-            - WHOISXMLAPI_API_KEY=${WHOISXMLAPI_API_KEY:-}
-            - ZOOMEYE_USERNAME=${ZOOMEYE_USERNAME:-}
-            - ZOOMEYE_PASSWORD=${ZOOMEYE_PASSWORD:-}
-            - ZOOMEYEAPI_API_KEY=${ZOOMEYEAPI_API_KEY:-}
-            - H1_API_KEY=${H1_API_KEY:-}
-            - INTEGRITI_API_KEY=${INTEGRITI_API_KEY:-}
-
-            # Discord Webhook
-            - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
-
-            # Database Configuration
-            # Database Type: "postgresql" or "sqlite"
-            # For PostgreSQL: Set DB_HOST to connection string or use individual variables
-            # For SQLite: Set DB_TYPE=sqlite and DB_HOST to file path (e.g., ./bughunt.db)
-            - SAVE_TO_DB=${SAVE_TO_DB:-true}
-            - DB_TYPE=${DB_TYPE:-postgresql}
-            - DB_HOST=${DB_HOST:-}
-            - DB_PORT=${DB_PORT:-5432}
-            - DB_USER=${DB_USER:-}
-            - DB_PASSWORD=${DB_PASSWORD:-}
-            - DB_NAME=${DB_NAME:-bughunt}
-            - DOMAINS_COLLECTION=${DOMAINS_COLLECTION:-domains}
-            - SUBDOMAINS_COLLECTION=${SUBDOMAINS_COLLECTION:-subdomains}
-
-            # OpenRouter API
-            - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-
-            # Tool-specific Configuration
-            - NUCLEI_TEMPLATES_PATH=/app/nuclei_templates
-            - NUCLEI_RATE_LIMIT=${NUCLEI_RATE_LIMIT:-150}
-            - NUCLEI_CONCURRENCY=${NUCLEI_CONCURRENCY:-25}
-            - FFUF_WORDLIST_PATH=/app/Wordlists/quick_fuzz.txt
-            - FFUF_THREADS=${FFUF_THREADS:-50}
-            - SUBFINDER_THREADS=${SUBFINDER_THREADS:-10}
-            - GITHUB_MAX_REPOS=${GITHUB_MAX_REPOS:-50}
-            - GITHUB_PARALLEL_JOBS=${GITHUB_PARALLEL_JOBS:-3}
-            - GITHUB_HTML_REPORTS=${GITHUB_HTML_REPORTS:-true}
-            - GITHUB_SCAN_TYPES=${GITHUB_SCAN_TYPES:-github_org_scan}
-
-            # AWS Configuration
-            - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-            - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-            - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-            - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
-
-            # iOS App Store (ipatool) Configuration
-            - IPATOOL_EMAIL=${IPATOOL_EMAIL:-}
-            - IPATOOL_PASSWORD=${IPATOOL_PASSWORD:-}
-            - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
-            - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
-
-            # General Settings
-            - VERBOSE=${VERBOSE:-true}
-            
-            # APKX Performance Settings (optimized for 4-core, 8GB RAM VPS with no swap)
-            - APKX_WORKERS=${APKX_WORKERS:-2}
-            - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
-
-        volumes:
-            - results-data:/app/new-results
-            - ./regexes:/app/regexes:ro
-        healthcheck:
-            test: ["CMD-SHELL", "pgrep -f 'autoar bot' || pgrep -f 'autoar both' || exit 1"]
-            interval: 30s
-            timeout: 5s
-            retries: 3
-            start_period: 30s
 
     # Example 2: API Server only
     autoar-api:
@@ -133,9 +17,8 @@ services:
                 RUN_SETUP_AT_BUILD: "true"
         image: autoar:latest
         container_name: autoar-api
+        user: root
         restart: unless-stopped
-        profiles:
-            - api # Only starts when using: docker-compose --profile api up
         env_file:
             - .env
         environment:
@@ -243,6 +126,7 @@ services:
         volumes:
             - results-data:/app/new-results
             - ./regexes:/app/regexes:ro
+            - /var/run/docker.sock:/var/run/docker.sock
         healthcheck:
             test:
                 ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${API_PORT:-8000}/health >/dev/null || exit 1"]
@@ -251,145 +135,7 @@ services:
             retries: 3
             start_period: 40s
 
-    # Example 3: Both Discord Bot AND API Server
-    autoar-full:
-        build:
-            context: .
-            dockerfile: Dockerfile
-            args:
-                RUN_SETUP_AT_BUILD: "true"
-        image: autoar:latest
-        container_name: autoar-full
-        restart: unless-stopped
-        profiles:
-            - full # Only starts when using: docker-compose --profile full up
-        env_file:
-            - .env
-        environment:
-            # Mode Configuration
-            - AUTOAR_MODE=both # Run both Discord bot and API server
 
-            # Discord Configuration
-            - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-
-            # API Configuration
-            - API_HOST=0.0.0.0
-            - API_PORT=8000
-
-            # Core Configuration
-            - AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar
-            - AUTOAR_CONFIG_FILE=/app/autoar.yaml
-            - AUTOAR_RESULTS_DIR=/app/new-results
-
-            # Tool Setup
-            - RUN_SETUP=${RUN_SETUP:-false}
-            - REGENERATE_CONFIG=${REGENERATE_CONFIG:-true}
-            - TRUFFLEHOG_NO_UPDATE=true
-            - TRUFFLEHOG_AUTOUPDATE=false
-
-            # API Keys
-            - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-            - SECURITYTRAILS_API_KEY=${SECURITYTRAILS_API_KEY:-}
-            - SHODAN_API_KEY=${SHODAN_API_KEY:-}
-            - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY:-}
-            - WORDPRESS_API_KEY=${WORDPRESS_API_KEY:-}
-            - BEVIGIL_API_KEY=${BEVIGIL_API_KEY:-}
-            - BINARYEDGE_API_KEY=${BINARYEDGE_API_KEY:-}
-            - URLSCAN_API_KEY=${URLSCAN_API_KEY:-}
-            - CENSYS_API_ID=${CENSYS_API_ID:-}
-            - CENSYS_API_SECRET=${CENSYS_API_SECRET:-}
-            - CERTSPOTTER_API_KEY=${CERTSPOTTER_API_KEY:-}
-            - CHAOS_API_KEY=${CHAOS_API_KEY:-}
-            - FOFA_EMAIL=${FOFA_EMAIL:-}
-            - FOFA_KEY=${FOFA_KEY:-}
-            - FULLHUNT_API_KEY=${FULLHUNT_API_KEY:-}
-            - INTELX_API_KEY=${INTELX_API_KEY:-}
-            - PASSIVETOTAL_USERNAME=${PASSIVETOTAL_USERNAME:-}
-            - PASSIVETOTAL_API_KEY=${PASSIVETOTAL_API_KEY:-}
-            - QUAKE_USERNAME=${QUAKE_USERNAME:-}
-            - QUAKE_PASSWORD=${QUAKE_PASSWORD:-}
-            - THREATBOOK_API_KEY=${THREATBOOK_API_KEY:-}
-            - WHOISXMLAPI_API_KEY=${WHOISXMLAPI_API_KEY:-}
-            - ZOOMEYE_USERNAME=${ZOOMEYE_USERNAME:-}
-            - ZOOMEYE_PASSWORD=${ZOOMEYE_PASSWORD:-}
-            - ZOOMEYEAPI_API_KEY=${ZOOMEYEAPI_API_KEY:-}
-            - H1_API_KEY=${H1_API_KEY:-}
-            - INTEGRITI_API_KEY=${INTEGRITI_API_KEY:-}
-            - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
-
-            # Database Configuration
-            # Database Type: "postgresql" or "sqlite"
-            # For PostgreSQL: Set DB_HOST to connection string or use individual variables
-            # For SQLite: Set DB_TYPE=sqlite and DB_HOST to file path (e.g., ./bughunt.db)
-            - SAVE_TO_DB=${SAVE_TO_DB:-true}
-            - DB_TYPE=${DB_TYPE:-postgresql}
-            - DB_HOST=${DB_HOST:-}
-            - DB_PORT=${DB_PORT:-5432}
-            - DB_USER=${DB_USER:-}
-            - DB_PASSWORD=${DB_PASSWORD:-}
-            - DB_NAME=${DB_NAME:-bughunt}
-            - DOMAINS_COLLECTION=${DOMAINS_COLLECTION:-domains}
-            - SUBDOMAINS_COLLECTION=${SUBDOMAINS_COLLECTION:-subdomains}
-
-            # OpenRouter API
-            - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-
-            # Tool-specific Configuration
-            - NUCLEI_TEMPLATES_PATH=/app/nuclei_templates
-            - NUCLEI_RATE_LIMIT=${NUCLEI_RATE_LIMIT:-150}
-            - NUCLEI_CONCURRENCY=${NUCLEI_CONCURRENCY:-25}
-            - FFUF_WORDLIST_PATH=/app/Wordlists/quick_fuzz.txt
-            - FFUF_THREADS=${FFUF_THREADS:-50}
-            - SUBFINDER_THREADS=${SUBFINDER_THREADS:-10}
-            - GITHUB_MAX_REPOS=${GITHUB_MAX_REPOS:-50}
-            - GITHUB_PARALLEL_JOBS=${GITHUB_PARALLEL_JOBS:-3}
-            - GITHUB_HTML_REPORTS=${GITHUB_HTML_REPORTS:-true}
-            - GITHUB_SCAN_TYPES=${GITHUB_SCAN_TYPES:-github_org_scan}
-
-            # AWS Configuration
-            - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-            - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-            - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-            - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
-
-            # iOS App Store (ipatool) Configuration
-            - IPATOOL_EMAIL=${IPATOOL_EMAIL:-}
-            - IPATOOL_PASSWORD=${IPATOOL_PASSWORD:-}
-            - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
-            - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
-
-            # General Settings
-            - VERBOSE=${VERBOSE:-true}
-            
-            # APKX Performance Settings (optimized for 4-core, 8GB RAM VPS with no swap)
-            - APKX_WORKERS=${APKX_WORKERS:-2}
-            - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
-
-            # Dashboard + R2 (same as autoar-api)
-            - SUPABASE_URL=${SUPABASE_URL:-}
-            - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
-            - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
-            - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
-            - USE_R2_STORAGE=${USE_R2_STORAGE:-}
-            - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
-            - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
-            - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
-            - R2_SECRET_KEY=${R2_SECRET_KEY:-}
-            - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
-            - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-
-        ports:
-            - "8000:8000"
-        volumes:
-            - results-data:/app/new-results
-            - ./regexes:/app/regexes:ro
-        healthcheck:
-            test:
-                ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${API_PORT:-8000}/health >/dev/null || exit 1"]
-            interval: 30s
-            timeout: 5s
-            retries: 3
-            start_period: 40s
 
     # Optional PostgreSQL for self-hosted stacks (use with --profile localdb)
     postgres:
@@ -418,19 +164,12 @@ volumes:
     autoar-pgdata:
 # Usage Examples:
 #
-# 1. Run Discord Bot only (default):
-#    docker-compose up autoar-discord
-#
-# 2. Run API Server only:
-#    docker-compose --profile api up autoar-api
+# 1. Run API Server (default):
+#    docker-compose up -d
 #    Access API docs at: http://localhost:8000/docs
 #
-# 3. Run both Discord Bot and API Server:
-#    docker-compose --profile full up autoar-full
-#    Discord bot will be active AND API available at http://localhost:8000/docs
-#
-# 4. Stop all services:
+# 2. Stop all services:
 #    docker-compose down
 #
-# 5. View logs:
+# 3. View logs:
 #    docker-compose logs -f [service-name]
