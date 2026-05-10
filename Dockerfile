@@ -104,6 +104,8 @@ RUN useradd -m -u 10001 autoar && \
     chown autoar:autoar /usr/local/bin/autoar-entrypoint
 USER autoar
 
+EXPOSE 8000
+
 # Use tini as init for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/autoar-entrypoint"]
 
