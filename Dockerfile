@@ -34,17 +34,13 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
 # Fetch katana and all its sub-packages into go.sum.
-# go get on the top-level module alone doesn't resolve transitive deps
-# of sub-packages — we must fetch each used sub-package explicitly.
-# After katana's gets, downgrade gitea/gitlab SDKs back to the versions
-# nuclei v3.7.1 was compiled against (katana doesn't use these SDKs).
+# replace directives in go.mod prevent katana from upgrading the
+# gitea/gitlab SDKs that nuclei v3.7.1 depends on.
 RUN go get github.com/projectdiscovery/katana@v1.6.1 && \
     go get github.com/projectdiscovery/katana/pkg/utils@v1.6.1 && \
     go get github.com/projectdiscovery/katana/pkg/output@v1.6.1 && \
     go get github.com/projectdiscovery/katana/pkg/types@v1.6.1 && \
-    go get github.com/projectdiscovery/katana/pkg/engine/standard@v1.6.1 && \
-    go get code.gitea.io/sdk/gitea@v0.17.0 && \
-    go get gitlab.com/gitlab-org/api/client-go@v0.130.1
+    go get github.com/projectdiscovery/katana/pkg/engine/standard@v1.6.1
 
 # Build main autoar binary from cmd/autoar (CGO enabled for naabu/libpcap)
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar ./cmd/autoar

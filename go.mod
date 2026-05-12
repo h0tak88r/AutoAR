@@ -471,3 +471,11 @@ require (
 replace github.com/go-git/go-git/v5 => github.com/go-git/go-git/v5 v5.2.0
 
 replace github.com/go-git/go-billy/v5 => github.com/go-git/go-billy/v5 v5.0.0
+
+// Pin to versions compatible with nuclei v3.7.1.
+// katana v1.6.1 pulls in newer versions of these but katana doesn't
+// actually import them — the replace directive ensures nuclei's code
+// always compiles against the API it was written for.
+replace code.gitea.io/sdk/gitea => code.gitea.io/sdk/gitea v0.17.0
+
+replace gitlab.com/gitlab-org/api/client-go => gitlab.com/gitlab-org/api/client-go v0.130.1
