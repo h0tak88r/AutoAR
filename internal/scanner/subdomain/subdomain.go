@@ -19,6 +19,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/envloader"
 	"github.com/h0tak88r/AutoAR/internal/scanner/ffuf"
 	"github.com/h0tak88r/AutoAR/internal/scanner/gf"
+	"github.com/h0tak88r/AutoAR/internal/scanner/jsendpoints"
 	"github.com/h0tak88r/AutoAR/internal/scanner/jsscan"
 	"github.com/h0tak88r/AutoAR/internal/scanner/misconfig"
 	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
@@ -187,17 +188,18 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 			return dns.TakeoverWithOptions(dns.TakeoverOptions{Domain: rootDomain, Subdomain: subdomainClean})
 		}, 0},
 		{"s3", "[Stage 2] S3 bucket enumeration and scanning", func() error {
-			// S3 enumeration on the root domain (S3 works on domain level) but save results under subdomain directory
+			// S3 enumeration on the root domain but save under subdomain directory
 			if err := s3mod.Run(s3mod.Options{Action: "enum", Root: rootDomain, Subdomain: subdomainClean, Threads: 100}); err != nil {
 				return err
 			}
-			// After enumeration, scan found buckets for permissions
+			// After enum, scan each found bucket for permissions/public access.
+			// handleEnum writes to <subdomain>/s3/buckets.txt when Subdomain is set.
 			bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
 			if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
 				data, _ := os.ReadFile(bucketsFile)
-				bucketNames := strings.Split(strings.TrimSpace(string(data)), "\n")
-				for _, bn := range bucketNames {
+				for _, bn := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 					if bn = strings.TrimSpace(bn); bn != "" {
+						logger.GetLogger().Infof("[INFO] S3: scanning found bucket: %s", bn)
 						s3mod.Run(s3mod.Options{Action: "scan", Bucket: bn, Subdomain: subdomainClean})
 					}
 				}
@@ -266,6 +268,11 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	runParallelPhase(&wgPhase3, "gf", "[Stage 3] GF scan", 0, func() error {
 		urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
 		_, err := gf.ScanGFWithOptions(gf.Options{Domain: subdomainClean, URLsFile: urlsFile, SkipCheck: true})
+		return err
+	})
+
+	runParallelPhase(&wgPhase3, "jsendpoints", "[Stage 3] JS endpoint extraction", 0, func() error {
+		_, err := jsendpoints.Run(jsendpoints.Options{Domain: subdomainClean, Threads: 30})
 		return err
 	})
 

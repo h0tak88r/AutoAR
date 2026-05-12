@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/scanner/gospider"
@@ -17,6 +18,9 @@ import (
 	urlfindertool "github.com/h0tak88r/AutoAR/internal/tools/urlfinder"
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/utils"
+	katanaoutput "github.com/projectdiscovery/katana/pkg/output"
+	katanatypes "github.com/projectdiscovery/katana/pkg/types"
+	"github.com/projectdiscovery/katana/pkg/engine/standard"
 )
 
 // Result summarizes URL collection for a domain.
@@ -162,6 +166,17 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			logger.GetLogger().Infof("[OK] GoSpider: Found %d URLs", len(spiderResult.URLs))
 			existingURLs2, _ := readLines(allFile)
 			merged := uniqueStrings(append(existingURLs2, spiderResult.URLs...))
+			_ = utils.WriteLines(allFile, merged)
+		}
+	}
+
+	// 2c) Katana crawling — fast JS-aware crawler for deeper endpoint discovery
+	if fi, err2 := os.Stat(liveFile); err2 == nil && fi.Size() > 0 {
+		kataURLs := runKatana(liveFile, domain)
+		if len(kataURLs) > 0 {
+			logger.GetLogger().Infof("[OK] Katana: Found %d URLs for %s", len(kataURLs), domain)
+			existingURLs3, _ := readLines(allFile)
+			merged := uniqueStrings(append(existingURLs3, kataURLs...))
 			_ = utils.WriteLines(allFile, merged)
 		}
 	}
@@ -693,4 +708,70 @@ func collectCommonCrawlURLs(client *http.Client, domain string, skipSubdomainEnu
 
 	logger.GetLogger().Infof("[OK] Common Crawl: Found %d URLs", len(urls))
 	return urls
+}
+
+// runKatana uses the katana Go package (standard crawler) to crawl all live hosts
+// from liveFile and return unique discovered URLs.
+// It is time-boxed to 4 minutes to avoid blocking the pipeline.
+func runKatana(liveFile, domain string) []string {
+	hosts, err := readLines(liveFile)
+	if err != nil || len(hosts) == 0 {
+		return nil
+	}
+
+	logger.GetLogger().Infof("[INFO] Katana (pkg): crawling %d hosts for %s", len(hosts), domain)
+
+	var mu sync.Mutex
+	var crawledURLs []string
+
+	// Limit to 30 hosts to keep memory/time under control
+	if len(hosts) > 30 {
+		hosts = hosts[:30]
+	}
+
+	opts := &katanatypes.Options{
+		URLs:               hosts,
+		MaxDepth:           3,
+		Concurrency:        10,
+		Parallelism:        5,
+		Timeout:            5,
+		ScrapeJSResponses:  true,
+		KnownFiles:         "all",
+		Silent:             true,
+		NoColors:           true,
+		DisableUpdateCheck: true,
+		OnResult: func(result katanaoutput.Result) {
+			if result.Request != nil && result.Request.URL != "" {
+				mu.Lock()
+				crawledURLs = append(crawledURLs, result.Request.URL)
+				mu.Unlock()
+			}
+		},
+	}
+
+	crawler, err := standard.New(opts)
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] Katana: failed to create crawler for %s: %v", domain, err)
+		return nil
+	}
+	defer crawler.Close()
+
+	// Time-box to 4 minutes
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, u := range hosts {
+			crawler.Crawl(u) //nolint:errcheck
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(4 * time.Minute):
+		logger.GetLogger().Infof("[WARN] Katana timed out after 4m for %s", domain)
+	}
+
+	results := uniqueStrings(crawledURLs)
+	logger.GetLogger().Infof("[OK] Katana: found %d URLs for %s", len(results), domain)
+	return results
 }

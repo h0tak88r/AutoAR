@@ -573,6 +573,7 @@ func SetupAPI() *gin.Engine {
 		api.POST("/dns", scanDNS)              // New unified DNS endpoint (supports takeover and dangling-ip)
 		api.POST("/dns-cf1016", scanDNSCF1016) // Cloudflare 1016 dangling DNS scan
 		api.POST("/s3", scanS3)
+		api.POST("/js-endpoints", scanJSEndpoints)
 		api.POST("/github", scanGitHub)
 		api.POST("/github_org", scanGitHubOrg)
 		api.POST("/recon", scanRecon) // Unified asset discovery: subdomains, livehosts, tech, cnames

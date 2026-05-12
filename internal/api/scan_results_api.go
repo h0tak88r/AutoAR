@@ -316,6 +316,9 @@ func inferModuleFromFileName(name string) string {
 	// js-urls files are URL corpus lists (pipeline input), not JS analysis findings
 	case strings.Contains(n, "js-url") || strings.Contains(n, "jsurl") || strings.Contains(n, "js-enum"):
 		return "url-collection"
+	// js-endpoints: API path extraction results from JS files
+	case strings.Contains(n, "js-endpoint"):
+		return "js-endpoints"
 	// GitHub TruffleHog aggregate — must win over generic "secret" substring match.
 	case strings.Contains(n, "github-secret") || strings.Contains(n, "github-secrets") || (strings.Contains(n, "github") && strings.Contains(n, "secret")):
 		return "github-scan"
