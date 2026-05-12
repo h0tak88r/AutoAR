@@ -64,8 +64,12 @@
     'nuclei': 'nuclei', 'mod:nuclei': 'nuclei',
     'ffuf': 'ffuf', 'ffuf-fuzzing': 'ffuf', 'mod:ffuf': 'ffuf',
     'gf-patterns': 'gf', 'mod:gf': 'gf',
-    'js-analysis': 'js', 'mod:js': 'js', 'js': 'js',
-    'js-endpoints': 'js-endpoints', 'mod:js-endpoints': 'js-endpoints',
+    // JS modules — three distinct modules:
+    'js-analysis': 'js', 'mod:js': 'js', 'js': 'js',           // secrets/vuln findings
+    'js-endpoints': 'js-endpoints', 'mod:js-endpoints': 'js-endpoints', // API paths extracted from JS
+    'katana-crawler': 'katana', 'mod:katana': 'katana',
+    'reflection': 'reflection', 'mod:reflection': 'reflection',
+    'xss-detection': 'xss-detection', 'mod:xss-detection': 'xss-detection',
     'misconfig': 'misconfig', 'mod:misconfig': 'misconfig',
     'github-scan': 'github', 'mod:github': 'github',
     'apkx': 'apkx', 'mod:apkx': 'apkx',
@@ -243,10 +247,10 @@
     },
 
 
-    /* ── JS Endpoints ───────────────────────────────────────────────────── */
+    /* ── JS Endpoints (API paths extracted from JS files) ───────────────── */
     'js-endpoints': {
       columns: [
-        { id: 'endpoint', label: 'ENDPOINT',   flex: '3', type: 'link'       },
+        { id: 'endpoint', label: 'ENDPOINT',    flex: '3', type: 'link'       },
         { id: 'source',   label: 'SOURCE FILE', flex: '2', type: 'mono-muted' },
       ],
       extract(r) {
@@ -261,14 +265,76 @@
       detail(r) {
         const raw = r.raw || {};
         return buildFields([
-          ['Endpoint', s(raw.endpoint || r.target || ''), { isLink: true }],
-          ['Source JS', s(r.file || '')],
-          ['Module',   s(r.module || 'js-endpoints')],
+          ['Endpoint',   s(raw.endpoint || r.target || ''), { isLink: true }],
+          ['Source JS',  s(r.file || '')],
+          ['Module',     'JS Endpoints'],
         ]);
       },
     },
 
-    /* ── JS Analysis ────────────────────────────────────────────────────── */
+    /* ── Katana Crawler (JS-aware web crawler results) ───────────────────── */
+    katana: {
+      columns: [
+        { id: 'url',    label: 'CRAWLED URL', flex: '4', type: 'link'       },
+        { id: 'domain', label: 'DOMAIN',      flex: '1', type: 'mono-muted' },
+      ],
+      extract(r) {
+        const raw = r.raw || {};
+        const url = s(raw.url || r.target || r.finding || '-');
+        let domain = '';
+        try { domain = new URL(url).hostname; } catch (_) {}
+        return {
+          url:    { href: toHref(url), label: url },
+          domain,
+        };
+      },
+      detail(r) {
+        const raw = r.raw || {};
+        const url = s(raw.url || r.target || r.finding || '');
+        return buildFields([
+          ['URL',    url, { isLink: true }],
+          ['Module', 'Katana Crawler'],
+        ]);
+      },
+    },
+
+    /* ── XSS Detection (Dalfox confirmed — from kxss {<}/{>} candidates) ───── */
+    'xss-detection': {
+      columns: [
+        { id: 'target',    label: 'TARGET',      flex: '3', type: 'link'      },
+        { id: 'sev',       label: 'SEV',          w: '68px', type: 'sev-badge', align: 'center' },
+        { id: 'vulnType',  label: 'TYPE',         flex: '1', type: 'badge-pill' },
+        { id: 'parameter', label: 'PARAMETER',   flex: '1', type: 'mono-muted' },
+        { id: 'payload',   label: 'PAYLOAD',      flex: '2', type: 'mono-trunc' },
+      ],
+      extract(r) {
+        const raw      = r.raw || {};
+        const target   = s(raw['matched-at'] || r.target || r.host || '-');
+        const vulnType = s(raw['template-id'] || r.finding || 'XSS');
+        const param    = s(raw.parameter || raw.param || r.parameter || '');
+        const payload  = s(raw.payload || r.payload || '');
+        return {
+          target:    { href: toHref(target), label: target },
+          sev:       sevMeta(r.severity || raw.severity || 'high'),
+          vulnType:  { label: vulnType, color: '#f87171' },
+          parameter: param,
+          payload,
+        };
+      },
+      detail(r) {
+        const raw = r.raw || {};
+        return buildFields([
+          ['Target',    s(raw['matched-at'] || r.target || ''), { isLink: true }],
+          ['Type',      s(raw['template-id'] || r.finding || '')],
+          ['Parameter', s(raw.parameter || raw.param || '')],
+          ['Payload',   s(raw.payload || '')],
+          ['Severity',  s(r.severity || raw.severity || 'high')],
+          ['Module',    'XSS Detection (Dalfox)'],
+        ]);
+      },
+    },
+
+    /* ── JS Analysis (secrets in JS files) ───────────────────────────────── */
     js: {
       columns: [
         { id: 'file',       label: 'JS FILE',     flex: '2', type: 'link-amber'  },

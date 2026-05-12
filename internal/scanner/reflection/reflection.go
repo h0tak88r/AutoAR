@@ -12,6 +12,7 @@ import (
 	"time"
 
 	kxsstool "github.com/h0tak88r/AutoAR/internal/tools/kxss"
+	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
 	"github.com/h0tak88r/AutoAR/internal/scanner/urls"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
@@ -137,13 +138,6 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	
 	// Scan URLs with concurrency and timeout
 	kxssResults, err := scanURLsWithConcurrency(ctx, validURLs, opts.Threads)
-	type xssFinding struct {
-		TemplateID string   `json:"template-id"` // VULN TYPE column
-		MatchedAt  string   `json:"matched-at"`  // TARGET column
-		Severity   string   `json:"severity"`
-		Param      string   `json:"param"`
-		Unfiltered []string `json:"unfiltered"`
-	}
 	findings := make([]xssFinding, 0, len(kxssResults))
 	for _, r := range kxssResults {
 		if r.URL == "" || r.Param == "" || len(r.Chars) == 0 {
@@ -194,7 +188,6 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	}
 
 	// Write structured JSON for the dashboard — one object per kxss finding.
-	// Template: TARGET=url, VULN TYPE='xss @ param | Unfiltered: [chars]', SEV=medium.
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		if len(findings) > 0 {
 			if err := utils.WriteJSONToScanDir(scanID, "xss-reflection-vulnerabilities.json", findings); err != nil {
@@ -205,11 +198,136 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		}
 	}
 
+	// ── Dalfox: confirm XSS on kxss findings that had {<} or {>} unfiltered ──
+	// These characters indicate the site doesn't filter angle brackets —
+	// the strongest signal for exploitable XSS. Feed only those URLs to dalfox.
+	xssCandidateURLs := extractAngleBracketURLs(findings)
+	if len(xssCandidateURLs) > 0 {
+		logger.GetLogger().Infof("[INFO] Running dalfox on %d kxss angle-bracket candidates", len(xssCandidateURLs))
+		runDalfoxOnURLs(xssCandidateURLs, opts.Domain, opts.Threads)
+	} else {
+		logger.GetLogger().Infof("[INFO] No angle-bracket candidates from kxss — skipping dalfox")
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "xss-detection", "dalfox-xss-results.json")
+		}
+	}
+
 	return &Result{
 		Domain:      opts.Domain,
 		Reflections: reflectionCount,
 		OutputFile:  outFile,
 	}, nil
+}
+
+// xssFinding is one structured kxss result persisted to the dashboard.
+type xssFinding struct {
+	TemplateID string   `json:"template-id"`
+	MatchedAt  string   `json:"matched-at"`
+	Severity   string   `json:"severity"`
+	Param      string   `json:"param"`
+	Unfiltered []string `json:"unfiltered"`
+}
+
+// extractAngleBracketURLs returns unique URLs from kxss findings where
+// either '{<}' or '{>}' (or both) was unfiltered — the strongest XSS signal.
+func extractAngleBracketURLs(findings []xssFinding) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, f := range findings {
+		for _, ch := range f.Unfiltered {
+			if ch == "{<}" || ch == "{>}" {
+				if _, ok := seen[f.MatchedAt]; !ok {
+					seen[f.MatchedAt] = struct{}{}
+					out = append(out, f.MatchedAt)
+				}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// runDalfoxOnURLs writes the candidate URLs to a temp file, runs dalfox (Go package)
+// and persists results as 'dalfox-xss-results.json' — a separate dashboard module.
+func runDalfoxOnURLs(candidateURLs []string, domain string, threads int) {
+	if threads <= 0 {
+		threads = 50
+	}
+	// Write URLs to a temp file for dalfoxtool.ScanFile
+	tmpFile, err := os.CreateTemp("", "dalfox-targets-*.txt")
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] dalfox: failed to create temp file: %v", err)
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+	for _, u := range candidateURLs {
+		_, _ = fmt.Fprintln(tmpFile, u)
+	}
+	tmpFile.Close()
+
+	results, err := dalfoxtool.ScanFile(tmpFile.Name(), dalfoxtool.Options{Threads: threads})
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] dalfox scan failed: %v", err)
+		return
+	}
+
+	scanID := utils.GetCurrentScanID()
+	if scanID == "" {
+		return
+	}
+
+	if len(results) == 0 {
+		_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-xss-results.json")
+		return
+	}
+
+	type dalfoxFinding struct {
+		TemplateID string `json:"template-id"`
+		MatchedAt  string `json:"matched-at"`
+		Severity   string `json:"severity"`
+		Type       string `json:"type,omitempty"`
+		Parameter  string `json:"parameter,omitempty"`
+		Payload    string `json:"payload,omitempty"`
+		Module     string `json:"module"`
+	}
+
+	seen := make(map[string]struct{})
+	var dfindings []dalfoxFinding
+	for _, r := range results {
+		fType := strings.TrimSpace(r.Type)
+		if fType == "" {
+			fType = "xss"
+		}
+		sev := strings.TrimSpace(strings.ToLower(r.Severity))
+		if sev == "" {
+			sev = "high"
+		}
+		label := fmt.Sprintf("XSS (%s)", strings.ToUpper(fType))
+		key := label + "|" + r.Target + "|" + r.Parameter
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		dfindings = append(dfindings, dalfoxFinding{
+			TemplateID: label,
+			MatchedAt:  r.Target,
+			Severity:   sev,
+			Type:       fType,
+			Parameter:  r.Parameter,
+			Payload:    r.Payload,
+			Module:     "xss-detection",
+		})
+	}
+
+	if len(dfindings) > 0 {
+		logger.GetLogger().Infof("[OK] Dalfox confirmed %d XSS finding(s)", len(dfindings))
+		if err := utils.WriteJSONToScanDir(scanID, "dalfox-xss-results.json", dfindings); err != nil {
+			logger.GetLogger().Infof("[WARN] Failed to write dalfox-xss JSON: %v", err)
+		}
+	} else {
+		logger.GetLogger().Infof("[INFO] Dalfox found no confirmed XSS from kxss candidates")
+		_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-xss-results.json")
+	}
 }
 
 // scanURLsWithConcurrency scans URLs with concurrency and context timeout
