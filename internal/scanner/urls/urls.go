@@ -722,7 +722,15 @@ func runKatana(liveFile, domain string) []string {
 		},
 	}
 
-	crawler, err := standard.New(opts)
+	// NewCrawlerOptions builds the internal CrawlerOptions from user Options.
+	crawlerOpts, err := katanatypes.NewCrawlerOptions(opts)
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] Katana: failed to build crawler options for %s: %v", domain, err)
+		return nil
+	}
+	defer crawlerOpts.Close()
+
+	crawler, err := standard.New(crawlerOpts)
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] Katana: failed to create crawler for %s: %v", domain, err)
 		return nil
