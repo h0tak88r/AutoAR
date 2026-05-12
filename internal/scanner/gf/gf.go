@@ -3,8 +3,10 @@ package gf
 import (
 	"fmt"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	gflib "github.com/h0tak88r/AutoAR/internal/tools/gf"
@@ -159,7 +161,9 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 				if l == "" {
 					continue
 				}
-				key := displayName + "|" + l
+				// Deduplicate by pattern + endpoint + param NAMES (not values).
+				// e.g. /search?q=foo and /search?q=bar → same key /search?q=
+				key := displayName + "|" + normaliseURL(l)
 				if _, ok := seen[key]; ok {
 					continue
 				}
@@ -222,7 +226,24 @@ func runGFPattern(urlsFile, pattern, outFile string) error {
 		return utils.WriteFile(outFile, []byte(""))
 	}
 
-	data := strings.Join(matches, "\n") + "\n"
+	// Deduplicate by endpoint+param-names before writing so dalfox
+	// doesn't scan the same endpoint multiple times with different values.
+	seen := make(map[string]struct{}, len(matches))
+	var deduped []string
+	for _, m := range matches {
+		m = strings.TrimSpace(m)
+		if m == "" {
+			continue
+		}
+		k := normaliseURL(m)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		deduped = append(deduped, m)
+	}
+
+	data := strings.Join(deduped, "\n") + "\n"
 	return utils.WriteFile(outFile, []byte(data))
 }
 
@@ -239,4 +260,40 @@ func countLines(path string) (int, error) {
 		}
 	}
 	return count, nil
+}
+
+// normaliseURL strips query parameter values, keeping only the base path and
+// sorted parameter names. This lets us deduplicate semantically:
+//
+//	https://example.com/search?q=foo&lang=en  → https://example.com/search?lang=&q=
+//	https://example.com/search?q=bar&lang=fr  → https://example.com/search?lang=&q=   (same key)
+func normaliseURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.RawQuery == "" {
+		// No parseable query — use scheme+host+path as the key.
+		u2, err2 := url.Parse(raw)
+		if err2 != nil {
+			return raw
+		}
+		u2.RawQuery = ""
+		u2.Fragment = ""
+		return u2.String()
+	}
+
+	// Collect sorted param names only (drop values).
+	q := u.Query()
+	names := make([]string, 0, len(q))
+	for k := range q {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	normQ := make(url.Values, len(names))
+	for _, k := range names {
+		normQ[k] = []string{""} // blank value
+	}
+
+	u.RawQuery = normQ.Encode()
+	u.Fragment = ""
+	return u.String()
 }

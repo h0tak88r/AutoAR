@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -128,15 +130,51 @@ func readLines(path string) ([]string, error) {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	seen := make(map[string]struct{})
 	var lines []string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			lines = append(lines, line)
+		if line == "" {
+			continue
 		}
+		// Deduplicate by endpoint+param-names before handing to dalfox workers.
+		k := normaliseURL(line)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		lines = append(lines, line)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 	return lines, nil
+}
+
+// normaliseURL strips query parameter values, keeping only sorted param names.
+// https://x.com/p?a=1&b=2 and https://x.com/p?a=foo&b=bar → same key.
+func normaliseURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.RawQuery == "" {
+		u2, _ := url.Parse(raw)
+		if u2 != nil {
+			u2.RawQuery = ""
+			u2.Fragment = ""
+			return u2.String()
+		}
+		return raw
+	}
+	q := u.Query()
+	names := make([]string, 0, len(q))
+	for k := range q {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	normQ := make(url.Values, len(names))
+	for _, k := range names {
+		normQ[k] = []string{""}
+	}
+	u.RawQuery = normQ.Encode()
+	u.Fragment = ""
+	return u.String()
 }
