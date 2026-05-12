@@ -33,9 +33,10 @@ RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
-# Fetch katana (new direct dependency) and regenerate go.sum inside the builder.
-# This is required because go.sum was created without katana entries.
-RUN go get github.com/projectdiscovery/katana@latest && go mod tidy
+# Fetch katana (new direct dependency) and add its go.sum entries.
+# Avoid `go mod tidy` here — it would upgrade unrelated indirect deps
+# (e.g. gitlab SDK) and break nuclei v3.7.1 compilation.
+RUN go get github.com/projectdiscovery/katana@latest
 
 # Build main autoar binary from cmd/autoar (CGO enabled for naabu/libpcap)
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /app/autoar ./cmd/autoar
