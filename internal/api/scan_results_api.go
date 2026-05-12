@@ -316,10 +316,15 @@ func inferModuleFromFileName(name string) string {
 	// js-urls files are URL corpus lists (pipeline input), not JS analysis findings
 	case strings.Contains(n, "js-url") || strings.Contains(n, "jsurl") || strings.Contains(n, "js-enum"):
 		return "url-collection"
+	// katana crawler results — separate from general URL collection
+	case strings.Contains(n, "katana"):
+		return "katana-crawler"
 	// js-endpoints: API path extraction results from JS files
 	case strings.Contains(n, "js-endpoint"):
 		return "js-endpoints"
-	// GitHub TruffleHog aggregate — must win over generic "secret" substring match.
+	// js-secrets / js-exposure: actual secret/vuln findings from JS analysis
+	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure"):
+		return "js-analysis"
 	case strings.Contains(n, "github-secret") || strings.Contains(n, "github-secrets") || (strings.Contains(n, "github") && strings.Contains(n, "secret")):
 		return "github-scan"
 	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure") || strings.Contains(n, "secret"):
@@ -350,7 +355,9 @@ func inferModuleFromFileName(name string) string {
 		return "github-scan"
 	case strings.Contains(n, "backup") || strings.Contains(n, "fuzzuli"):
 		return "backup-detection"
-	case strings.Contains(n, "reflection") || strings.Contains(n, "kxss") || strings.Contains(n, "dalfox") || strings.Contains(n, "xss"):
+	case strings.Contains(n, "dalfox"):
+		return "xss-detection"
+	case strings.Contains(n, "reflection") || strings.Contains(n, "kxss") || strings.Contains(n, "xss"):
 		return "reflection"
 	case strings.Contains(n, "wp-confusion") || strings.Contains(n, "wp_confusion"):
 		return "wordpress-confusion"

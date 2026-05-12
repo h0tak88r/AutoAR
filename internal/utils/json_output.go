@@ -56,11 +56,17 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 
 	module := ""
 	lf := strings.ToLower(fileName)
-	if strings.Contains(lf, "github-secret") || strings.Contains(lf, "trufflehog") {
+	if strings.Contains(lf, "katana") {
+		module = "katana-crawler"
+	} else if strings.Contains(lf, "github-secret") || strings.Contains(lf, "trufflehog") {
 		module = "github-scan"
-	} else if strings.Contains(fileName, "url") {
+	} else if strings.Contains(lf, "js-endpoint") {
+		module = "js-endpoints"
+	} else if strings.Contains(lf, "js-secret") || strings.Contains(lf, "js-exposure") {
+		module = "js-analysis"
+	} else if strings.Contains(lf, "url") {
 		module = "url-collection"
-	} else if strings.Contains(fileName, "subdomain") {
+	} else if strings.Contains(lf, "subdomain") {
 		module = "subdomain-enum"
 	} else if idx := strings.Index(fileName, "-"); idx > 0 {
 		module = fileName[:idx]
@@ -99,6 +105,7 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		// Recon data files — these are pipeline inputs, not vulnerability findings.
 		isReconFile := strings.Contains(fileName, "js-url") ||
 			strings.Contains(fileName, "js-urls") ||
+			strings.Contains(fileName, "katana-urls") ||
 			strings.Contains(fileName, "all-url") ||
 			strings.Contains(fileName, "all-subs") ||
 			strings.Contains(fileName, "live-subs") ||

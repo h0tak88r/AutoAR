@@ -151,6 +151,10 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			existingURLs3, _ := readLines(allFile)
 			merged := uniqueStrings(append(existingURLs3, kataURLs...))
 			_ = utils.WriteLines(allFile, merged)
+			// Persist Katana results as their own dashboard module
+			if scanID := utils.GetCurrentScanID(); scanID != "" {
+				_ = utils.WriteLinesAsJSON(scanID, dirDomain, "katana-crawler", "katana-urls.json", kataURLs)
+			}
 		}
 	}
 
