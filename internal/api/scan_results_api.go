@@ -1419,16 +1419,27 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 		}
 	}
 
-	template := firstNonEmpty(
-		fmt.Sprint(v["finding"]),
-		fmt.Sprint(v["template-id"]),
-		fmt.Sprint(v["template_id"]),
-		fmt.Sprint(v["template"]),
-		fmt.Sprint(v["id"]),
-		fmt.Sprint(v["name"]),
-		fmt.Sprint(v["title"]),
-		fmt.Sprint(v["issue"]),
-	)
+	// For GF-pattern findings: use template-id (e.g. "gf-ssrf") as the label,
+	// not the generic "Pattern-matched URL candidate" string stored in "finding".
+	findingVal := strings.TrimSpace(fmt.Sprint(v["finding"]))
+	templateIDVal := firstNonEmpty(fmt.Sprint(v["template-id"]), fmt.Sprint(v["template_id"]))
+	patternVal := strings.TrimSpace(fmt.Sprint(v["pattern"]))
+	isGFPattern := strings.EqualFold(strings.TrimSpace(fmt.Sprint(v["module"])), "gf-patterns")
+	var template string
+	if isGFPattern {
+		// Prefer explicit pattern name → template-id → fallback to finding
+		template = firstNonEmpty(templateIDVal, patternVal, findingVal)
+	} else {
+		template = firstNonEmpty(
+			findingVal,
+			templateIDVal,
+			fmt.Sprint(v["template"]),
+			fmt.Sprint(v["id"]),
+			fmt.Sprint(v["name"]),
+			fmt.Sprint(v["title"]),
+			fmt.Sprint(v["issue"]),
+		)
+	}
 	target := firstNonEmpty(
 		fmt.Sprint(v["matched-at"]),
 		fmt.Sprint(v["matched_at"]),
@@ -1476,9 +1487,19 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 	}
 	// Normalise nuclei hyphenated keys to underscored equivalents so the
 	// frontend can access them consistently (e.g. template-id → template_id).
-	normRaw := make(map[string]interface{}, len(v))
+	normRaw := make(map[string]interface{}, len(v)+4)
 	for k, val := range v {
 		normRaw[strings.ReplaceAll(k, "-", "_")] = val
+	}
+	// For GF findings: ensure pattern and template_id are always reachable
+	// by the frontend registry (some older scan JSON may only have template-id).
+	if isGFPattern {
+		if patternVal != "" {
+			normRaw["pattern"] = patternVal
+		}
+		if templateIDVal != "" {
+			normRaw["template_id"] = templateIDVal
+		}
 	}
 	return parsedFinding{
 		Severity: sev,

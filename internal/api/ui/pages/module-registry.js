@@ -193,32 +193,54 @@
     gf: {
       columns: [
         { id: 'target',  label: 'TARGET',  flex: '2', type: 'link'       },
+        { id: 'sev',     label: 'SEV',     w: '68px', type: 'sev-badge',  align: 'center' },
         { id: 'pattern', label: 'PATTERN', flex: '1', type: 'badge-pill'  },
-        { id: 'value',   label: 'VALUE',   flex: '3', type: 'mono-trunc'  },
-        { id: 'source',  label: 'SOURCE',  flex: '1', type: 'muted-trunc' },
+        { id: 'value',   label: 'MATCHED URL', flex: '3', type: 'mono-trunc' },
       ],
       extract(r) {
+        const raw = r.raw || {};
         const target = s(r.host || r.target || '-');
-        
-        let patternName = s(r.pattern || r.finding_type || '');
+
+        // Resolve pattern name: prefer explicit raw.pattern → raw.template_id → r.finding → filename
+        let patternName = s(raw.pattern || raw.template_id || '');
         if (!patternName && r.file) {
-           patternName = r.file.replace(/\.txt$/i, '').replace(/^gf-/i, '');
+          patternName = r.file.replace(/\.txt$/i, '').replace(/^gf-/i, '').replace(/-results$/i, '');
         }
-        if (!patternName) patternName = s(r.module || '—');
-        
-        let valueStr = s(r.value || r.finding || '-');
-        if (valueStr.toLowerCase() === 'gf-patterns' || valueStr.toLowerCase() === s(r.module).toLowerCase()) {
-            valueStr = '-';
-        }
+        if (!patternName) patternName = s(r.finding || r.module || '—');
+        // Strip leading "gf-" prefix for display (gf-ssrf → ssrf)
+        const displayName = patternName.replace(/^gf-/i, '');
+
+        // Pattern → colour mapping
+        const patternColors = {
+          ssrf: '#f87171', rce: '#f87171', lfi: '#f87171', sqli: '#f87171', ssti: '#f87171',
+          xss: '#fb923c', redirect: '#fbbf24', idor: '#fbbf24', iparams: '#fbbf24', debug_logic: '#fbbf24',
+          iext: '#4ade80', 'img-traversal': '#4ade80', isubs: '#22d3ee', jsvar: '#22d3ee',
+        };
+        const color = patternColors[displayName.toLowerCase()] || '#a78bfa';
+
+        // VALUE column: the actual matched URL (stored in target/host after backend parsing)
+        const value = s(r.target || r.host || '-');
 
         return {
           target:  { href: toHref(target), label: target },
-          pattern: { label: patternName, color: '#a78bfa' },
-          value:   valueStr,
-          source:  s(r.file || r.source || '—'),
+          sev:     sevMeta(r.severity),
+          pattern: { label: displayName || patternName, color },
+          value,
         };
       },
+      detail(r) {
+        const raw = r.raw || {};
+        const patternName = s(raw.pattern || raw.template_id || r.finding || '');
+        return buildFields([
+          ['Pattern',     patternName.replace(/^gf-/i, '')],
+          ['Full ID',     patternName],
+          ['Matched URL', s(r.target || r.host || ''), { isLink: true }],
+          ['Severity',    s(r.severity)],
+          ['Source File', s(r.file || raw.module || '')],
+        ]);
+      },
     },
+
 
     /* ── JS Analysis ────────────────────────────────────────────────────── */
     js: {
