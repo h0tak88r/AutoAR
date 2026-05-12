@@ -27,7 +27,6 @@ require (
 	github.com/projectdiscovery/httpx v1.8.1
 	github.com/projectdiscovery/naabu/v2 v2.3.7
 	github.com/projectdiscovery/nuclei/v3 v3.7.1
-	github.com/projectdiscovery/katana v1.1.2
 	github.com/projectdiscovery/subfinder/v2 v2.6.7
 	github.com/projectdiscovery/tlsx v1.2.2
 	github.com/rs/zerolog v1.28.0
