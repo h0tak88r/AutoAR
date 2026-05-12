@@ -245,24 +245,72 @@
     /* ── JS Analysis ────────────────────────────────────────────────────── */
     js: {
       columns: [
-        { id: 'file',    label: 'JS FILE', flex: '2', type: 'link-amber'  },
-        { id: 'type',    label: 'TYPE',    w: '58px', type: 'label-badge', align: 'center' },
-        { id: 'finding', label: 'FINDING', flex: '3', type: 'mono-trunc'  },
-        { id: 'module',  label: 'MODULE',  flex: '1', type: 'mod-badge'   },
+        { id: 'file',       label: 'JS FILE',     flex: '2', type: 'link-amber'  },
+        { id: 'sev',        label: 'SEV',         w: '68px', type: 'sev-badge',  align: 'center' },
+        { id: 'secretType', label: 'SECRET TYPE', flex: '1', type: 'badge-pill'  },
+        { id: 'secret',     label: 'SECRET VALUE', flex: '3', type: 'mono-trunc' },
       ],
-      extract(r, modInfo) {
-        // Note: r.file is the artifact filename (e.g. js-secrets-vulnerabilities.json), not the target URL.
-        const file    = s(r.target || r.source_file || '-');
-        const matcher = s(r.matcher || r.finding_type || '');
-        const value   = s(r.finding || r.value || '-');
+      extract(r) {
+        const raw = r.raw || {};
+        // JS file URL (the source .js file where the secret was found)
+        const file = s(r.target || raw.matched_at || r.source_file || '-');
+
+        // Secret type: read from raw.secret_type → parse from finding bracket → template-id → fallback
+        let secretType = s(raw.secret_type || raw.secretType || '');
+        if (!secretType) {
+          // Parse from "[secretType] url -> value" format stored in finding
+          const m = s(r.finding || '').match(/^\[([^\]]+)\]/);
+          if (m) secretType = m[1];
+        }
+        if (!secretType) {
+          // Strip "JS Secret Exposure (" prefix from template_id
+          secretType = s(raw.template_id || r.finding || '—')
+            .replace(/^JS Secret Exposure\s*\(?\s*/i, '')
+            .replace(/\)$/, '');
+        }
+
+        // Secret value: read from raw.secret → parse after "->" in finding
+        let secretVal = s(raw.secret || '');
+        if (!secretVal) {
+          const finding = s(r.finding || '');
+          const arrowIdx = finding.indexOf('->');
+          if (arrowIdx !== -1) secretVal = finding.slice(arrowIdx + 2).trim();
+        }
+        if (!secretVal) secretVal = '—';
+
+        // Colour by severity of secret type
+        const highTypes = new Set(['api_key', 'apikey', 'apikey_patterns', 'private_key', 'aws_access_key_id', 'aws_secret', 'password', 'passwd', 'client_secret', 'client_id_secret']);
+        const medTypes  = new Set(['access_token', 'auth_token', 'bearer_token', 'jwt', 'session', 'refresh_token']);
+        const tl = secretType.toLowerCase().replace(/\s+/g, '_');
+        const color = highTypes.has(tl) ? '#f87171' : medTypes.has(tl) ? '#fb923c' : '#a78bfa';
+
         return {
-          file:    { href: toHref(file), label: file, color: '#f59e0b' },
-          type:    { label: 'JS', bg: 'rgba(245,158,11,.12)', color: '#fbbf24' },
-          finding: matcher ? `[${matcher}] ${value}` : value,
-          module:  modInfo,
+          file:       { href: toHref(file), label: file, color: '#f59e0b' },
+          sev:        sevMeta(r.severity || 'high'),
+          secretType: { label: secretType || 'unknown', color },
+          secret:     secretVal,
         };
       },
+      detail(r) {
+        const raw = r.raw || {};
+        const file     = s(r.target || raw.matched_at || r.source_file || '');
+        const finding  = s(r.finding || '');
+        const secret   = s(raw.secret || '');
+        const secType  = s(raw.secret_type || raw.secretType || '');
+        const tmplId   = s(raw.template_id || '');
+        return buildFields([
+          ['JS File',     file,    { isLink: true }],
+          ['Secret Type', secType || tmplId],
+          ['Secret Value', secret || (() => {
+            const ai = finding.indexOf('->');
+            return ai !== -1 ? finding.slice(ai + 2).trim() : '';
+          })(), { code: true }],
+          ['Severity',    s(r.severity)],
+          ['Raw Finding', finding, { full: true }],
+        ]);
+      },
     },
+
 
     /* ── Misconfig ──────────────────────────────────────────────────────── */
     misconfig: {
