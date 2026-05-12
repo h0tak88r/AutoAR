@@ -65,6 +65,7 @@
     'ffuf': 'ffuf', 'ffuf-fuzzing': 'ffuf', 'mod:ffuf': 'ffuf',
     'gf-patterns': 'gf', 'mod:gf': 'gf',
     'js-analysis': 'js', 'mod:js': 'js', 'js': 'js',
+    'js-endpoints': 'js-endpoints', 'mod:js-endpoints': 'js-endpoints',
     'misconfig': 'misconfig', 'mod:misconfig': 'misconfig',
     'github-scan': 'github', 'mod:github': 'github',
     'apkx': 'apkx', 'mod:apkx': 'apkx',
@@ -241,6 +242,31 @@
       },
     },
 
+
+    /* ── JS Endpoints ───────────────────────────────────────────────────── */
+    'js-endpoints': {
+      columns: [
+        { id: 'endpoint', label: 'ENDPOINT',   flex: '3', type: 'link'       },
+        { id: 'source',   label: 'SOURCE FILE', flex: '2', type: 'mono-muted' },
+      ],
+      extract(r) {
+        const raw      = r.raw || {};
+        const endpoint = s(raw.endpoint || r.target || r.finding || '-');
+        const source   = s(r.file || raw.module || '');
+        return {
+          endpoint: { href: toHref(endpoint), label: endpoint },
+          source,
+        };
+      },
+      detail(r) {
+        const raw = r.raw || {};
+        return buildFields([
+          ['Endpoint', s(raw.endpoint || r.target || ''), { isLink: true }],
+          ['Source JS', s(r.file || '')],
+          ['Module',   s(r.module || 'js-endpoints')],
+        ]);
+      },
+    },
 
     /* ── JS Analysis ────────────────────────────────────────────────────── */
     js: {

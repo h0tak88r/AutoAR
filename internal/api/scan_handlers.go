@@ -40,6 +40,7 @@ import (
 	subdomainsmod "github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
 	techmod "github.com/h0tak88r/AutoAR/internal/scanner/tech"
 	urlsmod "github.com/h0tak88r/AutoAR/internal/scanner/urls"
+	jsendpointsmod "github.com/h0tak88r/AutoAR/internal/scanner/jsendpoints"
 	zerodaysmod "github.com/h0tak88r/AutoAR/internal/scanner/zerodays"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
@@ -700,6 +701,31 @@ func scanS3(c *gin.Context) {
 		return s3mod.Run(opts)
 	})
 	okStarted(c, scanID, fmt.Sprintf("S3 bucket scan started for %s", bucket))
+}
+
+// ── JS Endpoint Extractor ─────────────────────────────────────────────────────
+
+func scanJSEndpoints(c *gin.Context) {
+	var req ScanRequest
+	if !bindOrBad(c, &req) {
+		return
+	}
+	var domain string
+	if req.Domain != nil && *req.Domain != "" {
+		domain = *req.Domain
+	} else if req.Subdomain != nil && *req.Subdomain != "" {
+		domain = *req.Subdomain
+	}
+	if domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain required"})
+		return
+	}
+	scanID := generateScanID()
+	go RunScanInProcess(scanID, "js-endpoints", domain, func() error {
+		_, err := jsendpointsmod.Run(jsendpointsmod.Options{Domain: domain, Threads: 30})
+		return err
+	})
+	okStarted(c, scanID, fmt.Sprintf("JS endpoint extraction started for %s", domain))
 }
 
 // ── GitHub repo ───────────────────────────────────────────────────────────────
