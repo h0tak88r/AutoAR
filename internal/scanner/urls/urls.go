@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/internal/scanner/gospider"
 	jsfindertool "github.com/h0tak88r/AutoAR/internal/tools/jsfinder"
 	urlfindertool "github.com/h0tak88r/AutoAR/internal/tools/urlfinder"
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
@@ -144,33 +143,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		_ = utils.WriteLines(allFile, allURLs)
 	}
 
-	// 2b) GoSpider spidering against live hosts (up to 50 to stay within timeout)
-	if fi, err2 := os.Stat(liveFile); err2 == nil && fi.Size() > 0 {
-		spiderHosts, _ := readLines(liveFile)
-		if len(spiderHosts) > 50 {
-			spiderHosts = spiderHosts[:50]
-		}
-		logger.GetLogger().Infof("[INFO] GoSpider spidering %d live hosts for %s", len(spiderHosts), domain)
-		spiderResult, spiderErr := gospider.Run(gospider.Options{
-			Sites:      spiderHosts,
-			Depth:      2,
-			Concurrent: 5,
-			Threads:    5,
-			Timeout:    10,
-			Robots:     true,
-			JS:         true,
-		})
-		if spiderErr != nil {
-			logger.GetLogger().Infof("[WARN] GoSpider failed for %s: %v", domain, spiderErr)
-		} else if len(spiderResult.URLs) > 0 {
-			logger.GetLogger().Infof("[OK] GoSpider: Found %d URLs", len(spiderResult.URLs))
-			existingURLs2, _ := readLines(allFile)
-			merged := uniqueStrings(append(existingURLs2, spiderResult.URLs...))
-			_ = utils.WriteLines(allFile, merged)
-		}
-	}
-
-	// 2c) Katana crawling — fast JS-aware crawler for deeper endpoint discovery
+	// 2b) Katana crawling — fast JS-aware crawler for deeper endpoint discovery
 	if fi, err2 := os.Stat(liveFile); err2 == nil && fi.Size() > 0 {
 		kataURLs := runKatana(liveFile, domain)
 		if len(kataURLs) > 0 {
