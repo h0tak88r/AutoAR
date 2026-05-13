@@ -91,6 +91,8 @@
     const n = String(fileName || '').toLowerCase();
     if (!n) return 'unknown';
     // JS secret artifacts (check this before generic github/secret checks)
+    if (n.includes('js-endpoint')) return 'js-endpoints';
+    if (n.includes('katana')) return 'katana-crawler';
     if (n.includes('js-secret') || n.includes('js-exposure') || n.includes('js-analysis') || n.startsWith('js-sec')) return 'js-analysis';
     if (n.includes('/apkx/') || n.includes('\\apkx\\')) return 'apkx';
     // GitHub must be BEFORE generic "secret" match
@@ -151,7 +153,9 @@
       'subdomain-enum': { icon: '🔗', name: 'Subdomains', color: '#6366f1' },
       httpx: { icon: '🌐', name: 'Live Hosts', color: '#22c55e' },
       apkx: { icon: '📱', name: 'APK Analysis', color: '#22d3ee' },
-      'js-analysis': { icon: '📜', name: 'JS Analysis', color: '#eab308' },
+      'js-analysis': { icon: '📜', name: 'JS Secrets', color: '#eab308' },
+      'js-endpoints': { icon: '🛣️', name: 'JS Endpoints', color: '#10b981' },
+      'katana-crawler': { icon: '🕷️', name: 'Katana Crawler', color: '#8b5cf6' },
       'xss-detection': { icon: '💥', name: 'XSS Detection', color: '#f97316' },
       'sql-detection': { icon: '🗻', name: 'SQLi', color: '#dc2626' },
       'gf-patterns': { icon: '🎯', name: 'GF Patterns', color: '#8b5cf6' },

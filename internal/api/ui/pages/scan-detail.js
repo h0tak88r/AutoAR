@@ -395,21 +395,28 @@
 
         const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.includes('js-') && !file.includes('trufflehog') && !file.includes('github'))) && !file.includes('trufflehog') && !file.includes('github-secrets');
         const looksLikeJSURL = file.includes('js-url') || /\.m?jsx?(\?|$)/i.test(target);
-        // Exclude JS analysis files from GitHub bucket
+        const looksLikeJSEndpoints = file.includes('js-endpoint') || moduleNorm === 'js-endpoints';
+        const looksLikeKatana = file.includes('katana') || moduleNorm === 'katana-crawler' || moduleNorm === 'katana';
         const looksLikeGitHub = (file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table') || file.includes('github-secrets') || (file.includes('secrets') && file.endsWith('.json'))) && !file.startsWith('js-');
 
         if (looksLikeGitHub) kind = 'github-scan';
+        else if (looksLikeJSEndpoints) kind = 'js-endpoints';
+        else if (looksLikeKatana) kind = 'katana-crawler';
         else if (looksLikeJSMatcher) kind = 'js-analysis';
         else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
         if (isAPKScan) kind = 'apkx';
 
         // Do not treat GitHub/TruffleHog rows as JS just because the blob URL ends in .js
-        const isJS = kind !== 'github-scan' && (kind === 'js_urls' || looksLikeJSURL);
+        const isJS = kind !== 'github-scan' && kind !== 'js-endpoints' && kind !== 'katana-crawler' && (kind === 'js_urls' || looksLikeJSURL);
         if (kind === 'js_urls') kind = 'urls';
 
         let normalizedModule = isAPKScan ? 'apkx' : moduleNorm;
         if (kind === 'github-scan') {
           normalizedModule = 'github-scan';
+        } else if (kind === 'js-endpoints') {
+          normalizedModule = 'js-endpoints';
+        } else if (kind === 'katana-crawler') {
+          normalizedModule = 'katana-crawler';
         } else if (moduleNorm === 'unknown' && (kind === 'js-analysis' || isJS)) {
           normalizedModule = 'js-analysis';
         }
@@ -457,13 +464,16 @@
       assets: '🏠 Assets',
       urls: '🔗 Links',
       apkx: '📱 APK Analysis',
-      'js-analysis': '📜 JS Analysis',
+      'js-analysis': '📜 JS Secrets',
+      'js-endpoints': '🛣️ JS Endpoints',
+      'katana-crawler': '🕷️ Katana',
       'gf-patterns': '🎯 GF Patterns',
       nuclei: '☢️ Nuclei',
       ffuf: '🎲 FFUF',
       buckets: '🪣 S3 Buckets',
       ports: '📡 Ports',
       reflection: '🔎 Reflection',
+      'xss-detection': '🐛 XSS (Dalfox)',
       'github-scan': '🐦 GitHub Secrets',
       other: '📁 Other',
       github: '🐙 GitHub Secrets',
@@ -478,7 +488,7 @@
 
     dynamicKinds.forEach(k => {
       if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k) || k === 'github-scan') {
-        if (['js-analysis', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'github-scan', 'github'].includes(k)) {
+        if (['js-analysis', 'js-endpoints', 'katana-crawler', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'xss-detection', 'github-scan', 'github'].includes(k)) {
           DATASET_TABS.push([k, TAB_LABELS[k] || k]);
         }
         return;
@@ -501,7 +511,7 @@
 
     const preferredModuleOrder = [
       'nuclei', 'gf-patterns', 'misconfig', 'ffuf-fuzzing', 'dns-takeover',
-      'backup-detection', 'js-analysis', 'xss-detection', 'sql-detection',
+      'backup-detection', 'js-analysis', 'js-endpoints', 'katana-crawler', 'xss-detection', 'sql-detection',
       's3-scan', 'port-scan', 'zerodays', 'aem', 'github-scan'
     ];
     const usedModulesRaw = [...new Set(allRows.map(r => window.normalizeModuleKey(r.module)).filter(Boolean))];
@@ -513,7 +523,7 @@
       if (bi !== -1) return 1;
       return a.localeCompare(b);
     });
-    const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing', 'js-analysis', 'github-scan', 'nuclei', 'ffuf', 'reflection', 'js-analysis']);
+    const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing', 'js-analysis', 'js-endpoints', 'katana-crawler', 'xss-detection', 'github-scan', 'nuclei', 'ffuf', 'reflection']);
     const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
     if (hasUrlsDatasetTab) excludedModuleTabs.add('url-collection');
     const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');

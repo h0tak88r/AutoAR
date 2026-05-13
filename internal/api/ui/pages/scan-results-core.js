@@ -50,11 +50,17 @@
     if (module === 'zerodays' || fileName.includes('zeroday')) {
       if (first.cve || first.vulnerability || first.exploit) return 'zerodays-findings';
     }
-    if (module === 'js-analysis' || fileName.includes('js-')) {
+    if (module === 'js-endpoints' || fileName.includes('js-endpoint')) {
+      if (first.endpoint || first.url) return 'js-endpoints';
+    }
+    if (module === 'katana-crawler' || fileName.includes('katana')) {
+      if (first.url || first.domain) return 'katana-crawler';
+    }
+    if (module === 'js-analysis' || (fileName.includes('js-') && !fileName.includes('js-endpoint'))) {
       if (first.url || first.endpoint || first.secret || first.key) return 'js-findings';
     }
     if (module === 'xss-detection' || fileName.includes('dalfox') || fileName.includes('kxss')) {
-      if (first.url && (first.payload || first.parameter)) return 'xss-findings';
+      if (first.url && (first.payload || first.parameter || first.finding)) return 'xss-findings';
     }
     if (module === 'sql-detection' || fileName.includes('sqlmap')) {
       if (first.url && (first.parameter || first.type)) return 'sqli-findings';
