@@ -893,7 +893,7 @@
             <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.38)">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap">📋 Copy selected</button>
-                <button type="button" id="recon-copy-selected-json" title="Copy checked rows as JSON (current page)" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap">📋 Copy JSON</button>
+                <button type="button" id="recon-export-all-json" title="Export all findings in the current view" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap">📥 Export Findings</button>
               </div>
               <div id="recon-quick-chips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -1261,7 +1261,7 @@
       return out;
     };
     const copyTsvBtn = root.querySelector('#recon-copy-selected-tsv');
-    const copyJsonBtn = root.querySelector('#recon-copy-selected-json');
+    const exportJsonBtn = root.querySelector('#recon-export-all-json');
     if (copyTsvBtn) {
       copyTsvBtn.addEventListener('click', async () => {
         const rows = collectCheckedFindingRows();
@@ -1275,15 +1275,15 @@
         }
       });
     }
-    if (copyJsonBtn) {
-      copyJsonBtn.addEventListener('click', async () => {
-        const rows = collectCheckedFindingRows();
-        if (!rows.length) { showToast('info', 'Nothing selected', 'Select one or more rows on this page, then copy.'); return; }
+    if (exportJsonBtn) {
+      exportJsonBtn.addEventListener('click', async () => {
+        const exportedRows = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
+        if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings in the current view to export.'); return; }
         try {
-          await copyToClipboard(JSON.stringify(rows, null, 2));
-          showToast('success', 'Copied', `${rows.length} row(s) as JSON`);
+          await copyToClipboard(JSON.stringify(exportedRows, null, 2));
+          showToast('success', 'Exported', `Copied ${exportedRows.length} finding(s) as JSON`);
         } catch (e) {
-          showToast('error', 'Copy failed', e.message || String(e));
+          showToast('error', 'Export failed', e.message || String(e));
         }
       });
     }
