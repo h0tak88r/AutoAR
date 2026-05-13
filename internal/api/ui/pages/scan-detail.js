@@ -893,7 +893,7 @@
             <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.38)">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap">📋 Copy selected</button>
-                <button type="button" id="recon-export-all-json" title="Export all findings in the current view" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap">📥 Export Findings</button>
+                <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap">📥 Export Markdown</button>
               </div>
               <div id="recon-quick-chips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -1279,9 +1279,85 @@
       exportJsonBtn.addEventListener('click', async () => {
         const exportedRows = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
         if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings in the current view to export.'); return; }
+        
+        const dynamicRawMode = exportedRows.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
+          isGitHubTableKind(activeKind) &&
+          !/nuclei/.test(String(activeKind || '').toLowerCase());
+        const dynamicCols = dynamicRawMode ? collectDynamicColumns(exportedRows) : [];
+
+        let markdown = '';
+        if (dynamicRawMode) {
+            const headers = ['DETECTORNAME', 'SEV', ...dynamicCols];
+            markdown += `| ${headers.join(' | ')} |\n`;
+            markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
+            exportedRows.forEach(r => {
+                const info = (r.raw && r.raw.info) || {};
+                const cols = [
+                    r.title || info.detector_name || '—',
+                    r.severity || 'info',
+                    ...dynamicCols.map(k => {
+                       const v = r.raw[k];
+                       return v !== undefined && v !== null ? String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ') : '—';
+                    })
+                ];
+                markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+            });
+        } else if (isGitHubTableKind(activeKind)) {
+            const headers = ['DETECTORNAME', 'SEV', 'VERIFIED', 'REDACTED', 'SOURCE FILE', 'LINE', 'SOURCE LINK'];
+            markdown += `| ${headers.join(' | ')} |\n`;
+            markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
+            exportedRows.forEach(r => {
+                const info = (r.raw && r.raw.info) || {};
+                const cols = [
+                    r.title || info.detector_name || '—',
+                    r.severity || 'info',
+                    info.verified ? 'Yes' : 'No',
+                    info.redacted ? 'Yes' : 'No',
+                    r.file || r.module || '—',
+                    info.line || '—',
+                    info.url ? `[Link](${info.url})` : '—'
+                ];
+                markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+            });
+        } else {
+            const schema = window.ModuleRegistry?.get ? window.ModuleRegistry.get(activeKind) : null;
+            if (presetMode !== 'raw' && schema && schema.columns) {
+                const schemaCols = schema.columns;
+                markdown += `| ${schemaCols.map(c => c.label).join(' | ')} |\n`;
+                markdown += `| ${schemaCols.map(() => '---').join(' | ')} |\n`;
+                
+                exportedRows.forEach(r => {
+                    const extracted = schema.extract ? schema.extract(r, window.getModuleDisplayInfo(r.module)) : r;
+                    const rowStr = schemaCols.map(c => {
+                        let val = extracted[c.id];
+                        if (val && typeof val === 'object') {
+                            if (val.href && val.label) return `[${val.label}](${val.href})`;
+                            if (val.label) return val.label;
+                            return JSON.stringify(val);
+                        }
+                        return val !== undefined && val !== null ? String(val) : '—';
+                    });
+                    markdown += `| ${rowStr.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+                });
+            } else {
+                const headers = ['TARGET', 'SEV', 'FINDING', 'MODULE'];
+                markdown += `| ${headers.join(' | ')} |\n`;
+                markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
+                exportedRows.forEach(r => {
+                   const cols = [
+                      r.target || r.host || '—',
+                      r.severity || '',
+                      r.finding || r.title || '—',
+                      r.module || ''
+                   ];
+                   markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+                });
+            }
+        }
+        
         try {
-          await copyToClipboard(JSON.stringify(exportedRows, null, 2));
-          showToast('success', 'Exported', `Copied ${exportedRows.length} finding(s) as JSON`);
+          await copyToClipboard(markdown);
+          showToast('success', 'Exported', `Copied ${exportedRows.length} finding(s) as Markdown`);
         } catch (e) {
           showToast('error', 'Export failed', e.message || String(e));
         }
