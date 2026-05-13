@@ -142,11 +142,16 @@ var subdomainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "wordpress-confusion", Description: "[Stage 2] WordPress confusion"},
 	{Module: "dependency-confusion", Description: "[Stage 2] Dependency confusion"},
 	{Module: "misconfig", Description: "[Stage 2] Misconfig scan"},
+	{Module: "js-endpoints", Description: "[Stage 2] JS Endpoints"},
+	{Module: "github-scan", Description: "[Stage 2] GitHub Secrets"},
+	{Module: "katana", Description: "[Stage 2.5] Katana crawler"},
 	{Module: "gf-patterns", Description: "[Stage 3] GF scan"},
 	{Module: "reflection", Description: "[Stage 3] Reflection scan"},
 	{Module: "ffuf-fuzzing", Description: "[Stage 3] FFuf fuzzing"},
 	{Module: "nuclei", Description: "[Stage 3] Nuclei scan (final)"},
+	{Module: "xss-detection", Description: "[Stage 4] Dalfox XSS confirmation"},
 }
+
 
 func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 	if rec == nil {
