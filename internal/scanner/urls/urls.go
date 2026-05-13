@@ -33,6 +33,38 @@ type Result struct {
 	InterestingFile string
 }
 
+// RunKatanaPhase runs Katana crawling as a standalone pipeline phase for a domain.
+// Called explicitly by the subdomain workflow after URL collection completes.
+// Results are merged into all-urls.txt and persisted as katana-urls.json.
+func RunKatanaPhase(domain string) error {
+	resultsDir := utils.GetResultsDir()
+	dirDomain := extractRootDomain(domain)
+	domainDir := filepath.Join(resultsDir, dirDomain)
+	liveFile := filepath.Join(domainDir, "subs", "live-subs.txt")
+	allFile := filepath.Join(filepath.Join(domainDir, "urls"), "all-urls.txt")
+
+	fi, err := os.Stat(liveFile)
+	if err != nil || fi.Size() == 0 {
+		return fmt.Errorf("no live hosts file found for %s", domain)
+	}
+
+	kataURLs := runKatana(liveFile, domain)
+	if len(kataURLs) == 0 {
+		logger.GetLogger().Infof("[INFO] Katana: no URLs found for %s", domain)
+		return nil
+	}
+	logger.GetLogger().Infof("[OK] Katana: Found %d URLs for %s", len(kataURLs), domain)
+
+	existing, _ := readLines(allFile)
+	merged := uniqueStrings(append(existing, kataURLs...))
+	_ = utils.WriteLines(allFile, merged)
+
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
+		_ = utils.WriteLinesAsJSON(scanID, dirDomain, "katana-crawler", "katana-urls.json", kataURLs)
+	}
+	return nil
+}
+
 // CollectURLs ensures live hosts exist for a domain and then collects URLs and JS URLs
 // using external tools (urlfinder and jsfinder), mirroring modules/urls.sh behaviour.
 // If skipSubdomainEnum is true, it treats the input as a single subdomain and skips
@@ -141,21 +173,6 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		existingURLs, _ := readLines(allFile)
 		allURLs := uniqueStrings(append(existingURLs, externalURLs...))
 		_ = utils.WriteLines(allFile, allURLs)
-	}
-
-	// 2b) Katana crawling — fast JS-aware crawler for deeper endpoint discovery
-	if fi, err2 := os.Stat(liveFile); err2 == nil && fi.Size() > 0 {
-		kataURLs := runKatana(liveFile, domain)
-		if len(kataURLs) > 0 {
-			logger.GetLogger().Infof("[OK] Katana: Found %d URLs for %s", len(kataURLs), domain)
-			existingURLs3, _ := readLines(allFile)
-			merged := uniqueStrings(append(existingURLs3, kataURLs...))
-			_ = utils.WriteLines(allFile, merged)
-			// Persist Katana results as their own dashboard module
-			if scanID := utils.GetCurrentScanID(); scanID != "" {
-				_ = utils.WriteLinesAsJSON(scanID, dirDomain, "katana-crawler", "katana-urls.json", kataURLs)
-			}
-		}
 	}
 
 	// 3) Collect JS URLs with embedded jsfinder over live hosts

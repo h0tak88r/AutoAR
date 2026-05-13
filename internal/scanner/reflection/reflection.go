@@ -198,25 +198,72 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 		}
 	}
 
-	// ── Dalfox: confirm XSS on kxss findings that had {<} or {>} unfiltered ──
-	// These characters indicate the site doesn't filter angle brackets —
-	// the strongest signal for exploitable XSS. Feed only those URLs to dalfox.
-	xssCandidateURLs := extractAngleBracketURLs(findings)
-	if len(xssCandidateURLs) > 0 {
-		logger.GetLogger().Infof("[INFO] Running dalfox on %d kxss angle-bracket candidates", len(xssCandidateURLs))
-		runDalfoxOnURLs(xssCandidateURLs, opts.Domain, opts.Threads)
-	} else {
-		logger.GetLogger().Infof("[INFO] No angle-bracket candidates from kxss — skipping dalfox")
-		if scanID := utils.GetCurrentScanID(); scanID != "" {
-			_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "xss-detection", "dalfox-xss-results.json")
-		}
-	}
-
 	return &Result{
 		Domain:      opts.Domain,
 		Reflections: reflectionCount,
 		OutputFile:  outFile,
 	}, nil
+}
+
+// RunDalfoxPhase reads the kxss results for a domain, filters URLs where {<} or {>}
+// was unfiltered, and runs dalfox on those candidates as a separate pipeline phase.
+// Returns a non-nil error only on configuration failures (not on "no findings").
+func RunDalfoxPhase(domain string) error {
+	resultsDir := utils.GetResultsDir()
+	domainDir := filepath.Join(resultsDir, domain)
+	kxssFile := filepath.Join(domainDir, "vulnerabilities", "kxss-results.txt")
+
+	// Parse kxss text output: "URL: <url> Param: <p> Unfiltered: [{<} {>} ...]"
+	data, err := os.ReadFile(kxssFile)
+	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+		scanID := utils.GetCurrentScanID()
+		if scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-xss-results.json")
+		}
+		return nil
+	}
+
+	// Collect URLs where angle brackets were unfiltered
+	seen := make(map[string]struct{})
+	var candidates []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		hasAngle := strings.Contains(line, "{<}") || strings.Contains(line, "{>}")
+		if !hasAngle {
+			continue
+		}
+		// Extract the URL part: "URL: <url> Param: ..."
+		urlPart := ""
+		if idx := strings.Index(line, "URL: "); idx >= 0 {
+			rest := line[idx+5:]
+			if end := strings.Index(rest, " Param:"); end >= 0 {
+				urlPart = strings.TrimSpace(rest[:end])
+			} else {
+				urlPart = strings.TrimSpace(rest)
+			}
+		}
+		if urlPart != "" {
+			if _, ok := seen[urlPart]; !ok {
+				seen[urlPart] = struct{}{}
+				candidates = append(candidates, urlPart)
+			}
+		}
+	}
+
+	if len(candidates) == 0 {
+		logger.GetLogger().Infof("[INFO] Dalfox: no angle-bracket candidates from kxss for %s", domain)
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "xss-detection", "dalfox-xss-results.json")
+		}
+		return nil
+	}
+
+	logger.GetLogger().Infof("[INFO] Dalfox: running on %d kxss angle-bracket candidates for %s", len(candidates), domain)
+	runDalfoxOnURLs(candidates, domain, 50)
+	return nil
 }
 
 // xssFinding is one structured kxss result persisted to the dashboard.
