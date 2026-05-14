@@ -264,7 +264,8 @@ func (s *scanOutputCapture) ResultURL() string {
 
 type moduleExecutionEntry struct {
 	Module         string    `json:"module"`
-	Status         string    `json:"status"` // started|completed|failed|cancelled
+	PhaseKey       string    `json:"phase_key,omitempty"` // matches the phaseKey in RunWorkflowPhase (used for log lookup)
+	Status         string    `json:"status"`               // started|completed|failed|cancelled
 	StartedAt      time.Time `json:"started_at"`
 	CompletedAt    time.Time `json:"completed_at,omitempty"`
 	DurationMS     int64     `json:"duration_ms,omitempty"`

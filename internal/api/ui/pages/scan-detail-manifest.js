@@ -50,17 +50,18 @@
 
   function _moduleRow(m, scanId) {
     const mod = esc(m.module || m.name || 'unknown');
+    const phaseKey = esc(m.phase_key || m.module || 'unknown');
     return `
-      <tr class="manifest-row" data-module="${mod}" data-scan-id="${esc(scanId)}" style="cursor:pointer">
+      <tr class="manifest-row" data-module="${mod}" data-phase-key="${phaseKey}" data-scan-id="${esc(scanId)}" style="cursor:pointer">
         <td style="font-weight:600;font-size:13px">${mod}</td>
         <td><span class="badge ${manifestStatusBadge(m.status)}">${esc(m.status)}</span></td>
         <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${manifestArtifactLabel(m)}</td>
         <td style="font-size:11px;color:var(--text-muted)">${manifestStartedLabel(m)}</td>
         <td style="font-family:monospace;font-size:12px">${formatManifestDuration(m.duration_ms)}</td>
       </tr>
-      <tr class="manifest-log-row" id="manifest-log-row-${mod}" style="display:none;background:rgba(0,0,0,.25)">
+      <tr class="manifest-log-row" id="manifest-log-row-${phaseKey}" style="display:none;background:rgba(0,0,0,.25)">
         <td colspan="5" style="padding:0;border:none">
-          <div class="manifest-log-panel" id="manifest-log-panel-${mod}" style="padding:12px 16px;max-height:400px;overflow:auto;font-family:var(--font-mono,monospace);font-size:12px">
+          <div class="manifest-log-panel" id="manifest-log-panel-${phaseKey}" style="padding:12px 16px;max-height:400px;overflow:auto;font-family:var(--font-mono,monospace);font-size:12px">
             <div style="color:var(--text-muted)">Click to load logs…</div>
           </div>
         </td>
@@ -99,11 +100,12 @@
   function wireManifestRowClicks(root) {
     if (!root) return;
     root.querySelectorAll('.manifest-row').forEach((row) => {
+      row.onclick = null; // ensure idempotent
       row.addEventListener('click', async () => {
-        const mod = row.getAttribute('data-module');
         const scanId = row.getAttribute('data-scan-id');
-        const logRow = document.getElementById(`manifest-log-row-${mod}`);
-        const panel = document.getElementById(`manifest-log-panel-${mod}`);
+        const phaseKey = row.getAttribute('data-phase-key');
+        const logRow = document.getElementById(`manifest-log-row-${phaseKey}`);
+        const panel = document.getElementById(`manifest-log-panel-${phaseKey}`);
         if (!logRow || !panel) return;
 
         const isOpen = logRow.style.display !== 'none';
@@ -115,7 +117,7 @@
           // Load logs only on first open
           if (panel.dataset.loaded !== '1') {
             panel.dataset.loaded = '1';
-            await loadModuleLogs(scanId, mod, panel);
+            await loadModuleLogs(scanId, phaseKey, panel);
           }
         }
       });
