@@ -101,7 +101,11 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// Extract root domain for modules that need it (e.g., DNS, S3)
 	rootDomain := extractDomain(subdomainClean)
 
-	totalSteps := 18
+	// Phase 1 (1) + Phase 2 (13) + Phase 2.5 (1) + Phase 3 (4/5) + Phase 4 (1)
+	totalSteps := 20
+	if !opts.SkipFFuf {
+		totalSteps = 21
+	}
 	var currentStep int32
 
 	// Helper to get next step safely

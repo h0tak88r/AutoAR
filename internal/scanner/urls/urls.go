@@ -38,10 +38,12 @@ type Result struct {
 // Results are merged into all-urls.txt and persisted as katana-urls.json.
 func RunKatanaPhase(domain string) error {
 	resultsDir := utils.GetResultsDir()
-	dirDomain := extractRootDomain(domain)
+	// Use domain directly for directory path — RunKatanaPhase is called from
+	// the subdomain workflow where the directory is named after the subdomain.
+	dirDomain := domain
 	domainDir := filepath.Join(resultsDir, dirDomain)
 	liveFile := filepath.Join(domainDir, "subs", "live-subs.txt")
-	allFile := filepath.Join(filepath.Join(domainDir, "urls"), "all-urls.txt")
+	allFile := filepath.Join(domainDir, "urls", "all-urls.txt")
 
 	fi, err := os.Stat(liveFile)
 	if err != nil || fi.Size() == 0 {
@@ -762,6 +764,11 @@ func runKatana(liveFile, domain string) []string {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				logger.GetLogger().Infof("[WARN] Katana crawl panic recovered for %s: %v", domain, r)
+			}
+		}()
 		for _, u := range hosts {
 			crawler.Crawl(u) //nolint:errcheck
 		}
