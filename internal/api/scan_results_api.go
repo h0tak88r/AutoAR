@@ -165,31 +165,32 @@ type fileEntry struct {
 type workflowPhaseSpec struct {
 	Module      string
 	Description string
+	PhaseKey    string // matches the key passed to RunWorkflowPhase / used for log files
 }
 
 var subdomainWorkflowPhaseSpecs = []workflowPhaseSpec{
-	{Module: "httpx", Description: "Live host check"},
-	{Module: "dns-takeover", Description: "[Stage 2] CNAME collection"},
-	{Module: "tech-detect", Description: "[Stage 2] Technology detection"},
-	{Module: "port-scan", Description: "[Stage 2] Port scan"},
-	{Module: "url-collection", Description: "[Stage 2] URL collection"},
-	{Module: "js-analysis", Description: "[Stage 2] JS scan"},
-	{Module: "aem", Description: "[Stage 2] AEM scan"},
-	{Module: "dns-takeover", Description: "[Stage 2] DNS scan"},
-	{Module: "s3-scan", Description: "[Stage 2] S3 bucket enumeration and scanning"},
-	{Module: "backup-detection", Description: "[Stage 2] Backup scan"},
-	{Module: "zerodays", Description: "[Stage 2] Zerodays scan"},
-	{Module: "wordpress-confusion", Description: "[Stage 2] WordPress confusion"},
-	{Module: "dependency-confusion", Description: "[Stage 2] Dependency confusion"},
-	{Module: "misconfig", Description: "[Stage 2] Misconfig scan"},
-	{Module: "js-endpoints", Description: "[Stage 2] JS Endpoints"},
-	{Module: "github-scan", Description: "[Stage 2] GitHub Secrets"},
-	{Module: "katana", Description: "[Stage 2.5] Katana crawler"},
-	{Module: "gf-patterns", Description: "[Stage 3] GF scan"},
-	{Module: "reflection", Description: "[Stage 3] Reflection scan"},
-	{Module: "ffuf-fuzzing", Description: "[Stage 3] FFuf fuzzing"},
-	{Module: "nuclei", Description: "[Stage 3] Nuclei scan (final)"},
-	{Module: "xss-detection", Description: "[Stage 4] Dalfox XSS confirmation"},
+	{Module: "httpx", Description: "Live host check", PhaseKey: "livehosts"},
+	{Module: "dns-takeover", Description: "[Stage 2] CNAME collection", PhaseKey: "cnames"},
+	{Module: "tech-detect", Description: "[Stage 2] Technology detection", PhaseKey: "tech"},
+	{Module: "port-scan", Description: "[Stage 2] Port scan", PhaseKey: "ports"},
+	{Module: "url-collection", Description: "[Stage 2] URL collection", PhaseKey: "urls"},
+	{Module: "js-analysis", Description: "[Stage 2] JS scan", PhaseKey: "js-analysis"},
+	{Module: "aem", Description: "[Stage 2] AEM scan", PhaseKey: "aem"},
+	{Module: "dns-takeover", Description: "[Stage 2] DNS scan", PhaseKey: "dns"},
+	{Module: "s3-scan", Description: "[Stage 2] S3 bucket enumeration and scanning", PhaseKey: "s3"},
+	{Module: "backup-detection", Description: "[Stage 2] Backup scan", PhaseKey: "backup"},
+	{Module: "zerodays", Description: "[Stage 2] Zerodays scan", PhaseKey: "zerodays"},
+	{Module: "wordpress-confusion", Description: "[Stage 2] WordPress confusion", PhaseKey: "wp_confusion"},
+	{Module: "dependency-confusion", Description: "[Stage 2] Dependency confusion", PhaseKey: "depconfusion"},
+	{Module: "misconfig", Description: "[Stage 2] Misconfig scan", PhaseKey: "misconfig"},
+	{Module: "js-endpoints", Description: "[Stage 2] JS Endpoints", PhaseKey: "js-endpoints"},
+	{Module: "github-scan", Description: "[Stage 2] GitHub Secrets", PhaseKey: "github-scan"},
+	{Module: "katana", Description: "[Stage 2.5] Katana crawler", PhaseKey: "katana"},
+	{Module: "gf-patterns", Description: "[Stage 3] GF scan", PhaseKey: "gf"},
+	{Module: "reflection", Description: "[Stage 3] Reflection scan", PhaseKey: "reflection"},
+	{Module: "ffuf-fuzzing", Description: "[Stage 3] FFuf fuzzing", PhaseKey: "ffuf"},
+	{Module: "nuclei", Description: "[Stage 3] Nuclei scan (final)", PhaseKey: "nuclei"},
+	{Module: "xss-detection", Description: "[Stage 4] Dalfox XSS confirmation", PhaseKey: "xss-detection"},
 }
 
 
@@ -261,6 +262,7 @@ func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 
 		modules = append(modules, moduleExecutionEntry{
 			Module:         spec.Module,
+			PhaseKey:       spec.PhaseKey,
 			Status:         status,
 			StartedAt:      rec.StartedAt,
 			CompletedAt:    completedAt,
