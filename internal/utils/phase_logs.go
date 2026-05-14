@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,12 +109,12 @@ func StartPhaseLogCapture(scanID, phaseKey string) func() {
 func FlushPhaseLogBuffer(scanID, phaseKey string) error {
 	key := scanID + ":" + phaseKey
 
-	h.mu.Lock()
-	buf, ok := h.buffers[key]
+	globalPhaseLogHook.mu.Lock()
+	buf, ok := globalPhaseLogHook.buffers[key]
 	if ok {
-		delete(h.buffers, key)
+		delete(globalPhaseLogHook.buffers, key)
 	}
-	h.mu.Unlock()
+	globalPhaseLogHook.mu.Unlock()
 
 	if !ok || buf == nil {
 		return nil
@@ -157,9 +156,9 @@ func FlushPhaseLogBuffer(scanID, phaseKey string) error {
 // without flushing or deleting the buffer.
 func ReadPhaseLogBuffer(scanID, phaseKey string) []phaseLogEntry {
 	key := scanID + ":" + phaseKey
-	h.mu.RLock()
-	buf, ok := h.buffers[key]
-	h.mu.RUnlock()
+	globalPhaseLogHook.mu.RLock()
+	buf, ok := globalPhaseLogHook.buffers[key]
+	globalPhaseLogHook.mu.RUnlock()
 	if !ok || buf == nil {
 		return nil
 	}
