@@ -442,8 +442,8 @@
         return true;
       });
 
-    const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'github', 'sqlmap', 'aem-findings']);
-    const totalVuln = Array.from(VULN_KINDS).reduce((acc, k) => acc + (allRows.filter(r => (r.kind || r.module === 'github-scan' || r.module === 'github' ? k === 'github-scan' : k)).length), 0);
+    const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'sqlmap', 'aem-findings']);
+    const totalVuln = allRows.filter(r => VULN_KINDS.has(r.kind)).length;
 
     const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run' || stNorm === 'domain_run';
     const isGitHubScan = /github/.test(stNorm) || allRows.some(r => r.module === 'github-scan' || r.module === 'github');
