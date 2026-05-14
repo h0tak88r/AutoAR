@@ -196,6 +196,12 @@
 
       container.innerHTML = html;
 
+      // Wire manifest pipeline row clicks after DOM insertion.
+      const manifestCardEl = container.querySelector('.modern-card');
+      if (manifestCardEl) {
+        window.ScanDetailManifest.wireManifestRowClicks(manifestCardEl);
+      }
+
       window.wireScanFileRows(container, scanId);
       window.wireScanDetailFilters(scanId, files);
       loadReconUnifiedTable(scanId, files, 'unified-parsed-results', scan);
@@ -459,7 +465,7 @@
 
     const _kindCounts = {};
     for (const r of allRows) _kindCounts[r.kind || 'other'] = (_kindCounts[r.kind || 'other'] || 0) + 1;
-    const HIDDEN_KINDS = new Set(['logs', 'log', 'tech', 'js_urls']);
+    const HIDDEN_KINDS = new Set(['logs', 'log']);
     const TAB_LABELS = {
       assets: '🏠 Assets',
       urls: '🔗 Links',
@@ -523,7 +529,7 @@
       if (bi !== -1) return 1;
       return a.localeCompare(b);
     });
-    const excludedModuleTabs = new Set(['autoar', 'unknown', 'tech-detect', 'ffuf-fuzzing', 'js-analysis', 'js-endpoints', 'katana-crawler', 'xss-detection', 'github-scan', 'nuclei', 'ffuf', 'reflection']);
+    const excludedModuleTabs = new Set(['autoar', 'unknown']);
     const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
     if (hasUrlsDatasetTab) excludedModuleTabs.add('url-collection');
     const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');

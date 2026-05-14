@@ -67,10 +67,21 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		_ = db.UpdateScanProgress(scanID, progress)
 	}
 
+	// Helper that runs fn with phase-key tracking and log capture.
+	runTracked := func(phaseFn func() error) error {
+		SetGoroutinePhaseKey(phaseKey)
+		flushLogs := StartPhaseLogCapture(scanID, phaseKey)
+		defer func() {
+			ClearGoroutinePhaseKey()
+			flushLogs()
+		}()
+		return phaseFn()
+	}
+
 	var err error
 	if timeoutSeconds > 0 {
 		done := make(chan error, 1)
-		go func() { done <- fn() }()
+		go func() { done <- runTracked(fn) }()
 		select {
 		case err = <-done:
 			<-phaseSemaphore
@@ -83,7 +94,7 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 			}()
 		}
 	} else {
-		err = fn()
+		err = runTracked(fn)
 		<-phaseSemaphore
 	}
 

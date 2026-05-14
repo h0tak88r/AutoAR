@@ -110,6 +110,46 @@ func apiGetScanManifest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"scan_id": scanID, "manifest": manifest, "generated": true})
 }
 
+// GET /api/scans/:id/logs?module= — per-module phase logs for a scan.
+func apiGetScanPhaseLogs(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	scanID := strings.TrimSpace(c.Param("id"))
+	if scanID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	module := strings.TrimSpace(c.Query("module"))
+	if module == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "module query param required"})
+		return
+	}
+
+	// Try in-memory buffer first (for live / recent scans).
+	entries := utils.ReadPhaseLogBuffer(scanID, module)
+	if len(entries) == 0 {
+		// Fallback to persisted JSONL file.
+		var err error
+		entries, err = utils.ReadPhaseLogFile(scanID, module)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	// Convert to simple lines for the frontend.
+	lines := make([]map[string]interface{}, 0, len(entries))
+	for _, e := range entries {
+		lines = append(lines, map[string]interface{}{
+			"timestamp": e.Timestamp,
+			"level":     e.Level,
+			"message":   e.Message,
+			"fields":    e.Fields,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"scan_id": scanID, "module": module, "lines": lines, "count": len(lines)})
+}
+
 type fileEntry struct {
 	FileName  string `json:"file_name"`
 	LocalPath string `json:"local_path"`

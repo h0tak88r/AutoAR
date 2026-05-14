@@ -22,6 +22,7 @@ import (
 )
 
 var goroutineScanIDs sync.Map // goroutine-id (int64) → scanID (string)
+var goroutinePhaseKeys sync.Map // goroutine-id (int64) → phaseKey (string)
 
 // goroutineID extracts the current goroutine's numeric ID from its stack header.
 // This is not an official Go API but has been stable for 10+ years.
@@ -59,6 +60,27 @@ func GetCurrentScanID() string {
 		}
 	}
 	return os.Getenv("AUTOAR_CURRENT_SCAN_ID")
+}
+
+// SetGoroutinePhaseKey registers the current phase key for the calling goroutine.
+// Call ClearGoroutinePhaseKey (via defer) when the phase function returns.
+func SetGoroutinePhaseKey(phaseKey string) {
+	goroutinePhaseKeys.Store(goroutineID(), phaseKey)
+}
+
+// ClearGoroutinePhaseKey removes the phase key for the calling goroutine.
+func ClearGoroutinePhaseKey() {
+	goroutinePhaseKeys.Delete(goroutineID())
+}
+
+// GetCurrentPhaseKey returns the phase key for the current goroutine.
+func GetCurrentPhaseKey() string {
+	if id, ok := goroutinePhaseKeys.Load(goroutineID()); ok {
+		if s, ok := id.(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // isCancelledFn is a hook registered by the api package to avoid a circular
