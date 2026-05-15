@@ -218,7 +218,7 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		files = []string{
 			filepath.Join(resultsDir, domain, "vulnerabilities", "kxss-results.txt"),
 		}
-	case "js", "jsscan":
+	case "js", "jsscan", "js-analysis":
 		jsDir := filepath.Join(resultsDir, domain, "vulnerabilities", "js")
 		if matches, err := filepath.Glob(filepath.Join(jsDir, "*.txt")); err == nil {
 			for _, m := range matches {
@@ -226,6 +226,23 @@ func GetPhaseFiles(phaseName, domain string) []string {
 					files = append(files, m)
 				}
 			}
+		}
+	case "js-endpoints":
+		jsDir := filepath.Join(resultsDir, domain, "vulnerabilities", "js")
+		files = []string{
+			filepath.Join(jsDir, "js-urls.txt"),
+			filepath.Join(resultsDir, domain, "vulnerabilities", "js-endpoints-results.txt"),
+		}
+	case "katana":
+		urlsDir := filepath.Join(resultsDir, domain, "urls")
+		files = []string{
+			filepath.Join(urlsDir, "katana-urls.json"),
+			filepath.Join(urlsDir, "all-urls.txt"),
+		}
+	case "xss-detection":
+		files = []string{
+			filepath.Join(resultsDir, domain, "vulnerabilities", "kxss-results.txt"),
+			filepath.Join(resultsDir, domain, "vulnerabilities", "dalfox-results.txt"),
 		}
 	case "cnames":
 		rootDomain := domain
@@ -334,7 +351,7 @@ func GetPhaseFiles(phaseName, domain string) []string {
 		if matches, err := filepath.Glob(filepath.Join(s3Dir, "*", "scan-results.txt")); err == nil {
 			files = append(files, matches...)
 		}
-	case "githubscan":
+	case "githubscan", "github-scan":
 		files = []string{
 			filepath.Join(resultsDir, "github", "orgs", domain, "secrets.json"),
 			filepath.Join(resultsDir, "github", "orgs", domain, "secrets_table.txt"),

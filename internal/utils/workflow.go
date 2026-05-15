@@ -3,6 +3,8 @@ package utils
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/db"
@@ -120,6 +122,34 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 	GetLogger().Infof("[OK] %s completed", description)
 	if scanID != "" {
 		_ = db.AppendScanPhase(scanID, description, false)
+	}
+
+	// Log a per-phase summary with input / output counts for the log drawer.
+	if phaseKey != "" {
+		phaseFiles := GetPhaseFiles(phaseKey, target)
+		var totalLines int
+		var foundFiles []string
+		for _, f := range phaseFiles {
+			if info, ferr := os.Stat(f); ferr == nil && info.Size() > 0 {
+				// Count non-empty lines in output files.
+				if data, rerr := os.ReadFile(f); rerr == nil {
+					lines := 0
+					for _, l := range strings.Split(string(data), "\n") {
+						if strings.TrimSpace(l) != "" {
+							lines++
+						}
+					}
+					totalLines += lines
+					foundFiles = append(foundFiles, filepath.Base(f))
+				}
+			}
+		}
+		parts := []string{fmt.Sprintf("Phase: %s", description)}
+		parts = append(parts, fmt.Sprintf("Output: %d result file(s), %d total lines", len(foundFiles), totalLines))
+		if len(foundFiles) > 0 {
+			parts = append(parts, fmt.Sprintf("Files: %s", strings.Join(foundFiles, ", ")))
+		}
+		GetLogger().Infof("[SUMMARY] %s", strings.Join(parts, " | "))
 	}
 
 	// Real-time file reporting
