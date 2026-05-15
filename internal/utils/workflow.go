@@ -41,6 +41,16 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 	// then falls back to AUTOAR_CURRENT_SCAN_ID env var (subprocess compat).
 	scanID := GetCurrentScanID()
 
+	// Register phase key and log capture immediately so EVERY log message emitted
+	// by this phase (start, skip, cancel, complete, error, and anything logged by
+	// the module function) lands in the per-phase log file.
+	SetGoroutinePhaseKey(phaseKey)
+	flushLogs := StartPhaseLogCapture(scanID, phaseKey)
+	defer func() {
+		ClearGoroutinePhaseKey()
+		flushLogs()
+	}()
+
 	// Checkpoint: Skip if phase already completed successfully
 	if scanID != "" && db.IsPhaseCompleted(scanID, description) {
 		GetLogger().WithField("step", step).WithField("total", total).Infof("[SKIP] %s (already completed)", description)
@@ -67,21 +77,16 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		_ = db.UpdateScanProgress(scanID, progress)
 	}
 
-	// Helper that runs fn with phase-key tracking and log capture.
-	runTracked := func(phaseFn func() error) error {
-		SetGoroutinePhaseKey(phaseKey)
-		flushLogs := StartPhaseLogCapture(scanID, phaseKey)
-		defer func() {
-			ClearGoroutinePhaseKey()
-			flushLogs()
-		}()
-		return phaseFn()
-	}
-
 	var err error
 	if timeoutSeconds > 0 {
 		done := make(chan error, 1)
-		go func() { done <- runTracked(fn) }()
+		// The timeout goroutine also sets the phase key so logs from fn()
+		// are captured under this phase's key.
+		go func() {
+			SetGoroutinePhaseKey(phaseKey)
+			defer ClearGoroutinePhaseKey()
+			done <- fn()
+		}()
 		select {
 		case err = <-done:
 			<-phaseSemaphore
@@ -94,7 +99,7 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 			}()
 		}
 	} else {
-		err = runTracked(fn)
+		err = fn()
 		<-phaseSemaphore
 	}
 
