@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -124,30 +125,26 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		_ = db.AppendScanPhase(scanID, description, false)
 	}
 
-	// Log a per-phase summary with input / output counts for the log drawer.
+	// Log a per-phase summary with findings count for the log drawer.
 	if phaseKey != "" {
 		phaseFiles := GetPhaseFiles(phaseKey, target)
-		var totalLines int
+		var totalFindings int
 		var foundFiles []string
 		for _, f := range phaseFiles {
 			if info, ferr := os.Stat(f); ferr == nil && info.Size() > 0 {
-				// Count non-empty lines in output files.
-				if data, rerr := os.ReadFile(f); rerr == nil {
-					lines := 0
-					for _, l := range strings.Split(string(data), "\n") {
-						if strings.TrimSpace(l) != "" {
-							lines++
-						}
-					}
-					totalLines += lines
+				count := countFindingsInFile(f)
+				if count > 0 {
+					totalFindings += count
 					foundFiles = append(foundFiles, filepath.Base(f))
 				}
 			}
 		}
 		parts := []string{fmt.Sprintf("Phase: %s", description)}
-		parts = append(parts, fmt.Sprintf("Output: %d result file(s), %d total lines", len(foundFiles), totalLines))
-		if len(foundFiles) > 0 {
+		if totalFindings > 0 {
+			parts = append(parts, fmt.Sprintf("Findings: %d across %d file(s)", totalFindings, len(foundFiles)))
 			parts = append(parts, fmt.Sprintf("Files: %s", strings.Join(foundFiles, ", ")))
+		} else {
+			parts = append(parts, "Findings: 0 (no results)")
 		}
 		GetLogger().Infof("[SUMMARY] %s", strings.Join(parts, " | "))
 	}
@@ -169,4 +166,94 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 	}
 
 	return nil
+}
+
+// countFindingsInFile reads a result file and returns the number of findings it contains.
+// For JSON arrays: counts array items.
+// For structured JSON objects with known array keys (findings, results, etc.): counts those.
+// For text files: counts non-empty, non-header lines.
+func countFindingsInFile(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	s := strings.TrimSpace(string(data))
+	if s == "" {
+		return 0
+	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+
+	// ── JSON files ──
+	if ext == ".json" {
+		var top interface{}
+		if json.Unmarshal(data, &top) != nil {
+			return 0
+		}
+		switch v := top.(type) {
+		case []interface{}:
+			return len(v)
+		case map[string]interface{}:
+			// Look for known result-array keys.
+			for _, key := range []string{"findings", "results", "matches", "issues", "vulnerabilities", "data", "items", "urls"} {
+				if arr, ok := v[key].([]interface{}); ok {
+					return len(arr)
+				}
+			}
+			// For objects with string-array maps (like apkx results.json).
+			total := 0
+			for _, val := range v {
+				if arr, ok := val.([]interface{}); ok {
+					total += len(arr)
+				}
+			}
+			return total
+		}
+		return 0
+	}
+
+	// ── Text / JSONL / mixed files ──
+	// JSONL: count valid JSON objects per line.
+	if ext == ".jsonl" || strings.HasPrefix(s, "{") {
+		lines := strings.Split(s, "\n")
+		count := 0
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if strings.HasPrefix(line, "{") {
+				var obj map[string]interface{}
+				if json.Unmarshal([]byte(line), &obj) == nil {
+					count++
+					continue
+				}
+			}
+			// Non-JSON, non-empty content line.
+			if !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "//") {
+				count++
+			}
+		}
+		return count
+	}
+
+	// ── Plain text ──
+	lines := strings.Split(s, "\n")
+	count := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+		// Skip summary/header lines in nuclei, gf, etc.
+		if strings.HasPrefix(line, "Nuclei Scan Summary") ||
+			strings.HasPrefix(line, "Target:") ||
+			strings.HasPrefix(line, "Mode:") ||
+			strings.HasPrefix(line, "=== ") ||
+			strings.HasPrefix(line, "Tools Used:") {
+			continue
+		}
+		count++
+	}
+	return count
 }
