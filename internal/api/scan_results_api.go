@@ -1823,6 +1823,10 @@ func dedupeParsedRows(rows []parsedFinding) []parsedFinding {
 		finding := strings.ToLower(strings.TrimSpace(r.Finding))
 		sev := strings.ToLower(strings.TrimSpace(r.Severity))
 
+		// Collapse repeated whitespace so "= " and " =" etc. dedupe together.
+		target = strings.Join(strings.Fields(target), " ")
+		finding = strings.Join(strings.Fields(finding), " ")
+
 		// FFUF and port scans are particularly noisy; dedupe by stable finding identity.
 		switch {
 		case module == "ffuf-fuzzing" || kind == "ffuf":

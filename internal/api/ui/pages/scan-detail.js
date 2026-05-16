@@ -534,8 +534,15 @@
     if (hasUrlsDatasetTab) excludedModuleTabs.add('url-collection');
     const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');
     if (hasApkxDatasetTab) excludedModuleTabs.add('apkx');
+    // Build a set of kinds already covered by dataset tabs so we don't
+    // create duplicate mod: tabs for the same module.
+    const coveredDatasetKinds = new Set(UNIQUE_TABS.map(t => t[0]));
 
-    const moduleTabs = usedModules.filter((mod) => !excludedModuleTabs.has(mod)).map((mod) => {
+    const moduleTabs = usedModules.filter((mod) => {
+      if (excludedModuleTabs.has(mod)) return false;
+      if (coveredDatasetKinds.has(mod)) return false;
+      return true;
+    }).map((mod) => {
       const info = getModuleDisplayInfo(mod);
       return [`mod:${mod}`, `${info.icon} ${info.name}`];
     });
