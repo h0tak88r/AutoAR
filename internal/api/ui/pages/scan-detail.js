@@ -536,11 +536,18 @@
     if (hasApkxDatasetTab) excludedModuleTabs.add('apkx');
     // Build a set of kinds already covered by dataset tabs so we don't
     // create duplicate mod: tabs for the same module.
+    // Also include normalized aliases — e.g. if the dataset has 'ffuf',
+    // 'ffuf-fuzzing' is covered too, and vice versa.
     const coveredDatasetKinds = new Set(UNIQUE_TABS.map(t => t[0]));
+    for (const k of [...coveredDatasetKinds]) {
+      const norm = window.normalizeModuleKey(k);
+      if (norm !== k) coveredDatasetKinds.add(norm);
+    }
 
     const moduleTabs = usedModules.filter((mod) => {
       if (excludedModuleTabs.has(mod)) return false;
       if (coveredDatasetKinds.has(mod)) return false;
+      if (coveredDatasetKinds.has(window.normalizeModuleKey(mod))) return false;
       return true;
     }).map((mod) => {
       const info = getModuleDisplayInfo(mod);
