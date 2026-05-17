@@ -4,57 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="color-scheme" content="dark light">
-    <title>APK Auditor - Android Static Security Analysis</title>
-    <meta name="description" content="Android APK static security scanner in your browser. Real DEX parsing, AXML manifest, signing certificate, native libs, entropy-aware secret detection, SARIF / JSON / CSV / PDF export. 100% client-side.">
-    <meta name="author" content="Sandeep Wawdane">
-    <meta name="generator" content="APK Auditor 3.0">
-    <meta name="theme-color" content="#FCFCFD" media="(prefers-color-scheme: light)">
+    <title>APK Auditor — AutoAR</title>
+    <meta name="description" content="Android APK static security scanner. DEX parsing, AXML manifest, signing certificate, entropy-aware secret detection. 100% client-side.">
     <meta name="theme-color" content="#07080B" media="(prefers-color-scheme: dark)">
-    <meta name="application-name" content="APK Auditor">
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
-    <meta name="referrer" content="strict-origin-when-cross-origin">
-    <meta name="robots" content="index, follow, max-image-preview:large">
-
-    <meta property="og:title" content="APK Auditor - Android Static Security Analysis">
-    <meta property="og:description" content="Android APK static security scanner in your browser. DEX parsing, AXML manifest, signing certificate, entropy-aware secrets. 100% client-side.">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://apkauditor.com/">
-    <meta property="og:image" content="https://apkauditor.com/icons/icon-512.svg">
-    <meta property="og:image:type" content="image/svg+xml">
-    <meta property="og:image:width" content="512">
-    <meta property="og:image:height" content="512">
-    <meta property="og:site_name" content="APK Auditor">
-    <meta property="og:locale" content="en_US">
-
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="APK Auditor - Android Static Security Analysis">
-    <meta name="twitter:description" content="APK static security scanner. DEX + AXML + cert + entropy-aware secrets. 100% client-side.">
-    <meta name="twitter:image" content="https://apkauditor.com/icons/icon-512.svg">
-
-    <link rel="canonical" href="https://apkauditor.com/">
+    <meta name="theme-color" content="#FCFCFD" media="(prefers-color-scheme: light)">
     <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800&family=JetBrains+Mono:wght@400;500&display=swap">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800&family=JetBrains+Mono:wght@400;500&display=swap">
-    <link rel="stylesheet" href="src/styles.css?v=20260514">
-
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "APK Auditor",
-      "url": "https://apkauditor.com/",
-      "applicationCategory": "SecurityApplication",
-      "operatingSystem": "Web Browser",
-      "browserRequirements": "Requires a modern browser with Web Workers, IndexedDB, and File API support.",
-      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "creator": { "@type": "Person", "name": "Sandeep Wawdane", "url": "https://github.com/thecybersandeep" },
-      "description": "Android APK static security scanner running entirely in the browser."
-    }
-    </script>
+    <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -81,19 +36,8 @@
                 <div class="logo-text"><span class="logo-prefix">APK</span><span class="logo-suffix">Auditor</span></div>
             </a>
             <nav class="nav-links" aria-label="Main">
-                <a href="https://ipaauditor.com/" class="nav-link nav-sibling" target="_blank" rel="noopener noreferrer" title="iOS IPA static analyzer">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="3"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-                    IPA Auditor
-                </a>
-                <a href="https://adbauditor.com/" class="nav-link nav-sibling" target="_blank" rel="noopener noreferrer" title="Live Android audit over WebUSB">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                    ADB Auditor
-                </a>
-                <button class="nav-link icon" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">
-                    <svg class="theme-dark"  viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                    <svg class="theme-light" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                </button>
                 <a href="https://github.com/thecybersandeep/apkauditor" class="nav-link" target="_blank" rel="noopener noreferrer" aria-label="GitHub repo">
+
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
                 </a>
             </nav>
@@ -391,11 +335,8 @@
     <footer class="site-footer">
         <div class="site-footer-inner">
             <div class="footer-brand">
-                <span>APK Auditor</span>
-                <span class="footer-divider">·</span>
-                <a href="https://github.com/thecybersandeep/apkauditor" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <span>APK Auditor — AutoAR</span>
             </div>
-            <div class="footer-copyright">by <a href="https://github.com/thecybersandeep" target="_blank" rel="noopener noreferrer">Sandeep</a></div>
         </div>
     </footer>
 
