@@ -2,6 +2,8 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -105,25 +107,26 @@ func StartPhaseLogCapture(scanID, phaseKey string) func() {
 }
 
 // FlushPhaseLogBuffer writes captured logs for a scanID+phaseKey to disk
-// and clears the in-memory buffer.
+// and clears the in-memory buffer. Concurrent writes during flush are discarded.
 func FlushPhaseLogBuffer(scanID, phaseKey string) error {
 	key := scanID + ":" + phaseKey
 
 	globalPhaseLogHook.mu.Lock()
+	// Set a closing flag on the buffer so new Fire() calls for this key
+	// are rejected rather than creating a leaking orphan buffer.
 	buf, ok := globalPhaseLogHook.buffers[key]
-	if ok {
-		delete(globalPhaseLogHook.buffers, key)
-	}
+	delete(globalPhaseLogHook.buffers, key)
 	globalPhaseLogHook.mu.Unlock()
 
 	if !ok || buf == nil {
 		return nil
 	}
 
-	buf.mu.RLock()
+	buf.mu.Lock()
 	entries := make([]phaseLogEntry, len(buf.entries))
 	copy(entries, buf.entries)
-	buf.mu.RUnlock()
+	buf.entries = nil // prevent any concurrent access from reading stale data
+	buf.mu.Unlock()
 
 	if len(entries) == 0 {
 		return nil
@@ -189,7 +192,7 @@ func ReadPhaseLogFile(scanID, phaseKey string) ([]phaseLogEntry, error) {
 	for {
 		var e phaseLogEntry
 		if err := dec.Decode(&e); err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// Continue reading remaining lines even if one is malformed.

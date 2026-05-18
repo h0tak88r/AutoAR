@@ -174,7 +174,7 @@ var subdomainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "tech-detect", Description: "[Stage 2] Technology detection", PhaseKey: "tech"},
 	{Module: "port-scan", Description: "[Stage 2] Port scan", PhaseKey: "ports"},
 	{Module: "url-collection", Description: "[Stage 2] URL collection", PhaseKey: "urls"},
-	{Module: "js-analysis", Description: "[Stage 2] JS scan", PhaseKey: "js-analysis"},
+	{Module: "js-analysis", Description: "[Stage 2] JS secrets scan", PhaseKey: "js-analysis"},
 	{Module: "aem", Description: "[Stage 2] AEM scan", PhaseKey: "aem"},
 	{Module: "dns-takeover", Description: "[Stage 2] DNS scan", PhaseKey: "dns"},
 	{Module: "s3-scan", Description: "[Stage 2] S3 bucket enumeration and scanning", PhaseKey: "s3"},
@@ -183,14 +183,34 @@ var subdomainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "wordpress-confusion", Description: "[Stage 2] WordPress confusion", PhaseKey: "wp_confusion"},
 	{Module: "dependency-confusion", Description: "[Stage 2] Dependency confusion", PhaseKey: "depconfusion"},
 	{Module: "misconfig", Description: "[Stage 2] Misconfig scan", PhaseKey: "misconfig"},
-	{Module: "js-endpoints", Description: "[Stage 2] JS Endpoints", PhaseKey: "js-endpoints"},
-	{Module: "github-scan", Description: "[Stage 2] GitHub Secrets", PhaseKey: "github-scan"},
 	{Module: "katana", Description: "[Stage 2.5] Katana crawler", PhaseKey: "katana"},
 	{Module: "gf-patterns", Description: "[Stage 3] GF scan", PhaseKey: "gf"},
+	{Module: "js-endpoints", Description: "[Stage 3] JS endpoint extraction", PhaseKey: "js-endpoints"},
 	{Module: "reflection", Description: "[Stage 3] Reflection scan", PhaseKey: "reflection"},
 	{Module: "ffuf-fuzzing", Description: "[Stage 3] FFuf fuzzing", PhaseKey: "ffuf"},
 	{Module: "nuclei", Description: "[Stage 3] Nuclei scan (final)", PhaseKey: "nuclei"},
 	{Module: "xss-detection", Description: "[Stage 4] Dalfox XSS confirmation", PhaseKey: "xss-detection"},
+}
+
+var domainWorkflowPhaseSpecs = []workflowPhaseSpec{
+	{Module: "subdomain-enum", Description: "Subdomain enumeration", PhaseKey: "subdomains"},
+	{Module: "dns-takeover", Description: "CNAME collection", PhaseKey: "cnames"},
+	{Module: "httpx", Description: "Live host filtering", PhaseKey: "livehosts"},
+	{Module: "tech-detect", Description: "Technology detection", PhaseKey: "tech"},
+	{Module: "port-scan", Description: "Port scanning", PhaseKey: "ports"},
+	{Module: "url-collection", Description: "URL collection", PhaseKey: "urls"},
+	{Module: "js-analysis", Description: "JavaScript scan", PhaseKey: "jsscan"},
+	{Module: "dns-takeover", Description: "DNS takeover scan", PhaseKey: "dns"},
+	{Module: "aem", Description: "AEM webapp discovery and scan", PhaseKey: "aem"},
+	{Module: "wordpress-confusion", Description: "WordPress confusion scan", PhaseKey: "wp_confusion"},
+	{Module: "dependency-confusion", Description: "Dependency confusion scan", PhaseKey: "depconfusion"},
+	{Module: "s3-scan", Description: "S3 bucket enumeration", PhaseKey: "s3"},
+	{Module: "backup-detection", Description: "Backup file discovery", PhaseKey: "backup"},
+	{Module: "misconfig", Description: "Cloud misconfiguration scan", PhaseKey: "misconfig"},
+	{Module: "reflection", Description: "Reflection scan", PhaseKey: "reflection"},
+	{Module: "gf-patterns", Description: "GF pattern matching", PhaseKey: "gf"},
+	{Module: "nuclei", Description: "Nuclei scan", PhaseKey: "nuclei"},
+	{Module: "ffuf-fuzzing", Description: "FFuf fuzzing", PhaseKey: "ffuf"},
 }
 
 
@@ -206,7 +226,13 @@ func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 	completed := stringSet(rec.CompletedPhases)
 	failed := stringSet(rec.FailedPhases)
 	outputsByModule := collectScanOutputFilesByModule(rec.ScanID)
-	modules := make([]moduleExecutionEntry, 0, len(subdomainWorkflowPhaseSpecs))
+
+	// Select the correct phase spec based on scan type.
+	specs := subdomainWorkflowPhaseSpecs
+	if scanType == "domain_run" {
+		specs = domainWorkflowPhaseSpecs
+	}
+	modules := make([]moduleExecutionEntry, 0, len(specs))
 	now := time.Now()
 
 	// Determine overall scan state for smart inference.
@@ -216,12 +242,15 @@ func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 	scanFailed := strings.EqualFold(strings.TrimSpace(rec.Status), "failed") ||
 		strings.EqualFold(strings.TrimSpace(rec.Status), "error")
 
-	for _, spec := range subdomainWorkflowPhaseSpecs {
+	for _, spec := range specs {
 		status := "pending"
 		completedAt := time.Time{}
 		durationMS := int64(0)
 
-		phaseFiles := outputsByModule[spec.Module]
+		phaseFiles := outputsByModule[spec.PhaseKey]
+		if len(phaseFiles) == 0 {
+			phaseFiles = outputsByModule[spec.Module]
+		}
 		hasArtifacts := len(phaseFiles) > 0
 
 		if _, ok := completed[spec.Description]; ok {
@@ -365,7 +394,7 @@ func inferModuleFromFileName(name string) string {
 		return "url-collection"
 	// katana crawler results — separate from general URL collection
 	case strings.Contains(n, "katana"):
-		return "katana-crawler"
+		return "katana"
 	// js-endpoints: API path extraction results from JS files
 	case strings.Contains(n, "js-endpoint"):
 		return "js-endpoints"
@@ -397,7 +426,7 @@ func inferModuleFromFileName(name string) string {
 	case strings.Contains(n, "port-scan") || strings.Contains(n, "ports") || strings.Contains(n, "nmap") || strings.Contains(n, "masscan"):
 		return "port-scan"
 	case strings.Contains(n, "aem"):
-		return "aem-scan"
+		return "aem"
 	case strings.Contains(n, "github") || strings.Contains(n, "github-scan") || strings.Contains(n, "gh-") || strings.Contains(n, "github-secrets") || strings.Contains(n, "secrets_table") || (strings.Contains(n, "secrets") && strings.HasSuffix(n, ".json")):
 		return "github-scan"
 	case strings.Contains(n, "backup") || strings.Contains(n, "fuzzuli"):
@@ -413,7 +442,7 @@ func inferModuleFromFileName(name string) string {
 	case strings.HasSuffix(n, "urls.txt") || strings.Contains(n, "all-urls.txt") || strings.Contains(n, "wayback"):
 		return "url-collection"
 	case strings.Contains(n, "js-url") || strings.Contains(n, "js_url") || strings.Contains(n, "js-enum"):
-		return "JS-Enum"
+		return "url-collection"
 	case strings.HasSuffix(n, "urls.json") || strings.HasSuffix(n, "urls.txt") || strings.Contains(n, "all-urls.txt") || strings.Contains(n, "wayback"):
 		return "url-collection"
 	default:
@@ -1744,9 +1773,7 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 				}
 			case string:
 				fT := "Recon"
-				if module == "JS-Enum" {
-					fT = "JS-Enum"
-				} else if module == "url-collection" {
+				if module == "url-collection" {
 					fT = "URL-Collection"
 				} else {
 					fT = module
@@ -1792,9 +1819,7 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 				continue
 			}
 			fT := "Recon"
-			if module == "JS-Enum" {
-				fT = "JS-Enum"
-			} else if module == "url-collection" {
+			if module == "url-collection" {
 				fT = "URL-Collection"
 			} else {
 				fT = module

@@ -87,6 +87,8 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		// are captured under this phase's key.
 		go func() {
 			SetGoroutinePhaseKey(phaseKey)
+			SetGoroutineScanID(scanID)
+			defer ClearGoroutineScanID()
 			defer ClearGoroutinePhaseKey()
 			done <- fn()
 		}()
@@ -96,8 +98,12 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		case <-time.After(time.Duration(timeoutSeconds) * time.Second):
 			err = ErrTimeout
 			// Keep slot occupied until underlying work truly exits to avoid runaway parallelism.
+			// But prevent a permanent leak if fn() hangs indefinitely: release after 5m.
 			go func() {
-				<-done
+				select {
+				case <-done:
+				case <-time.After(5 * time.Minute):
+				}
 				<-phaseSemaphore
 			}()
 		}

@@ -1,7 +1,10 @@
 // scan-detail-manifest.js — Execution pipeline / manifest card rendering.
 // Exposes: window.ScanDetailManifest
 (() => {
-  const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
+  const esc = (s) => {
+    if (typeof window.esc === 'function') return window.esc(s);
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  };
   const apiFetch = (...args) => window.apiFetch(...args);
 
   function formatManifestDuration(ms) {
