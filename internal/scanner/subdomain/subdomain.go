@@ -269,7 +269,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// Phase 2.5: Katana (sequential — after URL collection, before deep scanning)
 	// Needs live hosts + initial URL corpus from Phase 2. Results merged into all-urls.txt
 	// so GF, reflection, and other Phase 3 tools see the complete URL set.
-	if err := utils.RunWorkflowPhase("katana", getNextStep(), totalSteps, "[Stage 2.5] Katana crawler", subdomainClean, 10*60, func() error {
+	if err := utils.RunWorkflowPhase("katana", getNextStep(), totalSteps, "[Stage 2.5] Katana crawler", subdomainClean, katanaTimeout(), func() error {
 		return urls.RunKatanaPhase(subdomainClean)
 	}); err != nil {
 		logger.GetLogger().Infof("[WARN] Katana phase failed: %v", err)
@@ -335,7 +335,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 
 	// Phase 4: Dalfox XSS confirmation (sequential, needs reflection/kxss results from Phase 3)
 	// Reads kxss-results.txt produced by the reflection phase above.
-	if err := utils.RunWorkflowPhase("xss-detection", getNextStep(), totalSteps, "[Stage 4] Dalfox XSS confirmation", subdomainClean, 20*60, func() error {
+	if err := utils.RunWorkflowPhase("xss-detection", getNextStep(), totalSteps, "[Stage 4] Dalfox XSS confirmation", subdomainClean, xssTimeout(), func() error {
 		return reflection.RunDalfoxPhase(subdomainClean)
 	}); err != nil {
 		logger.GetLogger().Infof("[WARN] Dalfox XSS phase failed: %v", err)

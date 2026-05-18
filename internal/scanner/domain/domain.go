@@ -169,7 +169,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		{"misconfig", "Cloud misconfiguration scan", func() error {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
 			return misconfig.Run(misconfig.Options{Target: domain, Action: "scan", Threads: 150, LiveHostsFile: lh})
-		}, 1800},
+		}, utils.GetTimeout("misconfig", 1800)},
 	}
 
 	for _, p := range phases3 {

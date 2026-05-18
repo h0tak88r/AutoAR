@@ -111,6 +111,16 @@
                 <input id="timeout-misconfig-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_misconfig ?? 1800))}" />
                 <span>seconds</span>
               </div>
+              <div class="timeout-field">
+                <label>🕷️ Katana Crawler</label>
+                <input id="timeout-katana-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_katana ?? 600))}" />
+                <span>seconds</span>
+              </div>
+              <div class="timeout-field">
+                <label>🐛 Dalfox XSS</label>
+                <input id="timeout-xss-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_xss ?? 1200))}" />
+                <span>seconds</span>
+              </div>
             </div>
             <div style="margin-top: 20px; display: flex; align-items: center; gap: 15px;">
               <button class="btn btn-primary" onclick="window.SettingsPage.saveTimeoutSettings()" id="timeout-save-btn">💾 Save All Timeouts</button>
@@ -203,14 +213,18 @@
     const nuInput  = document.getElementById('timeout-nuclei-input');
     const buInput  = document.getElementById('timeout-backup-input');
     const mcInput  = document.getElementById('timeout-misconfig-input');
+    const kaInput  = document.getElementById('timeout-katana-input');
+    const xsInput  = document.getElementById('timeout-xss-input');
     const btn      = document.getElementById('timeout-save-btn');
     const note     = document.getElementById('timeout-save-note');
-    if (!zdInput || !nuInput || !buInput || !mcInput) return;
+    if (!zdInput || !nuInput || !buInput || !mcInput || !kaInput || !xsInput) return;
     const zdVal = parseInt(zdInput.value, 10);
     const nuVal = parseInt(nuInput.value, 10);
     const buVal = parseInt(buInput.value, 10);
     const mcVal = parseInt(mcInput.value, 10);
-    if ([zdVal, nuVal, buVal, mcVal].some(v => isNaN(v) || v < 0)) {
+    const kaVal = parseInt(kaInput.value, 10);
+    const xsVal = parseInt(xsInput.value, 10);
+    if ([zdVal, nuVal, buVal, mcVal, kaVal, xsVal].some(v => isNaN(v) || v < 0)) {
       window.showToast('error', 'Invalid value', 'Timeouts must be 0 or a positive integer.');
       return;
     }
@@ -225,10 +239,12 @@
           timeout_nuclei:   nuVal,
           timeout_backup:   buVal,
           timeout_misconfig: mcVal,
+          timeout_katana:   kaVal,
+          timeout_xss:      xsVal,
         })
       });
       if (!res.ok) throw new Error('Failed to update timeout settings');
-      window.showToast('success', 'Saved!', `Zerodays: ${zdVal}s · Nuclei: ${nuVal}s · Backup: ${buVal}s · Misconfig: ${mcVal}s  (0 = unlimited)`);
+      window.showToast('success', 'Saved!', `Zerodays: ${zdVal}s · Nuclei: ${nuVal}s · Backup: ${buVal}s · Misconfig: ${mcVal}s · Katana: ${kaVal}s · XSS: ${xsVal}s  (0 = unlimited)`);
       if (note) note.textContent = `✅ Saved to DB at ${new Date().toLocaleTimeString()} — persists across redeployments`;
       try { window.state.config = await window.apiFetch('/api/config'); } catch(_) {}
     } catch (e) {
