@@ -25,3 +25,17 @@ func backupTimeout() int {
 func nucleiTimeout() int {
 	return utils.GetTimeout("nuclei", 1200)
 }
+
+// katanaTimeout returns the katana crawler phase timeout in seconds.
+// Configured via the dashboard Settings page (timeout_katana),
+// or AUTOAR_TIMEOUT_KATANA env var. Default: 600s (10 min).
+func katanaTimeout() int {
+	return utils.GetTimeout("katana", 600)
+}
+
+// xssTimeout returns the dalfox XSS confirmation phase timeout in seconds.
+// Configured via the dashboard Settings page (timeout_xss),
+// or AUTOAR_TIMEOUT_XSS env var. Default: 1200s (20 min).
+func xssTimeout() int {
+	return utils.GetTimeout("xss", 1200)
+}

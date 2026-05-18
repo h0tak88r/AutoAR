@@ -71,6 +71,8 @@ func apiConfigHandler(c *gin.Context) {
 		"timeout_nuclei":    utils.GetTimeout("nuclei", 1200),
 		"timeout_backup":    utils.GetTimeout("backup", 600),
 		"timeout_misconfig": utils.GetTimeout("misconfig", 1800),
+		"timeout_katana":    utils.GetTimeout("katana", 600),
+		"timeout_xss":       utils.GetTimeout("xss", 1200),
 		// Also include raw env fallbacks for legacy callers.
 		"timeout_zerodays_env": getIntEnvOr("AUTOAR_TIMEOUT_ZERODAYS", 600),
 		"timeout_nuclei_env":   getIntEnvOr("AUTOAR_TIMEOUT_NUCLEI", 1200),
@@ -90,6 +92,8 @@ type UpdateSettingsBody struct {
 	TimeoutNuclei    *int `json:"timeout_nuclei,omitempty"`
 	TimeoutBackup    *int `json:"timeout_backup,omitempty"`
 	TimeoutMisconfig *int `json:"timeout_misconfig,omitempty"`
+	TimeoutKatana    *int `json:"timeout_katana,omitempty"`
+	TimeoutXss       *int `json:"timeout_xss,omitempty"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -125,6 +129,8 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	saveTimeout("nuclei", "AUTOAR_TIMEOUT_NUCLEI", body.TimeoutNuclei)
 	saveTimeout("backup", "AUTOAR_TIMEOUT_BACKUP", body.TimeoutBackup)
 	saveTimeout("misconfig", "AUTOAR_TIMEOUT_MISCONFIG", body.TimeoutMisconfig)
+	saveTimeout("katana", "AUTOAR_TIMEOUT_KATANA", body.TimeoutKatana)
+	saveTimeout("xss", "AUTOAR_TIMEOUT_XSS", body.TimeoutXss)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})
 }
