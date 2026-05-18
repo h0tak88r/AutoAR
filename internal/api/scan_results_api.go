@@ -204,7 +204,7 @@ var domainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "aem", Description: "AEM webapp discovery and scan", PhaseKey: "aem"},
 	{Module: "wordpress-confusion", Description: "WordPress confusion scan", PhaseKey: "wp_confusion"},
 	{Module: "dependency-confusion", Description: "Dependency confusion scan", PhaseKey: "depconfusion"},
-	{Module: "s3-scan", Description: "S3 bucket enumeration", PhaseKey: "s3"},
+	{Module: "s3-scan", Description: "S3 bucket enumeration and scanning", PhaseKey: "s3"},
 	{Module: "backup-detection", Description: "Backup file discovery", PhaseKey: "backup"},
 	{Module: "misconfig", Description: "Cloud misconfiguration scan", PhaseKey: "misconfig"},
 	{Module: "reflection", Description: "Reflection scan", PhaseKey: "reflection"},
