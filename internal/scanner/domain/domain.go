@@ -5,6 +5,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/logger"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -143,7 +144,23 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 			}
 			return depconfusion.Run(depconfusion.Options{Mode: "web", Domain: domain, TargetFile: lh, Workers: 10})
 		}, 0},
-		{"s3", "S3 bucket enumeration", func() error { return s3.Run(s3.Options{Action: "enum", Root: domain}) }, 0},
+		{"s3", "S3 bucket enumeration and scanning", func() error {
+			if err := s3.Run(s3.Options{Action: "enum", Root: domain}); err != nil {
+				return err
+			}
+			// After enumeration, scan each found bucket for permissions/public access.
+			bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
+			if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
+				data, _ := os.ReadFile(bucketsFile)
+				for _, bn := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+					if bn = strings.TrimSpace(bn); bn != "" {
+						logger.GetLogger().Infof("[INFO] S3: scanning found bucket: %s", bn)
+						s3.Run(s3.Options{Action: "scan", Bucket: bn, Subdomain: domain})
+					}
+				}
+			}
+			return nil
+		}, 0},
 		{"backup", "Backup file discovery", func() error {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
 			_, err := backup.Run(backup.Options{Domain: domain, LiveHostsFile: lh, Threads: 150, Method: "all"})
