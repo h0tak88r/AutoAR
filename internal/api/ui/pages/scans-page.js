@@ -66,8 +66,6 @@
       github_scan: '🐙 GitHub',
       ffuf: '🎲 FFuf Fuzz',
       zerodays: '🚨 Zero-Days',
-      apkx: '📱 APK Scan',
-      jwt: '🔑 JWT Scan',
       aem: '🏗 AEM Scan',
       aem_scan: '🏗 AEM Scan',
       cleanup: '🧹 Cleanup',
@@ -151,7 +149,7 @@
           <span style="font-size:11px;color:var(--text-muted)">Phase ${currentPhase}${totalPhases > 0 ? '/' + totalPhases : ''} · ${pct}%</span>
           <div style="display:flex;gap:10px;align-items:center">
             ${(() => {
-    const isFindingType = ['dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'gf', 'ffuf', 'apkx', 'sqlmap', 'backup'].includes(scanType);
+    const isFindingType = ['dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'gf', 'ffuf', 'sqlmap', 'backup'].includes(scanType);
     const label = isFindingType ? (filesUploaded === 1 ? 'finding' : 'findings') : (filesUploaded === 1 ? 'file' : 'files');
     const icon = isFindingType ? '🎯' : '📁';
     return filesUploaded > 0 ? `<span style="font-size:10px;color:var(--text-muted)">${icon} ${filesUploaded} ${label}</span>` : '';
@@ -302,8 +300,6 @@
             <option value="misconfig" ${lUI.scanType === 'misconfig' ? 'selected' : ''}>misconfig</option>
             <option value="zerodays" ${lUI.scanType === 'zerodays' ? 'selected' : ''}>zerodays</option>
             <option value="ffuf" ${lUI.scanType === 'ffuf' ? 'selected' : ''}>ffuf</option>
-            <option value="jwt" ${lUI.scanType === 'jwt' ? 'selected' : ''}>jwt</option>
-            <option value="apkx" ${lUI.scanType === 'apkx' ? 'selected' : ''}>apkx</option>
           </optgroup>
         </select>
         <select id="launch-target-mode"></select>

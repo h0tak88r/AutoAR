@@ -25,8 +25,6 @@
     github_org: { path: 'github_org', modes: ['domain', 'domain_list'], placeholders: { domain: 'org-name or github.com/org', domain_list: 'one org per line' } },
     zerodays: { path: 'zerodays', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     ffuf: { path: 'ffuf', modes: ['target', 'target_list'], placeholders: { target: 'https://example.com/FUZZ', target_list: 'one FUZZ URL per line' } },
-    jwt: { path: 'jwt', modes: ['token'], placeholders: { token: 'JWT token' } },
-    apkx: { path: 'apkx', modes: ['file_path', 'package_id', 'upload'], placeholders: { file_path: '/absolute/path/to/app.apk', package_id: 'com.example.app', upload: 'Click to upload APK/IPA' } },
   };
 
   const LAUNCH_MODE_LABELS = {
@@ -36,16 +34,12 @@
     target: 'Target URL',
     repo: 'Repository',
     bucket: 'Bucket',
-    token: 'Token',
-    file_path: 'File path',
     domain_list: 'Domain list',
     subdomain_list: 'Subdomain list',
     url_list: 'URL list',
     target_list: 'Target list',
     repo_list: 'Repo/Org list',
     bucket_list: 'Bucket list',
-    package_id: 'Package ID',
-    upload: 'Direct Upload',
   };
 
   const SCAN_FLAG_DEFS = {
@@ -83,22 +77,11 @@
       { key: 'mongodb_host', label: 'MongoDB host', type: 'text', advanced: true },
       { key: 'mongodb_port', label: 'MongoDB port', type: 'number', min: 1, advanced: true },
     ],
-    jwt: [
-      { key: 'skip_crack', label: 'Skip crack', type: 'bool', advanced: false },
-      { key: 'skip_payloads', label: 'Skip payloads', type: 'bool', advanced: false },
-      { key: 'wordlist_path', label: 'Wordlist path', type: 'text', advanced: true },
-      { key: 'max_crack_attempts', label: 'Max crack attempts', type: 'number', min: 1, advanced: true },
-    ],
     backup: [{ key: 'threads', label: 'Threads', type: 'number', min: 1, advanced: false }],
     misconfig: [
       { key: 'service_id', label: 'Service filter', type: 'text', advanced: false },
       { key: 'delay', label: 'Delay ms', type: 'number', min: 0, advanced: true },
       { key: 'permutations', label: 'Enable permutations', type: 'bool', advanced: true },
-    ],
-    apkx: [
-      { key: 'mitm', label: 'MITM Analysis', type: 'bool', advanced: false },
-      { key: 'platform', label: 'Platform', type: 'select', options: ['android', 'ios'], advanced: false },
-      { key: 'skip_regex', label: 'Skip Secret Scan', type: 'bool', advanced: false },
     ],
   };
 

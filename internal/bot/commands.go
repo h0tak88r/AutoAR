@@ -713,45 +713,6 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanI
 		}
 	case "subdomains":
 		resultFiles = []string{filepath.Join(resultsDir, target, "subs", "all-subs.txt")}
-	case "jwt":
-		// JWT scan results - find the most recent file with retry logic
-		jwtDir := filepath.Join(resultsDir, "jwt-scan", "vulnerabilities", "jwt")
-		log.Printf("[DEBUG] Looking for JWT result files in: %s", jwtDir)
-
-		// Retry up to 5 times with delays (file might still be writing, JSON encoding can take time)
-		var latestFile string
-		for attempt := 0; attempt < 5; attempt++ {
-			if attempt > 0 {
-				time.Sleep(time.Duration(attempt) * 1 * time.Second)
-			}
-			// Look for jwt_scan_*.json files (the actual pattern used by the JWT module)
-			if matches, err := filepath.Glob(filepath.Join(jwtDir, "jwt_scan_*.json")); err == nil && len(matches) > 0 {
-				log.Printf("[DEBUG] Found %d JWT result file(s) on attempt %d", len(matches), attempt+1)
-				// Get the most recent file
-				var latestTime time.Time
-				for _, match := range matches {
-					if info, err := os.Stat(match); err == nil {
-						if info.ModTime().After(latestTime) {
-							latestTime = info.ModTime()
-							latestFile = match
-						}
-					}
-				}
-				if latestFile != "" {
-					// Verify file has content
-					if info, err := os.Stat(latestFile); err == nil && info.Size() > 0 {
-						log.Printf("[DEBUG] Selected most recent JWT file: %s (size: %d bytes)", latestFile, info.Size())
-						resultFiles = []string{latestFile}
-						// Parse and send JWT results with attack tokens summary
-						sendJWTResultsSummary(s, i, latestFile)
-						break
-					}
-				}
-			}
-		}
-		if latestFile == "" {
-			log.Printf("[WARN] No JWT result files found in %s after retries", jwtDir)
-		}
 	case "fast":
 		// Fast look sends multiple files from different modules
 		resultFiles = []string{
@@ -908,119 +869,6 @@ func sendResultFiles(s *discordgo.Session, i *discordgo.InteractionCreate, scanI
 				Embeds: []*discordgo.MessageEmbed{embed},
 			})
 		}
-	}
-}
-
-// sendJWTResultsSummary parses JWT scan results and sends a summary embed with attack tokens
-func sendJWTResultsSummary(s *discordgo.Session, i *discordgo.InteractionCreate, jsonPath string) {
-	fileData, err := os.ReadFile(jsonPath)
-	if err != nil {
-		log.Printf("[ERROR] Failed to read JWT results file: %v", err)
-		return
-	}
-
-	var result struct {
-		TokenType string `json:"token_type"`
-		Algorithm string `json:"algorithm"`
-		Issues    []struct {
-			Type        string `json:"type"`
-			Description string `json:"description"`
-		} `json:"issues"`
-		CrackedSecret string `json:"cracked_secret,omitempty"`
-		AttackTokens  []struct {
-			AttackType  string `json:"attack_type"`
-			Description string `json:"description"`
-			Token       string `json:"token"`
-			Vulnerable  bool   `json:"vulnerable,omitempty"`
-		} `json:"attack_tokens,omitempty"`
-	}
-
-	if err := json.Unmarshal(fileData, &result); err != nil {
-		log.Printf("[ERROR] Failed to parse JWT results JSON: %v", err)
-		return
-	}
-
-	// Build summary embed
-	embed := &discordgo.MessageEmbed{
-		Title:       "🔐 JWT Scan Results",
-		Description: fmt.Sprintf("**Algorithm:** `%s`\n**Token Type:** %s", result.Algorithm, result.TokenType),
-		Color:       0x3498db,
-		Fields:      []*discordgo.MessageEmbedField{},
-	}
-
-	// Add issues summary
-	if len(result.Issues) > 0 {
-		issuesText := ""
-		for _, issue := range result.Issues {
-			emoji := "⚠️"
-			if issue.Type == "weak_secret" || issue.Type == "alg_none" {
-				emoji = "🔴"
-			}
-			issuesText += fmt.Sprintf("%s **%s**: %s\n", emoji, issue.Type, issue.Description)
-		}
-		if len(issuesText) > 1024 {
-			issuesText = issuesText[:1020] + "..."
-		}
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 Issues Found",
-			Value:  issuesText,
-			Inline: false,
-		})
-	}
-
-	// Add cracked secret if found
-	if result.CrackedSecret != "" {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔑 Cracked Secret",
-			Value:  fmt.Sprintf("```%s```", result.CrackedSecret),
-			Inline: false,
-		})
-		embed.Color = 0xff0000 // Red for vulnerable
-	} else {
-		// Check if cracking was attempted but secret not found
-		for _, issue := range result.Issues {
-			if issue.Type == "crack_attempted" {
-				embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-					Name:   "🔍 Cracking Status",
-					Value:  issue.Description,
-					Inline: false,
-				})
-				break
-			}
-		}
-	}
-
-	// Add attack tokens if available
-	if len(result.AttackTokens) > 0 {
-		attackText := ""
-		for _, attack := range result.AttackTokens {
-			vulnMark := ""
-			if attack.Vulnerable {
-				vulnMark = " 🔴 **VULNERABLE**"
-				embed.Color = 0xff0000 // Red for confirmed vulnerability
-			}
-			attackText += fmt.Sprintf("**%s**%s\n", attack.AttackType, vulnMark)
-			attackText += fmt.Sprintf("`%s`\n", attack.Token)
-			if len(attack.Description) > 0 {
-				attackText += fmt.Sprintf("_%s_\n\n", attack.Description)
-			}
-		}
-		if len(attackText) > 1024 {
-			attackText = attackText[:1020] + "..."
-		}
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🎯 Attack Tokens",
-			Value:  attackText,
-			Inline: false,
-		})
-	}
-
-	// Send embed
-	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Embeds: []*discordgo.MessageEmbed{embed},
-	})
-	if err != nil {
-		log.Printf("[WARN] Failed to send JWT results summary: %v", err)
 	}
 }
 
@@ -1541,7 +1389,7 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			},
 			{
 				Name:   "🎯 Vulnerability Scanners",
-				Value:  "**`/zerodays`**: Scan for specific recent CVEs.\n**`/nuclei`**: Run Nuclei templates on domain/URL.\n**`/sqlmap`**: Run SQLMap on GF SQLi results.\n**`/dalfox`**: Run Dalfox XSS scan.\n**`/jwt_scan`**: Scan JWT tokens for vulnerabilities.",
+				Value:  			"**`/zerodays`**: Scan for specific recent CVEs.\n**`/nuclei`**: Run Nuclei templates on domain/URL.\n**`/sqlmap`**: Run SQLMap on GF SQLi results.\n**`/dalfox`**: Run Dalfox XSS scan.",
 				Inline: false,
 			},
 			{
@@ -1551,7 +1399,7 @@ func handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			},
 			{
 				Name:   "📱 Specific Scanners",
-				Value:  "**`/apkx_scan`**: Analyze an APK/IPA file.\n**`/apkx_ios`**: Download and analyze an iOS app.\n**`/s3_scan`**: Scan for S3 buckets.\n**`/dns`**: Run DNS takeover scan.",
+				Value:  			"**`/s3_scan`**: Scan for S3 buckets.\n**`/dns`**: Run DNS takeover scan.",
 				Inline: false,
 			},
 			{

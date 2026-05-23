@@ -72,7 +72,6 @@
     'xss-detection': 'xss-detection', 'mod:xss-detection': 'xss-detection',
     'misconfig': 'misconfig', 'mod:misconfig': 'misconfig',
     'github-scan': 'github', 'mod:github': 'github',
-    'apkx': 'apkx', 'mod:apkx': 'apkx',
   };
 
   function resolveKey(activeKind) {
@@ -449,25 +448,6 @@
           sev:      sevMeta(r.severity),
           verified: verified,
           source:   { href: link || '#', label: srcLabel, isLink: !!link },
-        };
-      },
-    },
-
-    /* ── APK Analysis ───────────────────────────────────────────────────── */
-    apkx: {
-      columns: [
-        { id: 'path',     label: 'PATH',          flex: '2', type: 'mono-trunc'  },
-        { id: 'category', label: 'CATEGORY',      flex: '1', type: 'badge-pill'  },
-        { id: 'value',    label: 'MATCHER VALUE',  flex: '3', type: 'mono-trunc'  },
-        { id: 'module',   label: 'MODULE',         flex: '1', type: 'mod-badge'   },
-      ],
-      extract(r, modInfo) {
-        const normPath = p => s(p).replace(/^\s*[-*•]\s*/, '');
-        return {
-          path:     normPath(r.path || r.target || '—'),
-          category: { label: s(r.category_name || r.apk_category || 'APK'), color: '#67e8f9' },
-          value:    s(r.matcher_value || r.context || r.finding || '—'),
-          module:   modInfo,
         };
       },
     },

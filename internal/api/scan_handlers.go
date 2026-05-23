@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	apkxmod "github.com/h0tak88r/AutoAR/internal/scanner/apkx"
 	asrmod "github.com/h0tak88r/AutoAR/internal/scanner/asr"
 	backupmod "github.com/h0tak88r/AutoAR/internal/scanner/backup"
 	cf1016mod "github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
@@ -651,36 +650,6 @@ func scanASR(c *gin.Context) {
 	okStarted(c, scanID, fmt.Sprintf("ASR scan started for %s", domain))
 }
 
-// ── JWT ───────────────────────────────────────────────────────────────────────
-// JWT uses an external binary; keep subprocess but avoid forking autoar itself.
-
-func scanJWT(c *gin.Context) {
-	var req ScanRequest
-	if !bindOrBad(c, &req) {
-		return
-	}
-	if !requireField(c, req.Token, "JWT token") {
-		return
-	}
-	token := *req.Token
-	scanID := generateScanID()
-	command := []string{utils.GetAutoarScriptPath(), "jwt", "scan", "-t", token}
-	if req.SkipCrack != nil && *req.SkipCrack {
-		command = append(command, "--skip-crack")
-	}
-	if req.SkipPayloads != nil && *req.SkipPayloads {
-		command = append(command, "--skip-payloads")
-	}
-	if req.WordlistPath != nil && *req.WordlistPath != "" {
-		command = append(command, "--wordlist", *req.WordlistPath)
-	}
-	if req.MaxCrackAttempts != nil && *req.MaxCrackAttempts > 0 {
-		command = append(command, "--max-crack-attempts", fmt.Sprintf("%d", *req.MaxCrackAttempts))
-	}
-	go executeScan(scanID, command, "jwt")
-	okStarted(c, scanID, "JWT vulnerability scan started")
-}
-
 // ── S3 ────────────────────────────────────────────────────────────────────────
 
 func scanS3(c *gin.Context) {
@@ -770,44 +739,6 @@ func scanGitHubOrg(c *gin.Context) {
 		return err
 	})
 okStarted(c, scanID, fmt.Sprintf("GitHub organization scan started for %s", org))
-}
-
-// ── APK/X APK analysis ───────────────────────────────────────────────
-
-func scanApkX(c *gin.Context) {
-	var req ScanRequest
-	if !bindOrBad(c, &req) {
-		return
-	}
-
-	// Support both file path (if uploaded via /api/upload) or package name
-	var target string
-	if req.PackageID != nil && *req.PackageID != "" {
-		target = *req.PackageID
-	} else if req.FilePath != nil && *req.FilePath != "" {
-		target = *req.FilePath
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Either package_id or file_path (for uploaded APK) is required"})
-		return
-	}
-
-	mitm := req.MITM != nil && *req.MITM
-	scanID := generateScanID()
-
-	go RunScanInProcess(scanID, "apkx", target, func() error {
-		opts := apkxmod.Options{
-			MITM: mitm,
-		}
-		if req.PackageID != nil && *req.PackageID != "" {
-			opts.Package = target
-		} else {
-			opts.InputPath = target
-		}
-		_, err := apkxmod.Run(opts)
-		return err
-	})
-
-	okStarted(c, scanID, fmt.Sprintf("APK analysis (apkX) started for %s", target))
 }
 
 // ── Keyhack ───────────────────────────────────────────────────────────────────

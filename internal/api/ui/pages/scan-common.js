@@ -78,7 +78,6 @@
       case 'ffuf': return `[ ⚪ ] FFuf — No hidden directories found for ${t}`;
       case 'dns': return `[ ⚪ ] DNS takeover — No vulnerable records or dangling IPs found for ${t}`;
       case 'cf1016': return `[ ⚪ ] CF1016 dangling DNS — No missing Cloudflare origins found for ${t}`;
-      case 'apkx': return `[ ⚪ ] Apkx — No files indexed yet for ${t}. Results are stored in R2 — use Browse R2 to view them, or trigger a Rescan.`;
       default: {
         const name = st ? st.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Scan';
         return `[ ⚪ ] ${name} — 0 findings for ${t}`;
@@ -94,12 +93,10 @@
     if (n.includes('js-endpoint')) return 'js-endpoints';
     if (n.includes('katana')) return 'katana-crawler';
     if (n.includes('js-secret') || n.includes('js-exposure') || n.includes('js-analysis') || n.startsWith('js-sec')) return 'js-analysis';
-    if (n.includes('/apkx/') || n.includes('\\apkx\\')) return 'apkx';
     // GitHub must be BEFORE generic "secret" match
     if (n.includes('github-secret') || n.includes('github-secrets') || (n.includes('github') && n.includes('secret'))) return 'github-scan';
     if (n.includes('github') || n.includes('trufflehog') || (n.endsWith('.json') && n.includes('github')) || n.includes('git-secret')) return 'github-scan';
     if (n.startsWith('nuclei-') || n.includes('nuclei')) return 'nuclei';
-    if (n.includes('apk') || n.includes('androidmanifest') || n.includes('jadx') || n.includes('dex')) return 'apkx';
     if (n.includes('kxss') || n.includes('dalfox') || n.includes('xss-reflection')) return 'xss-detection';
     if (n.includes('reflection')) return 'xss-detection';
     if (n.includes('sqlmap') || n.includes('sqli')) return 'sql-detection';
@@ -138,8 +135,6 @@
       'wp-confusion': 'wordpress-confusion',
       wordpress_confusion: 'wordpress-confusion',
       unknowns: 'unknown',
-      apk: 'apkx',
-      'apk-analysis': 'apkx',
       github: 'github-scan',
       'github-secrets': 'github-scan',
     };

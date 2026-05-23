@@ -148,7 +148,7 @@ func isMobileOrAppTarget(target, category string) bool {
 	
 	// Also check target string for keywords
 	mobileKeywords := []string{
-		"ios", "android", "apple", "google", "apk", "ipa", "exe", "dmg", "deb", "rpm",
+		"ios", "android", "apple", "google", "ipa", "exe", "dmg", "deb", "rpm",
 		"aws", "azure", "gcp", "cloud", "s3", "ec2", "lambda", "appstore", "playstore",
 		"testflight", "f-droid", "apkmirror", "mobile", "app", "application",
 		"package", "bundle", "executable", "installer", "binary", "smart_contract",

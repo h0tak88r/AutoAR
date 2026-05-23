@@ -583,9 +583,7 @@ func SetupAPI() *gin.Engine {
 		api.POST("/backup", scanBackup)       // Backup file discovery
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
 		api.POST("/zerodays", scanZerodays)   // Zerodays scan (CVE-2025-55182 React2Shell, CVE-2025-14847 MongoDB)
-		api.POST("/jwt", scanJWT)             // JWT vulnerability scan
 		api.POST("/asr", scanASR)             // Attack Surface Reduction scan
-		api.POST("/apkx", scanApkX)           // APK analysis and MITM patching
 		api.GET("/:scan_id/status", getScanStatus)
 		api.GET("/:scan_id/results", getScanResults)
 		api.GET("/:scan_id/download", downloadScanResults)
@@ -1059,11 +1057,6 @@ func docsHandler(c *gin.Context) {
             </div>
 
             <div class="endpoint">
-                <div class="endpoint-path"><span class="method post">POST</span> /scan/jwt</div>
-                <div class="description">JWT vulnerability scan</div>
-            </div>
-
-            <div class="endpoint">
                 <div class="endpoint-path"><span class="method get">GET</span> /scan/:scan_id/status</div>
                 <div class="description">Get scan status by scan ID</div>
             </div>
@@ -1273,8 +1266,6 @@ func generateScanID() string {
 }
 
 // extractScanTargetFromCommand infers the human-readable target from command arguments (#11).
-// Special cases:
-//   - JWT scans: returns "jwt-token" rather than exposing the actual token value in the DB.
 func extractScanTargetFromCommand(command []string, scanType string) string {
 	if len(command) == 0 {
 		return ""
@@ -1308,9 +1299,6 @@ func extractScanTargetFromCommand(command []string, scanType string) string {
 			return next
 		case st == "zerodays" && arg == "-f":
 			return "file:" + filepath.Base(next)
-		case st == "jwt" && (arg == "-t" || arg == "--token"):
-			// Never expose the raw token string in the DB.
-			return "jwt-token"
 		}
 	}
 	return ""
@@ -1505,7 +1493,6 @@ func executeScan(scanID string, command []string, scanType string) {
 			"dns_cf1016": "CF1016 Dangling DNS", "dns-cf1016": "CF1016 Dangling DNS",
 			"misconfig": "Misconfiguration", "s3": "S3 Bucket",
 			"github": "GitHub Recon", "github_org": "GitHub Org Recon",
-			"jwt": "JWT Scan",
 			"dns-takeover": "DNS Takeover", "dns-dangling-ip": "Dangling IP",
 			"nuclei": "Nuclei Scan", "tech": "Tech Detection",
 			"ports": "Port Scan", "gf": "GF Patterns",
@@ -1643,12 +1630,6 @@ func indexScanArtifacts(scanID, scanType, target string) {
 		if target != "" {
 			roots = append(roots, filepath.Join(resultsDir, "github", "orgs", target))
 		}
-	case "jwt":
-		roots = append(roots, filepath.Join(resultsDir, "jwt-scan"))
-	case "apkx":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, "apkx", target))
-		}
 	// DNS-specific scans: only index from their specific output dir, never the whole domain root.
 	case "dns-takeover", "dns-dangling-ip":
 		if target != "" {
@@ -1681,18 +1662,6 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			}
 			if shouldSkipArtifact(path) {
 				return nil
-			}
-			if scanType == "apkx" {
-				baseName := filepath.Base(path)
-				isPatched := strings.HasSuffix(baseName, "-mitm.apk")
-				isMainApk := strings.HasSuffix(baseName, ".apk") && 
-				             !strings.HasPrefix(baseName, "config.") && 
-				             !strings.Contains(baseName, "-unsigned") && 
-				             !strings.Contains(baseName, "-aligned")
-				
-				if !isPatched && !isMainApk {
-					return nil
-				}
 			}
 			if _, ok := seen[path]; ok {
 				return nil

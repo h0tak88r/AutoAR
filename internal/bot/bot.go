@@ -654,8 +654,6 @@ func InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleMonitorSubdomainsManage(s, i)
 	case "monitor_updates_manage":
 		handleMonitorUpdatesManage(s, i)
-	case "jwt_scan":
-		handleJWTScan(s, i)
 	case "backup_scan":
 		handleBackupScan(s, i)
 	case "aem_scan":

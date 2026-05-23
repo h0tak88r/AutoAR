@@ -33,7 +33,7 @@ window.AppConfigState = {
     _r2BrowserWired: false,
     _metricsTimer: null,
     reportTemplateOriginalName: '',
-    apkxCacheStats: null,
+    currentState: null,
     keyhacksAllTemplates: null,
     keyhacksTemplatesLoading: null,
   },

@@ -742,19 +742,6 @@ func apiListScans(c *gin.Context) {
 		recent = make([]*db.ScanRecord, 0)
 	}
 
-	// Filter out apkx scans — they are internal to the APK Auditor page
-	filterApkx := func(scans []*db.ScanRecord) []*db.ScanRecord {
-		out := scans[:0]
-		for _, s := range scans {
-			if s != nil && strings.ToLower(s.ScanType) != "apkx" {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	active = filterApkx(active)
-	recent = filterApkx(recent)
-
 	c.JSON(http.StatusOK, gin.H{
 		"active_scans": active,
 		"recent_scans": recent,
@@ -1134,7 +1121,7 @@ func apiRescan(c *gin.Context) {
 		return
 	}
 
-	// ── External-binary scans (legacy / apkx / …) ────────────────────────────
+	// ── External-binary scans (legacy) ────────────────────────────
 	// Parse the stored command string back into a slice.
 	// The command is stored as a shell-joined string (space-separated tokens; the binary path
 	// is always the first element).
@@ -1145,17 +1132,6 @@ func apiRescan(c *gin.Context) {
 	}
 	// Replace the binary path with the current binary to handle path changes.
 	parts[0] = utils.GetAutoarScriptPath()
-
-	// APK rescans from uploaded files can fail if the original temporary path moved/expired.
-	// Try to recover a matching file from the persistent uploads directory.
-	if strings.EqualFold(strings.TrimSpace(record.ScanType), "apkx") {
-		if updated, recovered, recoverErr := recoverAPKRescanInput(parts, record.Target); recoverErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": recoverErr.Error()})
-			return
-		} else if recovered {
-			parts = updated
-		}
-	}
 
 	newScanID := generateScanID()
 	go executeScan(newScanID, parts, record.ScanType)
@@ -1169,73 +1145,6 @@ func apiRescan(c *gin.Context) {
 		"command":     strings.Join(parts, " "),
 		"message":     "Rescan started",
 	})
-}
-
-func recoverAPKRescanInput(parts []string, target string) ([]string, bool, error) {
-	if len(parts) < 2 {
-		return parts, false, nil
-	}
-	inputIdx := -1
-	for i := 0; i < len(parts)-1; i++ {
-		if parts[i] == "-i" || parts[i] == "--input" {
-			inputIdx = i + 1
-			break
-		}
-	}
-	if inputIdx < 0 {
-		// Package-based APK scans use -p; nothing to recover.
-		return parts, false, nil
-	}
-	inputPath := strings.TrimSpace(parts[inputIdx])
-	if inputPath != "" {
-		if st, err := os.Stat(inputPath); err == nil && !st.IsDir() {
-			return parts, false, nil
-		}
-	}
-
-	baseName := filepath.Base(inputPath)
-	if baseName == "." || baseName == string(filepath.Separator) || baseName == "" {
-		baseName = strings.TrimSpace(target)
-	}
-	baseName = filepath.Base(baseName)
-	if baseName == "." || baseName == string(filepath.Separator) || baseName == "" {
-		return parts, false, fmt.Errorf("original APK input was not found; upload the APK again to rescan")
-	}
-
-	uploadsDir := filepath.Join(utils.GetResultsDir(), "uploads")
-	entries, err := os.ReadDir(uploadsDir)
-	if err != nil {
-		return parts, false, fmt.Errorf("original APK input was not found; upload the APK again to rescan")
-	}
-
-	var bestPath string
-	var bestTime time.Time
-	suffixed := "-" + baseName
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if name != baseName && !strings.HasSuffix(name, suffixed) {
-			continue
-		}
-		full := filepath.Join(uploadsDir, name)
-		info, statErr := e.Info()
-		if statErr != nil {
-			continue
-		}
-		if bestPath == "" || info.ModTime().After(bestTime) {
-			bestPath = full
-			bestTime = info.ModTime()
-		}
-	}
-	if bestPath == "" {
-		return parts, false, fmt.Errorf("original APK file is no longer available for rescan; upload it again")
-	}
-
-	parts[inputIdx] = bestPath
-	log.Printf("[rescan] APK input path recovered: %s -> %s", inputPath, bestPath)
-	return parts, true, nil
 }
 
 // mergeActiveScansFromMemory overlays in-memory API state (ActiveScans) on DB rows so live

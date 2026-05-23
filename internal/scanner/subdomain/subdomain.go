@@ -392,20 +392,12 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// Wait a moment to ensure all file operations complete
 	time.Sleep(2 * time.Second)
 
-	// Remove subdomain directory contents (preserving apkx directory if exists)
+	// Remove subdomain directory contents
 	if err := filepath.Walk(domainDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		// Skip root directory
 		if path == domainDir {
-			return nil
-		}
-		// Preserve apkx directory and its contents
-		if strings.Contains(path, "/apkx/") || strings.HasSuffix(path, "/apkx") {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 
