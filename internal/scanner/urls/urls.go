@@ -54,7 +54,7 @@ func RunKatanaPhase(domain string) error {
 		logger.GetLogger().Infof("[INFO] Katana: no URLs found for %s", domain)
 		// Write no-findings sentinel so the dashboard shows the module as completed
 		if scanID := utils.GetCurrentScanID(); scanID != "" {
-			_ = utils.WriteNoFindingsJSON(scanID, dirDomain, "katana-crawler")
+			_ = utils.WriteNoFindingsJSON(scanID, dirDomain, "katana-crawler", "katana-no-findings.json")
 		}
 		return nil
 	}
