@@ -105,7 +105,6 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		// Recon data files — these are pipeline inputs, not vulnerability findings.
 		isReconFile := strings.Contains(fileName, "js-url") ||
 			strings.Contains(fileName, "js-urls") ||
-			strings.Contains(fileName, "katana-urls") ||
 			strings.Contains(fileName, "all-url") ||
 			strings.Contains(fileName, "all-subs") ||
 			strings.Contains(fileName, "live-subs") ||

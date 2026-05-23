@@ -35,15 +35,14 @@ type Result struct {
 
 // RunKatanaPhase runs Katana crawling as a standalone pipeline phase for a domain.
 // Called explicitly by the subdomain workflow after URL collection completes.
-// Results are merged into all-urls.txt and persisted as katana-urls.json.
+// Results are written to katana-urls.txt in the domain urls/ directory and
+// persisted as katana-urls.json in the scan results directory.
 func RunKatanaPhase(domain string) error {
 	resultsDir := utils.GetResultsDir()
-	// Use domain directly for directory path — RunKatanaPhase is called from
-	// the subdomain workflow where the directory is named after the subdomain.
 	dirDomain := domain
 	domainDir := filepath.Join(resultsDir, dirDomain)
 	liveFile := filepath.Join(domainDir, "subs", "live-subs.txt")
-	allFile := filepath.Join(domainDir, "urls", "all-urls.txt")
+	kataFile := filepath.Join(domainDir, "urls", "katana-urls.txt")
 
 	fi, err := os.Stat(liveFile)
 	if err != nil || fi.Size() == 0 {
@@ -53,13 +52,17 @@ func RunKatanaPhase(domain string) error {
 	kataURLs := runKatana(liveFile, domain)
 	if len(kataURLs) == 0 {
 		logger.GetLogger().Infof("[INFO] Katana: no URLs found for %s", domain)
+		// Write no-findings sentinel so the dashboard shows the module as completed
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, dirDomain, "katana-crawler")
+		}
 		return nil
 	}
 	logger.GetLogger().Infof("[OK] Katana: Found %d URLs for %s", len(kataURLs), domain)
 
-	existing, _ := readLines(allFile)
-	merged := uniqueStrings(append(existing, kataURLs...))
-	_ = utils.WriteLines(allFile, merged)
+	// Save katana URLs to their own file (not mixed into all-urls.txt)
+	_ = os.MkdirAll(filepath.Dir(kataFile), 0755)
+	_ = utils.WriteLines(kataFile, kataURLs)
 
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
 		_ = utils.WriteLinesAsJSON(scanID, dirDomain, "katana-crawler", "katana-urls.json", kataURLs)
