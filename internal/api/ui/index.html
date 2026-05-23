@@ -324,6 +324,9 @@
             <button id="copy-all-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center">
               📋 Copy All Subdomains
             </button>
+            <button id="import-subs-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptImportSubdomains()">
+              📥 Import Subdomains
+            </button>
           </div>
         </div>
         <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap">
@@ -706,6 +709,25 @@
     <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
       <button type="button" class="btn btn-ghost" onclick="closeNucleiModal()">Cancel</button>
       <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)">⚡ Run Scan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Subdomain Import Modal -->
+<div id="subdomain-import-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
+  <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+    <h2 class="auth-title" style="margin-bottom: 8px;">Import Subdomains</h2>
+    <p class="auth-sub" style="margin-bottom: 20px;">Paste a list of subdomains or URLs (one per line). Root domains are detected automatically.</p>
+    
+    <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+      <textarea id="subdomain-import-input" class="search-input auth-input" 
+        style="flex: 1; min-height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical; background: #010409;" 
+        placeholder="admin.target.com&#10;https://dev.target.com/path?q=1&#10;api.staging.target.com:8080&#10;https://another-domain.net&#10;# lines starting with # are ignored"></textarea>
+    </div>
+
+    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
+      <button type="button" class="btn btn-ghost" onclick="closeImportSubdomainsModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitImportSubdomains()" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);border-color:rgba(34,211,238,0.3)">📥 Import</button>
     </div>
   </div>
 </div>

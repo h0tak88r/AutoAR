@@ -821,3 +821,15 @@ async function submitNucleiModal() {
   return callPageMethod('OpsToolsPage', 'submitNucleiModal');
 }
 
+function promptImportSubdomains() {
+  return callPageMethod('OpsToolsPage', 'promptImportSubdomains');
+}
+
+function closeImportSubdomainsModal() {
+  return callPageMethod('OpsToolsPage', 'closeImportSubdomainsModal');
+}
+
+async function submitImportSubdomains() {
+  return callPageMethod('OpsToolsPage', 'submitImportSubdomains');
+}
+

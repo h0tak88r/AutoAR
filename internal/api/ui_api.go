@@ -630,6 +630,78 @@ func apiRunGlobalNuclei(c *gin.Context) {
 	})
 }
 
+// POST /api/subdomains/import
+func apiImportSubdomains(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+
+	var req struct {
+		Lines string `json:"lines"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	rawLines := strings.Split(strings.TrimSpace(req.Lines), "\n")
+	if len(rawLines) == 0 || (len(rawLines) == 1 && rawLines[0] == "") {
+		c.JSON(400, gin.H{"error": "no lines provided"})
+		return
+	}
+
+	// Group by root domain
+	byDomain := map[string][]string{}
+	skipped := 0
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		root, sub, ok := utils.ParseSubdomainAndRoot(line)
+		if !ok {
+			skipped++
+			continue
+		}
+		byDomain[root] = append(byDomain[root], sub)
+	}
+
+	if len(byDomain) == 0 {
+		c.JSON(200, gin.H{"imported": 0, "skipped": skipped, "domains": 0, "message": "No valid domains found in input"})
+		return
+	}
+
+	total := 0
+	for domain, subs := range byDomain {
+		deduped := uniqueStrings(subs)
+		if err := db.BatchInsertSubdomains(domain, deduped, false); err != nil {
+			log.Printf("[subdomains/import] failed to insert %d subs for %s: %v", len(deduped), domain, err)
+			continue
+		}
+		total += len(deduped)
+	}
+
+	c.JSON(200, gin.H{
+		"imported": total,
+		"skipped":  skipped,
+		"domains":  len(byDomain),
+		"message":  fmt.Sprintf("Imported %d subdomains across %d domains", total, len(byDomain)),
+	})
+}
+
+func uniqueStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
+
 // DELETE /api/domains/:domain — remove domain row, subdomains, related scans/artifacts, monitor rows, subdomain monitor target; R2 cleanup for those scans.
 func apiDeleteDomain(c *gin.Context) {
 	_ = db.Init()
