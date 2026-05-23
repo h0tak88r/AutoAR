@@ -1777,7 +1777,7 @@ func apiScanParsedResults(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
 		return
 	}
-	scanRec, err := db.GetScan(scanID)
+	_, err := db.GetScan(scanID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
