@@ -174,6 +174,37 @@
     }
   }
 
+  function promptImportSubdomains() {
+    document.getElementById('subdomain-import-input').value = '';
+    document.getElementById('subdomain-import-modal').style.display = 'flex';
+  }
+
+  function closeImportSubdomainsModal() {
+    document.getElementById('subdomain-import-modal').style.display = 'none';
+  }
+
+  async function submitImportSubdomains() {
+    const lines = document.getElementById('subdomain-import-input').value.trim();
+    if (!lines) {
+      window.showToast('error', 'Error', 'No subdomains provided');
+      return;
+    }
+    try {
+      const data = await window.apiPost('/api/subdomains/import', { lines });
+      closeImportSubdomainsModal();
+      if (data.imported > 0) {
+        window.showToast('success', 'Imported', `${data.imported} subdomains across ${data.domains} domains` + (data.skipped ? ` (${data.skipped} skipped)` : ''));
+        if (typeof window.loadSubdomains === 'function') {
+          window.loadSubdomains(1, '');
+        }
+      } else {
+        window.showToast('warning', 'Nothing imported', data.message || 'No valid domains found');
+      }
+    } catch (err) {
+      window.showToast('error', 'Error', err.message);
+    }
+  }
+
   window.OpsToolsPage = {
     exportScanResultsCSV,
     generateScanReport,
@@ -182,11 +213,17 @@
     promptRunGlobalNuclei,
     closeNucleiModal,
     submitNucleiModal,
+    promptImportSubdomains,
+    closeImportSubdomainsModal,
+    submitImportSubdomains,
   };
 
   window.promptRetryCnames = promptRetryCnames;
   window.promptRunGlobalNuclei = promptRunGlobalNuclei;
   window.closeNucleiModal = closeNucleiModal;
   window.submitNucleiModal = submitNucleiModal;
+  window.promptImportSubdomains = promptImportSubdomains;
+  window.closeImportSubdomainsModal = closeImportSubdomainsModal;
+  window.submitImportSubdomains = submitImportSubdomains;
   setTimeout(startCnamesProgressPolling, 1000);
 })();

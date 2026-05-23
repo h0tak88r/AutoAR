@@ -143,6 +143,22 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 
 	_ = db.UpdateScanResult(scanID, status, "")
 
+	// Ensure every in-process scan shows progress in the dashboard.
+	// Without this, one-shot scans like global nuclei / subdomain_run
+	// appear with 0 phases and no progress bar.
+	record, _ := db.GetScan(scanID)
+	if record != nil && record.TotalPhases == 0 {
+		scanLabel := scanType
+		phaseFailed := status == "failed"
+		_ = db.AppendScanPhase(scanID, scanLabel+" scan", phaseFailed)
+		_ = db.UpdateScanProgress(scanID, &db.ScanProgress{
+			CurrentPhase:    1,
+			TotalPhases:     1,
+			PhaseName:       scanLabel + " scan",
+			CompletedPhases: []string{scanLabel + " scan"},
+		})
+	}
+
 	ScansMutex.Lock()
 	delete(ActiveScans, scanID)
 	ScansMutex.Unlock()
