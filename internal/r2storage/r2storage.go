@@ -297,7 +297,6 @@ func getContentType(filePath string) string {
 		".log":  "text/plain",
 		".html": "text/html",
 		".xml":  "application/xml",
-		".apk":  "application/vnd.android.package-archive",
 		".ipa":  "application/octet-stream",
 		".zip":  "application/zip",
 		".tar":  "application/x-tar",
@@ -388,56 +387,6 @@ func FindExistingFile(fileName string) (string, error) {
 			// Check if object key ends with the filename
 			if strings.HasSuffix(*obj.Key, "/"+fileName) || *obj.Key == fileName {
 				return *obj.Key, nil
-			}
-		}
-	}
-
-	return "", nil // Not found
-}
-
-// FindCachedVersion searches R2 for any cached version of a package
-// packagePrefix should be like "apkx/cache/com_example_app_"
-// Returns the version found (without the package prefix) or empty string
-func FindCachedVersion(packagePrefix string) (string, error) {
-	if !IsEnabled() {
-		return "", fmt.Errorf("R2 storage is not enabled")
-	}
-
-	// List objects with the package prefix
-	listInput := &s3.ListObjectsV2Input{
-		Bucket: aws.String(r2Config.BucketName),
-		Prefix: aws.String(packagePrefix),
-	}
-
-	paginator := s3.NewListObjectsV2Paginator(r2Client, listInput)
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(r2ctxBg())
-		if err != nil {
-			return "", fmt.Errorf("failed to list R2 objects: %w", err)
-		}
-
-		for _, obj := range page.Contents {
-			// Check if this is a results.json file
-			if strings.HasSuffix(*obj.Key, "/results.json") {
-				// Extract version from path
-				// Format: apkx/cache/{package}_{version}/results.json
-				keyWithoutSuffix := strings.TrimSuffix(*obj.Key, "/results.json")
-				parts := strings.Split(keyWithoutSuffix, "/")
-				if len(parts) >= 3 {
-					cacheKey := parts[len(parts)-1] // Last part is {package}_{version}
-					// Extract version (everything after the last underscore)
-					// But we need to know the package name to extract version properly
-					// So we'll return the full cache key and let the caller extract the version
-					// Actually, we can extract it: if packagePrefix is "apkx/cache/com_example_app_"
-					// and cacheKey is "com_example_app_7_10", then version is "7_10"
-					packagePrefixBase := strings.TrimPrefix(packagePrefix, "apkx/cache/")
-					if strings.HasPrefix(cacheKey, packagePrefixBase) {
-						version := strings.TrimPrefix(cacheKey, packagePrefixBase)
-						// Convert back from filesystem-safe format (7_10 -> 7.10)
-						version = strings.ReplaceAll(version, "_", ".")
-						return version, nil
-					}
-				}
 			}
 		}
 	}

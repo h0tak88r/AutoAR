@@ -377,9 +377,6 @@ func paginateFileEntries(entries []fileEntry, page, perPage int) (pageItems []fi
 
 func inferModuleFromFileName(name string) string {
 	n := strings.ToLower(strings.TrimSpace(name))
-	if strings.Contains(n, "/apkx/") || strings.Contains(n, "\\apkx\\") {
-		return "apkx"
-	}
 	switch {
 	case strings.Contains(n, "cf1016") || strings.Contains(n, "cf-1016") || strings.Contains(n, "cloudflare-1016"):
 		return "cf1016"
@@ -405,8 +402,6 @@ func inferModuleFromFileName(name string) string {
 		return "github-scan"
 	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure") || strings.Contains(n, "secret"):
 		return "js-analysis"
-	case strings.Contains(n, "apk") || strings.Contains(n, "androidmanifest") || strings.Contains(n, "jadx") || strings.Contains(n, "dex"):
-		return "apkx"
 	case strings.HasPrefix(n, "gf-") || strings.Contains(n, "gf-"):
 		return "gf-patterns"
 	case strings.Contains(n, "misconfig"):
@@ -1087,42 +1082,12 @@ func normalizeUnifiedContractRow(r parsedFinding) parsedFinding {
 	return r
 }
 
-func parseAPKStructuredLine(line string) (path, matcher, ctx string) {
-	s := strings.TrimSpace(line)
-	if s == "" {
-		return "", "", ""
-	}
-	// Typical format: "<path>: <matcher> (Context: ...)".
-	// Some scanners emit ":" without a trailing space, so accept both.
-	if idx := strings.Index(s, ":"); idx > 0 && idx < len(s)-1 {
-		left := strings.TrimSpace(s[:idx])
-		right := strings.TrimSpace(s[idx+1:])
-		if strings.Contains(left, "/") || strings.Contains(left, "\\") || strings.Contains(left, ".") {
-			path = left
-			matcher = right
-		}
-	}
-	if path == "" {
-		matcher = s
-	}
-	if i := strings.LastIndex(strings.ToLower(matcher), "(context:"); i >= 0 {
-		ctx = strings.TrimSpace(matcher[i+len("(context:"):])
-		ctx = strings.TrimSuffix(ctx, ")")
-		matcher = strings.TrimSpace(matcher[:i])
-	}
-	return path, matcher, ctx
-}
-
-
 // inferReconKind maps artifact filenames to a stable dataset key for unified recon tables.
 func inferReconKind(fileName string) string {
 	full := strings.ToLower(strings.TrimSpace(fileName))
 	b := strings.ToLower(filepath.Base(full))
 	if b == "" {
 		return "other"
-	}
-	if strings.Contains(full, "/apkx/") || strings.Contains(full, "\\apkx\\") {
-		return "apkx"
 	}
 	switch {
 	// GitHub secret findings (dashboard tabs + filters)
@@ -1182,9 +1147,6 @@ func inferReconKind(fileName string) string {
 	// Backup
 	case strings.Contains(b, "backup") || strings.Contains(b, "fuzzuli"):
 		return "backup"
-	// APK analysis
-	case strings.Contains(b, "apk") || strings.Contains(b, "androidmanifest") || strings.Contains(b, "jadx") || strings.Contains(b, "dex"):
-		return "apkx"
 	// Ports
 	case strings.Contains(b, "port-scan") || strings.Contains(b, "ports") || strings.Contains(b, "nmap") || strings.Contains(b, "masscan"):
 		return "ports"
@@ -1663,88 +1625,8 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 				return
 			}
 			switch t := x.(type) {
-			case map[string]interface{}:
-				if strings.EqualFold(strings.TrimSpace(module), "apkx") {
-					// apkx results.json is typically map[string][]string where each key is
-					// a category and each array item is one finding line. It can also
-					// contain scalar metadata fields (package_name, version, etc.).
-					keys := make([]string, 0, len(t))
-					for k := range t {
-						keys = append(keys, k)
-					}
-					sort.Strings(keys)
-					for _, k := range keys {
-						if len(out) >= maxRows {
-							return
-						}
-						switch vv := t[k].(type) {
-						case []interface{}:
-							for _, it := range vv {
-								if len(out) >= maxRows {
-									return
-								}
-								line := strings.TrimSpace(fmt.Sprint(it))
-								if line == "" || line == "<nil>" {
-									continue
-								}
-								p, mv, cx := parseAPKStructuredLine(line)
-								appendRow(parsedFinding{
-									Severity:     "info",
-									Target:       k,
-									Finding:      line,
-									Path:         p,
-									CategoryName: k,
-									MatcherValue: mv,
-									Context:      cx,
-								})
-							}
-						case string:
-							line := strings.TrimSpace(vv)
-							if line == "" || line == "<nil>" {
-								continue
-							}
-							p, mv, cx := parseAPKStructuredLine(line)
-							appendRow(parsedFinding{
-								Severity:     "info",
-								Target:       k,
-								Finding:      line,
-								Path:         p,
-								CategoryName: k,
-								MatcherValue: mv,
-								Context:      cx,
-							})
-						case float64, bool, int, int64, uint64:
-							line := strings.TrimSpace(fmt.Sprint(vv))
-							if line == "" || line == "<nil>" {
-								continue
-							}
-							appendRow(parsedFinding{
-								Severity:     "info",
-								Target:       k,
-								Finding:      line,
-								CategoryName: k,
-								MatcherValue: line,
-							})
-						case map[string]interface{}:
-							if enc, encErr := json.Marshal(vv); encErr == nil {
-								line := strings.TrimSpace(string(enc))
-								if line != "" && line != "{}" {
-									appendRow(parsedFinding{
-										Severity:     "info",
-										Target:       k,
-										Finding:      line,
-										CategoryName: k,
-										MatcherValue: line,
-									})
-								}
-							}
-						}
-					}
-					if len(out) > 0 {
-						return
-					}
-				}
-				// ZeroDays summary-only guard: TotalVulnerable==0 with no findings -> skip.
+		case map[string]interface{}:
+			// ZeroDays summary-only guard: TotalVulnerable==0 with no findings -> skip.
 				if tv, hasTV := t["TotalVulnerable"]; hasTV {
 					if n, ok := tv.(float64); ok && n == 0 {
 						return
@@ -1901,7 +1783,6 @@ func apiScanParsedResults(c *gin.Context) {
 		return
 	}
 	scanType := strings.ToLower(strings.TrimSpace(scanRec.ScanType))
-	isAPKScan := strings.Contains(scanType, "apkx")
 
 	section := strings.ToLower(strings.TrimSpace(c.DefaultQuery("section", "all")))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "1200"))
@@ -1924,31 +1805,9 @@ func apiScanParsedResults(c *gin.Context) {
 		kind := inferReconKind(e.FileName) // always attach kind for unified table tabs
 		module := e.Module
 		category := e.Category
-		if isAPKScan {
-			// APK scans commonly produce generic file names (e.g., results.json/report.html).
-			// Keep APK findings grouped in APK Analysis instead of falling back to autoar/other.
-			if module == "" || module == "autoar" || module == "unknown" || module == "github-scan" {
-				module = "apkx"
-			}
-			if category == "" || category == "output" || category == "recon" {
-				category = "vulnerability"
-			}
-			if kind == "" || kind == "other" || kind == "vuln" {
-				kind = "apkx"
-			}
-		}
 		for _, r := range ps {
 			if len(rows) >= limit {
 				return
-			}
-			if isAPKScan {
-				// Drop placeholder rows produced by summary objects with no concrete finding fields.
-				f := strings.ToLower(strings.TrimSpace(r.Finding))
-				t := strings.TrimSpace(r.Target)
-				if (f == "" || f == "—" || f == "autoar" || f == "apkx") &&
-					(t == "" || t == "—" || t == "-") {
-					continue
-				}
 			}
 			r.File = e.FileName
 			r.Module = module
@@ -1965,16 +1824,6 @@ func apiScanParsedResults(c *gin.Context) {
 	presentFiles := map[string]bool{}
 	for _, e := range entries {
 		presentFiles[strings.ToLower(e.FileName)] = true
-	}
-	hasApkxFindingsJSON := false
-	if isAPKScan {
-		for _, e := range entries {
-			n := strings.ToLower(strings.TrimSpace(e.FileName))
-			if n == "results.json" || strings.Contains(n, "vulnerabilities") || strings.Contains(n, "findings") {
-				hasApkxFindingsJSON = true
-				break
-			}
-		}
 	}
 	// rawToJSON maps a raw shadowed filename to the JSON that supersedes it.
 	// Also maps pipeline input files (subdomains/URLs) to a sentinel "" to mark

@@ -254,15 +254,6 @@ func (s *SQLiteDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS scan_artifacts_scan_id_idx ON scan_artifacts (scan_id);
 	CREATE INDEX IF NOT EXISTS scan_artifacts_created_at_idx ON scan_artifacts (created_at);
 	
-	-- Create APK cache table for file-based scans
-	CREATE TABLE IF NOT EXISTS apk_cache (
-		hash TEXT PRIMARY KEY,
-		data TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT (datetime('now'))
-	);
-	
-	CREATE INDEX IF NOT EXISTS apk_cache_created_at_idx ON apk_cache (created_at);
-
 	-- Settings key-value store (survives redeployments)
 	CREATE TABLE IF NOT EXISTS settings (
 		key   TEXT NOT NULL PRIMARY KEY,

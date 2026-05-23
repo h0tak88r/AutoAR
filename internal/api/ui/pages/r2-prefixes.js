@@ -103,21 +103,6 @@
       ]);
     }
 
-    if (st === 'jwt') {
-      return uniquePrefixList([
-        `new-results/jwt-scan/`,
-        `jwt-scan/`,
-      ]);
-    }
-
-    if (st === 'apkx') {
-      return uniquePrefixList([
-        `new-results/apkx/`,
-        `apkx/`,
-        `results/apkx/`,
-      ]);
-    }
-
     if (st === 'zerodays') {
       return uniquePrefixList([
         ...domainTriad(host),

@@ -84,27 +84,6 @@ func registerAllCommands(s *discordgo.Session) {
 			},
 		},
 		{
-			Name:        "apkx_scan",
-			Description: "Scan APK file",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "APK file to scan", Required: true},
-			},
-		},
-		{
-			Name:        "apkx_scan_package",
-			Description: "Scan APK package name",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "package", Description: "Package name", Required: true},
-			},
-		},
-		{
-			Name:        "apkx_scan_ios",
-			Description: "Scan iOS IPA file",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "IPA file to scan", Required: true},
-			},
-		},
-		{
 			Name:        "subdomain_run",
 			Description: "Run full workflow on a single subdomain (checks if live, then runs all scans)",
 			Options: []*discordgo.ApplicationCommandOption{
@@ -370,28 +349,6 @@ func registerAllCommands(s *discordgo.Session) {
 				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "all", Description: "Apply to all targets (for start/stop)", Required: false},
 			},
 		},
-		// JWT commands
-		{
-			Name:        "jwt_scan",
-			Description: "Scan JWT token for vulnerabilities using jwt-hack",
-			Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionString, Name: "token", Description: "JWT token to scan", Required: true},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_crack", Description: "Skip secret cracking for faster results", Required: false},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "skip_payloads", Description: "Skip payload generation", Required: false},
-				{Type: discordgo.ApplicationCommandOptionBoolean, Name: "test_attacks", Description: "Generate test tokens for attacks (alg:none, null sig, alg confusion, weak secrets)", Required: false},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "wordlist",
-					Description: "Wordlist for dictionary attack (fast or heavy)",
-					Required:    false,
-					Choices: []*discordgo.ApplicationCommandOptionChoice{
-						{Name: "Fast (jwt-common.txt)", Value: "fast"},
-						{Name: "Heavy (scraped-JWT-secrets.txt)", Value: "heavy"},
-					},
-				},
-				{Type: discordgo.ApplicationCommandOptionInteger, Name: "max_crack_attempts", Description: "Limit secret testing attempts", Required: false},
-			},
-		},
 		// Other commands
 		{
 			Name:        "aem_scan",
@@ -565,7 +522,6 @@ func registerAllCommands(s *discordgo.Session) {
 		"monitor_updates_list",
 		"help_autoar",
 		"cleanup",
-		"jwt_query",
 		"live_depconfusion_scan",
 		"wp_depconf",
 	}

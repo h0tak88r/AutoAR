@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"github.com/h0tak88r/AutoAR/internal/scanner/backup"
-	"github.com/h0tak88r/AutoAR/internal/scanner/jwt"
 	"github.com/h0tak88r/AutoAR/internal/scanner/s3"
 	"github.com/h0tak88r/AutoAR/internal/scanner/zerodays"
 	"github.com/spf13/cobra"
@@ -34,18 +33,6 @@ var (
 			ensureDB()
 			setupCurrentScan("s3", bucket)
 			return s3.Run(s3.Options{Action: "scan", Bucket: bucket})
-		},
-	}
-
-	jwtCmd = &cobra.Command{
-		Use:   "jwt",
-		Short: "JWT token security analysis",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			token, _ := cmd.Flags().GetString("token")
-			ensureDB()
-			setupCurrentScan("jwt-analysis", "jwt")
-			_, err := jwt.RunScan([]string{token})
-			return err
 		},
 	}
 
@@ -94,13 +81,11 @@ func init() {
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(s3Cmd)
 	s3Cmd.AddCommand(s3ScanCmd)
-	rootCmd.AddCommand(jwtCmd)
 	rootCmd.AddCommand(zerodaysCmd)
 	zerodaysCmd.AddCommand(zerodaysScanCmd)
 
 	backupCmd.Flags().StringP("domain", "d", "", "Target domain")
 	s3ScanCmd.Flags().StringP("bucket", "b", "", "Bucket name")
-	jwtCmd.Flags().StringP("token", "t", "", "JWT token")
 	zerodaysCmd.Flags().StringP("domain", "d", "", "Target domain")
 	zerodaysScanCmd.Flags().StringP("domain", "d", "", "Target domain")
 	zerodaysScanCmd.Flags().StringP("subdomain", "s", "", "Target subdomain")

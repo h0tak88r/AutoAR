@@ -469,7 +469,6 @@
     const TAB_LABELS = {
       assets: '🏠 Assets',
       urls: '🔗 Links',
-      apkx: '📱 APK Analysis',
       'js-analysis': '📜 JS Secrets',
       'js-endpoints': '🛣️ JS Endpoints',
       'katana-crawler': '🕷️ Katana',
