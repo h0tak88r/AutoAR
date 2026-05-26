@@ -297,7 +297,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 
 	// Send result files to Discord webhook (only when not running under bot)
 	if utils.GetCurrentScanID() == "" {
-		webhookURL := os.Getenv("DISCORD_WEBHOOK")
+		webhookURL := os.Getenv("MONITOR_WEBHOOK_URL")
 		if webhookURL != "" {
 			if info, err := os.Stat(out); err == nil && info.Size() > 0 {
 				utils.SendWebhookFileAsync(out, fmt.Sprintf("CNAME Records: %d CNAME records found for %s", count, domain))

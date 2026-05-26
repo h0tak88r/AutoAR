@@ -82,35 +82,21 @@ func main() {
 		fmt.Println("[entrypoint] APKX_WORKERS not set; defaulting to 2 for stability")
 	}
 
-	// Validate mandatory envs and files based on mode
-	if mode == "discord" || mode == "both" {
-		if os.Getenv("DISCORD_BOT_TOKEN") == "" {
-			fmt.Fprintf(os.Stderr, "[entrypoint] Error: DISCORD_BOT_TOKEN is not set (required for discord/both mode)\n")
-			os.Exit(1)
-		}
-	}
-
 	// Check if autoar binary exists
 	if _, err := os.Stat("/usr/local/bin/autoar"); err != nil {
 		fmt.Fprintf(os.Stderr, "[entrypoint] Error: AutoAR binary not found at /usr/local/bin/autoar\n")
 		os.Exit(1)
 	}
 
-	// Launch based on mode
+	// Launch based on mode (all modes run the API server)
 	var cmd *exec.Cmd
 	switch mode {
-	case "discord":
-		fmt.Println("[entrypoint] Launching Discord Bot only (Go)...")
-		cmd = exec.Command("/usr/local/bin/autoar", "bot")
-	case "api":
-		fmt.Println("[entrypoint] Launching API Server only (Go)...")
+	case "api", "discord", "both":
+		fmt.Println("[entrypoint] Launching API Server...")
 		cmd = exec.Command("/usr/local/bin/autoar", "api")
-	case "both":
-		fmt.Println("[entrypoint] Launching both Discord Bot and API Server (Go)...")
-		cmd = exec.Command("/usr/local/bin/autoar", "both")
 	default:
 		fmt.Fprintf(os.Stderr, "[entrypoint] Error: Invalid AUTOAR_MODE '%s'\n", mode)
-		fmt.Fprintf(os.Stderr, "[entrypoint] Valid modes: discord, api, both\n")
+		fmt.Fprintf(os.Stderr, "[entrypoint] Valid modes: api\n")
 		os.Exit(1)
 	}
 

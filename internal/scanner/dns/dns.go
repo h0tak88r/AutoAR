@@ -447,7 +447,7 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 			if count > 0 {
 				logger.GetLogger().Infof("[OK] Nuclei public takeover found %d candidates", count)
 				// Send findings to webhook if configured
-				webhookURL := os.Getenv("DISCORD_WEBHOOK")
+				webhookURL := os.Getenv("MONITOR_WEBHOOK_URL")
 				if webhookURL != "" {
 					domain := filepath.Base(domainDir)
 					if info, err := os.Stat(out); err == nil && info.Size() > 0 {
@@ -489,7 +489,7 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 			if count > 0 {
 				logger.GetLogger().Infof("[OK] Nuclei custom takeover found %d candidates", count)
 				// Send findings to webhook if configured
-				webhookURL := os.Getenv("DISCORD_WEBHOOK")
+				webhookURL := os.Getenv("MONITOR_WEBHOOK_URL")
 				if webhookURL != "" {
 					domain := filepath.Base(domainDir)
 					if info, err := os.Stat(out); err == nil && info.Size() > 0 {

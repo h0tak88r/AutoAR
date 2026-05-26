@@ -124,9 +124,7 @@ func GenerateYAMLConfig(configFile string) error {
 		}
 	}
 	
-	builder.WriteString("\n# Additional configuration\n")
-	builder.WriteString(fmt.Sprintf("DISCORD_WEBHOOK: \"%s\"\n\n", os.Getenv("DISCORD_WEBHOOK")))
-	builder.WriteString("# Database Configuration\n")
+	builder.WriteString("\n# Database Configuration\n")
 	builder.WriteString(fmt.Sprintf("SAVE_TO_DB: %s\n", getBoolEnv("SAVE_TO_DB", "true")))
 	builder.WriteString(fmt.Sprintf("VERBOSE: %s\n", getBoolEnv("VERBOSE", "false")))
 	builder.WriteString(fmt.Sprintf("DB_TYPE: \"%s\"\n", getEnv("DB_TYPE", "postgresql")))
