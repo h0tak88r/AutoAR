@@ -21,9 +21,8 @@ type Metrics struct {
 	LastScanTime time.Time
 
 	// Error metrics
-	TotalErrors   int64
-	DiscordErrors int64
-	ScanErrors    int64
+	TotalErrors int64
+	ScanErrors  int64
 
 	// File metrics
 	FilesSent       int64
@@ -80,11 +79,6 @@ func (m *Metrics) IncrementErrors() {
 	atomic.AddInt64(&m.TotalErrors, 1)
 }
 
-func (m *Metrics) IncrementDiscordErrors() {
-	atomic.AddInt64(&m.DiscordErrors, 1)
-	atomic.AddInt64(&m.TotalErrors, 1)
-}
-
 func (m *Metrics) IncrementScanErrors() {
 	atomic.AddInt64(&m.ScanErrors, 1)
 	atomic.AddInt64(&m.TotalErrors, 1)
@@ -109,9 +103,8 @@ func (m *Metrics) GetSnapshot() MetricsSnapshot {
 		CompletedScans:  atomic.LoadInt64(&m.CompletedScans),
 		FailedScans:     atomic.LoadInt64(&m.FailedScans),
 		TotalScans:      atomic.LoadInt64(&m.TotalScans),
-		TotalErrors:     atomic.LoadInt64(&m.TotalErrors),
-		DiscordErrors:   atomic.LoadInt64(&m.DiscordErrors),
-		ScanErrors:      atomic.LoadInt64(&m.ScanErrors),
+		TotalErrors:  atomic.LoadInt64(&m.TotalErrors),
+		ScanErrors:   atomic.LoadInt64(&m.ScanErrors),
 		FilesSent:       atomic.LoadInt64(&m.FilesSent),
 		FilesFailedSend: atomic.LoadInt64(&m.FilesFailedSend),
 		Uptime:          time.Since(m.StartTime).Seconds(),
@@ -125,9 +118,8 @@ type MetricsSnapshot struct {
 	CompletedScans  int64     `json:"completed_scans"`
 	FailedScans     int64     `json:"failed_scans"`
 	TotalScans      int64     `json:"total_scans"`
-	TotalErrors     int64     `json:"total_errors"`
-	DiscordErrors   int64     `json:"discord_errors"`
-	ScanErrors      int64     `json:"scan_errors"`
+	TotalErrors  int64     `json:"total_errors"`
+	ScanErrors   int64     `json:"scan_errors"`
 	FilesSent       int64     `json:"files_sent"`
 	FilesFailedSend int64     `json:"files_failed_send"`
 	Uptime          float64   `json:"uptime_seconds"`

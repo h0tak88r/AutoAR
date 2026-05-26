@@ -89,13 +89,6 @@ func CleanupDomainResults(domain string, force bool) error {
 	return os.RemoveAll(dir)
 }
 
-// IsDiscordBotAvailable checks if Discord bot is available
-func IsDiscordBotAvailable() bool {
-	env := os.Getenv("AUTOAR_ENV")
-	token := os.Getenv("DISCORD_BOT_TOKEN")
-	return env == "docker" && token != ""
-}
-
 // DetectEnvironment detects if running in Docker or local
 func DetectEnvironment() string {
 	if _, err := os.Stat("/app/main.sh"); err == nil {

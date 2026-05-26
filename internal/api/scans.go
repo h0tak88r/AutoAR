@@ -40,12 +40,9 @@ type ScanInfo struct {
 	StartedAt   time.Time // For API compatibility
 	CompletedAt *time.Time
 	Command     string
-	CancelFunc  context.CancelFunc // Function to cancel the scan (Discord / CommandContext runs)
+	CancelFunc  context.CancelFunc // Function to cancel the scan
 	ExecCmd     *exec.Cmd          `json:"-"` // API executeScan: child process (kill / pause via signals)
 	CancelRequested bool           `json:"-"` // API: user requested stop; Wait() will mark cancelled
-	MessageID   string             // Discord message ID for updating messages
-	ChannelID   string             // Discord channel ID for updating messages
-	ThreadID    string             // Discord thread ID for sending updates (avoids token expiration)
 
 	// Progress tracking
 	CurrentPhase    int       // Current phase number (1-based)

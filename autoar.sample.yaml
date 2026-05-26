@@ -33,7 +33,6 @@ hunter: [""]
 # Additional API Keys
 H1_API_KEY: ""
 INTEGRITI_API_KEY: ""
-DISCORD_WEBHOOK: ""
 openrouter_api: ""
 
 # Database Configuration

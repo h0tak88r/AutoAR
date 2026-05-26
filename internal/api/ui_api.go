@@ -61,7 +61,7 @@ func apiConfigHandler(c *gin.Context) {
 		"auth_enabled":    authOn,
 		"auth_provider":   "local",
 		"db_type":         utils.GetEnv("DB_TYPE", "postgresql"),
-		"mode":            utils.GetEnv("AUTOAR_MODE", "discord"),
+		"mode":            utils.GetEnv("AUTOAR_MODE", "api"),
 		"monitor_webhook": os.Getenv("MONITOR_WEBHOOK_URL"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
@@ -1316,9 +1316,6 @@ func scanInfoToScanRecord(info *ScanInfo) *db.ScanRecord {
 		StartedAt:     sa,
 		LastUpdate:    lu,
 		Command:       info.Command,
-		ChannelID:     info.ChannelID,
-		ThreadID:      info.ThreadID,
-		MessageID:     info.MessageID,
 		FilesUploaded: info.FilesUploaded,
 		ErrorCount:    info.ErrorCount,
 	}

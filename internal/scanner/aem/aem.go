@@ -38,6 +38,30 @@ type Result struct {
 	Duration        time.Duration
 }
 
+// SSRF servlet name constants used by the scanner and reporting
+const (
+	SSRFSalesforceSecret = "salesforcesecret_servlet"
+	SSRFReportingServices = "reportingservices_servlet"
+	SSRFSiteCatalyst      = "sitecatalyst_servlet"
+	SSRFAutoProvisioning  = "autoprovisioning_servlet"
+	SSRFOpenSocialProxy   = "opensocial_proxy"
+	SSRFOpenSocialMakeReq = "opensocial_makeRequest"
+	SSRFExternalJob       = "externaljob_servlet"
+)
+
+// GetAllSSRFChecks returns all registered SSRF check names
+func GetAllSSRFChecks() []string {
+	return []string{
+		SSRFSalesforceSecret,
+		SSRFReportingServices,
+		SSRFSiteCatalyst,
+		SSRFAutoProvisioning,
+		SSRFOpenSocialProxy,
+		SSRFOpenSocialMakeReq,
+		SSRFExternalJob,
+	}
+}
+
 // Finding represents a discovered vulnerability
 type Finding struct {
 	Name        string `json:"name"`

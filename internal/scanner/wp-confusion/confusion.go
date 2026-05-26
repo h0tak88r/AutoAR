@@ -54,7 +54,6 @@ type ScanOptions struct {
 	Theme    bool
 	Plugins  bool
 	Silent   bool
-	Discord  bool
 }
 
 // ScanWPConfusion scans WordPress sites for plugin/theme confusion vulnerabilities
@@ -179,13 +178,12 @@ func ScanWPConfusion(opts ScanOptions) error {
 	}
 
 	// Handle output
+	scanID := utils.GetCurrentScanID()
 	if opts.Output != "" {
 		// Ensure directory exists
 		if err := os.MkdirAll(filepath.Dir(opts.Output), 0755); err != nil {
 			logger.GetLogger().Infof("[WARN] Failed to create directory for results %s: %v", opts.Output, err)
 		}
-		
-		scanID := utils.GetCurrentScanID()
 
 		if len(allVulnerable) > 0 {
 			// Save vulnerabilities to file
@@ -223,9 +221,6 @@ func ScanWPConfusion(opts ScanOptions) error {
 				_ = utils.WriteJSONToScanDir(scanID, "wp-confusion-vulnerabilities.json", findings)
 			}
 
-			if opts.Discord {
-				sendToDiscord(opts.Output, fmt.Sprintf("WordPress Plugin Confusion vulnerabilities across %d targets (%d total found)", processedCount, len(allVulnerable)))
-			}
 		} else {
 			// Clean up legacy text summary that causes UI clutter
 			if scanID != "" {
@@ -240,9 +235,6 @@ func ScanWPConfusion(opts ScanOptions) error {
 				_ = os.WriteFile(opts.Output, []byte(logContent), 0644)
 			}
 
-			if opts.Discord {
-				sendToDiscord(opts.Output, fmt.Sprintf("WordPress Plugin Confusion scan log for %d targets (no vulnerabilities)", processedCount))
-			}
 		}
 	}
 

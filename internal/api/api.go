@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/h0tak88r/AutoAR/internal/db"
@@ -46,12 +45,6 @@ var (
 	scanResults           = make(map[string]*ScanResult)
 	scanResultsTotalBytes int64
 	apiScansMutex         sync.RWMutex
-
-// Discord Session Management
-GlobalDiscordSession *discordgo.Session
-DiscordSessionMutex  sync.RWMutex
-ActiveChannels       = make(map[string]string)
-ChannelsMutex        sync.RWMutex
 
 	// scanSemaphore limits concurrent child-process scans (#2 rate limiting).
 	scanSemaphore = make(chan struct{}, maxConcurrentScans)
@@ -461,8 +454,13 @@ func SetupAPI() *gin.Engine {
 	r.GET("/api", rootHandler)
 	r.GET("/api/", rootHandler)
 	r.GET("/health", healthHandler)
+
+	// Rate limiter for /api/* routes (skips localhost).
+	r.Use(RateLimitMiddleware())
+
 	r.GET("/metrics", auth, metricsHandler)
-	r.GET("/docs", auth, docsHandler)
+	r.GET("/docs", swaggerDocsHandler)
+	r.GET("/api/openapi.json", openapiSpecHandler)
 
 	// ── Dashboard UI (embedded SPA) ──────────────────────────────────────────
 	// Both /ui and /ui/* use the same handler — no redirect loops.
@@ -596,14 +594,6 @@ func SetupAPI() *gin.Engine {
 	{
 		keyhack.POST("/search", keyhackSearch)
 		keyhack.POST("/validate", keyhackValidate)
-	}
-
-	// Internal endpoints for module file notifications
-	internal := r.Group("/internal")
-	internal.Use(auth)
-	{
-		internal.POST("/send-file", sendFileToDiscord)
-		internal.POST("/send-message", sendMessageToDiscord)
 	}
 
 	// Utility endpoints
@@ -1402,12 +1392,6 @@ func executeScan(scanID string, command []string, scanType string) {
 	// Notify scan start via webhook
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
 
-	if target == "demo.autoar.com" || target == "keyword.com" || target == "0x88.autoar" {
-		utils.GetLogger().Infof("[executeScan] DEMO intercepted. Generating mock artifacts for %s", target)
-		go generateMockResults(scanID, target, scanType, startedAt, command)
-		return
-	}
-
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
@@ -1858,379 +1842,5 @@ func shouldSkipArtifact(path string) bool {
 	}
 
 	return false
-}
-
-
-// sendFileToDiscord handles file uploads from modules
-func sendFileToDiscord(c *gin.Context) {
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Received file send request")
-
-	var req struct {
-		ScanID      string `json:"scan_id"`
-		FilePath    string `json:"file_path" binding:"required"`
-		Description string `json:"description"`
-		ChannelID   string `json:"channel_id"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to bind JSON: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Request details - FilePath: %s, ChannelID: %s, ScanID: %s, Description: %s",
-		req.FilePath, req.ChannelID, req.ScanID, req.Description)
-
-	// Get channel ID - priority: request > scan_id lookup > environment > default
-	var channelID string
-	if req.ChannelID != "" {
-		channelID = req.ChannelID
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] Using channel ID from request: %s", channelID)
-	} else if req.ScanID != "" {
-		channelID = GetChannelID(req.ScanID)
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] Looked up channel ID from scan ID %s: %s", req.ScanID, channelID)
-	}
-
-	if channelID == "" {
-		// Try to get from environment (set by modules)
-		channelID = os.Getenv("AUTOAR_CURRENT_CHANNEL_ID")
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] Tried environment variable AUTOAR_CURRENT_CHANNEL_ID: %s", channelID)
-	}
-
-	if channelID == "" {
-		// Try default channel from environment
-		channelID = os.Getenv("DISCORD_DEFAULT_CHANNEL_ID")
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] Tried environment variable DISCORD_DEFAULT_CHANNEL_ID: %s", channelID)
-	}
-
-	if channelID == "" {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] No channel ID found")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no channel ID found. Provide channel_id, scan_id, or set AUTOAR_CURRENT_CHANNEL_ID"})
-		return
-	}
-
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Using channel ID: %s", channelID)
-
-	// Check if we should send to a thread instead of the channel
-	threadID := ""
-	if req.ScanID != "" {
-		ScansMutex.RLock()
-		if scan, ok := ActiveScans[req.ScanID]; ok && scan.ThreadID != "" {
-			threadID = scan.ThreadID
-			utils.GetLogger().Infof("[API] [sendFileToDiscord] Found thread ID %s for scan %s", threadID, req.ScanID)
-		}
-		ScansMutex.RUnlock()
-	}
-
-	// If no thread found by scanID, try to find by channel ID
-	if threadID == "" && channelID != "" {
-		ScansMutex.RLock()
-		for _, scan := range ActiveScans {
-			if scan.ChannelID == channelID && scan.ThreadID != "" {
-				threadID = scan.ThreadID
-				utils.GetLogger().Infof("[API] [sendFileToDiscord] Found thread ID %s for channel %s", threadID, channelID)
-				break
-			}
-		}
-		ScansMutex.RUnlock()
-	}
-
-	// Use thread ID if available, otherwise use channel ID
-	targetID := channelID
-	if threadID != "" {
-		targetID = threadID
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] Sending to thread %s (instead of channel %s)", threadID, channelID)
-	}
-
-	// Prevent Arbitrary File Read (Path Traversal)
-	cleanPath, err := filepath.Abs(req.FilePath)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file path"})
-		return
-	}
-	resultsDir, _ := filepath.Abs(utils.GetResultsDir())
-	if !strings.HasPrefix(cleanPath, resultsDir) {
-		utils.GetLogger().Warnf("[API] [sendFileToDiscord] [SECURITY] Attempted to read file outside results directory: %s", cleanPath)
-		c.JSON(http.StatusForbidden, gin.H{"error": "file must be located within the results directory"})
-		return
-	}
-
-	// Check if file exists
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Checking if file exists: %s", cleanPath)
-	if info, err := os.Stat(cleanPath); os.IsNotExist(err) {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] File not found: %s", cleanPath)
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
-		return
-	} else if err != nil {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
-		return
-	} else {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] File found: %s (size: %d bytes)", cleanPath, info.Size())
-	}
-
-	// Get file info
-	fileName := filepath.Base(cleanPath)
-	description := req.Description
-	if description == "" {
-		description = fmt.Sprintf("📁 %s", fileName)
-	}
-
-	// Get file info for size check
-	fileInfo, err := os.Stat(cleanPath)
-	if err != nil {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to stat file: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
-		return
-	}
-
-	// Check if file should use R2
-	useR2 := r2storage.ShouldUseR2(cleanPath) || (r2storage.IsEnabled() && fileInfo.Size() > r2storage.GetFileSizeLimit())
-
-	if useR2 {
-		// Upload to R2 and send link
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] File is large (%d bytes), uploading to R2...", fileInfo.Size())
-		publicURL, err := r2storage.UploadFile(cleanPath, fileName, false)
-		if err != nil {
-			utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to upload to R2: %v", err)})
-			return
-		}
-
-		// Get Discord session to send link
-		DiscordSessionMutex.RLock()
-		session := GlobalDiscordSession
-		DiscordSessionMutex.RUnlock()
-
-		if session == nil {
-			utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
-			return
-		}
-
-		// Send R2 link to Discord
-		message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(fileInfo.Size())/1024/1024, publicURL)
-		_, err = session.ChannelMessageSend(channelID, message)
-		if err != nil {
-			utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link to Discord: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send R2 link: %v", err)})
-			return
-		}
-
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully: %s", publicURL)
-		c.JSON(http.StatusOK, gin.H{
-			"message":   "file uploaded to R2 and link sent",
-			"r2_url":    publicURL,
-			"file_size": fileInfo.Size(),
-		})
-		return
-	}
-
-	// #4: Stream file via os.Open instead of loading everything into RAM with os.ReadFile.
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Opening file for streaming: %s", cleanPath)
-	fileStream, streamErr := os.Open(cleanPath)
-	if streamErr != nil {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to open file: %v", streamErr)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to open file: %v", streamErr)})
-		return
-	}
-	defer fileStream.Close()
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Streaming %d bytes to Discord", fileInfo.Size())
-
-	// Detect content type from the first 512 bytes without buffering the whole file.
-	header := make([]byte, 512)
-	n, _ := fileStream.Read(header)
-	contentType := http.DetectContentType(header[:n])
-	// Seek back to the beginning so the full file is sent.
-	_, _ = fileStream.Seek(0, io.SeekStart)
-
-	// Get Discord session
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Getting Discord session...")
-	DiscordSessionMutex.RLock()
-	session := GlobalDiscordSession
-	DiscordSessionMutex.RUnlock()
-
-	if session == nil {
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Discord session is nil")
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
-		return
-	}
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Discord session obtained")
-
-	// Stream file to Discord channel/thread (no memory buffer)
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] Streaming file to Discord %s: %s (description: %s)", targetID, fileName, description)
-	_, err = session.ChannelMessageSendComplex(targetID, &discordgo.MessageSend{
-		Content: description,
-		Files: []*discordgo.File{
-			{
-				Name:        fileName,
-				ContentType: contentType,
-				Reader:      fileStream,
-			},
-		},
-	})
-
-	if err != nil {
-		// If direct upload fails due to size, try R2 as fallback
-		if strings.Contains(err.Error(), "413") || strings.Contains(err.Error(), "too large") || strings.Contains(err.Error(), "Request entity too large") {
-			utils.GetLogger().Infof("[API] [sendFileToDiscord] ⚠️  Discord upload failed due to size, uploading to R2 as fallback...")
-			if r2storage.IsEnabled() {
-				publicURL, r2Err := r2storage.UploadFile(cleanPath, fileName, false)
-				if r2Err != nil {
-					utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to upload to R2: %v", r2Err)
-					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file and R2 upload failed: %v (R2 error: %v)", err, r2Err)})
-					return
-				}
-				message := fmt.Sprintf("%s\n\n📦 **File too large for Discord** (%.2f MB)\n🔗 **Download:** %s", description, float64(fileInfo.Size())/1024/1024, publicURL)
-				_, err = session.ChannelMessageSend(targetID, message)
-				if err != nil {
-					utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to send R2 link: %v", err)
-					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send R2 link: %v", err)})
-					return
-				}
-				utils.GetLogger().Infof("[API] [sendFileToDiscord] [SUCCESS] R2 link sent successfully (fallback): %s", publicURL)
-				c.JSON(http.StatusOK, gin.H{
-					"message":   "file uploaded to R2 and link sent (fallback)",
-					"r2_url":    publicURL,
-					"file_size": fileInfo.Size(),
-				})
-				return
-			}
-		}
-		utils.GetLogger().Infof("[API] [sendFileToDiscord] [ERROR] Failed to send file to Discord: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send file: %v", err)})
-		return
-	}
-
-	utils.GetLogger().Infof("[API] [sendFileToDiscord] [SUCCESS] File sent successfully to Discord channel %s", channelID)
-	c.JSON(http.StatusOK, gin.H{"message": "file sent successfully"})
-}
-
-// sendMessageToDiscord handles sending text messages from modules
-func sendMessageToDiscord(c *gin.Context) {
-	utils.GetLogger().Infof("[API] [sendMessageToDiscord] Received message send request")
-
-	var req struct {
-		ScanID    string `json:"scan_id"`
-		Message   string `json:"message" binding:"required"`
-		ChannelID string `json:"channel_id"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	var channelID string
-	if req.ChannelID != "" {
-		channelID = req.ChannelID
-	} else if req.ScanID != "" {
-		channelID = GetChannelID(req.ScanID)
-	}
-	if channelID == "" {
-		channelID = os.Getenv("AUTOAR_CURRENT_CHANNEL_ID")
-	}
-	if channelID == "" {
-		channelID = os.Getenv("DISCORD_DEFAULT_CHANNEL_ID")
-	}
-	if channelID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no channel ID found"})
-		return
-	}
-
-	threadID := ""
-	if req.ScanID != "" {
-		ScansMutex.RLock()
-		if scan, ok := ActiveScans[req.ScanID]; ok && scan.ThreadID != "" {
-			threadID = scan.ThreadID
-		}
-		ScansMutex.RUnlock()
-	}
-	if threadID == "" && channelID != "" {
-		ScansMutex.RLock()
-		for _, scan := range ActiveScans {
-			if scan.ChannelID == channelID && scan.ThreadID != "" {
-				threadID = scan.ThreadID
-				break
-			}
-		}
-		ScansMutex.RUnlock()
-	}
-
-	targetID := channelID
-	if threadID != "" {
-		targetID = threadID
-	}
-
-	DiscordSessionMutex.RLock()
-	session := GlobalDiscordSession
-	DiscordSessionMutex.RUnlock()
-
-	if session == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Discord bot not available"})
-		return
-	}
-
-	_, err := session.ChannelMessageSend(targetID, req.Message)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to send message: %v", err)})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "message sent successfully"})
-}
-
-func generateMockResults(scanID, target, scanType string, startedAt time.Time, command []string) {
-	time.Sleep(2 * time.Second)
-	resultsDir := filepath.Join(os.Getenv("AUTOAR_RESULTS_DIR"), target)
-	_ = os.MkdirAll(resultsDir, 0755)
-
-	_ = os.WriteFile(filepath.Join(resultsDir, "urls.txt"), []byte(fmt.Sprintf("https://%[1]s/api\nhttps://%[1]s/admin\nhttps://%[1]s/test", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "js-urls.json"), []byte(fmt.Sprintf("[\"https://%[1]s/main.js\",\"https://%[1]s/vendor.chunk.js\"]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "nuclei-results.json"), []byte(fmt.Sprintf("[{\"template-id\": \"cve-2023-1000\", \"info\": {\"name\": \"Mock CVE\", \"severity\": \"high\"}, \"host\": \"%[1]s\", \"matched-at\": \"https://%[1]s/api\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "buckets-s3.json"), []byte(fmt.Sprintf("[{\"target\": \"%s-bucket\", \"status\": \"Open\", \"vulnerable\": true, \"severity\": \"critical\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "backup-files.json"), []byte(fmt.Sprintf("[{\"url\": \"https://%[1]s/backup.zip\", \"size\": 1048576, \"severity\": \"high\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "ports-nmap.json"), []byte(fmt.Sprintf("[{\"host\": \"%[1]s\", \"port\": 8080, \"service\": \"http-alt\", \"severity\": \"info\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "js-secrets.json"), []byte(fmt.Sprintf("[{\"file\": \"https://%[1]s/main.js\", \"secret\": \"AKIA1234567890\", \"type\": \"AWS API Key\", \"severity\": \"high\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "zeroday-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s\", \"finding\": \"CVE-2024-XXXX Node.js Remote Code Execution\", \"severity\": \"critical\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "aem-scan.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/aem\", \"finding\": \"AEM Default Credentials\", \"severity\": \"critical\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "misconfig-mapper.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/.git\", \"finding\": \"Exposed Git Directory\", \"severity\": \"medium\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "wp-confusion-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/wp-content\", \"finding\": \"WordPress Missing Theme\", \"severity\": \"medium\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "depconf-scan.json"), []byte("[{\"target\": \"package.json\", \"finding\": \"Dependency Confusion in 'internal-core'\", \"severity\": \"high\"}]"), 0644)
-
-	// Add remaining simulation payloads
-	_ = os.WriteFile(filepath.Join(resultsDir, "ffuf-results.json"), []byte(fmt.Sprintf("[{\"url\": \"https://%[1]s/secret-dir\", \"status\": 200, \"length\": 1024, \"finding\": \"Hidden Directory\", \"severity\": \"medium\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "dalfox-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/?q=test\", \"finding\": \"Reflected XSS in 'q' parameter\", \"severity\": \"high\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "kxss-results.txt"), []byte(fmt.Sprintf("URL: https://%[1]s/?id=test Param: id Reflection: true", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "sqlmap-results.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/?id=1\", \"finding\": \"Time-based blind SQLi (MySQL)\", \"severity\": \"critical\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "gf-xss.json"), []byte(fmt.Sprintf("[{\"target\": \"https://%[1]s/?action=test\", \"finding\": \"Potential XSS Endpoint\", \"severity\": \"info\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "cname-takeover-vulnerable.txt"), []byte(fmt.Sprintf("https://test.%[1]s", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "cf1016-dangling.json"), []byte(fmt.Sprintf("[{\"target\": \"cloud.%[1]s\", \"finding\": \"Cloudflare Error 1016 (Dangling Record)\", \"cloudflare_ips\": [\"104.21.XX.XX\"], \"severity\": \"high\"}]", target)), 0644)
-	_ = os.WriteFile(filepath.Join(resultsDir, "github-scan.json"), []byte("[{\"target\": \"https://github.com/org/repo\", \"finding\": \"Leaked Stripe API Key in commit\", \"severity\": \"critical\"}]"), 0644)
-
-	completedAt := time.Now()
-	_ = db.UpdateScanResult(scanID, "completed", "")
-
-	ScansMutex.Lock()
-	delete(ActiveScans, scanID)
-	ScansMutex.Unlock()
-
-	apiScansMutex.Lock()
-	storeScanResultLocked(scanID, &ScanResult{
-		ScanID: scanID, Status: "completed", ScanType: scanType,
-		StartedAt: startedAt, CompletedAt: &completedAt, Error: "",
-	})
-	apiScansMutex.Unlock()
-
-	// Index
-	indexScanArtifacts(scanID, scanType, target)
-}
-
-// getEnv is defined in main.go
-
-func GetChannelID(scanID string) string {
-ChannelsMutex.RLock()
-defer ChannelsMutex.RUnlock()
-return ActiveChannels[scanID]
 }
 

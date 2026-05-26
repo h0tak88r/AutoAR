@@ -91,28 +91,25 @@ func (rl *RateLimiter) getWaitTime() time.Duration {
 	return time.Second / time.Duration(rl.rate)
 }
 
-// DiscordRateLimiter is a global rate limiter for Discord API calls
+// APIRateLimiter is a global rate limiter for HTTP API requests.
 var (
-	DiscordRateLimiter *RateLimiter
-	rateLimiterOnce    sync.Once
+	APIRateLimiter  *RateLimiter
+	rateLimiterOnce sync.Once
 )
 
-// InitDiscordRateLimiter initializes the Discord rate limiter
-// Default: 5 files per second (Discord limit is 50/sec, we use 10% for safety)
-func InitDiscordRateLimiter(filesPerSecond int) *RateLimiter {
+// InitAPIRateLimiter initializes the API rate limiter.
+// rate: requests per second, burst: max burst size.
+func InitAPIRateLimiter(rate, burst int) *RateLimiter {
 	rateLimiterOnce.Do(func() {
-		if filesPerSecond <= 0 {
-			filesPerSecond = 5 // Default
-		}
-		DiscordRateLimiter = NewRateLimiter(filesPerSecond, filesPerSecond*2)
+		APIRateLimiter = NewRateLimiter(rate, burst)
 	})
-	return DiscordRateLimiter
+	return APIRateLimiter
 }
 
-// GetDiscordRateLimiter returns the Discord rate limiter
-func GetDiscordRateLimiter() *RateLimiter {
-	if DiscordRateLimiter == nil {
-		return InitDiscordRateLimiter(5)
+// GetAPIRateLimiter returns the API rate limiter.
+func GetAPIRateLimiter() *RateLimiter {
+	if APIRateLimiter == nil {
+		return InitAPIRateLimiter(100, 200)
 	}
-	return DiscordRateLimiter
+	return APIRateLimiter
 }
