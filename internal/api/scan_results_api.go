@@ -1839,6 +1839,8 @@ func apiScanParsedResults(c *gin.Context) {
 		"ffuf-webhook-messages.txt":  "ffuf-results.json",
 		"kxss-results.txt":           "xss-reflection-vulnerabilities.json",
 		"exposure-findings.txt":      "exposure-vulnerabilities.json",
+		// js-secrets.txt is superseded by js-secrets-vulnerabilities.json
+		"js-secrets.txt":             "js-secrets-vulnerabilities.json",
 		"wp-confusion-results.txt":   "wp-confusion-vulnerabilities.json",
 		// URL corpus files — never findings; these are pipeline inputs (lists of URLs/JS files to feed into later scanners)
 		"js-urls.json": "__pipeline_input__",
