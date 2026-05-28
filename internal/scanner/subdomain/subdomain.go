@@ -16,6 +16,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/scanner/cnames"
 	"github.com/h0tak88r/AutoAR/internal/scanner/depconfusion"
 	"github.com/h0tak88r/AutoAR/internal/scanner/dns"
+	"github.com/h0tak88r/AutoAR/internal/scanner/mcpdiscovery"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
 	"github.com/h0tak88r/AutoAR/internal/scanner/ffuf"
 	"github.com/h0tak88r/AutoAR/internal/scanner/gf"
@@ -214,6 +215,14 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 			_, err := backup.Run(backup.Options{Domain: subdomainClean, LiveHostsFile: liveHostsFile, Method: "all", Threads: 150})
 			return err
 		}, backupTimeout()},
+		{"mcp-discovery", "[Stage 2] MCP server discovery", func() error {
+			lh := ""
+			if _, err := os.Stat(liveHostsFile); err == nil {
+				lh = liveHostsFile
+			}
+			_, err := mcpdiscovery.Run(mcpdiscovery.Options{Target: subdomainClean, LiveHostsFile: lh, Threads: 15})
+			return err
+		}, 0},
 		{"zerodays", "[Stage 2] Zerodays scan", func() error {
 			// Direct in-process call — no subprocess fork, no separate scan DB record.
 			_, err := zerodaysmod.Run(zerodaysmod.Options{

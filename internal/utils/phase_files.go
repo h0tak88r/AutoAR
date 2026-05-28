@@ -171,6 +171,11 @@ func GetPhaseFiles(phaseName, domain string) []string {
 			filepath.Join(resultsDir, "github", "repos", domain, "secrets.json"),
 			filepath.Join(resultsDir, "github", "repos", domain, "secrets_table.txt"),
 		}
+	case "mcp-discovery", "mcp_discovery":
+		vulnDir := filepath.Join(resultsDir, domain, "vulnerabilities")
+		files = []string{
+			filepath.Join(vulnDir, "mcp-server-findings.json"),
+		}
 	case "aem", "aem_scan":
 		files = []string{
 			filepath.Join(resultsDir, domain, "aem", "aem-scan.txt"),

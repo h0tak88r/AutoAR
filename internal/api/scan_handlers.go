@@ -22,6 +22,7 @@ import (
 	backupmod "github.com/h0tak88r/AutoAR/internal/scanner/backup"
 	cf1016mod "github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
 	cnamesmod "github.com/h0tak88r/AutoAR/internal/scanner/cnames"
+	"github.com/h0tak88r/AutoAR/internal/scanner/mcpdiscovery"
 	dnsmod "github.com/h0tak88r/AutoAR/internal/scanner/dns"
 	domainmod "github.com/h0tak88r/AutoAR/internal/scanner/domain"
 	ffufmod "github.com/h0tak88r/AutoAR/internal/scanner/ffuf"
@@ -405,6 +406,29 @@ func scanDNS(c *gin.Context) {
 }
 
 // ── DNS CF1016 ────────────────────────────────────────────────────────────────
+
+func scanMCPDiscovery(c *gin.Context) {
+	var req ScanRequest
+	if !bindOrBad(c, &req) {
+		return
+	}
+	target := ""
+	if req.Domain != nil && *req.Domain != "" {
+		target = *req.Domain
+	} else if req.Subdomain != nil && *req.Subdomain != "" {
+		target = *req.Subdomain
+	}
+	if target == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain is required"})
+		return
+	}
+	scanID := generateScanID()
+	go RunScanInProcess(scanID, "mcp-discovery", target, func() error {
+		_, err := mcpdiscovery.Run(mcpdiscovery.Options{Target: target, Threads: 15})
+		return err
+	})
+	okStarted(c, scanID, fmt.Sprintf("MCP discovery scan started for %s", target))
+}
 
 func scanDNSCF1016(c *gin.Context) {
 	var req ScanRequest
@@ -798,6 +822,13 @@ func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
 			return err
 		})
 		return newScanID, true
+	case "mcp-discovery":
+		newScanID = generateScanID()
+		go RunScanInProcess(newScanID, "mcp-discovery", target, func() error {
+			_, err := mcpdiscovery.Run(mcpdiscovery.Options{Target: target, Threads: 15})
+			return err
+		})
+		ok = true
 	case "dns_cf1016", "dns-cf1016":
 		go RunScanInProcess(newScanID, "dns_cf1016", target, func() error {
 			clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
