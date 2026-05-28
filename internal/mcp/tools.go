@@ -132,6 +132,7 @@ func scanTypeLabel(t string) string {
 		"sqlmap":                 "SQLMap",
 		"backup":                 "Backup Detection",
 		"zerodays":               "ZeroDays",
+		"mcp-discovery":          "MCP Discovery",
 	}
 	if l, ok := m[strings.ToLower(t)]; ok {
 		return l
@@ -143,7 +144,7 @@ func isScanFindingType(scanType string) bool {
 	for _, ft := range []string{"dns_cf1016", "dns-cf1016", "dns", "dns-takeover", "dns-dangling-ip",
 		"nuclei", "nuclei-full", "nuclei-cves", "nuclei-panels", "nuclei-vulnerabilities",
 		"nuclei-default-logins", "misconfig", "s3", "github", "reflection",
-		"zerodays", "jwt", "gf", "ffuf", "apkx", "sqlmap", "backup"} {
+		"zerodays", "jwt", "gf", "ffuf", "apkx", "sqlmap", "backup", "mcp-discovery"} {
 		if strings.EqualFold(scanType, ft) {
 			return true
 		}
@@ -948,7 +949,7 @@ func inferModuleFromName(name string) string {
 		return "port-scan"
 	case strings.Contains(n, "aem"):
 		return "aem"
-	case strings.Contains(n, "backup") || strings.Contains(n, "fuzzuli"):
+	case strings.Contains(n, "mcp-server") || strings.Contains(n, "mcp_discovery") || strings.Contains(n, "backup") || strings.Contains(n, "fuzzuli"):
 		return "backup-detection"
 	// dalfox before reflection (which matches "xss")
 	case strings.Contains(n, "dalfox"):

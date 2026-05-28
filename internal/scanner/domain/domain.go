@@ -20,6 +20,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/scanner/gf"
 	"github.com/h0tak88r/AutoAR/internal/scanner/jsscan"
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
+	"github.com/h0tak88r/AutoAR/internal/scanner/mcpdiscovery"
 	"github.com/h0tak88r/AutoAR/internal/scanner/misconfig"
 	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
 	"github.com/h0tak88r/AutoAR/internal/scanner/ports"
@@ -129,6 +130,14 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		{"urls", "URL collection", func() error { _, err := urls.CollectURLs(domain, 150, false); return err }, 0},
 		{"jsscan", "JavaScript scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: domain, Threads: 150}); return err }, 0},
 		{"dns", "DNS takeover scan", func() error { return dns.Takeover(domain) }, 0},
+		{"mcp-discovery", "MCP server discovery", func() error {
+			lh := ""
+			if _, err := os.Stat(liveHostsFile); err == nil {
+				lh = liveHostsFile
+			}
+			_, err := mcpdiscovery.Run(mcpdiscovery.Options{Target: domain, LiveHostsFile: lh, Threads: 15})
+			return err
+		}, 0},
 		{"aem", "AEM webapp discovery and scan", func() error {
 			lh := ""; if _, err := os.Stat(liveHostsFile); err == nil { lh = liveHostsFile }
 			_, err := aemmod.Run(aemmod.Options{Domain: domain, LiveHostsFile: lh, Threads: 50})

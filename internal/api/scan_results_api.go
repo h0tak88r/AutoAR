@@ -180,6 +180,7 @@ var subdomainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "s3-scan", Description: "[Stage 2] S3 bucket enumeration and scanning", PhaseKey: "s3"},
 	{Module: "backup-detection", Description: "[Stage 2] Backup scan", PhaseKey: "backup"},
 	{Module: "zerodays", Description: "[Stage 2] Zerodays scan", PhaseKey: "zerodays"},
+	{Module: "mcp-discovery", Description: "[Stage 2] MCP server discovery", PhaseKey: "mcp-discovery"},
 	{Module: "wordpress-confusion", Description: "[Stage 2] WordPress confusion", PhaseKey: "wp_confusion"},
 	{Module: "dependency-confusion", Description: "[Stage 2] Dependency confusion", PhaseKey: "depconfusion"},
 	{Module: "misconfig", Description: "[Stage 2] Misconfig scan", PhaseKey: "misconfig"},
@@ -201,6 +202,7 @@ var domainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "url-collection", Description: "URL collection", PhaseKey: "urls"},
 	{Module: "js-analysis", Description: "JavaScript scan", PhaseKey: "jsscan"},
 	{Module: "dns-takeover", Description: "DNS takeover scan", PhaseKey: "dns"},
+	{Module: "mcp-discovery", Description: "MCP server discovery", PhaseKey: "mcp-discovery"},
 	{Module: "aem", Description: "AEM webapp discovery and scan", PhaseKey: "aem"},
 	{Module: "wordpress-confusion", Description: "WordPress confusion scan", PhaseKey: "wp_confusion"},
 	{Module: "dependency-confusion", Description: "Dependency confusion scan", PhaseKey: "depconfusion"},
@@ -392,6 +394,9 @@ func inferModuleFromFileName(name string) string {
 	// katana crawler results — separate from general URL collection
 	case strings.Contains(n, "katana"):
 		return "katana"
+		// MCP discovery
+	case strings.Contains(n, "mcp-server") || strings.Contains(n, "mcp_discovery"):
+		return "mcp-discovery"
 	// js-endpoints: API path extraction results from JS files
 	case strings.Contains(n, "js-endpoint"):
 		return "js-endpoints"
@@ -457,7 +462,8 @@ func inferCategoryFromFileName(name string) string {
 		strings.Contains(n, "aws-") || strings.Contains(n, "azure-") || strings.Contains(n, "gcp-") ||
 		strings.Contains(n, "takeover") || strings.Contains(n, "dangling") || strings.Contains(n, "dnsreap") ||
 		strings.Contains(n, "confusion") || strings.Contains(n, "depconf") || strings.Contains(n, "backup") ||
-		strings.Contains(n, "aem") {
+		strings.Contains(n, "aem") ||
+		strings.Contains(n, "mcp-server") || strings.Contains(n, "mcp_discovery") {
 		return "vulnerability"
 	}
 	// Recon outputs
