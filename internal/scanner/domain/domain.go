@@ -158,7 +158,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 				return err
 			}
 			// After enumeration, scan each found bucket for permissions/public access.
-			bucketsFile := filepath.Join(domainDir, "s3", "buckets.txt")
+			bucketsFile := filepath.Join(resultsDir, "s3", domain, "buckets.txt")
 			if info, err := os.Stat(bucketsFile); err == nil && info.Size() > 0 {
 				data, _ := os.ReadFile(bucketsFile)
 				for _, bn := range strings.Split(strings.TrimSpace(string(data)), "\n") {
