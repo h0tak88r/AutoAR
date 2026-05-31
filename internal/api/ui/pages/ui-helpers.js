@@ -57,11 +57,11 @@
 
   function fileIcon(ext) {
     const map = {
-      txt: '📄', log: '📋', json: '📊', zip: '📦', gz: '📦', html: '🌐',
-      pdf: '📑', png: '🖼', jpg: '🖼', jpeg: '🖼', apk: '📱', ipa: '📱',
-      db: '🗄', sql: '🗄', md: '📝',
+      txt: '[DOC]', log: '[LIST]', json: '[CHART]', zip: '[BOX]', gz: '[BOX]', html: '[WEB]',
+      pdf: '[TABS]', png: '[IMG]', jpg: '[IMG]', jpeg: '[IMG]', apk: '[MOBILE]', ipa: '[MOBILE]',
+      db: '[DB]', sql: '[DB]', md: '[LOG]',
     };
-    return map[ext] || '📄';
+    return map[ext] || '[DOC]';
   }
 
   function humanChangeType(t) {
@@ -85,10 +85,10 @@
 
   function showToast(type, title, msg) {
     const container = document.getElementById('toast-container');
-    const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+    const icons = { success: '[OK]', error: '[FAIL]', info: '[i]' };
     const el = document.createElement('div');
     el.className = `toast ${type}`;
-    el.innerHTML = `<div class="toast-icon">${icons[type] || 'ℹ️'}</div>
+    el.innerHTML = `<div class="toast-icon">${icons[type] || '[i]'}</div>
     <div class="toast-body">
       <div class="toast-title">${window.esc(title)}</div>
       ${msg ? `<div class="toast-msg">${window.esc(msg)}</div>` : ''}

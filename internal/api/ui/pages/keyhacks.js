@@ -122,7 +122,7 @@
       const cmdsHtml = matched.map((t) => {
         const cmd = commandTemplateForToken(t, token);
         if (!cmd) return '';
-        return `<div class="keyhack-cmd-section" style="margin-top:10px"><div class="keyhack-cmd-label">Validation command (${escapeHTML(t.Method || 'GET').toUpperCase()})</div><div class="keyhack-cmd-box"><pre class="keyhack-pre">${escapeHTML(cmd)}</pre><button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}"><span style="font-size:14px">📋</span></button></div></div>`;
+        return `<div class="keyhack-cmd-section" style="margin-top:10px"><div class="keyhack-cmd-label">Validation command (${escapeHTML(t.Method || 'GET').toUpperCase()})</div><div class="keyhack-cmd-box"><pre class="keyhack-pre">${escapeHTML(cmd)}</pre><button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}"><span style="font-size:14px">[LIST]</span></button></div></div>`;
       }).filter(Boolean).join('');
       return `<div class="card" style="margin:10px 0 0 0"><div class="card-header"><div class="card-title">${sevBadge(d.sev)} <span style="margin-left:8px">${escapeHTML(d.name)}</span></div></div><div class="card-body"><div style="margin-bottom:10px;color:var(--text-muted)">Matched pattern: <span style="font-family:ui-monospace,monospace">${escapeHTML(d.match)}</span></div>${cmdsHtml}</div></div>`;
     }).join('');
@@ -141,14 +141,14 @@
     const container = document.getElementById('keyhacks-container');
     if (!container) return;
     if (!templates || templates.length === 0) {
-      container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No templates found</div><div class="empty-subtitle">Try a different search query</div></div>';
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">[SEARCH]</div><div class="empty-title">No templates found</div><div class="empty-subtitle">Try a different search query</div></div>';
       return;
     }
 
     const total = templates.length;
     let html = `
       <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title"><span class="card-title-icon">🔍</span>API Key Inspector — DB-Based (${total} templates)</div></div>
+      <div class="card-header"><div class="card-title"><span class="card-title-icon">[SEARCH]</span>API Key Inspector — DB-Based (${total} templates)</div></div>
       <div class="card-body">
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <input class="search-input" id="keyhacks-key-input" placeholder="Paste key/token for detection..." autocomplete="off" style="flex:1;min-width:260px" />
@@ -163,7 +163,7 @@
       const method = (t.Method || 'GET').toUpperCase();
       const cmd = t.CommandTemplate || '';
       const methodClass = method === 'POST' ? 'method-post' : 'method-get';
-      html += `<div class="keyhack-card"><div class="keyhack-header"><div class="keyhack-title"><span class="nav-icon" style="font-size:14px">🔑</span>${escapeHTML(t.Keyname)}</div><div class="keyhack-badge ${methodClass}">${method}</div></div><div class="keyhack-body"><div class="keyhack-desc">${escapeHTML(t.Description || 'No description available for this template.')}</div><div class="keyhack-cmd-section"><div class="keyhack-cmd-label">Validation Command Template</div><div class="keyhack-cmd-box"><pre class="keyhack-pre">${escapeHTML(cmd)}</pre><button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}"><span style="font-size:14px">📋</span></button></div></div>${t.Notes ? `<div class="keyhack-notes"><div class="keyhack-notes-label">💡 Usage Notes</div><div class="keyhack-notes-text">${escapeHTML(t.Notes)}</div></div>` : ''}</div></div>`;
+      html += `<div class="keyhack-card"><div class="keyhack-header"><div class="keyhack-title"><span class="nav-icon" style="font-size:14px">[KEY]</span>${escapeHTML(t.Keyname)}</div><div class="keyhack-badge ${methodClass}">${method}</div></div><div class="keyhack-body"><div class="keyhack-desc">${escapeHTML(t.Description || 'No description available for this template.')}</div><div class="keyhack-cmd-section"><div class="keyhack-cmd-label">Validation Command Template</div><div class="keyhack-cmd-box"><pre class="keyhack-pre">${escapeHTML(cmd)}</pre><button class="keyhack-copy-btn" title="Copy to clipboard" data-cmd="${escAttr(cmd)}"><span style="font-size:14px">[LIST]</span></button></div></div>${t.Notes ? `<div class="keyhack-notes"><div class="keyhack-notes-label">[BULB] Usage Notes</div><div class="keyhack-notes-text">${escapeHTML(t.Notes)}</div></div>` : ''}</div></div>`;
     });
 
     html += '</div>';

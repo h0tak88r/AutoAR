@@ -1771,7 +1771,7 @@
                 const auditor = new SecurityAuditor(adb);
                 const result = await auditor.testBackupEnabled(pkg);
                 const badge = result.status === 'pass' ? 'pass' : result.status === 'fail' ? 'fail' : 'warning';
-                const label = result.status === 'pass' ? '✓ Secure' : result.status === 'fail' ? '✗ Vulnerable' : '⚠ Review';
+                const label = result.status === 'pass' ? 'OK Secure' : result.status === 'fail' ? 'FAIL Vulnerable' : '[!] Review';
                 results.innerHTML = `<div class="result-box"><div class="result-header"><span class="badge ${badge}">${label}</span></div><p style="margin-top:12px;color:var(--lum-70)">${result.description}</p></div>`;
             } catch (e) {
                 results.innerHTML = `<div class="result-box"><span class="badge fail">Error</span><p style="margin-top:8px">${escapeHtml(e.message)}</p></div>`;
@@ -1816,7 +1816,7 @@
                 const auditor = new SecurityAuditor(adb);
                 const result = await auditor.testDebuggable(pkg);
                 const badge = result.status === 'pass' ? 'pass' : 'fail';
-                const label = result.status === 'pass' ? '✓ Not Debuggable' : '✗ Debuggable';
+                const label = result.status === 'pass' ? 'OK Not Debuggable' : 'FAIL Debuggable';
                 results.innerHTML = `<div class="result-box"><div class="result-header"><span class="badge ${badge}">${label}</span></div><p style="margin-top:12px;color:var(--lum-70)">${result.description}</p></div>`;
             } catch (e) {
                 results.innerHTML = `<div class="result-box"><span class="badge fail">Error</span><p style="margin-top:8px">${escapeHtml(e.message)}</p></div>`;
@@ -1919,7 +1919,7 @@
                 html += '</div></div>';
                 for (const test of scanResult.tests) {
                     const badge = test.status === 'pass' ? 'pass' : test.status === 'fail' ? 'fail' : test.status === 'review' ? 'warning' : '';
-                    const label = test.status === 'pass' ? '✓ Pass' : test.status === 'fail' ? '✗ Fail' : test.status === 'review' ? '⚠ Review' : '? Error';
+                    const label = test.status === 'pass' ? 'OK Pass' : test.status === 'fail' ? 'FAIL Fail' : test.status === 'review' ? '[!] Review' : '? Error';
                     html += `<div class="result-box" style="margin-top:8px"><div class="result-header"><span class="badge ${badge}">${label}</span><strong style="margin-left:8px">${escapeHtml(test.title || test.id)}</strong></div>`;
                     if (test.description) {
                         html += `<p style="margin-top:6px;color:var(--lum-50);font-size:12px">${escapeHtml(test.description)}</p>`;

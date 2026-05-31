@@ -138,7 +138,7 @@
     return `
       <div class="modern-card" style="margin-bottom:20px">
         <div class="card-header" style="cursor:pointer" onclick="const b=this.nextElementSibling; b.style.display=b.style.display==='none'?'block':'none'">
-          <div class="card-title"><span class="card-title-icon">⚙</span>Execution Pipeline</div>
+          <div class="card-title"><span class="card-title-icon">[GEAR]</span>Execution Pipeline</div>
           <div style="font-size:11px;color:var(--text-muted)">${modules.length} phases documented · click any row for logs</div>
         </div>
         <div class="card-body" style="padding:0;display:block">

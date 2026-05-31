@@ -10,11 +10,11 @@
 
   function getFileTypeIcon(fileType) {
     switch (fileType) {
-      case 'json': return '🟣';
-      case 'csv': return '📊';
-      case 'log': return '📋';
-      case 'text': return '📄';
-      default: return '📄';
+      case 'json': return 'JSON';
+      case 'csv': return 'CSV';
+      case 'log': return 'LOG';
+      case 'text': return 'TXT';
+      default: return 'TXT';
     }
   }
 
@@ -57,30 +57,30 @@
     const t = (target && String(target).trim()) || 'this target';
     const st = String(scanType || '').toLowerCase().trim();
     switch (st) {
-      case 'ports': return `[ ⚪ ] Port Scan — No open ports found (excluding 80, 443, 8080, 8443) for ${t}`;
+      case 'ports': return `[ -- ] Port Scan — No open ports found (excluding 80, 443, 8080, 8443) for ${t}`;
       case 'aem':
-      case 'aem_scan': return `[ ⚪ ] AEM Scan — No AEM instances discovered for ${t}`;
-      case 'tech': return `[ ⚪ ] Tech Detection — No live hosts found for ${t}`;
-      case 'backup': return `[ ⚪ ] Backup Scan — No backup files found for ${t}`;
-      case 'misconfig': return `[ ⚪ ] Misconfig Scan — No misconfigurations found for ${t}`;
-      case 'subdomains': return `[ ⚪ ] Subdomains — No subdomains found for ${t}`;
-      case 'livehosts': return `[ ⚪ ] Live hosts — No live hosts found for ${t}`;
-      case 'urls': return `[ ⚪ ] URLs — No interesting URLs found for ${t}`;
+      case 'aem_scan': return `[ -- ] AEM Scan — No AEM instances discovered for ${t}`;
+      case 'tech': return `[ -- ] Tech Detection — No live hosts found for ${t}`;
+      case 'backup': return `[ -- ] Backup Scan — No backup files found for ${t}`;
+      case 'misconfig': return `[ -- ] Misconfig Scan — No misconfigurations found for ${t}`;
+      case 'subdomains': return `[ -- ] Subdomains — No subdomains found for ${t}`;
+      case 'livehosts': return `[ -- ] Live hosts — No live hosts found for ${t}`;
+      case 'urls': return `[ -- ] URLs — No interesting URLs found for ${t}`;
       case 'jsscan':
-      case 'js': return `[ ⚪ ] JS Scan — No JavaScript vulnerabilities found for ${t}`;
-      case 'reflection': return `[ ⚪ ] Reflection — 0 findings for ${t}`;
-      case 'nuclei': return `[ ⚪ ] Nuclei — No vulnerabilities found for ${t}`;
-      case 'gf': return `[ ⚪ ] GF Patterns — No vulnerable parameters found for ${t}`;
-      case 's3': return `[ ⚪ ] S3 Scan — No exposed buckets found for ${t}`;
-      case 'githubscan': return `[ ⚪ ] GitHub Scan — No secrets found for ${t}`;
+      case 'js': return `[ -- ] JS Scan — No JavaScript vulnerabilities found for ${t}`;
+      case 'reflection': return `[ -- ] Reflection — 0 findings for ${t}`;
+      case 'nuclei': return `[ -- ] Nuclei — No vulnerabilities found for ${t}`;
+      case 'gf': return `[ -- ] GF Patterns — No vulnerable parameters found for ${t}`;
+      case 's3': return `[ -- ] S3 Scan — No exposed buckets found for ${t}`;
+      case 'githubscan': return `[ -- ] GitHub Scan — No secrets found for ${t}`;
       case 'zerodays':
-      case '0days': return `[ ⚪ ] 0-Days — No zero-day vulnerabilities found for ${t}`;
-      case 'ffuf': return `[ ⚪ ] FFuf — No hidden directories found for ${t}`;
-      case 'dns': return `[ ⚪ ] DNS takeover — No vulnerable records or dangling IPs found for ${t}`;
-      case 'cf1016': return `[ ⚪ ] CF1016 dangling DNS — No missing Cloudflare origins found for ${t}`;
+      case '0days': return `[ -- ] 0-Days — No zero-day vulnerabilities found for ${t}`;
+      case 'ffuf': return `[ -- ] FFuf — No hidden directories found for ${t}`;
+      case 'dns': return `[ -- ] DNS takeover — No vulnerable records or dangling IPs found for ${t}`;
+      case 'cf1016': return `[ -- ] CF1016 dangling DNS — No missing Cloudflare origins found for ${t}`;
       default: {
         const name = st ? st.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Scan';
-        return `[ ⚪ ] ${name} — 0 findings for ${t}`;
+        return `[ -- ] ${name} — 0 findings for ${t}`;
       }
     }
   }
@@ -144,33 +144,33 @@
   function getModuleDisplayInfo(module) {
     const mod = normalizeModuleKey(module);
     const modules = {
-      nuclei: { icon: '🚨', name: 'Nuclei', color: '#ef4444' },
-      'subdomain-enum': { icon: '🔗', name: 'Subdomains', color: '#6366f1' },
-      httpx: { icon: '🌐', name: 'Live Hosts', color: '#22c55e' },
-      apkx: { icon: '📱', name: 'APK Analysis', color: '#22d3ee' },
-      'js-analysis': { icon: '📜', name: 'JS Secrets', color: '#eab308' },
-      'js-endpoints': { icon: '🛣️', name: 'JS Endpoints', color: '#10b981' },
-      'katana-crawler': { icon: '🕷️', name: 'Katana Crawler', color: '#8b5cf6' },
-      'xss-detection': { icon: '💥', name: 'XSS Detection', color: '#f97316' },
-      'sql-detection': { icon: '🗻', name: 'SQLi', color: '#dc2626' },
-      'gf-patterns': { icon: '🎯', name: 'GF Patterns', color: '#8b5cf6' },
-      zerodays: { icon: '💣', name: 'Zero-Days', color: '#dc2626' },
-      'backup-detection': { icon: '📂', name: 'Backup Files', color: '#94a3b8' },
-      misconfig: { icon: '⚙️', name: 'Misconfig', color: '#f59e0b' },
-      'wordpress-confusion': { icon: '🔌', name: 'WP Plugin Confusion', color: '#a855f7' },
-      'dependency-confusion': { icon: '🧶', name: 'Dep Confusion', color: '#c084fc' },
-      's3-scan': { icon: '☁️', name: 'S3 Buckets', color: '#0ea5e9' },
-      aem: { icon: '🧱', name: 'AEM Enum', color: '#f97316' },
-      'dns-takeover': { icon: '📍', name: 'DNS', color: '#06b6d4' },
-      'tech-detect': { icon: '🔬', name: 'Tech Detect', color: '#a855f7' },
-      'port-scan': { icon: '📡', name: 'Port Scan', color: '#64748b' },
-      'github-scan': { icon: '🐦', name: 'GitHub Secrets', color: '#94a3b8' },
-      reflection: { icon: '🔎', name: 'Reflection', color: '#f97316' },
-      'ffuf-fuzzing': { icon: '🎲', name: 'FFUF Fuzzing', color: '#f43f5e' },
-      'url-collection': { icon: '🔗', name: 'URL Collection', color: '#38bdf8' },
-      exposure: { icon: '🔑', name: 'Exposure', color: '#f59e0b' },
-      autoar: { icon: '🎯', name: 'AutoAR', color: '#4ade80' },
-      unknown: { icon: '❓', name: 'Unknown', color: '#64748b' },
+      nuclei: { icon: '', name: 'Nuclei', color: '#ef4444' },
+      'subdomain-enum': { icon: '', name: 'Subdomains', color: '#6366f1' },
+      httpx: { icon: '', name: 'Live Hosts', color: '#22c55e' },
+      apkx: { icon: '', name: 'APK Analysis', color: '#22d3ee' },
+      'js-analysis': { icon: '', name: 'JS Secrets', color: '#eab308' },
+      'js-endpoints': { icon: '', name: 'JS Endpoints', color: '#10b981' },
+      'katana-crawler': { icon: '', name: 'Katana Crawler', color: '#8b5cf6' },
+      'xss-detection': { icon: '', name: 'XSS Detection', color: '#f97316' },
+      'sql-detection': { icon: '', name: 'SQLi', color: '#dc2626' },
+      'gf-patterns': { icon: '', name: 'GF Patterns', color: '#8b5cf6' },
+      zerodays: { icon: '', name: 'Zero-Days', color: '#dc2626' },
+      'backup-detection': { icon: '', name: 'Backup Files', color: '#94a3b8' },
+      misconfig: { icon: '', name: 'Misconfig', color: '#f59e0b' },
+      'wordpress-confusion': { icon: '', name: 'WP Plugin Confusion', color: '#a855f7' },
+      'dependency-confusion': { icon: '', name: 'Dep Confusion', color: '#c084fc' },
+      's3-scan': { icon: '', name: 'S3 Buckets', color: '#0ea5e9' },
+      aem: { icon: '', name: 'AEM Enum', color: '#f97316' },
+      'dns-takeover': { icon: '', name: 'DNS', color: '#06b6d4' },
+      'tech-detect': { icon: '', name: 'Tech Detect', color: '#a855f7' },
+      'port-scan': { icon: '', name: 'Port Scan', color: '#64748b' },
+      'github-scan': { icon: '', name: 'GitHub Secrets', color: '#94a3b8' },
+      reflection: { icon: '', name: 'Reflection', color: '#f97316' },
+      'ffuf-fuzzing': { icon: '', name: 'FFUF Fuzzing', color: '#f43f5e' },
+      'url-collection': { icon: '', name: 'URL Collection', color: '#38bdf8' },
+      exposure: { icon: '', name: 'Exposure', color: '#f59e0b' },
+      autoar: { icon: '', name: 'AutoAR', color: '#4ade80' },
+      unknown: { icon: '', name: 'Unknown', color: '#64748b' },
     };
     return modules[mod] || modules.unknown;
   }

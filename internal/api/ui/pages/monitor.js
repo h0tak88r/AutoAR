@@ -289,7 +289,7 @@
 
     const targets = window.state.monitorTargets;
     if (!targets.length) {
-      urlContainer.innerHTML = window.emptyState('🔗', 'No URL monitors yet', 'Use Quick launch above, or CLI: autoar monitor updates add -u <url>');
+      urlContainer.innerHTML = window.emptyState('[LINK]', 'No URL monitors yet', 'Use Quick launch above, or CLI: autoar monitor updates add -u <url>');
     } else {
       urlContainer.innerHTML = `<table class="data-table">
         <thead><tr><th>URL</th><th>Strategy</th><th>Status</th><th>Changes</th><th>Last Run</th><th>Actions</th></tr></thead>
@@ -303,7 +303,7 @@
           <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(t.URL || t.url || '')}</span></td>
           <td><span class="scan-type">${esc(t.Strategy || t.strategy || 'hash')}</span></td>
           <td>${running
-            ? `<span class="badge badge-monitor-on">● running</span>`
+            ? `<span class="badge badge-monitor-on">* running</span>`
             : `<span class="badge badge-monitor-off">stopped</span>`}</td>
           <td style="font-size:12px;color:var(--text-muted)">${t.ChangeCount || t.change_count || 0}</td>
           <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
@@ -316,7 +316,7 @@
 
     const subTargets = window.state.subMonitorTargets;
     if (!subTargets.length) {
-      subContainer.innerHTML = window.emptyState('🌐', 'No subdomain monitors yet', 'Use Quick launch above, or CLI: autoar monitor subdomains manage add -d <domain>');
+      subContainer.innerHTML = window.emptyState('[WEB]', 'No subdomain monitors yet', 'Use Quick launch above, or CLI: autoar monitor subdomains manage add -d <domain>');
     } else {
       subContainer.innerHTML = `<table class="data-table">
         <thead><tr><th>Domain</th><th>Interval</th><th>Status</th><th>Last Run</th><th>Actions</th></tr></thead>
@@ -330,7 +330,7 @@
           <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-purple)">${esc(t.Domain || t.domain || '')}</span></td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtInterval(t.Interval || t.interval)}</td>
           <td>${running
-            ? `<span class="badge badge-monitor-on">● running</span>`
+            ? `<span class="badge badge-monitor-on">* running</span>`
             : `<span class="badge badge-monitor-off">stopped</span>`}</td>
           <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
           <td style="white-space:nowrap">${pauseResume}
@@ -342,7 +342,7 @@
 
     const changes = window.state.monitorChanges;
     if (!changes.length) {
-      feedContainer.innerHTML = window.emptyState('📭', 'No changes recorded', 'Changes will appear here once monitors run.');
+      feedContainer.innerHTML = window.emptyState('[MAIL]', 'No changes recorded', 'Changes will appear here once monitors run.');
     } else {
       feedContainer.innerHTML = changes.map(c => changeItemHtml(c)).join('');
     }
@@ -355,13 +355,13 @@
     const at = c.DetectedAt || c.detected_at || '';
     const detailPreview = formatMonitorDetailPreview(detail);
     const iconMap = {
-      new_subdomain: '🆕', became_live: '🟢', became_dead: '💀',
-      content_changed: '📝', status_changed: '🔄',
+      new_subdomain: '[NEW]', became_live: '[OK]', became_dead: '[DEAD]',
+      content_changed: '[LOG]', status_changed: '[SYNC]',
     };
     return `<div class="change-item">
       <div class="change-dot ${ctype}"></div>
       <div class="change-body">
-        <div class="change-title">${iconMap[ctype] || '📌'} ${esc(humanChangeType(ctype))}</div>
+        <div class="change-title">${iconMap[ctype] || '[PIN]'} ${esc(humanChangeType(ctype))}</div>
         <div class="change-detail">${esc(domain)}${detailPreview ? ` — ${esc(detailPreview).slice(0, 200)}` : ''}</div>
       </div>
       <div class="change-time">${timeAgo(at)}</div>

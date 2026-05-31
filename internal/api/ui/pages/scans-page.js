@@ -32,46 +32,46 @@
   function scanTypeLabel(rawType) {
     const t = String(rawType || '').toLowerCase().trim();
     const map = {
-      recon: '🔭 Recon Discovery',
-      domain_run: '🌍 Full Domain',
-      subdomain_run: '🔬 Subdomain',
-      lite: '⚡ Lite Workflow',
-      fastlook: '👁 Fast Look',
-      subdomains: '🔍 Subdomains',
-      livehosts: '🌐 Live Hosts',
-      cnames: '🔗 CNAMEs',
-      urls: '🔗 URLs',
-      js: '📜 JS Scan',
-      jsscan: '📜 JS Scan',
-      reflection: '⚡  Reflection',
-      gf: '🎯 GF Patterns',
-      nuclei: '☢️ Nuclei',
-      'nuclei-full': '☢️ Nuclei Full',
-      'nuclei-cves': '☢️ Nuclei CVEs',
-      'nuclei-panels': '☢️ Nuclei Panels',
-      'nuclei-vulnerabilities': '☢️ Nuclei Vulns',
-      'nuclei-default-logins': '☢️ Nuclei Logins',
-      ports: '🔌 Ports',
-      tech: '🔬 Tech Detect',
-      dns: '🔀 DNS Takeover',
-      'dns-takeover': '🔀 DNS Takeover',
-      'dns-dangling-ip': '🔀 Dangling IP',
-      dns_cf1016: '☁️ CF1016 Dangling',
-      'dns-cf1016': '☁️ CF1016 Dangling',
-      backup: '💾 Backup Files',
-      misconfig: '⚙️ Misconfig',
-      s3: '🪣 S3 Scan',
-      github: '🐙 GitHub',
-      github_org: '🐙 GitHub Org',
-      github_scan: '🐙 GitHub',
-      ffuf: '🎲 FFuf Fuzz',
-      zerodays: '🚨 Zero-Days',
-      aem: '🏗 AEM Scan',
-      aem_scan: '🏗 AEM Scan',
-      cleanup: '🧹 Cleanup',
-      depconfusion: '📦 Dep Confusion',
-      wp_confusion: '📦 WP Confusion',
-      asr: '🛡️ ASR Mode',
+      recon: '[TELESCOPE] Recon Discovery',
+      domain_run: '[GLOBE] Full Domain',
+      subdomain_run: '[MICROSCOPE] Subdomain',
+      lite: '[BOLT] Lite Workflow',
+      fastlook: '[EYE] Fast Look',
+      subdomains: '[SEARCH] Subdomains',
+      livehosts: '[WEB] Live Hosts',
+      cnames: '[LINK] CNAMEs',
+      urls: '[LINK] URLs',
+      js: '[SCROLL] JS Scan',
+      jsscan: '[SCROLL] JS Scan',
+      reflection: '[BOLT]  Reflection',
+      gf: '[TARGET] GF Patterns',
+      nuclei: '[RADIATION] Nuclei',
+      'nuclei-full': '[RADIATION] Nuclei Full',
+      'nuclei-cves': '[RADIATION] Nuclei CVEs',
+      'nuclei-panels': '[RADIATION] Nuclei Panels',
+      'nuclei-vulnerabilities': '[RADIATION] Nuclei Vulns',
+      'nuclei-default-logins': '[RADIATION] Nuclei Logins',
+      ports: '[PLUG] Ports',
+      tech: '[MICROSCOPE] Tech Detect',
+      dns: '[SHUFFLE] DNS Takeover',
+      'dns-takeover': '[SHUFFLE] DNS Takeover',
+      'dns-dangling-ip': '[SHUFFLE] Dangling IP',
+      dns_cf1016: '[CLOUD] CF1016 Dangling',
+      'dns-cf1016': '[CLOUD] CF1016 Dangling',
+      backup: '[SAVE] Backup Files',
+      misconfig: '[GEAR] Misconfig',
+      s3: '[BUCKET] S3 Scan',
+      github: '[OCTO] GitHub',
+      github_org: '[OCTO] GitHub Org',
+      github_scan: '[OCTO] GitHub',
+      ffuf: '[DICE] FFuf Fuzz',
+      zerodays: '[ALERT] Zero-Days',
+      aem: '[BRICK] AEM Scan',
+      aem_scan: '[BRICK] AEM Scan',
+      cleanup: '[BROOM] Cleanup',
+      depconfusion: '[BOX] Dep Confusion',
+      wp_confusion: '[BOX] WP Confusion',
+      asr: '[SHIELD] ASR Mode',
     };
     if (map[t]) return map[t];
     return t.replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || rawType;
@@ -100,17 +100,17 @@
     const noPhaseYet = showProgress && currentPhase === 0 && !phaseName;
 
     let badge = '';
-    if (statusRaw === 'paused') badge = '<span class="badge badge-starting">⏸ paused</span>';
+    if (statusRaw === 'paused') badge = '<span class="badge badge-starting">[PAUSE] paused</span>';
     else if (statusRaw === 'cancelling') badge = '<span class="badge badge-starting">⋯ stopping</span>';
-    else if (isActive) badge = '<span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">● live</span>';
+    else if (isActive) badge = '<span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">* live</span>';
 
     const actions = isActive ? `
     <div class="scan-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center" onclick="event.stopPropagation()">
       ${statusRaw !== 'paused' && statusRaw !== 'cancelling'
-    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseScan('${window.esc(scanID)}')">⏸ Pause</button>` : ''}
+    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseScan('${window.esc(scanID)}')">[PAUSE] Pause</button>` : ''}
       ${statusRaw === 'paused'
-    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeScan('${window.esc(scanID)}')">▶ Resume</button>` : ''}
-      <button type="button" class="btn btn-ghost scan-btn-stop" style="font-size:11px;padding:4px 10px" onclick="cancelScan('${window.esc(scanID)}')">■ Stop</button>
+    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeScan('${window.esc(scanID)}')">[PLAY] Resume</button>` : ''}
+      <button type="button" class="btn btn-ghost scan-btn-stop" style="font-size:11px;padding:4px 10px" onclick="cancelScan('${window.esc(scanID)}')">[SQUARE] Stop</button>
       <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="goToScanResultsPage('${window.esc(scanID)}');event.stopPropagation()">→ View</button>
     </div>` : '';
 
@@ -122,8 +122,8 @@
     <div style="display:flex;flex-direction:column;gap:4px;margin-top:10px;margin-bottom:6px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:8px;border:1px solid rgba(255,255,255,.05)">
       ${phaseSteps.map((step, i) => {
     const isLast = i === phaseSteps.length - 1;
-    const icon = step.state === 'done' ? '<span style="color:#10b981;font-size:11px">✓</span>'
-      : step.state === 'failed' ? '<span style="color:#ef4444;font-size:11px">✗</span>'
+    const icon = step.state === 'done' ? '<span style="color:#10b981;font-size:11px">OK</span>'
+      : step.state === 'failed' ? '<span style="color:#ef4444;font-size:11px">FAIL</span>'
         : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-cyan);box-shadow:0 0 6px var(--accent-cyan);animation:pulse 1s ease-in-out infinite;vertical-align:middle"></span>';
     const color = step.state === 'done' ? 'var(--text-muted)' : step.state === 'failed' ? '#ef4444' : 'var(--text-primary)';
     const weight = isLast ? '600' : '400';
@@ -151,10 +151,10 @@
             ${(() => {
     const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
     const label = isFindingType ? (filesUploaded === 1 ? 'finding' : 'findings') : (filesUploaded === 1 ? 'file' : 'files');
-    const icon = isFindingType ? '🎯' : '📁';
+    const icon = isFindingType ? '[TARGET]' : '[FOLDER]';
     return filesUploaded > 0 ? `<span style="font-size:10px;color:var(--text-muted)">${icon} ${filesUploaded} ${label}</span>` : '';
   })()}
-            ${errorCount > 0 ? `<span style="font-size:10px;color:#f59e0b">⚠ ${errorCount} error${errorCount !== 1 ? 's' : ''}</span>` : ''}
+            ${errorCount > 0 ? `<span style="font-size:10px;color:#f59e0b">[!] ${errorCount} error${errorCount !== 1 ? 's' : ''}</span>` : ''}
             ${lastUpdate ? `<span style="font-size:10px;color:var(--text-muted)" title="${window.esc(lastUpdate)}">updated ${elapsedStr(lastUpdate)} ago</span>` : ''}
           </div>
         </div>`;
@@ -199,8 +199,8 @@
     let phaseCol = '';
     if (done) {
       const skipped = Math.max(0, totalPhases - (compPhases.length + failPhases.length));
-      const compList = compPhases.length ? compPhases.map((p) => `✓ ${cleanName(p)}`).join('\n') : 'None';
-      const failList = failPhases.length ? failPhases.map((p) => `✗ ${cleanName(p)}`).join('\n') : 'None';
+      const compList = compPhases.length ? compPhases.map((p) => `OK ${cleanName(p)}`).join('\n') : 'None';
+      const failList = failPhases.length ? failPhases.map((p) => `FAIL ${cleanName(p)}`).join('\n') : 'None';
       const skipCount = skipped > 0 ? `${skipped} stage(s) did not run (timeout/skipped/unlaunched)` : 'All stages accounted for';
       const tooltipText = `Completed (${compPhases.length}):\n${compList}\n\nFailed (${failPhases.length}):\n${failList}\n\nSkipped: ${skipCount}`;
       if (pct < 100 && skipped > 0) {
@@ -220,14 +220,14 @@
     const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
     const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'gf', 'ffuf', 'apkx', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
     const label = isFindingType ? 'findings' : 'files';
-    const icon = isFindingType ? '🎯' : '📁';
+    const icon = isFindingType ? '[TARGET]' : '[FOLDER]';
     const badgeHtml = filesUploaded > 0 ? `<span class="badge badge-running" style="font-size:10px;padding:2px 6px;margin-bottom:4px;display:inline-block;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);color:var(--accent-cyan);cursor:help" title="${filesUploaded} ${label} identified">${icon} ${filesUploaded} ${label}</span><br/>` : '';
     const resultsCell = resultURL
       ? `${badgeHtml}<a href="${window.esc(resultURL)}" target="_blank" onclick="event.stopPropagation()" class="scan-result-link">Download</a>`
       : `${badgeHtml}<button type="button" class="scan-control-btn-r2" onclick='event.stopPropagation();browseR2ForScan(${JSON.stringify(target)}, ${JSON.stringify(scanType)})'>Browse R2</button>`;
     const running = ['running', 'starting', 'paused'].includes(statusLc);
     const rescanBtn = !running
-      ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.35);color:var(--accent-emerald)" onclick='event.stopPropagation();rescanScan(${JSON.stringify(scanID)})' title="Re-run with same command">🔁 Rescan</button>`
+      ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.35);color:var(--accent-emerald)" onclick='event.stopPropagation();rescanScan(${JSON.stringify(scanID)})' title="Re-run with same command">[REPEAT] Rescan</button>`
       : '';
     const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" onclick='event.stopPropagation();deleteScan(${JSON.stringify(scanID)}, ${JSON.stringify(target)})'>Delete</button>`;
     const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${window.esc(scanID)}" onclick="event.stopPropagation()" aria-label="Select scan" />`;
@@ -267,7 +267,7 @@
       html += `<div class="card" style="margin-bottom:16px;border:1px solid var(--accent-red);background:rgba(239,68,68,0.08)"><div class="card-body" style="padding:14px 16px;font-size:13px;color:var(--accent-red)">Could not load scans: ${window.esc(scanErr)}</div></div>`;
     }
     html += `<div class="scan-launcher" style="margin-bottom:20px">
-      <div class="scan-launcher-title">🚀 Quick Scan Launcher</div>
+      <div class="scan-launcher-title">[ROCKET] Quick Scan Launcher</div>
       <div class="scan-form">
         <select id="launch-type">
           <optgroup label="Workflows">
@@ -306,7 +306,7 @@
         <input type="text" id="launch-target" value="${window.esc(lUI.target || '')}" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
         <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none">${window.esc(lUI.targetList || '')}</textarea>
         <button class="btn-primary" id="launch-btn">
-          <span>▶</span>
+          <span>[PLAY]</span>
           <span>Launch</span>
         </button>
       </div>
@@ -320,14 +320,14 @@
         <div id="launch-flags-advanced" class="launch-flags-grid"></div>
       </details>
     </div>`;
-    html += `<div class="card" style="margin-bottom:20px; border:1px solid var(--border); background:rgba(13,17,23,0.4)"><div class="card-body" style="padding:16px"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div style="flex:1;min-width:280px;position:relative"><input type="text" id="scan-search-input" class="search-input" placeholder="🔍 Search targets or scan types..." value="${window.esc(sUI.search)}" style="width:100%; padding-left:36px; background:var(--bg-secondary)"><span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none"></span></div><div style="min-width:180px"><select id="scan-type-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all">All Scan Types</option><optgroup label="Workflows"><option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option><option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option><option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option><option value="asr" ${sUI.typeFilter === 'asr' ? 'selected' : ''}>ASR Mode</option></optgroup><optgroup label="Modules"><option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option><option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option><option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option><option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option><option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option><option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option><option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option></optgroup></select></div><div style="min-width:180px"><select id="scan-status-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option><option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option><option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option><option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option><option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option></select></div></div></div></div>`;
+    html += `<div class="card" style="margin-bottom:20px; border:1px solid var(--border); background:rgba(13,17,23,0.4)"><div class="card-body" style="padding:16px"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div style="flex:1;min-width:280px;position:relative"><input type="text" id="scan-search-input" class="search-input" placeholder="[SEARCH] Search targets or scan types..." value="${window.esc(sUI.search)}" style="width:100%; padding-left:36px; background:var(--bg-secondary)"><span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none"></span></div><div style="min-width:180px"><select id="scan-type-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all">All Scan Types</option><optgroup label="Workflows"><option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option><option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option><option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option><option value="asr" ${sUI.typeFilter === 'asr' ? 'selected' : ''}>ASR Mode</option></optgroup><optgroup label="Modules"><option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option><option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option><option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option><option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option><option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option><option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option><option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option></optgroup></select></div><div style="min-width:180px"><select id="scan-status-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option><option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option><option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option><option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option><option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option></select></div></div></div></div>`;
     if (filteredActive.length) {
-      html += `<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title">⚡ Active Scans <span class="badge badge-running">${filteredActive.length}</span></div></div><div class="card-body">${filteredActive.map((s) => scanItemHtml(s)).join('')}</div></div>`;
+      html += `<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title">[BOLT] Active Scans <span class="badge badge-running">${filteredActive.length}</span></div></div><div class="card-body">${filteredActive.map((s) => scanItemHtml(s)).join('')}</div></div>`;
     }
-    html += `<div class="card"><div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px"><div class="card-title">🕐 Recent Scans ${filteredRecent.length !== recent_scans.length ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px">(${filteredRecent.length} filtered)</span>` : ''}</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="deleteSelectedScans()">Delete selected</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:#f59e0b;border-color:rgba(245,158,11,.35)" onclick="deleteScansNoFindings()">Delete no findings</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick="clearAllScans()">Clear all</button></div></div><div class="card-body">`;
+    html += `<div class="card"><div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px"><div class="card-title">[CLOCK] Recent Scans ${filteredRecent.length !== recent_scans.length ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px">(${filteredRecent.length} filtered)</span>` : ''}</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="deleteSelectedScans()">Delete selected</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:#f59e0b;border-color:rgba(245,158,11,.35)" onclick="deleteScansNoFindings()">Delete no findings</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick="clearAllScans()">Clear all</button></div></div><div class="card-body">`;
     if (!filteredRecent.length && !filteredActive.length) {
-      if (sUI.search || sUI.typeFilter !== 'all' || sUI.statusFilter !== 'all') html += window.emptyState('🔍', 'No matches found', 'Adjust your filters or search term to see more scans.');
-      else html += scanErr ? window.emptyState('⚠️', 'Scans unavailable', 'Fix the error above or check that the API is reachable.') : window.emptyState('📋', 'No scans yet', 'Start a scan from the launcher above or via the CLI.');
+      if (sUI.search || sUI.typeFilter !== 'all' || sUI.statusFilter !== 'all') html += window.emptyState('[SEARCH]', 'No matches found', 'Adjust your filters or search term to see more scans.');
+      else html += scanErr ? window.emptyState('[!]', 'Scans unavailable', 'Fix the error above or check that the API is reachable.') : window.emptyState('[LIST]', 'No scans yet', 'Start a scan from the launcher above or via the CLI.');
     } else if (!filteredRecent.length && recent_scans.length > 0) {
       html += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No completed scans match the current filter</div>';
     } else if (filteredRecent.length > 0) {

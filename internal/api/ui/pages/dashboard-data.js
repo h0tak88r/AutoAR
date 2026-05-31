@@ -40,7 +40,7 @@
     state().error.subdomains = null;
     if (state().view === 'subdomains') {
       const container = byId('subdomains-container');
-      if (container) container.innerHTML = window.emptyState('⏳', 'Loading subdomains…', 'Fetching paginated rows from database.');
+      if (container) container.innerHTML = window.emptyState('...', 'Loading subdomains…', 'Fetching paginated rows from database.');
     }
 
     if (!state().domains || !state().domains.length) {
