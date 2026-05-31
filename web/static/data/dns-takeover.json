@@ -1,0 +1,242 @@
+[
+  {
+    "provider": "000Domains (https://000domains.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.000domains.com, ns2.000domains.com, fwns1.000domains.com, fwns2.000domains.com",
+    "instructions": "Issue #19 (https://github.com/indianajson/can-i-take-over-dns/issues/19)"
+  },
+  {
+    "provider": "AWS Route 53 (https://aws.amazon.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns-\\*\\*\\*\\*.awsdns-\\*\\*.org, ns-\\*\\*\\*\\*.awsdns-\\*\\*.co.uk, ns-\\*\\*\\*.awsdns-\\*\\*.com, ns-\\*\\*\\*.awsdns-\\*\\*.net",
+    "instructions": "Issue #1 (https://github.com/indianajson/can-i-take-over-dns/issues/1)"
+  },
+  {
+    "provider": "Azure (Microsoft)",
+    "status": "Edge Case",
+    "fingerprint": "ns1-\\*\\*.azure-dns.com, ns2-\\*\\*.azure-dns.net, ns3-\\*\\*.azure-dns.org, ns4-\\*\\*.azure-dns.info",
+    "instructions": "Issue #5 (https://github.com/indianajson/can-i-take-over-dns/issues/5)"
+  },
+  {
+    "provider": "BigCommerce (https://bigcommerce.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.bigcommerce.com, ns2.bigcommerce.com, ns3.bigcommerce.com",
+    "instructions": "Issue #35 (https://github.com/indianajson/can-i-take-over-dns/issues/35)"
+  },
+  {
+    "provider": "Bizland (https://bizland.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.bizland.com, ns2.bizland.com, clickme.click2site.com, clickme2.click2site.com",
+    "instructions": "Issue #3 (https://github.com/indianajson/can-i-take-over-dns/issues/3)"
+  },
+  {
+    "provider": "ClouDNS (https://cloudns.net/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "\\*.cloudns.net",
+    "instructions": ""
+  },
+  {
+    "provider": "Cloudflare (https://cloudflare.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "\\*.ns.cloudflare.com",
+    "instructions": "Issue #10 (https://github.com/indianajson/can-i-take-over-dns/issues/10)"
+  },
+  {
+    "provider": "Digital Ocean (https://digitalocean.com/)",
+    "status": "Vulnerable",
+    "fingerprint": "ns1.digitalocean.com, ns2.digitalocean.com, ns3.digitalocean.com",
+    "instructions": "Issue #22 (https://github.com/indianajson/can-i-take-over-dns/issues/22)"
+  },
+  {
+    "provider": "DNSMadeEasy (https://dnsmadeeasy.com/)",
+    "status": "Vulnerable",
+    "fingerprint": "ns\\*\\*.dnsmadeeasy.com",
+    "instructions": "Issue #6 (https://github.com/indianajson/can-i-take-over-dns/issues/6)"
+  },
+  {
+    "provider": "DNSimple (https://dnsimple.com/)",
+    "status": "Vulnerable",
+    "fingerprint": "ns1.dnsimple.com, ns2.dnsimple.com, ns3.dnsimple.com, ns4.dnsimple.com",
+    "instructions": "Issue #16 (https://github.com/indianajson/can-i-take-over-dns/issues/16)"
+  },
+  {
+    "provider": "Domain.com (https://domain.com/)",
+    "status": "Vulnerable (w/ purchase)",
+    "fingerprint": "ns1.domain.com, ns2.domain.com",
+    "instructions": "Issue #17 (https://github.com/indianajson/can-i-take-over-dns/issues/17)"
+  },
+  {
+    "provider": "DomainPeople (https://domainpeople.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.domainpeople.com, ns2.domainpeople.com",
+    "instructions": "Issue #14 (https://github.com/indianajson/can-i-take-over-dns/issues/14)"
+  },
+  {
+    "provider": "Dotster (https://dotster.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.dotster.com, ns2.dotster.com, ns1.nameresolve.com, ns2.nameresolve.com",
+    "instructions": "Issue #18 (https://github.com/indianajson/can-i-take-over-dns/issues/18)"
+  },
+  {
+    "provider": "Dreamhost (https://dreamhost.com/)",
+    "status": "Edge Case",
+    "fingerprint": "ns1.dreamhost.com, ns2.dreamhost.com, ns3.dreamhost.com",
+    "instructions": "Issue #40 (https://github.com/indianajson/can-i-take-over-dns/issues/40)"
+  },
+  {
+    "provider": "EasyDNS (https://easydns.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "dns1.easydns.com, dns2.easydns.net, dns3.easydns.org, dns4.easydns.info",
+    "instructions": "Issue #9 (https://github.com/indianajson/can-i-take-over-dns/issues/9)"
+  },
+  {
+    "provider": "Gandi.net (https://gandi.net/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "a.dns.gandi.net, b.dns.gandi.net, c.dns.gandi.net",
+    "instructions": ""
+  },
+  {
+    "provider": "Google Cloud (https://cloud.google.com/)",
+    "status": "Edge Case",
+    "fingerprint": "ns-cloud-\\*\\*.googledomains.com",
+    "instructions": "Issue #2 (https://github.com/indianajson/can-i-take-over-dns/issues/2)"
+  },
+  {
+    "provider": "Hostinger (old NS)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.hostinger.com, ns2.hostinger.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Hover (https://hover.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.hover.com, ns2.hover.com",
+    "instructions": "Issue #21 (https://github.com/indianajson/can-i-take-over-dns/issues/21)"
+  },
+  {
+    "provider": "Hurricane Electric (https://dns.he.net/)",
+    "status": "Vulnerable",
+    "fingerprint": "ns5.he.net, ns4.he.net, ns3.he.net, ns2.he.net, ns1.he.net",
+    "instructions": "Issue #25 (https://github.com/indianajson/can-i-take-over-dns/issues/25)"
+  },
+  {
+    "provider": "Linode (https://linode.com/)",
+    "status": "Vulnerable",
+    "fingerprint": "ns1.linode.com, ns2.linode.com",
+    "instructions": "Issue #26 (https://github.com/indianajson/can-i-take-over-dns/issues/26)"
+  },
+  {
+    "provider": "MediaTemple (mt)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.mediatemple.net, ns2.mediatemple.net",
+    "instructions": "Issue #23 (https://github.com/indianajson/can-i-take-over-dns/issues/23)"
+  },
+  {
+    "provider": "MyDomain (https://mydomain.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns1.mydomain.com, ns2.mydomain.com",
+    "instructions": "Issue #4 (https://github.com/indianajson/can-i-take-over-dns/issues/4)"
+  },
+  {
+    "provider": "Name.com (https://name.com/)",
+    "status": "Vulnerable (w/ purchase)",
+    "fingerprint": "ns1*.name.com, ns2*.name.com, ns3*.name.com, ns4*.name.com",
+    "instructions": "Issue #8 (https://github.com/libertalialtd/can-i-take-over-dns/issues/8)"
+  },
+  {
+    "provider": "namecheap (https://namecheap.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "\\*.namecheaphosting.com, \\*.registrar-servers.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Network Solutions (https://networksolutions.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns\\*\\*.worldnic.com",
+    "instructions": "Issue #15 (https://github.com/indianajson/can-i-take-over-dns/issues/15)"
+  },
+  {
+    "provider": "NS1 (https://nsone.net/)",
+    "status": "Registration Closed , I can help, comment on the linked issue.",
+    "fingerprint": "dns1.p\\*\\*.nsone.net, dns2.p\\*\\*.nsone.net, dns3.p\\*\\*.nsone.net, dns4.p\\*\\*.nsone.net",
+    "instructions": "Issue #7 (https://github.com/indianajson/can-i-take-over-dns/issues/7)"
+  },
+  {
+    "provider": "TierraNet (https://tierra.net/)",
+    "status": "Vulnerable",
+    "fingerprint": "ns1.domaindiscover.com, ns2.domaindiscover.com",
+    "instructions": "Issue #24 (https://github.com/indianajson/can-i-take-over-dns/issues/24)"
+  },
+  {
+    "provider": "Reg.ru (https://reg.ru/)",
+    "status": "Vulnerable , (sanctions may stop payments)",
+    "fingerprint": "ns1.reg.ru, ns2.reg.ru",
+    "instructions": "Issue #28 (https://github.com/indianajson/can-i-take-over-dns/issues/28)"
+  },
+  {
+    "provider": "UltraDNS (https://www.home.neustar/dns-services/ultra-dns)",
+    "status": "Not Vulnerable",
+    "fingerprint": "pdns*.ultradns.com, udns*.ultradns.com, sdns*.ultradns.com",
+    "instructions": "Issue #29 (https://github.com/indianajson/can-i-take-over-dns/issues/29)"
+  },
+  {
+    "provider": "Yahoo Small Business (https://yahoosmallbusiness.com/)",
+    "status": "Vulnerable (w/ purchase)",
+    "fingerprint": "yns1.yahoo.com, yns2.yahoo.com",
+    "instructions": "Issue #20 (https://github.com/indianajson/can-i-take-over-dns/issues/20)"
+  },
+  {
+    "provider": "Activision (https://activision.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns\\*.activision.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Adobe (https://adobe.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "adobe-dns-0*.adobe.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Apple (https://apple.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "a.ns.apple.com, b.ns.apple.com, c.ns.apple.com, d.ns.apple.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Automattic (https://automattic.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns*.automattic.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Capital One (https://capitalone.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns*.capitalone.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Disney (https://disney.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns*.twdcns.com, ns*.twdcns.info, ns*.twdcns.co.uk",
+    "instructions": ""
+  },
+  {
+    "provider": "Google (https://google.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns*.google.com",
+    "instructions": ""
+  },
+  {
+    "provider": "Lowe's (https://lowes.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "authns*.lowes.com",
+    "instructions": ""
+  },
+  {
+    "provider": "T-Mobile (https://tmobileus.com/)",
+    "status": "Not Vulnerable",
+    "fingerprint": "ns10.tmobileus.com, ns10.tmobileus.net",
+    "instructions": ""
+  }
+]

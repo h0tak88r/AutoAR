@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subdomain & DNS Takeover Reference - AutoAR</title>
+    <link rel="stylesheet" href="../styles.css">
+    <style>
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 2em;
+        }
+
+        .header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #64748b;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .search-box {
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 40px 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+        }
+
+        .stats {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            flex: 1;
+            min-width: 150px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .stat-card .label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .stat-card.vulnerable .value {
+            color: #ef4444;
+        }
+
+        .stat-card.not-vulnerable .value {
+            color: #10b981;
+        }
+
+        .stat-card.edge-case .value {
+            color: #f59e0b;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        thead {
+            background: #f8fafc;
+        }
+
+        th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #475569;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px 16px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        tbody tr:hover {
+            background: #f8fafc;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-vulnerable {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-not-vulnerable {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-edge-case {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .fingerprint {
+            font-family: 'Courier New', monospace;
+            background: #f1f5f9;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .link {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .link:hover {
+            text-decoration: underline;
+        }
+
+        .verified-icon {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            text-align: center;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="../securitylab/index.html" class="back-link">← Back to Security Lab</a>
+
+        <div class="header">
+            <h1>🎯 Subdomain & DNS Takeover Reference</h1>
+            <p>Comprehensive database of vulnerable services and DNS providers for takeover detection</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="subdomain">Subdomain Takeover</button>
+            <button class="tab" data-tab="dns">DNS/NS Takeover</button>
+        </div>
+
+        <!-- Subdomain Takeover Tab -->
+        <div id="subdomain-tab" class="tab-content active">
+            <div class="search-box">
+                <input type="text" id="subdomain-search" placeholder="Search by engine, fingerprint, or status...">
+                <span class="search-icon">🔍</span>
+            </div>
+
+            <div class="stats" id="subdomain-stats">
+                <div class="stat-card vulnerable">
+                    <div class="label">Vulnerable</div>
+                    <div class="value" id="subdomain-vulnerable-count">-</div>
+                </div>
+                <div class="stat-card not-vulnerable">
+                    <div class="label">Not Vulnerable</div>
+                    <div class="value" id="subdomain-safe-count">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Engines</div>
+                    <div class="value" id="subdomain-total-count">-</div>
+                </div>
+            </div>
+
+            <div id="subdomain-loading" class="loading">Loading subdomain takeover data...</div>
+            <div id="subdomain-table-container" style="display: none;">
+                <table id="subdomain-table">
+                    <thead>
+                        <tr>
+                            <th>Engine</th>
+                            <th>Status</th>
+                            <th>Verified</th>
+                            <th>Fingerprint</th>
+                            <th>Discussion</th>
+                            <th>Documentation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subdomain-tbody"></tbody>
+                </table>
+            </div>
+            <div id="subdomain-no-results" class="no-results" style="display: none;">
+                No results found. Try a different search term.
+            </div>
+        </div>
+
+        <!-- DNS Takeover Tab -->
+        <div id="dns-tab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="dns-search" placeholder="Search by provider, fingerprint, or status...">
+                <span class="search-icon">🔍</span>
+            </div>
+
+            <div class="stats" id="dns-stats">
+                <div class="stat-card vulnerable">
+                    <div class="label">Vulnerable</div>
+                    <div class="value" id="dns-vulnerable-count">-</div>
+                </div>
+                <div class="stat-card not-vulnerable">
+                    <div class="label">Not Vulnerable</div>
+                    <div class="value" id="dns-safe-count">-</div>
+                </div>
+                <div class="stat-card edge-case">
+                    <div class="label">Edge Cases</div>
+                    <div class="value" id="dns-edge-count">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Providers</div>
+                    <div class="value" id="dns-total-count">-</div>
+                </div>
+            </div>
+
+            <div id="dns-loading" class="loading">Loading DNS takeover data...</div>
+            <div id="dns-table-container" style="display: none;">
+                <table id="dns-table">
+                    <thead>
+                        <tr>
+                            <th>Provider</th>
+                            <th>Status</th>
+                            <th>Fingerprint</th>
+                            <th>Instructions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dns-tbody"></tbody>
+                </table>
+            </div>
+            <div id="dns-no-results" class="no-results" style="display: none;">
+                No results found. Try a different search term.
+            </div>
+        </div>
+    </div>
+
+    <script src="takeover-reference.js"></script>
+</body>
+</html>

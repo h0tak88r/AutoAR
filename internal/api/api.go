@@ -501,6 +501,9 @@ func SetupAPI() *gin.Engine {
 	r.GET("/scans", serveDashboardUI)
 	r.GET("/scans/*filepath", serveDashboardUI)
 
+	// Static data files (JSON reference tables)
+	r.GET("/static/data/*filepath", serveStaticData)
+
 	// Public: SPA reads these before login (no JWT).
 	r.GET("/api/config", apiConfigHandler)
 	r.POST("/api/settings", auth, apiUpdateSettingsHandler)
