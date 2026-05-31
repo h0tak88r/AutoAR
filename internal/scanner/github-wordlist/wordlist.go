@@ -53,7 +53,7 @@ func GenerateWordlist(org, token, outputDir string) error {
 		outputDir = "new-results"
 	}
 
-	fmt.Printf("🚀 Starting GitHub Target Based Wordlist generation for organization: %s\n", org)
+	fmt.Printf(" Starting GitHub Target Based Wordlist generation for organization: %s\n", org)
 
 	// Get repositories
 	repos, err := getOrgRepos(org, token)
@@ -69,17 +69,17 @@ func GenerateWordlist(org, token, outputDir string) error {
 	if len(repos) > 20 {
 		repos = repos[:20]
 	}
-	fmt.Printf("📊 Processing first %d repositories\n", len(repos))
+	fmt.Printf(" Processing first %d repositories\n", len(repos))
 
 	// Download ignore files and extract patterns
 	allPatterns := make(map[string]bool)
 	processedRepos := 0
 	totalFiles := 0
 
-	fmt.Printf("📥 Downloading ignore files from %d repositories\n", len(repos))
+	fmt.Printf(" Downloading ignore files from %d repositories\n", len(repos))
 
 	for _, repoName := range repos {
-		fmt.Printf("🔍 Processing repository: %s\n", repoName)
+		fmt.Printf(" Processing repository: %s\n", repoName)
 		repoPatterns := make(map[string]bool)
 
 		for _, ignoreFile := range ignoreFiles {
@@ -100,14 +100,14 @@ func GenerateWordlist(org, token, outputDir string) error {
 
 		processedRepos++
 		if processedRepos%5 == 0 {
-			fmt.Printf("📊 Processed %d/%d repositories, found %d ignore files\n", processedRepos, len(repos), totalFiles)
+			fmt.Printf(" Processed %d/%d repositories, found %d ignore files\n", processedRepos, len(repos), totalFiles)
 		}
 	}
 
 	fmt.Printf("[ + ]Downloaded %d ignore files from %d repositories\n", totalFiles, processedRepos)
 
 	// Generate wordlist
-	fmt.Println("🔧 Generating wordlist from patterns...")
+	fmt.Println(" Generating wordlist from patterns...")
 	wordlist := generateWordlist(allPatterns)
 
 	// Create output directory
@@ -129,15 +129,15 @@ func GenerateWordlist(org, token, outputDir string) error {
 	}
 
 	fmt.Printf("[ + ]Generated wordlist with %d unique words\n", len(wordlist))
-	fmt.Printf("📁 Patterns saved to: %s\n", patternsFile)
-	fmt.Printf("📁 Wordlist saved to: %s\n", wordlistFile)
-	fmt.Println("🎉 GitHub Target Based Wordlist generation completed!")
+	fmt.Printf(" Patterns saved to: %s\n", patternsFile)
+	fmt.Printf(" Wordlist saved to: %s\n", wordlistFile)
+	fmt.Println(" GitHub Target Based Wordlist generation completed!")
 
 	return nil
 }
 
 func getOrgRepos(org, token string) ([]string, error) {
-	fmt.Printf("🔍 Fetching repositories for organization: %s\n", org)
+	fmt.Printf(" Fetching repositories for organization: %s\n", org)
 
 	var repos []string
 	page := 1
@@ -177,7 +177,7 @@ func getOrgRepos(org, token string) ([]string, error) {
 			repos = append(repos, repo.Name)
 		}
 
-		fmt.Printf("📦 Fetched %d repositories from page %d\n", len(data), page)
+		fmt.Printf(" Fetched %d repositories from page %d\n", len(data), page)
 		page++
 
 		// Rate limiting

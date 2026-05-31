@@ -51,18 +51,18 @@ func SendScanNotification(event, scanID, target, scanType, status string, findin
 	var msg string
 	switch event {
 	case "start":
-		msg = fmt.Sprintf("🚀 **Scan Started**\n**Target:** `%s`\n**Type:** `%s`\n**ID:** `%s`", target, scanType, scanID)
+		msg = fmt.Sprintf(" **Scan Started**\n**Target:** `%s`\n**Type:** `%s`\n**ID:** `%s`", target, scanType, scanID)
 	case "finish":
-		resultEmoji := "✅"
+		resultEmoji := ""
 		if status == "failed" {
-			resultEmoji = "❌"
+			resultEmoji = ""
 		} else if status == "cancelled" {
-			resultEmoji = "⏹️"
+			resultEmoji = "⏹"
 		}
 		
 		findingsStr := "No findings"
 		if findings > 0 {
-			findingsStr = fmt.Sprintf("🛡️ **%d findings discovered**", findings)
+			findingsStr = fmt.Sprintf(" **%d findings discovered**", findings)
 		}
 		
 		msg = fmt.Sprintf("%s **Scan Finished**\n**Target:** `%s`\n**Type:** `%s`\n**Status:** `%s`\n**Result:** %s", 

@@ -16,7 +16,7 @@ import (
 
 // StartAPI starts the REST API server
 func StartAPI() error {
-	fmt.Println("🚀 Starting AutoAR API Server...")
+	fmt.Println("Starting AutoAR API Server...")
 
 	// Load .env file if it exists
 	if err := envloader.LoadEnv(); err != nil {

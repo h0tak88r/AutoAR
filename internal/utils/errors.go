@@ -60,21 +60,21 @@ func GetUserFriendlyError(err error) string {
 	if scanErr, ok := err.(*ScanError); ok {
 		switch scanErr.Code {
 		case ErrCodeTimeout:
-			return fmt.Sprintf("⏱️ **%s** timed out. The target may be slow or unreachable.", scanErr.Phase)
+			return fmt.Sprintf("**%s** timed out. The target may be slow or unreachable.", scanErr.Phase)
 		case ErrCodeNetwork:
-			return fmt.Sprintf("🌐 Network error during **%s**. Please check your connection.", scanErr.Phase)
+			return fmt.Sprintf("Network error during **%s**. Please check your connection.", scanErr.Phase)
 		case ErrCodePermission:
-			return fmt.Sprintf("🔒 Permission denied during **%s**. Check API keys or credentials.", scanErr.Phase)
+			return fmt.Sprintf("Permission denied during **%s**. Check API keys or credentials.", scanErr.Phase)
 		case ErrCodeNotFound:
-			return fmt.Sprintf("❓ **%s** not found. The target may not exist.", scanErr.Domain)
+			return fmt.Sprintf("**%s** not found. The target may not exist.", scanErr.Domain)
 		case ErrCodeInvalidInput:
-			return fmt.Sprintf("⚠️ Invalid input for **%s**. Please check your parameters.", scanErr.Phase)
+			return fmt.Sprintf("Invalid input for **%s**. Please check your parameters.", scanErr.Phase)
 		case ErrCodeRateLimit:
-			return fmt.Sprintf("🚦 Rate limit hit during **%s**. Slowing down...", scanErr.Phase)
+			return fmt.Sprintf("Rate limit hit during **%s**. Slowing down...", scanErr.Phase)
 		default:
-			return fmt.Sprintf("❌ Error during **%s**: %v", scanErr.Phase, scanErr.Err)
+			return fmt.Sprintf("Error during **%s**: %v", scanErr.Phase, scanErr.Err)
 		}
 	}
-	
-	return fmt.Sprintf("❌ An error occurred: %v", err)
+
+	return fmt.Sprintf("An error occurred: %v", err)
 }

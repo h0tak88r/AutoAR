@@ -23,7 +23,7 @@ var platforms = []platformMeta{
 	{
 		ID:          "h1",
 		Name:        "HackerOne",
-		Logo:        "🟢",
+		Logo:        "",
 		AuthFields:  []string{"username", "token"},
 		EnvKeys:     []string{"H1_USERNAME", "H1_TOKEN"},
 		Description: "Fetch in-scope root domains from all accessible HackerOne programs.",
@@ -31,7 +31,7 @@ var platforms = []platformMeta{
 	{
 		ID:          "bc",
 		Name:        "Bugcrowd",
-		Logo:        "🟠",
+		Logo:        "",
 		AuthFields:  []string{"token"},
 		EnvKeys:     []string{"BUGCROWD_TOKEN"},
 		Description: "Fetch in-scope root domains from all accessible Bugcrowd programs.",
@@ -39,7 +39,7 @@ var platforms = []platformMeta{
 	{
 		ID:          "ywh",
 		Name:        "YesWeHack",
-		Logo:        "🔵",
+		Logo:        "",
 		AuthFields:  []string{"token"},
 		EnvKeys:     []string{"YWH_TOKEN"},
 		Description: "Fetch in-scope root domains from all accessible YesWeHack programs. Use your JWT token from the YWH API.",
@@ -47,7 +47,7 @@ var platforms = []platformMeta{
 	{
 		ID:          "it",
 		Name:        "Intigriti",
-		Logo:        "🟣",
+		Logo:        "",
 		AuthFields:  []string{"token"},
 		EnvKeys:     []string{"INTIGRITI_TOKEN"},
 		Description: "Fetch in-scope root domains from all accessible Intigriti programs.",
@@ -55,7 +55,7 @@ var platforms = []platformMeta{
 	{
 		ID:          "immunefi",
 		Name:        "Immunefi",
-		Logo:        "🛡️",
+		Logo:        "",
 		AuthFields:  []string{},
 		EnvKeys:     []string{},
 		Description: "Fetch public Web3/smart-contract programs from Immunefi (no auth required).",

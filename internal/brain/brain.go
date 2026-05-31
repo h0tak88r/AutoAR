@@ -188,9 +188,9 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 
 		switch action.Action {
 		case "run_command", "run_shell":
-			label := "🔧 AutoAR"
+			label := " AutoAR"
 			if action.Action == "run_shell" {
-				label = "🔍 Shell"
+				label = " Shell"
 			}
 			msg := fmt.Sprintf("%s: `%s`\n> _%s_", label, action.Command, action.Reason)
 			if progressFn != nil {
@@ -231,7 +231,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 				if action.Notify {
 					notifyStr = " *(will be posted to Discord)*"
 				}
-				progressFn(fmt.Sprintf("📋 Agent generated a report%s", notifyStr))
+				progressFn(fmt.Sprintf(" Agent generated a report%s", notifyStr))
 			}
 			history = append(history, Message{Role: "user", Content: "Report recorded. Continue if needed or use done."})
 
@@ -347,7 +347,7 @@ The input is a list of secrets found in JavaScript files. Each line has the form
 YOUR TASK:
 1. Filter out KNOWN FALSE POSITIVES. These types are almost always false positives and should be IGNORED:
    - google_captcha / reCAPTCHA site keys (start with "6L...")
-   - Generic Secret entries where the value is an emoji or unicode character like "㊙️" or similar
+   - Generic Secret entries where the value is an emoji or unicode character like "" or similar
    - Generic Secret entries where the value looks like obfuscated JS variable names
    - aws_access_key_id where the value contains "ANPA_COUNTRY_CODE_" (this is a partial string, not a real key)
    - GitHub lines where the value contains "github style" (documentation text, not a real key)

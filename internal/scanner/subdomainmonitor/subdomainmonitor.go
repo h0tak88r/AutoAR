@@ -336,7 +336,7 @@ func PrintResults(result *MonitorResult) {
 	fmt.Printf("Total Checked: %d\n", result.TotalChecked)
 
 	if len(result.NewSubdomains) > 0 {
-		fmt.Printf("\n🆕 New Subdomains (%d):\n", len(result.NewSubdomains))
+		fmt.Printf("\n New Subdomains (%d):\n", len(result.NewSubdomains))
 		for _, change := range result.NewSubdomains {
 			fmt.Printf("  - %s: %s\n", change.Subdomain, change.Message)
 		}
@@ -350,14 +350,14 @@ func PrintResults(result *MonitorResult) {
 	}
 
 	if len(result.StatusChanges) > 0 {
-		fmt.Printf("\n🔄 Status Changes (%d):\n", len(result.StatusChanges))
+		fmt.Printf("\n Status Changes (%d):\n", len(result.StatusChanges))
 		for _, change := range result.StatusChanges {
 			fmt.Printf("  - %s: %s\n", change.Subdomain, change.Message)
 		}
 	}
 
 	if len(result.BecameDead) > 0 {
-		fmt.Printf("\n❌ Became Dead (%d):\n", len(result.BecameDead))
+		fmt.Printf("\n Became Dead (%d):\n", len(result.BecameDead))
 		for _, change := range result.BecameDead {
 			fmt.Printf("  - %s: %s\n", change.Subdomain, change.Message)
 		}

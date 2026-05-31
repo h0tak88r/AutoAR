@@ -212,7 +212,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓ Parsed %d subdomain takeover entries\n", len(subdomainEntries))
-	fmt.Printf("✓ Parsed %d DNS takeover entries\n", len(dnsEntries))
-	fmt.Println("✓ JSON files written to web/static/data/")
+	fmt.Printf(" Parsed %d subdomain takeover entries\n", len(subdomainEntries))
+	fmt.Printf(" Parsed %d DNS takeover entries\n", len(dnsEntries))
+	fmt.Println(" JSON files written to web/static/data/")
 }

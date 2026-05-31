@@ -38,7 +38,7 @@ func BackupDatabase(uploadToR2 bool) (string, string, error) {
 		logger.GetLogger().Info("[DB] Uploading database backup to R2...")
 		r2URL, err = r2storage.UploadDatabaseBackup(backupPath, dbType)
 		if err != nil {
-			logger.GetLogger().Warnf("[DB] ⚠️  Failed to upload backup to R2: %v", err)
+			logger.GetLogger().Warnf("[DB]   Failed to upload backup to R2: %v", err)
 			// Don't fail the backup if R2 upload fails
 		} else {
 			logger.GetLogger().Infof("[DB] [ + ]Database backup uploaded to R2: %s", r2URL)

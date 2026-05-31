@@ -21,35 +21,35 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 ![Dashboard](image.png)
 ---
 
-## ✨ Feature Highlights
+##  Feature Highlights
 
 
 | Category               | What AutoAR Does                                                                                                                       |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 🌐 **Subdomains**      | Enumerate using 15+ sources: Subfinder, CertSpotter, SecurityTrails, Chaos, crt.sh, OTX, VirusTotal, and more                          |
-| 🔍 **Live Hosts**      | Detect alive hosts using httpx with follow-redirects and status detection                                                              |
-| 🕳️ **DNS Takeovers**  | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, dangling-IP, and **CF-1016 Cloudflare dangling record** vulnerabilities                  |
-| 💥 **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting                                                             |
-| 🧠 **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                     |
-| ☁️ **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
-| 🔗 **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
-| 🐙 **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
-| 📱 **APK Auditor**     | Browser-based Android analysis: DEX decompiler, manifest + cert parsing, tracker detection, MASVS mapping, and regex-driven findings with APX secret patterns. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
-| 🔒 **MITM Patch**      | Fetch any Android app by Package ID → auto-patch `network_security_config.xml` → re-sign → R2 download link in one click             |
-| 📱 **IPA Auditor**     | Browser-based iOS IPA analysis: plist + Mach-O inspection, binary strings extraction, and findings tab powered by 200+ regex signatures plus MASVS-style rules. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
-| 🖥️ **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching. (Based on [adbauditor](https://github.com/thecybersandeep/adbauditor) by @thecybersandeep) |
-| ⚙️ **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
-| 🏴‍☠️ **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
-| 🔄 **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
-| 🤖 **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **z-ai/glm-4.5-air:free via OpenRouter** — zero cost required          |
-| 📤 **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
-| 🔔 **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
-| 🖥️ **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings             |
+|  **Subdomains**      | Enumerate using 15+ sources: Subfinder, CertSpotter, SecurityTrails, Chaos, crt.sh, OTX, VirusTotal, and more                          |
+|  **Live Hosts**      | Detect alive hosts using httpx with follow-redirects and status detection                                                              |
+|  **DNS Takeovers**  | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, dangling-IP, and **CF-1016 Cloudflare dangling record** vulnerabilities                  |
+|  **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting                                                             |
+|  **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                     |
+|  **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
+|  **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
+|  **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
+|  **APK Auditor**     | Browser-based Android analysis: DEX decompiler, manifest + cert parsing, tracker detection, MASVS mapping, and regex-driven findings with APX secret patterns. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
+|  **MITM Patch**      | Fetch any Android app by Package ID → auto-patch `network_security_config.xml` → re-sign → R2 download link in one click             |
+|  **IPA Auditor**     | Browser-based iOS IPA analysis: plist + Mach-O inspection, binary strings extraction, and findings tab powered by 200+ regex signatures plus MASVS-style rules. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
+|  **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching. (Based on [adbauditor](https://github.com/thecybersandeep/adbauditor) by @thecybersandeep) |
+|  **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
+|  **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
+|  **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
+|  **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **z-ai/glm-4.5-air:free via OpenRouter** — zero cost required          |
+|  **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
+|  **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
+|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings             |
 
 
 ---
 
-## 🗂️ Complete Command Reference
+##  Complete Command Reference
 
 ### Workflows (Start Here)
 
@@ -236,8 +236,8 @@ What happens:
 2. *(Optional)* Patches `network_security_config.xml` to trust user-installed CAs + disables certificate pinning
 3. Re-signs with `uber-apk-signer` and uploads the patched APK to R2
 4. Shows a **download panel** in the Auditor UI with direct R2 links for:
-   - 📦 Original APK
-   - 🔒 MITM Patched APK (if requested)
+   -  Original APK
+   -  MITM Patched APK (if requested)
 5. Automatically loads the APK into the browser auditor for analysis
 
 > **Scan records from APK Auditor are hidden from the main Scans dashboard** — they exist only within the Auditor context.
@@ -297,13 +297,13 @@ Options:
   -o <output>        Save output to a file
 ```
 
-**Dashboard — 🎯 Targets page:**
+**Dashboard —  Targets page:**
 
 The web dashboard includes a dedicated **Targets** page (sidebar → Targets) that:
 - Shows color-coded cards for each platform with credential status
 - Lets you paste credentials or relies on env vars (`H1_TOKEN`, `BUGCROWD_TOKEN`, `YWH_TOKEN`, `INTIGRITI_TOKEN`)
 - Fetches all in-scope root domains with one click
-- Provides per-domain **+ Add** (saves to Domains DB) and **▶ Scan** (opens new scan)
+- Provides per-domain **+ Add** (saves to Domains DB) and **> Scan** (opens new scan)
 - **+ Add All** saves all domains in one bulk request
 - **Copy List** copies to clipboard (works on both HTTP and HTTPS)
 
@@ -350,7 +350,7 @@ autoar status [--json]
 
 ---
 
-## 🤖 AI-Driven Security Framework — Free for Everyone
+##  AI-Driven Security Framework — Free for Everyone
 
 As of the latest release, AutoAR's AI engine runs on `**[stepfun/step-3.5-flash:free](https://openrouter.ai/stepfun/step-3.5-flash:free)**` via [OpenRouter](https://openrouter.ai). This is a **completely free model** — no credits, no billing required.
 
@@ -415,7 +415,7 @@ autoar both                Start Discord bot + API server simultaneously
 
 ---
 
-## 🛠️ Installation
+##  Installation
 
 ### Option 1 — Docker (Primary & Recommended)
 
@@ -475,7 +475,7 @@ go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
 
 ---
 
-## ⚙️ Configuration
+##  Configuration
 
 Copy `.env.example` to `.env` and fill in your values:
 
@@ -558,7 +558,7 @@ H1_API_KEY=...           # HackerOne
 INTEGRITI_API_KEY=...    # Intigriti
 
 # AI analysis — only ONE key is needed
-# ✅ Recommended: OpenRouter free tier (no credit card required)
+#  Recommended: OpenRouter free tier (no credit card required)
 #    Sign up at https://openrouter.ai · Uses stepfun/step-3.5-flash:free automatically
 OPENROUTER_API_KEY=...   # Powers /ai, /brain, and `autoar agent` — completely free
 
@@ -588,7 +588,7 @@ AUTOAR_TIMEOUT_NUCLEI=0
 
 ---
 
-## 🚀 Quick Start (Docker)
+##  Quick Start (Docker)
 
 ```bash
 # 1. Setup
@@ -607,7 +607,7 @@ docker compose run --rm autoar-api domain run -d example.com
 
 ---
 
-## 📂 Results Directory Structure
+##  Results Directory Structure
 
 All scan results are saved to `./new-results/` and automatically uploaded to R2 if configured:
 
@@ -637,13 +637,13 @@ new-results/
 When **R2 is enabled**, each file is uploaded immediately after writing and the URL is printed:
 
 ```
-🔗 R2 Result: new-results/example.com/subs/subdomains.txt
+ R2 Result: new-results/example.com/subs/subdomains.txt
    URL: https://pub-xxxx.r2.dev/new-results/example.com/subs/subdomains.txt
 ```
 
 ---
 
-## 🤖 CoPaw AI Integration
+##  CoPaw AI Integration
 
 AutoAR is designed to work seamlessly with **CoPaw** AI assistant, enabling natural language control of your entire recon pipeline:
 
@@ -657,9 +657,9 @@ See the [CoPaw AutoAR Skill documentation](/blob/main/docs/copaw-skill.md) for f
 
 ---
 
-## 🐳 Docker & Compose Deep Dive
+##  Docker & Compose Deep Dive
 
-### 🏗️ Architecture & Internal Structure (v4.1+)
+###  Architecture & Internal Structure (v4.1+)
 
 AutoAR follows a strictly decoupled, package-based architecture designed for enterprise scaling and clean dependency management:
 
@@ -728,7 +728,7 @@ OPENROUTER_API_KEY=...
 
 ---
 
-## 🗄️ Database
+##  Database
 
 AutoAR supports two databases:
 
@@ -757,7 +757,7 @@ DB_HOST=./bughunt.db
 
 ---
 
-## 🔧 Troubleshooting
+##  Troubleshooting
 
 ### No Terminal Logs?
 
@@ -804,7 +804,7 @@ For PostgreSQL, ensure:
 
 ---
 
-## 🏷️ GitHub release (tag → CI)
+##  GitHub release (tag → CI)
 
 Versions are defined once in `[internal/version/version.go](internal/version/version.go)` (`Version`, no `v` prefix). To publish **v4.2.0**:
 
@@ -820,7 +820,7 @@ You need a Git remote with push access (HTTPS + token or SSH). No manual “Crea
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions are welcome! Please:
 
@@ -831,7 +831,7 @@ Contributions are welcome! Please:
 
 ---
 
-## ⚠️ Legal Disclaimer
+##  Legal Disclaimer
 
 AutoAR is intended for **authorized security testing only**. Only use it on targets where you have explicit written permission, or on bug bounty programs where the target is in-scope. Unauthorized scanning of systems you do not own is illegal.
 
@@ -839,7 +839,7 @@ The authors of AutoAR assume no liability for misuse of this tool.
 
 ---
 
-## 📄 License
+##  License
 
 MIT License — see [LICENSE](LICENSE) for details.
 
@@ -847,5 +847,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 
 
-Built with ❤️ for the bug bounty community · [GitHub](https://github.com/h0tak88r/AutoAR)
+Built with  for the bug bounty community · [GitHub](https://github.com/h0tak88r/AutoAR)
 
