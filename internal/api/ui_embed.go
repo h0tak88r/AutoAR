@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,46 @@ func serveDashboardUI(c *gin.Context) {
 	}
 
 	c.String(http.StatusNotFound, "UI entrypoint not found")
+}
+
+// serveStaticData serves static JSON data files from web/static/data directory
+func serveStaticData(c *gin.Context) {
+	reqPath := strings.TrimPrefix(c.Param("filepath"), "/")
+	if reqPath == "" {
+		c.String(http.StatusNotFound, "Not found")
+		return
+	}
+
+	// Construct the file path relative to project root
+	filePath := filepath.Join("web", "static", "data", reqPath)
+
+	// Security: prevent directory traversal
+	cleanPath := filepath.Clean(filePath)
+	if !strings.HasPrefix(cleanPath, "web/static/data/") {
+		c.String(http.StatusForbidden, "Access denied")
+		return
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+		c.String(http.StatusNotFound, "File not found")
+		return
+	}
+
+	// Read and serve the file
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error reading file")
+		return
+	}
+
+	// Set content type based on extension
+	contentType := mime.TypeByExtension(filepath.Ext(cleanPath))
+	if contentType == "" {
+		contentType = "application/json"
+	}
+
+	c.Data(http.StatusOK, contentType, data)
 }
 
 func serveEmbeddedFile(c *gin.Context, fsys fs.FS, filePath string) {

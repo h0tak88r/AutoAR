@@ -153,6 +153,7 @@
       <button class="tab" data-tab="depconf">Dependency Confusion</button>
       <button class="tab" data-tab="ssrf">SSRF Payloads</button>
       <button class="tab" data-tab="xss">XSS Cheat Sheet</button>
+      <button class="tab" data-tab="takeover">🎯 Takeover Reference</button>
     </div>
 
     <section class="panel active" id="panel-jwt">
@@ -301,6 +302,28 @@
         <div class="muted" id="xssStats" style="margin-bottom:8px">Loading...</div>
         <div class="xss-results-box" id="xssResults">
           <div class="item muted" style="padding:20px">Loading payloads...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Takeover Reference Panel -->
+    <section class="panel" id="panel-takeover">
+      <div class="card">
+        <div class="k">Subdomain & DNS Takeover Reference</div>
+        <p class="muted" style="margin-top:8px">
+          Comprehensive database of vulnerable services and DNS providers. Use this to validate if your DNS takeover findings are exploitable.
+        </p>
+        <div class="row" style="margin-top:12px">
+          <a href="takeover-reference.html" target="_blank" class="btn">
+            🎯 Open Takeover Reference
+          </a>
+        </div>
+        <div class="muted" style="margin-top:12px; font-size:12px">
+          <strong>Features:</strong><br>
+          • 76+ subdomain takeover services (AWS S3, Azure, GitHub Pages, etc.)<br>
+          • 40+ DNS/NS providers with vulnerability status<br>
+          • Searchable tables with fingerprints and documentation<br>
+          • Real-time validation for your DNS scan findings
         </div>
       </div>
     </section>
