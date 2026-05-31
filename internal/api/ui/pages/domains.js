@@ -6,7 +6,7 @@
       const domains = window.state.domains?.domains || [];
 
       if (!domains.length) {
-        container.innerHTML = window.emptyState('🌐', 'No domains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
+        container.innerHTML = window.emptyState('', 'No domains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
         return;
       }
 
@@ -54,7 +54,7 @@
           <div onclick="window.backToDomains()" class="back-btn" style="margin:0">← Back to Domains</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button type="button" id="copy-domain-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
-              📋 Copy All (${allSubNames.length})
+              Copy All (${allSubNames.length})
             </button>
             <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick='window.deleteDomainRecord(${JSON.stringify(domain)})'>
               Delete domain…
@@ -104,7 +104,7 @@
                         <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px">${window.esc(subN)}</span></td>
                         <td><div style="display:flex;flex-wrap:wrap;min-width:140px">${techsHtml}</div></td>
                         <td>${cnamesHtml}</td>
-                        <td>${live ? `<span class="badge badge-live">● live</span>` : `<span class="badge badge-dead">dead</span>`}</td>
+                        <td>${live ? `<span class="badge badge-live">* live</span>` : `<span class="badge badge-dead">dead</span>`}</td>
                         <td><span style="font-size:12px;color:${httpColor(httpS)}">${httpS || '—'}</span></td>
                         <td><span style="font-size:12px;color:${httpColor(httpsS)}">${httpsS || '—'}</span></td>
                       </tr>`;
@@ -132,11 +132,11 @@
       const container = document.getElementById('subdomains-container');
       if (!container) return;
       if (window.state.loading.subdomains) {
-        container.innerHTML = window.emptyState('⏳', 'Loading subdomains…', 'Please wait while paginated results are loaded.');
+        container.innerHTML = window.emptyState('...', 'Loading subdomains…', 'Please wait while paginated results are loaded.');
         return;
       }
       if (window.state.error.subdomains) {
-        container.innerHTML = window.emptyState('⚠️', 'Failed to load subdomains', window.esc(window.state.error.subdomains));
+        container.innerHTML = window.emptyState('!', 'Failed to load subdomains', window.esc(window.state.error.subdomains));
         return;
       }
       const subs = window.state.allSubdomains || [];
@@ -146,7 +146,7 @@
       const pages = Math.max(1, Math.ceil(total / limit));
 
       if (!subs.length && !window.state.subdomainsSearch) {
-        container.innerHTML = window.emptyState('🔗', 'No subdomains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
+        container.innerHTML = window.emptyState('', 'No subdomains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
         return;
       }
 

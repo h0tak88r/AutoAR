@@ -3,7 +3,7 @@
   const escAttr = (...args) => (typeof window.escAttr === 'function' ? window.escAttr(...args) : String(args[0] ?? ''));
   const fmtDate = (...args) => (typeof window.fmtDate === 'function' ? window.fmtDate(...args) : '—');
   const fmtSize = (...args) => (typeof window.fmtSize === 'function' ? window.fmtSize(...args) : '0 B');
-  const fileIcon = (...args) => (typeof window.fileIcon === 'function' ? window.fileIcon(...args) : '📄');
+  const fileIcon = (...args) => (typeof window.fileIcon === 'function' ? window.fileIcon(...args) : '[DOC]');
   const emptyState = (...args) => (typeof window.emptyState === 'function' ? window.emptyState(...args) : '');
 
   async function loadR2(prefix = '') {
@@ -32,29 +32,29 @@
 
     // Tree — root always + current dirs
     let treeHtml = `<div class="r2-tree-item ${!prefix ? 'active' : ''}">
-      <span class="r2-tree-nav" onclick="window.MonitorPage ? window.MonitorPage.loadR2('') : window.loadR2('')">📦</span>
+      <span class="r2-tree-nav" onclick="window.MonitorPage ? window.MonitorPage.loadR2('') : window.loadR2('')">[BOX]</span>
       <span class="r2-tree-nav r2-tree-label" onclick="window.MonitorPage ? window.MonitorPage.loadR2('') : window.loadR2('')">root</span>
     </div>`;
     // Wait, it should be R2Page.loadR2. I'll use window.R2Page.loadR2.
     
     treeHtml = `<div class="r2-tree-item ${!prefix ? 'active' : ''}">
-      <span class="r2-tree-nav" onclick="window.R2Page.loadR2('')">📦</span>
+      <span class="r2-tree-nav" onclick="window.R2Page.loadR2('')">[BOX]</span>
       <span class="r2-tree-nav r2-tree-label" onclick="window.R2Page.loadR2('')">root</span>
     </div>`;
 
     (dirs || []).forEach(d => {
       const name = d.replace(prefix, '').replace(/\/$/, '');
       treeHtml += `<div class="r2-tree-item" data-r2-prefix="${escAttr(d)}">
-        <span class="r2-tree-nav" onclick='window.R2Page.loadR2(${JSON.stringify(d)})'>📁</span>
+        <span class="r2-tree-nav" onclick='window.R2Page.loadR2(${JSON.stringify(d)})'>[FOLDER]</span>
         <span class="r2-tree-nav r2-tree-label" onclick='window.R2Page.loadR2(${JSON.stringify(d)})'>${esc(name || d)}</span>
-        <button type="button" class="r2-row-action" title="Delete folder" aria-label="Delete folder" onclick='event.stopPropagation();window.R2Page.r2DeletePrefixInteractive(${JSON.stringify(d)})'>🗑</button>
+        <button type="button" class="r2-row-action" title="Delete folder" aria-label="Delete folder" onclick='event.stopPropagation();window.R2Page.r2DeletePrefixInteractive(${JSON.stringify(d)})'>[TRASH]</button>
       </div>`;
     });
     treeEl.innerHTML = treeHtml;
 
     // Files list
     if (!files.length && !dirs.length) {
-      filesEl.innerHTML = emptyState('📂', 'Empty folder', 'No files in this prefix.');
+      filesEl.innerHTML = emptyState('[OPEN]', 'Empty folder', 'No files in this prefix.');
       r2UpdateDeleteSelectedVisibility();
       return;
     }
@@ -64,7 +64,7 @@
     if (prefix) {
       const parent = prefix.split('/').slice(0, -2).join('/');
       html += `<div class="r2-file-row" style="cursor:pointer" onclick='window.R2Page.loadR2(${JSON.stringify(parent)})'>
-        <span class="r2-file-icon">⬆️</span>
+        <span class="r2-file-icon">[UP]</span>
         <span class="r2-file-name">.. (go up)</span>
       </div>`;
     }
@@ -73,11 +73,11 @@
       const name = d.replace(prefix, '').replace(/\/$/, '');
       html += `<div class="r2-file-row r2-file-row-dir" data-r2-prefix="${escAttr(d)}">
         <input type="checkbox" class="r2-row-cb" data-r2-prefix="${escAttr(d)}" onclick="event.stopPropagation()" title="Select for bulk delete" />
-        <span class="r2-file-icon r2-file-row-nav" onclick='window.R2Page.loadR2(${JSON.stringify(d)})'>📁</span>
+        <span class="r2-file-icon r2-file-row-nav" onclick='window.R2Page.loadR2(${JSON.stringify(d)})'>[FOLDER]</span>
         <span class="r2-file-name r2-file-row-nav" onclick='window.R2Page.loadR2(${JSON.stringify(d)})'>${esc(name || d)}/</span>
         <span class="r2-file-size">—</span>
         <span class="r2-file-date">—</span>
-        <button type="button" class="r2-row-action" title="Delete folder" aria-label="Delete folder" onclick='event.stopPropagation();window.R2Page.r2DeletePrefixInteractive(${JSON.stringify(d)})'>🗑</button>
+        <button type="button" class="r2-row-action" title="Delete folder" aria-label="Delete folder" onclick='event.stopPropagation();window.R2Page.r2DeletePrefixInteractive(${JSON.stringify(d)})'>[TRASH]</button>
       </div>`;
     });
     // Files
@@ -90,8 +90,8 @@
         <span class="r2-file-name" title="${esc(f.key)}">${esc(name)}</span>
         <span class="r2-file-size">${fmtSize(f.size)}</span>
         <span class="r2-file-date">${fmtDate(f.last_modified)}</span>
-        <button type="button" class="r2-row-action" title="Delete file" aria-label="Delete file" onclick='event.stopPropagation();window.R2Page.r2DeleteKeyInteractive(${JSON.stringify(f.key)})'>🗑</button>
-        <a href="${esc(f.public_url)}" target="_blank" class="r2-download-btn" title="Download" onclick="event.stopPropagation()">⬇</a>
+        <button type="button" class="r2-row-action" title="Delete file" aria-label="Delete file" onclick='event.stopPropagation();window.R2Page.r2DeleteKeyInteractive(${JSON.stringify(f.key)})'>[TRASH]</button>
+        <a href="${esc(f.public_url)}" target="_blank" class="r2-download-btn" title="Download" onclick="event.stopPropagation()">[DOWN]</a>
       </div>`;
     });
     filesEl.innerHTML = html;
@@ -179,7 +179,7 @@
     if (!btn) return;
     const n = document.querySelectorAll('#r2-files-list .r2-row-cb:checked').length;
     btn.style.display = n > 0 ? 'inline-block' : 'none';
-    btn.textContent = n > 0 ? `🗑 Delete selected (${n})` : '🗑 Delete selected';
+    btn.textContent = n > 0 ? `[TRASH] Delete selected (${n})` : '[TRASH] Delete selected';
   }
 
   async function r2DeletePrefixInteractive(prefix) {

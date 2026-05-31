@@ -68,10 +68,10 @@
           const isCancelling = /cancelling/i.test(stat);
           const isPaused = /paused/i.test(stat);
           const liveBadge = isPaused
-            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⏸ paused</span>`
+            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">[PAUSE] paused</span>`
             : isCancelling
               ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
-              : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">● live</span>`;
+              : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
           sub.innerHTML = `${esc(st)} · ${esc(statLower)}${liveBadge}`;
         } else {
           sub.textContent = `${st} · ${statLower}`;
@@ -138,7 +138,7 @@
         ? `<div class="modern-card" style="padding:18px">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
               <div>
-                <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">📦 Full Scan Archive</div>
+                <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">[BOX] Full Scan Archive</div>
                 <div style="font-size:12px;color:var(--text-muted)">Download complete scan results as ZIP</div>
               </div>
               <a href="${esc(zipURL)}" target="_blank" rel="noopener" class="btn btn-primary">Download ZIP</a>
@@ -155,11 +155,11 @@
           emptyMsg = `<div class="scan-no-results-banner">${esc(scanNoArtifactsMessage(st, target))}</div>
             <p class="scan-asm-muted" style="margin-top:12px">No files were indexed for this scan. Confirm uploads and artifact indexing.</p>`;
         } else if (stillRunning) {
-          emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">⏳</div><div style="font-size:14px;color:var(--text-secondary)">Scan is still running or processing. Check back soon for results.</div></div>';
+          emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">...</div><div style="font-size:14px;color:var(--text-secondary)">Scan is still running or processing. Check back soon for results.</div></div>';
         } else if (failedish) {
-          emptyMsg = `<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">❌</div><div style="font-size:14px;color:var(--accent-red)">No result files indexed. Status: ${esc(statNorm)}</div></div>`;
+          emptyMsg = `<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">X</div><div style="font-size:14px;color:var(--accent-red)">No result files indexed. Status: ${esc(statNorm)}</div></div>`;
         } else {
-          emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">📋</div><div style="font-size:14px;color:var(--text-muted)">No indexed artifacts for this scan yet.</div></div>';
+          emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px"></div><div style="font-size:14px;color:var(--text-muted)">No indexed artifacts for this scan yet.</div></div>';
         }
         emptyBanner = `<div class="modern-card" style="padding:20px">${emptyMsg}</div>`;
       }
@@ -184,7 +184,7 @@
             
             <div class="modern-card">
               <div class="card-header">
-                <div class="card-title"><span class="card-title-icon">📊</span>Results</div>
+                <div class="card-title"><span class="card-title-icon">[CHART]</span>Results</div>
                 <span class="badge badge-running" id="unified-parsed-badge">${total} files</span>
               </div>
               <div id="unified-parsed-results" style="padding:16px">
@@ -273,10 +273,10 @@
           const isPaused = /paused/.test(stat);
           const scanType = scan.scan_type || '';
           const liveBadge = isPaused
-            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⏸ paused</span>`
+            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">[PAUSE] paused</span>`
             : isCancelling
               ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
-              : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">● live</span>`;
+              : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
           sub.innerHTML = `${esc(scanType)} · ${esc(stat)}${liveBadge}`;
         } else {
           sub.textContent = `${scan.scan_type || ''} · ${stat}`;
@@ -467,21 +467,21 @@
     for (const r of allRows) _kindCounts[r.kind || 'other'] = (_kindCounts[r.kind || 'other'] || 0) + 1;
     const HIDDEN_KINDS = new Set(['logs', 'log']);
     const TAB_LABELS = {
-      assets: '🏠 Assets',
-      urls: '🔗 Links',
-      'js-analysis': '📜 JS Secrets',
-      'js-endpoints': '🛣️ JS Endpoints',
-      'katana-crawler': '🕷️ Katana',
-      'gf-patterns': '🎯 GF Patterns',
-      nuclei: '☢️ Nuclei',
-      ffuf: '🎲 FFUF',
-      buckets: '🪣 S3 Buckets',
-      ports: '📡 Ports',
-      reflection: '🔎 Reflection',
-      'xss-detection': '🐛 XSS (Dalfox)',
-      'github-scan': '🐦 GitHub Secrets',
-      other: '📁 Other',
-      github: '🐙 GitHub Secrets',
+      assets: ' Assets',
+      urls: '[LINK] Links',
+      'js-analysis': ' JS Secrets',
+      'js-endpoints': ' JS Endpoints',
+      'katana-crawler': ' Katana',
+      'gf-patterns': ' GF Patterns',
+      nuclei: ' Nuclei',
+      ffuf: ' FFUF',
+      buckets: '[BUCKET] S3 Buckets',
+      ports: '[ANT] Ports',
+      reflection: ' Reflection',
+      'xss-detection': ' XSS (Dalfox)',
+      'github-scan': ' GitHub Secrets',
+      other: ' Other',
+      github: ' GitHub Secrets',
     };
 
     const dynamicKinds = [...new Set(allRows.map(r => r.kind || 'other'))];
@@ -800,7 +800,7 @@
       const apkCategoryTabs = Object.entries(apkCategoryCounts)
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 30)
-        .map(([slug, meta]) => [`apkcat:${slug}`, `🧩 ${meta.label}`]);
+        .map(([slug, meta]) => [`apkcat:${slug}`, ` ${meta.label}`]);
       if (apkCategoryTabs.length) {
         const baseTabs = UNIQUE_TABS.filter(([k]) => k !== 'apkx');
         UNIQUE_TABS = [['apkx', TAB_LABELS.apkx], ...apkCategoryTabs, ...baseTabs]
@@ -894,25 +894,25 @@
             <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
             <div id="recon-severity-bar" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.6);display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
             <div id="recon-filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
-              <input id="recon-filter-host" type="search" placeholder="🔍 Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+              <input id="recon-filter-host" type="search" placeholder=" Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
               <select id="recon-filter-severity" title="Severity" style="flex:0 0 auto;min-width:132px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
                 <option value="any">Any Severity</option>
-                <option value="critical">🔴 Critical</option>
+                <option value="critical"> Critical</option>
                 <option value="high">🟠 High</option>
                 <option value="medium">🟡 Medium</option>
-                <option value="low">🔵 Low</option>
+                <option value="low"> Low</option>
                 <option value="info">🟢 Info</option>
               </select>
               <select id="recon-filter-module" title="Module (optional narrow)" style="flex:1 1 140px;min-width:140px;max-width:240px;display:none;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
                 <option value="all">All modules</option>
               </select>
-              <input id="recon-filter-title" type="search" placeholder="🔍 Finding / title…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+              <input id="recon-filter-title" type="search" placeholder=" Finding / title…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
               <span style="flex:0 0 auto;margin-left:auto;font-size:11px;color:var(--text-muted);white-space:nowrap"><span id="recon-unified-shown">0</span> rows</span>
             </div>
             <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.38)">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap">📋 Copy selected</button>
-                <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap">📥 Export Markdown</button>
+                <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap"> Copy selected</button>
+                <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap"> Export Markdown</button>
               </div>
               <div id="recon-quick-chips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -954,11 +954,11 @@
             </div>
             <div id="recon-urls-view" style="display:none">
               <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(2,6,23,.5)">
-                <input id="recon-urls-search" type="search" placeholder="🔍 Search URLs…" style="flex:1;min-width:180px;padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+                <input id="recon-urls-search" type="search" placeholder=" Search URLs…" style="flex:1;min-width:180px;padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
                 <select id="recon-urls-type" style="padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"><option value="all">All URLs</option><option value="js">JS Only</option><option value="interesting">Interesting Only</option></select>
                 <span id="recon-urls-count" style="color:var(--text-muted);font-size:12px;white-space:nowrap"></span>
-                <button id="recon-urls-copy" type="button" style="padding:6px 12px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#a78bfa;font-size:11px;cursor:pointer">📋 Copy</button>
-                <button id="recon-urls-export" type="button" style="padding:6px 12px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer">⬇ Export</button>
+                <button id="recon-urls-copy" type="button" style="padding:6px 12px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#a78bfa;font-size:11px;cursor:pointer"> Copy</button>
+                <button id="recon-urls-export" type="button" style="padding:6px 12px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer"> Export</button>
               </div>
               <div id="recon-urls-content" style="min-height:200px;max-height:580px;overflow:auto;font-family:var(--font-mono);font-size:12px"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading URLs…</div></div>
               <div id="recon-urls-pagination" style="padding:10px 12px;background:rgba(2,6,23,0.3);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
@@ -966,7 +966,7 @@
             <div id="recon-details-drawer" style="display:none;position:absolute;top:0;right:0;width:420px;height:100%;background:rgba(2,6,23,.98);border-left:1px solid var(--border);z-index:20;box-shadow:-12px 0 40px rgba(0,0,0,.45)">
               <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border)">
                 <div style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px">Finding Details</div>
-                <button id="recon-drawer-close" type="button" style="background:transparent;border:none;color:var(--text-muted);font-size:18px;cursor:pointer">✕</button>
+                <button id="recon-drawer-close" type="button" style="background:transparent;border:none;color:var(--text-muted);font-size:18px;cursor:pointer">X</button>
               </div>
               <div id="recon-drawer-body" style="padding:12px;overflow:auto;height:calc(100% - 52px)"></div>
             </div>
@@ -1015,7 +1015,7 @@
       severityBar.style.display = 'flex';
       const pills = SEV_DEFS.filter(d => counts[d.key] > 0).map(d => {
         const isActive = filterSeverity === d.key;
-        return `<button type="button" data-sev="${esc(d.key)}" title="Filter by ${d.label}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid ${isActive ? d.color : d.border};border-radius:999px;background:${isActive ? d.bg : 'rgba(255,255,255,.02)'};color:${isActive ? d.color : 'var(--text-secondary)'};font-size:11px;font-weight:${isActive ? '600' : '400'};cursor:pointer;transition:all .15s"><span style="font-size:13px">${d.key === 'critical' ? '🔴' : d.key === 'high' ? '🟠' : d.key === 'medium' ? '🟡' : d.key === 'low' ? '🔵' : '🟢'}</span><span>${d.label}</span><span style="background:${isActive ? d.color : 'rgba(255,255,255,.1)'};color:${isActive ? '#000' : 'var(--text-muted)'};border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${counts[d.key]}</span></button>`;
+        return `<button type="button" data-sev="${esc(d.key)}" title="Filter by ${d.label}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid ${isActive ? d.color : d.border};border-radius:999px;background:${isActive ? d.bg : 'rgba(255,255,255,.02)'};color:${isActive ? d.color : 'var(--text-secondary)'};font-size:11px;font-weight:${isActive ? '600' : '400'};cursor:pointer;transition:all .15s"><span style="font-size:13px">${d.key === 'critical' ? '' : d.key === 'high' ? '🟠' : d.key === 'medium' ? '🟡' : d.key === 'low' ? '' : '🟢'}</span><span>${d.label}</span><span style="background:${isActive ? d.color : 'rgba(255,255,255,.1)'};color:${isActive ? '#000' : 'var(--text-muted)'};border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${counts[d.key]}</span></button>`;
       }).join('');
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
       const allActive = filterSeverity === 'any';
@@ -1027,9 +1027,9 @@
       if (!apkMetaBar || !isAPKScan || !apkPackageInfo) { if (apkMetaBar) { apkMetaBar.style.display = 'none'; apkMetaBar.innerHTML = ''; } return; }
       const riskFromBackend = String(apkPackageInfo.task_hijacking_risk || '').toLowerCase();
       let hijackLabel, hijackColor;
-      if (riskFromBackend === 'possible') { hijackLabel = '⚠ Possible (minSdk ≤ 28)'; hijackColor = '#f97316'; }
-      else if (riskFromBackend === 'mitigated') { hijackLabel = '⚡ Partially mitigated (minSdk 29–30)'; hijackColor = '#f59e0b'; }
-      else if (riskFromBackend === 'unlikely') { hijackLabel = '✅ Unlikely (minSdk ≥ 31)'; hijackColor = '#22c55e'; }
+      if (riskFromBackend === 'possible') { hijackLabel = ' Possible (minSdk ≤ 28)'; hijackColor = '#f97316'; }
+      else if (riskFromBackend === 'mitigated') { hijackLabel = '[BOLT] Partially mitigated (minSdk 29–30)'; hijackColor = '#f59e0b'; }
+      else if (riskFromBackend === 'unlikely') { hijackLabel = ' Unlikely (minSdk ≥ 31)'; hijackColor = '#22c55e'; }
       else { hijackLabel = '? Unknown'; hijackColor = '#94a3b8'; }
 
       const fields = [['package_name', 'Package ID'], ['app_name', 'App Name'], ['version', 'Version'], ['version_code', 'Version Code'], ['min_sdk', 'Min SDK'], ['target_sdk', 'Target SDK'], ['compile_sdk', 'Compile SDK']].filter(([k]) => apkPackageInfo[k]);

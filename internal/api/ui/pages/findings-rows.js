@@ -158,7 +158,7 @@
     /* boolean verified badge */
     'bool-badge'(v, col) {
       const ok = v === true || v === 'true';
-      const [label, color] = ok ? ['✓ yes', '#22c55e'] : ['✗ no', '#94a3b8'];
+      const [label, color] = ok ? [' yes', '#22c55e'] : ['X no', '#94a3b8'];
       return `<td style="${BASE}${W(col)}${ALIGN(col)}">
         <span style="${MONO}font-size:10px;font-weight:700;color:${color}">${label}</span></td>`;
     },

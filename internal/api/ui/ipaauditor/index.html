@@ -659,14 +659,14 @@
 
                     <div class="quick-access" id="quickAccess">
                         <div class="quick-access-header">
-                            <span>📌 Quick Access</span>
+                            <span>[PIN] Quick Access</span>
                             <span class="quick-access-toggle" onclick="toggleQuickAccess()">−</span>
                         </div>
                         <div class="quick-access-list" id="quickAccessList"></div>
                     </div>
 
                     <div class="explorer-controls">
-                        <input type="text" id="fileSearchInput" placeholder="🔍 Search files...">
+                        <input type="text" id="fileSearchInput" placeholder="[SEARCH] Search files...">
                         <select id="fileTypeFilter" onchange="filterFileTree(this.value)">
                             <option value="">All Files</option>
                             <option value="plist">Plists</option>
@@ -683,7 +683,7 @@
                     <div id="fileSearchResults"></div>
 
                     <div class="tree-section-header">
-                        <span>📁 Files</span>
+                        <span>[FOLDER] Files</span>
                         <span class="tree-file-count" id="totalFileCount"></span>
                     </div>
 
@@ -692,12 +692,12 @@
                 <div class="explorer-main">
 
                     <div class="breadcrumb-bar" id="breadcrumbBar">
-                        <span class="breadcrumb-item" onclick="navigateToBreadcrumb('')">📦 Root</span>
+                        <span class="breadcrumb-item" onclick="navigateToBreadcrumb('')">[BOX] Root</span>
                     </div>
                     <div class="explorer-toolbar">
                         <span class="current-file-path" id="currentFilePath">Select a file to view</span>
                         <div class="viewer-actions">
-                            <button class="viewer-btn" onclick="downloadCurrentFile()" title="Download file">💾</button>
+                            <button class="viewer-btn" onclick="downloadCurrentFile()" title="Download file">[SAVE]</button>
                         </div>
                     </div>
                     <div class="file-viewer-container">
@@ -963,7 +963,7 @@
                             <span class="severity-badge ${f.severity}">${f.severity.toUpperCase()}</span>
                             <span class="finding-title">${escapeHtml(f.ruleName)}</span>
                             <span class="instance-count">${instanceCount} instance${instanceCount > 1 ? 's' : ''}</span>
-                            <span class="finding-toggle">▼</span>
+                            <span class="finding-toggle">[DOWN]</span>
                         </div>
                         <div class="finding-body" id="finding-body-${i}">
                             <div class="finding-description">${escapeHtml(f.description)}</div>
@@ -1037,7 +1037,7 @@
                 <div class="checksec-grid">
                     ${checks.map(([name, ok, desc]) => `
                         <div class="checksec-item ${ok ? 'pass' : 'fail'}">
-                            <div class="checksec-status">${ok ? '✓' : '✗'}</div>
+                            <div class="checksec-status">${ok ? 'OK' : 'FAIL'}</div>
                             <div class="checksec-info"><div class="checksec-name">${name}</div><div class="checksec-desc">${desc}</div></div>
                         </div>
                     `).join('')}
@@ -1089,20 +1089,20 @@
                 const isFramework = fullLower.includes('.framework/') || fullLower.includes('.appex/') || fullLower.includes('pluginkit/');
 
                 if (fileName === 'info.plist' && !found.infoPlist && !isFramework) {
-                    found.infoPlist = { path: filePath, name: 'Info.plist', icon: '📋', desc: 'App configuration' };
+                    found.infoPlist = { path: filePath, name: 'Info.plist', icon: '[LIST]', desc: 'App configuration' };
                 } else if (fileName.includes('entitlements') && !found.entitlements && !isFramework) {
-                    found.entitlements = { path: filePath, name: 'Entitlements', icon: '🔐', desc: 'App capabilities' };
+                    found.entitlements = { path: filePath, name: 'Entitlements', icon: '[LOCK]', desc: 'App capabilities' };
                 } else if (fileName === 'embedded.mobileprovision' && !found.provisioning) {
-                    found.provisioning = { path: filePath, name: 'Provisioning', icon: '📜', desc: 'Code signing' };
+                    found.provisioning = { path: filePath, name: 'Provisioning', icon: '[SCROLL]', desc: 'Code signing' };
                 } else if ((fileName.endsWith('.sqlite') || fileName.endsWith('.db')) && extras.length < 3) {
-                    extras.push({ path: filePath, name: fileName.length > 15 ? fileName.slice(0, 12) + '...' : fileName, icon: '🗄️', desc: 'Database' });
+                    extras.push({ path: filePath, name: fileName.length > 15 ? fileName.slice(0, 12) + '...' : fileName, icon: '[DB]', desc: 'Database' });
                 }
             }
 
             if (results.appInfo.executableName) {
                 const binPath = explorerFileList.find(f => f.endsWith('/' + results.appInfo.executableName) || f === results.appInfo.executableName);
                 if (binPath) {
-                    found.binary = { path: binPath, name: 'Binary', icon: '⚙️', desc: results.appInfo.executableName };
+                    found.binary = { path: binPath, name: 'Binary', icon: '[GEAR]', desc: results.appInfo.executableName };
                 }
             }
 
@@ -1195,7 +1195,7 @@
             const isOpen = folder.classList.toggle('open');
             const icon = header.querySelector('.folder-icon');
             if (icon) {
-                icon.textContent = isOpen ? '📂' : '📁';
+                icon.textContent = isOpen ? '[OPEN]' : '[FOLDER]';
             }
         }
 
@@ -1203,7 +1203,7 @@
             document.querySelectorAll('.tree-folder').forEach(f => {
                 f.classList.add('open');
                 const icon = f.querySelector('.folder-icon');
-                if (icon) icon.textContent = '📂';
+                if (icon) icon.textContent = '[OPEN]';
             });
         }
 
@@ -1211,7 +1211,7 @@
             document.querySelectorAll('.tree-folder').forEach(f => {
                 f.classList.remove('open');
                 const icon = f.querySelector('.folder-icon');
-                if (icon) icon.textContent = '📁';
+                if (icon) icon.textContent = '[FOLDER]';
             });
         }
 
@@ -1240,8 +1240,8 @@
                     html += `
                         <div class="tree-folder">
                             <div class="tree-folder-header" onclick="toggleFolder(this)" title="${escapeAttr(prefix + name)}">
-                                <span class="folder-chevron">▶</span>
-                                <span class="folder-icon">📁</span>
+                                <span class="folder-chevron">[PLAY]</span>
+                                <span class="folder-icon">[FOLDER]</span>
                                 <span class="folder-name">${escapeHtml(name)}</span>
                                 <span class="folder-count">${fileCount}</span>
                             </div>
@@ -1271,43 +1271,43 @@
         function getFileIcon(ext) {
             const icons = {
 
-                'swift': '🔶', 'm': '📘', 'h': '📄', 'c': '📄', 'cpp': '📄',
+                'swift': '[DIAMOND]', 'm': '[BOOK]', 'h': '[DOC]', 'c': '[DOC]', 'cpp': '[DOC]',
 
-                'plist': '📋', 'json': '📜', 'xml': '📰', 'yaml': '📜', 'yml': '📜',
+                'plist': '[LIST]', 'json': '[SCROLL]', 'xml': '[NEWS]', 'yaml': '[SCROLL]', 'yml': '[SCROLL]',
 
-                'db': '🗄️', 'sqlite': '🗄️', 'sqlite3': '🗄️', 'realm': '🗄️', 'sql': '🗄️',
+                'db': '[DB]', 'sqlite': '[DB]', 'sqlite3': '[DB]', 'realm': '[DB]', 'sql': '[DB]',
 
-                'png': '🖼️', 'jpg': '🖼️', 'jpeg': '🖼️', 'gif': '🖼️', 'svg': '🖼️', 'webp': '🖼️', 'ico': '🖼️', 'icns': '🖼️',
+                'png': '[IMG]', 'jpg': '[IMG]', 'jpeg': '[IMG]', 'gif': '[IMG]', 'svg': '[IMG]', 'webp': '[IMG]', 'ico': '[IMG]', 'icns': '[IMG]',
 
-                'js': '📒', 'html': '🌐', 'css': '🎨', 'ts': '📒',
+                'js': '[BOOK]', 'html': '[WEB]', 'css': '[PALETTE]', 'ts': '[BOOK]',
 
-                'strings': '🔤', 'stringsdict': '🔤', 'lproj': '🌍',
+                'strings': '[ABC]', 'stringsdict': '[ABC]', 'lproj': '[GLOBE]',
 
-                'cer': '🔐', 'pem': '🔐', 'p12': '🔐', 'mobileprovision': '📜', 'entitlements': '🔐',
+                'cer': '[LOCK]', 'pem': '[LOCK]', 'p12': '[LOCK]', 'mobileprovision': '[SCROLL]', 'entitlements': '[LOCK]',
 
-                'dylib': '⚙️', 'framework': '📦', 'a': '⚙️', 'o': '⚙️',
+                'dylib': '[GEAR]', 'framework': '[BOX]', 'a': '[GEAR]', 'o': '[GEAR]',
 
-                'car': '🎨', 'nib': '📐', 'storyboardc': '📐', 'xib': '📐',
+                'car': '[PALETTE]', 'nib': '[RULER]', 'storyboardc': '[RULER]', 'xib': '[RULER]',
 
-                'mom': '📊', 'momd': '📊', 'omo': '📊',
+                'mom': '[CHART]', 'momd': '[CHART]', 'omo': '[CHART]',
 
-                'mp3': '🎵', 'wav': '🎵', 'caf': '🎵', 'mp4': '🎬', 'mov': '🎬',
+                'mp3': '[MUSIC]', 'wav': '[MUSIC]', 'caf': '[MUSIC]', 'mp4': '[FILM]', 'mov': '[FILM]',
 
-                'ttf': '🔤', 'otf': '🔤', 'woff': '🔤', 'woff2': '🔤',
+                'ttf': '[ABC]', 'otf': '[ABC]', 'woff': '[ABC]', 'woff2': '[ABC]',
 
-                'zip': '📦', 'tar': '📦', 'gz': '📦',
+                'zip': '[BOX]', 'tar': '[BOX]', 'gz': '[BOX]',
 
-                'txt': '📝', 'md': '📝', 'rtf': '📝', 'pdf': '📕',
+                'txt': '[LOG]', 'md': '[LOG]', 'rtf': '[LOG]', 'pdf': '[BOOK]',
 
-                'log': '📃'
+                'log': '[PAGE]'
             };
-            return icons[ext] || '📄';
+            return icons[ext] || '[DOC]';
         }
 
         function updateBreadcrumb(filePath) {
             const breadcrumb = document.getElementById('breadcrumbBar');
             const parts = filePath.split('/').filter(p => p);
-            let html = '<span class="breadcrumb-item" onclick="navigateToBreadcrumb(\'\')">📦</span>';
+            let html = '<span class="breadcrumb-item" onclick="navigateToBreadcrumb(\'\')">[BOX]</span>';
 
             let path = '';
             for (let i = 0; i < parts.length; i++) {
@@ -1406,7 +1406,7 @@
                                     <span class="hex-info-badge" style="background: rgba(251,146,60,0.2); color: var(--orange);">iOS Optimized</span>
                                 </div>
                                 <div class="no-data" style="margin-top: 24px;">
-                                    <div style="font-size: 48px; margin-bottom: 16px;">🖼️</div>
+                                    <div style="font-size: 48px; margin-bottom: 16px;">[IMG]</div>
                                     <div>This PNG uses Apple's CgBI (crushed) format</div>
                                     <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">iOS-optimized images cannot be displayed in browsers</div>
                                 </div>
