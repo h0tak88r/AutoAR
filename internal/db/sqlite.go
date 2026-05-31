@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -1279,22 +1278,8 @@ func (s *SQLiteDB) ListMonitorChanges(domain string, limit int) ([]MonitorChange
 
 // CreateScan creates a new scan record
 func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
-	completedPhasesJSON := "[]"
-	failedPhasesJSON := "[]"
-	
-	if len(scan.CompletedPhases) > 0 {
-		data, err := json.Marshal(scan.CompletedPhases)
-		if err == nil {
-			completedPhasesJSON = string(data)
-		}
-	}
-	
-	if len(scan.FailedPhases) > 0 {
-		data, err := json.Marshal(scan.FailedPhases)
-		if err == nil {
-			failedPhasesJSON = string(data)
-		}
-	}
+	completedPhasesJSON := marshalPhaseJSON(scan.CompletedPhases)
+	failedPhasesJSON := marshalPhaseJSON(scan.FailedPhases)
 	
 	_, err := s.db.Exec(`
 		INSERT INTO scans (
@@ -1316,22 +1301,8 @@ func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
 
 // UpdateScanProgress updates scan progress
 func (s *SQLiteDB) UpdateScanProgress(scanID string, progress *ScanProgress) error {
-	completedPhasesJSON := "[]"
-	failedPhasesJSON := "[]"
-	
-	if len(progress.CompletedPhases) > 0 {
-		data, err := json.Marshal(progress.CompletedPhases)
-		if err == nil {
-			completedPhasesJSON = string(data)
-		}
-	}
-	
-	if len(progress.FailedPhases) > 0 {
-		data, err := json.Marshal(progress.FailedPhases)
-		if err == nil {
-			failedPhasesJSON = string(data)
-		}
-	}
+	completedPhasesJSON := marshalPhaseJSON(progress.CompletedPhases)
+	failedPhasesJSON := marshalPhaseJSON(progress.FailedPhases)
 	
 	_, err := s.db.Exec(`
 		UPDATE scans SET
@@ -1369,7 +1340,7 @@ func (s *SQLiteDB) AppendScanPhase(scanID, phaseName string, failed bool) error 
 	}
 	var phases []string
 	if raw != "" {
-		_ = json.Unmarshal([]byte(raw), &phases)
+		unmarshalPhaseJSON(raw, &phases)
 	}
 	for _, ph := range phases {
 		if ph == phaseName {
@@ -1377,8 +1348,8 @@ func (s *SQLiteDB) AppendScanPhase(scanID, phaseName string, failed bool) error 
 		}
 	}
 	phases = append(phases, phaseName)
-	data, _ := json.Marshal(phases)
-	_, err = s.db.Exec(fmt.Sprintf(`UPDATE scans SET %s = ?, last_update = ?, updated_at = datetime('now') WHERE scan_id = ?`, col), string(data), time.Now(), scanID)
+	data := marshalPhaseJSON(phases)
+	_, err = s.db.Exec(fmt.Sprintf(`UPDATE scans SET %s = ?, last_update = ?, updated_at = datetime('now') WHERE scan_id = ?`, col), data, time.Now(), scanID)
 	if err != nil {
 		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
@@ -1393,9 +1364,7 @@ func (s *SQLiteDB) IsPhaseCompleted(scanID, phaseName string) bool {
 		return false
 	}
 	var phases []string
-	if err := json.Unmarshal([]byte(raw.String), &phases); err != nil {
-		return false
-	}
+	unmarshalPhaseJSON(raw.String, &phases)
 	for _, ph := range phases {
 		if ph == phaseName {
 			return true
@@ -1489,10 +1458,10 @@ func (s *SQLiteDB) GetScan(scanID string) (*ScanRecord, error) {
 	
 	// Unmarshal JSON arrays
 	if completedPhasesJSON != "" && completedPhasesJSON != "[]" {
-		json.Unmarshal([]byte(completedPhasesJSON), &scan.CompletedPhases)
+		unmarshalPhaseJSON(completedPhasesJSON, &scan.CompletedPhases)
 	}
 	if failedPhasesJSON != "" && failedPhasesJSON != "[]" {
-		json.Unmarshal([]byte(failedPhasesJSON), &scan.FailedPhases)
+		unmarshalPhaseJSON(failedPhasesJSON, &scan.FailedPhases)
 	}
 	
 	return &scan, nil
@@ -1541,10 +1510,10 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 		
 		// Unmarshal JSON arrays
 		if completedPhasesJSON != "" && completedPhasesJSON != "[]" {
-			json.Unmarshal([]byte(completedPhasesJSON), &scan.CompletedPhases)
+			unmarshalPhaseJSON(completedPhasesJSON, &scan.CompletedPhases)
 		}
 		if failedPhasesJSON != "" && failedPhasesJSON != "[]" {
-			json.Unmarshal([]byte(failedPhasesJSON), &scan.FailedPhases)
+			unmarshalPhaseJSON(failedPhasesJSON, &scan.FailedPhases)
 		}
 		
 		scans = append(scans, &scan)
@@ -1618,10 +1587,10 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 		
 		// Unmarshal JSON arrays
 		if completedPhasesJSON != "" && completedPhasesJSON != "[]" {
-			json.Unmarshal([]byte(completedPhasesJSON), &scan.CompletedPhases)
+			unmarshalPhaseJSON(completedPhasesJSON, &scan.CompletedPhases)
 		}
 		if failedPhasesJSON != "" && failedPhasesJSON != "[]" {
-			json.Unmarshal([]byte(failedPhasesJSON), &scan.FailedPhases)
+			unmarshalPhaseJSON(failedPhasesJSON, &scan.FailedPhases)
 		}
 		
 		scans = append(scans, &scan)

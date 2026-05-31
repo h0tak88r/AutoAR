@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -1322,26 +1321,24 @@ func (p *PostgresDB) ListMonitorChanges(domain string, limit int) ([]MonitorChan
 	if limit <= 0 {
 		limit = 100
 	}
-	var rows interface{ Close() }
 	var err error
 	var query string
-	var args []interface{}
+	var args []any
 
 	if domain != "" {
 		query = `SELECT id, target_type, target_id, domain, change_type, COALESCE(detail,'') as detail, detected_at, notified
 				 FROM monitor_changes WHERE domain = $1 ORDER BY detected_at DESC LIMIT $2;`
-		args = []interface{}{domain, limit}
+		args = []any{domain, limit}
 	} else {
 		query = `SELECT id, target_type, target_id, domain, change_type, COALESCE(detail,'') as detail, detected_at, notified
 				 FROM monitor_changes ORDER BY detected_at DESC LIMIT $1;`
-		args = []interface{}{limit}
+		args = []any{limit}
 	}
 
 	pgRows, pgErr := p.pool.Query(p.ctx, query, args...)
 	if pgErr != nil {
 		return nil, fmt.Errorf("failed to query monitor changes: %v", pgErr)
 	}
-	rows = pgRows
 	defer pgRows.Close()
 
 	var changes []MonitorChange
@@ -1352,7 +1349,6 @@ func (p *PostgresDB) ListMonitorChanges(domain string, limit int) ([]MonitorChan
 		}
 		changes = append(changes, c)
 	}
-	_ = rows
 	if pgRows.Err() != nil {
 		return nil, fmt.Errorf("failed to iterate monitor changes: %v", pgRows.Err())
 	}
@@ -1361,23 +1357,9 @@ func (p *PostgresDB) ListMonitorChanges(domain string, limit int) ([]MonitorChan
 
 // CreateScan creates a new scan record
 func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
-	completedPhasesJSON := "[]"
-	failedPhasesJSON := "[]"
-	
-	if len(scan.CompletedPhases) > 0 {
-		data, err := json.Marshal(scan.CompletedPhases)
-		if err == nil {
-			completedPhasesJSON = string(data)
-		}
-	}
-	
-	if len(scan.FailedPhases) > 0 {
-		data, err := json.Marshal(scan.FailedPhases)
-		if err == nil {
-			failedPhasesJSON = string(data)
-		}
-	}
-	
+	completedPhasesJSON := marshalPhaseJSON(scan.CompletedPhases)
+	failedPhasesJSON := marshalPhaseJSON(scan.FailedPhases)
+
 	_, err := p.pool.Exec(p.ctx, `
 		INSERT INTO scans (
 			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
@@ -1398,22 +1380,8 @@ func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
 
 // UpdateScanProgress updates scan progress
 func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) error {
-	completedPhasesJSON := "[]"
-	failedPhasesJSON := "[]"
-	
-	if len(progress.CompletedPhases) > 0 {
-		data, err := json.Marshal(progress.CompletedPhases)
-		if err == nil {
-			completedPhasesJSON = string(data)
-		}
-	}
-	
-	if len(progress.FailedPhases) > 0 {
-		data, err := json.Marshal(progress.FailedPhases)
-		if err == nil {
-			failedPhasesJSON = string(data)
-		}
-	}
+	completedPhasesJSON := marshalPhaseJSON(progress.CompletedPhases)
+	failedPhasesJSON := marshalPhaseJSON(progress.FailedPhases)
 	
 	_, err := p.pool.Exec(p.ctx, `
 		UPDATE scans SET
@@ -1451,9 +1419,7 @@ func (p *PostgresDB) AppendScanPhase(scanID, phaseName string, failed bool) erro
 		return fmt.Errorf("AppendScanPhase read: %v", err)
 	}
 	var phases []string
-	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &phases)
-	}
+	unmarshalPhaseJSON(string(raw), &phases)
 	// Avoid duplicates
 	for _, ph := range phases {
 		if ph == phaseName {
@@ -1461,8 +1427,8 @@ func (p *PostgresDB) AppendScanPhase(scanID, phaseName string, failed bool) erro
 		}
 	}
 	phases = append(phases, phaseName)
-	data, _ := json.Marshal(phases)
-	_, err = p.pool.Exec(p.ctx, fmt.Sprintf(`UPDATE scans SET %s = $1, last_update = NOW(), updated_at = NOW() WHERE scan_id = $2`, col), string(data), scanID)
+	data := marshalPhaseJSON(phases)
+	_, err = p.pool.Exec(p.ctx, fmt.Sprintf(`UPDATE scans SET %s = $1, last_update = NOW(), updated_at = NOW() WHERE scan_id = $2`, col), data, scanID)
 	if err != nil {
 		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
@@ -1477,9 +1443,7 @@ func (p *PostgresDB) IsPhaseCompleted(scanID, phaseName string) bool {
 		return false
 	}
 	var phases []string
-	if err := json.Unmarshal(raw, &phases); err != nil {
-		return false
-	}
+	unmarshalPhaseJSON(string(raw), &phases)
 	for _, ph := range phases {
 		if ph == phaseName {
 			return true
@@ -1569,12 +1533,8 @@ func (p *PostgresDB) GetScan(scanID string) (*ScanRecord, error) {
 	scan.CompletedAt = completedAt
 	
 	// Unmarshal JSON arrays
-	if len(completedPhasesJSON) > 0 {
-		json.Unmarshal(completedPhasesJSON, &scan.CompletedPhases)
-	}
-	if len(failedPhasesJSON) > 0 {
-		json.Unmarshal(failedPhasesJSON, &scan.FailedPhases)
-	}
+	unmarshalPhaseJSON(string(completedPhasesJSON), &scan.CompletedPhases)
+	unmarshalPhaseJSON(string(failedPhasesJSON), &scan.FailedPhases)
 	
 	return &scan, nil
 }
@@ -1617,12 +1577,8 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 		scan.CompletedAt = completedAt
 		
 		// Unmarshal JSON arrays
-		if len(completedPhasesJSON) > 0 {
-			json.Unmarshal(completedPhasesJSON, &scan.CompletedPhases)
-		}
-		if len(failedPhasesJSON) > 0 {
-			json.Unmarshal(failedPhasesJSON, &scan.FailedPhases)
-		}
+		unmarshalPhaseJSON(string(completedPhasesJSON), &scan.CompletedPhases)
+		unmarshalPhaseJSON(string(failedPhasesJSON), &scan.FailedPhases)
 		
 		scans = append(scans, &scan)
 	}
@@ -1689,12 +1645,8 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 		scan.CompletedAt = completedAt
 		
 		// Unmarshal JSON arrays
-		if len(completedPhasesJSON) > 0 {
-			json.Unmarshal(completedPhasesJSON, &scan.CompletedPhases)
-		}
-		if len(failedPhasesJSON) > 0 {
-			json.Unmarshal(failedPhasesJSON, &scan.FailedPhases)
-		}
+		unmarshalPhaseJSON(string(completedPhasesJSON), &scan.CompletedPhases)
+		unmarshalPhaseJSON(string(failedPhasesJSON), &scan.FailedPhases)
 		
 		scans = append(scans, &scan)
 	}

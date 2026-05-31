@@ -51,6 +51,37 @@ var (
 	resourceLimitsOnce   sync.Once
 )
 
+// safeEnvPrefixes lists environment variable prefixes that are safe to
+// pass through to child processes. Everything else is stripped to
+// prevent leaking secrets (API keys, tokens, passwords) via the
+// environment.
+var safeEnvPrefixes = []string{
+	"HOME=", "USER=", "LOGNAME=", "PATH=", "PWD=", "SHELL=", "TERM=", "LANG=", "LC_", "TZ=",
+	"GOPATH=", "GOROOT=", "GOPROXY=", "GOMODCACHE=", "GOFLAGS=",
+	"AUTOAR_", "DOCKER_", "KUBERNETES_",
+	"SSL_CERT_FILE=", "SSL_CERT_DIR=",
+	"HTTP_PROXY=", "HTTPS_PROXY=", "NO_PROXY=", "http_proxy=", "https_proxy=", "no_proxy=",
+}
+
+// sanitizeEnv filters os.Environ() to only keep safe variables and appends
+// the given key=value pair(s). This prevents secrets from leaking into child
+// processes.
+func sanitizeEnv(parentEnv []string, extra ...string) []string {
+	out := make([]string, 0, len(safeEnvPrefixes)+len(extra))
+	for _, ev := range parentEnv {
+		for _, prefix := range safeEnvPrefixes {
+			if len(ev) >= len(prefix) && ev[:len(prefix)] == prefix {
+				out = append(out, ev)
+				break
+			}
+		}
+	}
+	for _, e := range extra {
+		out = append(out, e)
+	}
+	return out
+}
+
 func scanResultSizeBytes(r *ScanResult) int64 {
 	if r == nil {
 		return 0
@@ -1394,9 +1425,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
 
 	cmd := exec.Command(command[0], command[1:]...)
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("AUTOAR_CURRENT_SCAN_ID=%s", scanID),
-	)
+	cmd.Env = sanitizeEnv(os.Environ(), "AUTOAR_CURRENT_SCAN_ID", scanID)
 	// Put the child in its own process group so that SIGTERM/SIGKILL can be
 	// sent to the whole tree (not just the direct child) on cancel.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

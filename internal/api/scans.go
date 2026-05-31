@@ -83,11 +83,15 @@ func CancelScanByID(id string) error {
 			_ = scan.ExecCmd.Process.Signal(syscall.SIGTERM)
 		}
 		go func() {
-			time.Sleep(2 * time.Second)
-			if pgidErr == nil {
-				_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			} else {
-				_ = scan.ExecCmd.Process.Kill()
+			timer := time.NewTimer(2 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				if pgidErr == nil {
+					_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				} else {
+					_ = scan.ExecCmd.Process.Kill()
+				}
 			}
 		}()
 	}

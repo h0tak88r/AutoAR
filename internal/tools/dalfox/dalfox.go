@@ -74,7 +74,7 @@ func ScanFile(path string, opts Options) ([]Result, error) {
 			if err != nil {
 				continue
 			}
-			var raw map[string]interface{}
+			var raw map[string]any
 			_ = json.Unmarshal(b, &raw)
 			severity := strings.TrimSpace(fmt.Sprint(raw["severity"]))
 			if severity == "" || severity == "<nil>" {
