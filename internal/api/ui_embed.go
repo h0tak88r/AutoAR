@@ -80,14 +80,18 @@ func serveStaticData(c *gin.Context) {
 		}
 	}
 
+	relPath := filepath.Join("web", "static", "data", reqPath)
+	cleanRelPath := filepath.Clean(relPath)
+	// Security: prevent directory traversal
+	if !strings.HasPrefix(filepath.ToSlash(cleanRelPath), "web/static/data/") {
+		c.String(http.StatusForbidden, "Access denied")
+		return
+	}
+
 	var resolvedPath string
 	for _, base := range candidates {
-		candidate := filepath.Join(base, "web", "static", "data", reqPath)
+		candidate := filepath.Join(base, cleanRelPath)
 		candidate = filepath.Clean(candidate)
-		// Security: prevent directory traversal
-		if !strings.HasPrefix(filepath.ToSlash(candidate)+"/", "web/static/data/") {
-			continue
-		}
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			resolvedPath = candidate
 			break
