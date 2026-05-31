@@ -171,7 +171,7 @@ func UploadResultsToR2(domain string, removeLocal bool) (map[string]string, erro
 		return nil, fmt.Errorf("results directory does not exist: %s", resultsPath)
 	}
 
-	GetLogger().Infof("[R2] 📤 Uploading results for %s to R2...", domain)
+	GetLogger().Infof("[R2] Uploading results for %s to R2...", domain)
 	urls, err := r2storage.UploadResultsDirectory(domain, resultsPath, removeLocal)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload results to R2: %w", err)

@@ -29,36 +29,36 @@
 
 ADB Auditor is a browser-based Android security auditing tool designed for penetration testers, security researchers, and cybersecurity professionals. It connects to Android devices via WebUSB and provides comprehensive security analysis capabilities without requiring any server-side processing.
 
-**🔒 100% Client-Side** - All data processing happens in your browser. No data is ever uploaded to any server.
+** 100% Client-Side** - All data processing happens in your browser. No data is ever uploaded to any server.
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| 📱 **App Analysis** | List installed applications, extract APK files, analyze permissions and signatures |
-| 📂 **File Browser** | Navigate device filesystem with root support, upload/download files |
-| 🗄️ **Storage Audit** | Analyze SharedPreferences, SQLite databases, identify sensitive data exposure |
-| 💻 **Shell Access** | Direct ADB shell with command history and autocomplete |
-| 📸 **Screenshot** | Capture device screen for documentation and evidence |
-| 🔐 **Security Scan** | Automated security checks for common vulnerabilities |
-| 📊 **Device Info** | Comprehensive device information and system properties |
+|  **App Analysis** | List installed applications, extract APK files, analyze permissions and signatures |
+|  **File Browser** | Navigate device filesystem with root support, upload/download files |
+|  **Storage Audit** | Analyze SharedPreferences, SQLite databases, identify sensitive data exposure |
+|  **Shell Access** | Direct ADB shell with command history and autocomplete |
+|  **Screenshot** | Capture device screen for documentation and evidence |
+|  **Security Scan** | Automated security checks for common vulnerabilities |
+|  **Device Info** | Comprehensive device information and system properties |
 
 ## Screenshots
 
-### 🔐 Android Security Auditing Dashboard
+###  Android Security Auditing Dashboard
 Modern, client-side Android security auditing interface with WebUSB + ADB support. Connect devices securely and perform deep analysis without uploading data.
   
 ![ADB Auditor Dashboard](https://github.com/user-attachments/assets/eab09ce1-ce31-44cd-b02d-131fa14d5faa)
 
 ---
 
-### 🧩 Local Storage & App Data Analysis (Root)
+###  Local Storage & App Data Analysis (Root)
 Analyze application storage with root access, including SharedPreferences, databases, and internal files for advanced security assessments.
   
 ![ADB File Browser](https://github.com/user-attachments/assets/75fa83b4-e195-488b-9fdc-5fa248cb2e30)
 ---
 
-### 📁 Root File Browser via ADB
+###  Root File Browser via ADB
 Full-featured file browser powered by ADB with optional root mode, enabling navigation, upload, download, and inspection of device file systems.
   
 ![Root Storage Analysis](https://github.com/user-attachments/assets/fbd571d0-3790-4f85-b3bd-807c878087f9)
@@ -71,7 +71,7 @@ Full-featured file browser powered by ADB with optional root mode, enabling navi
 - Microsoft Edge 89+
 - Opera 75+
 
-> ⚠️ **Note:** Firefox and Safari do not support WebUSB API
+>  **Note:** Firefox and Safari do not support WebUSB API
 
 ### Device Requirements
 - Android device with USB Debugging enabled
@@ -228,7 +228,7 @@ This tool is intended for authorized security testing and educational purposes o
 ---
 
 <p align="center">
-  Made with ❤️ for the Security Community
+  Made with  for the Security Community
 </p>
 
 <p align="center">

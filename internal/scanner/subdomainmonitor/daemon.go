@@ -188,27 +188,27 @@ func persistAndNotifyChanges(t db.SubdomainMonitorTarget, result *MonitorResult)
 
 // formatChangeAlert returns a Discord-ready markdown summary of detected changes.
 func formatChangeAlert(domain string, r *MonitorResult) string {
-	msg := fmt.Sprintf("🔔 **Subdomain Monitor Alert** — `%s`\n", domain)
+	msg := fmt.Sprintf(" **Subdomain Monitor Alert** — `%s`\n", domain)
 	if len(r.NewSubdomains) > 0 {
-		msg += fmt.Sprintf("🆕 **%d new** subdomain(s) appeared\n", len(r.NewSubdomains))
+		msg += fmt.Sprintf(" **%d new** subdomain(s) appeared\n", len(r.NewSubdomains))
 		for _, c := range r.NewSubdomains {
 			msg += fmt.Sprintf("  • `%s` — %s\n", c.Subdomain, c.Message)
 		}
 	}
 	if len(r.BecameLive) > 0 {
-		msg += fmt.Sprintf("✅ **%d** became **live**\n", len(r.BecameLive))
+		msg += fmt.Sprintf(" **%d** became **live**\n", len(r.BecameLive))
 		for _, c := range r.BecameLive {
 			msg += fmt.Sprintf("  • `%s` — %s\n", c.Subdomain, c.Message)
 		}
 	}
 	if len(r.BecameDead) > 0 {
-		msg += fmt.Sprintf("💀 **%d** became **dead**\n", len(r.BecameDead))
+		msg += fmt.Sprintf(" **%d** became **dead**\n", len(r.BecameDead))
 		for _, c := range r.BecameDead {
 			msg += fmt.Sprintf("  • `%s` — %s\n", c.Subdomain, c.Message)
 		}
 	}
 	if len(r.StatusChanges) > 0 {
-		msg += fmt.Sprintf("🔄 **%d** status change(s)\n", len(r.StatusChanges))
+		msg += fmt.Sprintf(" **%d** status change(s)\n", len(r.StatusChanges))
 		for _, c := range r.StatusChanges {
 			msg += fmt.Sprintf("  • `%s` — %s\n", c.Subdomain, c.Message)
 		}

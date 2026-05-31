@@ -897,11 +897,11 @@
               <input id="recon-filter-host" type="search" placeholder=" Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
               <select id="recon-filter-severity" title="Severity" style="flex:0 0 auto;min-width:132px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
                 <option value="any">Any Severity</option>
-                <option value="critical"> Critical</option>
-                <option value="high">🟠 High</option>
-                <option value="medium">🟡 Medium</option>
-                <option value="low"> Low</option>
-                <option value="info">🟢 Info</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="info">Info</option>
               </select>
               <select id="recon-filter-module" title="Module (optional narrow)" style="flex:1 1 140px;min-width:140px;max-width:240px;display:none;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
                 <option value="all">All modules</option>
@@ -1015,7 +1015,7 @@
       severityBar.style.display = 'flex';
       const pills = SEV_DEFS.filter(d => counts[d.key] > 0).map(d => {
         const isActive = filterSeverity === d.key;
-        return `<button type="button" data-sev="${esc(d.key)}" title="Filter by ${d.label}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid ${isActive ? d.color : d.border};border-radius:999px;background:${isActive ? d.bg : 'rgba(255,255,255,.02)'};color:${isActive ? d.color : 'var(--text-secondary)'};font-size:11px;font-weight:${isActive ? '600' : '400'};cursor:pointer;transition:all .15s"><span style="font-size:13px">${d.key === 'critical' ? '' : d.key === 'high' ? '🟠' : d.key === 'medium' ? '🟡' : d.key === 'low' ? '' : '🟢'}</span><span>${d.label}</span><span style="background:${isActive ? d.color : 'rgba(255,255,255,.1)'};color:${isActive ? '#000' : 'var(--text-muted)'};border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${counts[d.key]}</span></button>`;
+        return `<button type="button" data-sev="${esc(d.key)}" title="Filter by ${d.label}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid ${isActive ? d.color : d.border};border-radius:999px;background:${isActive ? d.bg : 'rgba(255,255,255,.02)'};color:${isActive ? d.color : 'var(--text-secondary)'};font-size:11px;font-weight:${isActive ? '600' : '400'};cursor:pointer;transition:all .15s"><span style="font-size:13px">${d.key === 'critical' ? '' : d.key === 'high' ? '' : d.key === 'medium' ? '' : d.key === 'low' ? '' : ''}</span><span>${d.label}</span><span style="background:${isActive ? d.color : 'rgba(255,255,255,.1)'};color:${isActive ? '#000' : 'var(--text-muted)'};border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${counts[d.key]}</span></button>`;
       }).join('');
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
       const allActive = filterSeverity === 'any';

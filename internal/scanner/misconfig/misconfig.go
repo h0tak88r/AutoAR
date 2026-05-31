@@ -207,7 +207,7 @@ func handleScan(opts Options, resultsDir string) error {
 			// template-id = human-readable service name (shown in VULNERABILITY TYPE column)
 			displayName := r.ServiceName
 			if r.Vulnerable {
-				displayName = r.ServiceName + " ⚠ VULNERABLE"
+				displayName = r.ServiceName + "  VULNERABLE"
 			}
 			findings = append(findings, misconfigFinding{
 				TemplateID:  displayName,

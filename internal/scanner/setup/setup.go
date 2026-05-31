@@ -14,19 +14,19 @@ import (
 // Run installs all dependencies required for AutoAR
 // It intelligently detects what's already installed and only installs missing dependencies
 func Run() error {
-	fmt.Println("🚀 AutoAR Setup - Installing dependencies...")
+	fmt.Println(" AutoAR Setup - Installing dependencies...")
 	fmt.Println()
 
 	// Check if running as root (needed for some installations)
 	if os.Geteuid() != 0 {
-		fmt.Println("⚠️  Some installations require sudo privileges.")
+		fmt.Println("  Some installations require sudo privileges.")
 		fmt.Println("   You may be prompted for your password.")
 		fmt.Println()
 	}
 
 	// Detect OS
 	osType := detectOS()
-	fmt.Printf("📦 Detected OS: %s\n", osType)
+	fmt.Printf(" Detected OS: %s\n", osType)
 	fmt.Println()
 
 	// Check and install system packages
@@ -41,7 +41,7 @@ func Run() error {
 
 
 	// Create necessary directories
-	fmt.Println("📁 Creating AutoAR directories...")
+	fmt.Println(" Creating AutoAR directories...")
 	root := getAutoarRoot()
 	dirs := []string{
 		filepath.Join(root, "new-results"),
@@ -52,7 +52,7 @@ func Run() error {
 	
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			fmt.Printf("   ⚠️  Warning: Failed to create %s: %v\n", dir, err)
+			fmt.Printf("     Warning: Failed to create %s: %v\n", dir, err)
 		} else {
 			fmt.Printf("   [ + ]Created: %s\n", dir)
 		}
@@ -60,15 +60,15 @@ func Run() error {
 
 	// Clone Nuclei public templates
 	if err := checkAndCloneNucleiTemplates(root); err != nil {
-		fmt.Printf("   ⚠️  Warning: Failed to clone Nuclei public templates: %v\n", err)
-		fmt.Println("   💡 You can manually clone them later:")
+		fmt.Printf("     Warning: Failed to clone Nuclei public templates: %v\n", err)
+		fmt.Println("    You can manually clone them later:")
 		fmt.Println("      git clone https://github.com/projectdiscovery/nuclei-templates.git")
 	}
 
 	fmt.Println()
 	fmt.Println("[ + ]Setup completed successfully!")
 	fmt.Println()
-	fmt.Println("📋 Next steps:")
+	fmt.Println(" Next steps:")
 	fmt.Println("   1. Run 'autoar check-tools' to verify all dependencies")
 	fmt.Println("   2. Configure your environment:")
 	fmt.Println("      cp env.example .env")
@@ -107,7 +107,7 @@ func detectOS() string {
 }
 
 func checkAndInstallSystemPackages(osType string) error {
-	fmt.Println("📦 Checking system packages...")
+	fmt.Println(" Checking system packages...")
 
 	var packagesToInstall []string
 	var packageChecker func(string) bool
@@ -214,9 +214,9 @@ func checkAndInstallSystemPackages(osType string) error {
 	// Check if Docker is installed and provide setup instructions if not
 	if _, err := exec.LookPath("docker"); err != nil {
 		fmt.Println()
-		fmt.Println("   ⚠️  Docker is not installed or not in PATH")
-		fmt.Println("   📖 Docker is required for DNSReaper (DNS takeover detection)")
-		fmt.Println("   💡 To install Docker:")
+		fmt.Println("     Docker is not installed or not in PATH")
+		fmt.Println("    Docker is required for DNSReaper (DNS takeover detection)")
+		fmt.Println("    To install Docker:")
 		fmt.Println("      - Debian/Ubuntu: sudo apt-get install docker.io")
 		fmt.Println("      - RHEL/CentOS: sudo yum install docker")
 		fmt.Println("      - Or follow: https://docs.docker.com/get-docker/")
@@ -230,8 +230,8 @@ func checkAndInstallSystemPackages(osType string) error {
 		cmd.Stderr = nil
 		if err := cmd.Run(); err != nil {
 			fmt.Println()
-			fmt.Println("   ⚠️  Docker is installed but daemon is not running")
-			fmt.Println("   💡 Start Docker daemon: sudo systemctl start docker")
+			fmt.Println("     Docker is installed but daemon is not running")
+			fmt.Println("    Start Docker daemon: sudo systemctl start docker")
 		} else {
 			fmt.Println("   [ + ]Docker is installed and running")
 		}
@@ -241,7 +241,7 @@ func checkAndInstallSystemPackages(osType string) error {
 }
 
 func checkAndInstallGoTools() error {
-	fmt.Println("🔧 Checking Go-based tools...")
+	fmt.Println(" Checking Go-based tools...")
 
 	// Check if Go is installed
 	if _, err := exec.LookPath("go"); err != nil {
@@ -257,7 +257,7 @@ func checkAndInstallGoTools() error {
 	// Ensure GOBIN is in PATH
 	path := os.Getenv("PATH")
 	if !strings.Contains(path, goPath) {
-		fmt.Printf("   ⚠️  Warning: %s is not in PATH. Add it to your ~/.bashrc or ~/.zshrc:\n", goPath)
+		fmt.Printf("     Warning: %s is not in PATH. Add it to your ~/.bashrc or ~/.zshrc:\n", goPath)
 		fmt.Printf("      export PATH=$PATH:%s\n", goPath)
 	}
 
@@ -350,7 +350,7 @@ func checkAndCloneNucleiTemplates(root string) error {
 			updateCmd.Stdout = os.Stdout
 			updateCmd.Stderr = os.Stderr
 			if err := updateCmd.Run(); err != nil {
-				fmt.Printf("   ⚠️  Warning: Failed to update templates: %v\n", err)
+				fmt.Printf("     Warning: Failed to update templates: %v\n", err)
 			} else {
 				fmt.Println("   [ + ]Nuclei public templates updated")
 			}
