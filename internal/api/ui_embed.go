@@ -56,7 +56,8 @@ func serveDashboardUI(c *gin.Context) {
 	c.String(http.StatusNotFound, "UI entrypoint not found")
 }
 
-// serveStaticData serves static JSON data files from web/static/data directory
+// serveStaticData serves static JSON data files from web/static/data directory.
+// It searches multiple base paths so it works regardless of the binary's cwd.
 func serveStaticData(c *gin.Context) {
 	reqPath := strings.TrimPrefix(c.Param("filepath"), "/")
 	if reqPath == "" {
@@ -64,35 +65,50 @@ func serveStaticData(c *gin.Context) {
 		return
 	}
 
-	// Construct the file path relative to project root
-	filePath := filepath.Join("web", "static", "data", reqPath)
-
-	// Security: prevent directory traversal
-	cleanPath := filepath.Clean(filePath)
-	if !strings.HasPrefix(cleanPath, "web/static/data/") {
-		c.String(http.StatusForbidden, "Access denied")
-		return
+	// Candidate base directories to search for web/static/data
+	var candidates []string
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, cwd)
+	}
+	if exePath, err := os.Executable(); err == nil {
+		if exeDir := filepath.Dir(exePath); exeDir != "." {
+			candidates = append(candidates, exeDir)
+			// Handle macOS app bundles: binary is inside AutoAR.app/Contents/MacOS/
+			if strings.Contains(exeDir, ".app/Contents/MacOS") {
+				candidates = append(candidates, filepath.Join(exeDir, "..", "..", ".."))
+			}
+		}
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+	var resolvedPath string
+	for _, base := range candidates {
+		candidate := filepath.Join(base, "web", "static", "data", reqPath)
+		candidate = filepath.Clean(candidate)
+		// Security: prevent directory traversal
+		if !strings.HasPrefix(filepath.ToSlash(candidate)+"/", "web/static/data/") {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			resolvedPath = candidate
+			break
+		}
+	}
+
+	if resolvedPath == "" {
 		c.String(http.StatusNotFound, "File not found")
 		return
 	}
 
-	// Read and serve the file
-	data, err := os.ReadFile(cleanPath)
+	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Error reading file")
 		return
 	}
 
-	// Set content type based on extension
-	contentType := mime.TypeByExtension(filepath.Ext(cleanPath))
+	contentType := mime.TypeByExtension(filepath.Ext(resolvedPath))
 	if contentType == "" {
 		contentType = "application/json"
 	}
-
 	c.Data(http.StatusOK, contentType, data)
 }
 

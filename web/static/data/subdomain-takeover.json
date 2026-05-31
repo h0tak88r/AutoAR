@@ -2,7 +2,7 @@
   {
     "engine": "AWS/Elastic Beanstalk",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "NXDOMAIN",
     "discussion": "Issue #194 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/194)",
     "documentation": ""
@@ -10,7 +10,7 @@
   {
     "engine": "AWS/Load Balancer (ELB)",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "NXDOMAIN",
     "discussion": "Issue #137 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/137)",
     "documentation": ""
@@ -18,7 +18,7 @@
   {
     "engine": "AWS/S3",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "The specified bucket does not exist",
     "discussion": "Issue #36 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/36)",
     "documentation": ""
@@ -26,7 +26,7 @@
   {
     "engine": "Acquia",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Web Site Not Found",
     "discussion": "Issue #103 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/103)",
     "documentation": ""
@@ -34,7 +34,7 @@
   {
     "engine": "Agile CRM",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Sorry, this page is no longer available.",
     "discussion": "Issue #145 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/145)",
     "documentation": ""
@@ -42,7 +42,7 @@
   {
     "engine": "Airee.ru",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "Ошибка 402. Сервис Айри.рф не оплачен",
     "discussion": "Issue #104 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/104)",
     "documentation": ""
@@ -50,7 +50,7 @@
   {
     "engine": "Akamai",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "Issue #13 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/13)",
     "documentation": ""
@@ -58,7 +58,7 @@
   {
     "engine": "Anima",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "The page you were looking for does not exist.",
     "discussion": "Issue #126 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/126)",
     "documentation": "Anima Documentation (https://docs.animaapp.com/v1/launchpad/08-custom-domain.html)"
@@ -66,7 +66,7 @@
   {
     "engine": "Bitbucket",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "Repository not found",
     "discussion": "Issue #97 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/97)",
     "documentation": ""
@@ -74,7 +74,7 @@
   {
     "engine": "Campaign Monitor",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Trying to access your account?",
     "discussion": "Issue #275 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/275)",
     "documentation": "Support Page (https://help.campaignmonitor.com/custom-domain-names)"
@@ -82,7 +82,7 @@
   {
     "engine": "Canny",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Company Not Found There is no such company. Did you enter the right URL?",
     "discussion": "Issue #114 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/114)",
     "documentation": ""
@@ -90,7 +90,7 @@
   {
     "engine": "Cargo Collective",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "404 Not Found",
     "discussion": "Issue #152 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/152)",
     "documentation": "Cargo Support Page (https://support.2.cargocollective.com/Using-a-Third-Party-Domain)"
@@ -98,7 +98,7 @@
   {
     "engine": "Cloudfront",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "ViewerCertificateException",
     "discussion": "Issue #29 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/29)",
     "documentation": "Domain Security on Amazon CloudFront (https://aws.amazon.com/blogs/networking-and-content-delivery/continually-enhancing-domain-security-on-amazon-cloudfront/)"
@@ -106,7 +106,7 @@
   {
     "engine": "Desk",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Please try again or try Desk.com free for 14 days.",
     "discussion": "Issue #9 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/9)",
     "documentation": ""
@@ -114,7 +114,7 @@
   {
     "engine": "Digital Ocean",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Domain uses DO name servers with no records in DO.",
     "discussion": "",
     "documentation": ""
@@ -122,7 +122,7 @@
   {
     "engine": "Discourse",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "NXDOMAIN",
     "discussion": "Issue #49 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/49)",
     "documentation": "Hackerone (https://hackerone.com/reports/264494)"
@@ -130,7 +130,7 @@
   {
     "engine": "Dreamhost",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Site Not Found Well, this is awkward. The site you're looking for is not here.",
     "discussion": "Issue #153 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/153)",
     "documentation": ""
@@ -138,7 +138,7 @@
   {
     "engine": "Fastly",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Fastly error: unknown domain:",
     "discussion": "Issue #22 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/22)",
     "documentation": ""
@@ -146,7 +146,7 @@
   {
     "engine": "Feedpress",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "The feed has not been found.",
     "discussion": "Issue #80 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/80)",
     "documentation": ""
@@ -154,7 +154,7 @@
   {
     "engine": "Firebase",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "Issue #128 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/128)",
     "documentation": ""
@@ -162,7 +162,7 @@
   {
     "engine": "Fly.io",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "404 Not Found",
     "discussion": "Issue #101 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/101)",
     "documentation": ""
@@ -170,7 +170,7 @@
   {
     "engine": "Freshdesk",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "We couldn't find servicedesk.victim.tld Maybe this is still fresh! You can claim it now at http://www.freshservice.com/signup",
     "discussion": "Issue #214 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/214)",
     "documentation": "Freshdesk Support Page (https://support.freshdesk.com/support/solutions/articles/37590-using-a-vanity-support-url-and-pointing-the-cname)"
@@ -178,7 +178,7 @@
   {
     "engine": "Frontify",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "404 - Page Not Found Oops… looks like you got lost",
     "discussion": "Issue #170 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/170)",
     "documentation": ""
@@ -186,7 +186,7 @@
   {
     "engine": "Gemfury",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "404: This page could not be found.",
     "discussion": "Issue #154 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/154)",
     "documentation": "Article (https://khaledibnalwalid.wordpress.com/2020/06/25/gemfury-subdomain-takeover/)"
@@ -194,7 +194,7 @@
   {
     "engine": "Getresponse",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "With GetResponse Landing Pages, lead generation has never been easier",
     "discussion": "Issue #235 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/235)",
     "documentation": ""
@@ -202,15 +202,15 @@
   {
     "engine": "Ghost",
     "status": "Vulnerable",
-    "verified": "🟥",
-    "fingerprint": "Site unavailable\\.\u0026#124;Failed to resolve DNS path for this host",
+    "verified": "",
+    "fingerprint": "Site unavailable\\.&#124;Failed to resolve DNS path for this host",
     "discussion": "Issue #89 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/89)",
     "documentation": ""
   },
   {
     "engine": "Github",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "There isn't a GitHub Pages site here.",
     "discussion": "Issue #37 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/37)",
     "documentation": ""
@@ -218,7 +218,7 @@
   {
     "engine": "Gitlab",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "HackerOne #312118 (https://hackerone.com/reports/312118)",
     "documentation": ""
@@ -226,23 +226,23 @@
   {
     "engine": "Google Cloud Storage",
     "status": "Not vulnerable",
-    "verified": "🟥",
-    "fingerprint": "\u003c?xml version='1.0' encoding='UTF-8'?\u003e\u003cError\u003e\u003cCode\u003eNoSuchBucket\u003c/Code\u003e\u003cMessage\u003eThe specified bucket does not exist.\u003c/Message\u003e\u003c/Error\u003e",
+    "verified": "",
+    "fingerprint": "<?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist.</Message></Error>",
     "discussion": "",
     "documentation": ""
   },
   {
     "engine": "Google Sites",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "The requested URL was not found on this server. That’s all we know.",
     "discussion": "Issue #277 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/277)",
-    "documentation": "Google Support (https://support.google.com/webmasters/answer/9008080?visit_id=637981741431097680-3818919062\u0026rd=2)"
+    "documentation": "Google Support (https://support.google.com/webmasters/answer/9008080?visit_id=637981741431097680-3818919062&rd=2)"
   },
   {
     "engine": "HatenaBlog",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "404 Blog is not found",
     "discussion": "",
     "documentation": ""
@@ -250,7 +250,7 @@
   {
     "engine": "Help Juice",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "We could not find what you're looking for.",
     "discussion": "",
     "documentation": "Help Juice Support Page (https://help.helpjuice.com/en_US/using-your-custom-domain/how-to-set-up-a-custom-domain)"
@@ -258,7 +258,7 @@
   {
     "engine": "Help Scout",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "No settings were found for this company:",
     "discussion": "",
     "documentation": "HelpScout Docs (https://docs.helpscout.net/article/42-setup-custom-domain)"
@@ -266,7 +266,7 @@
   {
     "engine": "Helprace",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "HTTP_STATUS=301",
     "discussion": "Issue #115 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/115)",
     "documentation": ""
@@ -274,7 +274,7 @@
   {
     "engine": "Heroku",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "No such app",
     "discussion": "Issue #38 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/38)",
     "documentation": ""
@@ -282,7 +282,7 @@
   {
     "engine": "HubSpot",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "This page isn't available",
     "discussion": "Issue #59 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/59)",
     "documentation": ""
@@ -290,7 +290,7 @@
   {
     "engine": "Instapage",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "Issue #73 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/73)",
     "documentation": ""
@@ -298,7 +298,7 @@
   {
     "engine": "Intercom",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Uh oh. That page doesn't exist.",
     "discussion": "Issue #69 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/69)",
     "documentation": "Help center (https://www.intercom.com/help/)"
@@ -306,7 +306,7 @@
   {
     "engine": "JetBrains",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "is not a registered InCloud YouTrack",
     "discussion": "PR #107 (https://github.com/EdOverflow/can-i-take-over-xyz/pull/107)",
     "documentation": "YouTrack InCloud Help Page (https://www.jetbrains.com/help/youtrack/incloud/Domain-Settings.html)"
@@ -314,7 +314,7 @@
   {
     "engine": "Key CDN",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "Issue #112 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/112)",
     "documentation": ""
@@ -322,7 +322,7 @@
   {
     "engine": "Kinsta",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "No Site For Domain",
     "discussion": "Issue #48 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/48)",
     "documentation": "kinsta-add-domain (https://kinsta.com/knowledgebase/add-domain/)"
@@ -330,7 +330,7 @@
   {
     "engine": "Landingi",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "It looks like you’re lost...",
     "discussion": "Issue #117 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/117)",
     "documentation": ""
@@ -338,7 +338,7 @@
   {
     "engine": "LaunchRock",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "HTTP_STATUS=500",
     "discussion": "Issue #74 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/74)",
     "documentation": ""
@@ -346,7 +346,7 @@
   {
     "engine": "Mailchimp",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "We can't find that page It looks like you're trying to reach a page that was built by Mailchimp but is no longer active.",
     "discussion": "Discussion #250 (https://github.com/EdOverflow/can-i-take-over-xyz/discussions/250)",
     "documentation": ""
@@ -354,7 +354,7 @@
   {
     "engine": "Mashery",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Unrecognized domain",
     "discussion": "Issue #14 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/14)",
     "documentation": "HackerOne (https://hackerone.com/reports/275714)"
@@ -362,7 +362,7 @@
   {
     "engine": "Microsoft Azure",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "NXDOMAIN",
     "discussion": "Issue #35 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/35)",
     "documentation": ""
@@ -370,7 +370,7 @@
   {
     "engine": "Netlify",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Not Found - Request ID:",
     "discussion": "Issue #40 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/40)",
     "documentation": ""
@@ -378,7 +378,7 @@
   {
     "engine": "Ngrok",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Tunnel .*.ngrok.io not found",
     "discussion": "Issue #92 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/92)",
     "documentation": "Ngrok Documentation (https://ngrok.com/docs#http-custom-domains)"
@@ -386,7 +386,7 @@
   {
     "engine": "Pantheon",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "404 error unknown site!",
     "discussion": "Issue #24 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/24)",
     "documentation": "Documentation (https://pantheon.io/docs/guides/domains/custom-domains)"
@@ -394,7 +394,7 @@
   {
     "engine": "Pingdom",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Sorry, couldn't find the status page",
     "discussion": "Issue #144 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/144)",
     "documentation": "Support Page (https://help.pingdom.com/hc/en-us/articles/205386171-Public-Status-Page)"
@@ -402,7 +402,7 @@
   {
     "engine": "Readme.io",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "The creators of this project are still working on making everything perfect!",
     "discussion": "Issue #41 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/41)",
     "documentation": ""
@@ -410,7 +410,7 @@
   {
     "engine": "Readthedocs",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "The link you have followed or the URL that you entered does not exist.",
     "discussion": "Issue #160 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/160)",
     "documentation": ""
@@ -418,7 +418,7 @@
   {
     "engine": "Sendgrid",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "",
     "documentation": ""
@@ -426,7 +426,7 @@
   {
     "engine": "Shopify",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Sorry, this shop is currently unavailable.",
     "discussion": "Issue #32 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/32)",
     "documentation": "Medium Article (https://medium.com/@thebuckhacker/how-to-do-55-000-subdomain-takeover-in-a-blink-of-an-eye-a94954c3fc75)"
@@ -434,7 +434,7 @@
   {
     "engine": "Short.io",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Link does not exist",
     "discussion": "Issue #260 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/260)",
     "documentation": ""
@@ -442,7 +442,7 @@
   {
     "engine": "SmartJobBoard",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "This job board website is either expired or its domain name is invalid.",
     "discussion": "Issue #139 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/139)",
     "documentation": "Support Page (https://help.smartjobboard.com/en/articles/1269655-connecting-a-custom-domain-name)"
@@ -450,7 +450,7 @@
   {
     "engine": "Smartling",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Domain is not configured",
     "discussion": "Issue #67 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/67)",
     "documentation": ""
@@ -458,7 +458,7 @@
   {
     "engine": "Smugsmug",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "Issue #60 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/60)",
     "documentation": ""
@@ -466,7 +466,7 @@
   {
     "engine": "Squarespace",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "",
     "documentation": ""
@@ -474,7 +474,7 @@
   {
     "engine": "Statuspage",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "This Doc (https://support.atlassian.com/statuspage/docs/configure-your-dns/)",
     "documentation": "Statuspage documentation (https://help.statuspage.io/knowledge_base/topics/domain-ownership)"
@@ -482,7 +482,7 @@
   {
     "engine": "Strikingly",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "PAGE NOT FOUND.",
     "discussion": "Issue #58 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/58)",
     "documentation": "Strikingly-Sub-takeover (https://medium.com/@sherif0x00/takeover-subdomains-pointing-to-strikingly-5e67df80cdfd)"
@@ -490,7 +490,7 @@
   {
     "engine": "Surge.sh",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "project not found",
     "discussion": "Issue #198 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/198)",
     "documentation": "Surge Documentation (https://surge.sh/help/adding-a-custom-domain)"
@@ -498,7 +498,7 @@
   {
     "engine": "SurveySparrow",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "Account not found.",
     "discussion": "Issue #281 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/281)",
     "documentation": "Custom domain (https://help.surveysparrow.com/custom-domain)"
@@ -506,7 +506,7 @@
   {
     "engine": "Tilda",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Please renew your subscription",
     "discussion": "Issue #155 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/155)",
     "documentation": ""
@@ -514,7 +514,7 @@
   {
     "engine": "Tumblr",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Whatever you were looking for doesn't currently exist at this address",
     "discussion": "Issue #240 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/240)",
     "documentation": "Tumblr Custom Domains (https://www.tumblr.com/docs/en/custom_domains)"
@@ -522,7 +522,7 @@
   {
     "engine": "Uberflip",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "The URL you've accessed does not provide a hub.",
     "discussion": "Issue #150 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/150)",
     "documentation": "Uberflip Documentation (https://help.uberflip.com/hc/en-us/articles/360018786372-Custom-Domain-Set-up-Your-Hub-on-a-Subdomain)"
@@ -530,7 +530,7 @@
   {
     "engine": "Unbounce",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "The requested URL was not found on this server.",
     "discussion": "Issue #11 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/11)",
     "documentation": ""
@@ -538,7 +538,7 @@
   {
     "engine": "Uptimerobot",
     "status": "Vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "page not found",
     "discussion": "Issue #45 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/45)",
     "documentation": "Uptimerobot-Sub-takeover (https://exploit.linuxsec.org/uptimerobot-com-custom-domain-subdomain-takeover/)"
@@ -546,7 +546,7 @@
   {
     "engine": "UserVoice",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "This UserVoice subdomain is currently available!",
     "discussion": "Issue #163 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/163)",
     "documentation": ""
@@ -554,15 +554,15 @@
   {
     "engine": "Vercel",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "DEPLOYMENT_NOT_FOUND.",
     "discussion": "Issue #183 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/183)",
-    "documentation": "Adding \u0026 Configuring a Custom Domain (https://vercel.com/docs/concepts/projects/domains/add-a-domain)"
+    "documentation": "Adding & Configuring a Custom Domain (https://vercel.com/docs/concepts/projects/domains/add-a-domain)"
   },
   {
     "engine": "WP Engine",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "",
     "discussion": "",
     "documentation": ""
@@ -570,7 +570,7 @@
   {
     "engine": "Webflow",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "The page you are looking for doesn't exist or has been moved.",
     "discussion": "Issue #44 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/44)",
     "documentation": "forum webflow (https://forum.webflow.com/t/hosting-a-subdomain-on-webflow/59201)"
@@ -578,7 +578,7 @@
   {
     "engine": "Wix",
     "status": "Edge case",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Looks Like This Domain Isn't Connected To A Website Yet!",
     "discussion": "Issue #231 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/231)",
     "documentation": ""
@@ -586,7 +586,7 @@
   {
     "engine": "Wordpress",
     "status": "Vulnerable",
-    "verified": "🟩",
+    "verified": "",
     "fingerprint": "Do you want to register .*.wordpress.com?",
     "discussion": "PR #176 (https://github.com/EdOverflow/can-i-take-over-xyz/pull/176)",
     "documentation": ""
@@ -594,15 +594,15 @@
   {
     "engine": "Worksites",
     "status": "Vulnerable",
-    "verified": "🟩",
-    "fingerprint": "Hello! Sorry, but the website you\u0026rsquo;re looking for doesn\u0026rsquo;t exist.",
+    "verified": "",
+    "fingerprint": "Hello! Sorry, but the website you&rsquo;re looking for doesn&rsquo;t exist.",
     "discussion": "Issue #142 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/142)",
     "documentation": ""
   },
   {
     "engine": "Zendesk",
     "status": "Not vulnerable",
-    "verified": "🟥",
+    "verified": "",
     "fingerprint": "Help Center Closed",
     "discussion": "Issue #23 (https://github.com/EdOverflow/can-i-take-over-xyz/issues/23)",
     "documentation": "Zendesk Support (https://support.zendesk.com/hc/en-us/articles/203664356-Changing-the-address-of-your-Help-Center-subdomain-host-mapping-)"
