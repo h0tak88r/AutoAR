@@ -78,6 +78,7 @@ RUN curl -L https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts
 # Copy minimal application configuration and assets (source not required at runtime)
 COPY regexes/ ./regexes/
 COPY templates/ ./templates/
+COPY web/static/data/ ./web/static/data/
 COPY autoar.sample.yaml ./
 COPY env.example ./
 
