@@ -19,7 +19,7 @@ type phaseLogEntry struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Level     string                 `json:"level"`
 	Message   string                 `json:"message"`
-	Fields    map[string]interface{} `json:"fields,omitempty"`
+	Fields    map[string]any `json:"fields,omitempty"`
 }
 
 // phaseLogBuffer holds entries for one (scanID + phaseKey) combination.
@@ -72,7 +72,7 @@ func (h *phaseLogHook) Fire(entry *logrus.Entry) error {
 		h.mu.Unlock()
 	}
 
-	fields := make(map[string]interface{}, len(entry.Data))
+	fields := make(map[string]any, len(entry.Data))
 	for k, v := range entry.Data {
 		fields[k] = v
 	}

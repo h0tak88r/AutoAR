@@ -3,7 +3,7 @@ package kxss
 import (
 	"bufio"
 	"crypto/tls"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -134,7 +134,7 @@ func checkReflectedWithClient(client *http.Client, targetURL string) ([]string, 
 	}
 	defer resp.Body.Close()
 
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return out, err
 	}

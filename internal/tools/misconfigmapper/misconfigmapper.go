@@ -32,7 +32,7 @@ type Service struct {
 		Body    any                 `json:"body"`
 	} `json:"request"`
 	Response struct {
-		StatusCode            interface{} `json:"statusCode"`
+		StatusCode            any `json:"statusCode"`
 		DetectionFingerprints []string    `json:"detectionFingerprints"`
 		Fingerprints          []string    `json:"fingerprints"`
 		ExclusionPatterns     []string    `json:"exclusionPatterns,omitempty"`
@@ -244,7 +244,7 @@ func (c *HTTPClient) CheckResponse(result *Result, service *Service) {
 	// Status code matching
 	statusCodeMatched := false
 	switch v := service.Response.StatusCode.(type) {
-	case []interface{}:
+	case []any:
 		for _, ccode := range v {
 			if int(ccode.(float64)) == res.StatusCode {
 				statusCodeMatched = true

@@ -10,7 +10,6 @@ import (
 func main() {
 	fmt.Println("[entrypoint] AutoAR starting...")
 
-	// Get the mode from environment variable (default: api)
 	mode := os.Getenv("AUTOAR_MODE")
 	if mode == "" {
 		mode = "api"
@@ -18,7 +17,6 @@ func main() {
 
 	fmt.Printf("[entrypoint] Mode: %s\n", mode)
 
-	// Load configuration
 	fmt.Println("[entrypoint] Loading configuration...")
 	os.Setenv("AUTOAR_ROOT", "/app")
 	os.Setenv("AUTOAR_RESULTS_DIR", "/app/new-results")
@@ -26,7 +24,6 @@ func main() {
 	os.Setenv("AUTOAR_ENV", "docker")
 	fmt.Println("[entrypoint] Configuration loaded successfully")
 
-	// Debug: Print IPATOOL environment variables (masked for security)
 	fmt.Println("[entrypoint] Checking IPATOOL environment variables...")
 	if val := os.Getenv("IPATOOL_EMAIL"); val != "" {
 		fmt.Printf("[entrypoint] IPATOOL_EMAIL is set (length: %d)\n", len(val))
@@ -41,7 +38,7 @@ func main() {
 	if val := os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE"); val != "" {
 		fmt.Printf("[entrypoint] IPATOOL_KEYCHAIN_PASSPHRASE is set (length: %d)\n", len(val))
 	} else {
-		fmt.Println("[entrypoint] ⚠️  IPATOOL_KEYCHAIN_PASSPHRASE is NOT set - iOS downloads will fail!")
+		fmt.Println("[entrypoint] IPATOOL_KEYCHAIN_PASSPHRASE is NOT set - iOS downloads will fail!")
 	}
 	if val := os.Getenv("IPATOOL_AUTH_CODE"); val != "" {
 		fmt.Printf("[entrypoint] IPATOOL_AUTH_CODE is set (length: %d)\n", len(val))
@@ -49,11 +46,8 @@ func main() {
 		fmt.Println("[entrypoint] IPATOOL_AUTH_CODE is not set (optional)")
 	}
 
-	// Database schema is initialized by API/Bot startup paths (idempotent EnsureSchema).
-	// Avoid calling a non-existent CLI subcommand here.
 	fmt.Println("[entrypoint] Database schema initialization delegated to API/Bot startup")
 
-	// Optionally run tool check/installation at container start
 	if os.Getenv("RUN_SETUP") == "true" {
 		fmt.Println("[entrypoint] RUN_SETUP=true -> executing check-tools (Go)")
 		cmd := exec.Command("/usr/local/bin/autoar", "check-tools")
@@ -67,7 +61,6 @@ func main() {
 		}
 	}
 
-	// Create results dir
 	resultsDir := os.Getenv("AUTOAR_RESULTS_DIR")
 	if resultsDir == "" {
 		resultsDir = "/app/new-results"
@@ -76,19 +69,16 @@ func main() {
 		fmt.Printf("[entrypoint] Warning: Failed to create results directory: %v\n", err)
 	}
 
-	// Safer defaults for heavy mobile scans to reduce OOM/restart risk.
 	if strings.TrimSpace(os.Getenv("APKX_WORKERS")) == "" {
 		_ = os.Setenv("APKX_WORKERS", "2")
 		fmt.Println("[entrypoint] APKX_WORKERS not set; defaulting to 2 for stability")
 	}
 
-	// Check if autoar binary exists
 	if _, err := os.Stat("/usr/local/bin/autoar"); err != nil {
 		fmt.Fprintf(os.Stderr, "[entrypoint] Error: AutoAR binary not found at /usr/local/bin/autoar\n")
 		os.Exit(1)
 	}
 
-	// Launch based on mode (all modes run the API server)
 	var cmd *exec.Cmd
 	switch mode {
 	case "api", "discord", "both":

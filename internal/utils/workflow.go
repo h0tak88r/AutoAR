@@ -192,24 +192,24 @@ func countFindingsInFile(path string) int {
 
 	// ── JSON files ──
 	if ext == ".json" {
-		var top interface{}
+		var top any
 		if json.Unmarshal(data, &top) != nil {
 			return 0
 		}
 		switch v := top.(type) {
-		case []interface{}:
+		case []any:
 			return len(v)
-		case map[string]interface{}:
+		case map[string]any:
 			// Look for known result-array keys.
 			for _, key := range []string{"findings", "results", "matches", "issues", "vulnerabilities", "data", "items", "urls"} {
-				if arr, ok := v[key].([]interface{}); ok {
+				if arr, ok := v[key].([]any); ok {
 					return len(arr)
 				}
 			}
 			// For objects with string-array maps (like apkx results.json).
 			total := 0
 			for _, val := range v {
-				if arr, ok := val.([]interface{}); ok {
+				if arr, ok := val.([]any); ok {
 					total += len(arr)
 				}
 			}
@@ -229,7 +229,7 @@ func countFindingsInFile(path string) int {
 				continue
 			}
 			if strings.HasPrefix(line, "{") {
-				var obj map[string]interface{}
+				var obj map[string]any
 				if json.Unmarshal([]byte(line), &obj) == nil {
 					count++
 					continue

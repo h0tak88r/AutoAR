@@ -7,7 +7,7 @@ import (
 
 // CacheEntry represents a cached value with expiration
 type CacheEntry struct {
-	Data      interface{}
+	Data      any
 	ExpiresAt time.Time
 }
 
@@ -30,7 +30,7 @@ func NewCache() *Cache {
 }
 
 // Set stores a value in the cache with TTL
-func (c *Cache) Set(key string, value interface{}, ttl time.Duration) {
+func (c *Cache) Set(key string, value any, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	
@@ -41,7 +41,7 @@ func (c *Cache) Set(key string, value interface{}, ttl time.Duration) {
 }
 
 // Get retrieves a value from the cache
-func (c *Cache) Get(key string) (interface{}, bool) {
+func (c *Cache) Get(key string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	

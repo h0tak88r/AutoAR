@@ -18,7 +18,7 @@ func SendWebhook(msg string) {
 		return
 	}
 
-	payload := map[string]interface{}{"content": msg}
+	payload := map[string]any{"content": msg}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		GetLogger().Errorf("[WEBHOOK] Failed to marshal payload: %v", err)
@@ -86,7 +86,7 @@ func SendWebhookLogAsync(msg string) {
 }
 
 // SendWebhookEmbed is a no-op stub — currently not implemented for generic webhooks.
-func SendWebhookEmbed(_, _ string, _ int, _ []map[string]interface{}) error { return nil }
+func SendWebhookEmbed(_, _ string, _ int, _ []map[string]any) error { return nil }
 
 // SendWebhookFile is a no-op stub — currently not implemented for generic webhooks.
 func SendWebhookFile(_, _ string) error { return nil }
@@ -101,7 +101,7 @@ func SendMonitorWebhook(msg string) {
 		return
 	}
 
-	payload := map[string]interface{}{"content": msg}
+	payload := map[string]any{"content": msg}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		GetLogger().Errorf("[MONITOR] Failed to marshal webhook payload: %v", err)

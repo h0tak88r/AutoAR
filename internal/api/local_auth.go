@@ -1,29 +1,45 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
+var (
+	localAuthSecret     []byte
+	localAuthSecretOnce sync.Once
+)
+
 // localAuthJWTSecret returns the HS256 signing secret for local JWTs.
 // Uses AUTOAR_JWT_SECRET; falls back to DASHBOARD_PASSWORD so a single
 // credential env-var is sufficient for simple setups.
+// If neither is set, generates a random 32-byte key that lasts for the
+// lifetime of the process.
 func localAuthJWTSecret() []byte {
 	if s := strings.TrimSpace(os.Getenv("AUTOAR_JWT_SECRET")); s != "" {
 		return []byte(s)
 	}
-	// Fallback — combined so it's hard to brute-force even with known password.
 	pw := strings.TrimSpace(os.Getenv("DASHBOARD_PASSWORD"))
 	if pw != "" {
 		return []byte("autoar-local-auth-" + pw)
 	}
-	return []byte("autoar-local-auth-insecure-default")
+	localAuthSecretOnce.Do(func() {
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			panic("failed to generate local auth secret: " + err.Error())
+		}
+		localAuthSecret = []byte(hex.EncodeToString(key))
+	})
+	return localAuthSecret
 }
 
 // localAuthEnabled returns true when DASHBOARD_USER and DASHBOARD_PASSWORD are set.

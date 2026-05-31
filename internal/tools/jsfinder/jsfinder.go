@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -77,7 +77,7 @@ func Extract(urls []string, opt ExtractOptions) ([]string, error) {
 				return
 			}
 
-			bodyBytes, err := ioutil.ReadAll(resp.Body)
+			bodyBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				if !opt.Silent {
 					fmt.Fprintf(os.Stderr, "[jsfinder] error reading body from %s: %v\n", pageURL, err)

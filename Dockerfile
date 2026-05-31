@@ -1,5 +1,5 @@
 # --- Builder stage: install Go-based security tools and build AutoAR bot ---
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 WORKDIR /app
 
