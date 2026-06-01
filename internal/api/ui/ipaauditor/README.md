@@ -16,7 +16,7 @@
 
 
 <p align="center">
-  <a href="https://ipaauditor.com">🌐 Live Demo</a>
+  <a href="https://ipaauditor.com"> Live Demo</a>
 </p>
 
 ---
@@ -25,21 +25,21 @@
 
 IPA Auditor is a browser-based static security analysis tool for iOS applications. It performs comprehensive security scanning of IPA files based on OWASP MASVS guidelines without requiring any server-side processing or file uploads.
 
-**🔒 100% Client-Side** - All analysis happens in your browser. Your IPA files are never uploaded anywhere.
+** 100% Client-Side** - All analysis happens in your browser. Your IPA files are never uploaded anywhere.
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| 🔍 **Static Analysis** | 50+ security checks based on OWASP MASVS guidelines |
-| 🛡️ **Binary Security** | PIE, ARC, Stack Canary, and encryption verification |
-| 📂 **File Explorer** | Browse IPA contents with syntax highlighting |
-| 🔐 **Secret Detection** | Find hardcoded API keys, tokens, and credentials |
-| 📊 **Plist Analysis** | Parse and analyze Info.plist and embedded plists |
-| 📱 **Permission Audit** | Review app permissions and privacy descriptions |
-| 🔗 **URL Scheme Analysis** | Identify custom URL schemes and deep links |
-| 📈 **Tracker Detection** | Identify embedded analytics and tracking SDKs |
-| 📄 **PDF Reports** | Export detailed security assessment reports |
+|  **Static Analysis** | 50+ security checks based on OWASP MASVS guidelines |
+|  **Binary Security** | PIE, ARC, Stack Canary, and encryption verification |
+|  **File Explorer** | Browse IPA contents with syntax highlighting |
+|  **Secret Detection** | Find hardcoded API keys, tokens, and credentials |
+|  **Plist Analysis** | Parse and analyze Info.plist and embedded plists |
+|  **Permission Audit** | Review app permissions and privacy descriptions |
+|  **URL Scheme Analysis** | Identify custom URL schemes and deep links |
+|  **Tracker Detection** | Identify embedded analytics and tracking SDKs |
+|  **PDF Reports** | Export detailed security assessment reports |
 
 ## Screenshots
 
@@ -47,32 +47,32 @@ IPA Auditor is a browser-based static security analysis tool for iOS application
 
 ---
 
-### 🔐 iOS Security Analysis Dashboard
+###  iOS Security Analysis Dashboard
 
 ![dashbord](https://github.com/user-attachments/assets/2af0c96d-f113-4c51-ae6f-1329e6551f88)
 
 
 ---
 
-### 🧩 Security Findings & Vulnerability Analysis
+###  Security Findings & Vulnerability Analysis
 Comprehensive security findings categorized by severity with detailed remediation guidance based on OWASP MASVS.
 
 ![ipa 2](https://github.com/user-attachments/assets/71e94d65-3df9-4bb5-bf5d-732164600a09)
 
 ---
 
-### 📁 IPA File Explorer with Hex Viewer
+###  IPA File Explorer with Hex Viewer
 Full-featured file browser with syntax highlighting, hex viewer, and string extraction for binary analysis.
 
 ![ipa aud 3](https://github.com/user-attachments/assets/0420a915-5351-4d77-87eb-be20d61ab1ee)
 
 
 
-## 🔍 Security Checks
+##  Security Checks
 
 IPA Auditor performs **50+ security checks** across multiple categories:
 
-### 📦 Data Storage
+###  Data Storage
 - NSUserDefaults Insecure Storage
 - CoreData Unencrypted Storage
 - Realm Database Encryption
@@ -80,48 +80,48 @@ IPA Auditor performs **50+ security checks** across multiple categories:
 - Keychain Secure Storage
 - Plist File Write Operations
 
-### 🔐 Cryptography
+###  Cryptography
 - Weak Hash Algorithms (MD5, SHA1)
 - Weak Encryption (DES/3DES)
 - ECB Mode Encryption
 - Insecure Random Generator
 - Hardcoded Secrets/Passwords
 
-### 🌐 Network Security
+###  Network Security
 - Insecure HTTP URLs
 - SSL/TLS Validation Disabled
 - SSL Pinning Implementation
 - ATS Configuration Analysis
 - Weak TLS Versions
 
-### 🛡️ App Security
+###  App Security
 - Jailbreak Detection
 - Anti-Debug Protection
 - PIE (Position Independent Executable)
 - Stack Canary Protection
 - ARC (Automatic Reference Counting)
 
-### 📱 Platform Security
+###  Platform Security
 - Deprecated UIWebView Usage
 - JavaScript in WebView
 - Custom URL Scheme Handlers
 - Universal Links Validation
 - Clipboard/Pasteboard Access
 
-### ☁️ Cloud & APIs
+###  Cloud & APIs
 - AWS S3 Bucket Exposure
 - Firebase Database URLs
 - Google API Key Exposure
 - Hardcoded Tokens/Bearer
 
-### 📊 Privacy & Tracking
+###  Privacy & Tracking
 - Location Tracking
 - Contacts Access
 - Camera/Microphone Access
 - Debug Logging
 - Tracker/SDK Detection
 
-## 🚀 Usage
+##  Usage
 
 ### Online Version
 Visit [ipaauditor.com](https://ipaauditor.com) to use the tool directly in your browser.
@@ -136,7 +136,7 @@ git clone https://github.com/thecybersandeep/ipaauditor.git
 cd ipaauditor
 ```
 
-#### Option 1: Direct File Opening (Simplest) ✅
+#### Option 1: Direct File Opening (Simplest) 
 
 Simply double-click `index.html` to open it in your browser. **It works offline!**
 
@@ -180,17 +180,17 @@ npx serve .
 
 4. **Export** a detailed PDF report
 
-## 🔒 Privacy
+##  Privacy
 
 **Your data never leaves your device.**
 
-- ✅ 100% client-side processing
-- ✅ No server uploads
-- ✅ No data collection
-- ✅ No tracking
-- ✅ Works offline (after initial load)
+-  100% client-side processing
+-  No server uploads
+-  No data collection
+-  No tracking
+-  Works offline (after initial load)
 
-## 📊 Report Export
+##  Report Export
 
 Generate professional PDF reports containing:
 - Application metadata
@@ -201,7 +201,7 @@ Generate professional PDF reports containing:
 - Detected trackers/SDKs
 - CWE and OWASP references
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 ipaauditor/
@@ -224,7 +224,7 @@ This tool is intended for authorized security testing and educational purposes o
 
 **Note:** This is an automated pattern-matching scanner, NOT a comprehensive security audit. Results are indicative only and require manual verification by a qualified security professional.
 
-## 🛠️ Built With
+##  Built With
 
 - **JSZip** - ZIP file processing
 - **plist.js** - Property list parsing
@@ -239,6 +239,6 @@ This tool is intended for authorized security testing and educational purposes o
 - GitHub: [@thecybersandeep](https://github.com/thecybersandeep)
 
 
-## 🔗 Related Projects
+##  Related Projects
 
 - [ADB Auditor](https://adbauditor.com) - Android Security Analysis Tool

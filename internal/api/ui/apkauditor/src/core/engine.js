@@ -1954,12 +1954,12 @@ function generateJavaView(cls, buf, allStrings, allTypes, allMethods, allFields)
     const staticFields   = (cls.fields || []).filter(f => f.isStatic).slice(0, 60);
     const instanceFields = (cls.fields || []).filter(f => !f.isStatic).slice(0, 60);
     if (staticFields.length) {
-        out += '\n    // ── Static fields\n';
+        out += '\n    // -- Static fields\n';
         for (const f of staticFields)
             out += `    ${mods(f.flags)} ${dexTypeToJava(f.type)} ${f.name};\n`;
     }
     if (instanceFields.length) {
-        out += '\n    // ── Instance fields\n';
+        out += '\n    // -- Instance fields\n';
         for (const f of instanceFields)
             out += `    ${mods(f.flags)} ${dexTypeToJava(f.type)} ${f.name};\n`;
     }
@@ -1995,11 +1995,11 @@ function generateJavaView(cls, buf, allStrings, allTypes, allMethods, allFields)
     };
 
     if (directMethods.length) {
-        out += '\n    // ── Constructors / static methods\n';
+        out += '\n    // -- Constructors / static methods\n';
         directMethods.forEach(renderMethod);
     }
     if (virtualMethods.length) {
-        out += '\n    // ── Virtual methods\n';
+        out += '\n    // -- Virtual methods\n';
         virtualMethods.forEach(renderMethod);
     }
 
@@ -2872,12 +2872,12 @@ function generateSmaliView(cls, buf, allStrings, allTypes, allMethods, allFields
     const sF = (cls.fields||[]).filter(f => f.isStatic);
     const iF = (cls.fields||[]).filter(f => !f.isStatic);
     if (sF.length) {
-        L.push('# ─── Static Fields ─────────────────────────────────');
+        L.push('# --- Static Fields ---------------------------------');
         for (const f of sF) L.push(`.field ${smaliFlags(f.flags)} ${f.name}:${f.type}`);
         L.push('');
     }
     if (iF.length) {
-        L.push('# ─── Instance Fields ───────────────────────────────');
+        L.push('# --- Instance Fields -------------------------------');
         for (const f of iF) L.push(`.field ${smaliFlags(f.flags)} ${f.name}:${f.type}`);
         L.push('');
     }

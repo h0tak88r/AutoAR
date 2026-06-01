@@ -500,7 +500,7 @@ func apiRetryCnames(c *gin.Context) {
 						cnameProgress.Lock()
 						cnameProgress.Matches++
 						cnameProgress.Unlock()
-						msg := fmt.Sprintf("🚨 **CNAME Match Found!**\nSubdomain: `%s`\nCNAME: `%s`\nMatch: `%s`", sub.Subdomain, cnamesStr, req.MatchString)
+						msg := fmt.Sprintf(" **CNAME Match Found!**\nSubdomain: `%s`\nCNAME: `%s`\nMatch: `%s`", sub.Subdomain, cnamesStr, req.MatchString)
 						utils.SendWebhookLogAsync(msg)
 					}
 				}
@@ -515,7 +515,7 @@ func apiRetryCnames(c *gin.Context) {
 
 		log.Printf("[INFO] Background CNAME retry completed. Matches found: %d", foundMatches)
 		if matchStr != "" {
-			utils.SendWebhookLogAsync(fmt.Sprintf("✅ **CNAME Retry Completed**\nChecked %d subdomains for `%s`.\nFound %d matches.", len(allSubs), req.MatchString, foundMatches))
+			utils.SendWebhookLogAsync(fmt.Sprintf(" **CNAME Retry Completed**\nChecked %d subdomains for `%s`.\nFound %d matches.", len(allSubs), req.MatchString, foundMatches))
 		}
 	}()
 }
@@ -601,7 +601,7 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		}
 		defer cleanupTemplate()
 
-		utils.SendWebhookLogAsync(fmt.Sprintf("🚀 **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d\nScan ID: `%s`", templateNameForLog, totalSubs, scanID))
+		utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d\nScan ID: `%s`", templateNameForLog, totalSubs, scanID))
 
 		// create output file so it's indexed
 		outDir := filepath.Join(utils.GetResultsDir(), target, "vulnerabilities")
@@ -612,7 +612,7 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
 			if event != nil && event.TemplateID != "" {
 				matches++
-				msg := fmt.Sprintf("🎯 **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
+				msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
 					event.TemplateID, event.Info.Name, event.Matched, event.Info.SeverityHolder.Severity.String())
 				utils.SendWebhookLogAsync(msg)
 				stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.Matched)
@@ -624,7 +624,7 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		}
 
 		stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches)
-		utils.SendWebhookLogAsync(fmt.Sprintf("✅ **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
+		utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
 
 		return nil
 	})

@@ -15,10 +15,10 @@
       const headerBlock = `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-ghost" onclick="exportReportTemplates()">⬇️ Export JSON</button>
-          <button class="btn btn-ghost" onclick="triggerImportReportTemplates()">⬆️ Import JSON</button>
+          <button class="btn btn-ghost" onclick="exportReportTemplates()"> Export JSON</button>
+          <button class="btn btn-ghost" onclick="triggerImportReportTemplates()"> Import JSON</button>
         </div>
-        <button class="btn btn-primary" onclick="openReportTemplateModal()">➕ Add Template</button>
+        <button class="btn btn-primary" onclick="openReportTemplateModal()"> Add Template</button>
       </div>
     `;
 
@@ -26,7 +26,7 @@
         container.innerHTML = `
         ${headerBlock}
         <div class="empty-state">
-          <div class="empty-icon">📝</div>
+          <div class="empty-icon"></div>
           <div class="empty-title">No templates found</div>
           <p class="empty-sub">Create your first markdown report template.</p>
         </div>
@@ -39,7 +39,7 @@
       <div class="domain-grid">
         ${templates.map((name) => `
           <div class="domain-card" onclick="openReportTemplateModalByName('${encodeURIComponent(name)}')">
-            <div class="domain-name">📄 ${window.esc(name)}</div>
+            <div class="domain-name"> ${window.esc(name)}</div>
             <div class="domain-stats">
               <div class="domain-stat">
                 <div class="domain-stat-label">Format</div>
@@ -47,15 +47,15 @@
               </div>
             </div>
             <div style="margin-top: 16px; display: flex; gap: 8px;">
-              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openReportTemplateModalByName('${encodeURIComponent(name)}')">✏️ Edit</button>
-              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplateByName('${encodeURIComponent(name)}')">🗑️ Delete</button>
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openReportTemplateModalByName('${encodeURIComponent(name)}')"> Edit</button>
+              <button class="btn btn-ghost btn-sm" style="color: var(--accent-red);" onclick="event.stopPropagation(); deleteReportTemplateByName('${encodeURIComponent(name)}')"> Delete</button>
             </div>
           </div>
         `).join('')}
       </div>
     `;
     } catch (err) {
-      container.innerHTML = `<div class="error-state">❌ ${window.esc(err.message)}</div>`;
+      container.innerHTML = `<div class="error-state"> ${window.esc(err.message)}</div>`;
     }
   }
 
@@ -74,7 +74,7 @@
     nameInput.readOnly = false;
     reportTemplateOriginalName = name || '';
     contentInput.value = '';
-    title.textContent = name ? '📝 Edit Template' : '➕ New Template';
+    title.textContent = name ? ' Edit Template' : ' New Template';
 
     if (name) {
       try {

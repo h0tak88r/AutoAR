@@ -313,7 +313,7 @@ function getFileTypeFromName(fileName) {
 
 /** Get icon emoji for file type */
 function getFileTypeIcon(fileType) {
-  return callPageMethod('ScanCommonPage', 'getFileTypeIcon', [fileType], '📄');
+  return callPageMethod('ScanCommonPage', 'getFileTypeIcon', [fileType], '[File]');
 }
 
 /** Toggle collapsible sections */
@@ -338,7 +338,7 @@ function syntaxHighlightJSON(json) {
 
 /** Plain-text line when a finished scan has no indexed artifacts (aligned with Discord phaseNoResultsMessage). */
 function scanNoArtifactsMessage(scanType, target) {
-  return callPageMethod('ScanCommonPage', 'scanNoArtifactsMessage', [scanType, target], '[ ⚪ ] No artifacts');
+  return callPageMethod('ScanCommonPage', 'scanNoArtifactsMessage', [scanType, target], '[  ] No artifacts');
 }
 
 function goToScanResultsPage(scanID) {
@@ -363,7 +363,7 @@ function normalizeModuleKey(module) {
 
 /** Get module display name with icon */
 function getModuleDisplayInfo(module) {
-  return callPageMethod('ScanCommonPage', 'getModuleDisplayInfo', [module], { icon: '❓', name: 'Unknown', color: '#64748b' });
+  return callPageMethod('ScanCommonPage', 'getModuleDisplayInfo', [module], { icon: '', name: 'Unknown', color: '#64748b' });
 }
 
 function getUnifiedTableColumns(activeKind) {
@@ -392,7 +392,7 @@ function renderGFPatternsRow(r, idx, modInfo, sevMeta) {
 
 /** Get category display info */
 function getCategoryDisplayInfo(category) {
-  return callPageMethod('CategoryDisplayPage', 'getCategoryDisplayInfo', [category], { icon: '📄', name: 'File', badge: '' });
+  return callPageMethod('CategoryDisplayPage', 'getCategoryDisplayInfo', [category], { icon: '[File]', name: 'File', badge: '' });
 }
 
 function parseNucleiFindingLine(line) {
@@ -662,7 +662,7 @@ function httpColor(code) {
 }
 
 function fileIcon(ext) {
-  return callPageMethod('UIHelpers', 'fileIcon', [ext], '📄');
+  return callPageMethod('UIHelpers', 'fileIcon', [ext], '[File]');
 }
 
 function humanChangeType(t) {

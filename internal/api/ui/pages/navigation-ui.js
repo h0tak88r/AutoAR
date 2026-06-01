@@ -6,10 +6,10 @@
       keyhacks: 'Keyhacks',
       monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
       'report-templates': 'Report Templates',
-      apkauditor: '🤖 APK Auditor',
-      ipaauditor: '🍏 IPA Auditor',
-      adbauditor: '⚡ ADB Auditor',
-      securitylab: '🧪 Security Lab',
+      apkauditor: ' APK Auditor',
+      ipaauditor: ' IPA Auditor',
+      adbauditor: ' ADB Auditor',
+      securitylab: ' Security Lab',
     }[v] || v;
   }
 

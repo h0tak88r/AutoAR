@@ -1,6 +1,6 @@
 (() => {
   function scanArtifactRowHtml(f) {
-    const jm = f.is_json ? '✓' : '—';
+    const jm = f.is_json ? 'OK' : '—';
     const fnAttr = encodeURIComponent(f.file_name);
     const rkAttr = fnAttr;
     return `<tr class="scan-file-row" data-r2="${rkAttr}" style="cursor:pointer">

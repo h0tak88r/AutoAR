@@ -83,7 +83,7 @@ func handleList() error {
 		if t.Pattern != "" {
 			patternStr = t.Pattern
 		}
-		status := "❌ Not Running"
+		status := " Not Running"
 		if t.IsRunning {
 			status = "[ + ]Running"
 		}

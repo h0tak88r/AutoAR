@@ -138,6 +138,34 @@
     }
     .copy-bulk-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4); }
     .copy-bulk-btn:active { transform: translateY(0); }
+
+    /* Takeover Reference */
+    .tref-tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+    .tref-tab { background:#151a33; color:var(--muted); border:1px solid var(--border); padding:7px 14px; border-radius:10px; cursor:pointer; font-weight:700; font-size:13px; }
+    .tref-tab:hover { background:rgba(123,139,255,.10); color:var(--text); }
+    .tref-tab.active { color:#fff; border-color:var(--accent); background:linear-gradient(135deg, rgba(123,139,255,.25), rgba(123,139,255,.10)); }
+    .tref-content { display:none; }
+    .tref-content.active { display:block; }
+    .tref-stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; margin-bottom:14px; }
+    .tref-stat { background:#0c1022; border:1px solid var(--border); border-radius:10px; padding:10px; text-align:center; }
+    .tref-stat .n { font-size:18px; font-weight:800; }
+    .tref-stat .l { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+    .tref-table-wrap { border:1px solid var(--border); border-radius:12px; overflow:auto; max-height:520px; background:rgba(9,12,26,.7); }
+    .tref-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .tref-table th { position:sticky; top:0; background:#0f1326; padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); border-bottom:1px solid var(--border); }
+    .tref-table td { padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:top; }
+    .tref-table tr:last-child td { border-bottom:0; }
+    .tref-table tr:hover td { background:rgba(255,255,255,.02); }
+    .status-badge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+    .status-vulnerable { background:rgba(248,113,113,.12); color:#f87171; }
+    .status-not-vulnerable { background:rgba(52,211,153,.12); color:var(--ok); }
+    .status-edge-case { background:rgba(245,158,11,.12); color:var(--warn); }
+    .fingerprint { background:#060914; border:1px solid var(--border); border-radius:6px; padding:4px 8px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:#c5d0ff; }
+    .tref-link { color:var(--accent); text-decoration:none; font-weight:600; }
+    .tref-link:hover { text-decoration:underline; }
+    .verified-icon { font-size:12px; }
+    .tref-noresults { padding:24px; text-align:center; color:var(--muted); font-size:13px; }
+    .tref-loading { padding:20px; text-align:center; color:var(--muted); }
   </style>
   <script src="ssrf-payloads.js"></script>
   <script src="xss-payloads.js"></script>
@@ -153,6 +181,7 @@
       <button class="tab" data-tab="depconf">Dependency Confusion</button>
       <button class="tab" data-tab="ssrf">SSRF Payloads</button>
       <button class="tab" data-tab="xss">XSS Cheat Sheet</button>
+      <button class="tab" data-tab="takeover">Takeover Reference</button>
     </div>
 
     <section class="panel active" id="panel-jwt">
@@ -289,18 +318,91 @@
     <section class="panel" id="panel-xss">
       <div class="card">
         <div class="xss-toolbar">
-          <input id="xssSearch" placeholder="🔍 Search event, tag, or code..." />
+          <input id="xssSearch" placeholder="Search event, tag, or code..." />
           <select id="xssTagFilter"><option value="">All Tags</option></select>
           <select id="xssEventFilter"><option value="">All Events</option></select>
           <div class="xss-toggle-group">
-            <button class="xss-toggle on" id="xssToggleAuto" title="No user interaction needed">⚡ Auto-fire</button>
-            <button class="xss-toggle on" id="xssToggleManual" title="Requires user interaction">👆 User interaction</button>
+            <button class="xss-toggle on" id="xssToggleAuto" title="No user interaction needed"> Auto-fire</button>
+            <button class="xss-toggle on" id="xssToggleManual" title="Requires user interaction">User interaction</button>
           </div>
-          <button class="copy-bulk-btn" id="xssCopyAll">📋 Copy All Visible</button>
+          <button class="copy-bulk-btn" id="xssCopyAll">Copy All Visible</button>
         </div>
         <div class="muted" id="xssStats" style="margin-bottom:8px">Loading...</div>
         <div class="xss-results-box" id="xssResults">
           <div class="item muted" style="padding:20px">Loading payloads...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Takeover Reference Panel -->
+    <section class="panel" id="panel-takeover">
+      <div class="card">
+        <div class="k">Subdomain & DNS Takeover Reference</div>
+        <p class="muted" style="margin-top:8px">
+          Comprehensive database of vulnerable services and DNS providers. Use this to validate if your DNS takeover findings are exploitable.
+        </p>
+
+        <!-- Tabs -->
+        <div class="tref-tabs" style="margin-top:14px">
+          <button class="tref-tab active" data-tab="subdomain">Subdomain Takeover</button>
+          <button class="tref-tab" data-tab="dns">DNS/NS Takeover</button>
+        </div>
+
+        <!-- Subdomain Panel -->
+        <div class="tref-content active" id="tref-subdomain">
+          <div class="row" style="gap:8px; margin-bottom:10px; flex-wrap:wrap">
+            <input type="text" id="tref-subdomain-search" placeholder="Search engine, status, fingerprint, or discussion..." style="flex:1; min-width:200px" />
+          </div>
+          <div class="tref-stats">
+            <div class="tref-stat"><div class="n" id="tref-sub-vuln">0</div><div class="l">Vulnerable</div></div>
+            <div class="tref-stat"><div class="n" id="tref-sub-safe">0</div><div class="l">Not Vulnerable</div></div>
+            <div class="tref-stat"><div class="n" id="tref-sub-total">0</div><div class="l">Total</div></div>
+          </div>
+          <div class="tref-loading" id="tref-sub-loading">Loading subdomain takeover data...</div>
+          <div class="tref-noresults" id="tref-sub-noresults" style="display:none">No results found.</div>
+          <div class="tref-table-wrap" id="tref-sub-table-wrap" style="display:none">
+            <table class="tref-table">
+              <thead>
+                <tr>
+                  <th>Engine / Service</th>
+                  <th>Status</th>
+                  <th>Verified</th>
+                  <th>Fingerprint</th>
+                  <th>Discussion</th>
+                  <th>Documentation</th>
+                </tr>
+              </thead>
+              <tbody id="tref-sub-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- DNS Panel -->
+        <div class="tref-content" id="tref-dns">
+          <div class="row" style="gap:8px; margin-bottom:10px; flex-wrap:wrap">
+            <input type="text" id="tref-dns-search" placeholder="Search provider, status, fingerprint, or instructions..." style="flex:1; min-width:200px" />
+          </div>
+          <div class="tref-stats">
+            <div class="tref-stat"><div class="n" id="tref-dns-vuln">0</div><div class="l">Vulnerable</div></div>
+            <div class="tref-stat"><div class="n" id="tref-dns-safe">0</div><div class="l">Not Vulnerable</div></div>
+            <div class="tref-stat"><div class="n" id="tref-dns-edge">0</div><div class="l">Edge Case</div></div>
+            <div class="tref-stat"><div class="n" id="tref-dns-total">0</div><div class="l">Total</div></div>
+          </div>
+          <div class="tref-loading" id="tref-dns-loading">Loading DNS takeover data...</div>
+          <div class="tref-noresults" id="tref-dns-noresults" style="display:none">No results found.</div>
+          <div class="tref-table-wrap" id="tref-dns-table-wrap" style="display:none">
+            <table class="tref-table">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Status</th>
+                  <th>Fingerprint</th>
+                  <th>Instructions</th>
+                </tr>
+              </thead>
+              <tbody id="tref-dns-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -1240,7 +1342,7 @@
             meta.appendChild(tagBadge);
           }
           const uiClass = p.userInteraction ? 'manual' : 'auto';
-          const uiLabel = p.userInteraction ? '👆 User Interaction' : '⚡ Auto-fire';
+          const uiLabel = p.userInteraction ? ' User Interaction' : ' Auto-fire';
           const uiBadge = document.createElement('span');
           uiBadge.className = 'xss-ui ' + uiClass;
           uiBadge.textContent = uiLabel;               // safe: static string
@@ -1271,7 +1373,7 @@
             const payload = xssFilteredPayloads[parseInt(this.dataset.idx, 10)];
             if (!payload) return;
             navigator.clipboard.writeText(payload.code).then(() => {
-              this.textContent = '✓ Copied!';
+              this.textContent = ' Copied!';
               setTimeout(() => { this.textContent = 'Copy'; }, 1500);
             }).catch(() => {
               // Fallback for non-https
@@ -1282,7 +1384,7 @@
               ta.select();
               document.execCommand('copy');
               document.body.removeChild(ta);
-              this.textContent = '✓';
+              this.textContent = '';
               setTimeout(() => { this.textContent = 'Copy'; }, 1500);
             });
           });
@@ -1311,8 +1413,8 @@
       if (!xssFilteredPayloads.length) return;
       const text = xssFilteredPayloads.map(p => p.code).join('\n\n');
       navigator.clipboard.writeText(text).then(() => {
-        this.textContent = '✓ Copied ' + xssFilteredPayloads.length + ' payloads!';
-        setTimeout(() => this.textContent = '📋 Copy All Visible', 2000);
+        this.textContent = ' Copied ' + xssFilteredPayloads.length + ' payloads!';
+        setTimeout(() => this.textContent = ' Copy All Visible', 2000);
       });
     });
 
@@ -1327,5 +1429,6 @@
     // Pre-init on load
     if (window.XSS_PAYLOADS) initXSS();
   </script>
+  <script src="takeover-reference.js"></script>
 </body>
 </html>

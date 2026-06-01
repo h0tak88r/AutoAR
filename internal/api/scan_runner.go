@@ -189,7 +189,9 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 
 	// Give SSE clients a moment to drain, then close the bus for this scan.
 	go func() {
-		time.Sleep(5 * time.Second)
-		globalLogBus.Close(scanID)
+		select {
+		case <-time.After(5 * time.Second):
+			globalLogBus.Close(scanID)
+		}
 	}()
 }

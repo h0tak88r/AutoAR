@@ -153,7 +153,7 @@
         // stored verbatim in r.target or r.finding
         const line = s(r.target || r.finding || '');
 
-        // Extract status code [NNN]
+        // Extract status code 
         const statusMatch = line.match(/^\[(\d{3})\]/);
         const status = statusMatch ? statusMatch[1] : '—';
 

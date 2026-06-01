@@ -32,7 +32,7 @@
     el.innerHTML = `
       <div class="settings-container-premium">
         <div class="settings-section">
-          <div class="settings-section-header">🔧 System Status</div>
+          <div class="settings-section-header"> System Status</div>
           <div class="settings-section-body">
             ${item('Version', cfg.version)}
             ${item('Deployment Mode', cfg.mode, 'Current operational profile')}
@@ -44,7 +44,7 @@
               </div>
               <div class="settings-value">
                 <span class="badge ${cfg.auth_enabled ? 'badge-done' : 'badge-failed'}">
-                  ${cfg.auth_enabled ? '✅ Active' : '🔓 Public (Warning)'}
+                  ${cfg.auth_enabled ? ' Active' : ' Public (Warning)'}
                 </span>
               </div>
             </div>
@@ -52,7 +52,7 @@
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-header">🤖 AI Intelligence</div>
+          <div class="settings-section-header"> AI Intelligence</div>
           <div class="settings-section-body">
             <div class="settings-item">
               <div class="settings-label">
@@ -84,7 +84,7 @@
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-header">⏱ Scan Phase Timeouts</div>
+          <div class="settings-section-header"> Scan Phase Timeouts</div>
           <div class="settings-section-description">
             Define max duration for each scan phase. Set to <strong>0</strong> for unlimited. 
             Stored in DB, persists across redeployments.
@@ -92,45 +92,45 @@
           <div class="settings-section-body">
             <div class="settings-timeout-grid">
               <div class="timeout-field">
-                <label>⚡ Zerodays</label>
+                <label> Zerodays</label>
                 <input id="timeout-zerodays-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_zerodays ?? 600))}" />
                 <span>seconds</span>
               </div>
               <div class="timeout-field">
-                <label>☢️ Nuclei</label>
+                <label> Nuclei</label>
                 <input id="timeout-nuclei-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_nuclei ?? 1200))}" />
                 <span>seconds</span>
               </div>
               <div class="timeout-field">
-                <label>💾 Backup / Fuzzuli</label>
+                <label> Backup / Fuzzuli</label>
                 <input id="timeout-backup-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_backup ?? 600))}" />
                 <span>seconds</span>
               </div>
               <div class="timeout-field">
-                <label>☁️ Misconfig</label>
+                <label> Misconfig</label>
                 <input id="timeout-misconfig-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_misconfig ?? 1800))}" />
                 <span>seconds</span>
               </div>
               <div class="timeout-field">
-                <label>🕷️ Katana Crawler</label>
+                <label> Katana Crawler</label>
                 <input id="timeout-katana-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_katana ?? 600))}" />
                 <span>seconds</span>
               </div>
               <div class="timeout-field">
-                <label>🐛 Dalfox XSS</label>
+                <label> Dalfox XSS</label>
                 <input id="timeout-xss-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_xss ?? 1200))}" />
                 <span>seconds</span>
               </div>
             </div>
             <div style="margin-top: 20px; display: flex; align-items: center; gap: 15px;">
-              <button class="btn btn-primary" onclick="window.SettingsPage.saveTimeoutSettings()" id="timeout-save-btn">💾 Save All Timeouts</button>
+              <button class="btn btn-primary" onclick="window.SettingsPage.saveTimeoutSettings()" id="timeout-save-btn"> Save All Timeouts</button>
               <div id="timeout-save-note" style="font-size:11px; color:var(--text-muted);">Persistence verified</div>
             </div>
           </div>
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-header">🔔 Notifications</div>
+          <div class="settings-section-header"> Notifications</div>
           <div class="settings-section-body">
             <div class="settings-item">
               <div class="settings-label">
@@ -146,7 +146,7 @@
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-header">☁️ Cloudflare R2 Infrastructure</div>
+          <div class="settings-section-header"> Cloudflare R2 Infrastructure</div>
           <div class="settings-section-body">
             ${item('R2 Status', cfg.r2_enabled ? 'Connected' : 'Not Configured', 'Cloud artifact storage', cfg.r2_enabled ? 'ok' : 'warn')}
             ${item('Storage Bucket', cfg.r2_bucket || '—', 'R2 target bucket')}
@@ -155,7 +155,7 @@
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-header">📡 API Endpoints</div>
+          <div class="settings-section-header"> API Endpoints</div>
           <div class="settings-section-body">
           ${item('API Gateway', window.location.origin + '/api', 'Base endpoint for all requests')}
             ${item('Health Check', window.location.origin + '/health', 'Service status monitor')}
@@ -245,12 +245,12 @@
       });
       if (!res.ok) throw new Error('Failed to update timeout settings');
       window.showToast('success', 'Saved!', `Zerodays: ${zdVal}s · Nuclei: ${nuVal}s · Backup: ${buVal}s · Misconfig: ${mcVal}s · Katana: ${kaVal}s · XSS: ${xsVal}s  (0 = unlimited)`);
-      if (note) note.textContent = `✅ Saved to DB at ${new Date().toLocaleTimeString()} — persists across redeployments`;
+      if (note) note.textContent = ` Saved to DB at ${new Date().toLocaleTimeString()} — persists across redeployments`;
       try { window.state.config = await window.apiFetch('/api/config'); } catch(_) {}
     } catch (e) {
       window.showToast('error', 'Error', e.message);
     }
-    if (btn) { btn.disabled = false; btn.textContent = '💾 Save all timeouts'; }
+    if (btn) { btn.disabled = false; btn.textContent = ' Save all timeouts'; }
   }
 
   async function saveWebhookSettings() {

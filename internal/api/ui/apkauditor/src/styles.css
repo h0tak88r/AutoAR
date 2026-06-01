@@ -837,7 +837,7 @@ a { color: inherit; }
 .cert-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
 
 .ent-summary h4 { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-.ent-table tr.risk-high  td:first-child::before { content: '⚠ '; color: var(--red); }
+.ent-table tr.risk-high  td:first-child::before { content: '[!] '; color: var(--red); }
 .ent-table tr.risk-warn  td:first-child::before { content: '! '; color: var(--orange); }
 .ent-table td { vertical-align: top; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
 .ent-table td:first-child { color: var(--accent-primary); }

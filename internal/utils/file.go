@@ -167,7 +167,7 @@ func uploadResultAsync(path string) {
 		r2Key = strings.TrimPrefix(r2Key, "/")
 	}
 	r2storage.UploadResultFileAndLog(path, r2Key)
-	GetLogger().Infof("[R2] ✅ Auto-uploaded result file: %s", path)
+	GetLogger().Infof("[R2] Auto-uploaded result file: %s", path)
 }
 
 func toR2Key(path string) string {
