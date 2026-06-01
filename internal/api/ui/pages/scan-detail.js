@@ -818,14 +818,9 @@
     let railSearch = '';
     let currentRenderedRows = [];
     let _virtualScrollTop = 0;
-    const presetStorageKey = `autoar.recon.filtersets.${stNorm || 'generic'}`;
     // Per-scan id so a saved "Assets" tab from a domain recon does not blank GitHub / other scans.
     const uiStateKey = `autoar.recon.uistate.${encodeURIComponent(scanId)}`;
     const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
-    let savedFilterSets = {};
-
-    const loadSavedSets = () => { try { savedFilterSets = JSON.parse(localStorage.getItem(presetStorageKey) || '{}') || {}; } catch { savedFilterSets = {}; } };
-    const persistSavedSets = () => { try { localStorage.setItem(presetStorageKey, JSON.stringify(savedFilterSets)); } catch (_) { } };
     const persistUIState = () => { try { localStorage.setItem(uiStateKey, JSON.stringify({ activeKind, presetMode, quickChip, searchModule, searchJsOnly, })); } catch (_) { } };
     const loadUIState = () => { try { return JSON.parse(localStorage.getItem(uiStateKey) || '{}') || {}; } catch { return {}; } };
     const persistColumnWidths = () => {
@@ -920,18 +915,12 @@
                   <option value="smart">Smart columns</option>
                   <option value="raw">Raw columns</option>
                 </select>
-                <select id="recon-saved-filters" style="min-width:160px;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
-                  <option value="">Saved filters…</option>
-                </select>
-                <input id="recon-filter-name" type="text" placeholder="Filter name" style="width:130px;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px"/>
-                <button id="recon-save-filter" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(34,211,238,.1);color:var(--accent-cyan);font-size:11px;cursor:pointer">Save</button>
-                <button id="recon-delete-filter" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(248,113,113,.08);color:#fca5a5;font-size:11px;cursor:pointer">Delete</button>
               </div>
             </div>
             <div id="recon-standard-view">
               <div class="result-table-wrap" style="max-height:640px;overflow-x:auto;overflow-y:auto">
                 <table id="recon-main-table" class="dashboard-table" style="margin:0;table-layout:auto;min-width:100%">
-                  <colgroup id="recon-colgroup"><col style="width:36px"><col style="width:31%"><col style="width:8%"><col style="width:43%"><col style="width:16%"></colgroup>
+                  <colgroup id="recon-colgroup"><col style="width:36px"><col style="width:8%"><col style="width:50%"><col style="width:20%"></colgroup>
                   <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.97);backdrop-filter:blur(4px)">
                     <tr id="recon-unified-headrow">
                       <th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>
@@ -974,10 +963,6 @@
     const filterBar = root.querySelector('#recon-filter-bar');
     const chipBar = root.querySelector('#recon-quick-chips');
     const viewModeSel = root.querySelector('#recon-view-mode');
-    const savedFiltersSel = root.querySelector('#recon-saved-filters');
-    const saveFilterBtn = root.querySelector('#recon-save-filter');
-    const deleteFilterBtn = root.querySelector('#recon-delete-filter');
-    const filterNameInput = root.querySelector('#recon-filter-name');
     const standardView = root.querySelector('#recon-standard-view');
     const assetsView = root.querySelector('#recon-assets-view');
     const assetsContent = root.querySelector('#recon-assets-content');
@@ -1035,12 +1020,6 @@
       modSelect.addEventListener('change', () => { searchModule = modSelect.value; renderBody(); });
     }
 
-    const renderSavedFilters = () => { if (!savedFiltersSel) return; const names = Object.keys(savedFilterSets).sort(); savedFiltersSel.innerHTML = '<option value="">Saved filters…</option>' + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join(''); };
-    // Saved filter presets should be reusable across any tab/module, so they intentionally
-    // do not persist activeKind.
-    const readCurrentFilterSet = () => ({ searchHost, searchTitle, filterSeverity, searchModule, searchJsOnly, quickChip, presetMode, });
-    const applyFilterSet = (fs) => { if (!fs) return; searchHost = String(fs.searchHost || ''); searchTitle = String(fs.searchTitle || ''); filterSeverity = String(fs.filterSeverity || 'any'); searchModule = String(fs.searchModule || 'all'); searchJsOnly = !!fs.searchJsOnly; quickChip = String(fs.quickChip || 'none'); presetMode = String(fs.presetMode || 'smart'); const h = root.querySelector('#recon-filter-host'), t = root.querySelector('#recon-filter-title'), s = root.querySelector('#recon-filter-severity'); if (h) h.value = searchHost; if (t) t.value = searchTitle; if (s) s.value = filterSeverity; if (modSelect) modSelect.value = searchModule; if (viewModeSel) viewModeSel.value = presetMode; };
-
     const chipDefs = [{ id: 'highplus', label: 'High+' }, { id: 'hasurl', label: 'Has URL' }, { id: 'exported', label: 'Exported Components' }, { id: 'secrets', label: 'Secrets' }, { id: 'onlyjs', label: 'Only JS' }];
     const renderChips = () => { if (!chipBar) return; chipBar.innerHTML = chipDefs.map(c => { const active = quickChip === c.id; return `<button type="button" data-chip="${escAttr(c.id)}" style="padding:5px 10px;border:1px solid ${active ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${active ? 'rgba(34,211,238,.13)' : 'rgba(255,255,255,.02)'};color:${active ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">${esc(c.label)}</button>`; }).join(''); };
 
@@ -1082,7 +1061,7 @@
         } else {
           // Build header dynamically from the module registry — handles any column count.
           const cols = presetMode === 'raw'
-            ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE']
+            ? ['SEV', 'VULNERABILITY TYPE', 'MODULE']
             : window.getUnifiedTableColumns(activeKind);
           // colgroup: checkbox col + one col per data col
           if (colgroup) colgroup.innerHTML = `<col style="width:36px">` + cols.map(() => `<col>`).join('');
@@ -1235,23 +1214,12 @@
 
     // Initial setup
     const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode; if (uiS.quickChip) quickChip = uiS.quickChip;
-    loadSavedSets(); renderSavedFilters(); renderChips(); switchReconView(activeKind); applyColumnWidths();
+    renderChips(); switchReconView(activeKind); applyColumnWidths();
 
     // Event listeners
     root.addEventListener('click', e => { const b = e.target.closest('[data-recon-kind]'); if (b) switchReconView(b.getAttribute('data-recon-kind')); });
     if (chipBar) chipBar.addEventListener('click', e => { const b = e.target.closest('[data-chip]'); if (b) { const id = b.dataset.chip; quickChip = quickChip === id ? 'none' : id; renderChips(); _currentPage = 1; renderBody(); } });
     if (viewModeSel) viewModeSel.addEventListener('change', () => { presetMode = viewModeSel.value; persistUIState(); _currentPage = 1; renderBody(); });
-    if (saveFilterBtn) saveFilterBtn.addEventListener('click', () => { const n = filterNameInput?.value.trim(); if (!n) return; savedFilterSets[n] = readCurrentFilterSet(); persistSavedSets(); renderSavedFilters(); });
-    if (deleteFilterBtn) deleteFilterBtn.addEventListener('click', () => { const n = savedFiltersSel?.value; if (n) { delete savedFilterSets[n]; persistSavedSets(); renderSavedFilters(); } });
-    if (savedFiltersSel) savedFiltersSel.addEventListener('change', () => {
-      const n = savedFiltersSel.value;
-      if (savedFilterSets[n]) {
-        applyFilterSet(savedFilterSets[n]);
-        renderChips();
-        _currentPage = 1;
-        renderBody();
-      }
-    });
 
     const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
     const applyF = () => { searchHost = hostI?.value.toLowerCase().trim(); searchTitle = titleI?.value.toLowerCase().trim(); filterSeverity = sevS?.value; _currentPage = 1; renderBody(); };

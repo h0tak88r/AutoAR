@@ -44,7 +44,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **z-ai/glm-4.5-air:free via OpenRouter** — zero cost required          |
 |  **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 |  **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
-|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings             |
+|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
 
 
 ---
