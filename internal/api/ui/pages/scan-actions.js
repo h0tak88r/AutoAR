@@ -27,7 +27,7 @@
   async function rescanScan(scanID) {
     try {
       const result = await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/rescan`, {});
-      window.showToast('success', '[REPEAT] Rescan started', `New scan queued (ID: ${result.new_scan_id || ''})`);
+      window.showToast('success', ' Rescan started', `New scan queued (ID: ${result.new_scan_id || ''})`);
       window.loadScans();
       if (result.new_scan_id) {
         setTimeout(() => window.goToScanResultsPage(result.new_scan_id), 900);

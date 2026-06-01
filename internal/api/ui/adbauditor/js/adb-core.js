@@ -4,8 +4,8 @@
 
     const DEBUG = false;
     const BUILD_ID = 'U2FuZGVlcFc=';
-    function log(...args) { if (DEBUG) console.log('[ADB]', ...args); }
-    function logError(...args) { console.error('[ADB ERROR]', ...args); }
+    function log(...args) { if (DEBUG) console.log('', ...args); }
+    function logError(...args) { console.error('', ...args); }
 
     const ADB = {
         VERSION: 0x01000001,

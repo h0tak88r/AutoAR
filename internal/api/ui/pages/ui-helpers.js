@@ -57,11 +57,11 @@
 
   function fileIcon(ext) {
     const map = {
-      txt: '[DOC]', log: '[LIST]', json: '[CHART]', zip: '[BOX]', gz: '[BOX]', html: '[WEB]',
-      pdf: '[TABS]', png: '[IMG]', jpg: '[IMG]', jpeg: '[IMG]', apk: '[MOBILE]', ipa: '[MOBILE]',
-      db: '[DB]', sql: '[DB]', md: '[LOG]',
+      txt: '', log: '', json: '', zip: '', gz: '', html: '',
+      pdf: '', png: '', jpg: '', jpeg: '', apk: '', ipa: '',
+      db: '', sql: '', md: '',
     };
-    return map[ext] || '[DOC]';
+    return map[ext] || '';
   }
 
   function humanChangeType(t) {
@@ -85,7 +85,7 @@
 
   function showToast(type, title, msg) {
     const container = document.getElementById('toast-container');
-    const icons = { success: '[OK]', error: '[FAIL]', info: '[i]' };
+    const icons = { success: '', error: '', info: '[i]' };
     const el = document.createElement('div');
     el.className = `toast ${type}`;
     el.innerHTML = `<div class="toast-icon">${icons[type] || '[i]'}</div>

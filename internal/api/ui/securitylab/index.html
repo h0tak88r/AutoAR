@@ -322,7 +322,7 @@
           <select id="xssTagFilter"><option value="">All Tags</option></select>
           <select id="xssEventFilter"><option value="">All Events</option></select>
           <div class="xss-toggle-group">
-            <button class="xss-toggle on" id="xssToggleAuto" title="No user interaction needed">[BOLT] Auto-fire</button>
+            <button class="xss-toggle on" id="xssToggleAuto" title="No user interaction needed"> Auto-fire</button>
             <button class="xss-toggle on" id="xssToggleManual" title="Requires user interaction">User interaction</button>
           </div>
           <button class="copy-bulk-btn" id="xssCopyAll">Copy All Visible</button>
@@ -1342,7 +1342,7 @@
             meta.appendChild(tagBadge);
           }
           const uiClass = p.userInteraction ? 'manual' : 'auto';
-          const uiLabel = p.userInteraction ? ' User Interaction' : '[BOLT] Auto-fire';
+          const uiLabel = p.userInteraction ? ' User Interaction' : ' Auto-fire';
           const uiBadge = document.createElement('span');
           uiBadge.className = 'xss-ui ' + uiClass;
           uiBadge.textContent = uiLabel;               // safe: static string

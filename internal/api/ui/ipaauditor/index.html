@@ -659,14 +659,14 @@
 
                     <div class="quick-access" id="quickAccess">
                         <div class="quick-access-header">
-                            <span>[PIN] Quick Access</span>
+                            <span> Quick Access</span>
                             <span class="quick-access-toggle" onclick="toggleQuickAccess()">−</span>
                         </div>
                         <div class="quick-access-list" id="quickAccessList"></div>
                     </div>
 
                     <div class="explorer-controls">
-                        <input type="text" id="fileSearchInput" placeholder="[SEARCH] Search files...">
+                        <input type="text" id="fileSearchInput" placeholder=" Search files...">
                         <select id="fileTypeFilter" onchange="filterFileTree(this.value)">
                             <option value="">All Files</option>
                             <option value="plist">Plists</option>
@@ -683,7 +683,7 @@
                     <div id="fileSearchResults"></div>
 
                     <div class="tree-section-header">
-                        <span>[FOLDER] Files</span>
+                        <span> Files</span>
                         <span class="tree-file-count" id="totalFileCount"></span>
                     </div>
 
@@ -692,12 +692,12 @@
                 <div class="explorer-main">
 
                     <div class="breadcrumb-bar" id="breadcrumbBar">
-                        <span class="breadcrumb-item" onclick="navigateToBreadcrumb('')">[BOX] Root</span>
+                        <span class="breadcrumb-item" onclick="navigateToBreadcrumb('')"> Root</span>
                     </div>
                     <div class="explorer-toolbar">
                         <span class="current-file-path" id="currentFilePath">Select a file to view</span>
                         <div class="viewer-actions">
-                            <button class="viewer-btn" onclick="downloadCurrentFile()" title="Download file">[SAVE]</button>
+                            <button class="viewer-btn" onclick="downloadCurrentFile()" title="Download file"></button>
                         </div>
                     </div>
                     <div class="file-viewer-container">
@@ -963,7 +963,7 @@
                             <span class="severity-badge ${f.severity}">${f.severity.toUpperCase()}</span>
                             <span class="finding-title">${escapeHtml(f.ruleName)}</span>
                             <span class="instance-count">${instanceCount} instance${instanceCount > 1 ? 's' : ''}</span>
-                            <span class="finding-toggle">[DOWN]</span>
+                            <span class="finding-toggle"></span>
                         </div>
                         <div class="finding-body" id="finding-body-${i}">
                             <div class="finding-description">${escapeHtml(f.description)}</div>
@@ -1089,20 +1089,20 @@
                 const isFramework = fullLower.includes('.framework/') || fullLower.includes('.appex/') || fullLower.includes('pluginkit/');
 
                 if (fileName === 'info.plist' && !found.infoPlist && !isFramework) {
-                    found.infoPlist = { path: filePath, name: 'Info.plist', icon: '[LIST]', desc: 'App configuration' };
+                    found.infoPlist = { path: filePath, name: 'Info.plist', icon: '', desc: 'App configuration' };
                 } else if (fileName.includes('entitlements') && !found.entitlements && !isFramework) {
-                    found.entitlements = { path: filePath, name: 'Entitlements', icon: '[LOCK]', desc: 'App capabilities' };
+                    found.entitlements = { path: filePath, name: 'Entitlements', icon: '', desc: 'App capabilities' };
                 } else if (fileName === 'embedded.mobileprovision' && !found.provisioning) {
-                    found.provisioning = { path: filePath, name: 'Provisioning', icon: '[SCROLL]', desc: 'Code signing' };
+                    found.provisioning = { path: filePath, name: 'Provisioning', icon: '', desc: 'Code signing' };
                 } else if ((fileName.endsWith('.sqlite') || fileName.endsWith('.db')) && extras.length < 3) {
-                    extras.push({ path: filePath, name: fileName.length > 15 ? fileName.slice(0, 12) + '...' : fileName, icon: '[DB]', desc: 'Database' });
+                    extras.push({ path: filePath, name: fileName.length > 15 ? fileName.slice(0, 12) + '...' : fileName, icon: '', desc: 'Database' });
                 }
             }
 
             if (results.appInfo.executableName) {
                 const binPath = explorerFileList.find(f => f.endsWith('/' + results.appInfo.executableName) || f === results.appInfo.executableName);
                 if (binPath) {
-                    found.binary = { path: binPath, name: 'Binary', icon: '[GEAR]', desc: results.appInfo.executableName };
+                    found.binary = { path: binPath, name: 'Binary', icon: '', desc: results.appInfo.executableName };
                 }
             }
 
@@ -1195,7 +1195,7 @@
             const isOpen = folder.classList.toggle('open');
             const icon = header.querySelector('.folder-icon');
             if (icon) {
-                icon.textContent = isOpen ? '[OPEN]' : '[FOLDER]';
+                icon.textContent = isOpen ? '' : '';
             }
         }
 
@@ -1203,7 +1203,7 @@
             document.querySelectorAll('.tree-folder').forEach(f => {
                 f.classList.add('open');
                 const icon = f.querySelector('.folder-icon');
-                if (icon) icon.textContent = '[OPEN]';
+                if (icon) icon.textContent = '';
             });
         }
 
@@ -1211,7 +1211,7 @@
             document.querySelectorAll('.tree-folder').forEach(f => {
                 f.classList.remove('open');
                 const icon = f.querySelector('.folder-icon');
-                if (icon) icon.textContent = '[FOLDER]';
+                if (icon) icon.textContent = '';
             });
         }
 
@@ -1240,8 +1240,8 @@
                     html += `
                         <div class="tree-folder">
                             <div class="tree-folder-header" onclick="toggleFolder(this)" title="${escapeAttr(prefix + name)}">
-                                <span class="folder-chevron">[PLAY]</span>
-                                <span class="folder-icon">[FOLDER]</span>
+                                <span class="folder-chevron"></span>
+                                <span class="folder-icon"></span>
                                 <span class="folder-name">${escapeHtml(name)}</span>
                                 <span class="folder-count">${fileCount}</span>
                             </div>
@@ -1271,43 +1271,43 @@
         function getFileIcon(ext) {
             const icons = {
 
-                'swift': '[DIAMOND]', 'm': '[BOOK]', 'h': '[DOC]', 'c': '[DOC]', 'cpp': '[DOC]',
+                'swift': '', 'm': '', 'h': '', 'c': '', 'cpp': '',
 
-                'plist': '[LIST]', 'json': '[SCROLL]', 'xml': '[NEWS]', 'yaml': '[SCROLL]', 'yml': '[SCROLL]',
+                'plist': '', 'json': '', 'xml': '', 'yaml': '', 'yml': '',
 
-                'db': '[DB]', 'sqlite': '[DB]', 'sqlite3': '[DB]', 'realm': '[DB]', 'sql': '[DB]',
+                'db': '', 'sqlite': '', 'sqlite3': '', 'realm': '', 'sql': '',
 
-                'png': '[IMG]', 'jpg': '[IMG]', 'jpeg': '[IMG]', 'gif': '[IMG]', 'svg': '[IMG]', 'webp': '[IMG]', 'ico': '[IMG]', 'icns': '[IMG]',
+                'png': '', 'jpg': '', 'jpeg': '', 'gif': '', 'svg': '', 'webp': '', 'ico': '', 'icns': '',
 
-                'js': '[BOOK]', 'html': '[WEB]', 'css': '[PALETTE]', 'ts': '[BOOK]',
+                'js': '', 'html': '', 'css': '', 'ts': '',
 
-                'strings': '[ABC]', 'stringsdict': '[ABC]', 'lproj': '[GLOBE]',
+                'strings': '', 'stringsdict': '', 'lproj': '',
 
-                'cer': '[LOCK]', 'pem': '[LOCK]', 'p12': '[LOCK]', 'mobileprovision': '[SCROLL]', 'entitlements': '[LOCK]',
+                'cer': '', 'pem': '', 'p12': '', 'mobileprovision': '', 'entitlements': '',
 
-                'dylib': '[GEAR]', 'framework': '[BOX]', 'a': '[GEAR]', 'o': '[GEAR]',
+                'dylib': '', 'framework': '', 'a': '', 'o': '',
 
-                'car': '[PALETTE]', 'nib': '[RULER]', 'storyboardc': '[RULER]', 'xib': '[RULER]',
+                'car': '', 'nib': '', 'storyboardc': '', 'xib': '',
 
-                'mom': '[CHART]', 'momd': '[CHART]', 'omo': '[CHART]',
+                'mom': '', 'momd': '', 'omo': '',
 
-                'mp3': '[MUSIC]', 'wav': '[MUSIC]', 'caf': '[MUSIC]', 'mp4': '[FILM]', 'mov': '[FILM]',
+                'mp3': '', 'wav': '', 'caf': '', 'mp4': '', 'mov': '',
 
-                'ttf': '[ABC]', 'otf': '[ABC]', 'woff': '[ABC]', 'woff2': '[ABC]',
+                'ttf': '', 'otf': '', 'woff': '', 'woff2': '',
 
-                'zip': '[BOX]', 'tar': '[BOX]', 'gz': '[BOX]',
+                'zip': '', 'tar': '', 'gz': '',
 
-                'txt': '[LOG]', 'md': '[LOG]', 'rtf': '[LOG]', 'pdf': '[BOOK]',
+                'txt': '', 'md': '', 'rtf': '', 'pdf': '',
 
-                'log': '[PAGE]'
+                'log': ''
             };
-            return icons[ext] || '[DOC]';
+            return icons[ext] || '';
         }
 
         function updateBreadcrumb(filePath) {
             const breadcrumb = document.getElementById('breadcrumbBar');
             const parts = filePath.split('/').filter(p => p);
-            let html = '<span class="breadcrumb-item" onclick="navigateToBreadcrumb(\'\')">[BOX]</span>';
+            let html = '<span class="breadcrumb-item" onclick="navigateToBreadcrumb(\'\')"></span>';
 
             let path = '';
             for (let i = 0; i < parts.length; i++) {
@@ -1406,7 +1406,7 @@
                                     <span class="hex-info-badge" style="background: rgba(251,146,60,0.2); color: var(--orange);">iOS Optimized</span>
                                 </div>
                                 <div class="no-data" style="margin-top: 24px;">
-                                    <div style="font-size: 48px; margin-bottom: 16px;">[IMG]</div>
+                                    <div style="font-size: 48px; margin-bottom: 16px;"></div>
                                     <div>This PNG uses Apple's CgBI (crushed) format</div>
                                     <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">iOS-optimized images cannot be displayed in browsers</div>
                                 </div>

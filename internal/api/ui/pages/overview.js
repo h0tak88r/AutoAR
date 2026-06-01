@@ -62,17 +62,17 @@
     const detail = c.Detail || c.detail || '';
     const at = c.DetectedAt || c.detected_at || '';
     const iconMap = {
-      new_subdomain: '[NEW]',
-      became_live: '[OK]',
-      became_dead: '[DEAD]',
-      content_changed: '[LOG]',
-      status_changed: '[SYNC]',
+      new_subdomain: '',
+      became_live: '',
+      became_dead: '',
+      content_changed: '',
+      status_changed: '',
     };
     const preview = String(detail || '').slice(0, 200);
     return `<div class="change-item">
     <div class="change-dot ${window.esc(ctype)}"></div>
     <div class="change-body">
-      <div class="change-title">${iconMap[ctype] || '[PIN]'} ${window.esc(window.humanChangeType(ctype))}</div>
+      <div class="change-title">${iconMap[ctype] || ''} ${window.esc(window.humanChangeType(ctype))}</div>
       <div class="change-detail">${window.esc(domain)}${preview ? ` — ${window.esc(preview)}` : ''}</div>
     </div>
     <div class="change-time">${window.timeAgo(at)}</div>
@@ -84,7 +84,7 @@
     if (!el) return;
     const changes = window.state.stats?.recent_changes || [];
     if (!changes.length) {
-      el.innerHTML = window.emptyState('[MAIL]', 'No recent changes', 'Monitor targets have not detected any changes yet.');
+      el.innerHTML = window.emptyState('', 'No recent changes', 'Monitor targets have not detected any changes yet.');
       return;
     }
     el.innerHTML = changes.map((c) => changeItemHtml(c)).join('');
