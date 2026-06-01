@@ -963,13 +963,6 @@
               <div id="recon-urls-content" style="min-height:200px;max-height:580px;overflow:auto;font-family:var(--font-mono);font-size:12px"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading URLs…</div></div>
               <div id="recon-urls-pagination" style="padding:10px 12px;background:rgba(2,6,23,0.3);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
             </div>
-            <div id="recon-details-drawer" style="display:none;position:absolute;top:0;right:0;width:420px;height:100%;background:rgba(2,6,23,.98);border-left:1px solid var(--border);z-index:20;box-shadow:-12px 0 40px rgba(0,0,0,.45)">
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border)">
-                <div style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px">Finding Details</div>
-                <button id="recon-drawer-close" type="button" style="background:transparent;border:none;color:var(--text-muted);font-size:18px;cursor:pointer">X</button>
-              </div>
-              <div id="recon-drawer-body" style="padding:12px;overflow:auto;height:calc(100% - 52px)"></div>
-            </div>
           </section>
         </div>
       </div>`;
@@ -991,9 +984,6 @@
     const urlsView = root.querySelector('#recon-urls-view');
     const urlsContent = root.querySelector('#recon-urls-content');
     const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
-    const drawer = root.querySelector('#recon-details-drawer');
-    const drawerBody = root.querySelector('#recon-drawer-body');
-    const drawerClose = root.querySelector('#recon-drawer-close');
 
     const SEV_DEFS = [
       { key: 'critical', label: 'Critical', color: '#fc8181', bg: 'rgba(252,129,129,.13)', border: 'rgba(252,129,129,.35)' },
@@ -1385,8 +1375,7 @@
 
     if (wrap) wrap.addEventListener('scroll', () => { _virtualScrollTop = wrap.scrollTop; if (currentRenderedRows.length > 150) renderBody(); });
 
-    root.addEventListener('click', e => { const r = e.target.closest('.findings-row'); if (r && !e.target.closest('input,a,button')) { const idx = Number(r.dataset.rowIndex); if (currentRenderedRows[idx]) openDrawerForRow(currentRenderedRows[idx]); } });
-    if (drawerClose) drawerClose.addEventListener('click', () => drawer.style.display = 'none');
+    root.addEventListener('click', e => { const r = e.target.closest('.findings-row'); if (r && !e.target.closest('input,a,button')) { /* drawer removed */ } });
     const urlsSearchInput = root.querySelector('#recon-urls-search');
     const urlsTypeSel = root.querySelector('#recon-urls-type');
     const urlsCopyBtn = root.querySelector('#recon-urls-copy');
@@ -1422,7 +1411,6 @@
       URL.revokeObjectURL(href);
     });
 
-    function openDrawerForRow(r) { drawerBody.innerHTML = `<pre style="padding:12px;font-size:11px;color:var(--text-primary)">${esc(JSON.stringify(r, null, 2))}</pre>`; drawer.style.display = 'block'; }
   }
 
   // ── Assets & file-filter helpers — delegated to scan-detail-assets.js ────
