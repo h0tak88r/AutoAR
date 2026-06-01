@@ -463,7 +463,7 @@ function renderFindings(r) {
                   ${raw(confBar)}
                   ${raw(entropy)}
                 </div>
-                ${inst.match ? raw('<div class="instance-match"><code>' + esc((inst.match || '').slice(0, 500)) + '</code><button class="copy-btn" data-copy="' + escAttr(inst.match || '') + '" title="Copy match" aria-label="Copy match value">⧉</button></div>') : ''}
+                ${inst.match ? raw('<div class="instance-match"><code>' + esc((inst.match || '').slice(0, 500)) + '</code><button class="copy-btn" data-copy="' + escAttr(inst.match || '') + '" title="Copy match" aria-label="Copy match value"></button></div>') : ''}
               </div>`;
         }).join('');
         return html`
@@ -473,7 +473,7 @@ function renderFindings(r) {
               <span class="finding-title">${f.ruleName}</span>
               <span class="confidence-pill ${labelFor(f.avgConfidence)}" title="Average confidence">${f.avgConfidence || 0}%</span>
               <span class="instance-count">${(f.instances || []).length} instance${(f.instances || []).length === 1 ? '' : 's'}</span>
-              <span class="finding-toggle" aria-hidden="true">▾</span>
+              <span class="finding-toggle" aria-hidden="true"></span>
             </button>
             <div class="finding-body" id="finding-body-${idx}" hidden>
               <div class="finding-description">${f.description || ''}</div>
@@ -509,7 +509,7 @@ function renderFindings(r) {
             await navigator.clipboard.writeText(text);
             b.classList.add('copied');
             const orig = b.textContent;
-            b.textContent = '✓';
+            b.textContent = 'OK';
             setTimeout(() => { b.classList.remove('copied'); b.textContent = orig; }, 1200);
         } catch (_) {
             toast('Copy failed, select text manually', 'error');
@@ -534,11 +534,11 @@ function renderPager(total) {
     if (!wrap) return;
     if (pages <= 1) { wrap.innerHTML = ''; return; }
     wrap.innerHTML = `
-      <button class="pager-btn" data-pager="first" ${cur === 0 ? 'disabled' : ''}>⏮ First</button>
-      <button class="pager-btn" data-pager="prev"  ${cur === 0 ? 'disabled' : ''}>◀ Prev</button>
+      <button class="pager-btn" data-pager="first" ${cur === 0 ? 'disabled' : ''}> First</button>
+      <button class="pager-btn" data-pager="prev"  ${cur === 0 ? 'disabled' : ''}> Prev</button>
       <span class="pager-info">Page ${cur + 1} of ${pages}</span>
-      <button class="pager-btn" data-pager="next" ${cur >= pages - 1 ? 'disabled' : ''}>Next ▶</button>
-      <button class="pager-btn" data-pager="last" ${cur >= pages - 1 ? 'disabled' : ''}>Last ⏭</button>`;
+      <button class="pager-btn" data-pager="next" ${cur >= pages - 1 ? 'disabled' : ''}>Next </button>
+      <button class="pager-btn" data-pager="last" ${cur >= pages - 1 ? 'disabled' : ''}>Last </button>`;
     $$('#findingsPager [data-pager]').forEach(b => b.addEventListener('click', () => {
         const a = b.dataset.pager;
         if (a === 'first') State.findingsPage = 0;
@@ -658,7 +658,7 @@ function renderComponents(r) {
             await navigator.clipboard.writeText(el.dataset.cmd || el.textContent.trim());
             const orig = el.textContent;
             el.classList.add('copied');
-            el.textContent = '✓ copied';
+            el.textContent = 'OK copied';
             setTimeout(() => { el.classList.remove('copied'); el.textContent = orig; }, 1200);
         } catch (_) {
             toast('Copy failed', 'error');
@@ -705,7 +705,7 @@ function renderComponentCard(cmp, pkg, idx) {
             '<span class="comp-type-badge ' + cmp.type + '">' + cmp.type + '</span>' +
             '<span class="comp-name">' + esc(simple) + '</span>' +
             '<span class="comp-badges-inline">' + badges.join('') + '</span>' +
-            '<span class="finding-toggle" aria-hidden="true">▾</span>' +
+            '<span class="finding-toggle" aria-hidden="true"></span>' +
         '</button>' +
         '<div class="comp-card-body" id="comp-body-' + idx + '" hidden>' +
             '<div class="comp-fqn mono">' + esc(cmp.name) + '</div>' +
@@ -836,7 +836,7 @@ function onTreeClick(e) {
         const folder = folderHeader.parentElement;
         folder.classList.toggle('open');
         const ic = folderHeader.querySelector('.folder-icon');
-        if (ic) ic.textContent = folder.classList.contains('open') ? '📂' : '📁';
+        if (ic) ic.textContent = folder.classList.contains('open') ? '' : '';
         return;
     }
     const file = e.target.closest('.tree-file');
@@ -855,8 +855,8 @@ function buildTree(tree, prefix) {
             const count = countFiles(node);
             out += '<div class="tree-folder" role="treeitem" aria-expanded="false">' +
                     '<button class="tree-folder-header" title="' + escAttr(prefix + name) + '">' +
-                    '<span class="folder-chevron" aria-hidden="true">▶</span>' +
-                    '<span class="folder-icon" aria-hidden="true">📁</span>' +
+                    '<span class="folder-chevron" aria-hidden="true"></span>' +
+                    '<span class="folder-icon" aria-hidden="true"></span>' +
                     '<span class="folder-name">' + esc(name) + '</span>' +
                     '<span class="folder-count">' + count + '</span>' +
                     '</button>' +
@@ -887,19 +887,19 @@ function countFiles(node) {
 
 function fileIcon(ext, name) {
     const lower = (name || '').toLowerCase();
-    if (lower === 'androidmanifest.xml') return '📋';
-    if (ext === 'dex') return '⚙️';
-    if (lower === 'resources.arsc') return '📦';
+    if (lower === 'androidmanifest.xml') return '';
+    if (ext === 'dex') return '';
+    if (lower === 'resources.arsc') return '';
     const m = {
-        java: '☕', kt: '🅺', smali: '🔧',
-        xml: '📰', json: '📜', yaml: '📜', yml: '📜', properties: '📜',
-        db: '🗄️', sqlite: '🗄️', sqlite3: '🗄️', realm: '🗄️',
-        png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️', ico: '🖼️',
-        js: '📒', html: '🌐', css: '🎨',
-        cer: '🔐', pem: '🔐', p12: '🔐', rsa: '🔐', dsa: '🔐', ec: '🔐', mf: '📜', sf: '📜',
-        so: '⚙️',
+        java: '', kt: '', smali: '',
+        xml: '', json: '', yaml: '', yml: '', properties: '',
+        db: '', sqlite: '', sqlite3: '', realm: '',
+        png: '', jpg: '', jpeg: '', gif: '', svg: '', webp: '', ico: '',
+        js: '', html: '', css: '',
+        cer: '', pem: '', p12: '', rsa: '', dsa: '', ec: '', mf: '', sf: '',
+        so: '',
     };
-    return m[ext] || '📄';
+    return m[ext] || '';
 }
 
 function populateQuickAccess(r) {
@@ -907,17 +907,17 @@ function populateQuickAccess(r) {
     if (!list) return;
     const items = [];
     if (r.files && r.files.indexOf('AndroidManifest.xml') >= 0) {
-        items.push({ path: 'AndroidManifest.xml', name: 'Manifest', icon: '📋', desc: 'AndroidManifest.xml' });
+        items.push({ path: 'AndroidManifest.xml', name: 'Manifest', icon: '', desc: 'AndroidManifest.xml' });
     }
     const dexFiles = (r.files || []).filter(f => /^classes\d*\.dex$/.test(f)).sort();
     for (const d of dexFiles.slice(0, 3)) {
-        items.push({ path: d, name: d, icon: '⚙️', desc: 'DEX bytecode' });
+        items.push({ path: d, name: d, icon: '', desc: 'DEX bytecode' });
     }
     if (r.files && r.files.indexOf('resources.arsc') >= 0) {
-        items.push({ path: 'resources.arsc', name: 'resources.arsc', icon: '📦', desc: 'Compiled resources' });
+        items.push({ path: 'resources.arsc', name: 'resources.arsc', icon: '', desc: 'Compiled resources' });
     }
     const cert = (r.files || []).find(f => /META-INF\/.+\.(RSA|DSA|EC)$/i.test(f));
-    if (cert) items.push({ path: cert, name: 'Cert', icon: '🔐', desc: 'Signing certificate' });
+    if (cert) items.push({ path: cert, name: 'Cert', icon: '', desc: 'Signing certificate' });
     list.innerHTML = items.length === 0
         ? '<span class="qa-empty">No key files found</span>'
         : items.map(f => html`
@@ -1165,11 +1165,11 @@ function openBinaryViewer(viewer, path, bytes) {
                 '<div class="binary-info"><span class="info-badge">Binary</span><span class="info-badge">' + fmtSize(bytes.length) + '</span></div>' +
             '</div>' +
             '<div class="hex-controls">' +
-                '<button class="hex-nav" data-action="first" ' + (cur === 0 ? 'disabled' : '') + '>⏮</button>' +
-                '<button class="hex-nav" data-action="prev"  ' + (cur === 0 ? 'disabled' : '') + '>◀</button>' +
+                '<button class="hex-nav" data-action="first" ' + (cur === 0 ? 'disabled' : '') + '></button>' +
+                '<button class="hex-nav" data-action="prev"  ' + (cur === 0 ? 'disabled' : '') + '></button>' +
                 '<span class="hex-page-info">Page ' + (cur + 1) + ' / ' + totalPages + ' · offset 0x' + off.toString(16) + '</span>' +
-                '<button class="hex-nav" data-action="next" ' + (cur >= totalPages - 1 ? 'disabled' : '') + '>▶</button>' +
-                '<button class="hex-nav" data-action="last" ' + (cur >= totalPages - 1 ? 'disabled' : '') + '>⏭</button>' +
+                '<button class="hex-nav" data-action="next" ' + (cur >= totalPages - 1 ? 'disabled' : '') + '></button>' +
+                '<button class="hex-nav" data-action="last" ' + (cur >= totalPages - 1 ? 'disabled' : '') + '></button>' +
             '</div>' +
             '<div class="binary-body">' + renderHexLines(bytes, off) + '</div>' +
         '</div>';

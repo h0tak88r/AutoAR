@@ -65,7 +65,7 @@ func LoadConfig() *R2Config {
 
 	// Validate required fields
 	if config.BucketName == "" || config.AccessKeyID == "" || config.SecretKey == "" {
-		logger.GetLogger().Infof("[R2] ⚠️  R2 storage enabled but missing required configuration")
+		logger.GetLogger().Infof("[R2]   R2 storage enabled but missing required configuration")
 		config.Enabled = false
 		return config
 	}
@@ -75,7 +75,7 @@ func LoadConfig() *R2Config {
 
 	// Initialize R2 client
 	if err := initR2Client(); err != nil {
-		logger.GetLogger().Infof("[R2] ⚠️  Failed to initialize R2 client: %v", err)
+		logger.GetLogger().Infof("[R2]   Failed to initialize R2 client: %v", err)
 		config.Enabled = false
 		isEnabled = false
 		return config
@@ -145,19 +145,19 @@ func UploadResultFileAndLog(localPath, r2Key string) string {
 		return "" // File doesn't exist
 	}
 	if info.Size() == 0 {
-		logger.GetLogger().Infof("[R2] ⏭️  Skipping empty file: %s", localPath)
+		logger.GetLogger().Infof("[R2]   Skipping empty file: %s", localPath)
 		return ""
 	}
 
 	publicURL, err := UploadFile(localPath, r2Key, true) // skipTimestamp=true, key already has domain/path
 	if err != nil {
-		logger.GetLogger().Infof("[R2] ⚠️  Failed to upload result file %s: %v", localPath, err)
+		logger.GetLogger().Infof("[R2]   Failed to upload result file %s: %v", localPath, err)
 		return ""
 	}
 
 	// Print a very visible marker line — AI agents and log parsers use this
 	logger.GetLogger().Infof("[R2-RESULT-URL] %s -> %s", localPath, publicURL)
-	fmt.Printf("\n🔗 R2 Result: %s\n   URL: %s\n\n", localPath, publicURL)
+	fmt.Printf("\n R2 Result: %s\n   URL: %s\n\n", localPath, publicURL)
 	return publicURL
 }
 
@@ -197,7 +197,7 @@ func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) 
 		objectKey = fmt.Sprintf("%s/%s", timestamp, objectKey)
 	}
 
-	logger.GetLogger().Infof("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, fileInfo.Size())
+	logger.GetLogger().Infof("[R2]  Uploading file to R2: %s (%d bytes)", objectKey, fileInfo.Size())
 
 	// Upload file
 	_, err = r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
@@ -246,7 +246,7 @@ func UploadFileWithReader(reader io.Reader, objectKey string, size int64, conten
 		}
 	}
 
-	logger.GetLogger().Infof("[R2] 📤 Uploading file to R2: %s (%d bytes)", objectKey, size)
+	logger.GetLogger().Infof("[R2]  Uploading file to R2: %s (%d bytes)", objectKey, size)
 
 	// Upload file
 	_, err := r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
@@ -470,7 +470,7 @@ func UploadDirectory(basePath, r2Prefix string, skipTimestamp bool) (map[string]
 		// Upload file (skipTimestamp for cache/backups, use timestamp for regular results)
 		publicURL, err := UploadFile(localPath, r2Key, skipTimestamp)
 		if err != nil {
-			logger.GetLogger().Infof("[R2] ⚠️  Failed to upload %s: %v", localPath, err)
+			logger.GetLogger().Infof("[R2]   Failed to upload %s: %v", localPath, err)
 			return nil // Continue with other files
 		}
 
@@ -494,7 +494,7 @@ func UploadResultsDirectory(domain, resultsPath string, removeLocal bool) (map[s
 	// Create R2 prefix: results/domain/
 	r2Prefix := fmt.Sprintf("results/%s", domain)
 
-	logger.GetLogger().Infof("[R2] 📤 Uploading results directory to R2: %s -> %s", resultsPath, r2Prefix)
+	logger.GetLogger().Infof("[R2]  Uploading results directory to R2: %s -> %s", resultsPath, r2Prefix)
 
 	// Upload directory (use timestamp for regular results to allow multiple versions)
 	urls, err := UploadDirectory(resultsPath, r2Prefix, false)
@@ -504,15 +504,15 @@ func UploadResultsDirectory(domain, resultsPath string, removeLocal bool) (map[s
 	}
 	// If we have URLs but also an error, log the error but return the URLs
 	if err != nil {
-		logger.GetLogger().Infof("[R2] ⚠️  Some files failed to upload, but %d files were uploaded successfully", len(urls))
+		logger.GetLogger().Infof("[R2]   Some files failed to upload, but %d files were uploaded successfully", len(urls))
 	}
 
 	// Remove local files if requested
 	if removeLocal && len(urls) > 0 {
-		logger.GetLogger().Infof("[R2] 🗑️  Removing local files after successful upload...")
+		logger.GetLogger().Infof("[R2]   Removing local files after successful upload...")
 		for localPath := range urls {
 			if err := os.Remove(localPath); err != nil {
-				logger.GetLogger().Infof("[R2] ⚠️  Failed to remove local file %s: %v", localPath, err)
+				logger.GetLogger().Infof("[R2]   Failed to remove local file %s: %v", localPath, err)
 			}
 		}
 		// Try to remove empty directories
@@ -548,7 +548,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 		r2Prefix = r2Prefix + "/"
 	}
 
-	logger.GetLogger().Infof("[R2] 📥 Downloading directory from R2: %s -> %s", r2Prefix, localPath)
+	logger.GetLogger().Infof("[R2]  Downloading directory from R2: %s -> %s", r2Prefix, localPath)
 
 	// Create local directory
 	if err := os.MkdirAll(localPath, 0755); err != nil {
@@ -581,7 +581,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 
 			// Create parent directories
 			if err := os.MkdirAll(filepath.Dir(localFilePath), 0755); err != nil {
-				logger.GetLogger().Infof("[R2] ⚠️  Failed to create directory for %s: %v", localFilePath, err)
+				logger.GetLogger().Infof("[R2]   Failed to create directory for %s: %v", localFilePath, err)
 				continue
 			}
 
@@ -593,7 +593,7 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 
 			result, err := r2Client.GetObject(r2ctxBg(), getInput)
 			if err != nil {
-				logger.GetLogger().Infof("[R2] ⚠️  Failed to download %s: %v", *obj.Key, err)
+				logger.GetLogger().Infof("[R2]   Failed to download %s: %v", *obj.Key, err)
 				continue
 			}
 			defer result.Body.Close()
@@ -601,14 +601,14 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 			// Create local file
 			localFile, err := os.Create(localFilePath)
 			if err != nil {
-				logger.GetLogger().Infof("[R2] ⚠️  Failed to create local file %s: %v", localFilePath, err)
+				logger.GetLogger().Infof("[R2]   Failed to create local file %s: %v", localFilePath, err)
 				result.Body.Close()
 				continue
 			}
 
 			// Copy object content to local file
 			if _, err := io.Copy(localFile, result.Body); err != nil {
-				logger.GetLogger().Infof("[R2] ⚠️  Failed to write to local file %s: %v", localFilePath, err)
+				logger.GetLogger().Infof("[R2]   Failed to write to local file %s: %v", localFilePath, err)
 				localFile.Close()
 				result.Body.Close()
 				continue

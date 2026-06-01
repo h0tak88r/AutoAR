@@ -63,8 +63,8 @@
           <div style="font-weight:700;font-size:15px;color:${colors.text}">${p.name}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
             ${p.env_configured
-    ? `<span style="color:#2ecc71">✓ Credentials configured</span>`
-    : `<span style="color:#e74c3c">⚠ Credentials needed</span>`}
+    ? `<span style="color:#2ecc71">OK Credentials configured</span>`
+    : `<span style="color:#e74c3c">! Credentials needed</span>`}
           </div>
         </div>
       </div>
@@ -74,7 +74,7 @@
         style="width:100%;margin-top:14px;padding:9px;border-radius:10px;border:none;
                background:${isSelected ? colors.accent : colors.border};
                color:${isSelected ? '#fff' : colors.text};font-weight:600;font-size:13px;cursor:pointer;transition:all 0.2s;">
-        ${isSelected ? '✓ Selected' : 'Select'}
+        ${isSelected ? 'OK Selected' : 'Select'}
       </button>
     `;
       card.addEventListener('mouseenter', () => {
@@ -222,13 +222,13 @@
                     <button onclick="targetsLaunchScan('${escapeSafe(d)}')"
                       style="padding:4px 12px;border-radius:8px;border:none;
                              background:${colors.accent};color:#fff;font-size:11px;cursor:pointer;font-weight:600;">
-                      ▶ Scan
+                      Run Scan
                     </button>`
                   : `
                     <button onclick="targetsCopyOne('${escapeSafe(d)}')"
                       style="padding:4px 12px;border-radius:8px;border:1px solid ${colors.border};
                              background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
-                      📋 Copy
+                      Copy
                     </button>`
                 }
               </div>

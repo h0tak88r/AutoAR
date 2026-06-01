@@ -16,6 +16,13 @@ var (
 	schemaErr  error
 )
 
+// SetDB replaces the global DB instance. Use for test injection.
+func SetDB(newDB DB) {
+	initMu.Lock()
+	defer initMu.Unlock()
+	dbInstance = newDB
+}
+
 // EnsureSchema runs InitSchema at most once per process (avoids repeated migrations/logs on every API call).
 func EnsureSchema() error {
 	schemaOnce.Do(func() {

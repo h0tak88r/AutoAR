@@ -149,7 +149,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 	}
 
 	// Content changed → record in DB + send Discord alert
-	logger.GetLogger().Infof("[URL-MONITOR] ⚠️  Change detected for %s (hash)", t.URL)
+	logger.GetLogger().Infof("[URL-MONITOR]   Change detected for %s (hash)", t.URL)
 
 	detail, _ := json.Marshal(map[string]string{
 		"strategy": "hash",
@@ -174,7 +174,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 		newShort = newShort[:8]
 	}
 	msg := fmt.Sprintf(
-		"🔔 **URL Monitor Alert**\n**URL**: %s\n**Change**: content hash changed\n**Old hash**: `%s`\n**New hash**: `%s`\n**Timestamp**: %s",
+		" **URL Monitor Alert**\n**URL**: %s\n**Change**: content hash changed\n**Old hash**: `%s`\n**New hash**: `%s`\n**Timestamp**: %s",
 		t.URL, oldShort, newShort, time.Now().Format(time.RFC3339),
 	)
 	logger.GetLogger().Infof("[URL-MONITOR] Alert: %s", msg)
@@ -231,7 +231,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 		return
 	}
 
-	logger.GetLogger().Infof("[URL-MONITOR] ⚠️  Change detected for %s (regex)", t.URL)
+	logger.GetLogger().Infof("[URL-MONITOR]   Change detected for %s (regex)", t.URL)
 
 	detailObj := map[string]string{
 		"strategy":  "regex",
@@ -261,7 +261,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 		newDisp = newDisp[:80] + "…"
 	}
 	msg := fmt.Sprintf(
-		"🔔 **URL Monitor Alert** (regex)\n**URL**: %s\n**Change**: matched text changed\n**Old**: `%s`\n**New**: `%s`\n**Timestamp**: %s",
+		" **URL Monitor Alert** (regex)\n**URL**: %s\n**Change**: matched text changed\n**Old**: `%s`\n**New**: `%s`\n**Timestamp**: %s",
 		t.URL, oldDisp, newDisp, time.Now().Format(time.RFC3339),
 	)
 	logger.GetLogger().Infof("[URL-MONITOR] Alert: %s", msg)

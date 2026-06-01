@@ -93,6 +93,36 @@ func ensureSubdomains(domain string) (domainDir string, subsFile string, cleanup
 }
 
 // readNonEmptyLines reads a file and returns non-empty, non-comment lines.
+// isSummaryLine returns true if the line is a summary/header line that should be filtered out
+func isSummaryLine(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return true
+	}
+	// Filter out summary headers and metadata lines
+	summaryPrefixes := []string{
+		"===",
+		"Scan Date:",
+		"Total Subdomains",
+		"Azure Vulnerabilities Found:",
+		"AWS Vulnerabilities Found:",
+		"Total Vulnerabilities:",
+		"Tools Used:",
+		"Target Domain:",
+		"FINDINGS SUMMARY",
+		"NOTES",
+		"Review individual",
+		"Always manually validate",
+		"Dangling IP detection",
+	}
+	for _, prefix := range summaryPrefixes {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func readNonEmptyLines(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -301,7 +331,12 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 			if err != nil {
 				continue
 			}
-			allTextFindings = append(allTextFindings, lines...)
+			// Filter out summary/noise lines before adding to findings
+			for _, line := range lines {
+				if !isSummaryLine(line) {
+					allTextFindings = append(allTextFindings, line)
+				}
+			}
 		}
 		// Write combined text findings as structured JSON for the dashboard
 		if len(allTextFindings) > 0 {
