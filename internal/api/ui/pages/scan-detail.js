@@ -68,7 +68,7 @@
           const isCancelling = /cancelling/i.test(stat);
           const isPaused = /paused/i.test(stat);
           const liveBadge = isPaused
-            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">[PAUSE] paused</span>`
+            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px"> paused</span>`
             : isCancelling
               ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
               : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
@@ -138,7 +138,7 @@
         ? `<div class="modern-card" style="padding:18px">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
               <div>
-                <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">[BOX] Full Scan Archive</div>
+                <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px"> Full Scan Archive</div>
                 <div style="font-size:12px;color:var(--text-muted)">Download complete scan results as ZIP</div>
               </div>
               <a href="${esc(zipURL)}" target="_blank" rel="noopener" class="btn btn-primary">Download ZIP</a>
@@ -184,7 +184,7 @@
             
             <div class="modern-card">
               <div class="card-header">
-                <div class="card-title"><span class="card-title-icon">[CHART]</span>Results</div>
+                <div class="card-title"><span class="card-title-icon"></span>Results</div>
                 <span class="badge badge-running" id="unified-parsed-badge">${total} files</span>
               </div>
               <div id="unified-parsed-results" style="padding:16px">
@@ -273,7 +273,7 @@
           const isPaused = /paused/.test(stat);
           const scanType = scan.scan_type || '';
           const liveBadge = isPaused
-            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">[PAUSE] paused</span>`
+            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px"> paused</span>`
             : isCancelling
               ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
               : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
@@ -468,15 +468,15 @@
     const HIDDEN_KINDS = new Set(['logs', 'log']);
     const TAB_LABELS = {
       assets: ' Assets',
-      urls: '[LINK] Links',
+      urls: ' Links',
       'js-analysis': ' JS Secrets',
       'js-endpoints': ' JS Endpoints',
       'katana-crawler': ' Katana',
       'gf-patterns': ' GF Patterns',
       nuclei: ' Nuclei',
       ffuf: ' FFUF',
-      buckets: '[BUCKET] S3 Buckets',
-      ports: '[ANT] Ports',
+      buckets: ' S3 Buckets',
+      ports: ' Ports',
       reflection: ' Reflection',
       'xss-detection': ' XSS (Dalfox)',
       'github-scan': ' GitHub Secrets',
@@ -1028,7 +1028,7 @@
       const riskFromBackend = String(apkPackageInfo.task_hijacking_risk || '').toLowerCase();
       let hijackLabel, hijackColor;
       if (riskFromBackend === 'possible') { hijackLabel = ' Possible (minSdk ≤ 28)'; hijackColor = '#f97316'; }
-      else if (riskFromBackend === 'mitigated') { hijackLabel = '[BOLT] Partially mitigated (minSdk 29–30)'; hijackColor = '#f59e0b'; }
+      else if (riskFromBackend === 'mitigated') { hijackLabel = ' Partially mitigated (minSdk 29–30)'; hijackColor = '#f59e0b'; }
       else if (riskFromBackend === 'unlikely') { hijackLabel = ' Unlikely (minSdk ≥ 31)'; hijackColor = '#22c55e'; }
       else { hijackLabel = '? Unknown'; hijackColor = '#94a3b8'; }
 

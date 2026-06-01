@@ -125,7 +125,7 @@
     </nav>
 
     <div class="sidebar-metrics" id="sidebar-metrics">
-      <div class="metrics-label">[CHART] Performance</div>
+      <div class="metrics-label"> Performance</div>
       <div class="metric-item">
         <div class="metric-info"><span>CPU</span><span id="metric-cpu">0%</span></div>
         <div class="metric-bar"><div class="metric-fill" id="metric-cpu-fill" style="width: 0%"></div></div>
@@ -176,7 +176,7 @@
           <div class="stat-card" data-accent="cyan">
             <div class="stat-header">
               <div class="stat-label">Domains</div>
-              <div class="stat-icon">[WEB]</div>
+              <div class="stat-icon"></div>
             </div>
             <div class="stat-value" id="stat-domains">—</div>
             <div class="stat-footer">Tracked root domains</div>
@@ -185,7 +185,7 @@
           <div class="stat-card" data-accent="purple">
             <div class="stat-header">
               <div class="stat-label">Subdomains</div>
-              <div class="stat-icon">[LINK]</div>
+              <div class="stat-icon"></div>
             </div>
             <div class="stat-value" id="stat-subdomains">—</div>
             <div class="stat-footer" id="stat-live-footer">Live: <span id="stat-live">—</span></div>
@@ -194,7 +194,7 @@
           <div class="stat-card" data-accent="emerald">
             <div class="stat-header">
               <div class="stat-label">Active Scans</div>
-              <div class="stat-icon">[BOLT]</div>
+              <div class="stat-icon"></div>
             </div>
             <div class="stat-value" id="stat-active">—</div>
             <div class="stat-footer">Completed: <span id="stat-completed">—</span></div>
@@ -203,7 +203,7 @@
           <div class="stat-card" data-accent="amber">
             <div class="stat-header">
               <div class="stat-label">Monitors</div>
-              <div class="stat-icon">[EYE]</div>
+              <div class="stat-icon"></div>
             </div>
             <div class="stat-value" id="stat-monitors">—</div>
             <div class="stat-footer">URL &amp; subdomain</div>
@@ -214,7 +214,7 @@
         <div class="card" id="overview-running-scans" style="display:none">
           <div class="card-header">
             <div class="card-title">
-              <span class="card-title-icon">[BOLT]</span>
+              <span class="card-title-icon"></span>
               Running now
             </div>
           </div>
@@ -225,7 +225,7 @@
         <div class="card">
           <div class="card-header">
             <div class="card-title">
-              <span class="card-title-icon">[ANT]</span>
+              <span class="card-title-icon"></span>
               Recent Monitor Changes
             </div>
           </div>
@@ -313,7 +313,7 @@
           </div>
           <div style="display:flex;gap:12px;align-items:center">
             <button id="run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
-              [BOLT] Run Nuclei Template
+               Run Nuclei Template
             </button>
             <div id="cnames-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
               ... <span id="cnames-progress-text">0/0</span>
@@ -437,7 +437,7 @@
         <!-- URL Monitor Targets -->
         <div class="card" style="margin-bottom:20px">
           <div class="card-header">
-            <div class="card-title"><span class="card-title-icon">[LINK]</span>URL Monitor Targets</div>
+            <div class="card-title"><span class="card-title-icon"></span>URL Monitor Targets</div>
           </div>
           <div class="card-body">
             <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
@@ -487,7 +487,7 @@
         <!-- Subdomain Monitor Targets -->
         <div class="card" style="margin-bottom:20px">
           <div class="card-header">
-            <div class="card-title"><span class="card-title-icon">[WEB]</span>Subdomain Monitor Targets</div>
+            <div class="card-title"><span class="card-title-icon"></span>Subdomain Monitor Targets</div>
           </div>
           <div class="card-body">
             <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
@@ -556,7 +556,7 @@
           <div class="r2-tree">
             <div class="r2-tree-header">Folders</div>
             <div id="r2-tree-list">
-              <div class="r2-tree-item active"><span>[BOX]</span><span>root</span></div>
+              <div class="r2-tree-item active"><span></span><span>root</span></div>
             </div>
           </div>
 
@@ -708,7 +708,7 @@
 
     <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
       <button type="button" class="btn btn-ghost" onclick="closeNucleiModal()">Cancel</button>
-      <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)">[BOLT] Run Scan</button>
+      <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)"> Run Scan</button>
     </div>
   </div>
 </div>

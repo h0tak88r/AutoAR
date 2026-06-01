@@ -229,7 +229,7 @@
         input.insertAdjacentHTML('afterend', `
           <div id="${uploadWrapperId}" style="display:flex;gap:8px;align-items:center;flex:1">
             <input type="text" id="launch-upload-path" class="input" placeholder="No file uploaded" readonly style="flex:1">
-            <button type="button" class="btn btn-ghost" onclick="document.getElementById('launch-file-input').click()">[FOLDER] Choose</button>
+            <button type="button" class="btn btn-ghost" onclick="document.getElementById('launch-file-input').click()"> Choose</button>
             <input type="file" id="launch-file-input" style="display:none" onchange="handleLaunchFileUpload(this)">
           </div>
         `);

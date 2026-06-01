@@ -1923,7 +1923,7 @@ function renderFindingsTab(results) {
                     <span class="severity-badge ${f.severity}">${f.severity.toUpperCase()}</span>
                     <span class="finding-title">${escapeHtml(f.ruleName)}</span>
                     <span class="instance-count">${instanceCount} instance${instanceCount > 1 ? 's' : ''}</span>
-                    <span class="finding-toggle">[DOWN]</span>
+                    <span class="finding-toggle"></span>
                 </div>
                 <div class="finding-body" id="finding-body-${i}">
                     <div class="finding-description">${escapeHtml(f.description)}</div>
@@ -2004,7 +2004,7 @@ function renderTree(tree, prefix) {
             html += `
                 <div class="tree-folder">
                     <div class="tree-folder-header" onclick="this.parentElement.classList.toggle('open')">
-                        <span class="folder-icon">[FOLDER]</span>
+                        <span class="folder-icon"></span>
                         <span class="folder-name">${escapeHtml(name)}</span>
                     </div>
                     <div class="tree-folder-content">${renderTree(node, prefix + name + '/')}</div>
@@ -2026,13 +2026,13 @@ function renderTree(tree, prefix) {
 
 function getFileIcon(ext) {
     const icons = {
-        'swift': '[DIAMOND]', 'm': '[BOOK]', 'h': '[DOC]', 'plist': '[LIST]', 'json': '[SCROLL]',
-        'xml': '[NEWS]', 'db': '[DB]', 'sqlite': '[DB]', 'realm': '[DB]',
-        'png': '[IMG]', 'jpg': '[IMG]', 'jpeg': '[IMG]', 'gif': '[IMG]',
-        'js': '[BOOK]', 'html': '[WEB]', 'css': '[PALETTE]', 'strings': '[ABC]',
-        'cer': '[LOCK]', 'pem': '[LOCK]', 'p12': '[LOCK]', 'dylib': '[GEAR]'
+        'swift': '', 'm': '', 'h': '', 'plist': '', 'json': '',
+        'xml': '', 'db': '', 'sqlite': '', 'realm': '',
+        'png': '', 'jpg': '', 'jpeg': '', 'gif': '',
+        'js': '', 'html': '', 'css': '', 'strings': '',
+        'cer': '', 'pem': '', 'p12': '', 'dylib': ''
     };
-    return icons[ext] || '[DOC]';
+    return icons[ext] || '';
 }
 
 async function openFileInExplorer(filePath, line = 0) {
@@ -2150,18 +2150,18 @@ function renderBinaryViewer(content, filePath) {
             </div>
             ${viewMode === 'hex' ? `
             <div class="hex-controls">
-                <button class="hex-nav" data-action="first" ${currentPage === 0 ? 'disabled' : ''}>[PREV] First</button>
-                <button class="hex-nav" data-action="prev" ${currentPage === 0 ? 'disabled' : ''}>[LEFT] Prev</button>
+                <button class="hex-nav" data-action="first" ${currentPage === 0 ? 'disabled' : ''}> First</button>
+                <button class="hex-nav" data-action="prev" ${currentPage === 0 ? 'disabled' : ''}> Prev</button>
                 <span class="hex-page-info">Page ${currentPage + 1} of ${totalPages} (offset 0x${offset.toString(16)})</span>
-                <button class="hex-nav" data-action="next" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next [PLAY]</button>
-                <button class="hex-nav" data-action="last" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Last [NEXT]</button>
+                <button class="hex-nav" data-action="next" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next </button>
+                <button class="hex-nav" data-action="last" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Last </button>
                 <input type="text" class="hex-goto" placeholder="Go to offset (hex)..." />
             </div>
             <div class="hex-search-controls">
                 <input type="text" class="hex-search" placeholder="Search string..." value="${escapeHtml(content.searchQuery || '')}" />
                 <button class="hex-search-btn">Search</button>
-                <button class="hex-search-prev" ${!content.searchResults?.length ? 'disabled' : ''}>[LEFT] Prev</button>
-                <button class="hex-search-next" ${!content.searchResults?.length ? 'disabled' : ''}>Next [PLAY]</button>
+                <button class="hex-search-prev" ${!content.searchResults?.length ? 'disabled' : ''}> Prev</button>
+                <button class="hex-search-next" ${!content.searchResults?.length ? 'disabled' : ''}>Next </button>
                 ${searchInfo}
             </div>
             ` : ''}
@@ -2178,11 +2178,11 @@ function renderBinaryViewer(content, filePath) {
                 <span class="strings-count">${filteredStrings.length} strings${filter ? ' (filtered)' : ''}</span>
             </div>
             <div class="strings-nav">
-                <button class="strings-nav-btn" data-action="first" ${stringsPage === 0 ? 'disabled' : ''}>[PREV] First</button>
-                <button class="strings-nav-btn" data-action="prev" ${stringsPage === 0 ? 'disabled' : ''}>[LEFT] Prev</button>
+                <button class="strings-nav-btn" data-action="first" ${stringsPage === 0 ? 'disabled' : ''}> First</button>
+                <button class="strings-nav-btn" data-action="prev" ${stringsPage === 0 ? 'disabled' : ''}> Prev</button>
                 <span class="strings-page-info">Page ${stringsPage + 1} of ${totalStringsPages || 1}</span>
-                <button class="strings-nav-btn" data-action="next" ${stringsPage >= totalStringsPages - 1 ? 'disabled' : ''}>Next [PLAY]</button>
-                <button class="strings-nav-btn" data-action="last" ${stringsPage >= totalStringsPages - 1 ? 'disabled' : ''}>Last [NEXT]</button>
+                <button class="strings-nav-btn" data-action="next" ${stringsPage >= totalStringsPages - 1 ? 'disabled' : ''}>Next </button>
+                <button class="strings-nav-btn" data-action="last" ${stringsPage >= totalStringsPages - 1 ? 'disabled' : ''}>Last </button>
             </div>
             `;
             })() : ''}
