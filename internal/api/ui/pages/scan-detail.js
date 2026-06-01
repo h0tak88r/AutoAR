@@ -814,14 +814,13 @@
 
     let searchJsOnly = false;
     let presetMode = 'smart';
-    let quickChip = 'none';
     let railSearch = '';
     let currentRenderedRows = [];
     let _virtualScrollTop = 0;
     // Per-scan id so a saved "Assets" tab from a domain recon does not blank GitHub / other scans.
     const uiStateKey = `autoar.recon.uistate.${encodeURIComponent(scanId)}`;
     const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
-    const persistUIState = () => { try { localStorage.setItem(uiStateKey, JSON.stringify({ activeKind, presetMode, quickChip, searchModule, searchJsOnly, })); } catch (_) { } };
+    const persistUIState = () => { try { localStorage.setItem(uiStateKey, JSON.stringify({ activeKind, presetMode, searchModule, searchJsOnly, })); } catch (_) { } };
     const loadUIState = () => { try { return JSON.parse(localStorage.getItem(uiStateKey) || '{}') || {}; } catch { return {}; } };
     const persistColumnWidths = () => {
       const cg = root.querySelector('#recon-colgroup');
@@ -867,11 +866,6 @@
       const sev = String(r.severity || 'info').toLowerCase();
       const targetStr = String(r.target || '').toLowerCase();
       const findingStr = String(r.finding || '').toLowerCase();
-      if (quickChip === 'highplus' && !(sev === 'high' || sev === 'critical')) return false;
-      if (quickChip === 'hasurl' && !(/https?:\/\//i.test(targetStr) || /https?:\/\//i.test(findingStr))) return false;
-      if (quickChip === 'exported' && !(findingStr.includes('exported') || String(r.apk_category || '').toLowerCase().includes('exported'))) return false;
-      if (quickChip === 'secrets' && !/(secret|token|apikey|api key|password|authorization)/i.test(findingStr)) return false;
-      if (quickChip === 'onlyjs' && !(r.is_js || /\.m?jsx?(\?|$)/i.test(targetStr) || findingStr.includes('javascript') || String(r.apk_category || '').toLowerCase().includes('js'))) return false;
       return true;
     };
 
@@ -909,7 +903,6 @@
                 <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap"> Copy selected</button>
                 <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap"> Export Markdown</button>
               </div>
-              <div id="recon-quick-chips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <select id="recon-view-mode" style="padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
                   <option value="smart">Smart columns</option>
@@ -961,7 +954,6 @@
     const apkMetaBar = root.querySelector('#recon-apk-meta');
     const severityBar = root.querySelector('#recon-severity-bar');
     const filterBar = root.querySelector('#recon-filter-bar');
-    const chipBar = root.querySelector('#recon-quick-chips');
     const viewModeSel = root.querySelector('#recon-view-mode');
     const standardView = root.querySelector('#recon-standard-view');
     const assetsView = root.querySelector('#recon-assets-view');
@@ -1019,9 +1011,6 @@
       modSelect.innerHTML = '<option value="all">All Modules</option>' + usedModules.map(m => `<option value="${esc(m)}">${esc(getModuleDisplayInfo(m).name)}</option>`).join('');
       modSelect.addEventListener('change', () => { searchModule = modSelect.value; renderBody(); });
     }
-
-    const chipDefs = [{ id: 'highplus', label: 'High+' }, { id: 'hasurl', label: 'Has URL' }, { id: 'exported', label: 'Exported Components' }, { id: 'secrets', label: 'Secrets' }, { id: 'onlyjs', label: 'Only JS' }];
-    const renderChips = () => { if (!chipBar) return; chipBar.innerHTML = chipDefs.map(c => { const active = quickChip === c.id; return `<button type="button" data-chip="${escAttr(c.id)}" style="padding:5px 10px;border:1px solid ${active ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${active ? 'rgba(34,211,238,.13)' : 'rgba(255,255,255,.02)'};color:${active ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">${esc(c.label)}</button>`; }).join(''); };
 
     const renderTabs = () => {
       if (!tabsEl) return;
@@ -1213,12 +1202,11 @@
     };
 
     // Initial setup
-    const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode; if (uiS.quickChip) quickChip = uiS.quickChip;
-    renderChips(); switchReconView(activeKind); applyColumnWidths();
+    const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode;
+    switchReconView(activeKind); applyColumnWidths();
 
     // Event listeners
     root.addEventListener('click', e => { const b = e.target.closest('[data-recon-kind]'); if (b) switchReconView(b.getAttribute('data-recon-kind')); });
-    if (chipBar) chipBar.addEventListener('click', e => { const b = e.target.closest('[data-chip]'); if (b) { const id = b.dataset.chip; quickChip = quickChip === id ? 'none' : id; renderChips(); _currentPage = 1; renderBody(); } });
     if (viewModeSel) viewModeSel.addEventListener('change', () => { presetMode = viewModeSel.value; persistUIState(); _currentPage = 1; renderBody(); });
 
     const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
