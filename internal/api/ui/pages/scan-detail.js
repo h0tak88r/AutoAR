@@ -881,7 +881,6 @@
           </aside>
           <section style="min-width:0;position:relative">
             <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
-            <div id="recon-severity-bar" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.6);display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
             <div id="recon-filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
               <input id="recon-filter-host" type="search" placeholder=" Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
               <select id="recon-filter-severity" title="Severity" style="flex:0 0 auto;min-width:132px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
@@ -952,7 +951,6 @@
     const tabsEl = root.querySelector('#recon-left-rail');
     const railSearchInput = root.querySelector('#recon-rail-search');
     const apkMetaBar = root.querySelector('#recon-apk-meta');
-    const severityBar = root.querySelector('#recon-severity-bar');
     const filterBar = root.querySelector('#recon-filter-bar');
     const viewModeSel = root.querySelector('#recon-view-mode');
     const standardView = root.querySelector('#recon-standard-view');
@@ -962,33 +960,6 @@
     const urlsContent = root.querySelector('#recon-urls-content');
     const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
 
-    const SEV_DEFS = [
-      { key: 'critical', label: 'Critical', color: '#fc8181', bg: 'rgba(252,129,129,.13)', border: 'rgba(252,129,129,.35)' },
-      { key: 'high', label: 'High', color: '#f6ad55', bg: 'rgba(246,173,85,.13)', border: 'rgba(246,173,85,.35)' },
-      { key: 'medium', label: 'Medium', color: '#f6e05e', bg: 'rgba(246,224,94,.13)', border: 'rgba(246,224,94,.35)' },
-      { key: 'low', label: 'Low', color: '#63b3ed', bg: 'rgba(99,179,237,.13)', border: 'rgba(99,179,237,.35)' },
-      { key: 'info', label: 'Info', color: '#68d391', bg: 'rgba(104,211,145,.13)', border: 'rgba(104,211,145,.35)' },
-    ];
-
-    const renderSeverityBar = () => {
-      if (!severityBar) return;
-      const counts = {};
-      for (const r of allRows) {
-        const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim() || 'info';
-        counts[sev] = (counts[sev] || 0) + 1;
-      }
-      const hasCounts = SEV_DEFS.some(d => counts[d.key] > 0);
-      if (!hasCounts) { severityBar.style.display = 'none'; return; }
-      severityBar.style.display = 'flex';
-      const pills = SEV_DEFS.filter(d => counts[d.key] > 0).map(d => {
-        const isActive = filterSeverity === d.key;
-        return `<button type="button" data-sev="${esc(d.key)}" title="Filter by ${d.label}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid ${isActive ? d.color : d.border};border-radius:999px;background:${isActive ? d.bg : 'rgba(255,255,255,.02)'};color:${isActive ? d.color : 'var(--text-secondary)'};font-size:11px;font-weight:${isActive ? '600' : '400'};cursor:pointer;transition:all .15s"><span style="font-size:13px">${d.key === 'critical' ? '' : d.key === 'high' ? '' : d.key === 'medium' ? '' : d.key === 'low' ? '' : ''}</span><span>${d.label}</span><span style="background:${isActive ? d.color : 'rgba(255,255,255,.1)'};color:${isActive ? '#000' : 'var(--text-muted)'};border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${counts[d.key]}</span></button>`;
-      }).join('');
-      const total = Object.values(counts).reduce((a, b) => a + b, 0);
-      const allActive = filterSeverity === 'any';
-      severityBar.innerHTML = `<span style="font-size:11px;color:var(--text-muted);white-space:nowrap;padding-right:4px">Severity:</span><button type="button" data-sev="any" title="Show all severities" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid ${allActive ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${allActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${allActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">All <span style="background:rgba(255,255,255,.1);color:var(--text-muted);border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${total}</span></button>${pills}`;
-      severityBar.querySelectorAll('button[data-sev]').forEach(btn => btn.addEventListener('click', () => { filterSeverity = btn.dataset.sev || 'any'; const sel = root.querySelector('#recon-filter-severity'); if (sel) sel.value = filterSeverity; _currentPage = 1; renderSeverityBar(); renderBody(); }));
-    };
 
     const renderAPKMetaBar = () => {
       if (!apkMetaBar || !isAPKScan || !apkPackageInfo) { if (apkMetaBar) { apkMetaBar.style.display = 'none'; apkMetaBar.innerHTML = ''; } return; }
@@ -1024,7 +995,6 @@
     };
 
     const renderBody = () => {
-      renderSeverityBar();
       const filtered = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
       // Dynamic raw table is intentionally limited to GitHub/TruffleHog views.
       // Other modules (e.g. nuclei) have dedicated renderers with stable UX.
