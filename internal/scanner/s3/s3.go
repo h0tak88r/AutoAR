@@ -48,6 +48,8 @@ func Run(opts Options) error {
 		return handleEnum(opts, resultsDir)
 	case "scan":
 		return handleScan(opts, resultsDir)
+	case "domain":
+		return handleDomainEnumAndScan(opts, resultsDir)
 	default:
 		return fmt.Errorf("unknown action: %s", opts.Action)
 	}
@@ -58,6 +60,236 @@ type bucketResult struct {
 	bucketName string
 	found      bool
 	url        string
+}
+
+// handleDomainEnumAndScan enumerates buckets from a domain, then scans each found bucket.
+func handleDomainEnumAndScan(opts Options, resultsDir string) error {
+	if opts.Root == "" {
+		return fmt.Errorf("root domain is required for domain action")
+	}
+	domain := opts.Root
+
+	// Directory structure: resultsDir/domain/s3/
+	outputDir := filepath.Join(resultsDir, domain, "s3")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %v", err)
+	}
+
+	bucketsFile := filepath.Join(outputDir, "buckets.txt")
+	logFile := filepath.Join(outputDir, "domain-scan.log")
+
+	logger.GetLogger().Infof("[S3] Domain scan: starting for domain %s", domain)
+
+	logFileHandle, err := os.Create(logFile)
+	if err != nil {
+		return fmt.Errorf("failed to create log file: %v", err)
+	}
+	defer logFileHandle.Close()
+
+	// ── Step 1: Enumerate bucket names ──────────────────────────────────────
+	bucketPatterns := generateBucketNames(domain)
+	fmt.Fprintf(logFileHandle, "[INFO] Generated %d bucket name patterns from domain %s\n", len(bucketPatterns), domain)
+	logger.GetLogger().Infof("[S3] Domain scan: generated %d bucket name patterns from %s", len(bucketPatterns), domain)
+
+	storageProvider, err := provider.NewProvider("aws")
+	if err != nil {
+		return fmt.Errorf("failed to create S3Scanner provider: %w", err)
+	}
+
+	threads := opts.Threads
+	if threads <= 0 {
+		threads = 50
+	}
+
+	// Enumerate: check which buckets exist
+	type enumResult struct {
+		name   string
+		region string
+	}
+	var mu sync.Mutex
+	var foundBuckets []enumResult
+
+	bucketsChan := make(chan bucket.Bucket, threads)
+	var enumWg sync.WaitGroup
+	for i := 0; i < threads; i++ {
+		enumWg.Add(1)
+		go func() {
+			defer enumWg.Done()
+			for b := range bucketsChan {
+				result, err := storageProvider.BucketExists(&b)
+				if err != nil {
+					continue
+				}
+				_ = storageProvider.Scan(result, false)
+				if result.Exists == bucket.BucketExists {
+					mu.Lock()
+					foundBuckets = append(foundBuckets, enumResult{name: result.Name, region: result.Region})
+					mu.Unlock()
+					logger.GetLogger().Infof("[S3] Domain scan: found bucket %s (region: %s)", result.Name, result.Region)
+				}
+			}
+		}()
+	}
+
+	for _, name := range bucketPatterns {
+		b := bucket.NewBucket(name)
+		bucketsChan <- b
+	}
+	close(bucketsChan)
+	enumWg.Wait()
+
+	fmt.Fprintf(logFileHandle, "[INFO] Enumeration complete: found %d bucket(s) out of %d tested\n", len(foundBuckets), len(bucketPatterns))
+
+	// Write discovered buckets to buckets.txt
+	if bw, err := os.Create(bucketsFile); err == nil {
+		for _, fb := range foundBuckets {
+			fmt.Fprintln(bw, fb.name)
+		}
+		bw.Close()
+	}
+
+	if len(foundBuckets) == 0 {
+		fmt.Fprintf(logFileHandle, "[INFO] No buckets discovered for domain %s\n", domain)
+		logger.GetLogger().Infof("[S3] Domain scan: no buckets discovered for %s", domain)
+
+		// Still publish a no-findings result so the UI shows the scan completed
+		if scanID := utils.GetCurrentScanID(); scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "s3-scan", "s3-vulnerabilities.json")
+		}
+		fmt.Printf("[OK] S3 domain scan completed for %s — no buckets found.\n", domain)
+		return nil
+	}
+
+	// ── Step 2: Scan each discovered bucket ─────────────────────────────────
+	type bucketFinding struct {
+		Target      string `json:"target"`
+		Bucket      string `json:"bucket"`
+		Status      string `json:"status"`
+		Vulnerable  bool   `json:"vulnerable"`
+		Severity    string `json:"severity"`
+		Module      string `json:"module"`
+		Finding     string `json:"finding"`
+		ObjectCount int    `json:"object_count"`
+		ScanMethod  string `json:"scan_method"`
+		CanList     bool   `json:"can_list"`
+		CanRead     bool   `json:"can_read"`
+		CanWrite    bool   `json:"can_write"`
+		CanDelete   bool   `json:"can_delete"`
+	}
+	var allFindings []bucketFinding
+
+	for _, fb := range foundBuckets {
+		logger.GetLogger().Infof("[S3] Domain scan: scanning bucket %s", fb.name)
+		fmt.Fprintf(logFileHandle, "\n--- Scanning bucket: %s (region: %s) ---\n", fb.name, fb.region)
+
+		// Permission probe
+		permList, permRead, permWrite, permDelete := probeBucketPermissions(fb.name, fb.region, logFileHandle)
+
+		// Try public object listing
+		objectCount := 0
+		scanMethod := "unauthenticated (restricted)"
+		region := fb.region
+		if region == "" {
+			region = opts.Region
+		}
+		regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"}
+		if region != "" {
+			regions = []string{region}
+		}
+	out:
+		for _, r := range regions {
+			urls := []string{
+				fmt.Sprintf("https://%s.s3.amazonaws.com/?list-type=2", fb.name),
+				fmt.Sprintf("https://%s.s3-%s.amazonaws.com/?list-type=2", fb.name, r),
+				fmt.Sprintf("https://s3.amazonaws.com/%s/?list-type=2", fb.name),
+				fmt.Sprintf("https://s3-%s.amazonaws.com/%s/?list-type=2", r, fb.name),
+			}
+			for _, u := range urls {
+				bucketDir := filepath.Join(outputDir, fb.name)
+				_ = os.MkdirAll(bucketDir, 0755)
+				bucketOut := filepath.Join(bucketDir, "scan-results.txt")
+				outF, err := os.Create(bucketOut)
+				if err != nil {
+					continue
+				}
+				objects := scanBucketPublicAccess(u, fb.name, outF, logFileHandle)
+				outF.Close()
+				if len(objects) > 0 {
+					objectCount = len(objects)
+					scanMethod = "unauthenticated (public)"
+					break out
+				}
+			}
+		}
+
+		if permWrite && scanMethod == "unauthenticated (restricted)" {
+			scanMethod = "unauthenticated (writeable)"
+		}
+
+		severity := "info"
+		status := "restricted"
+		if permWrite {
+			severity = "critical"
+			status = "public-write"
+		} else if permList || permRead {
+			severity = "high"
+			status = "public-read"
+		}
+
+		allFindings = append(allFindings, bucketFinding{
+			Target:      fmt.Sprintf("https://%s.s3.amazonaws.com", fb.name),
+			Bucket:      fb.name,
+			Status:      status,
+			Vulnerable:  permList || permRead || permWrite || permDelete || objectCount > 0,
+			Severity:    severity,
+			Module:      "s3-scan",
+			Finding:     fmt.Sprintf("S3 bucket permission exposure (%s)", scanMethod),
+			ObjectCount: objectCount,
+			ScanMethod:  scanMethod,
+			CanList:     permList,
+			CanRead:     permRead,
+			CanWrite:    permWrite,
+			CanDelete:   permDelete,
+		})
+	}
+
+	// ── Step 3: Write results ───────────────────────────────────────────────
+	if scanID := utils.GetCurrentScanID(); scanID != "" {
+		if len(allFindings) > 0 {
+			if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", allFindings); err != nil {
+				logger.GetLogger().Infof("[WARN] Failed to write S3 domain scan JSON: %v", err)
+			}
+			// Also write bucket discoveries as findings
+			discoveries := make([]map[string]string, 0, len(foundBuckets))
+			for _, fb := range foundBuckets {
+				discoveries = append(discoveries, map[string]string{
+					"target": fb.name,
+					"bucket": fb.name,
+					"status": "discovered",
+					"severity": "info",
+					"module": "s3-scan",
+					"finding": fmt.Sprintf("S3 bucket discovered via domain enumeration (%s)", domain),
+				})
+			}
+			_ = utils.WriteJSONToScanDir(scanID, "s3-buckets.json", discoveries)
+		} else {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "s3-scan", "s3-vulnerabilities.json")
+		}
+	}
+
+	fmt.Printf("[OK] S3 domain scan completed for %s\n", domain)
+	fmt.Printf("[INFO] Buckets discovered: %d\n", len(foundBuckets))
+	vulnCount := 0
+	for _, f := range allFindings {
+		if f.Vulnerable {
+			vulnCount++
+		}
+	}
+	fmt.Printf("[INFO] Vulnerable buckets: %d\n", vulnCount)
+	fmt.Printf("[INFO] Results saved to: %s\n", outputDir)
+	logger.GetLogger().Infof("[OK] S3 domain scan completed for %s (buckets: %d, vulnerable: %d, output: %s)", domain, len(foundBuckets), vulnCount, outputDir)
+
+	return nil
 }
 
 func handleEnum(opts Options, resultsDir string) error {
