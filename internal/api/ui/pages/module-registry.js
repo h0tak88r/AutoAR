@@ -89,6 +89,7 @@
     /* ── Nuclei ─────────────────────────────────────────────────────────── */
     nuclei: {
       columns: [
+        { id: 'target',   label: 'TARGET',       flex: '2', type: 'link'      },
         { id: 'sev',      label: 'SEV',          w: '68px', type: 'sev-badge', align: 'center' },
         { id: 'template', label: 'TEMPLATE',     flex: '2', type: 'two-line' },
         { id: 'matched',  label: 'MATCHED AT',   flex: '2', type: 'two-line-mono' },
@@ -207,9 +208,10 @@
     /* ── GF Patterns ────────────────────────────────────────────────────── */
     gf: {
       columns: [
-        { id: 'sev',     label: 'SEV',     w: '68px', type: 'sev-badge',  align: 'center' },
-        { id: 'pattern', label: 'PATTERN', flex: '1', type: 'badge-pill'  },
-        { id: 'value',   label: 'MATCHED URL', flex: '3', type: 'mono-trunc' },
+        { id: 'target',  label: 'TARGET',    flex: '2', type: 'link'       },
+        { id: 'sev',     label: 'SEV',       w: '68px', type: 'sev-badge', align: 'center' },
+        { id: 'pattern', label: 'PATTERN',   flex: '1', type: 'badge-pill'  },
+        { id: 'value',   label: 'MATCHED URL', flex: '2', type: 'mono-trunc' },
       ],
       extract(r) {
         const raw = r.raw || {};
@@ -310,6 +312,7 @@
     /* ── XSS Detection (Dalfox confirmed — from kxss {<}/{>} candidates) ───── */
     'xss-detection': {
       columns: [
+        { id: 'target',    label: 'TARGET',       flex: '2', type: 'link'      },
         { id: 'sev',       label: 'SEV',          w: '68px', type: 'sev-badge', align: 'center' },
         { id: 'vulnType',  label: 'TYPE',         flex: '1', type: 'badge-pill' },
         { id: 'parameter', label: 'PARAMETER',   flex: '1', type: 'mono-muted' },
@@ -415,6 +418,7 @@
     /* ── Misconfig ──────────────────────────────────────────────────────── */
     misconfig: {
       columns: [
+        { id: 'target',  label: 'TARGET',  flex: '2', type: 'link'       },
         { id: 'sev',     label: 'SEV',     w: '68px', type: 'sev-badge', align: 'center' },
         { id: 'service', label: 'SERVICE', flex: '1', type: 'mono-amber' },
         { id: 'finding', label: 'FINDING', flex: '3', type: 'trunc'     },
@@ -489,6 +493,7 @@
     /* ── Default (fallback for any unknown module) ──────────────────────── */
     default: {
       columns: [
+        { id: 'target',  label: 'TARGET',           flex: '2', type: 'link'      },
         { id: 'sev',     label: 'SEV',              w: '68px', type: 'sev-badge', align: 'center' },
         { id: 'finding', label: 'VULNERABILITY TYPE',flex: '3', type: 'mono-trunc'},
         { id: 'module',  label: 'MODULE',           flex: '1', type: 'mod-badge'  },
