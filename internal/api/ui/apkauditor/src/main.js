@@ -689,7 +689,7 @@ function renderComponentCard(cmp, pkg, idx) {
     if (cmp.type === 'provider' && cmp.grantUriPermissions)
         badges.push('<span class="comp-badge bad">grantUriPermissions</span>');
     if (cmp.type === 'provider' && cmp.authorities)
-        badges.push('<span class="comp-badge">auth: ' + esc(cmp.authorities) + '</span>');
+        badges.push('<span class="comp-badge">auth: ' + esc(Array.isArray(cmp.authorities) ? cmp.authorities.join('; ') : cmp.authorities) + '</span>');
 
     const intents = (cmp.intentFilters || []).flatMap(f => f.actions || []).filter(a => a !== 'android.intent.action.MAIN');
     const schemes = (cmp.intentFilters || []).flatMap(f => (f.data || []).map(d => d.scheme || '')).filter(Boolean);
@@ -759,7 +759,9 @@ function generateExploitCommands(comp, packageName) {
         }
         if (cmds.length === 0) cmds.push({ desc: 'Send broadcast', cmd: 'adb shell am broadcast -n ' + cn });
     } else if (comp.type === 'provider' && comp.authorities) {
-        const auth = Array.isArray(comp.authorities) ? comp.authorities[0] : comp.authorities.split(';')[0];
+        const authList = Array.isArray(comp.authorities) ? comp.authorities : String(comp.authorities).split(';').filter(Boolean);
+        const auth = authList[0] || '';
+        if (!auth) return cmds;
         cmds.push({ desc: 'Query provider',             cmd: 'adb shell content query --uri content://' + auth + '/' });
         cmds.push({ desc: 'SQL injection probe',        cmd: 'adb shell content query --uri content://' + auth + '/ --where "1=1--"' });
         if (comp.grantUriPermissions) cmds.push({ desc: 'Read via URI grant', cmd: 'adb shell content read --uri content://' + auth + '/test' });
