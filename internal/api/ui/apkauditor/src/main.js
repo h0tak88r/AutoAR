@@ -759,7 +759,7 @@ function generateExploitCommands(comp, packageName) {
         }
         if (cmds.length === 0) cmds.push({ desc: 'Send broadcast', cmd: 'adb shell am broadcast -n ' + cn });
     } else if (comp.type === 'provider' && comp.authorities) {
-        const auth = comp.authorities.split(';')[0];
+        const auth = Array.isArray(comp.authorities) ? comp.authorities[0] : comp.authorities.split(';')[0];
         cmds.push({ desc: 'Query provider',             cmd: 'adb shell content query --uri content://' + auth + '/' });
         cmds.push({ desc: 'SQL injection probe',        cmd: 'adb shell content query --uri content://' + auth + '/ --where "1=1--"' });
         if (comp.grantUriPermissions) cmds.push({ desc: 'Read via URI grant', cmd: 'adb shell content read --uri content://' + auth + '/test' });
@@ -1334,18 +1334,8 @@ function setupExport() {
 }
 
 function setupTheme() {
-    const THEMES = ['dark', 'light'];
-    const stored = localStorage.getItem('theme');
-    const queryTheme = new URLSearchParams(location.search).get('theme');
-    document.documentElement.dataset.theme = (queryTheme && THEMES.indexOf(queryTheme) >= 0) ? queryTheme
-        : stored || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-    $('#themeToggle') && $('#themeToggle').addEventListener('click', () => {
-        const cur = document.documentElement.dataset.theme || 'dark';
-        const idx = THEMES.indexOf(cur);
-        const next = THEMES[(idx + 1) % THEMES.length];
-        document.documentElement.dataset.theme = next;
-        localStorage.setItem('theme', next);
-    });
+    document.documentElement.dataset.theme = 'dark';
+    localStorage.removeItem('theme');
 }
 
 function setupDragDrop() {

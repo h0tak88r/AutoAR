@@ -1,25 +1,27 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="color-scheme" content="dark light">
+    <meta name="color-scheme" content="dark">
     <title>APK Auditor — AutoAR</title>
     <meta name="description" content="Android APK static security scanner. DEX parsing, AXML manifest, signing certificate, entropy-aware secret detection. 100% client-side.">
-    <meta name="theme-color" content="#07080B" media="(prefers-color-scheme: dark)">
-    <meta name="theme-color" content="#FCFCFD" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#000000">
     <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg">
     <link rel="stylesheet" href="src/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
-    <div class="gradient-orbs" aria-hidden="true">
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-        <div class="orb orb-3"></div>
+    <div class="noise-overlay" aria-hidden="true"></div>
+    <div class="ambient" aria-hidden="true">
+        <div class="ambient-orb active orb-1"></div>
+        <div class="ambient-orb orb-2"></div>
+        <div class="ambient-orb orb-3"></div>
     </div>
-    <div class="grid-pattern" aria-hidden="true"></div>
 
     <header class="site-header" role="banner">
         <div class="site-header-inner">
@@ -27,10 +29,10 @@
                 <div class="logo-icon" aria-hidden="true">
                     <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <rect x="3" y="3" width="30" height="30" rx="8.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
-                        <rect x="9" y="10" width="17" height="2.6" rx="1.3" fill="var(--accent-primary)"/>
+                        <rect x="9" y="10" width="17" height="2.6" rx="1.3" fill="#818cf8"/>
                         <rect x="9" y="15.5" width="13" height="2.6" rx="1.3" fill="currentColor" opacity="0.42"/>
                         <rect x="9" y="21" width="9"  height="2.6" rx="1.3" fill="currentColor" opacity="0.22"/>
-                        <circle cx="27.5" cy="11.3" r="1.9" fill="var(--accent-primary)"/>
+                        <circle cx="27.5" cy="11.3" r="1.9" fill="#818cf8"/>
                     </svg>
                 </div>
                 <div class="logo-text"><span class="logo-prefix">APK</span><span class="logo-suffix">Auditor</span></div>
@@ -46,13 +48,10 @@
 
     <main id="main">
     <section class="hero" id="landingContent">
-        <div class="mesh-bg" aria-hidden="true">
-            <div class="mesh-orb mesh-orb-1"></div>
-            <div class="mesh-orb mesh-orb-2"></div>
-            <div class="mesh-orb mesh-orb-3"></div>
-            <div class="mesh-grid"></div>
-            <div class="cursor-spot" id="cursorSpot"></div>
-        </div>
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-glow glow-1" aria-hidden="true"></div>
+        <div class="hero-glow glow-2" aria-hidden="true"></div>
+        <div class="hero-glow glow-3" aria-hidden="true"></div>
 
         <div class="hero-inner">
             <div class="hero-text">
@@ -95,7 +94,7 @@
                                 <rect x="20" y="22" width="24" height="3" rx="1.5" fill="currentColor"/>
                                 <rect x="20" y="30" width="18" height="3" rx="1.5" fill="currentColor" opacity="0.55"/>
                                 <rect x="20" y="38" width="12" height="3" rx="1.5" fill="currentColor" opacity="0.30"/>
-                                <circle cx="46" cy="23.5" r="2.5" fill="var(--accent-primary)"/>
+                                <circle cx="46" cy="23.5" r="2.5" fill="#818cf8"/>
                             </svg>
                         </div>
                         <div class="dropzone-title">Drop <code>.apk</code> to scan</div>
