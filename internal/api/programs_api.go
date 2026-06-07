@@ -24,22 +24,24 @@ import (
 
 // ProgramSummary is the unified view sent to the UI for both H1 and BC.
 type ProgramSummary struct {
-	ID             string   `json:"id"`
-	Platform       string   `json:"platform"`       // "h1" or "bc"
-	Handle         string   `json:"handle"`
-	Name           string   `json:"name"`
-	URL            string   `json:"url"`
-	State          string   `json:"state"`           // public_mode, soft_launched, open, etc.
-	SubmissionState string  `json:"submission_state"` // open, closed, paused
-	OffersBounties bool     `json:"offers_bounties"`
-	Currency       string   `json:"currency"`
-	FastPayments   bool     `json:"fast_payments"`
-	SafeHarbor     bool     `json:"safe_harbor"`
-	Bookmarked     bool     `json:"bookmarked"`
-	ScopeTargets   int      `json:"scope_targets"`   // count of in-scope targets
-	LatestTarget   string   `json:"latest_target"`   // one representative target
-	UpdatedAt      string   `json:"updated_at"`      // when we last fetched this
-	Stats          ProgramStats `json:"stats"`
+	ID                    string       `json:"id"`
+	Platform              string       `json:"platform"` // "h1" or "bc"
+	Handle                string       `json:"handle"`
+	Name                  string       `json:"name"`
+	URL                   string       `json:"url"`
+	State                 string       `json:"state"`            // public_mode, soft_launched, open, etc.
+	SubmissionState       string       `json:"submission_state"` // open, closed, paused
+	OffersBounties        bool         `json:"offers_bounties"`
+	Currency              string       `json:"currency"`
+	FastPayments          bool         `json:"fast_payments"`
+	SafeHarbor            bool         `json:"safe_harbor"`
+	Bookmarked            bool         `json:"bookmarked"`
+	ScopeTargets          int          `json:"scope_targets"`            // count of in-scope targets
+	LatestTarget          string       `json:"latest_target"`            // one representative target
+	LatestTargetUpdatedAt string       `json:"latest_target_updated_at"` // latest in-scope target update time
+	LatestTargetBrief     string       `json:"latest_target_brief"`      // brief context for the latest target
+	UpdatedAt             string       `json:"updated_at"`               // when we last fetched this
+	Stats                 ProgramStats `json:"stats"`
 }
 
 // ProgramStats holds user-specific stats from H1.
@@ -55,7 +57,7 @@ type ProgramStats struct {
 
 func apiListPrograms(c *gin.Context) {
 	platform := strings.ToLower(c.DefaultQuery("platform", "all"))
-	bbpOnly := c.DefaultQuery("bbp_only", "false") == "true"
+	bbpOnly := true
 	sortBy := c.DefaultQuery("sort", "name")
 
 	var allPrograms []ProgramSummary
@@ -115,8 +117,8 @@ func apiListPrograms(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"programs":    allPrograms,
-		"total":       len(allPrograms),
+		"programs":     allPrograms,
+		"total":        len(allPrograms),
 		"has_h1_token": os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
 		"has_bc_token": os.Getenv("BUGCROWD_TOKEN") != "",
 	})
@@ -302,16 +304,25 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 			scopes := gjson.Get(string(body), "data")
 			count := 0
 			var latestTarget string
+			var latestUpdatedAt string
+			var latestBrief string
 			for _, s := range scopes.Array() {
-				if s.Get("attributes.eligible_for_submission").Bool() {
+				attrs := s.Get("attributes")
+				if attrs.Get("eligible_for_submission").Bool() {
 					count++
-					if latestTarget == "" {
-						latestTarget = s.Get("attributes.asset_identifier").Str
+					target := attrs.Get("asset_identifier").Str
+					updatedAt := firstGJSONString(attrs, "updated_at", "created_at", "last_updated_at")
+					if target != "" && (latestTarget == "" || isNewerProgramTime(updatedAt, latestUpdatedAt)) {
+						latestTarget = target
+						latestUpdatedAt = updatedAt
+						latestBrief = firstGJSONString(attrs, "instruction", "instructions", "asset_type")
 					}
 				}
 			}
 			p.ScopeTargets = count
 			p.LatestTarget = latestTarget
+			p.LatestTargetUpdatedAt = latestUpdatedAt
+			p.LatestTargetBrief = latestBrief
 		}(&programs[i])
 	}
 	wg.Wait()
@@ -465,15 +476,18 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 
 								count := 0
 								var latestTarget string
+								var latestUpdatedAt string
+								var latestBrief string
 								gjson.Get(string(scopeBody), "data.scope").ForEach(func(_, scope gjson.Result) bool {
 									if scope.Get("inScope").Bool() {
 										scope.Get("targets").ForEach(func(_, t gjson.Result) bool {
 											count++
-											if latestTarget == "" {
-												latestTarget = t.Get("uri").Str
-												if latestTarget == "" {
-													latestTarget = t.Get("name").Str
-												}
+											target := firstGJSONString(t, "uri", "name", "target")
+											updatedAt := firstGJSONString(t, "updatedAt", "updated_at", "lastUpdatedAt", "createdAt", "created_at")
+											if target != "" && (latestTarget == "" || isNewerProgramTime(updatedAt, latestUpdatedAt)) {
+												latestTarget = target
+												latestUpdatedAt = updatedAt
+												latestBrief = firstGJSONString(t, "description", "details", "category", "type")
 											}
 											return true
 										})
@@ -482,6 +496,8 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 								})
 								p.ScopeTargets = count
 								p.LatestTarget = latestTarget
+								p.LatestTargetUpdatedAt = latestUpdatedAt
+								p.LatestTargetBrief = latestBrief
 							}
 						}
 					}
@@ -492,3 +508,48 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 	wg.Wait()
 }
 
+func firstGJSONString(result gjson.Result, paths ...string) string {
+	for _, path := range paths {
+		value := strings.TrimSpace(result.Get(path).Str)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func isNewerProgramTime(candidate, current string) bool {
+	if current == "" {
+		return true
+	}
+	candidateTime, candidateOK := parseProgramTime(candidate)
+	currentTime, currentOK := parseProgramTime(current)
+	if !candidateOK {
+		return false
+	}
+	if !currentOK {
+		return true
+	}
+	return candidateTime.After(currentTime)
+}
+
+func parseProgramTime(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
