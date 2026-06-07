@@ -51,6 +51,28 @@ type ProgramStats struct {
 	BountyEarnedForUser float64 `json:"bounty_earned_for_user"`
 }
 
+type programScopeRequest struct {
+	Programs []programScopeRequestItem `json:"programs"`
+}
+
+type programScopeRequestItem struct {
+	Platform string `json:"platform"`
+	Handle   string `json:"handle"`
+	URL      string `json:"url"`
+}
+
+type cachedProgramScope struct {
+	Summary   ProgramSummary
+	ExpiresAt time.Time
+}
+
+var (
+	programScopeCacheMu sync.Mutex
+	programScopeCache   = map[string]cachedProgramScope{}
+)
+
+const programScopeCacheTTL = 15 * time.Minute
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/scope/programs
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,6 +80,7 @@ type ProgramStats struct {
 func apiListPrograms(c *gin.Context) {
 	platform := strings.ToLower(c.DefaultQuery("platform", "all"))
 	bbpOnly := true
+	includeScope := c.DefaultQuery("include_scope", "false") == "true"
 	sortBy := c.DefaultQuery("sort", "name")
 
 	var allPrograms []ProgramSummary
@@ -68,7 +91,7 @@ func apiListPrograms(c *gin.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			progs, err := fetchH1Programs(bbpOnly)
+			progs, err := fetchH1Programs(bbpOnly, includeScope)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error fetching H1 programs: %v\n", err)
 				return
@@ -83,7 +106,7 @@ func apiListPrograms(c *gin.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			progs, err := fetchBCPrograms(bbpOnly)
+			progs, err := fetchBCPrograms(bbpOnly, includeScope)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error fetching BC programs: %v\n", err)
 				return
@@ -124,21 +147,95 @@ func apiListPrograms(c *gin.Context) {
 	})
 }
 
+func apiProgramScopeSummaries(c *gin.Context) {
+	var req programScopeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if len(req.Programs) > 80 {
+		req.Programs = req.Programs[:80]
+	}
+
+	summaries := make(map[string]ProgramSummary, len(req.Programs))
+	var mu sync.Mutex
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+
+	h1Username := os.Getenv("H1_USERNAME")
+	h1Token := os.Getenv("H1_TOKEN")
+	h1Auth := ""
+	if h1Username != "" && h1Token != "" {
+		h1Auth = base64.StdEncoding.EncodeToString([]byte(h1Username + ":" + h1Token))
+	}
+	bcToken := os.Getenv("BUGCROWD_TOKEN")
+
+	for _, item := range req.Programs {
+		item.Platform = strings.ToLower(strings.TrimSpace(item.Platform))
+		item.Handle = strings.TrimSpace(item.Handle)
+		if item.Platform == "" || item.Handle == "" {
+			continue
+		}
+
+		cacheKey := programScopeCacheKey(item.Platform, item.Handle)
+		if summary, ok := getCachedProgramScope(cacheKey); ok {
+			mu.Lock()
+			summaries[cacheKey] = summary
+			mu.Unlock()
+			continue
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(item programScopeRequestItem, cacheKey string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			var summary ProgramSummary
+			fetched := false
+			switch item.Platform {
+			case "h1", "hackerone":
+				if h1Auth != "" {
+					summary = fetchH1ScopeSummary(item.Handle, h1Auth)
+					fetched = true
+				}
+			case "bc", "bugcrowd":
+				if bcToken != "" {
+					summary = fetchBCScopeSummary(item.Handle, item.URL, bcToken)
+					fetched = true
+				}
+			}
+
+			summary.Platform = item.Platform
+			summary.Handle = item.Handle
+			if fetched {
+				setCachedProgramScope(cacheKey, summary)
+			}
+			mu.Lock()
+			summaries[cacheKey] = summary
+			mu.Unlock()
+		}(item, cacheKey)
+	}
+
+	wg.Wait()
+	c.JSON(http.StatusOK, gin.H{"summaries": summaries})
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HackerOne program fetching
 // ─────────────────────────────────────────────────────────────────────────────
 
-func fetchH1Programs(bbpOnly bool) ([]ProgramSummary, error) {
+func fetchH1Programs(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 	username := os.Getenv("H1_USERNAME")
 	token := os.Getenv("H1_TOKEN")
 
 	if username != "" && token != "" {
-		return fetchH1WithREST(bbpOnly, username, token)
+		return fetchH1WithREST(bbpOnly, includeScope, username, token)
 	}
 	return fetchH1WithGraphQL(bbpOnly)
 }
 
-func fetchH1WithREST(bbpOnly bool, username, token string) ([]ProgramSummary, error) {
+func fetchH1WithREST(bbpOnly, includeScope bool, username, token string) ([]ProgramSummary, error) {
 	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + token))
 	client := &http.Client{Timeout: 30 * time.Second}
 
@@ -197,7 +294,9 @@ func fetchH1WithREST(bbpOnly bool, username, token string) ([]ProgramSummary, er
 		currentURL = gjson.Get(bodyStr, "links.next").Str
 	}
 
-	enrichH1ScopeCounts(allPrograms, auth)
+	if includeScope {
+		enrichH1ScopeCounts(allPrograms, auth)
+	}
 	return allPrograms, nil
 }
 
@@ -285,54 +384,56 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			url := fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100", p.Handle)
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				return
-			}
-			req.Header.Set("Accept", "application/json")
-			req.Header.Set("Authorization", "Basic "+auth)
-
-			client := &http.Client{Timeout: 15 * time.Second}
-			resp, err := client.Do(req)
-			if err != nil {
-				return
-			}
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-
-			scopes := gjson.Get(string(body), "data")
-			count := 0
-			var latestTarget string
-			var latestUpdatedAt string
-			var latestBrief string
-			for _, s := range scopes.Array() {
-				attrs := s.Get("attributes")
-				if attrs.Get("eligible_for_submission").Bool() {
-					count++
-					target := attrs.Get("asset_identifier").Str
-					updatedAt := firstGJSONString(attrs, "updated_at", "created_at", "last_updated_at")
-					if target != "" && (latestTarget == "" || isNewerProgramTime(updatedAt, latestUpdatedAt)) {
-						latestTarget = target
-						latestUpdatedAt = updatedAt
-						latestBrief = firstGJSONString(attrs, "instruction", "instructions", "asset_type")
-					}
-				}
-			}
-			p.ScopeTargets = count
-			p.LatestTarget = latestTarget
-			p.LatestTargetUpdatedAt = latestUpdatedAt
-			p.LatestTargetBrief = latestBrief
+			summary := fetchH1ScopeSummary(p.Handle, auth)
+			p.ScopeTargets = summary.ScopeTargets
+			p.LatestTarget = summary.LatestTarget
+			p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+			p.LatestTargetBrief = summary.LatestTargetBrief
 		}(&programs[i])
 	}
 	wg.Wait()
+}
+
+func fetchH1ScopeSummary(handle, auth string) ProgramSummary {
+	url := fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100", handle)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return ProgramSummary{}
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Basic "+auth)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ProgramSummary{}
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	scopes := gjson.Get(string(body), "data")
+	summary := ProgramSummary{Platform: "h1", Handle: handle}
+	for _, s := range scopes.Array() {
+		attrs := s.Get("attributes")
+		if attrs.Get("eligible_for_submission").Bool() {
+			summary.ScopeTargets++
+			target := attrs.Get("asset_identifier").Str
+			updatedAt := firstGJSONString(attrs, "updated_at", "created_at", "last_updated_at")
+			if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
+				summary.LatestTarget = target
+				summary.LatestTargetUpdatedAt = updatedAt
+				summary.LatestTargetBrief = firstGJSONString(attrs, "instruction", "instructions", "asset_type")
+			}
+		}
+	}
+	return summary
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bugcrowd program fetching
 // ─────────────────────────────────────────────────────────────────────────────
 
-func fetchBCPrograms(bbpOnly bool) ([]ProgramSummary, error) {
+func fetchBCPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 	token := os.Getenv("BUGCROWD_TOKEN")
 	if token == "" {
 		// No BC token — return empty list gracefully (public BC API requires auth)
@@ -417,8 +518,9 @@ func fetchBCPrograms(bbpOnly bool) ([]ProgramSummary, error) {
 		}
 	}
 
-	// Enrich with scope counts
-	enrichBCScopeCounts(allPrograms, token)
+	if includeScope {
+		enrichBCScopeCounts(allPrograms, token)
+	}
 
 	return allPrograms, nil
 }
@@ -435,77 +537,92 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 			defer func() { <-sem }()
 			time.Sleep(500 * time.Millisecond) // extra spacing for BC
 
-			getBriefURL := fmt.Sprintf("https://bugcrowd.com%s", p.URL[strings.Index(p.URL, "/engagements/"):])
-			client := &http.Client{Timeout: 15 * time.Second}
-			req, err := http.NewRequest("GET", getBriefURL, nil)
-			if err != nil {
-				return
-			}
-			req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
-			req.Header.Set("User-Agent", "AutoAR/1.0")
-
-			resp, err := client.Do(req)
-			if err != nil {
-				return
-			}
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-
-			// Look for the React component that has the API endpoints
-			apiEndpoints := gjson.Get(string(body), `div[data-react-class='ResearcherEngagementBrief']|@this`).Str
-			if apiEndpoints == "" {
-				// Try to find via regex in the response
-				idxStart := strings.Index(string(body), "data-api-endpoints=")
-				if idxStart >= 0 {
-					idxStart += len("data-api-endpoints=")
-					quote := string(body)[idxStart]
-					idxEnd := strings.Index(string(body)[idxStart+1:], string(quote))
-					if idxEnd >= 0 {
-						raw := string(body)[idxStart+1 : idxStart+1+idxEnd]
-						parsed := gjson.Get(raw, "engagementBriefApi.getBriefVersionDocument").Str
-						if parsed != "" {
-							// Fetch the brief version document for scope count
-							scopeURL := "https://bugcrowd.com" + parsed + ".json"
-							scopeReq, _ := http.NewRequest("GET", scopeURL, nil)
-							scopeReq.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
-							scopeReq.Header.Set("User-Agent", "AutoAR/1.0")
-							scopeResp, scopeErr := client.Do(scopeReq)
-							if scopeErr == nil {
-								scopeBody, _ := io.ReadAll(scopeResp.Body)
-								scopeResp.Body.Close()
-
-								count := 0
-								var latestTarget string
-								var latestUpdatedAt string
-								var latestBrief string
-								gjson.Get(string(scopeBody), "data.scope").ForEach(func(_, scope gjson.Result) bool {
-									if scope.Get("inScope").Bool() {
-										scope.Get("targets").ForEach(func(_, t gjson.Result) bool {
-											count++
-											target := firstGJSONString(t, "uri", "name", "target")
-											updatedAt := firstGJSONString(t, "updatedAt", "updated_at", "lastUpdatedAt", "createdAt", "created_at")
-											if target != "" && (latestTarget == "" || isNewerProgramTime(updatedAt, latestUpdatedAt)) {
-												latestTarget = target
-												latestUpdatedAt = updatedAt
-												latestBrief = firstGJSONString(t, "description", "details", "category", "type")
-											}
-											return true
-										})
-									}
-									return true
-								})
-								p.ScopeTargets = count
-								p.LatestTarget = latestTarget
-								p.LatestTargetUpdatedAt = latestUpdatedAt
-								p.LatestTargetBrief = latestBrief
-							}
-						}
-					}
-				}
-			}
+			summary := fetchBCScopeSummary(p.Handle, p.URL, token)
+			p.ScopeTargets = summary.ScopeTargets
+			p.LatestTarget = summary.LatestTarget
+			p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+			p.LatestTargetBrief = summary.LatestTargetBrief
 		}(&programs[i])
 	}
 	wg.Wait()
+}
+
+func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
+	summary := ProgramSummary{Platform: "bc", Handle: handle}
+	briefPath := ""
+	if idx := strings.Index(programURL, "/engagements/"); idx >= 0 {
+		briefPath = programURL[idx:]
+	}
+	if briefPath == "" && handle != "" {
+		briefPath = "/engagements/" + handle
+	}
+	if briefPath == "" {
+		return summary
+	}
+
+	getBriefURL := "https://bugcrowd.com" + briefPath
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", getBriefURL, nil)
+	if err != nil {
+		return summary
+	}
+	req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	req.Header.Set("User-Agent", "AutoAR/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return summary
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	idxStart := strings.Index(string(body), "data-api-endpoints=")
+	if idxStart < 0 {
+		return summary
+	}
+	idxStart += len("data-api-endpoints=")
+	if idxStart >= len(body) {
+		return summary
+	}
+	quote := string(body)[idxStart]
+	idxEnd := strings.Index(string(body)[idxStart+1:], string(quote))
+	if idxEnd < 0 {
+		return summary
+	}
+	raw := string(body)[idxStart+1 : idxStart+1+idxEnd]
+	parsed := gjson.Get(raw, "engagementBriefApi.getBriefVersionDocument").Str
+	if parsed == "" {
+		return summary
+	}
+
+	scopeURL := "https://bugcrowd.com" + parsed + ".json"
+	scopeReq, _ := http.NewRequest("GET", scopeURL, nil)
+	scopeReq.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	scopeReq.Header.Set("User-Agent", "AutoAR/1.0")
+	scopeResp, scopeErr := client.Do(scopeReq)
+	if scopeErr != nil {
+		return summary
+	}
+	scopeBody, _ := io.ReadAll(scopeResp.Body)
+	scopeResp.Body.Close()
+
+	gjson.Get(string(scopeBody), "data.scope").ForEach(func(_, scope gjson.Result) bool {
+		if scope.Get("inScope").Bool() {
+			scope.Get("targets").ForEach(func(_, t gjson.Result) bool {
+				summary.ScopeTargets++
+				target := firstGJSONString(t, "uri", "name", "target")
+				updatedAt := firstGJSONString(t, "updatedAt", "updated_at", "lastUpdatedAt", "createdAt", "created_at")
+				if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
+					summary.LatestTarget = target
+					summary.LatestTargetUpdatedAt = updatedAt
+					summary.LatestTargetBrief = firstGJSONString(t, "description", "details", "category", "type")
+				}
+				return true
+			})
+		}
+		return true
+	})
+	return summary
 }
 
 func firstGJSONString(result gjson.Result, paths ...string) string {
@@ -516,6 +633,35 @@ func firstGJSONString(result gjson.Result, paths ...string) string {
 		}
 	}
 	return ""
+}
+
+func programScopeCacheKey(platform, handle string) string {
+	return strings.ToLower(strings.TrimSpace(platform)) + ":" + strings.ToLower(strings.TrimSpace(handle))
+}
+
+func getCachedProgramScope(cacheKey string) (ProgramSummary, bool) {
+	programScopeCacheMu.Lock()
+	defer programScopeCacheMu.Unlock()
+
+	cached, ok := programScopeCache[cacheKey]
+	if !ok {
+		return ProgramSummary{}, false
+	}
+	if time.Now().After(cached.ExpiresAt) {
+		delete(programScopeCache, cacheKey)
+		return ProgramSummary{}, false
+	}
+	return cached.Summary, true
+}
+
+func setCachedProgramScope(cacheKey string, summary ProgramSummary) {
+	programScopeCacheMu.Lock()
+	defer programScopeCacheMu.Unlock()
+
+	programScopeCache[cacheKey] = cachedProgramScope{
+		Summary:   summary,
+		ExpiresAt: time.Now().Add(programScopeCacheTTL),
+	}
 }
 
 func isNewerProgramTime(candidate, current string) bool {

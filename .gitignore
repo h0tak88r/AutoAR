@@ -80,6 +80,7 @@ tmp_*
 
 # Generated files
 generate_from_env.sh
+.cache/
 
 # External dependencies
 # nuclei_templates/  # Now using as submodule
