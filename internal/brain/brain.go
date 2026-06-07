@@ -501,18 +501,10 @@ Command Outputs:
 }
 
 // callAI routes to whichever AI provider has a key configured.
-// Priority: OpenRouter (premium models) → OpenCode (free) → Z.ai → Gemini.
+// Priority: OpenCode (free default) → OpenRouter → Z.ai → Gemini.
 func callAI(prompt, orKey, geminiKey string) (string, error) {
 	ocKey := strings.TrimSpace(os.Getenv("OPENCODE_API_KEY"))
 	zaiKey := strings.TrimSpace(os.Getenv("ZHIPU_API_KEY"))
-
-	if orKey != "" {
-		res, err := callOpenRouter(prompt, orKey)
-		if err == nil {
-			return res, nil
-		}
-		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
-	}
 
 	if ocKey != "" {
 		res, err := callOpenCode(prompt, ocKey)
@@ -520,6 +512,14 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] OpenCode failed, falling back to other providers: %v", err)
+	}
+
+	if orKey != "" {
+		res, err := callOpenRouter(prompt, orKey)
+		if err == nil {
+			return res, nil
+		}
+		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
 	}
 
 	if zaiKey != "" {
@@ -683,20 +683,20 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 	messages = append(messages, history...)
 	messages = append(messages, Message{Role: "user", Content: userMessage})
 
-	if openRouterKey != "" {
-		res, err := callOpenRouterMulti(messages, openRouterKey)
-		if err == nil {
-			return res, nil
-		}
-		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
-	}
-
 	if openCodeKey != "" {
 		res, err := callOpenCodeMulti(messages, openCodeKey)
 		if err == nil {
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] OpenCode failed, falling back to other providers: %v", err)
+	}
+
+	if openRouterKey != "" {
+		res, err := callOpenRouterMulti(messages, openRouterKey)
+		if err == nil {
+			return res, nil
+		}
+		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
 	}
 
 	zaiKey := strings.TrimSpace(os.Getenv("ZHIPU_API_KEY"))
