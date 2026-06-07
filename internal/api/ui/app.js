@@ -336,7 +336,7 @@ function syntaxHighlightJSON(json) {
   return callPageMethod('ScanCommonPage', 'syntaxHighlightJSON', [json], '');
 }
 
-/** Plain-text line when a finished scan has no indexed artifacts (aligned with Discord phaseNoResultsMessage). */
+/** Plain-text line when a finished scan has no indexed artifacts. */
 function scanNoArtifactsMessage(scanType, target) {
   return callPageMethod('ScanCommonPage', 'scanNoArtifactsMessage', [scanType, target], '[  ] No artifacts');
 }

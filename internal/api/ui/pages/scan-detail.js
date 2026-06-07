@@ -814,19 +814,13 @@
 
     let searchJsOnly = false;
     let presetMode = 'smart';
-    let quickChip = 'none';
     let railSearch = '';
     let currentRenderedRows = [];
     let _virtualScrollTop = 0;
-    const presetStorageKey = `autoar.recon.filtersets.${stNorm || 'generic'}`;
     // Per-scan id so a saved "Assets" tab from a domain recon does not blank GitHub / other scans.
     const uiStateKey = `autoar.recon.uistate.${encodeURIComponent(scanId)}`;
     const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
-    let savedFilterSets = {};
-
-    const loadSavedSets = () => { try { savedFilterSets = JSON.parse(localStorage.getItem(presetStorageKey) || '{}') || {}; } catch { savedFilterSets = {}; } };
-    const persistSavedSets = () => { try { localStorage.setItem(presetStorageKey, JSON.stringify(savedFilterSets)); } catch (_) { } };
-    const persistUIState = () => { try { localStorage.setItem(uiStateKey, JSON.stringify({ activeKind, presetMode, quickChip, searchModule, searchJsOnly, })); } catch (_) { } };
+    const persistUIState = () => { try { localStorage.setItem(uiStateKey, JSON.stringify({ activeKind, presetMode, searchModule, searchJsOnly, })); } catch (_) { } };
     const loadUIState = () => { try { return JSON.parse(localStorage.getItem(uiStateKey) || '{}') || {}; } catch { return {}; } };
     const persistColumnWidths = () => {
       const cg = root.querySelector('#recon-colgroup');
@@ -872,11 +866,6 @@
       const sev = String(r.severity || 'info').toLowerCase();
       const targetStr = String(r.target || '').toLowerCase();
       const findingStr = String(r.finding || '').toLowerCase();
-      if (quickChip === 'highplus' && !(sev === 'high' || sev === 'critical')) return false;
-      if (quickChip === 'hasurl' && !(/https?:\/\//i.test(targetStr) || /https?:\/\//i.test(findingStr))) return false;
-      if (quickChip === 'exported' && !(findingStr.includes('exported') || String(r.apk_category || '').toLowerCase().includes('exported'))) return false;
-      if (quickChip === 'secrets' && !/(secret|token|apikey|api key|password|authorization)/i.test(findingStr)) return false;
-      if (quickChip === 'onlyjs' && !(r.is_js || /\.m?jsx?(\?|$)/i.test(targetStr) || findingStr.includes('javascript') || String(r.apk_category || '').toLowerCase().includes('js'))) return false;
       return true;
     };
 
@@ -892,7 +881,6 @@
           </aside>
           <section style="min-width:0;position:relative">
             <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
-            <div id="recon-severity-bar" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.6);display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
             <div id="recon-filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
               <input id="recon-filter-host" type="search" placeholder=" Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
               <select id="recon-filter-severity" title="Severity" style="flex:0 0 auto;min-width:132px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
@@ -914,24 +902,17 @@
                 <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap"> Copy selected</button>
                 <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap"> Export Markdown</button>
               </div>
-              <div id="recon-quick-chips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <select id="recon-view-mode" style="padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
                   <option value="smart">Smart columns</option>
                   <option value="raw">Raw columns</option>
                 </select>
-                <select id="recon-saved-filters" style="min-width:160px;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
-                  <option value="">Saved filters…</option>
-                </select>
-                <input id="recon-filter-name" type="text" placeholder="Filter name" style="width:130px;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px"/>
-                <button id="recon-save-filter" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(34,211,238,.1);color:var(--accent-cyan);font-size:11px;cursor:pointer">Save</button>
-                <button id="recon-delete-filter" type="button" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(248,113,113,.08);color:#fca5a5;font-size:11px;cursor:pointer">Delete</button>
               </div>
             </div>
             <div id="recon-standard-view">
               <div class="result-table-wrap" style="max-height:640px;overflow-x:auto;overflow-y:auto">
                 <table id="recon-main-table" class="dashboard-table" style="margin:0;table-layout:auto;min-width:100%">
-                  <colgroup id="recon-colgroup"><col style="width:36px"><col style="width:31%"><col style="width:8%"><col style="width:43%"><col style="width:16%"></colgroup>
+                  <colgroup id="recon-colgroup"><col style="width:36px"><col style="width:8%"><col style="width:50%"><col style="width:20%"></colgroup>
                   <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.97);backdrop-filter:blur(4px)">
                     <tr id="recon-unified-headrow">
                       <th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>
@@ -970,14 +951,8 @@
     const tabsEl = root.querySelector('#recon-left-rail');
     const railSearchInput = root.querySelector('#recon-rail-search');
     const apkMetaBar = root.querySelector('#recon-apk-meta');
-    const severityBar = root.querySelector('#recon-severity-bar');
     const filterBar = root.querySelector('#recon-filter-bar');
-    const chipBar = root.querySelector('#recon-quick-chips');
     const viewModeSel = root.querySelector('#recon-view-mode');
-    const savedFiltersSel = root.querySelector('#recon-saved-filters');
-    const saveFilterBtn = root.querySelector('#recon-save-filter');
-    const deleteFilterBtn = root.querySelector('#recon-delete-filter');
-    const filterNameInput = root.querySelector('#recon-filter-name');
     const standardView = root.querySelector('#recon-standard-view');
     const assetsView = root.querySelector('#recon-assets-view');
     const assetsContent = root.querySelector('#recon-assets-content');
@@ -985,33 +960,6 @@
     const urlsContent = root.querySelector('#recon-urls-content');
     const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
 
-    const SEV_DEFS = [
-      { key: 'critical', label: 'Critical', color: '#fc8181', bg: 'rgba(252,129,129,.13)', border: 'rgba(252,129,129,.35)' },
-      { key: 'high', label: 'High', color: '#f6ad55', bg: 'rgba(246,173,85,.13)', border: 'rgba(246,173,85,.35)' },
-      { key: 'medium', label: 'Medium', color: '#f6e05e', bg: 'rgba(246,224,94,.13)', border: 'rgba(246,224,94,.35)' },
-      { key: 'low', label: 'Low', color: '#63b3ed', bg: 'rgba(99,179,237,.13)', border: 'rgba(99,179,237,.35)' },
-      { key: 'info', label: 'Info', color: '#68d391', bg: 'rgba(104,211,145,.13)', border: 'rgba(104,211,145,.35)' },
-    ];
-
-    const renderSeverityBar = () => {
-      if (!severityBar) return;
-      const counts = {};
-      for (const r of allRows) {
-        const sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim() || 'info';
-        counts[sev] = (counts[sev] || 0) + 1;
-      }
-      const hasCounts = SEV_DEFS.some(d => counts[d.key] > 0);
-      if (!hasCounts) { severityBar.style.display = 'none'; return; }
-      severityBar.style.display = 'flex';
-      const pills = SEV_DEFS.filter(d => counts[d.key] > 0).map(d => {
-        const isActive = filterSeverity === d.key;
-        return `<button type="button" data-sev="${esc(d.key)}" title="Filter by ${d.label}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid ${isActive ? d.color : d.border};border-radius:999px;background:${isActive ? d.bg : 'rgba(255,255,255,.02)'};color:${isActive ? d.color : 'var(--text-secondary)'};font-size:11px;font-weight:${isActive ? '600' : '400'};cursor:pointer;transition:all .15s"><span style="font-size:13px">${d.key === 'critical' ? '' : d.key === 'high' ? '' : d.key === 'medium' ? '' : d.key === 'low' ? '' : ''}</span><span>${d.label}</span><span style="background:${isActive ? d.color : 'rgba(255,255,255,.1)'};color:${isActive ? '#000' : 'var(--text-muted)'};border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${counts[d.key]}</span></button>`;
-      }).join('');
-      const total = Object.values(counts).reduce((a, b) => a + b, 0);
-      const allActive = filterSeverity === 'any';
-      severityBar.innerHTML = `<span style="font-size:11px;color:var(--text-muted);white-space:nowrap;padding-right:4px">Severity:</span><button type="button" data-sev="any" title="Show all severities" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid ${allActive ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${allActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${allActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">All <span style="background:rgba(255,255,255,.1);color:var(--text-muted);border-radius:999px;padding:0 5px;font-size:10px;font-weight:600">${total}</span></button>${pills}`;
-      severityBar.querySelectorAll('button[data-sev]').forEach(btn => btn.addEventListener('click', () => { filterSeverity = btn.dataset.sev || 'any'; const sel = root.querySelector('#recon-filter-severity'); if (sel) sel.value = filterSeverity; _currentPage = 1; renderSeverityBar(); renderBody(); }));
-    };
 
     const renderAPKMetaBar = () => {
       if (!apkMetaBar || !isAPKScan || !apkPackageInfo) { if (apkMetaBar) { apkMetaBar.style.display = 'none'; apkMetaBar.innerHTML = ''; } return; }
@@ -1035,15 +983,6 @@
       modSelect.addEventListener('change', () => { searchModule = modSelect.value; renderBody(); });
     }
 
-    const renderSavedFilters = () => { if (!savedFiltersSel) return; const names = Object.keys(savedFilterSets).sort(); savedFiltersSel.innerHTML = '<option value="">Saved filters…</option>' + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join(''); };
-    // Saved filter presets should be reusable across any tab/module, so they intentionally
-    // do not persist activeKind.
-    const readCurrentFilterSet = () => ({ searchHost, searchTitle, filterSeverity, searchModule, searchJsOnly, quickChip, presetMode, });
-    const applyFilterSet = (fs) => { if (!fs) return; searchHost = String(fs.searchHost || ''); searchTitle = String(fs.searchTitle || ''); filterSeverity = String(fs.filterSeverity || 'any'); searchModule = String(fs.searchModule || 'all'); searchJsOnly = !!fs.searchJsOnly; quickChip = String(fs.quickChip || 'none'); presetMode = String(fs.presetMode || 'smart'); const h = root.querySelector('#recon-filter-host'), t = root.querySelector('#recon-filter-title'), s = root.querySelector('#recon-filter-severity'); if (h) h.value = searchHost; if (t) t.value = searchTitle; if (s) s.value = filterSeverity; if (modSelect) modSelect.value = searchModule; if (viewModeSel) viewModeSel.value = presetMode; };
-
-    const chipDefs = [{ id: 'highplus', label: 'High+' }, { id: 'hasurl', label: 'Has URL' }, { id: 'exported', label: 'Exported Components' }, { id: 'secrets', label: 'Secrets' }, { id: 'onlyjs', label: 'Only JS' }];
-    const renderChips = () => { if (!chipBar) return; chipBar.innerHTML = chipDefs.map(c => { const active = quickChip === c.id; return `<button type="button" data-chip="${escAttr(c.id)}" style="padding:5px 10px;border:1px solid ${active ? 'rgba(34,211,238,.5)' : 'var(--border)'};border-radius:999px;background:${active ? 'rgba(34,211,238,.13)' : 'rgba(255,255,255,.02)'};color:${active ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:11px;cursor:pointer">${esc(c.label)}</button>`; }).join(''); };
-
     const renderTabs = () => {
       if (!tabsEl) return;
       tabsEl.innerHTML = UNIQUE_TABS.filter(([, label]) => !railSearch || String(label || '').toLowerCase().includes(railSearch)).map(([kind, label]) => {
@@ -1056,7 +995,6 @@
     };
 
     const renderBody = () => {
-      renderSeverityBar();
       const filtered = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
       // Dynamic raw table is intentionally limited to GitHub/TruffleHog views.
       // Other modules (e.g. nuclei) have dedicated renderers with stable UX.
@@ -1082,7 +1020,7 @@
         } else {
           // Build header dynamically from the module registry — handles any column count.
           const cols = presetMode === 'raw'
-            ? ['TARGET', 'SEV', 'VULNERABILITY TYPE', 'MODULE']
+            ? ['SEV', 'VULNERABILITY TYPE', 'MODULE']
             : window.getUnifiedTableColumns(activeKind);
           // colgroup: checkbox col + one col per data col
           if (colgroup) colgroup.innerHTML = `<col style="width:36px">` + cols.map(() => `<col>`).join('');
@@ -1234,24 +1172,12 @@
     };
 
     // Initial setup
-    const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode; if (uiS.quickChip) quickChip = uiS.quickChip;
-    loadSavedSets(); renderSavedFilters(); renderChips(); switchReconView(activeKind); applyColumnWidths();
+    const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode;
+    switchReconView(activeKind); applyColumnWidths();
 
     // Event listeners
     root.addEventListener('click', e => { const b = e.target.closest('[data-recon-kind]'); if (b) switchReconView(b.getAttribute('data-recon-kind')); });
-    if (chipBar) chipBar.addEventListener('click', e => { const b = e.target.closest('[data-chip]'); if (b) { const id = b.dataset.chip; quickChip = quickChip === id ? 'none' : id; renderChips(); _currentPage = 1; renderBody(); } });
     if (viewModeSel) viewModeSel.addEventListener('change', () => { presetMode = viewModeSel.value; persistUIState(); _currentPage = 1; renderBody(); });
-    if (saveFilterBtn) saveFilterBtn.addEventListener('click', () => { const n = filterNameInput?.value.trim(); if (!n) return; savedFilterSets[n] = readCurrentFilterSet(); persistSavedSets(); renderSavedFilters(); });
-    if (deleteFilterBtn) deleteFilterBtn.addEventListener('click', () => { const n = savedFiltersSel?.value; if (n) { delete savedFilterSets[n]; persistSavedSets(); renderSavedFilters(); } });
-    if (savedFiltersSel) savedFiltersSel.addEventListener('change', () => {
-      const n = savedFiltersSel.value;
-      if (savedFilterSets[n]) {
-        applyFilterSet(savedFilterSets[n]);
-        renderChips();
-        _currentPage = 1;
-        renderBody();
-      }
-    });
 
     const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
     const applyF = () => { searchHost = hostI?.value.toLowerCase().trim(); searchTitle = titleI?.value.toLowerCase().trim(); filterSeverity = sevS?.value; _currentPage = 1; renderBody(); };

@@ -105,8 +105,8 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 		}
 	}
 
-	// Send result files to Discord webhook if configured (only when not running under bot)
-	// When running under bot (AUTOAR_CURRENT_SCAN_ID is set), the bot handles R2 upload and zip link
+	// Send result files to the webhook for standalone CLI runs only.
+	// For tracked API scans (AUTOAR_CURRENT_SCAN_ID is set), the API handles R2 upload and the result link.
 	if utils.GetCurrentScanID() == "" {
 		utils.SendPhaseFiles("ports", domain, []string{outFile})
 	}

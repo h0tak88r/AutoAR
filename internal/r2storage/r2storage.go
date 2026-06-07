@@ -315,7 +315,7 @@ func getContentType(filePath string) string {
 	return "application/octet-stream"
 }
 
-// GetFileSizeLimit returns the file size limit for direct Discord uploads (25MB)
+// GetFileSizeLimit returns the file size limit (25MB) above which results are stored in R2
 func GetFileSizeLimit() int64 {
 	return 25 * 1024 * 1024 // 25MB in bytes
 }
@@ -331,7 +331,7 @@ func ShouldUseR2(filePath string) bool {
 		return false
 	}
 
-	// Use R2 for files larger than 20MB (Discord limit is 25MB, but we want some buffer)
+	// Use R2 for files larger than 20MB (kept below the 25MB hard limit for headroom)
 	return info.Size() > 20*1024*1024
 }
 

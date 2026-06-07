@@ -64,7 +64,15 @@ func apiConfigHandler(c *gin.Context) {
 		"mode":            utils.GetEnv("AUTOAR_MODE", "api"),
 		"monitor_webhook": os.Getenv("MONITOR_WEBHOOK_URL"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
+			strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
+		// AI provider status — keys are never returned, only whether each is configured.
+		"opencode_key_set":   strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "",
+		"openrouter_key_set": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "",
+		"gemini_key_set":     strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
+		// Models — fall back to defaults when env is unset so the UI always shows something.
+		"opencode_model":   utils.GetEnv("OPENCODE_MODEL", "deepseek-v4-flash-free"),
+		"openrouter_model": utils.GetEnv("OPENROUTER_MODEL", "z-ai/glm-4.5-air:free"),
 		// Scan phase timeouts — read from DB first (survives redeployments), then env, then defaults.
 		// DB key format: timeout_<name>. Env key format: AUTOAR_TIMEOUT_<NAME>.
 		"timeout_zerodays":  utils.GetTimeout("zerodays", 600),
@@ -86,7 +94,11 @@ func apiConfigHandler(c *gin.Context) {
 type UpdateSettingsBody struct {
 	MonitorWebhook string `json:"monitor_webhook"`
 	OpenRouterKey  string `json:"openrouter_key"`
+	OpenCodeKey    string `json:"opencode_key"`
 	GeminiKey      string `json:"gemini_key"`
+	// AI model overrides — empty string keeps the current value, "default" clears the override.
+	OpenRouterModel *string `json:"openrouter_model,omitempty"`
+	OpenCodeModel   *string `json:"opencode_model,omitempty"`
 	// Scan phase timeouts (seconds; 0 = unlimited, omit to keep current)
 	TimeoutZerodays  *int `json:"timeout_zerodays,omitempty"`
 	TimeoutNuclei    *int `json:"timeout_nuclei,omitempty"`
@@ -109,8 +121,29 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	if body.OpenRouterKey != "" {
 		_ = envloader.UpdateEnv("OPENROUTER_API_KEY", strings.TrimSpace(body.OpenRouterKey))
 	}
+	if body.OpenCodeKey != "" {
+		_ = envloader.UpdateEnv("OPENCODE_API_KEY", strings.TrimSpace(body.OpenCodeKey))
+	}
 	if body.GeminiKey != "" {
 		_ = envloader.UpdateEnv("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
+	}
+	// Model overrides — pointer = field was present in the request.
+	// Value "" or "default" clears the override (provider falls back to its built-in default).
+	if body.OpenRouterModel != nil {
+		v := strings.TrimSpace(*body.OpenRouterModel)
+		if v == "" || strings.EqualFold(v, "default") {
+			_ = envloader.UpdateEnv("OPENROUTER_MODEL", "")
+		} else {
+			_ = envloader.UpdateEnv("OPENROUTER_MODEL", v)
+		}
+	}
+	if body.OpenCodeModel != nil {
+		v := strings.TrimSpace(*body.OpenCodeModel)
+		if v == "" || strings.EqualFold(v, "default") {
+			_ = envloader.UpdateEnv("OPENCODE_MODEL", "")
+		} else {
+			_ = envloader.UpdateEnv("OPENCODE_MODEL", v)
+		}
 	}
 
 	// Scan phase timeouts — persist to DB (survives redeployments) AND apply
@@ -1105,7 +1138,7 @@ func apiClearAllScans(c *gin.Context) {
 	})
 }
 
-// POST /api/scans/:id/cancel — stop a running scan (API child process or Discord cancel ctx)
+// POST /api/scans/:id/cancel — stop a running scan (cancels the scan's context / child process)
 func apiCancelScan(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -1515,7 +1548,9 @@ func apiPostMonitorSuggestFromDomain(c *gin.Context) {
 		return
 	}
 
-	ai := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" || strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
+	ai := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
+		strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "" ||
+		strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
 	c.JSON(http.StatusOK, gin.H{
 		"suggestions":       suggestions,
 		"candidates_probed": len(candidates),

@@ -56,26 +56,65 @@
           <div class="settings-section-body">
             <div class="settings-item">
               <div class="settings-label">
+                <div class="settings-title">OpenCode API Key</div>
+                <div class="settings-hint">Default free provider. Get a key at <a href="https://opencode.ai/zen" target="_blank" rel="noopener">opencode.ai/zen</a>. ${cfg.opencode_key_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
+              </div>
+              <div class="settings-control">
+                <input type="password" id="opencode-key-input"
+                  value=""
+                  placeholder="${cfg.opencode_key_set ? '••••••• (saved)' : 'oc-...'}"
+                  class="form-control premium-input">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveOpenCodeKey()">Save</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">OpenCode Model</div>
+                <div class="settings-hint">Override the default model. Leave blank or type <code>default</code> to use <code>deepseek-v4-flash-free</code>. See <a href="https://opencode.ai/zen/v1/models" target="_blank" rel="noopener">available models</a>.</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="opencode-model-input"
+                  value="${escValue(cfg.opencode_model || '')}"
+                  placeholder="deepseek-v4-flash-free"
+                  class="form-control premium-input">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveOpenCodeModel()">Save</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
                 <div class="settings-title">OpenRouter API Key</div>
-                <div class="settings-hint">Used for vulnerability validation and reporting.</div>
+                <div class="settings-hint">Optional — used when set, for premium or alternative models. ${cfg.openrouter_key_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
               </div>
               <div class="settings-control">
                 <input type="password" id="or-key-input"
-                  value="${escValue(localStorage.getItem('autoar_or_key') || '')}"
-                  placeholder="sk-or-v1-…"
+                  value=""
+                  placeholder="${cfg.openrouter_key_set ? '••••••• (saved)' : 'sk-or-v1-…'}"
                   class="form-control premium-input">
                 <button class="btn btn-primary" onclick="window.SettingsPage.saveOpenRouterKey()">Save</button>
               </div>
             </div>
             <div class="settings-item">
               <div class="settings-label">
+                <div class="settings-title">OpenRouter Model</div>
+                <div class="settings-hint">Override the default model. Leave blank or type <code>default</code> to use <code>z-ai/glm-4.5-air:free</code>.</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="openrouter-model-input"
+                  value="${escValue(cfg.openrouter_model || '')}"
+                  placeholder="z-ai/glm-4.5-air:free"
+                  class="form-control premium-input">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveOpenRouterModel()">Save</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
                 <div class="settings-title">Gemini API Key</div>
-                <div class="settings-hint">Secondary fallback for AI analysis.</div>
+                <div class="settings-hint">Final fallback for AI analysis. ${cfg.gemini_key_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
               </div>
               <div class="settings-control">
                 <input type="password" id="gemini-key-input"
-                  value="${escValue(localStorage.getItem('autoar_gemini_key') || '')}"
-                  placeholder="AIza…"
+                  value=""
+                  placeholder="${cfg.gemini_key_set ? '••••••• (saved)' : 'AIza…'}"
                   class="form-control premium-input">
                 <button class="btn btn-primary" onclick="window.SettingsPage.saveGeminiKey()">Save</button>
               </div>
@@ -134,8 +173,8 @@
           <div class="settings-section-body">
             <div class="settings-item">
               <div class="settings-label">
-                <div class="settings-title">Discord Webhook</div>
-                <div class="settings-hint">Where scan notifications and findings are sent.</div>
+                <div class="settings-title">Monitor Webhook</div>
+                <div class="settings-hint">Where monitor change alerts are sent. Discord webhook URLs work out of the box.</div>
               </div>
               <div class="settings-control">
                 <input type="text" id="monitor-webhook-input" value="${escValue(cfg.monitor_webhook || '')}" placeholder="https://discord.com/api/webhooks/..." class="form-control premium-input">
@@ -179,8 +218,10 @@
       
       if (key) localStorage.setItem('autoar_or_key', key);
       else localStorage.removeItem('autoar_or_key');
-      
+
       window.showToast('success', 'Saved!', 'OpenRouter key updated on server.');
+      input.value = '';
+      try { window.state.config = await window.apiFetch('/api/config'); renderSettings(); } catch(_) {}
     } catch (e) {
       window.showToast('error', 'Error', e.message);
     }
@@ -198,11 +239,75 @@
         body: JSON.stringify({ gemini_key: key })
       });
       if (!res.ok) throw new Error('Failed to update server config');
-      
+
       if (key) localStorage.setItem('autoar_gemini_key', key);
       else localStorage.removeItem('autoar_gemini_key');
-      
+
       window.showToast('success', 'Saved!', 'Gemini key updated on server.');
+      input.value = '';
+      try { window.state.config = await window.apiFetch('/api/config'); renderSettings(); } catch(_) {}
+    } catch (e) {
+      window.showToast('error', 'Error', e.message);
+    }
+  }
+
+  async function saveOpenCodeKey() {
+    const input = document.getElementById('opencode-key-input');
+    if (!input) return;
+    const key = input.value.trim();
+    if (!key) {
+      window.showToast('error', 'Empty key', 'Enter an OpenCode API key before saving.');
+      return;
+    }
+    try {
+      const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ opencode_key: key })
+      });
+      if (!res.ok) throw new Error('Failed to update server config');
+      window.showToast('success', 'Saved!', 'OpenCode key updated on server.');
+      input.value = '';
+      try { window.state.config = await window.apiFetch('/api/config'); renderSettings(); } catch(_) {}
+    } catch (e) {
+      window.showToast('error', 'Error', e.message);
+    }
+  }
+
+  async function saveOpenCodeModel() {
+    const input = document.getElementById('opencode-model-input');
+    if (!input) return;
+    const model = input.value.trim();
+    try {
+      const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ opencode_model: model })
+      });
+      if (!res.ok) throw new Error('Failed to update OpenCode model');
+      window.showToast('success', 'Saved!', model ? `OpenCode model set to "${model}".` : 'OpenCode model reset to default.');
+      try { window.state.config = await window.apiFetch('/api/config'); renderSettings(); } catch(_) {}
+    } catch (e) {
+      window.showToast('error', 'Error', e.message);
+    }
+  }
+
+  async function saveOpenRouterModel() {
+    const input = document.getElementById('openrouter-model-input');
+    if (!input) return;
+    const model = input.value.trim();
+    try {
+      const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ openrouter_model: model })
+      });
+      if (!res.ok) throw new Error('Failed to update OpenRouter model');
+      window.showToast('success', 'Saved!', model ? `OpenRouter model set to "${model}".` : 'OpenRouter model reset to default.');
+      try { window.state.config = await window.apiFetch('/api/config'); renderSettings(); } catch(_) {}
     } catch (e) {
       window.showToast('error', 'Error', e.message);
     }
@@ -276,6 +381,9 @@
     loadConfig,
     renderSettings,
     saveOpenRouterKey,
+    saveOpenCodeKey,
+    saveOpenCodeModel,
+    saveOpenRouterModel,
     saveGeminiKey,
     saveTimeoutSettings,
     saveWebhookSettings,
