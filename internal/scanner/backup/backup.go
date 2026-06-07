@@ -77,8 +77,9 @@ func Run(opts Options) (*Result, error) {
 	outDir := opts.OutputDir
 	if outDir == "" {
 		if opts.Domain != "" {
-			// Sanitize domain for filesystem use (remove protocol, replace : with -)
-			sanitizedDomain := sanitizeDomainForPath(opts.Domain)
+			// Sanitize domain into a single safe path segment (prevents traversal
+			// via a crafted target such as "../../etc").
+			sanitizedDomain := utils.SanitizeTargetSegment(opts.Domain)
 			outDir = filepath.Join(resultsDir, sanitizedDomain, "backup")
 		} else {
 			outDir = filepath.Join(resultsDir, "backup")

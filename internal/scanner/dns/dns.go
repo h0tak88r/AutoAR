@@ -5,10 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"github.com/h0tak88r/AutoAR/internal/logger"
-	"net/http"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,10 +17,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
-	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/utils"
+	miekgdns "github.com/miekg/dns"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
 	nucleiSDK "github.com/projectdiscovery/nuclei/v3/lib"
 	nucleiOutput "github.com/projectdiscovery/nuclei/v3/pkg/output"
@@ -41,7 +42,7 @@ func ensureSubdomains(domain string) (domainDir string, subsFile string, cleanup
 	}
 
 	resultsRoot := utils.GetResultsDir()
-	domainDir = filepath.Join(resultsRoot, domain)
+	domainDir = filepath.Join(resultsRoot, utils.SanitizeTargetSegment(domain))
 
 	var subs []string
 
@@ -156,23 +157,23 @@ func Takeover(domain string) error {
 func TakeoverWithOptions(opts TakeoverOptions) error {
 	var domainDir, subsFile, outputDir string
 	var err error
-	
+
 	// Determine output directory: use subdomain if provided, otherwise use root domain
 	resultsRoot := utils.GetResultsDir()
 	if opts.Subdomain != "" {
 		// Save results under subdomain directory for consistency
-		outputDir = filepath.Join(resultsRoot, opts.Subdomain)
+		outputDir = filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Subdomain))
 	} else {
 		// Use root domain directory
-		outputDir = filepath.Join(resultsRoot, opts.Domain)
+		outputDir = filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 	}
-	
+
 	// If subdomain or live hosts file provided, use it directly without enumeration
 	// Note: DNS scan processes root domain but saves results under subdomain directory
 	if opts.Subdomain != "" {
 		// Still use root domain directory for temporary files (subs/all-subs.txt)
 		// but save results under subdomain directory
-		tempDomainDir := filepath.Join(resultsRoot, opts.Domain)
+		tempDomainDir := filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 		subsDir := filepath.Join(tempDomainDir, "subs")
 		if err = utils.EnsureDir(subsDir); err != nil {
 			return fmt.Errorf("failed to create subs dir: %w", err)
@@ -186,20 +187,20 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	} else if opts.LiveHostsFile != "" {
 		// Extract subdomains from live hosts file
 		// Use root domain directory for temporary files
-		tempDomainDir := filepath.Join(resultsRoot, opts.Domain)
+		tempDomainDir := filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 		subsDir := filepath.Join(tempDomainDir, "subs")
 		if err = utils.EnsureDir(subsDir); err != nil {
 			return fmt.Errorf("failed to create subs dir: %w", err)
 		}
 		subsFile = filepath.Join(subsDir, "all-subs.txt")
-		
+
 		// Read live hosts and extract subdomains
 		file, err := os.Open(opts.LiveHostsFile)
 		if err != nil {
 			return fmt.Errorf("failed to open live hosts file: %w", err)
 		}
 		defer file.Close()
-		
+
 		var subdomains []string
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -241,7 +242,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		defer subsCleanup()
 		outputDir = domainDir // Use domain directory for standard enumeration
 	}
-	
+
 	// Use outputDir (subdomain directory if provided, otherwise root domain) for saving results
 	findingsDir := filepath.Join(outputDir, findingsDirName)
 	if err := utils.EnsureDir(findingsDir); err != nil {
@@ -279,7 +280,7 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 		// Standard enumeration - use domainDir
 		processingDir = domainDir
 	}
-	
+
 	if err := runNucleiTakeover(processingDir, findingsDir, subsFile); err != nil {
 		logger.GetLogger().Infof("[WARN] Nuclei takeover step failed: %v", err)
 	}
@@ -312,7 +313,6 @@ func TakeoverWithOptions(opts TakeoverOptions) error {
 	// Summary file generation removed - only raw results are sent
 
 	// Webhook sending removed - files are sent via utils.SendPhaseFiles from phase functions
-
 
 	// Index results into the scan directory for the dashboard.
 	// Only the combined structured JSON is written here — raw .txt files stay
@@ -486,8 +486,8 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 				if webhookURL != "" {
 					domain := filepath.Base(domainDir)
 					if info, err := os.Stat(out); err == nil && info.Size() > 0 {
-				utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Finding: CNAME takeover (Nuclei public) for %s (%d found)", domain, count))
-				utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei public takeover: %d candidates for %s", count, domain))
+						utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Finding: CNAME takeover (Nuclei public) for %s (%d found)", domain, count))
+						utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei public takeover: %d candidates for %s", count, domain))
 					}
 				}
 			}
@@ -528,8 +528,8 @@ func runNucleiTakeover(domainDir, findingsDir, subsFile string) error {
 				if webhookURL != "" {
 					domain := filepath.Base(domainDir)
 					if info, err := os.Stat(out); err == nil && info.Size() > 0 {
-					utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Finding: CNAME takeover (Nuclei custom) for %s (%d found)", domain, count))
-					utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei custom takeover: %d candidates for %s", count, domain))
+						utils.SendWebhookFileAsync(out, fmt.Sprintf("DNS Finding: CNAME takeover (Nuclei custom) for %s (%d found)", domain, count))
+						utils.SendWebhookLogAsync(fmt.Sprintf("Nuclei custom takeover: %d candidates for %s", count, domain))
 					}
 				}
 			}
@@ -811,8 +811,12 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 		return nil
 	}
 
-	// Initialize dnsx client
-	dnsClient, err := dnsx.New(dnsx.DefaultOptions)
+	// Initialize dnsx client configured to query NS records. The default options
+	// only ask for A records, so the NS section was never populated and NS-takeover
+	// detection silently found nothing — query TypeNS so result.NS is filled.
+	nsOptions := dnsx.DefaultOptions
+	nsOptions.QuestionTypes = []uint16{miekgdns.TypeNS}
+	dnsClient, err := dnsx.New(nsOptions)
 	if err != nil {
 		return fmt.Errorf("failed to create dnsx client: %w", err)
 	}
@@ -954,10 +958,10 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 	// Load vulnerable providers from the grid
 	providers := loadVulnerableProviders()
 	nsFiltered := filepath.Join(findingsDir, "ns-takeover-vuln.txt")
-	
+
 	var vulnFindings []string
 	var vulnFindingsMutex sync.Mutex
-	
+
 	// Refined NS takeover detection:
 	// For each SERVFAIL/REFUSED candidate, find its authoritative NAMESERVERS
 	// and check if they match any vulnerable provider fingerprints.
@@ -965,7 +969,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 		logger.GetLogger().Infof("[INFO] Cross-referencing %d candidates with vulnerable provider fingerprints", len(servfailTargets))
 		jobs4 := make(chan string, len(servfailTargets))
 		var wg4 sync.WaitGroup
-		
+
 		for i := 0; i < threads; i++ {
 			wg4.Add(1)
 			go func() {
@@ -994,7 +998,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 				}
 			}()
 		}
-		
+
 		go func() {
 			defer close(jobs4)
 			for _, target := range servfailTargets {
@@ -1003,7 +1007,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 		}()
 		wg4.Wait()
 	}
-	
+
 	if err := writeLinesToFile(nsFiltered, vulnFindings); err != nil {
 		logger.GetLogger().Infof("[WARN] Failed to write filtered NS takeover: %v", err)
 	}
@@ -1042,7 +1046,7 @@ func runNSTakeover(domainDir, findingsDir, subsFile string) error {
 func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	danglingOut := filepath.Join(findingsDir, "dangling-ip.txt")
 	// Summary file removed - only raw results generated
-	
+
 	if err := writeLines(danglingOut, nil); err != nil {
 		return err
 	}
@@ -1082,7 +1086,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	// Track IPs and their associated subdomains
 	ipToSubdomains := make(map[string][]string)
 	ipStatus := make(map[string]string) // "active", "inactive", "unknown"
-	
+
 	var danglingCandidates []string
 	totalIPs := 0
 	checkedIPs := 0
@@ -1192,7 +1196,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 			// Additional check: see if multiple subdomains point to this IP
 			// If many subdomains point to an inactive IP, it's more likely dangling
 			if len(subdomains) > 0 {
-				line := fmt.Sprintf("[CANDIDATE] [IP:%s] [STATUS:%s] [SUBDOMAINS:%d] [EXAMPLES:%s]", 
+				line := fmt.Sprintf("[CANDIDATE] [IP:%s] [STATUS:%s] [SUBDOMAINS:%d] [EXAMPLES:%s]",
 					ip, status, len(subdomains), strings.Join(subdomains[:min(3, len(subdomains))], ","))
 				if len(subdomains) > 3 {
 					line += fmt.Sprintf(" (and %d more)", len(subdomains)-3)
@@ -1209,7 +1213,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 	// Summary file removed - only raw results generated
 
 	logger.GetLogger().Infof("[OK] Dangling IP check completed: %d candidates found out of %d IPs", len(danglingCandidates), len(ipToSubdomains))
-	
+
 	// Send findings to webhook if configured
 	if len(danglingCandidates) > 0 {
 		webhookURL := os.Getenv("DISCORD_WEBHOOK")
@@ -1224,7 +1228,7 @@ func checkDanglingIPs(domainDir, findingsDir, subsFile string) error {
 			utils.SendWebhookLogAsync(fmt.Sprintf("Dangling IP check: %d candidates found for %s", len(danglingCandidates), domain))
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1485,7 +1489,7 @@ func lookupCNAMEStatus(name string) (string, string) {
 	cnames, err := net.LookupCNAME(name)
 	cname := ""
 	if err == nil && cnames != "" {
-		// net natively returns fully qualified domains ending with '.' 
+		// net natively returns fully qualified domains ending with '.'
 		cname = strings.TrimSuffix(cnames, ".")
 	}
 
@@ -1494,7 +1498,7 @@ func lookupCNAMEStatus(name string) (string, string) {
 	}
 
 	status := "UNKNOWN"
-	
+
 	// Perform pure Go lookup to test NOERROR/NXDOMAIN natively
 	_, errA := net.LookupHost(name)
 	if errA == nil {
@@ -1513,11 +1517,9 @@ func lookupCNAMEStatus(name string) (string, string) {
 			status = "ERROR"
 		}
 	}
-	
+
 	return cname, status
 }
-
-
 
 // sendDNSFindingsToWebhook sends DNS findings to Discord webhook if configured
 func sendDNSFindingsToWebhook(domain, findingsDir string) {
@@ -1537,14 +1539,14 @@ func sendDNSFindingsToWebhook(domain, findingsDir string) {
 
 	var foundFiles []string
 	hasAnyFindings := false
-	
+
 	// Check all possible findings files (nuclei outputs are .json, everything else .txt)
 	allFindingsFiles := []string{
 		"dangling-ip.txt", "nuclei-takeover-public.json", "nuclei-takeover-custom.json",
 		"dnsreaper-results.txt", "azure-takeover.txt", "aws-takeover.txt",
 		"ns-takeover-vuln.txt", "ns-takeover-raw.txt", "ns-servers-vuln.txt",
 	}
-	
+
 	for _, f := range allFindingsFiles {
 		filePath := filepath.Join(findingsDir, f)
 		if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
@@ -1597,16 +1599,16 @@ func loadVulnerableProviders() map[string]string {
 	}
 
 	providers := make(map[string]string)
-	
+
 	// Default hardcoded list as ultimate fallback
 	fallback := map[string]string{
-		"Azure DNS":         "azure-dns",
-		"AWS Route53":       "awsdns",
-		"DNSimple":          "dnsimple",
-		"DigitalOcean":       "digitalocean",
-		"Linode":            "linode",
-		"Netlify":           "netlify",
-		"Vercel":            "vercel|zeit",
+		"Azure DNS":    "azure-dns",
+		"AWS Route53":  "awsdns",
+		"DNSimple":     "dnsimple",
+		"DigitalOcean": "digitalocean",
+		"Linode":       "linode",
+		"Netlify":      "netlify",
+		"Vercel":       "vercel|zeit",
 	}
 
 	path := filepath.Join(utils.GetRootDir(), "can-itake-over-dns.md")
@@ -1636,7 +1638,7 @@ func loadVulnerableProviders() map[string]string {
 				vulnerable := strings.TrimSpace(parts[2])
 				fingerprint := strings.TrimSpace(parts[3])
 				fingerprint = strings.ReplaceAll(fingerprint, "`", "")
-				
+
 				if strings.ToLower(vulnerable) == "yes" && fingerprint != "" {
 					providers[provider] = fingerprint
 				}

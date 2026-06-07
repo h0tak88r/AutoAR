@@ -64,14 +64,14 @@ func Run(opts Options) (*Result, error) {
 	switch opts.Mode {
 	case ModeRepo, ModeExperimental:
 		target = normalizeRepo(opts.Repo)
-		baseDir = filepath.Join(resultsRoot, "github", "repos", target)
+		baseDir = filepath.Join(resultsRoot, "github", "repos", utils.SanitizeTargetSegment(target))
 	case ModeOrg:
 		target = opts.Org
-		baseDir = filepath.Join(resultsRoot, "github", "orgs", target)
+		baseDir = filepath.Join(resultsRoot, "github", "orgs", utils.SanitizeTargetSegment(target))
 	}
 
 	if opts.Mode == ModeExperimental {
-		baseDir = filepath.Join(resultsRoot, "github", "experimental", target)
+		baseDir = filepath.Join(resultsRoot, "github", "experimental", utils.SanitizeTargetSegment(target))
 	}
 
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {

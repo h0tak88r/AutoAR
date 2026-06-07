@@ -41,7 +41,7 @@ func ScanPorts(domain string, threads int) (*Result, error) {
 	}
 
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain))
 	subsDir := filepath.Join(domainDir, "subs")
 	subsFile := filepath.Join(subsDir, "live-subs.txt")
 	outFile := filepath.Join(domainDir, "ports", "ports.txt")
