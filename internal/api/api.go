@@ -572,6 +572,7 @@ func SetupAPI() *gin.Engine {
 		// AI finding validation & reporting
 		apiGroup.POST("/findings/validate", apiValidateFinding)
 		apiGroup.POST("/findings/report", apiReportFinding)
+		apiGroup.POST("/findings/report-batch", apiReportFindingsBatch)
 		// KeyHack templates
 		apiGroup.GET("/keyhacks", apiListKeyhacks)
 		apiGroup.GET("/keyhacks/search", apiSearchKeyhacks)

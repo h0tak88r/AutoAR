@@ -14,6 +14,34 @@
   const escAttr = (...args) => window.escAttr(...args);
   const copyToClipboard = (...args) => window.copyToClipboard(...args);
 
+  // showReportModal renders generated AI report text in a copyable overlay.
+  function showReportModal(title, text) {
+    document.getElementById('ai-report-modal')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'ai-report-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.72);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(2px)';
+    overlay.innerHTML = `
+      <div style="background:var(--bg-card,#0b1220);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;max-width:860px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border,rgba(255,255,255,.1))">
+          <div style="font-weight:600;font-size:14px;color:var(--text-primary,#fff);flex:1">${esc(title)}</div>
+          <button type="button" id="ai-report-copy" style="padding:6px 12px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.4);border-radius:6px;color:#34d399;font-size:12px;cursor:pointer">Copy</button>
+          <button type="button" id="ai-report-close" style="padding:6px 12px;background:rgba(255,255,255,.06);border:1px solid var(--border,rgba(255,255,255,.15));border-radius:6px;color:var(--text-secondary,#cbd5e1);font-size:12px;cursor:pointer">Close</button>
+        </div>
+        <pre id="ai-report-body" style="margin:0;padding:18px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;color:var(--text-primary,#e2e8f0)"></pre>
+      </div>`;
+    overlay.querySelector('#ai-report-body').textContent = text;
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('#ai-report-close').addEventListener('click', close);
+    overlay.querySelector('#ai-report-copy').addEventListener('click', async () => {
+      try { await copyToClipboard(text); showToast('success', 'Copied', 'Report copied to clipboard'); }
+      catch (e) { showToast('error', 'Copy failed', e.message || String(e)); }
+    });
+    const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+  }
+
   // ── State for Scan Detail Page ──────────────────────────────────────────
   window._scanDetailKnownFiles = new Set();
   window._scanDetailRefreshTimer = null;
@@ -900,6 +928,7 @@
             <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.38)">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap"> Copy selected</button>
+                <button type="button" id="recon-report-selected-ai" title="Generate an AI vulnerability report for the checked rows" style="padding:6px 10px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.4);border-radius:6px;color:#34d399;font-size:11px;cursor:pointer;white-space:nowrap"> Report selected (AI)</button>
                 <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap"> Export Markdown</button>
               </div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -1197,6 +1226,7 @@
     };
     const copyTsvBtn = root.querySelector('#recon-copy-selected-tsv');
     const exportJsonBtn = root.querySelector('#recon-export-all-json');
+    const reportAiBtn = root.querySelector('#recon-report-selected-ai');
     if (copyTsvBtn) {
       copyTsvBtn.addEventListener('click', async () => {
         const rows = collectCheckedFindingRows();
@@ -1207,6 +1237,43 @@
           showToast('success', 'Copied', `${rows.length} row(s) as TSV`);
         } catch (e) {
           showToast('error', 'Copy failed', e.message || String(e));
+        }
+      });
+    }
+    if (reportAiBtn) {
+      reportAiBtn.addEventListener('click', async () => {
+        const rows = collectCheckedFindingRows();
+        if (!rows.length) { showToast('info', 'Nothing selected', 'Check one or more findings, then generate a report.'); return; }
+        const MAX = 25;
+        const picked = rows.slice(0, MAX);
+        if (rows.length > MAX) showToast('info', 'Trimmed', `Reporting the first ${MAX} of ${rows.length} selected findings.`);
+        const findings = picked.map((r) => {
+          const info = (r.raw && r.raw.info) || {};
+          const detailParts = [];
+          if (r.file) detailParts.push(`file: ${r.file}`);
+          if (info.line) detailParts.push(`line: ${info.line}`);
+          if (info.url) detailParts.push(`url: ${info.url}`);
+          if (info.matched || info.match) detailParts.push(`match: ${info.matched || info.match}`);
+          if (!detailParts.length && r.raw) {
+            try { detailParts.push(JSON.stringify(r.raw).slice(0, 400)); } catch (_) { /* ignore */ }
+          }
+          return {
+            target: String(r.target || r.host || ''),
+            finding_type: String(r.finding || r.title || ''),
+            severity: String(r.severity || ''),
+            module: String(r.module || ''),
+            detail: detailParts.join(' | '),
+          };
+        });
+        const orig = reportAiBtn.textContent;
+        reportAiBtn.disabled = true; reportAiBtn.textContent = ' Generating…';
+        try {
+          const res = await apiPost('/api/findings/report-batch', { findings });
+          showReportModal(`AI Report — ${picked.length} finding(s)`, String(res.report || '').trim() || '(empty response)');
+        } catch (e) {
+          showToast('error', 'Report failed', e.message || String(e));
+        } finally {
+          reportAiBtn.disabled = false; reportAiBtn.textContent = orig;
         }
       });
     }
