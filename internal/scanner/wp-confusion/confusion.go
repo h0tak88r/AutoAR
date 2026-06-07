@@ -380,9 +380,3 @@ func saveResults(filename string, results []string) error {
 
 	return nil
 }
-
-func sendToDiscord(file, message string) {
-	// Discord integration would go here if needed
-	// For now, just a placeholder
-	fmt.Printf("[i] Discord notification: %s - %s\n", message, file)
-}

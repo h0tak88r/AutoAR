@@ -1105,7 +1105,7 @@ func apiClearAllScans(c *gin.Context) {
 	})
 }
 
-// POST /api/scans/:id/cancel — stop a running scan (API child process or Discord cancel ctx)
+// POST /api/scans/:id/cancel — stop a running scan (cancels the scan's context / child process)
 func apiCancelScan(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {

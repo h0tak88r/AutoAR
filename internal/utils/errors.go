@@ -54,7 +54,7 @@ func IsRetryable(err error) bool {
 }
 
 // GetUserFriendlyError converts a [ScanError] into a markdown-formatted,
-// human-readable message suitable for Discord or dashboard display.
+// human-readable message suitable for webhook or dashboard display.
 // Non-ScanError values fall back to a generic message.
 func GetUserFriendlyError(err error) string {
 	if scanErr, ok := err.(*ScanError); ok {

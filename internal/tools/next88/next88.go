@@ -61,7 +61,6 @@ type ScanOptions struct {
 	Verbose         bool
 	NoColor         bool
 	AllResults      bool
-	DiscordWebhook  string
 	DOSTest         bool
 	DOSRequests     int
 	SmartScan       bool

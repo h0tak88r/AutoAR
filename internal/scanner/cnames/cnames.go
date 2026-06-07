@@ -295,7 +295,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		}
 	}
 
-	// Send result files to Discord webhook (only when not running under bot)
+	// Send result files to the monitor webhook (only for standalone CLI runs, not tracked API scans)
 	if utils.GetCurrentScanID() == "" {
 		webhookURL := os.Getenv("MONITOR_WEBHOOK_URL")
 		if webhookURL != "" {
