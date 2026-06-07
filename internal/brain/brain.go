@@ -48,13 +48,47 @@ type AICommandList struct {
 }
 
 const (
-	DefaultModel         = "z-ai/glm-4.5-air:free"
+	// DefaultOpenRouterModel is used when OPENROUTER_MODEL is not set.
+	DefaultOpenRouterModel = "z-ai/glm-4.5-air:free"
+	// DefaultOpenCodeModel is used when OPENCODE_MODEL is not set.
+	// OpenCode (https://opencode.ai/zen) is the default free provider — it exposes
+	// an OpenAI-compatible /v1/chat/completions endpoint.
+	DefaultOpenCodeModel = "deepseek-v4-flash-free"
+
 	OpenRouterEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
+	OpenCodeEndpoint     = "https://opencode.ai/zen/v1/chat/completions"
 	GeminiDirectEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 	ZAIEndpoint          = "https://api.z.ai/api/coding/paas/v4/chat/completions"
 	ZAIDefaultModel      = "glm-4.5-air"
 	MaxAgentIterations   = 20
 )
+
+// openRouterModel returns the OpenRouter model name from env or its default.
+func openRouterModel() string {
+	if m := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); m != "" {
+		return m
+	}
+	return DefaultOpenRouterModel
+}
+
+// openCodeModel returns the OpenCode model name from env or its default.
+func openCodeModel() string {
+	if m := strings.TrimSpace(os.Getenv("OPENCODE_MODEL")); m != "" {
+		return m
+	}
+	return DefaultOpenCodeModel
+}
+
+// hasAnyAIKey reports whether any supported AI provider key is configured.
+func hasAnyAIKey() bool {
+	return strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
+		strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "" ||
+		strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" ||
+		strings.TrimSpace(os.Getenv("ZHIPU_API_KEY")) != ""
+}
+
+// errNoAIKey is the standard error message when no AI key is available.
+const errNoAIKey = "no AI key set: configure OPENCODE_API_KEY (free), OPENROUTER_API_KEY, GEMINI_API_KEY, or ZHIPU_API_KEY"
 
 // ─── Agent Loop types ─────────────────────────────────────────────────────────
 
@@ -122,10 +156,8 @@ You control the AutoAR security tool via JSON actions.
 // progressFn: called with progress strings to report to the caller (CLI/UI)
 // Returns AgentResult with all reports and a final summary.
 func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, error) {
-	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
-	geminiKey := os.Getenv("GEMINI_API_KEY")
-	if openRouterKey == "" && geminiKey == "" {
-		return nil, fmt.Errorf("neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set")
+	if !hasAnyAIKey() {
+		return nil, fmt.Errorf("%s", errNoAIKey)
 	}
 
 	result := &AgentResult{}
@@ -325,12 +357,11 @@ func isJSSecretsContent(content string) bool {
 
 // ExecuteAutonomous analyzes results, runs follow-up commands, and identifies vulnerabilities
 func ExecuteAutonomous(resultContent string) (string, error) {
+	if !hasAnyAIKey() {
+		return "", fmt.Errorf("%s", errNoAIKey)
+	}
 	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
 	geminiKey := os.Getenv("GEMINI_API_KEY")
-
-	if openRouterKey == "" && geminiKey == "" {
-		return "", fmt.Errorf("neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set")
-	}
 
 	// Step 1: Build appropriate prompt based on content type
 	logger.GetLogger().Infof("[BRAIN] Requesting autonomous commands from AI...")
@@ -469,9 +500,11 @@ Command Outputs:
 	return finalAnalysis, nil
 }
 
-// callAI routes to OpenRouter, Z.ai or direct Gemini
+// callAI routes to whichever AI provider has a key configured.
+// Priority: OpenRouter (premium models) → OpenCode (free) → Z.ai → Gemini.
 func callAI(prompt, orKey, geminiKey string) (string, error) {
-	zaiKey := os.Getenv("ZHIPU_API_KEY")
+	ocKey := strings.TrimSpace(os.Getenv("OPENCODE_API_KEY"))
+	zaiKey := strings.TrimSpace(os.Getenv("ZHIPU_API_KEY"))
 
 	if orKey != "" {
 		res, err := callOpenRouter(prompt, orKey)
@@ -479,6 +512,14 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
+	}
+
+	if ocKey != "" {
+		res, err := callOpenCode(prompt, ocKey)
+		if err == nil {
+			return res, nil
+		}
+		logger.GetLogger().Infof("[BRAIN] OpenCode failed, falling back to other providers: %v", err)
 	}
 
 	if zaiKey != "" {
@@ -498,7 +539,7 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 
 func callOpenRouter(prompt, apiKey string) (string, error) {
 	reqBody := OpenRouterRequest{
-		Model: DefaultModel,
+		Model: openRouterModel(),
 		Messages: []Message{
 			{
 				Role:    "user",
@@ -609,12 +650,11 @@ func callGeminiDirect(prompt, apiKey string) (string, error) {
 
 // AnalyzeResults takes a result content and analyzes it using AI (Suggestions only)
 func AnalyzeResults(resultContent string) (string, error) {
+	if !hasAnyAIKey() {
+		return "", fmt.Errorf("%s", errNoAIKey)
+	}
 	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
 	geminiKey := os.Getenv("GEMINI_API_KEY")
-
-	if openRouterKey == "" && geminiKey == "" {
-		return "", fmt.Errorf("neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set")
-	}
 
 	prompt := fmt.Sprintf(`Analyze scan results and suggest NEXT STEPS for security researchers.
 Scan Results:
@@ -627,12 +667,12 @@ Scan Results:
 // history is the previous messages (alternating user/assistant), systemPrompt is injected as the
 // very first user message to set context.  Returns the AI's reply text.
 func ChatWithAI(history []Message, userMessage string, systemPrompt string) (string, error) {
-	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
-	geminiKey := os.Getenv("GEMINI_API_KEY")
-
-	if openRouterKey == "" && geminiKey == "" {
-		return "", fmt.Errorf("neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set")
+	if !hasAnyAIKey() {
+		return "", fmt.Errorf("%s", errNoAIKey)
 	}
+	openRouterKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	openCodeKey := strings.TrimSpace(os.Getenv("OPENCODE_API_KEY"))
+	geminiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 
 	// Build full message list: system prompt first, then history, then new user message
 	var messages []Message
@@ -651,7 +691,15 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
 	}
 
-	zaiKey := os.Getenv("ZHIPU_API_KEY")
+	if openCodeKey != "" {
+		res, err := callOpenCodeMulti(messages, openCodeKey)
+		if err == nil {
+			return res, nil
+		}
+		logger.GetLogger().Infof("[BRAIN] OpenCode failed, falling back to other providers: %v", err)
+	}
+
+	zaiKey := strings.TrimSpace(os.Getenv("ZHIPU_API_KEY"))
 	if zaiKey != "" {
 		res, err := callZAIMulti(messages, zaiKey)
 		if err == nil {
@@ -670,7 +718,7 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 // callOpenRouterMulti sends a multi-message conversation to OpenRouter
 func callOpenRouterMulti(messages []Message, apiKey string) (string, error) {
 	reqBody := OpenRouterRequest{
-		Model:    DefaultModel,
+		Model:    openRouterModel(),
 		Messages: messages,
 	}
 
@@ -715,6 +763,56 @@ func callOpenRouterMulti(messages []Message, apiKey string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid response from OpenRouter")
+}
+
+// callOpenCode sends a single-prompt request to OpenCode (OpenAI-compatible endpoint).
+func callOpenCode(prompt, apiKey string) (string, error) {
+	return callOpenCodeMulti([]Message{{Role: "user", Content: prompt}}, apiKey)
+}
+
+// callOpenCodeMulti sends a multi-message conversation to OpenCode.
+// OpenCode (https://opencode.ai/zen) is OpenAI-compatible; reuses OpenRouterRequest/Response shapes.
+func callOpenCodeMulti(messages []Message, apiKey string) (string, error) {
+	reqBody := OpenRouterRequest{
+		Model:    openCodeModel(),
+		Messages: messages,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", OpenCodeEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := utils.CreateCustomHTTPClient(90 * time.Second)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OpenCode API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var ocResp OpenRouterResponse
+	if err := json.Unmarshal(body, &ocResp); err != nil {
+		return "", err
+	}
+	if ocResp.Error != nil {
+		return "", fmt.Errorf("OpenCode error: %s", ocResp.Error.Message)
+	}
+	if len(ocResp.Choices) > 0 {
+		return ocResp.Choices[0].Message.Content, nil
+	}
+	return "", fmt.Errorf("invalid response from OpenCode")
 }
 
 // callGeminiDirectMulti sends a multi-turn conversation to Gemini Direct
