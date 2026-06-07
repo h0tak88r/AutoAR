@@ -18,6 +18,9 @@
   let tokenHints = [];
   let loadSeq = 0;
   let scopeLoadedCount = 0;
+  let cacheWarm = false;
+  let cacheStale = false;
+  let cacheGeneratedAt = '';
   let sortState = { key: 'name', direction: 'asc' };
 
   function esc(s) {
@@ -75,7 +78,15 @@
       : scopeCount
         ? `<span style="color:rgba(0,212,255,0.75);">Latest: <strong>${scopeCount}</strong> ready</span>`
         : '';
-    statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> bounty programs</span><span style="color:#2ecc71;">H1: <strong>${h1Count}</strong></span><span style="color:#e67e22;">BC: <strong>${bcCount}</strong></span>${scopeStatus ? ` ${scopeStatus}` : ''}` + (tokenHints.length ? ` · ${tokenHints.join(' · ')}` : '');
+    // Cache freshness: when served from the warm cache, show when it was built
+    // and an explicit "refresh now" that rebuilds in the background.
+    let cacheStatus = '';
+    if (cacheWarm && cacheGeneratedAt) {
+      const age = relativeAge(cacheGeneratedAt);
+      const staleNote = cacheStale ? ' · refreshing…' : '';
+      cacheStatus = ` · <span style="color:rgba(255,255,255,0.4);" title="${esc(cacheGeneratedAt)}">Updated ${esc(age)}${staleNote}</span> · <a href="#" onclick="window.ProgramsPage.refreshNow();return false;" style="color:rgba(0,212,255,0.75);text-decoration:none;">Refresh now</a>`;
+    }
+    statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> bounty programs</span><span style="color:#2ecc71;">H1: <strong>${h1Count}</strong></span><span style="color:#e67e22;">BC: <strong>${bcCount}</strong></span>${scopeStatus ? ` ${scopeStatus}` : ''}${cacheStatus}` + (tokenHints.length ? ` · ${tokenHints.join(' · ')}` : '');
   }
 
   function sortDirectionFor(key) {
@@ -171,7 +182,7 @@
     renderStats(false);
   }
 
-  async function loadPrograms() {
+  async function loadPrograms(force = false) {
     const seq = ++loadSeq;
     const platform = document.getElementById('programs-platform-filter')?.value || 'all';
     const container = document.getElementById('programs-container');
@@ -179,23 +190,45 @@
 
     try {
       const params = new URLSearchParams({ platform, sort: 'name' });
+      if (force) params.set('refresh', 'true');
       const data = await window.apiFetch('/api/scope/programs?' + params.toString());
       if (seq !== loadSeq) return;
       programsData = data.programs || [];
-      scopeLoadedCount = 0;
+      cacheWarm = !!data.warm;
+      cacheStale = !!data.stale;
+      cacheGeneratedAt = data.generated_at || '';
 
       tokenHints = [];
       if (!data.has_h1_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">H1 token not set — latest scope requires H1 auth</span>');
       if (!data.has_bc_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">BC token not set — set BUGCROWD_TOKEN to load Bugcrowd programs</span>');
 
-      renderPrograms();
-      renderStats(false);
-      hydrateScopeSummaries(seq);
+      if (data.scope_included) {
+        // Warm cache already carries scope counts + latest targets — no per-program
+        // hydration needed. The whole table renders fully populated in one shot.
+        scopeLoadedCount = programsData.length;
+        programsData.forEach(p => { p._scope_loaded = true; });
+        renderPrograms();
+        renderStats(false);
+      } else {
+        // Cold path: base list only — fill the scope column progressively.
+        scopeLoadedCount = 0;
+        renderPrograms();
+        renderStats(false);
+        hydrateScopeSummaries(seq);
+      }
     } catch (e) {
       if (container) container.innerHTML = `<div class="empty-state"><div class="empty-icon">!</div><div class="empty-title">Failed to load</div><div class="empty-sub">${esc(e.message)}</div></div>`;
       tokenHints = [];
       renderStats(false);
     }
+  }
+
+  // refreshNow forces a server-side cache rebuild (in the background) and reloads
+  // the fresh data once it has likely finished.
+  function refreshNow() {
+    if (window.showToast) window.showToast('info', 'Refreshing', 'Rebuilding the program cache in the background…');
+    loadPrograms(true);
+    setTimeout(() => { if (window.state && window.state.view === 'programs') loadPrograms(false); }, 30000);
   }
 
   function renderPrograms() {
@@ -318,5 +351,5 @@
     }
   }
 
-  window.ProgramsPage = { loadPrograms, renderPrograms, setSort };
+  window.ProgramsPage = { loadPrograms, renderPrograms, setSort, refreshNow };
 })();

@@ -82,6 +82,29 @@ func apiListPrograms(c *gin.Context) {
 	bbpOnly := true
 	includeScope := c.DefaultQuery("include_scope", "false") == "true"
 	sortBy := c.DefaultQuery("sort", "name")
+	forceRefresh := c.DefaultQuery("refresh", "false") == "true"
+
+	// A manual "refresh now" rebuilds in the background (the rebuild makes ~1000
+	// upstream calls and takes ~a minute — far too long to block the request on).
+	// We kick it off and still serve the current cache instantly below.
+	if forceRefresh {
+		refreshProgramsCacheAsync()
+	}
+
+	// Warm-cache fast path: serve the pre-fetched payload (scope already baked in)
+	// instantly. If it is stale, refresh in the background and still serve now.
+	if payload, ok := loadProgramsCache(); ok && len(payload.Programs) > 0 {
+		stale := time.Since(payload.GeneratedAt) > programsCacheTTL
+		if stale && !forceRefresh {
+			refreshProgramsCacheAsync()
+		}
+		serveProgramsPayload(c, payload, platform, sortBy, stale)
+		return
+	}
+
+	// Cold path (cache not built yet): fall back to a live fetch so the first-ever
+	// load still works, and kick a background build so the next load is instant.
+	defer refreshProgramsCacheAsync()
 
 	var allPrograms []ProgramSummary
 	var mu sync.Mutex
@@ -119,32 +142,72 @@ func apiListPrograms(c *gin.Context) {
 
 	wg.Wait()
 
-	// Sort
-	switch sortBy {
-	case "name":
-		sort.Slice(allPrograms, func(i, j int) bool {
-			return strings.ToLower(allPrograms[i].Name) < strings.ToLower(allPrograms[j].Name)
-		})
-	case "reports":
-		sort.Slice(allPrograms, func(i, j int) bool {
-			return allPrograms[i].Stats.ReportsForUser > allPrograms[j].Stats.ReportsForUser
-		})
-	case "bounty":
-		sort.Slice(allPrograms, func(i, j int) bool {
-			return allPrograms[i].Stats.BountyEarnedForUser > allPrograms[j].Stats.BountyEarnedForUser
-		})
-	}
+	sortPrograms(allPrograms, sortBy)
 
 	if allPrograms == nil {
 		allPrograms = []ProgramSummary{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"programs":     allPrograms,
-		"total":        len(allPrograms),
-		"has_h1_token": os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
-		"has_bc_token": os.Getenv("BUGCROWD_TOKEN") != "",
+		"programs":       allPrograms,
+		"total":          len(allPrograms),
+		"has_h1_token":   os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
+		"has_bc_token":   os.Getenv("BUGCROWD_TOKEN") != "",
+		"scope_included": includeScope,
+		"warm":           false,
 	})
+}
+
+// serveProgramsPayload filters the cached payload by platform, sorts it, and
+// writes the JSON response. Scope is always included in the cache, so the UI
+// can render the full table without per-program follow-up calls.
+func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform, sortBy string, stale bool) {
+	programs := make([]ProgramSummary, 0, len(payload.Programs))
+	for _, p := range payload.Programs {
+		switch platform {
+		case "all", "":
+			programs = append(programs, p)
+		case "h1", "hackerone":
+			if p.Platform == "h1" {
+				programs = append(programs, p)
+			}
+		case "bc", "bugcrowd":
+			if p.Platform == "bc" {
+				programs = append(programs, p)
+			}
+		}
+	}
+
+	sortPrograms(programs, sortBy)
+
+	c.JSON(http.StatusOK, gin.H{
+		"programs":       programs,
+		"total":          len(programs),
+		"has_h1_token":   payload.HasH1Token,
+		"has_bc_token":   payload.HasBCToken,
+		"scope_included": true,
+		"warm":           true,
+		"stale":          stale,
+		"generated_at":   payload.GeneratedAt.Format(time.RFC3339),
+	})
+}
+
+// sortPrograms sorts in place by the given key.
+func sortPrograms(programs []ProgramSummary, sortBy string) {
+	switch sortBy {
+	case "name":
+		sort.Slice(programs, func(i, j int) bool {
+			return strings.ToLower(programs[i].Name) < strings.ToLower(programs[j].Name)
+		})
+	case "reports":
+		sort.Slice(programs, func(i, j int) bool {
+			return programs[i].Stats.ReportsForUser > programs[j].Stats.ReportsForUser
+		})
+	case "bounty":
+		sort.Slice(programs, func(i, j int) bool {
+			return programs[i].Stats.BountyEarnedForUser > programs[j].Stats.BountyEarnedForUser
+		})
+	}
 }
 
 func apiProgramScopeSummaries(c *gin.Context) {
