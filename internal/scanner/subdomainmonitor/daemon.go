@@ -17,6 +17,12 @@ var (
 	stopDaemon    chan struct{}
 	daemonWg      sync.WaitGroup
 	stopOnce      sync.Once
+
+	// monitorInFlight tracks targets whose scan is currently running, so a scan
+	// that outlasts its interval isn't started again by the next ticker pass
+	// (which would cause duplicate DB writes and duplicate webhook alerts).
+	monitorInFlight   = make(map[int]bool)
+	monitorInFlightMu sync.Mutex
 )
 
 // StartDaemon starts the subdomain monitoring daemon
@@ -123,7 +129,22 @@ func checkAllRunningTargets() {
 			continue // not time yet
 		}
 
+		// Skip if a scan for this target is already in flight (it outran its
+		// interval) — prevents duplicate runs, DB writes and webhook alerts.
+		monitorInFlightMu.Lock()
+		if monitorInFlight[target.ID] {
+			monitorInFlightMu.Unlock()
+			continue
+		}
+		monitorInFlight[target.ID] = true
+		monitorInFlightMu.Unlock()
+
 		go func(t db.SubdomainMonitorTarget) {
+			defer func() {
+				monitorInFlightMu.Lock()
+				delete(monitorInFlight, t.ID)
+				monitorInFlightMu.Unlock()
+			}()
 			logger.GetLogger().Infof("[INFO] Running subdomain monitoring for %s (interval: %ds)", t.Domain, t.Interval)
 
 			result, err := MonitorSubdomains(MonitorOptions{

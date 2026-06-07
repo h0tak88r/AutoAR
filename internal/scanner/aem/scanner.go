@@ -15,7 +15,7 @@ type ScannerCheck func(baseURL string, ssrfHost string, client *HTTPClient) []Fi
 
 var (
 	scannerChecks = make(map[string]ScannerCheck)
-	scannerMutex sync.Mutex
+	scannerMutex  sync.Mutex
 )
 
 // RegisterScannerCheck registers a vulnerability check
@@ -152,6 +152,7 @@ func checkGetServlet(baseURL string, ssrfHost string, client *HTTPClient) []Find
 				if err != nil {
 					continue
 				}
+				defer resp.Body.Close()
 
 				if resp.StatusCode == 200 {
 					body, _ := io.ReadAll(resp.Body)
@@ -209,6 +210,7 @@ func checkQueryBuilderServlet(baseURL string, ssrfHost string, client *HTTPClien
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -269,6 +271,7 @@ func checkGQLServlet(baseURL string, ssrfHost string, client *HTTPClient) []Find
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -316,6 +319,7 @@ func checkPostServlet(baseURL string, ssrfHost string, client *HTTPClient) []Fin
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -361,6 +365,7 @@ func checkCreateNewNodes(baseURL string, ssrfHost string, client *HTTPClient) []
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 || resp.StatusCode == 201 {
 				body, _ := io.ReadAll(resp.Body)
@@ -401,6 +406,7 @@ func checkCreateNewNodes(baseURL string, ssrfHost string, client *HTTPClient) []
 				if err != nil {
 					continue
 				}
+				defer resp.Body.Close()
 
 				if resp.StatusCode == 200 || resp.StatusCode == 201 {
 					body, _ := io.ReadAll(resp.Body)
@@ -444,6 +450,7 @@ func checkLoginStatusServlet(baseURL string, ssrfHost string, client *HTTPClient
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -466,6 +473,7 @@ func checkLoginStatusServlet(baseURL string, ssrfHost string, client *HTTPClient
 						if err != nil {
 							continue
 						}
+						defer resp2.Body.Close()
 
 						if resp2.StatusCode == 200 {
 							body2, _ := io.ReadAll(resp2.Body)
@@ -512,6 +520,7 @@ func checkUserInfoServlet(baseURL string, ssrfHost string, client *HTTPClient) [
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -534,6 +543,7 @@ func checkUserInfoServlet(baseURL string, ssrfHost string, client *HTTPClient) [
 						if err != nil {
 							continue
 						}
+						defer resp2.Body.Close()
 
 						if resp2.StatusCode == 200 {
 							body2, _ := io.ReadAll(resp2.Body)
@@ -582,6 +592,7 @@ func checkFelixConsole(baseURL string, ssrfHost string, client *HTTPClient) []Fi
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -621,6 +632,7 @@ func checkWCMDebugFilter(baseURL string, ssrfHost string, client *HTTPClient) []
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -663,6 +675,7 @@ func checkWCMSuggestionsServlet(baseURL string, ssrfHost string, client *HTTPCli
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -711,6 +724,7 @@ func checkCRXDECRX(baseURL string, ssrfHost string, client *HTTPClient) []Findin
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -765,6 +779,7 @@ func checkGroovyConsole(baseURL string, ssrfHost string, client *HTTPClient) []F
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -811,6 +826,7 @@ func checkGroovyConsole(baseURL string, ssrfHost string, client *HTTPClient) []F
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -862,6 +878,7 @@ func checkACSTools(baseURL string, ssrfHost string, client *HTTPClient) []Findin
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -882,16 +899,17 @@ func checkACSTools(baseURL string, ssrfHost string, client *HTTPClient) []Findin
 	// Check predicates endpoint
 	predicatesURL := NormalizeURL(baseURL, "/bin/acs-tools/qe/predicates.json")
 	resp, err := client.Get(predicatesURL, nil)
-	if err == nil && resp.StatusCode == 200 {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		if strings.Contains(string(body), "relativedaterange") {
-			findings = append(findings, Finding{
-				Name:        "ACSTools",
-				URL:         predicatesURL,
-				Description: "ACS Tools predicates.",
-			})
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			body, _ := io.ReadAll(resp.Body)
+			if strings.Contains(string(body), "relativedaterange") {
+				findings = append(findings, Finding{
+					Name:        "ACSTools",
+					URL:         predicatesURL,
+					Description: "ACS Tools predicates.",
+				})
+			}
 		}
 	}
 
@@ -917,6 +935,7 @@ func checkWebDAV(baseURL string, ssrfHost string, client *HTTPClient) []Finding 
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 401 {
 				wwwAuth := strings.ToLower(resp.Header.Get("WWW-Authenticate"))
@@ -956,6 +975,7 @@ func checkSetPreferences(baseURL string, ssrfHost string, client *HTTPClient) []
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 400 {
 				body, _ := io.ReadAll(resp.Body)
@@ -997,6 +1017,7 @@ func checkMergeMetadata(baseURL string, ssrfHost string, client *HTTPClient) []F
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -1052,6 +1073,7 @@ func checkGuideInternalSubmitServlet(baseURL string, ssrfHost string, client *HT
 			if err != nil {
 				continue
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
@@ -1110,6 +1132,7 @@ func checkReportingServicesServlet(baseURL string, ssrfHost string, client *HTTP
 		if err != nil {
 			continue
 		}
+		defer resp.Body.Close()
 		if resp.StatusCode == 200 {
 			resp.Body.Close()
 			return []Finding{{
@@ -1227,6 +1250,7 @@ func checkSWFXSS(baseURL string, ssrfHost string, client *HTTPClient) []Finding 
 		if err != nil {
 			continue
 		}
+		defer resp.Body.Close()
 
 		if resp.StatusCode == 200 {
 			ct := ContentType(resp.Header.Get("Content-Type"))
@@ -1278,4 +1302,3 @@ func checkExternalJobServlet(baseURL string, ssrfHost string, client *HTTPClient
 	}
 	return nil
 }
-

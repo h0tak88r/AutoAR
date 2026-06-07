@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	jsfindertool "github.com/h0tak88r/AutoAR/internal/tools/jsfinder"
 	urlfindertool "github.com/h0tak88r/AutoAR/internal/tools/urlfinder"
-	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/utils"
+	"github.com/projectdiscovery/katana/pkg/engine/standard"
 	katanaoutput "github.com/projectdiscovery/katana/pkg/output"
 	katanatypes "github.com/projectdiscovery/katana/pkg/types"
-	"github.com/projectdiscovery/katana/pkg/engine/standard"
 )
 
 // Result summarizes URL collection for a domain.
@@ -92,7 +92,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 		// Extract root domain for directory structure
 		dirDomain = extractRootDomain(domain)
 	}
-	
+
 	// Initialize directory structure
 	domainDir, err := utils.DomainDirInit(dirDomain)
 	if err != nil {
@@ -138,7 +138,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	// Prepare output files
 	allFile := filepath.Join(urlsDir, "all-urls.txt")
 	jsFile := filepath.Join(urlsDir, "js-urls.txt")
-	
+
 	// Check if URLs already exist and have content - if so, skip collection
 	if info, err := os.Stat(allFile); err == nil && info.Size() > 0 {
 		if jsInfo, err := os.Stat(jsFile); err == nil && jsInfo.Size() >= 0 {
@@ -156,14 +156,14 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 			}, nil
 		}
 	}
-	
+
 	_ = utils.WriteLines(allFile, nil)
 	_ = utils.WriteLines(jsFile, nil)
 
 	// 1) Collect URLs with embedded urlfinder library
 	logger.GetLogger().Infof("[INFO] Collecting URLs with embedded urlfinder for %s", domain)
 	if _, err := urlfindertool.FindURLsToFile(domain, allFile, urlfindertool.Options{
-		AllSources:      true,
+		AllSources:        true,
 		SkipSubdomainEnum: skipSubdomainEnum,
 	}); err != nil {
 		logger.GetLogger().Infof("[WARN] urlfinder library failed for %s: %v", domain, err)
@@ -264,17 +264,17 @@ func extractRootDomain(host string) string {
 	// Remove protocol if present
 	host = strings.TrimPrefix(host, "http://")
 	host = strings.TrimPrefix(host, "https://")
-	
+
 	// Remove port if present
 	if idx := strings.Index(host, ":"); idx != -1 {
 		host = host[:idx]
 	}
-	
+
 	// Remove path if present
 	if idx := strings.Index(host, "/"); idx != -1 {
 		host = host[:idx]
 	}
-	
+
 	parts := strings.Split(host, ".")
 	if len(parts) >= 2 {
 		// Return last two parts (e.g., example.com)
@@ -375,6 +375,7 @@ func readLines(path string) ([]string, error) {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	var lines []string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -389,7 +390,6 @@ func readLines(path string) ([]string, error) {
 }
 
 // writeLines writes lines to a file (one per line). If lines is nil, creates/empties the file.
-
 
 // uniqueStrings returns a deduplicated slice preserving order.
 func uniqueStrings(in []string) []string {
@@ -470,7 +470,7 @@ func collectVirusTotalURLs(client *http.Client, domain string, skipSubdomainEnum
 	}
 
 	var result struct {
-		DetectedURLs    [][]interface{} `json:"detected_urls"`
+		DetectedURLs   [][]interface{} `json:"detected_urls"`
 		UndetectedURLs [][]interface{} `json:"undetected_urls"`
 	}
 
@@ -555,7 +555,7 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 		// For domain mode, use domain pattern
 		url = fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=10000", domain)
 	}
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] Failed to create URLScan request: %v", err)
