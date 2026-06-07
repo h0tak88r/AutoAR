@@ -246,7 +246,7 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 			// Remove trailing slash if present
 			subdomainClean = strings.TrimSuffix(subdomainClean, "/")
 			resultsDir := utils.GetResultsDir()
-			domainDir := filepath.Join(resultsDir, subdomainClean)
+			domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(subdomainClean))
 			subsDir := filepath.Join(domainDir, "subs")
 			liveHostsFile = filepath.Join(subsDir, "live-subs.txt")
 
@@ -490,7 +490,7 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, int, error) {
 				resultsDir := utils.GetResultsDir()
 				var domainDir string
 				if isSubdomain {
-					domainDir = filepath.Join(resultsDir, targetClean)
+					domainDir = filepath.Join(resultsDir, utils.SanitizeTargetSegment(targetClean))
 				} else {
 					domainDir, _ = utils.DomainDirInit(targetClean)
 				}

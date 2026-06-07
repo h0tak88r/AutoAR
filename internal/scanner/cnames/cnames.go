@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/db"
+	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
 )
@@ -38,7 +38,7 @@ type Options struct {
 func CollectCNAMEs(domain string) (*Result, error) {
 	return CollectCNAMEsWithOptions(Options{
 		Domain:  domain,
-		Threads: 100,              // Default 100 concurrent DNS queries
+		Threads: 100,             // Default 100 concurrent DNS queries
 		Timeout: 5 * time.Minute, // 5 minute timeout
 	})
 }
@@ -48,7 +48,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 	// Determine which mode we're in and set targets accordingly
 	var targets []string
 	var domain string
-	
+
 	if len(opts.Targets) > 0 {
 		// Mode 1: Direct targets provided
 		targets = opts.Targets
@@ -77,7 +77,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		// Mode 3: Domain provided - enumerate subdomains (original behavior)
 		domain = opts.Domain
 		resultsDir := utils.GetResultsDir()
-		domainDir := filepath.Join(resultsDir, domain)
+		domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain))
 		subsDir := filepath.Join(domainDir, "subs")
 		if err := utils.EnsureDir(subsDir); err != nil {
 			return nil, fmt.Errorf("failed to create subs dir: %w", err)
@@ -140,7 +140,7 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 
 	// Set up output directory
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain))
 	subsDir := filepath.Join(domainDir, "subs")
 	if err := utils.EnsureDir(subsDir); err != nil {
 		return nil, fmt.Errorf("failed to create subs dir: %w", err)
@@ -205,9 +205,13 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 						cnameRecords = append(cnameRecords, fmt.Sprintf("%s CNAME %s", target, cname))
 					}
 					recordsMutex.Unlock()
-					
-					// Sync to core database Subdomains table
-					go db.UpdateSubdomainCNAME(opts.Domain, target, strings.Join(results.CNAME, ","))
+
+					// Sync to core database Subdomains table. Called synchronously
+					// inside the worker goroutine (was a fire-and-forget `go` that
+					// leaked unbounded goroutines and could outlive the function).
+					// Use the derived root `domain`, not opts.Domain, so the key is
+					// correct in Targets/Subdomain modes too.
+					_ = db.UpdateSubdomainCNAME(domain, target, strings.Join(results.CNAME, ","))
 				}
 			}
 		}()
@@ -239,8 +243,15 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 		logger.GetLogger().Infof("[WARN] CNAME collection timed out after %v", opts.Timeout)
 	}
 
+	// On timeout some workers may still be appending to cnameRecords, so take a
+	// snapshot under the lock and use it for all reads below (avoids a data race).
+	recordsMutex.Lock()
+	recordsSnapshot := make([]string, len(cnameRecords))
+	copy(recordsSnapshot, cnameRecords)
+	recordsMutex.Unlock()
+
 	// Write results to file
-	if err := writeLines(out, cnameRecords); err != nil {
+	if err := writeLines(out, recordsSnapshot); err != nil {
 		return nil, fmt.Errorf("failed to write CNAME records: %w", err)
 	}
 
@@ -260,8 +271,8 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 			Finding   string `json:"finding"`
 		}
 		var entries []cnameEntry
-		seen := make(map[string]struct{}, len(cnameRecords))
-		for _, rec := range cnameRecords {
+		seen := make(map[string]struct{}, len(recordsSnapshot))
+		for _, rec := range recordsSnapshot {
 			// format: "sub.example.com CNAME target.example.com"
 			parts := strings.Fields(rec)
 			if len(parts) >= 3 {

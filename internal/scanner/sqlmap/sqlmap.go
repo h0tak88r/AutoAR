@@ -40,7 +40,7 @@ func RunSQLMap(domain string, threads int) (*Result, error) {
 	}
 
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain))
 	inFile := filepath.Join(domainDir, "vulnerabilities", "sqli", gf.ResultFileForPattern("sqli"))
 	outFile := filepath.Join(domainDir, "vulnerabilities", "sqli", "sqlmap-results.txt")
 

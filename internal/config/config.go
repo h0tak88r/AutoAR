@@ -8,15 +8,15 @@ import (
 )
 
 var (
-	AutoARRoot     string
+	AutoARRoot       string
 	AutoARResultsDir string
 	AutoARConfigFile string
-	AutoAREnv      string
+	AutoAREnv        string
 )
 
 func init() {
 	AutoAREnv = DetectEnvironment()
-	
+
 	if AutoAREnv == "docker" {
 		AutoARRoot = "/app"
 		AutoARResultsDir = "/app/new-results"
@@ -43,14 +43,14 @@ func GetRootDir() string {
 			return cwd
 		}
 	}
-	
+
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
 		if _, err := os.Stat(filepath.Join(exeDir, "modules")); err == nil {
 			return exeDir
 		}
 	}
-	
+
 	return "."
 }
 
@@ -60,7 +60,7 @@ func GetConfigValue(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
-	
+
 	// TODO: Add YAML parsing if needed
 	// For now, just return default
 	return defaultValue
@@ -92,12 +92,12 @@ func GenerateYAMLConfig(configFile string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %v", err)
 	}
-	
+
 	var builder strings.Builder
 	builder.WriteString("# AutoAR Configuration\n")
 	builder.WriteString("# Generated automatically from environment variables\n\n")
 	builder.WriteString("# API Keys for various services\n")
-	
+
 	// List of API key environment variables
 	apiKeys := []string{
 		"GITHUB_TOKEN", "SECURITYTRAILS_API_KEY", "SHODAN_API_KEY",
@@ -108,11 +108,11 @@ func GenerateYAMLConfig(configFile string) error {
 		"PASSIVETOTAL_USERNAME", "PASSIVETOTAL_API_KEY", "QUAKE_USERNAME",
 		"QUAKE_PASSWORD", "THREATBOOK_API_KEY", "WHOISXMLAPI_API_KEY",
 		"ZOOMEYE_USERNAME", "ZOOMEYE_PASSWORD", "ZOOMEYEAPI_API_KEY",
-		"H1_API_KEY", "INTEGRITI_API_KEY", "OPENROUTER_API_KEY",
+		"H1_API_KEY", "INTIGRITI_TOKEN", "INTIGRITI_API_KEY", "OPENROUTER_API_KEY",
 		"OPENROUTER_MODEL", "OPENCODE_API_KEY", "OPENCODE_MODEL",
 		"GEMINI_API_KEY",
 	}
-	
+
 	for _, key := range apiKeys {
 		if value := os.Getenv(key); value != "" {
 			yamlKey := strings.ToLower(key)
@@ -124,14 +124,14 @@ func GenerateYAMLConfig(configFile string) error {
 			builder.WriteString(fmt.Sprintf("%s: [\"%s\"]\n", yamlKey, value))
 		}
 	}
-	
+
 	builder.WriteString("\n# Database Configuration\n")
 	builder.WriteString(fmt.Sprintf("SAVE_TO_DB: %s\n", getBoolEnv("SAVE_TO_DB", "true")))
 	builder.WriteString(fmt.Sprintf("VERBOSE: %s\n", getBoolEnv("VERBOSE", "false")))
 	builder.WriteString(fmt.Sprintf("DB_TYPE: \"%s\"\n", getEnv("DB_TYPE", "postgresql")))
 	builder.WriteString(fmt.Sprintf("DB_HOST: \"%s\"\n", os.Getenv("DB_HOST")))
 	builder.WriteString(fmt.Sprintf("DB_NAME: \"%s\"\n", getEnv("DB_NAME", "autoar")))
-	
+
 	return os.WriteFile(configFile, []byte(builder.String()), 0644)
 }
 

@@ -345,7 +345,7 @@ func writeOutput(opts Options, findings []Finding) (string, error) {
 		if domain == "" {
 			domain = "unknown"
 		}
-		outDir = filepath.Join(resultsDir, domain, "vulnerabilities", "exposure")
+		outDir = filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain), "vulnerabilities", "exposure")
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", err

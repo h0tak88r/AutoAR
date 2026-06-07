@@ -49,7 +49,7 @@ var platforms = []platformMeta{
 		Name:        "Intigriti",
 		Logo:        "",
 		AuthFields:  []string{"token"},
-		EnvKeys:     []string{"INTIGRITI_TOKEN"},
+		EnvKeys:     []string{"INTIGRITI_TOKEN", "INTIGRITI_API_KEY"},
 		Description: "Fetch in-scope root domains from all accessible Intigriti programs.",
 	},
 	{
@@ -84,17 +84,17 @@ func apiScopePlatforms(c *gin.Context) {
 
 // scopeFetchRequest is the body for POST /api/scope/fetch
 type scopeFetchRequest struct {
-	Platform    string `json:"platform"`
-	Username    string `json:"username,omitempty"`
-	Token       string `json:"token,omitempty"`
-	Email       string `json:"email,omitempty"`
-	Password    string `json:"password,omitempty"`
-	BBPOnly     bool   `json:"bbp_only"`
-	PvtOnly     bool   `json:"pvt_only"`
-	PublicOnly  bool   `json:"public_only"`
-	ActiveOnly  bool   `json:"active_only"`
-	IncludeOOS  bool   `json:"include_oos"`
-	ExtractRoots *bool `json:"extract_roots,omitempty"` // default true if omitted
+	Platform     string `json:"platform"`
+	Username     string `json:"username,omitempty"`
+	Token        string `json:"token,omitempty"`
+	Email        string `json:"email,omitempty"`
+	Password     string `json:"password,omitempty"`
+	BBPOnly      bool   `json:"bbp_only"`
+	PvtOnly      bool   `json:"pvt_only"`
+	PublicOnly   bool   `json:"public_only"`
+	ActiveOnly   bool   `json:"active_only"`
+	IncludeOOS   bool   `json:"include_oos"`
+	ExtractRoots *bool  `json:"extract_roots,omitempty"` // default true if omitted
 }
 
 // POST /api/scope/fetch — fetch programs + extract root domains from a bug bounty platform
@@ -137,7 +137,7 @@ func apiFetchScope(c *gin.Context) {
 		case scopemod.PlatformBugcrowd:
 			token = os.Getenv("BUGCROWD_TOKEN")
 		case scopemod.PlatformIntigriti:
-			token = os.Getenv("INTIGRITI_TOKEN")
+			token = intigritiToken() // INTIGRITI_TOKEN, or INTIGRITI_API_KEY alias
 		case scopemod.PlatformYesWeHack:
 			// YWH supports a JWT token directly (no email/password needed)
 			token = os.Getenv("YWH_TOKEN")

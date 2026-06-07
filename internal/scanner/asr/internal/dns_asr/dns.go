@@ -96,11 +96,14 @@ func (c *Client) BruteforceWithWordlistFile(ctx context.Context, domain, wordlis
 // ---- puredns implementations (fast, for large lists) ----
 
 func (c *Client) resolveWithPuredns(ctx context.Context, domains []string, threads int) ([]string, error) {
-	tmpDir := os.TempDir()
-	inputFile := filepath.Join(tmpDir, "asr_resolve_input.txt")
-	outputFile := filepath.Join(tmpDir, "asr_resolve_output.txt")
-	defer os.Remove(inputFile)
-	defer os.Remove(outputFile)
+	// Per-invocation temp dir so concurrent ASR scans don't clobber each other's I/O.
+	tmpDir, err := os.MkdirTemp("", "asr-resolve-")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	inputFile := filepath.Join(tmpDir, "input.txt")
+	outputFile := filepath.Join(tmpDir, "output.txt")
 
 	// Write domains to temp file
 	if err := writeLines(inputFile, domains); err != nil {
@@ -125,9 +128,12 @@ func (c *Client) resolveWithPuredns(ctx context.Context, domains []string, threa
 }
 
 func (c *Client) bruteforceWithPuredns(ctx context.Context, domain string, wordlist []string, threads int) ([]string, error) {
-	tmpDir := os.TempDir()
-	wordlistFile := filepath.Join(tmpDir, "asr_bruteforce_wordlist.txt")
-	defer os.Remove(wordlistFile)
+	tmpDir, err := os.MkdirTemp("", "asr-bruteforce-")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	wordlistFile := filepath.Join(tmpDir, "wordlist.txt")
 
 	if err := writeLines(wordlistFile, wordlist); err != nil {
 		return nil, fmt.Errorf("failed to write wordlist file: %w", err)
@@ -137,9 +143,12 @@ func (c *Client) bruteforceWithPuredns(ctx context.Context, domain string, wordl
 }
 
 func (c *Client) bruteforceFileWithPuredns(ctx context.Context, domain, wordlistPath string, threads int) ([]string, error) {
-	tmpDir := os.TempDir()
-	outputFile := filepath.Join(tmpDir, "asr_bruteforce_output.txt")
-	defer os.Remove(outputFile)
+	tmpDir, err := os.MkdirTemp("", "asr-bruteforce-out-")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	outputFile := filepath.Join(tmpDir, "output.txt")
 
 	args := []string{"bruteforce", wordlistPath, domain, "-w", outputFile}
 	if c.resolvers != "" {

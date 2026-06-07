@@ -41,6 +41,7 @@ type programsCachePayload struct {
 	Programs    []ProgramSummary `json:"programs"`
 	HasH1Token  bool             `json:"has_h1_token"`
 	HasBCToken  bool             `json:"has_bc_token"`
+	HasITToken  bool             `json:"has_it_token"`
 	GeneratedAt time.Time        `json:"generated_at"`
 }
 
@@ -118,12 +119,26 @@ func buildProgramsPayload() programsCachePayload {
 		mu.Unlock()
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		progs, err := fetchITPrograms(true, true)
+		if err != nil {
+			log.Printf("[PROGRAMS] Intigriti fetch failed: %v", err)
+			return
+		}
+		mu.Lock()
+		all = append(all, progs...)
+		mu.Unlock()
+	}()
+
 	wg.Wait()
 
 	return programsCachePayload{
 		Programs:    all,
 		HasH1Token:  os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
 		HasBCToken:  os.Getenv("BUGCROWD_TOKEN") != "",
+		HasITToken:  hasIntigritiToken(),
 		GeneratedAt: time.Now().UTC(),
 	}
 }
