@@ -566,9 +566,12 @@ WHOISXMLAPI_API_KEY=...
 ZOOMEYE_USERNAME=...
 ZOOMEYE_PASSWORD=...
 
-# Bug bounty platforms
-H1_API_KEY=...           # HackerOne
-INTEGRITI_API_KEY=...    # Intigriti
+# Bug bounty platforms (Programs page + Targets page + `autoar scope`)
+H1_USERNAME=...          # HackerOne
+H1_TOKEN=...             # HackerOne API token
+BUGCROWD_TOKEN=...       # Bugcrowd _crowdcontrol_session_key cookie
+INTIGRITI_TOKEN=...      # Intigriti researcher API token (INTIGRITI_API_KEY also accepted)
+YWH_TOKEN=...            # YesWeHack JWT
 
 # AI analysis — only ONE key is needed
 #  Recommended (free): OpenCode Zen (no credit card required)

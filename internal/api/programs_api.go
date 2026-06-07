@@ -148,6 +148,21 @@ func apiListPrograms(c *gin.Context) {
 		}()
 	}
 
+	if platform == "all" || platform == "it" || platform == "intigriti" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			progs, err := fetchITPrograms(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching Intigriti programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
 	wg.Wait()
 
 	sortPrograms(allPrograms, sortBy)
@@ -161,6 +176,7 @@ func apiListPrograms(c *gin.Context) {
 		"total":          len(allPrograms),
 		"has_h1_token":   os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
 		"has_bc_token":   os.Getenv("BUGCROWD_TOKEN") != "",
+		"has_it_token":   hasIntigritiToken(),
 		"scope_included": includeScope,
 		"warm":           false,
 	})
@@ -183,6 +199,10 @@ func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform
 			if p.Platform == "bc" {
 				programs = append(programs, p)
 			}
+		case "it", "intigriti":
+			if p.Platform == "it" {
+				programs = append(programs, p)
+			}
 		}
 	}
 
@@ -193,6 +213,7 @@ func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform
 		"total":          len(programs),
 		"has_h1_token":   payload.HasH1Token,
 		"has_bc_token":   payload.HasBCToken,
+		"has_it_token":   payload.HasITToken,
 		"scope_included": true,
 		"warm":           true,
 		"stale":          stale,
@@ -693,6 +714,204 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 		}
 		return true
 	})
+	return summary
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Intigriti program fetching
+//
+// Implemented directly against the Intigriti researcher API (instead of bbscope)
+// because bbscope calls log.Fatal on a bad token / HTTP error, which would
+// os.Exit the whole server when the background warmer runs. This client returns
+// errors instead.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const intigritiAPIBase = "https://api.intigriti.com/external/researcher/v1"
+
+// intigritiToken returns the configured Intigriti token. INTIGRITI_TOKEN is the
+// canonical name; INTIGRITI_API_KEY is accepted as an alias.
+func intigritiToken() string {
+	if t := strings.TrimSpace(os.Getenv("INTIGRITI_TOKEN")); t != "" {
+		return t
+	}
+	return strings.TrimSpace(os.Getenv("INTIGRITI_API_KEY"))
+}
+
+func hasIntigritiToken() bool { return intigritiToken() != "" }
+
+func fetchITPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
+	token := intigritiToken()
+	if token == "" {
+		// No token — return empty gracefully (mirrors Bugcrowd behavior).
+		return nil, nil
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	var allPrograms []ProgramSummary
+	offset, total := 0, 0
+
+	for {
+		listURL := fmt.Sprintf("%s/programs?statusId=3&limit=500&offset=%d", intigritiAPIBase, offset)
+		req, err := http.NewRequest("GET", listURL, nil)
+		if err != nil {
+			return allPrograms, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return allPrograms, err
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			return allPrograms, fmt.Errorf("Intigriti API: invalid token (401)")
+		}
+		if resp.StatusCode != http.StatusOK {
+			return allPrograms, fmt.Errorf("Intigriti API returned %d: %s", resp.StatusCode, string(body[:min(300, len(body))]))
+		}
+
+		bodyStr := string(body)
+		if offset == 0 {
+			total = int(gjson.Get(bodyStr, "maxCount").Int())
+		}
+		records := gjson.Get(bodyStr, "records").Array()
+		if len(records) == 0 {
+			break
+		}
+
+		for _, rec := range records {
+			maxBounty := rec.Get("maxBounty.value").Int()
+			if bbpOnly && maxBounty == 0 {
+				continue
+			}
+			id := rec.Get("id").String()
+			if id == "" {
+				continue
+			}
+			// webLinks.detail looks like ".../programs/<company>/<handle>?..."; the
+			// path after '=' (or the raw value) is the researcher-facing path.
+			detail := rec.Get("webLinks.detail").String()
+			programPath := detail
+			if i := strings.Index(detail, "="); i >= 0 && i+1 < len(detail) {
+				programPath = detail[i+1:]
+			}
+			handle := programPath
+			if i := strings.LastIndex(strings.TrimRight(programPath, "/"), "/"); i >= 0 {
+				handle = strings.TrimRight(programPath, "/")[i+1:]
+			}
+			name := strings.TrimSpace(rec.Get("name").Str)
+			if name == "" {
+				name = handle
+			}
+			url := "https://app.intigriti.com/researcher" + programPath
+			if programPath == "" {
+				url = "https://app.intigriti.com/"
+			}
+			// confidentialityLevel: 4 = Public, else private-ish.
+			state := "public_mode"
+			if rec.Get("confidentialityLevel.id").Int() != 4 {
+				state = "soft_launched"
+			}
+
+			allPrograms = append(allPrograms, ProgramSummary{
+				ID:                    id,
+				Platform:              "it",
+				Handle:                handle,
+				Name:                  name,
+				URL:                   url,
+				State:                 state,
+				SubmissionState:       "open",
+				OffersBounties:        maxBounty > 0,
+				Currency:              "EUR",
+				LatestTargetUpdatedAt: firstGJSONString(rec, "lastUpdatedAt", "updatedAt", "lastActivityAt", "lastSolved"),
+				UpdatedAt:             time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+
+		offset += len(records)
+		if total == 0 || offset >= total {
+			break
+		}
+	}
+
+	if includeScope {
+		enrichITScopeCounts(allPrograms, token)
+	}
+	return allPrograms, nil
+}
+
+func enrichITScopeCounts(programs []ProgramSummary, token string) {
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+	client := &http.Client{Timeout: 20 * time.Second}
+
+	for i := range programs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p *ProgramSummary) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			summary := fetchITScopeSummary(client, token, p.ID)
+			p.ScopeTargets = summary.ScopeTargets
+			if p.LatestTarget == "" {
+				p.LatestTarget = summary.LatestTarget
+				p.LatestTargetBrief = summary.LatestTargetBrief
+			}
+		}(&programs[i])
+	}
+	wg.Wait()
+}
+
+// fetchITScopeSummary fetches one program's scope by ID. programID is stored in
+// ProgramSummary.ID by fetchITPrograms.
+func fetchITScopeSummary(client *http.Client, token, programID string) ProgramSummary {
+	summary := ProgramSummary{Platform: "it"}
+	if programID == "" {
+		return summary
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		req, err := http.NewRequest("GET", intigritiAPIBase+"/programs/"+programID, nil)
+		if err != nil {
+			return summary
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return summary
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return summary
+		}
+		bodyStr := string(body)
+		// Intigriti rate-limits with a "Request blocked" body — back off once.
+		if strings.Contains(bodyStr, "Request blocked") && attempt == 0 {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		gjson.Get(bodyStr, "domains.content").ForEach(func(_, v gjson.Result) bool {
+			if v.Get("tier.id").Int() == 5 { // tier 5 = out of scope
+				return true
+			}
+			summary.ScopeTargets++
+			target := strings.TrimSpace(v.Get("endpoint").Str)
+			if target != "" && summary.LatestTarget == "" {
+				summary.LatestTarget = target
+				summary.LatestTargetBrief = firstGJSONString(v, "description", "type.value")
+			}
+			return true
+		})
+		return summary
+	}
 	return summary
 }
 
