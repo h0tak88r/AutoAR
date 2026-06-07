@@ -40,7 +40,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
 |  **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
 |  **Monitoring**      | Subdomain + URL change monitoring daemon with webhook alerts (Discord-compatible) & DB history                                          |
-|  **AI Agent**        | Full AI hunt loop from the CLI (`autoar agent` / `autoar explain`) — powered by **z-ai/glm-4.5-air:free via OpenRouter** — zero cost required |
+|  **AI Agent**        | Full AI hunt loop from the CLI (`autoar agent` / `autoar explain`) — defaults to **deepseek-v4-flash-free via OpenCode Zen** — free tier, no card required |
 |  **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 |  **Smart Alerts**    | Rich webhook notifications for zero-findings scans — no more empty files or spam                                                       |
 |  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
@@ -351,9 +351,9 @@ autoar status [--json]
 
 ##  AI-Driven Security Framework — Free for Everyone
 
-As of the latest release, AutoAR's AI engine runs on `**[stepfun/step-3.5-flash:free](https://openrouter.ai/stepfun/step-3.5-flash:free)**` via [OpenRouter](https://openrouter.ai). This is a **completely free model** — no credits, no billing required.
+AutoAR's AI engine defaults to **[OpenCode Zen](https://opencode.ai/zen)** running `deepseek-v4-flash-free`. OpenCode Zen is OpenAI-compatible and offers a free tier with no card required. You can also bring your own OpenRouter or Gemini key — AutoAR routes to whichever providers you configure.
 
-> **Every AutoAR user can now access a full AI-driven bug bounty framework at zero cost** — just sign up for a free OpenRouter account and paste your key into `.env`.
+> **Free path in 60 seconds:** create a free OpenCode Zen account, copy your key into `OPENCODE_API_KEY`, and the agent works.
 
 ### What the AI powers
 
@@ -365,19 +365,43 @@ As of the latest release, AutoAR's AI engine runs on `**[stepfun/step-3.5-flash:
 | `autoar explain <result-file>`          | Feed any result file to the AI for triage and follow-up suggestions.                                           |
 
 
-### Getting your free OpenRouter key
+### Getting your free OpenCode Zen key
 
-1. Go to [openrouter.ai](https://openrouter.ai) and create a **free account** (no credit card required for free models)
-2. Navigate to **Keys** → **Create Key**
-3. Copy your key and add it to `.env`:
+1. Go to [opencode.ai/zen](https://opencode.ai/zen) and create a free account.
+2. Generate an API key from the dashboard.
+3. Drop it into `.env`:
+
+```env
+OPENCODE_API_KEY=oc-...
+# Optional model override — leave unset for the default deepseek-v4-flash-free.
+# Browse https://opencode.ai/zen/v1/models for the full list.
+OPENCODE_MODEL=
+```
+
+That's it. AutoAR will use `deepseek-v4-flash-free` automatically for `autoar agent` and `autoar explain`.
+
+### Bringing your own OpenRouter key (optional)
+
+If you want to use OpenRouter (paid premium models or alternative free models):
 
 ```env
 OPENROUTER_API_KEY=sk-or-v1-...
+# Optional model override — leave unset for z-ai/glm-4.5-air:free.
+OPENROUTER_MODEL=
 ```
 
-That's it. AutoAR will automatically use `z-ai/glm-4.5-air:free` for `autoar agent` and `autoar explain`.
+### Provider priority
 
-> **Tip:** If `OPENROUTER_API_KEY` is set, it is used first (with `z-ai/glm-4.5-air:free`). `ZHIPU_API_KEY` routes to the Z.ai direct endpoint. `GEMINI_API_KEY` is a final fallback. You only need one of the three.
+When multiple keys are configured, AutoAR tries them in this order — each provider falls back to the next on error:
+
+1. `OPENROUTER_API_KEY` → OpenRouter (`OPENROUTER_MODEL` or `z-ai/glm-4.5-air:free`)
+2. `OPENCODE_API_KEY` → OpenCode Zen (`OPENCODE_MODEL` or `deepseek-v4-flash-free`)
+3. `ZHIPU_API_KEY` → Z.ai direct endpoint
+4. `GEMINI_API_KEY` → Gemini Direct
+
+### Configuring from the dashboard
+
+The web dashboard (`/ui/settings`) exposes all four keys and the two model overrides. You can paste keys, change models, and reset to defaults without touching `.env`. Existing keys are masked in the input — leave the field blank to keep the saved value, type a new value to overwrite.
 
 ### Database & Results
 
@@ -547,11 +571,16 @@ H1_API_KEY=...           # HackerOne
 INTEGRITI_API_KEY=...    # Intigriti
 
 # AI analysis — only ONE key is needed
-#  Recommended: OpenRouter free tier (no credit card required)
-#    Sign up at https://openrouter.ai · Uses stepfun/step-3.5-flash:free automatically
-OPENROUTER_API_KEY=...   # Powers `autoar agent` and `autoar explain` — completely free
+#  Recommended (free): OpenCode Zen (no credit card required)
+#    Sign up at https://opencode.ai/zen · uses deepseek-v4-flash-free automatically
+OPENCODE_API_KEY=oc-...   # Powers `autoar agent` and `autoar explain` — completely free
+# OPENCODE_MODEL=         # Optional override; see https://opencode.ai/zen/v1/models
 
-# Optional fallback: direct Gemini API (only if you don't use OpenRouter)
+# Optional: OpenRouter for premium / alternative models
+OPENROUTER_API_KEY=...
+# OPENROUTER_MODEL=        # Optional override; defaults to z-ai/glm-4.5-air:free
+
+# Optional fallback: direct Gemini API
 GEMINI_API_KEY=...
 ```
 
@@ -708,7 +737,7 @@ AUTOAR_RESULTS_DIR=/app/new-results
 DB_TYPE=postgresql
 DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
 USE_R2_STORAGE=true
-OPENROUTER_API_KEY=...
+OPENCODE_API_KEY=oc-...   # or OPENROUTER_API_KEY / GEMINI_API_KEY
 ```
 
 ---
