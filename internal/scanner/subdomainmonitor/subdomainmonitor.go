@@ -49,7 +49,7 @@ type MonitorOptions struct {
 	Domain      string
 	Threads     int
 	CheckNew    bool // Check for new subdomains (404 -> 200)
-	Notify      bool // Send notifications (for future webhook/Discord integration)
+	Notify      bool // Send webhook notifications on change
 }
 
 // MonitorSubdomains monitors subdomains for a domain and detects changes

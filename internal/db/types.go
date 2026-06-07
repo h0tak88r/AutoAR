@@ -256,7 +256,7 @@ type MonitorChange struct {
 	ChangeType  string    // "new_subdomain", "became_live", "became_dead", "status_changed", "content_changed"
 	Detail      string    // JSON blob with old/new values
 	DetectedAt  time.Time
-	Notified    bool      // whether a Discord alert was sent
+	Notified    bool      // whether a webhook alert was sent
 }
 
 // SubdomainStatus represents a subdomain with its status information

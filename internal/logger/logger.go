@@ -31,7 +31,7 @@ type LogConfig struct {
 func DefaultLogConfig() LogConfig {
 	return LogConfig{
 		Level:      "info",
-		FilePath:   "autoar-bot.log",
+		FilePath:   "autoar.log",
 		MaxSize:    100,
 		MaxAge:     7,
 		MaxBackups: 3,

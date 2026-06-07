@@ -40,7 +40,7 @@ services:
             - TRUFFLEHOG_NO_UPDATE=true
             - TRUFFLEHOG_AUTOUPDATE=false
 
-            # API Keys (same as discord)
+            # API Keys
             - GITHUB_TOKEN=${GITHUB_TOKEN:-}
             - SECURITYTRAILS_API_KEY=${SECURITYTRAILS_API_KEY:-}
             - SHODAN_API_KEY=${SHODAN_API_KEY:-}

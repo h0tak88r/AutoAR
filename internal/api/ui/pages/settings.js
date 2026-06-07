@@ -134,8 +134,8 @@
           <div class="settings-section-body">
             <div class="settings-item">
               <div class="settings-label">
-                <div class="settings-title">Discord Webhook</div>
-                <div class="settings-hint">Where scan notifications and findings are sent.</div>
+                <div class="settings-title">Monitor Webhook</div>
+                <div class="settings-hint">Where monitor change alerts are sent. Discord webhook URLs work out of the box.</div>
               </div>
               <div class="settings-control">
                 <input type="text" id="monitor-webhook-input" value="${escValue(cfg.monitor_webhook || '')}" placeholder="https://discord.com/api/webhooks/..." class="form-control premium-input">

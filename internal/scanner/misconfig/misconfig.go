@@ -97,7 +97,7 @@ func handleScan(opts Options, resultsDir string) error {
 		return fmt.Errorf("failed to create output directory: %v", err)
 	}
 
-	// Create file with renamed output for Discord
+	// Create file with renamed output
 	outputFile := filepath.Join(outputDir, "misconfig-scan-results.txt")
 
 	root := os.Getenv("AUTOAR_ROOT")

@@ -69,7 +69,7 @@ type AgentAction struct {
 	Command string `json:"command,omitempty"` // for run_command / run_shell
 	Reason  string `json:"reason,omitempty"`  // why this command
 	Content string `json:"content,omitempty"` // for report
-	Notify  bool   `json:"notify,omitempty"`  // should it go to Discord?
+	Notify  bool   `json:"notify,omitempty"`  // should it trigger a notification?
 	Summary string `json:"summary,omitempty"` // for done
 }
 
@@ -119,7 +119,7 @@ You control the AutoAR security tool via JSON actions.
 
 // RunAgentLoop runs the natural language AI agent loop.
 // userRequest: the user's NL message (e.g. "scan example.com for open ports")
-// progressFn: called with progress strings to post to Discord
+// progressFn: called with progress strings to report to the caller (CLI/UI)
 // Returns AgentResult with all reports and a final summary.
 func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, error) {
 	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
@@ -229,7 +229,7 @@ func RunAgentLoop(userRequest string, progressFn func(string)) (*AgentResult, er
 			if progressFn != nil {
 				notifyStr := ""
 				if action.Notify {
-					notifyStr = " *(will be posted to Discord)*"
+					notifyStr = " *(flagged for notification)*"
 				}
 				progressFn(fmt.Sprintf(" Agent generated a report%s", notifyStr))
 			}
