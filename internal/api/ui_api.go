@@ -2171,20 +2171,19 @@ func openRouterChat(c *gin.Context, systemPrompt, userPrompt string) (string, er
 	return result.Choices[0].Message.Content, nil
 }
 
-// aiChat routes a system+user prompt to the first available AI provider.
-// Preference: an OpenRouter key (UI X-OpenRouter-Key header or OPENROUTER_API_KEY)
-// is used first; otherwise (or if OpenRouter errors) it falls back to the shared
-// brain provider chain (OpenCode → Z.ai → Gemini). This keeps the dashboard AI
-// helpers working when the user only configured the free OpenCode provider.
+// aiChat routes a system+user prompt to the shared brain provider chain, which
+// prefers OpenCode (the free default) → OpenRouter → Z.ai → Gemini based on which
+// keys are configured. The only exception is an OpenRouter key pasted directly in
+// the UI (X-OpenRouter-Key header): when present, that explicit choice is honored
+// first. An OpenRouter key set merely via env does NOT override the OpenCode
+// default — it's just a fallback in the chain.
 func aiChat(c *gin.Context, systemPrompt, userPrompt string) (string, error) {
-	hasOR := strings.TrimSpace(c.GetHeader("X-OpenRouter-Key")) != "" ||
-		strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != ""
-	if hasOR {
+	if strings.TrimSpace(c.GetHeader("X-OpenRouter-Key")) != "" {
 		out, err := openRouterChat(c, systemPrompt, userPrompt)
 		if err == nil {
 			return out, nil
 		}
-		log.Printf("[API] OpenRouter chat failed, falling back to OpenCode/Gemini: %v", err)
+		log.Printf("[API] OpenRouter (UI key) failed, falling back to provider chain: %v", err)
 	}
 	return brain.ChatWithAI(nil, userPrompt, systemPrompt)
 }
