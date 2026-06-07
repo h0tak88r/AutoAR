@@ -22,17 +22,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/brain"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
 	"github.com/h0tak88r/AutoAR/internal/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitor"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitorsuggest"
+	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/h0tak88r/AutoAR/internal/version"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
 	"github.com/projectdiscovery/nuclei/v3/pkg/output"
-	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2170,6 +2171,24 @@ func openRouterChat(c *gin.Context, systemPrompt, userPrompt string) (string, er
 	return result.Choices[0].Message.Content, nil
 }
 
+// aiChat routes a system+user prompt to the first available AI provider.
+// Preference: an OpenRouter key (UI X-OpenRouter-Key header or OPENROUTER_API_KEY)
+// is used first; otherwise (or if OpenRouter errors) it falls back to the shared
+// brain provider chain (OpenCode → Z.ai → Gemini). This keeps the dashboard AI
+// helpers working when the user only configured the free OpenCode provider.
+func aiChat(c *gin.Context, systemPrompt, userPrompt string) (string, error) {
+	hasOR := strings.TrimSpace(c.GetHeader("X-OpenRouter-Key")) != "" ||
+		strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != ""
+	if hasOR {
+		out, err := openRouterChat(c, systemPrompt, userPrompt)
+		if err == nil {
+			return out, nil
+		}
+		log.Printf("[API] OpenRouter chat failed, falling back to OpenCode/Gemini: %v", err)
+	}
+	return brain.ChatWithAI(nil, userPrompt, systemPrompt)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/findings/validate — AI validates a single finding
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2214,7 +2233,7 @@ What can an attacker do? Be specific.
 ## Quick Fix
 One-line remediation.`, body.Target, body.FindingType, body.Severity, body.Module)
 
-	analysis, err := openRouterChat(c, systemPrompt, userPrompt)
+	analysis, err := aiChat(c, systemPrompt, userPrompt)
 	if err != nil {
 		log.Printf("[API] validate finding error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -2278,7 +2297,7 @@ Use EXACTLY this structure (markdown):
 ## Impact
 [1-2 sentences: what an attacker can do]`, body.Target, body.FindingType, body.Severity, body.Module)
 
-	report, err := openRouterChat(c, systemPrompt, userPrompt)
+	report, err := aiChat(c, systemPrompt, userPrompt)
 	if err != nil {
 		log.Printf("[API] report finding error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -2289,5 +2308,119 @@ Use EXACTLY this structure (markdown):
 		"report":  report,
 		"target":  body.Target,
 		"finding": body.FindingType,
+	})
+}
+
+// reportSystemPrompt is the attacker-mindset instruction enforcing the exact
+// report structure for the batch finding-report feature.
+const reportSystemPrompt = `You are a senior offensive security engineer writing bug bounty reports.
+
+Mindset:
+- Think like a real-world attacker, not a beginner.
+- Always look for practical, exploitable vulnerabilities.
+- Focus on impact, not theory.
+- Be concise, direct, and technical.
+
+When reporting a vulnerability:
+- ONLY use the following structure.
+- Keep it clean, concise, and professional.
+- No extra commentary outside the structure.
+
+## Title: <clear, specific vulnerability name>
+
+## Summary
+<short explanation of the issue and where it exists>
+
+## Steps to Reproduce
+1. <step 1>
+2. <step 2>
+3. <step 3>
+
+## Impact
+<realistic impact, what attacker can achieve>
+
+If multiple findings are provided, output one report per finding using EXACTLY this structure, separated by a line containing only '---'. If several findings are clearly the same vulnerability class on related assets, you may merge them into a single report and list all affected targets in the Summary.`
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/findings/report-batch — AI writes a report for one or many findings
+// ─────────────────────────────────────────────────────────────────────────────
+
+type reportFindingItem struct {
+	Target      string `json:"target"`
+	FindingType string `json:"finding_type"`
+	Severity    string `json:"severity"`
+	Module      string `json:"module"`
+	Detail      string `json:"detail"`
+}
+
+func apiReportFindingsBatch(c *gin.Context) {
+	var body struct {
+		Findings []reportFindingItem `json:"findings"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	// Keep only findings that carry an identifier, and cap the batch so the prompt
+	// (and cost/latency) stays bounded.
+	cleaned := make([]reportFindingItem, 0, len(body.Findings))
+	for _, f := range body.Findings {
+		if strings.TrimSpace(f.FindingType) == "" && strings.TrimSpace(f.Target) == "" {
+			continue
+		}
+		cleaned = append(cleaned, f)
+	}
+	if len(cleaned) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no findings provided"})
+		return
+	}
+	const maxBatch = 25
+	truncated := false
+	if len(cleaned) > maxBatch {
+		cleaned = cleaned[:maxBatch]
+		truncated = true
+	}
+
+	var sb strings.Builder
+	if len(cleaned) == 1 {
+		sb.WriteString("Write a vulnerability report for this finding.\n\n")
+	} else {
+		fmt.Fprintf(&sb, "Write a vulnerability report for the following %d findings.\n\n", len(cleaned))
+	}
+	for i, f := range cleaned {
+		fmt.Fprintf(&sb, "Finding %d:\n", i+1)
+		if v := strings.TrimSpace(f.Target); v != "" {
+			fmt.Fprintf(&sb, "- Target: %s\n", v)
+		}
+		if v := strings.TrimSpace(f.FindingType); v != "" {
+			fmt.Fprintf(&sb, "- Vulnerability: %s\n", v)
+		}
+		if v := strings.TrimSpace(f.Severity); v != "" {
+			fmt.Fprintf(&sb, "- Severity: %s\n", v)
+		}
+		if v := strings.TrimSpace(f.Module); v != "" {
+			fmt.Fprintf(&sb, "- Scanner/Module: %s\n", v)
+		}
+		if v := strings.TrimSpace(f.Detail); v != "" {
+			if len(v) > 600 {
+				v = v[:600]
+			}
+			fmt.Fprintf(&sb, "- Evidence: %s\n", v)
+		}
+		sb.WriteString("\n")
+	}
+
+	report, err := aiChat(c, reportSystemPrompt, sb.String())
+	if err != nil {
+		log.Printf("[API] batch report error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"report":    report,
+		"count":     len(cleaned),
+		"truncated": truncated,
 	})
 }
