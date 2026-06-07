@@ -206,8 +206,12 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 					}
 					recordsMutex.Unlock()
 
-					// Sync to core database Subdomains table
-					go db.UpdateSubdomainCNAME(opts.Domain, target, strings.Join(results.CNAME, ","))
+					// Sync to core database Subdomains table. Called synchronously
+					// inside the worker goroutine (was a fire-and-forget `go` that
+					// leaked unbounded goroutines and could outlive the function).
+					// Use the derived root `domain`, not opts.Domain, so the key is
+					// correct in Targets/Subdomain modes too.
+					_ = db.UpdateSubdomainCNAME(domain, target, strings.Join(results.CNAME, ","))
 				}
 			}
 		}()

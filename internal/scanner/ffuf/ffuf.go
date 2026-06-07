@@ -5,8 +5,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -705,12 +705,12 @@ func (c *customOutputProvider) try403Bypass(originalResp ffufpkg.Response) {
 		if err != nil {
 			continue
 		}
-		defer resp.Body.Close()
 
 		// Only process if bypass was successful (status 200)
 		if resp.StatusCode == 200 {
 			// Read response body to get content metrics
 			bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) // Limit to 1MB
+			resp.Body.Close()
 			if err != nil {
 				continue
 			}
@@ -777,6 +777,9 @@ func (c *customOutputProvider) try403Bypass(originalResp ffufpkg.Response) {
 			// Stop after first successful bypass to avoid duplicates
 			return
 		}
+		// Non-200: close the body now so open connections don't accumulate
+		// across the bypass-technique loop (defer would fire only on return).
+		resp.Body.Close()
 	}
 }
 

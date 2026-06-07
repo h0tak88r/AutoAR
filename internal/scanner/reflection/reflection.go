@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	kxsstool "github.com/h0tak88r/AutoAR/internal/tools/kxss"
-	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
 	"github.com/h0tak88r/AutoAR/internal/scanner/urls"
+	dalfoxtool "github.com/h0tak88r/AutoAR/internal/tools/dalfox"
+	kxsstool "github.com/h0tak88r/AutoAR/internal/tools/kxss"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -26,20 +26,20 @@ type Result struct {
 
 // Options holds reflection scan options
 type Options struct {
-	Domain      string
-	Subdomain   string // Single subdomain to scan (alternative to Domain)
-	Threads     int
-	Timeout     time.Duration
-	URLThreads  int // Concurrency for URL collection
+	Domain     string
+	Subdomain  string // Single subdomain to scan (alternative to Domain)
+	Threads    int
+	Timeout    time.Duration
+	URLThreads int // Concurrency for URL collection
 }
 
 // ScanReflection runs reflection scanning using kxss with timeout and concurrency support
 func ScanReflection(domain string) (*Result, error) {
 	return ScanReflectionWithOptions(Options{
 		Domain:     domain,
-		Threads:    50,  // Default concurrency for kxss scanning
+		Threads:    50,               // Default concurrency for kxss scanning
 		Timeout:    15 * time.Minute, // Default 15 minute timeout
-		URLThreads: 150, // Higher concurrency for URL collection
+		URLThreads: 150,              // Higher concurrency for URL collection
 	})
 }
 
@@ -62,7 +62,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	// Determine which target to use and whether to skip subdomain enumeration
 	var target string
 	skipSubdomainEnum := false
-	
+
 	if opts.Subdomain != "" {
 		// Use subdomain mode: work with the specific subdomain
 		target = strings.TrimPrefix(strings.TrimPrefix(opts.Subdomain, "http://"), "https://")
@@ -135,7 +135,7 @@ func ScanReflectionWithOptions(opts Options) (*Result, error) {
 	// Run embedded kxss engine with concurrency and timeout
 	logger.GetLogger().Infof("[INFO] Running embedded kxss reflection scan for %s (threads: %d, timeout: %v)", target, opts.Threads, opts.Timeout)
 	logger.GetLogger().Infof("[INFO] Scanning %d URL(s) for reflection points", len(validURLs))
-	
+
 	// Scan URLs with concurrency and timeout
 	kxssResults, err := scanURLsWithConcurrency(ctx, validURLs, opts.Threads)
 	findings := make([]xssFinding, 0, len(kxssResults))
@@ -389,13 +389,13 @@ func scanURLsWithConcurrency(ctx context.Context, urls []string, concurrency int
 	}
 
 	type job struct {
-		url  string
-		idx  int
+		url string
+		idx int
 	}
 
 	jobs := make(chan job, len(urls))
 	results := make(chan kxsstool.Result, len(urls))
-	
+
 	// Create worker pool
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
@@ -484,6 +484,7 @@ func readLines(path string) ([]string, error) {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	var lines []string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

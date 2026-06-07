@@ -19,9 +19,9 @@ import (
 
 // Options controls JS endpoint extraction behaviour.
 type Options struct {
-	Domain    string
-	JSFile    string // path to js-urls.txt; if empty, derived from Domain
-	Threads   int
+	Domain  string
+	JSFile  string // path to js-urls.txt; if empty, derived from Domain
+	Threads int
 }
 
 // Result summarises the extraction.
@@ -175,7 +175,7 @@ func extractEndpoints(content, sourceURL string) []string {
 				continue
 			}
 			ep := strings.TrimSpace(m[1])
-			ep = strings.Trim(ep, `"'` + "`")
+			ep = strings.Trim(ep, `"'`+"`")
 			if ep == "" || len(ep) < 3 || len(ep) > 300 {
 				continue
 			}
@@ -241,6 +241,7 @@ func readLines(path string) ([]string, error) {
 	defer f.Close()
 	var lines []string
 	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		if l := strings.TrimSpace(sc.Text()); l != "" {
 			lines = append(lines, l)
