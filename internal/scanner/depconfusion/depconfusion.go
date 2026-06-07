@@ -124,9 +124,9 @@ func runWebFromFile(opts Options, resultsDir string) error {
 	outputDir := opts.OutputDir
 	if outputDir == "" {
 		if opts.Domain != "" {
-			outputDir = filepath.Join(resultsDir, opts.Domain, "depconfusion", "web-file")
+			outputDir = filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Domain), "depconfusion", "web-file")
 		} else if opts.Subdomain != "" {
-			outputDir = filepath.Join(resultsDir, opts.Subdomain, "depconfusion", "web-file")
+			outputDir = filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Subdomain), "depconfusion", "web-file")
 		} else {
 			outputDir = filepath.Join(resultsDir, "depconfusion", "web-file")
 		}
@@ -172,7 +172,7 @@ func runWebFull(opts Options, resultsDir string) error {
 		return fmt.Errorf("domain is required for full scan")
 	}
 
-	outputDir := filepath.Join(resultsDir, "depconfusion", fmt.Sprintf("web-full-%s", domain))
+	outputDir := filepath.Join(resultsDir, "depconfusion", fmt.Sprintf("web-full-%s", utils.SanitizeTargetSegment(domain)))
 	if opts.OutputDir != "" {
 		outputDir = opts.OutputDir
 	}
@@ -350,7 +350,7 @@ func runGitHubRepo(opts Options, resultsDir string) error {
 }
 
 func runGitHubOrg(opts Options, resultsDir string) error {
-	outputDir := filepath.Join(resultsDir, "depconfusion", fmt.Sprintf("github-org-%s", opts.GitHubOrg))
+	outputDir := filepath.Join(resultsDir, "depconfusion", fmt.Sprintf("github-org-%s", utils.SanitizeTargetSegment(opts.GitHubOrg)))
 	if opts.OutputDir != "" {
 		outputDir = opts.OutputDir
 	}

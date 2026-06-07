@@ -46,7 +46,7 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 	}
 
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, opts.Domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Domain))
 	var urlsFile string
 	var urlsCleanup func()
 

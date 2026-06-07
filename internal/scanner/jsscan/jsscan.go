@@ -482,7 +482,9 @@ func downloadJSFile(client *http.Client, url string) (string, error) {
 		return "", fmt.Errorf("non-200 status: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap the body read so a malicious/huge JS response can't exhaust memory
+	// (this runs across many concurrent workers). 10 MB is ample for real bundles.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return "", err
 	}

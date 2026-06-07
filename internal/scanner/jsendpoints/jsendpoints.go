@@ -55,7 +55,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, opts.Domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Domain))
 	jsVulnDir := filepath.Join(domainDir, "vulnerabilities", "js")
 	if err := utils.EnsureDir(jsVulnDir); err != nil {
 		return nil, fmt.Errorf("failed to create js dir: %w", err)

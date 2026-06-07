@@ -70,7 +70,7 @@ func handleDomainEnumAndScan(opts Options, resultsDir string) error {
 	domain := opts.Root
 
 	// Directory structure: resultsDir/domain/s3/
-	outputDir := filepath.Join(resultsDir, domain, "s3")
+	outputDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain), "s3")
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
 	}
@@ -300,9 +300,9 @@ func handleEnum(opts Options, resultsDir string) error {
 	// Use Subdomain for directory structure if provided, otherwise use root domain
 	var outputDir string
 	if opts.Subdomain != "" {
-		outputDir = filepath.Join(resultsDir, opts.Subdomain, "s3")
+		outputDir = filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Subdomain), "s3")
 	} else {
-		outputDir = filepath.Join(resultsDir, "s3", opts.Root)
+		outputDir = filepath.Join(resultsDir, "s3", utils.SanitizeTargetSegment(opts.Root))
 	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
@@ -455,7 +455,7 @@ func handleScan(opts Options, resultsDir string) error {
 		return fmt.Errorf("bucket name is required for scan action")
 	}
 
-	outputDir := filepath.Join(resultsDir, "s3", opts.Bucket)
+	outputDir := filepath.Join(resultsDir, "s3", utils.SanitizeTargetSegment(opts.Bucket))
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
 	}

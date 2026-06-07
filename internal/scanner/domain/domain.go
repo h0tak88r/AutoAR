@@ -67,7 +67,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 	defer shutdownMgr.DecrementActiveScans()
 
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain))
 	_ = os.MkdirAll(domainDir, 0755)
 
 	liveHostsFile := filepath.Join(domainDir, "subs", "live-subs.txt")

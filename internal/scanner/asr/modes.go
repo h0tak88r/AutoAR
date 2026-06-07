@@ -26,7 +26,7 @@ func RunMode1(ctx context.Context, opts Options) error {
 	opts.Progress(fmt.Sprintf("Found %d passive subdomains", len(subs)))
 	
 	resultsRoot := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsRoot, opts.Domain)
+	domainDir := filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 	os.MkdirAll(domainDir, 0755)
 	
 	return utils.WriteLines(filepath.Join(domainDir, "all_subs_passive.txt"), subs)
@@ -37,7 +37,7 @@ func RunMode2(ctx context.Context, opts Options) error {
 	opts.Progress("Running Mode 2: DNS Bruteforce + TLS Probing + Permutations")
 	
 	resultsRoot := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsRoot, opts.Domain)
+	domainDir := filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 	os.MkdirAll(domainDir, 0755)
 
 	var allSubdomains []string
@@ -76,7 +76,7 @@ func RunMode3(ctx context.Context, opts Options) error {
 	opts.Progress("Running Mode 3: Passive + TLS + DNS Bruteforce + HTTP Check + Scraping")
 	
 	resultsRoot := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsRoot, opts.Domain)
+	domainDir := filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 	os.MkdirAll(domainDir, 0755)
 
 	var allSubdomains []string
@@ -137,7 +137,7 @@ func RunMode4(ctx context.Context, opts Options) error {
 	opts.Progress("Running Mode 4: Passive + TLS + HTTP Check + Scraping (No DNS Bruteforce)")
 	
 	resultsRoot := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsRoot, opts.Domain)
+	domainDir := filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 	os.MkdirAll(domainDir, 0755)
 
 	var allSubdomains []string
@@ -185,7 +185,7 @@ func RunMode5(ctx context.Context, opts Options) error {
 	opts.Progress("Running Mode 5: Full Recon")
 	
 	resultsRoot := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsRoot, opts.Domain)
+	domainDir := filepath.Join(resultsRoot, utils.SanitizeTargetSegment(opts.Domain))
 	os.MkdirAll(domainDir, 0755)
 
 	var allSubdomains []string

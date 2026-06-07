@@ -40,7 +40,7 @@ type Result struct {
 func RunKatanaPhase(domain string) error {
 	resultsDir := utils.GetResultsDir()
 	dirDomain := domain
-	domainDir := filepath.Join(resultsDir, dirDomain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(dirDomain))
 	liveFile := filepath.Join(domainDir, "subs", "live-subs.txt")
 	kataFile := filepath.Join(domainDir, "urls", "katana-urls.txt")
 

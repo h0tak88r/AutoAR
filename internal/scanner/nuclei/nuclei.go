@@ -132,7 +132,7 @@ func RunNuclei(opts Options) (*Result, error) {
 	// Handle domain mode
 	logger.GetLogger().Infof("[INFO] Domain mode: %s", opts.Domain)
 	targetName = opts.Domain
-	domainDir := filepath.Join(resultsDir, opts.Domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Domain))
 	outputDir = filepath.Join(domainDir, "vulnerabilities")
 	if err := utils.EnsureDir(outputDir); err != nil {
 		return nil, fmt.Errorf("failed to create output dir: %w", err)
