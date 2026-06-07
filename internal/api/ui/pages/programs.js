@@ -20,15 +20,50 @@
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  function relativeAge(value) {
+    if (!value) return '';
+    const then = new Date(value);
+    if (Number.isNaN(then.getTime())) return '';
+    const diffMs = Date.now() - then.getTime();
+    const future = diffMs < 0;
+    const abs = Math.abs(diffMs);
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    const month = 30 * day;
+    const year = 365 * day;
+    let count = Math.max(1, Math.floor(abs / minute));
+    let unit = 'm';
+    if (abs >= year) {
+      count = Math.floor(abs / year);
+      unit = 'y';
+    } else if (abs >= month) {
+      count = Math.floor(abs / month);
+      unit = 'mo';
+    } else if (abs >= day) {
+      count = Math.floor(abs / day);
+      unit = 'd';
+    } else if (abs >= hour) {
+      count = Math.floor(abs / hour);
+      unit = 'h';
+    }
+    return future ? `in ${count}${unit}` : `${count}${unit} ago`;
+  }
+
+  function truncateText(value, max = 86) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1).trim()}…`;
+  }
+
   async function loadPrograms() {
     const platform = document.getElementById('programs-platform-filter')?.value || 'all';
-    const bbpOnly = document.getElementById('programs-bbp-only')?.checked || false;
     const container = document.getElementById('programs-container');
     const statsBar = document.getElementById('programs-stats-bar');
     if (container) container.innerHTML = '<div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading programs…</div></div>';
 
     try {
-      const params = new URLSearchParams({ platform, bbp_only: String(bbpOnly), sort: 'name' });
+      const params = new URLSearchParams({ platform, sort: 'name' });
       const data = await window.apiFetch('/api/scope/programs?' + params.toString());
       programsData = data.programs || [];
 
@@ -57,9 +92,10 @@
     let filtered = programsData;
     if (query) {
       filtered = programsData.filter(p =>
-        p.name.toLowerCase().includes(query) ||
-        p.handle.toLowerCase().includes(query) ||
-        p.latest_target.toLowerCase().includes(query)
+        (p.name || '').toLowerCase().includes(query) ||
+        (p.handle || '').toLowerCase().includes(query) ||
+        (p.latest_target || '').toLowerCase().includes(query) ||
+        (p.latest_target_brief || '').toLowerCase().includes(query)
       );
     }
 
@@ -72,6 +108,18 @@
       const colors = PLATFORM_COLORS[p.platform] || PLATFORM_COLORS.h1;
       const badge = PLATFORM_LABELS[p.platform] || p.platform.toUpperCase();
       const stateLabel = STATE_LABELS[p.state] || p.state || '?';
+      const latestAge = relativeAge(p.latest_target_updated_at);
+      const latestBrief = truncateText(p.latest_target_brief || '');
+      const latestTitle = [p.latest_target, latestAge, p.latest_target_brief].filter(Boolean).join(' | ');
+      const latestCell = p.latest_target
+        ? `<div style="display:flex;flex-direction:column;gap:5px;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap;">
+              <span style="display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:3px 7px;border-radius:4px;background:rgba(0,212,255,0.08);color:#9be8ff;border:1px solid rgba(0,212,255,0.18);" title="${esc(latestTitle)}">${esc(p.latest_target)}</span>
+              ${latestAge ? `<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.6);" title="${esc(p.latest_target_updated_at)}">${esc(latestAge)}</span>` : ''}
+            </div>
+            ${latestBrief ? `<div style="font-size:10px;line-height:1.35;color:rgba(255,255,255,0.45);max-width:280px;white-space:normal;">${esc(latestBrief)}</div>` : ''}
+          </div>`
+        : '<span style="color:rgba(255,255,255,0.25);">-</span>';
 
       return `
       <tr class="program-row" style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.15s;">
@@ -92,8 +140,8 @@
         <td style="padding:10px 12px;text-align:center;font-size:12px;color:rgba(255,255,255,0.6);">
           ${p.scope_targets > 0 ? `<strong style="color:#fff;">${p.scope_targets}</strong>` : '<span style="color:rgba(255,255,255,0.25);">-</span>'}
         </td>
-        <td style="padding:10px 12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-          <span style="font-size:11px;color:rgba(255,255,255,0.5);" title="${esc(p.latest_target || '')}">${esc(p.latest_target || '-')}</span>
+        <td style="padding:10px 12px;max-width:320px;">
+          ${latestCell}
         </td>
         <td style="padding:10px 12px;text-align:center;">
           ${p.offers_bounties ? `<span style="font-size:12px;color:#2ecc71;">${esc(p.currency.toUpperCase())}</span>` : '<span style="color:rgba(255,255,255,0.2);">-</span>'}
