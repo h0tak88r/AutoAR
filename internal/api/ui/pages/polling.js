@@ -44,6 +44,7 @@
       case 'domains': window.loadDomains(); break;
       case 'subdomains': window.loadSubdomains(); break;
       case 'targets': window.loadTargetsPlatforms(); break;
+      case 'programs': window.ProgramsPage.loadPrograms(); break;
       case 'monitor': window.loadMonitor(); break;
       case 'keyhacks': window.loadKeyhacks(); break;
       case 'report-templates': window.renderReportTemplates(); break;
