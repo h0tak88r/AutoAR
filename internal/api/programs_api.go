@@ -84,27 +84,35 @@ func apiListPrograms(c *gin.Context) {
 	sortBy := c.DefaultQuery("sort", "name")
 	forceRefresh := c.DefaultQuery("refresh", "false") == "true"
 
-	// A manual "refresh now" rebuilds in the background (the rebuild makes ~1000
-	// upstream calls and takes ~a minute — far too long to block the request on).
-	// We kick it off and still serve the current cache instantly below.
-	if forceRefresh {
-		refreshProgramsCacheAsync()
-	}
+	// The DB-backed cache is only usable when a DB is configured. Without it we
+	// skip all cache/background-refresh logic and just do a live fetch (the
+	// original behavior) — otherwise every request would kick an expensive
+	// upstream rebuild that can never be persisted.
+	cacheOn := programsCacheEnabled()
 
-	// Warm-cache fast path: serve the pre-fetched payload (scope already baked in)
-	// instantly. If it is stale, refresh in the background and still serve now.
-	if payload, ok := loadProgramsCache(); ok && len(payload.Programs) > 0 {
-		stale := time.Since(payload.GeneratedAt) > programsCacheTTL
-		if stale && !forceRefresh {
+	if cacheOn {
+		// A manual "refresh now" rebuilds in the background (the rebuild makes ~1000
+		// upstream calls and takes ~a minute — far too long to block the request on).
+		// We kick it off and still serve the current cache instantly below.
+		if forceRefresh {
 			refreshProgramsCacheAsync()
 		}
-		serveProgramsPayload(c, payload, platform, sortBy, stale)
-		return
-	}
 
-	// Cold path (cache not built yet): fall back to a live fetch so the first-ever
-	// load still works, and kick a background build so the next load is instant.
-	defer refreshProgramsCacheAsync()
+		// Warm-cache fast path: serve the pre-fetched payload (scope already baked in)
+		// instantly. If it is stale, refresh in the background and still serve now.
+		if payload, ok := loadProgramsCache(); ok && len(payload.Programs) > 0 {
+			stale := time.Since(payload.GeneratedAt) > programsCacheTTL
+			if stale && !forceRefresh {
+				refreshProgramsCacheAsync()
+			}
+			serveProgramsPayload(c, payload, platform, sortBy, stale)
+			return
+		}
+
+		// Cold path (cache not built yet): fall back to a live fetch so the first-ever
+		// load still works, and kick a background build so the next load is instant.
+		defer refreshProgramsCacheAsync()
+	}
 
 	var allPrograms []ProgramSummary
 	var mu sync.Mutex
