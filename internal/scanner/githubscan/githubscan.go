@@ -1,15 +1,21 @@
 package githubscan
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
+
+// trufflehogTimeout bounds a single TruffleHog invocation so a hung or huge
+// org/repo can't pin the scan indefinitely.
+const trufflehogTimeout = 30 * time.Minute
 
 type Mode string
 
@@ -64,14 +70,14 @@ func Run(opts Options) (*Result, error) {
 	switch opts.Mode {
 	case ModeRepo, ModeExperimental:
 		target = normalizeRepo(opts.Repo)
-		baseDir = filepath.Join(resultsRoot, "github", "repos", target)
+		baseDir = filepath.Join(resultsRoot, "github", "repos", utils.SanitizeTargetSegment(target))
 	case ModeOrg:
 		target = opts.Org
-		baseDir = filepath.Join(resultsRoot, "github", "orgs", target)
+		baseDir = filepath.Join(resultsRoot, "github", "orgs", utils.SanitizeTargetSegment(target))
 	}
 
 	if opts.Mode == ModeExperimental {
-		baseDir = filepath.Join(resultsRoot, "github", "experimental", target)
+		baseDir = filepath.Join(resultsRoot, "github", "experimental", utils.SanitizeTargetSegment(target))
 	}
 
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
@@ -81,7 +87,9 @@ func Run(opts Options) (*Result, error) {
 	jsonPath := filepath.Join(baseDir, "secrets.json")
 	logPath := filepath.Join(baseDir, "trufflehog.log")
 
-	cmd, err := buildTrufflehogCommand(opts)
+	ctx, cancel := context.WithTimeout(context.Background(), trufflehogTimeout)
+	defer cancel()
+	cmd, err := buildTrufflehogCommand(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +97,9 @@ func Run(opts Options) (*Result, error) {
 	// Capture ALL output in one buffer. TruffleHog mixes JSON finding lines
 	// and structured log lines (also JSON) on stdout; stderr is typically empty.
 	rawOutput, runErr := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("trufflehog scan timed out after %s", trufflehogTimeout)
+	}
 
 	// Split into JSON findings vs log/error lines.
 	// A finding line starts with '{"SourceMetadata"' or just '{', while log
@@ -195,7 +206,7 @@ func Run(opts Options) (*Result, error) {
 	return result, nil
 }
 
-func buildTrufflehogCommand(opts Options) (*exec.Cmd, error) {
+func buildTrufflehogCommand(ctx context.Context, opts Options) (*exec.Cmd, error) {
 	// Disable auto-update to avoid noise
 	env := append(os.Environ(),
 		"TRUFFLEHOG_NO_UPDATE=true",
@@ -206,7 +217,7 @@ func buildTrufflehogCommand(opts Options) (*exec.Cmd, error) {
 	case ModeRepo:
 		repoURL := ensureRepoURL(opts.Repo)
 		args := []string{"git", repoURL, "--json", "--no-update"}
-		cmd := exec.Command("trufflehog", args...)
+		cmd := exec.CommandContext(ctx, "trufflehog", args...)
 		cmd.Env = env
 		return cmd, nil
 
@@ -223,7 +234,7 @@ func buildTrufflehogCommand(opts Options) (*exec.Cmd, error) {
 			"--no-update",
 			"--token", os.Getenv("GITHUB_TOKEN"),
 		}
-		cmd := exec.Command("trufflehog", args...)
+		cmd := exec.CommandContext(ctx, "trufflehog", args...)
 		cmd.Env = env
 		return cmd, nil
 
@@ -242,7 +253,7 @@ func buildTrufflehogCommand(opts Options) (*exec.Cmd, error) {
 		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 			args = append(args, "--token", token)
 		}
-		cmd := exec.Command("trufflehog", args...)
+		cmd := exec.CommandContext(ctx, "trufflehog", args...)
 		cmd.Env = env
 		return cmd, nil
 	default:

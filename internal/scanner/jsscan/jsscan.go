@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,7 +48,7 @@ func Run(opts Options) (*Result, error) {
 	// Determine which target to use and whether to skip subdomain enumeration
 	var target string
 	skipSubdomainEnum := false
-	
+
 	if opts.Subdomain != "" {
 		// Use subdomain mode: work with the specific subdomain
 		target = strings.TrimPrefix(strings.TrimPrefix(opts.Subdomain, "http://"), "https://")
@@ -70,7 +70,7 @@ func Run(opts Options) (*Result, error) {
 		// Extract root domain from subdomain (legacy behavior for domain mode)
 		dirDomain = extractRootDomain(opts.Subdomain)
 	}
-	
+
 	// Check if URL files already exist before running collection
 	logger.GetLogger().Infof("[INFO] JS scan: Initializing domain directory for: %s", dirDomain)
 	domainDir, err := utils.DomainDirInit(dirDomain)
@@ -78,17 +78,17 @@ func Run(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to init domain directory: %w", err)
 	}
 	logger.GetLogger().Infof("[INFO] JS scan: Domain directory: %s", domainDir)
-	
+
 	urlsDir := filepath.Join(domainDir, "urls")
 	allFile := filepath.Join(urlsDir, "all-urls.txt")
 	jsFile := filepath.Join(urlsDir, "js-urls.txt")
-	
+
 	logger.GetLogger().Infof("[INFO] JS scan: Checking for existing URL files...")
 	logger.GetLogger().Infof("[INFO] JS scan: All URLs file: %s", allFile)
 	logger.GetLogger().Infof("[INFO] JS scan: JS URLs file: %s", jsFile)
-	
+
 	var urlRes *urls.Result
-	
+
 	// Check if both files exist and have content
 	allFileExists := false
 	jsFileExists := false
@@ -104,7 +104,7 @@ func Run(opts Options) (*Result, error) {
 	} else {
 		logger.GetLogger().Infof("[INFO] JS scan: js-urls.txt not found or empty: %v", err)
 	}
-	
+
 	if allFileExists && jsFileExists {
 		// Files already exist, read them instead of re-collecting
 		logger.GetLogger().Infof("[INFO] JS scan: Using existing URL files (skipping collection)")
@@ -179,7 +179,7 @@ func Run(opts Options) (*Result, error) {
 			logger.GetLogger().Infof("[WARN] JS scan: Failed to count lines in filtered file: %v", err)
 		}
 	}
-	
+
 	// Perform actual secret scanning on JS files
 	logger.GetLogger().Infof("[INFO] JS scan: Starting secret scanning on %d JS URLs...", totalJS)
 	secretsFile := filepath.Join(jsVulnDir, "js-secrets.txt")
@@ -189,7 +189,7 @@ func Run(opts Options) (*Result, error) {
 		scanID := utils.GetCurrentScanID()
 		if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
 			logger.GetLogger().Infof("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
-			
+
 			if scanID != "" {
 				data, readErr := os.ReadFile(secretsFile)
 				if readErr == nil {
@@ -239,7 +239,7 @@ func Run(opts Options) (*Result, error) {
 			}
 		}
 	}
-	
+
 	logger.GetLogger().Infof("[INFO] JS scan: Final result - %d JS URLs processed", totalJS)
 
 	return &Result{
@@ -316,6 +316,7 @@ func readLines(path string) ([]string, error) {
 
 	var lines []string
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line != "" {
@@ -331,17 +332,17 @@ func extractRootDomain(host string) string {
 	// Remove protocol if present
 	host = strings.TrimPrefix(host, "http://")
 	host = strings.TrimPrefix(host, "https://")
-	
+
 	// Remove port if present
 	if idx := strings.Index(host, ":"); idx != -1 {
 		host = host[:idx]
 	}
-	
+
 	// Remove path if present
 	if idx := strings.Index(host, "/"); idx != -1 {
 		host = host[:idx]
 	}
-	
+
 	parts := strings.Split(host, ".")
 	if len(parts) >= 2 {
 		// Return last two parts (e.g., example.com)
@@ -482,7 +483,9 @@ func downloadJSFile(client *http.Client, url string) (string, error) {
 		return "", fmt.Errorf("non-200 status: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap the body read so a malicious/huge JS response can't exhaust memory
+	// (this runs across many concurrent workers). 10 MB is ample for real bundles.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return "", err
 	}

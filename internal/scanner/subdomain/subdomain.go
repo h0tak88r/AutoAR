@@ -91,7 +91,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// Remove protocol if present
 	subdomainClean := strings.TrimPrefix(strings.TrimPrefix(subdomain, "http://"), "https://")
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, subdomainClean)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(subdomainClean))
 	subsDir := filepath.Join(domainDir, "subs")
 	if err := os.MkdirAll(subsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create subs directory: %v", err)
@@ -353,7 +353,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	logger.GetLogger().Infof("[OK] Full subdomain scan completed for %s", subdomain)
 
 	// Get subdomain directory path (resultsDir already declared earlier)
-	subdomainDir := filepath.Join(resultsDir, subdomainClean)
+	subdomainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(subdomainClean))
 
 	// Convert to absolute path to avoid issues
 	if absPath, err := filepath.Abs(subdomainDir); err == nil {
@@ -424,9 +424,9 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 	// Modules like AEM, S3, misconfig write to new-results/aem/, new-results/s3/, etc.
 	sharedDirs := []string{
 		filepath.Join(resultsDir, "aem"),
-		filepath.Join(resultsDir, "s3", rootDomain),
-		filepath.Join(resultsDir, "s3", subdomainClean),
-		filepath.Join(resultsDir, "misconfig", subdomainClean),
+		filepath.Join(resultsDir, "s3", utils.SanitizeTargetSegment(rootDomain)),
+		filepath.Join(resultsDir, "s3", utils.SanitizeTargetSegment(subdomainClean)),
+		filepath.Join(resultsDir, "misconfig", utils.SanitizeTargetSegment(subdomainClean)),
 	}
 	for _, sharedDir := range sharedDirs {
 		if info, err := os.Stat(sharedDir); err == nil && info.IsDir() {

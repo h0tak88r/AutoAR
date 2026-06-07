@@ -92,7 +92,7 @@ func handleUpdate(root string) error {
 
 func handleScan(opts Options, resultsDir string) error {
 	// Save results under the target directory
-	outputDir := filepath.Join(resultsDir, opts.Target, "misconfig")
+	outputDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Target), "misconfig")
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
 	}

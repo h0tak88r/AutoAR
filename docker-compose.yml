@@ -66,8 +66,14 @@ services:
             - ZOOMEYE_USERNAME=${ZOOMEYE_USERNAME:-}
             - ZOOMEYE_PASSWORD=${ZOOMEYE_PASSWORD:-}
             - ZOOMEYEAPI_API_KEY=${ZOOMEYEAPI_API_KEY:-}
+            # Bug bounty platform credentials (Programs + Targets pages, `autoar scope`)
             - H1_API_KEY=${H1_API_KEY:-}
-            - INTEGRITI_API_KEY=${INTEGRITI_API_KEY:-}
+            - H1_USERNAME=${H1_USERNAME:-}
+            - H1_TOKEN=${H1_TOKEN:-}
+            - BUGCROWD_TOKEN=${BUGCROWD_TOKEN:-}
+            - INTIGRITI_TOKEN=${INTIGRITI_TOKEN:-}
+            - INTIGRITI_API_KEY=${INTIGRITI_API_KEY:-}
+            - YWH_TOKEN=${YWH_TOKEN:-}
 
             # Database Configuration
             # Database Type: "postgresql" or "sqlite"

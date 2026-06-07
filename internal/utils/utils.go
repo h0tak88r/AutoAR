@@ -2,7 +2,7 @@ package utils
 
 import (
 	"fmt"
-	
+
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,22 +32,61 @@ func GetResultsDir() string {
 				}
 			}
 		}
-		
+
 		// If not in Docker and path is absolute (like /new-results), convert to relative
 		if !isDocker {
 			if cwd, err := os.Getwd(); err == nil {
 				return filepath.Join(cwd, "new-results")
-	}
-	return "new-results"
+			}
+			return "new-results"
 		}
 	}
 
 	return dir
 }
 
-// ResultsDir returns the results directory for a specific domain
+// SanitizeTargetSegment converts a scan target (domain, subdomain, host,
+// bucket, …) into a safe SINGLE filesystem path segment. It strips the URL
+// scheme and trailing slashes, replaces every character that is not part of a
+// hostname/bucket name with '-', and collapses parent references. The result
+// can never contain a path separator or "..", so passing it to filepath.Join
+// cannot escape the parent directory (prevents path traversal via crafted
+// targets — see internal/scanner/*). Legitimate targets are unchanged except
+// for ':' (ports) becoming '-'.
+func SanitizeTargetSegment(target string) string {
+	t := strings.TrimSpace(target)
+	t = strings.TrimPrefix(t, "https://")
+	t = strings.TrimPrefix(t, "http://")
+	t = strings.TrimRight(t, "/")
+
+	var b strings.Builder
+	b.Grow(len(t))
+	for _, r := range t {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	s := b.String()
+	// Collapse any "..", and strip leading/trailing dots and dashes, so no
+	// parent-dir reference survives even though '.' is otherwise allowed.
+	for strings.Contains(s, "..") {
+		s = strings.ReplaceAll(s, "..", "-")
+	}
+	s = strings.Trim(s, ".-")
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+// ResultsDir returns the results directory for a specific domain.
+// The domain is sanitized into a single safe path segment.
 func ResultsDir(domain string) string {
-	return filepath.Join(GetResultsDir(), domain)
+	return filepath.Join(GetResultsDir(), SanitizeTargetSegment(domain))
 }
 
 // EnsureDir creates a directory if it doesn't exist
@@ -61,7 +100,7 @@ func DomainDirInit(domain string) (string, error) {
 	subsDir := filepath.Join(dir, "subs")
 	urlsDir := filepath.Join(dir, "urls")
 	vulnsDir := filepath.Join(dir, "vulnerabilities", "js")
-	
+
 	if err := EnsureDir(subsDir); err != nil {
 		return "", err
 	}
@@ -71,7 +110,7 @@ func DomainDirInit(domain string) (string, error) {
 	if err := EnsureDir(vulnsDir); err != nil {
 		return "", err
 	}
-	
+
 	return dir, nil
 }
 
@@ -80,12 +119,12 @@ func CleanupDomainResults(domain string, force bool) error {
 	if os.Getenv("AUTOAR_ENV") != "docker" && !force {
 		return nil
 	}
-	
+
 	dir := ResultsDir(domain)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil
 	}
-	
+
 	return os.RemoveAll(dir)
 }
 
@@ -102,14 +141,14 @@ func GetRootDir() string {
 	if env := DetectEnvironment(); env == "docker" {
 		return "/app"
 	}
-	
+
 	// Try to find from current working directory
 	if cwd, err := os.Getwd(); err == nil {
 		if _, err := os.Stat(filepath.Join(cwd, "modules")); err == nil {
 			return cwd
 		}
 	}
-	
+
 	// Try executable directory
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
@@ -117,7 +156,7 @@ func GetRootDir() string {
 			return exeDir
 		}
 	}
-	
+
 	return "."
 }
 
@@ -131,19 +170,19 @@ func URLSlug(url string) string {
 // It removes all files and subdirectories but keeps the results directory itself
 func CleanupResultsDirectory() error {
 	resultsDir := GetResultsDir()
-	
+
 	// Check if directory exists
 	if _, err := os.Stat(resultsDir); os.IsNotExist(err) {
 		// Directory doesn't exist, nothing to clean
 		return nil
 	}
-	
+
 	// Read all entries in the directory
 	entries, err := os.ReadDir(resultsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read results directory: %w", err)
 	}
-	
+
 	// Remove each entry
 	for _, entry := range entries {
 		entryPath := filepath.Join(resultsDir, entry.Name())
@@ -151,7 +190,7 @@ func CleanupResultsDirectory() error {
 			return fmt.Errorf("failed to remove %s: %w", entryPath, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -165,7 +204,7 @@ func UploadResultsToR2(domain string, removeLocal bool) (map[string]string, erro
 	}
 
 	resultsPath := ResultsDir(domain)
-	
+
 	// Check if directory exists
 	if _, err := os.Stat(resultsPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("results directory does not exist: %s", resultsPath)
@@ -193,12 +232,12 @@ func IsFileEmpty(filePath string) bool {
 	if err != nil || info.Size() == 0 {
 		return true // Missing or 0 bytes
 	}
-	
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return true // Can't read = assume empty
 	}
-	
+
 	// Check if content is only whitespace
 	return len(strings.TrimSpace(string(data))) == 0
 }

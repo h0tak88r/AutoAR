@@ -193,6 +193,8 @@ func readNonEmptyLines(path string) ([]string, error) {
 
 	var lines []string
 	sc := bufio.NewScanner(f)
+	// Raise the per-line limit (default 64KB) — collected URL/CDX lines can be long.
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {

@@ -60,6 +60,7 @@ logs/
 # Test files and directories
 test-*
 *test*
+!*_test.go
 !tests/
 !tests/ui/
 !tests/ui/*.test.js

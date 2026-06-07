@@ -33,7 +33,7 @@ func RunDalfox(domain string, threads int) (*Result, error) {
 	}
 
 	resultsDir := utils.GetResultsDir()
-	domainDir := filepath.Join(resultsDir, domain)
+	domainDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(domain))
 	urlsFile := filepath.Join(domainDir, "urls", "all-urls.txt")
 	inFile := filepath.Join(domainDir, "vulnerabilities", "xss", gf.ResultFileForPattern("xss"))
 	outFile := filepath.Join(domainDir, "dalfox-results.txt")
