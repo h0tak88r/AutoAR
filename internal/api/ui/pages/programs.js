@@ -15,6 +15,10 @@
   };
 
   let programsData = [];
+  let tokenHints = [];
+  let loadSeq = 0;
+  let scopeLoadedCount = 0;
+  let sortState = { key: 'name', direction: 'asc' };
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -56,31 +60,141 @@
     return `${text.slice(0, max - 1).trim()}…`;
   }
 
+  function programKey(p) {
+    return `${String(p.platform || '').toLowerCase()}:${String(p.handle || '').toLowerCase()}`;
+  }
+
+  function renderStats(hydrating = false) {
+    const statsBar = document.getElementById('programs-stats-bar');
+    if (!statsBar) return;
+    const h1Count = programsData.filter(p => p.platform === 'h1').length;
+    const bcCount = programsData.filter(p => p.platform === 'bc').length;
+    const scopeCount = programsData.filter(p => p.latest_target || p.scope_targets > 0 || p._scope_loaded).length;
+    const scopeStatus = hydrating
+      ? `<span style="color:rgba(0,212,255,0.75);">Latest: <strong>${scopeLoadedCount}/${programsData.length}</strong> checked</span>`
+      : scopeCount
+        ? `<span style="color:rgba(0,212,255,0.75);">Latest: <strong>${scopeCount}</strong> ready</span>`
+        : '';
+    statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> bounty programs</span><span style="color:#2ecc71;">H1: <strong>${h1Count}</strong></span><span style="color:#e67e22;">BC: <strong>${bcCount}</strong></span>${scopeStatus ? ` ${scopeStatus}` : ''}` + (tokenHints.length ? ` · ${tokenHints.join(' · ')}` : '');
+  }
+
+  function sortDirectionFor(key) {
+    if (sortState.key !== key) return '';
+    return sortState.direction === 'asc' ? ' ^' : ' v';
+  }
+
+  function sortHeader(label, key, align = 'left') {
+    return `<th style="padding:8px 12px;text-align:${align};">
+      <button type="button" onclick="window.ProgramsPage.setSort('${key}')" style="appearance:none;background:transparent;border:0;padding:0;color:rgba(255,255,255,0.45);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0;cursor:pointer;">${label}${sortDirectionFor(key)}</button>
+    </th>`;
+  }
+
+  function sortValue(p, key) {
+    switch (key) {
+      case 'platform': return p.platform || '';
+      case 'name': return p.name || '';
+      case 'state': return p.state || '';
+      case 'targets': return Number(p.scope_targets || 0);
+      case 'latest': {
+        const ts = Date.parse(p.latest_target_updated_at || '');
+        return Number.isNaN(ts) ? 0 : ts;
+      }
+      case 'bounty': return p.currency || '';
+      case 'payments': return p.fast_payments ? 1 : 0;
+      case 'safe_harbor': return p.safe_harbor ? 1 : 0;
+      default: return p.name || '';
+    }
+  }
+
+  function comparePrograms(a, b) {
+    const av = sortValue(a, sortState.key);
+    const bv = sortValue(b, sortState.key);
+    const dir = sortState.direction === 'asc' ? 1 : -1;
+    if (typeof av === 'number' || typeof bv === 'number') {
+      if (av === bv) return String(a.name || '').localeCompare(String(b.name || ''));
+      return (av - bv) * dir;
+    }
+    return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' }) * dir;
+  }
+
+  function setSort(key) {
+    if (sortState.key === key) {
+      sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortState = { key, direction: ['latest', 'targets', 'payments', 'safe_harbor'].includes(key) ? 'desc' : 'asc' };
+    }
+    renderPrograms();
+  }
+
+  function mergeScopeSummary(program, summary) {
+    program.scope_targets = summary.scope_targets || 0;
+    program.latest_target = summary.latest_target || '';
+    program.latest_target_updated_at = summary.latest_target_updated_at || '';
+    program.latest_target_brief = summary.latest_target_brief || '';
+    program._scope_loaded = true;
+    program._scope_loading = false;
+  }
+
+  async function hydrateScopeSummaries(seq) {
+    const batchSize = 40;
+    const candidates = programsData.filter(p => p.platform && p.handle);
+    scopeLoadedCount = 0;
+    for (let i = 0; i < candidates.length; i += batchSize) {
+      if (seq !== loadSeq) return;
+      const batch = candidates.slice(i, i + batchSize);
+      batch.forEach(p => { p._scope_loading = true; });
+      renderStats(true);
+      renderPrograms();
+
+      try {
+        const res = await window.apiPost('/api/scope/program-summaries', {
+          programs: batch.map(p => ({ platform: p.platform, handle: p.handle, url: p.url })),
+        });
+        const summaries = res.summaries || {};
+        batch.forEach(p => {
+          const summary = summaries[programKey(p)] || summaries[`${p.platform}:${p.handle}`];
+          if (summary) mergeScopeSummary(p, summary);
+          else {
+            p._scope_loaded = true;
+            p._scope_loading = false;
+          }
+        });
+      } catch (e) {
+        batch.forEach(p => { p._scope_loading = false; });
+      }
+
+      scopeLoadedCount = Math.min(candidates.length, i + batch.length);
+      renderStats(i + batch.length < candidates.length);
+      renderPrograms();
+      await new Promise(resolve => setTimeout(resolve, 80));
+    }
+    renderStats(false);
+  }
+
   async function loadPrograms() {
+    const seq = ++loadSeq;
     const platform = document.getElementById('programs-platform-filter')?.value || 'all';
     const container = document.getElementById('programs-container');
-    const statsBar = document.getElementById('programs-stats-bar');
     if (container) container.innerHTML = '<div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading programs…</div></div>';
 
     try {
       const params = new URLSearchParams({ platform, sort: 'name' });
       const data = await window.apiFetch('/api/scope/programs?' + params.toString());
+      if (seq !== loadSeq) return;
       programsData = data.programs || [];
+      scopeLoadedCount = 0;
 
-      // Show token status hints
-      const hints = [];
-      if (!data.has_h1_token) hints.push('<span style="color:rgba(255,255,255,0.35);">H1 token not set — showing public programs only</span>');
-      if (!data.has_bc_token) hints.push('<span style="color:rgba(255,255,255,0.35);">BC token not set — set BUGCROWD_TOKEN to load Bugcrowd programs</span>');
+      tokenHints = [];
+      if (!data.has_h1_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">H1 token not set — latest scope requires H1 auth</span>');
+      if (!data.has_bc_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">BC token not set — set BUGCROWD_TOKEN to load Bugcrowd programs</span>');
 
       renderPrograms();
-      if (statsBar) {
-        const h1Count = programsData.filter(p => p.platform === 'h1').length;
-        const bcCount = programsData.filter(p => p.platform === 'bc').length;
-        statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> programs</span><span style="color:#2ecc71;">H1: <strong>${h1Count}</strong></span><span style="color:#e67e22;">BC: <strong>${bcCount}</strong></span>` + (hints.length ? ` · ${hints.join(' · ')}` : '');
-      }
+      renderStats(false);
+      hydrateScopeSummaries(seq);
     } catch (e) {
       if (container) container.innerHTML = `<div class="empty-state"><div class="empty-icon">!</div><div class="empty-title">Failed to load</div><div class="empty-sub">${esc(e.message)}</div></div>`;
-      if (statsBar) statsBar.innerHTML = '';
+      tokenHints = [];
+      renderStats(false);
     }
   }
 
@@ -98,6 +212,7 @@
         (p.latest_target_brief || '').toLowerCase().includes(query)
       );
     }
+    filtered = filtered.slice().sort(comparePrograms);
 
     if (filtered.length === 0) {
       container.innerHTML = '<div class="empty-state"><div class="empty-icon">0</div><div class="empty-title">No programs found</div><div class="empty-sub">Try adjusting your filters or check your API credentials</div></div>';
@@ -119,6 +234,8 @@
             </div>
             ${latestBrief ? `<div style="font-size:10px;line-height:1.35;color:rgba(255,255,255,0.45);max-width:280px;white-space:normal;">${esc(latestBrief)}</div>` : ''}
           </div>`
+        : p._scope_loading
+          ? '<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.45);">checking...</span>'
         : '<span style="color:rgba(255,255,255,0.25);">-</span>';
 
       return `
@@ -160,14 +277,14 @@
         <table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
-              <th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">Platform</th>
-              <th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">Program</th>
-              <th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">State</th>
-              <th style="padding:8px 12px;text-align:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">Targets</th>
-              <th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">Latest In-Scope</th>
-              <th style="padding:8px 12px;text-align:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">Bounty</th>
-              <th style="padding:8px 12px;text-align:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">Payments</th>
-              <th style="padding:8px 12px;text-align:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.05em;">Safe Harbor</th>
+              ${sortHeader('Platform', 'platform')}
+              ${sortHeader('Program', 'name')}
+              ${sortHeader('State', 'state')}
+              ${sortHeader('Targets', 'targets', 'center')}
+              ${sortHeader('Latest In-Scope', 'latest')}
+              ${sortHeader('Bounty', 'bounty', 'center')}
+              ${sortHeader('Payments', 'payments', 'center')}
+              ${sortHeader('Safe Harbor', 'safe_harbor', 'center')}
             </tr>
           </thead>
           <tbody>
@@ -201,5 +318,5 @@
     }
   }
 
-  window.ProgramsPage = { loadPrograms, renderPrograms };
+  window.ProgramsPage = { loadPrograms, renderPrograms, setSort };
 })();
