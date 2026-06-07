@@ -37,7 +37,7 @@ func init() {
 }
 
 func setupLogger(level string) {
-	config := utils.LogConfigFromEnv("autoar-bot.log")
+	config := utils.LogConfigFromEnv("autoar.log")
 	config.Level = level
 	if err := utils.InitLogger(config); err != nil {
 		observability.Logger.Error().Err(err).Msg("Failed to initialize logger")

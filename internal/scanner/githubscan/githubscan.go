@@ -36,7 +36,7 @@ type Result struct {
 
 // Run executes the appropriate TruffleHog command based on Options.
 // It is a Go rewrite of modules/github_scan.sh focused on producing result files
-// that the Discord bot can send; it delegates heavy work to the trufflehog binary.
+// for the dashboard and webhook output; it delegates heavy work to the trufflehog binary.
 func Run(opts Options) (*Result, error) {
 	if _, err := exec.LookPath("trufflehog"); err != nil {
 		return nil, fmt.Errorf("trufflehog not found in PATH; install it or ensure it is available in the Docker image")

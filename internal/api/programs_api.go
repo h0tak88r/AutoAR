@@ -1,0 +1,764 @@
+package api
+
+import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared types
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ProgramSummary is the unified view sent to the UI for both H1 and BC.
+type ProgramSummary struct {
+	ID                    string       `json:"id"`
+	Platform              string       `json:"platform"` // "h1" or "bc"
+	Handle                string       `json:"handle"`
+	Name                  string       `json:"name"`
+	URL                   string       `json:"url"`
+	State                 string       `json:"state"`            // public_mode, soft_launched, open, etc.
+	SubmissionState       string       `json:"submission_state"` // open, closed, paused
+	OffersBounties        bool         `json:"offers_bounties"`
+	Currency              string       `json:"currency"`
+	FastPayments          bool         `json:"fast_payments"`
+	SafeHarbor            bool         `json:"safe_harbor"`
+	Bookmarked            bool         `json:"bookmarked"`
+	ScopeTargets          int          `json:"scope_targets"`            // count of in-scope targets
+	LatestTarget          string       `json:"latest_target"`            // one representative target
+	LatestTargetUpdatedAt string       `json:"latest_target_updated_at"` // latest in-scope target update time
+	LatestTargetBrief     string       `json:"latest_target_brief"`      // brief context for the latest target
+	UpdatedAt             string       `json:"updated_at"`               // when we last fetched this
+	Stats                 ProgramStats `json:"stats"`
+}
+
+// ProgramStats holds user-specific stats from H1.
+type ProgramStats struct {
+	ReportsForUser      int     `json:"reports_for_user"`
+	ValidReportsForUser int     `json:"valid_reports_for_user"`
+	BountyEarnedForUser float64 `json:"bounty_earned_for_user"`
+}
+
+type programScopeRequest struct {
+	Programs []programScopeRequestItem `json:"programs"`
+}
+
+type programScopeRequestItem struct {
+	Platform string `json:"platform"`
+	Handle   string `json:"handle"`
+	URL      string `json:"url"`
+}
+
+type cachedProgramScope struct {
+	Summary   ProgramSummary
+	ExpiresAt time.Time
+}
+
+var (
+	programScopeCacheMu sync.Mutex
+	programScopeCache   = map[string]cachedProgramScope{}
+)
+
+const programScopeCacheTTL = 15 * time.Minute
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/scope/programs
+// ─────────────────────────────────────────────────────────────────────────────
+
+func apiListPrograms(c *gin.Context) {
+	platform := strings.ToLower(c.DefaultQuery("platform", "all"))
+	bbpOnly := true
+	includeScope := c.DefaultQuery("include_scope", "false") == "true"
+	sortBy := c.DefaultQuery("sort", "name")
+	forceRefresh := c.DefaultQuery("refresh", "false") == "true"
+
+	// A manual "refresh now" rebuilds in the background (the rebuild makes ~1000
+	// upstream calls and takes ~a minute — far too long to block the request on).
+	// We kick it off and still serve the current cache instantly below.
+	if forceRefresh {
+		refreshProgramsCacheAsync()
+	}
+
+	// Warm-cache fast path: serve the pre-fetched payload (scope already baked in)
+	// instantly. If it is stale, refresh in the background and still serve now.
+	if payload, ok := loadProgramsCache(); ok && len(payload.Programs) > 0 {
+		stale := time.Since(payload.GeneratedAt) > programsCacheTTL
+		if stale && !forceRefresh {
+			refreshProgramsCacheAsync()
+		}
+		serveProgramsPayload(c, payload, platform, sortBy, stale)
+		return
+	}
+
+	// Cold path (cache not built yet): fall back to a live fetch so the first-ever
+	// load still works, and kick a background build so the next load is instant.
+	defer refreshProgramsCacheAsync()
+
+	var allPrograms []ProgramSummary
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	if platform == "all" || platform == "h1" || platform == "hackerone" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			progs, err := fetchH1Programs(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching H1 programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
+	if platform == "all" || platform == "bc" || platform == "bugcrowd" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			progs, err := fetchBCPrograms(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching BC programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	sortPrograms(allPrograms, sortBy)
+
+	if allPrograms == nil {
+		allPrograms = []ProgramSummary{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"programs":       allPrograms,
+		"total":          len(allPrograms),
+		"has_h1_token":   os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
+		"has_bc_token":   os.Getenv("BUGCROWD_TOKEN") != "",
+		"scope_included": includeScope,
+		"warm":           false,
+	})
+}
+
+// serveProgramsPayload filters the cached payload by platform, sorts it, and
+// writes the JSON response. Scope is always included in the cache, so the UI
+// can render the full table without per-program follow-up calls.
+func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform, sortBy string, stale bool) {
+	programs := make([]ProgramSummary, 0, len(payload.Programs))
+	for _, p := range payload.Programs {
+		switch platform {
+		case "all", "":
+			programs = append(programs, p)
+		case "h1", "hackerone":
+			if p.Platform == "h1" {
+				programs = append(programs, p)
+			}
+		case "bc", "bugcrowd":
+			if p.Platform == "bc" {
+				programs = append(programs, p)
+			}
+		}
+	}
+
+	sortPrograms(programs, sortBy)
+
+	c.JSON(http.StatusOK, gin.H{
+		"programs":       programs,
+		"total":          len(programs),
+		"has_h1_token":   payload.HasH1Token,
+		"has_bc_token":   payload.HasBCToken,
+		"scope_included": true,
+		"warm":           true,
+		"stale":          stale,
+		"generated_at":   payload.GeneratedAt.Format(time.RFC3339),
+	})
+}
+
+// sortPrograms sorts in place by the given key.
+func sortPrograms(programs []ProgramSummary, sortBy string) {
+	switch sortBy {
+	case "name":
+		sort.Slice(programs, func(i, j int) bool {
+			return strings.ToLower(programs[i].Name) < strings.ToLower(programs[j].Name)
+		})
+	case "reports":
+		sort.Slice(programs, func(i, j int) bool {
+			return programs[i].Stats.ReportsForUser > programs[j].Stats.ReportsForUser
+		})
+	case "bounty":
+		sort.Slice(programs, func(i, j int) bool {
+			return programs[i].Stats.BountyEarnedForUser > programs[j].Stats.BountyEarnedForUser
+		})
+	}
+}
+
+func apiProgramScopeSummaries(c *gin.Context) {
+	var req programScopeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if len(req.Programs) > 80 {
+		req.Programs = req.Programs[:80]
+	}
+
+	summaries := make(map[string]ProgramSummary, len(req.Programs))
+	var mu sync.Mutex
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+
+	h1Username := os.Getenv("H1_USERNAME")
+	h1Token := os.Getenv("H1_TOKEN")
+	h1Auth := ""
+	if h1Username != "" && h1Token != "" {
+		h1Auth = base64.StdEncoding.EncodeToString([]byte(h1Username + ":" + h1Token))
+	}
+	bcToken := os.Getenv("BUGCROWD_TOKEN")
+
+	for _, item := range req.Programs {
+		item.Platform = strings.ToLower(strings.TrimSpace(item.Platform))
+		item.Handle = strings.TrimSpace(item.Handle)
+		if item.Platform == "" || item.Handle == "" {
+			continue
+		}
+
+		cacheKey := programScopeCacheKey(item.Platform, item.Handle)
+		if summary, ok := getCachedProgramScope(cacheKey); ok {
+			mu.Lock()
+			summaries[cacheKey] = summary
+			mu.Unlock()
+			continue
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(item programScopeRequestItem, cacheKey string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			var summary ProgramSummary
+			fetched := false
+			switch item.Platform {
+			case "h1", "hackerone":
+				if h1Auth != "" {
+					summary = fetchH1ScopeSummary(item.Handle, h1Auth)
+					fetched = true
+				}
+			case "bc", "bugcrowd":
+				if bcToken != "" {
+					summary = fetchBCScopeSummary(item.Handle, item.URL, bcToken)
+					fetched = true
+				}
+			}
+
+			summary.Platform = item.Platform
+			summary.Handle = item.Handle
+			if fetched {
+				setCachedProgramScope(cacheKey, summary)
+			}
+			mu.Lock()
+			summaries[cacheKey] = summary
+			mu.Unlock()
+		}(item, cacheKey)
+	}
+
+	wg.Wait()
+	c.JSON(http.StatusOK, gin.H{"summaries": summaries})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HackerOne program fetching
+// ─────────────────────────────────────────────────────────────────────────────
+
+func fetchH1Programs(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
+	username := os.Getenv("H1_USERNAME")
+	token := os.Getenv("H1_TOKEN")
+
+	if username != "" && token != "" {
+		return fetchH1WithREST(bbpOnly, includeScope, username, token)
+	}
+	return fetchH1WithGraphQL(bbpOnly)
+}
+
+func fetchH1WithREST(bbpOnly, includeScope bool, username, token string) ([]ProgramSummary, error) {
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + token))
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	var allPrograms []ProgramSummary
+	currentURL := "https://api.hackerone.com/v1/hackers/programs?page%5Bsize%5D=100"
+
+	for currentURL != "" {
+		req, err := http.NewRequest("GET", currentURL, nil)
+		if err != nil {
+			return allPrograms, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Basic "+auth)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return allPrograms, err
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return allPrograms, fmt.Errorf("H1 API returned %d: %s", resp.StatusCode, string(body[:min(500, len(body))]))
+		}
+
+		bodyStr := string(body)
+		dataArr := gjson.Get(bodyStr, "data")
+		for _, item := range dataArr.Array() {
+			attrs := item.Get("attributes")
+			if bbpOnly && !attrs.Get("offers_bounties").Bool() {
+				continue
+			}
+			handle := attrs.Get("handle").Str
+			prog := ProgramSummary{
+				ID:              strconv.Itoa(int(item.Get("id").Int())),
+				Platform:        "h1",
+				Handle:          handle,
+				Name:            attrs.Get("name").Str,
+				URL:             "https://hackerone.com/" + handle,
+				State:           attrs.Get("state").Str,
+				SubmissionState: attrs.Get("submission_state").Str,
+				OffersBounties:  attrs.Get("offers_bounties").Bool(),
+				Currency:        strings.ToUpper(attrs.Get("currency").Str),
+				FastPayments:    attrs.Get("fast_payments").Bool(),
+				SafeHarbor:      attrs.Get("gold_standard_safe_harbor").Bool(),
+				Bookmarked:      attrs.Get("bookmarked").Bool(),
+				UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+				Stats: ProgramStats{
+					ReportsForUser:      int(attrs.Get("number_of_reports_for_user").Int()),
+					ValidReportsForUser: int(attrs.Get("number_of_valid_reports_for_user").Int()),
+					BountyEarnedForUser: attrs.Get("bounty_earned_for_user").Float(),
+				},
+			}
+			allPrograms = append(allPrograms, prog)
+		}
+		currentURL = gjson.Get(bodyStr, "links.next").Str
+	}
+
+	if includeScope {
+		enrichH1ScopeCounts(allPrograms, auth)
+	}
+	return allPrograms, nil
+}
+
+func fetchH1WithGraphQL(bbpOnly bool) ([]ProgramSummary, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	var allPrograms []ProgramSummary
+	var cursor string
+
+	for {
+		afterClause := ""
+		if cursor != "" {
+			afterClause = fmt.Sprintf(`, after: "%s"`, cursor)
+		}
+
+		query := fmt.Sprintf(`query { teams(first: 100%s) { edges { cursor node { id handle name offers_bounties state submission_state currency } } pageInfo { hasNextPage endCursor } } }`, afterClause)
+
+		reqBody := bytes.NewBufferString(fmt.Sprintf(`{"query": %q}`, query))
+		req, err := http.NewRequest("POST", "https://hackerone.com/graphql", reqBody)
+		if err != nil {
+			return allPrograms, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return allPrograms, err
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return allPrograms, fmt.Errorf("H1 GraphQL returned %d", resp.StatusCode)
+		}
+
+		bodyStr := string(body)
+		edges := gjson.Get(bodyStr, "data.teams.edges")
+		if !edges.Exists() {
+			break
+		}
+
+		for _, edge := range edges.Array() {
+			node := edge.Get("node")
+			if bbpOnly && !node.Get("offers_bounties").Bool() {
+				continue
+			}
+
+			handle := node.Get("handle").Str
+			prog := ProgramSummary{
+				ID:              node.Get("id").Str,
+				Platform:        "h1",
+				Handle:          handle,
+				Name:            node.Get("name").Str,
+				URL:             "https://hackerone.com/" + handle,
+				State:           node.Get("state").Str,
+				SubmissionState: node.Get("submission_state").Str,
+				OffersBounties:  node.Get("offers_bounties").Bool(),
+				Currency:        strings.ToUpper(node.Get("currency").Str),
+				UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+			}
+			allPrograms = append(allPrograms, prog)
+		}
+
+		pageInfo := gjson.Get(bodyStr, "data.teams.pageInfo")
+		if !pageInfo.Get("hasNextPage").Bool() {
+			break
+		}
+		cursor = pageInfo.Get("endCursor").Str
+		if cursor == "" {
+			break
+		}
+	}
+
+	return allPrograms, nil
+}
+
+func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
+	sem := make(chan struct{}, 10) // max 10 concurrent
+	var wg sync.WaitGroup
+
+	for i := range programs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p *ProgramSummary) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			summary := fetchH1ScopeSummary(p.Handle, auth)
+			p.ScopeTargets = summary.ScopeTargets
+			p.LatestTarget = summary.LatestTarget
+			p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+			p.LatestTargetBrief = summary.LatestTargetBrief
+		}(&programs[i])
+	}
+	wg.Wait()
+}
+
+func fetchH1ScopeSummary(handle, auth string) ProgramSummary {
+	url := fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100", handle)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return ProgramSummary{}
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Basic "+auth)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ProgramSummary{}
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	scopes := gjson.Get(string(body), "data")
+	summary := ProgramSummary{Platform: "h1", Handle: handle}
+	for _, s := range scopes.Array() {
+		attrs := s.Get("attributes")
+		if attrs.Get("eligible_for_submission").Bool() {
+			summary.ScopeTargets++
+			target := attrs.Get("asset_identifier").Str
+			updatedAt := firstGJSONString(attrs, "updated_at", "created_at", "last_updated_at")
+			if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
+				summary.LatestTarget = target
+				summary.LatestTargetUpdatedAt = updatedAt
+				summary.LatestTargetBrief = firstGJSONString(attrs, "instruction", "instructions", "asset_type")
+			}
+		}
+	}
+	return summary
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bugcrowd program fetching
+// ─────────────────────────────────────────────────────────────────────────────
+
+func fetchBCPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
+	token := os.Getenv("BUGCROWD_TOKEN")
+	if token == "" {
+		// No BC token — return empty list gracefully (public BC API requires auth)
+		return nil, nil
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	var allPrograms []ProgramSummary
+
+	// Fetch bug bounty engagements first, optionally VDNs too
+	categories := []string{"bug_bounty"}
+	if !bbpOnly {
+		categories = append(categories, "vdp")
+	}
+
+	for _, category := range categories {
+		pageIndex := 1
+		for {
+			listURL := fmt.Sprintf("https://bugcrowd.com/engagements.json?category=%s&sort_by=promoted&sort_direction=desc&page=%d",
+				url.QueryEscape(category), pageIndex)
+
+			req, err := http.NewRequest("GET", listURL, nil)
+			if err != nil {
+				break
+			}
+			req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+			req.Header.Set("User-Agent", "AutoAR/1.0")
+			req.Header.Set("Accept", "application/json")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				break
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				break
+			}
+
+			bodyStr := string(body)
+			engagements := gjson.Get(bodyStr, "engagements")
+			if len(engagements.Array()) == 0 {
+				break
+			}
+
+			engagements.ForEach(func(_, eng gjson.Result) bool {
+				briefURL := eng.Get("briefUrl").Str
+				accessStatus := eng.Get("accessStatus").Str
+				name := strings.TrimPrefix(briefURL, "/engagements/")
+				// Try to get a display name from the brief document
+				displayName := eng.Get("name").Str
+				if displayName == "" {
+					displayName = name
+				}
+
+				prog := ProgramSummary{
+					ID:              name,
+					Platform:        "bc",
+					Handle:          name,
+					Name:            displayName,
+					URL:             "https://bugcrowd.com" + briefURL,
+					State:           accessStatus,
+					SubmissionState: accessStatus,
+					OffersBounties:  category == "bug_bounty",
+					Currency:        "usd",
+					UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+				}
+				allPrograms = append(allPrograms, prog)
+				return true
+			})
+
+			pageIndex++
+			totalCount := gjson.Get(bodyStr, "paginationMeta.totalCount").Int()
+			if int64(len(allPrograms)) >= totalCount {
+				break
+			}
+
+			// Rate limit — BC is aggressive
+			time.Sleep(1500 * time.Millisecond)
+		}
+	}
+
+	if includeScope {
+		enrichBCScopeCounts(allPrograms, token)
+	}
+
+	return allPrograms, nil
+}
+
+func enrichBCScopeCounts(programs []ProgramSummary, token string) {
+	sem := make(chan struct{}, 3) // BC rate limits aggressively
+	var wg sync.WaitGroup
+
+	for i := range programs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p *ProgramSummary) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			time.Sleep(500 * time.Millisecond) // extra spacing for BC
+
+			summary := fetchBCScopeSummary(p.Handle, p.URL, token)
+			p.ScopeTargets = summary.ScopeTargets
+			p.LatestTarget = summary.LatestTarget
+			p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+			p.LatestTargetBrief = summary.LatestTargetBrief
+		}(&programs[i])
+	}
+	wg.Wait()
+}
+
+func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
+	summary := ProgramSummary{Platform: "bc", Handle: handle}
+	briefPath := ""
+	if idx := strings.Index(programURL, "/engagements/"); idx >= 0 {
+		briefPath = programURL[idx:]
+	}
+	if briefPath == "" && handle != "" {
+		briefPath = "/engagements/" + handle
+	}
+	if briefPath == "" {
+		return summary
+	}
+
+	getBriefURL := "https://bugcrowd.com" + briefPath
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", getBriefURL, nil)
+	if err != nil {
+		return summary
+	}
+	req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	req.Header.Set("User-Agent", "AutoAR/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return summary
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	idxStart := strings.Index(string(body), "data-api-endpoints=")
+	if idxStart < 0 {
+		return summary
+	}
+	idxStart += len("data-api-endpoints=")
+	if idxStart >= len(body) {
+		return summary
+	}
+	quote := string(body)[idxStart]
+	idxEnd := strings.Index(string(body)[idxStart+1:], string(quote))
+	if idxEnd < 0 {
+		return summary
+	}
+	raw := string(body)[idxStart+1 : idxStart+1+idxEnd]
+	parsed := gjson.Get(raw, "engagementBriefApi.getBriefVersionDocument").Str
+	if parsed == "" {
+		return summary
+	}
+
+	scopeURL := "https://bugcrowd.com" + parsed + ".json"
+	scopeReq, _ := http.NewRequest("GET", scopeURL, nil)
+	scopeReq.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	scopeReq.Header.Set("User-Agent", "AutoAR/1.0")
+	scopeResp, scopeErr := client.Do(scopeReq)
+	if scopeErr != nil {
+		return summary
+	}
+	scopeBody, _ := io.ReadAll(scopeResp.Body)
+	scopeResp.Body.Close()
+
+	gjson.Get(string(scopeBody), "data.scope").ForEach(func(_, scope gjson.Result) bool {
+		if scope.Get("inScope").Bool() {
+			scope.Get("targets").ForEach(func(_, t gjson.Result) bool {
+				summary.ScopeTargets++
+				target := firstGJSONString(t, "uri", "name", "target")
+				updatedAt := firstGJSONString(t, "updatedAt", "updated_at", "lastUpdatedAt", "createdAt", "created_at")
+				if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
+					summary.LatestTarget = target
+					summary.LatestTargetUpdatedAt = updatedAt
+					summary.LatestTargetBrief = firstGJSONString(t, "description", "details", "category", "type")
+				}
+				return true
+			})
+		}
+		return true
+	})
+	return summary
+}
+
+func firstGJSONString(result gjson.Result, paths ...string) string {
+	for _, path := range paths {
+		value := strings.TrimSpace(result.Get(path).Str)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func programScopeCacheKey(platform, handle string) string {
+	return strings.ToLower(strings.TrimSpace(platform)) + ":" + strings.ToLower(strings.TrimSpace(handle))
+}
+
+func getCachedProgramScope(cacheKey string) (ProgramSummary, bool) {
+	programScopeCacheMu.Lock()
+	defer programScopeCacheMu.Unlock()
+
+	cached, ok := programScopeCache[cacheKey]
+	if !ok {
+		return ProgramSummary{}, false
+	}
+	if time.Now().After(cached.ExpiresAt) {
+		delete(programScopeCache, cacheKey)
+		return ProgramSummary{}, false
+	}
+	return cached.Summary, true
+}
+
+func setCachedProgramScope(cacheKey string, summary ProgramSummary) {
+	programScopeCacheMu.Lock()
+	defer programScopeCacheMu.Unlock()
+
+	programScopeCache[cacheKey] = cachedProgramScope{
+		Summary:   summary,
+		ExpiresAt: time.Now().Add(programScopeCacheTTL),
+	}
+}
+
+func isNewerProgramTime(candidate, current string) bool {
+	if current == "" {
+		return true
+	}
+	candidateTime, candidateOK := parseProgramTime(candidate)
+	currentTime, currentOK := parseProgramTime(current)
+	if !candidateOK {
+		return false
+	}
+	if !currentOK {
+		return true
+	}
+	return candidateTime.After(currentTime)
+}
+
+func parseProgramTime(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}

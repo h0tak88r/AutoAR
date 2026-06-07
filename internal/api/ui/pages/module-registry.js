@@ -89,7 +89,7 @@
     /* ── Nuclei ─────────────────────────────────────────────────────────── */
     nuclei: {
       columns: [
-        { id: 'target',   label: 'TARGET',      flex: '2', type: 'link'     },
+        { id: 'target',   label: 'TARGET',       flex: '2', type: 'link'      },
         { id: 'sev',      label: 'SEV',          w: '68px', type: 'sev-badge', align: 'center' },
         { id: 'template', label: 'TEMPLATE',     flex: '2', type: 'two-line' },
         { id: 'matched',  label: 'MATCHED AT',   flex: '2', type: 'two-line-mono' },
@@ -191,15 +191,27 @@
           words,
         };
       },
+      detail(r) {
+        const raw = r.raw || {};
+        const url = s(raw.matched_at || raw.url || r.target || '');
+        return buildFields([
+          ['URL',          url, { isLink: true, full: true }],
+          ['Status',       s(raw.status_code || raw.status || '')],
+          ['Path',         s(raw.word || raw.path || raw.input?.FUZZ || r.path || '')],
+          ['Content Size', s(raw.content_length ?? raw.length ?? '')],
+          ['Content Lines', s(raw.content_lines || '')],
+          ['Content Words', s(raw.content_words || '')],
+        ]);
+      },
     },
 
     /* ── GF Patterns ────────────────────────────────────────────────────── */
     gf: {
       columns: [
-        { id: 'target',  label: 'TARGET',  flex: '2', type: 'link'       },
-        { id: 'sev',     label: 'SEV',     w: '68px', type: 'sev-badge',  align: 'center' },
-        { id: 'pattern', label: 'PATTERN', flex: '1', type: 'badge-pill'  },
-        { id: 'value',   label: 'MATCHED URL', flex: '3', type: 'mono-trunc' },
+        { id: 'target',  label: 'TARGET',    flex: '2', type: 'link'       },
+        { id: 'sev',     label: 'SEV',       w: '68px', type: 'sev-badge', align: 'center' },
+        { id: 'pattern', label: 'PATTERN',   flex: '1', type: 'badge-pill'  },
+        { id: 'value',   label: 'MATCHED URL', flex: '2', type: 'mono-trunc' },
       ],
       extract(r) {
         const raw = r.raw || {};
@@ -300,7 +312,7 @@
     /* ── XSS Detection (Dalfox confirmed — from kxss {<}/{>} candidates) ───── */
     'xss-detection': {
       columns: [
-        { id: 'target',    label: 'TARGET',      flex: '3', type: 'link'      },
+        { id: 'target',    label: 'TARGET',       flex: '2', type: 'link'      },
         { id: 'sev',       label: 'SEV',          w: '68px', type: 'sev-badge', align: 'center' },
         { id: 'vulnType',  label: 'TYPE',         flex: '1', type: 'badge-pill' },
         { id: 'parameter', label: 'PARAMETER',   flex: '1', type: 'mono-muted' },
@@ -406,7 +418,7 @@
     /* ── Misconfig ──────────────────────────────────────────────────────── */
     misconfig: {
       columns: [
-        { id: 'target',  label: 'TARGET',  flex: '2', type: 'link'      },
+        { id: 'target',  label: 'TARGET',  flex: '2', type: 'link'       },
         { id: 'sev',     label: 'SEV',     w: '68px', type: 'sev-badge', align: 'center' },
         { id: 'service', label: 'SERVICE', flex: '1', type: 'mono-amber' },
         { id: 'finding', label: 'FINDING', flex: '3', type: 'trunc'     },
@@ -419,6 +431,14 @@
           service: s(r.service || r.service_name || r.module || 'misconfig'),
           finding: s(r.title || r.finding || '—'),
         };
+      },
+      detail(r) {
+        return buildFields([
+          ['Target',  s(r.host || r.target || ''), { isLink: true }],
+          ['Service', s(r.service || r.service_name || r.module || '')],
+          ['Finding', s(r.title || r.finding || ''), { full: true }],
+          ['Severity', s(r.severity)],
+        ]);
       },
     },
 
@@ -450,6 +470,24 @@
           source:   { href: link || '#', label: srcLabel, isLink: !!link },
         };
       },
+      detail(r) {
+        const raw  = r.raw || {};
+        const data = raw.SourceMetadata?.Data || raw.source_metadata?.data || {};
+        const git  = data.Git  || data.git  || {};
+        const fs   = data.Filesystem || data.filesystem || {};
+        const link = s(data.link || data.Link || git.link || git.Link || '');
+        const file = s(data.file || data.File || git.file || git.File || fs.file || fs.File || '');
+        const line = s(data.line || data.Line || git.line || git.Line || '');
+        const detector = s(pick(raw, 'DetectorName', 'detector_name') || r.finding || '');
+        return buildFields([
+          ['Detector', detector],
+          ['Verified', String(pick(raw, 'Verified', 'verified')).toLowerCase() === 'true' ? 'Yes' : 'No'],
+          ['Source File', file],
+          ['Line', line],
+          ['Link', link, { isLink: true }],
+          ['Severity', s(r.severity)],
+        ]);
+      },
     },
 
     /* ── Default (fallback for any unknown module) ──────────────────────── */
@@ -468,6 +506,16 @@
           finding: s(r.title || r.finding || '—'),
           module:  modInfo,
         };
+      },
+      detail(r) {
+        const target = s(r.host || r.target || '');
+        return buildFields([
+          ['Target',     target, { isLink: true }],
+          ['Finding',    s(r.title || r.finding || ''), { full: true }],
+          ['Module',     s(r.module || '')],
+          ['Severity',   s(r.severity)],
+          ['URL',        s(r.url || r.link || ''), { isLink: true }],
+        ]);
       },
     },
 

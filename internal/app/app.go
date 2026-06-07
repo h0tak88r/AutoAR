@@ -57,6 +57,12 @@ func StartAPI() error {
 	// Ensure scans don't remain "running" across restarts (single-instance mode).
 	reconcileStaleScansOnStartup()
 
+	// Pre-warm and keep the Programs catalogue cache fresh in the background so the
+	// Programs page loads instantly instead of fetching ~1000 upstream calls per visit.
+	if os.Getenv("DB_HOST") != "" {
+		api.StartProgramsWarmer()
+	}
+
 	// Ensure database is closed on exit
 	defer func() {
 		if os.Getenv("DB_HOST") != "" {

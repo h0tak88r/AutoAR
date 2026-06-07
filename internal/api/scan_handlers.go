@@ -681,6 +681,23 @@ func scanS3(c *gin.Context) {
 	if !bindOrBad(c, &req) {
 		return
 	}
+	// Accept either a specific bucket or a domain for enum+scan
+	if req.Domain != nil && *req.Domain != "" {
+		domain := *req.Domain
+		opts := s3mod.Options{Root: domain, Action: "domain"}
+		if req.Region != nil {
+			opts.Region = *req.Region
+		}
+		if req.Threads != nil && *req.Threads > 0 {
+			opts.Threads = *req.Threads
+		}
+		scanID := generateScanID()
+		go RunScanInProcess(scanID, "s3", domain, func() error {
+			return s3mod.Run(opts)
+		})
+		okStarted(c, scanID, fmt.Sprintf("S3 domain scan started for %s (enum + scan)", domain))
+		return
+	}
 	if !requireField(c, req.Bucket, "Bucket name") {
 		return
 	}

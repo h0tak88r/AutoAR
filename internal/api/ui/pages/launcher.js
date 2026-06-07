@@ -20,7 +20,7 @@
     dns_dangling: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'dangling-ip' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_takeover: { path: 'dns-takeover', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_cf1016: { path: 'dns-cf1016', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
-    s3: { path: 's3', modes: ['bucket', 'bucket_list'], placeholders: { bucket: 'bucket-name', bucket_list: 'one bucket per line' } },
+    s3: { path: 's3', modes: ['bucket', 'bucket_list', 'domain', 'domain_list'], placeholders: { bucket: 'bucket-name', bucket_list: 'one bucket per line', domain: 'example.com', domain_list: 'one domain per line' } },
     github: { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository or github.com/owner/repo', repo_list: 'one owner/repo per line' } },
     github_org: { path: 'github_org', modes: ['domain', 'domain_list'], placeholders: { domain: 'org-name or github.com/org', domain_list: 'one org per line' } },
     zerodays: { path: 'zerodays', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
@@ -218,7 +218,12 @@
       ? 'Bulk mode: one target per line (comma also supported).'
       : `Single target mode: ${LAUNCH_MODE_LABELS[mode] || mode}.`;
     if (document.getElementById('launch-type')?.value === 's3') {
-      help.textContent += ' S3 scan probes unauthenticated LIST/READ/PUT/DELETE behavior and records exposed permissions.';
+      const s3Mode = modeSel.value;
+      if (s3Mode === 'domain' || s3Mode === 'domain_list') {
+        help.textContent += ' Domain mode: enumerates potential bucket names from the domain, then scans each discovered bucket for public access.';
+      } else {
+        help.textContent += ' S3 scan probes unauthenticated LIST/READ/PUT/DELETE behavior and records exposed permissions.';
+      }
     }
 
     const uploadWrapperId = 'launch-upload-wrapper';

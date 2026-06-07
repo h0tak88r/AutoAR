@@ -36,7 +36,7 @@ type Result struct {
 
 // Run performs a JS-focused scan by leveraging the Go urls module.
 // It ensures URLs and JS URLs are collected, then copies the JS list
-// into the standard vulnerabilities/js directory for Discord/file output.
+// into the standard vulnerabilities/js directory for webhook/file output.
 func Run(opts Options) (*Result, error) {
 	if opts.Domain == "" {
 		return nil, fmt.Errorf("domain is required")

@@ -18,7 +18,7 @@ import (
 
 // ─── URL Monitor Daemon ───────────────────────────────────────────────────────
 // Real goroutine-based daemon that periodically checks all is_running URL
-// targets and sends Discord alerts + writes DB change records on content change.
+// targets and sends webhook alerts + writes DB change records on content change.
 
 var (
 	urlDaemonRunning bool
@@ -148,7 +148,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 		return
 	}
 
-	// Content changed → record in DB + send Discord alert
+	// Content changed → record in DB + send webhook alert
 	logger.GetLogger().Infof("[URL-MONITOR]   Change detected for %s (hash)", t.URL)
 
 	detail, _ := json.Marshal(map[string]string{

@@ -156,7 +156,7 @@ func checkAllRunningTargets() {
 	}
 }
 
-// persistAndNotifyChanges saves each change to monitor_changes and fires a Discord alert.
+// persistAndNotifyChanges saves each change to monitor_changes and fires a webhook alert.
 func persistAndNotifyChanges(t db.SubdomainMonitorTarget, result *MonitorResult) {
 	all := append(append(append(result.NewSubdomains, result.BecameLive...), result.BecameDead...), result.StatusChanges...)
 
@@ -186,7 +186,7 @@ func persistAndNotifyChanges(t db.SubdomainMonitorTarget, result *MonitorResult)
 	utils.SendMonitorWebhook(msg)
 }
 
-// formatChangeAlert returns a Discord-ready markdown summary of detected changes.
+// formatChangeAlert returns a webhook-ready markdown summary of detected changes.
 func formatChangeAlert(domain string, r *MonitorResult) string {
 	msg := fmt.Sprintf(" **Subdomain Monitor Alert** — `%s`\n", domain)
 	if len(r.NewSubdomains) > 0 {

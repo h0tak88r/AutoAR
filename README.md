@@ -6,7 +6,6 @@
 
 [Go](https://golang.org/)
 [License](LICENSE)
-[Discord](https://discord.com)
 
 
 
@@ -40,11 +39,11 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching. (Based on [adbauditor](https://github.com/thecybersandeep/adbauditor) by @thecybersandeep) |
 |  **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
 |  **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
-|  **Monitoring**      | Subdomain + URL change monitoring daemon with Discord alerts & DB history                                                              |
-|  **AI Agent**        | Full AI hunt loop (CLI + Discord `/ai` & `/brain`) — powered by **z-ai/glm-4.5-air:free via OpenRouter** — zero cost required          |
+|  **Monitoring**      | Subdomain + URL change monitoring daemon with webhook alerts (Discord-compatible) & DB history                                          |
+|  **AI Agent**        | Full AI hunt loop from the CLI (`autoar agent` / `autoar explain`) — defaults to **deepseek-v4-flash-free via OpenCode Zen** — free tier, no card required |
 |  **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
-|  **Smart Alerts**    | Rich Discord notifications for zero-findings scans — no more empty files or spam                                                       |
-|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings             |
+|  **Smart Alerts**    | Rich webhook notifications for zero-findings scans — no more empty files or spam                                                       |
+|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
 
 
 ---
@@ -309,7 +308,7 @@ The web dashboard includes a dedicated **Targets** page (sidebar → Targets) th
 
 ### Subdomain Monitoring
 
-The monitoring daemon uses a dedicated `last_run_at` DB column (fixes the old timer bug), persists every detected change to `monitor_changes` for history, and sends Discord webhook alerts automatically.
+The monitoring daemon uses a dedicated `last_run_at` DB column (fixes the old timer bug), persists every detected change to `monitor_changes` for history, and sends webhook alerts automatically. Set `MONITOR_WEBHOOK_URL` in your `.env` to any webhook endpoint (Discord webhook URLs work out of the box).
 
 ```
 autoar monitor subdomains -d <domain>         One-time check for subdomain changes
@@ -328,7 +327,7 @@ autoar monitor updates manage list
 
 ### AI Agent Commands
 
-Autonomous bug hunting directly from the terminal — no Discord required.
+Autonomous bug hunting directly from the terminal.
 
 ```
 autoar agent "<request>" [--json]
@@ -352,36 +351,57 @@ autoar status [--json]
 
 ##  AI-Driven Security Framework — Free for Everyone
 
-As of the latest release, AutoAR's AI engine runs on `**[stepfun/step-3.5-flash:free](https://openrouter.ai/stepfun/step-3.5-flash:free)**` via [OpenRouter](https://openrouter.ai). This is a **completely free model** — no credits, no billing required.
+AutoAR's AI engine defaults to **[OpenCode Zen](https://opencode.ai/zen)** running `deepseek-v4-flash-free`. OpenCode Zen is OpenAI-compatible and offers a free tier with no card required. You can also bring your own OpenRouter or Gemini key — AutoAR routes to whichever providers you configure.
 
-> **Every AutoAR user can now access a full AI-driven bug bounty framework at zero cost** — just sign up for a free OpenRouter account and paste your key into `.env`.
+> **Free path in 60 seconds:** create a free OpenCode Zen account, copy your key into `OPENCODE_API_KEY`, and the agent works.
 
 ### What the AI powers
 
 
-| Discord Command                         | What it does                                                                                                   |
+| Command                                 | What it does                                                                                                   |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/ai message:<request>`                 | Chat with AutoAR AI in natural language. Describe your target and it will queue the right scans automatically. |
-| `/ai message:<request> agent_mode:True` | Autonomous agent loop — the AI plans, runs tools, validates findings, and reports confirmed bugs.              |
-| `/ai message:<request> dry_run:True`    | Preview what scans would run without executing anything.                                                       |
-| `/brain`                                | AI analysis of your latest scan results — suggests next-step attacks and highlights interesting findings.      |
-| `autoar agent "<request>"`              | Same autonomous agent loop from the terminal (no Discord needed).                                              |
+| `autoar agent "<request>"`              | Autonomous agent loop — the AI plans, runs tools, validates findings, and reports confirmed bugs.             |
+| `autoar agent "<request>" --json`       | Same agent loop with machine-readable JSON output for piping into other tools.                                 |
 | `autoar explain <result-file>`          | Feed any result file to the AI for triage and follow-up suggestions.                                           |
 
 
-### Getting your free OpenRouter key
+### Getting your free OpenCode Zen key
 
-1. Go to [openrouter.ai](https://openrouter.ai) and create a **free account** (no credit card required for free models)
-2. Navigate to **Keys** → **Create Key**
-3. Copy your key and add it to `.env`:
+1. Go to [opencode.ai/zen](https://opencode.ai/zen) and create a free account.
+2. Generate an API key from the dashboard.
+3. Drop it into `.env`:
+
+```env
+OPENCODE_API_KEY=oc-...
+# Optional model override — leave unset for the default deepseek-v4-flash-free.
+# Browse https://opencode.ai/zen/v1/models for the full list.
+OPENCODE_MODEL=
+```
+
+That's it. AutoAR will use `deepseek-v4-flash-free` automatically for `autoar agent` and `autoar explain`.
+
+### Bringing your own OpenRouter key (optional)
+
+If you want to use OpenRouter (paid premium models or alternative free models):
 
 ```env
 OPENROUTER_API_KEY=sk-or-v1-...
+# Optional model override — leave unset for z-ai/glm-4.5-air:free.
+OPENROUTER_MODEL=
 ```
 
-That's it. AutoAR will automatically use `z-ai/glm-4.5-air:free` for all `/ai` and `/brain` commands.
+### Provider priority
 
-> **Tip:** If `OPENROUTER_API_KEY` is set, it is used first (with `z-ai/glm-4.5-air:free`). `ZHIPU_API_KEY` routes to the Z.ai direct endpoint. `GEMINI_API_KEY` is a final fallback. You only need one of the three.
+When multiple keys are configured, AutoAR tries them in this order — each provider falls back to the next on error:
+
+1. `OPENROUTER_API_KEY` → OpenRouter (`OPENROUTER_MODEL` or `z-ai/glm-4.5-air:free`)
+2. `OPENCODE_API_KEY` → OpenCode Zen (`OPENCODE_MODEL` or `deepseek-v4-flash-free`)
+3. `ZHIPU_API_KEY` → Z.ai direct endpoint
+4. `GEMINI_API_KEY` → Gemini Direct
+
+### Configuring from the dashboard
+
+The web dashboard (`/ui/settings`) exposes all four keys and the two model overrides. You can paste keys, change models, and reset to defaults without touching `.env`. Existing keys are masked in the input — leave the field blank to keep the saved value, type a new value to overwrite.
 
 ### Database & Results
 
@@ -405,12 +425,10 @@ autoar cleanup             Delete all contents of the results directory
 autoar help                Show help
 ```
 
-### Special Modes
+### Server Mode
 
 ```
-autoar bot                 Start Discord bot only
-autoar api                 Start REST API server only
-autoar both                Start Discord bot + API server simultaneously
+autoar api                 Start the REST API server + web dashboard
 ```
 
 ---
@@ -438,8 +456,8 @@ The easiest way to run AutoAR with all dependencies (Go, Nuclei, FFUF, APK Audit
 
 3. **Launch:**
    ```bash
-   # Build and start all services (API, Dashboard, Database, Bot)
-   docker compose --profile full up -d
+   # Build and start the API + Dashboard (add --profile localdb to also start PostgreSQL)
+   docker compose --profile localdb up -d
    ```
 
 
@@ -486,8 +504,8 @@ cp .env.example .env
 ### Core Config
 
 ```env
-# Mode: discord | api | both
-AUTOAR_MODE=discord
+# Server mode (the API server also serves the web dashboard)
+AUTOAR_MODE=api
 
 # Results storage directory
 AUTOAR_RESULTS_DIR=./new-results
@@ -497,23 +515,18 @@ DB_TYPE=sqlite
 DB_HOST=./bughunt.db
 ```
 
-### Discord Bot
+### Monitor Webhook (Optional)
+
+The monitoring daemon posts change alerts to a webhook of your choice. Leave it unset to disable notifications.
 
 ```env
-DISCORD_BOT_TOKEN=your_discord_bot_token
-DISCORD_ALLOWED_GUILD_ID=your_guild_id   # Optional: restrict to one server
+# Any webhook endpoint — Discord webhook URLs work out of the box (payload is {"content": "..."})
+MONITOR_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
-
-Getting a Discord Bot Token:
-
-1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
-2. New Application → Bot → Copy Token
-3. Enable **Message Content Intent** under Privileged Gateway Intents
-4. Invite bot to your server with `applications.commands` scope
 
 ### Cloudflare R2 Storage (Highly Recommended)
 
-AutoAR automatically uploads every non-empty result file to R2 and prints a public URL in the scan output. AI assistants and Discord bots can see and share these links directly.
+AutoAR automatically uploads every non-empty result file to R2 and prints a public URL in the scan output. AI assistants can see and share these links directly.
 
 ```env
 USE_R2_STORAGE=true
@@ -558,11 +571,16 @@ H1_API_KEY=...           # HackerOne
 INTEGRITI_API_KEY=...    # Intigriti
 
 # AI analysis — only ONE key is needed
-#  Recommended: OpenRouter free tier (no credit card required)
-#    Sign up at https://openrouter.ai · Uses stepfun/step-3.5-flash:free automatically
-OPENROUTER_API_KEY=...   # Powers /ai, /brain, and `autoar agent` — completely free
+#  Recommended (free): OpenCode Zen (no credit card required)
+#    Sign up at https://opencode.ai/zen · uses deepseek-v4-flash-free automatically
+OPENCODE_API_KEY=oc-...   # Powers `autoar agent` and `autoar explain` — completely free
+# OPENCODE_MODEL=         # Optional override; see https://opencode.ai/zen/v1/models
 
-# Optional fallback: direct Gemini API (only if you don't use OpenRouter)
+# Optional: OpenRouter for premium / alternative models
+OPENROUTER_API_KEY=...
+# OPENROUTER_MODEL=        # Optional override; defaults to z-ai/glm-4.5-air:free
+
+# Optional fallback: direct Gemini API
 GEMINI_API_KEY=...
 ```
 
@@ -595,8 +613,8 @@ AUTOAR_TIMEOUT_NUCLEI=0
 git clone https://github.com/h0tak88r/AutoAR.git && cd AutoAR
 cp .env.example .env  # Edit .env with your keys
 
-# 2. Start Full Stack (API + Dashboard + Postgres)
-docker compose --profile full up -d
+# 2. Start the stack (API + Dashboard + Postgres)
+docker compose --profile localdb up -d
 
 # 3. Run a scan via Docker
 docker compose run --rm autoar-api domain run -d example.com
@@ -664,15 +682,13 @@ See the [CoPaw AutoAR Skill documentation](/blob/main/docs/copaw-skill.md) for f
 AutoAR follows a strictly decoupled, package-based architecture designed for enterprise scaling and clean dependency management:
 
 - **`cmd/autoar/`**: The main entry point. All binaries and commands start here.
-- **`internal/api/`**: The core backend source of truth. Manages all scan states (`ActiveScans`), database operations, REST endpoints, and orchestration.
-- **`internal/bot/`**: The Discord integration layer. It is fully stateless and consumes exported utilities and state from the `api` and `utils` packages, providing the interactive chat UI.
-- **`internal/utils/`**: Centralized, shared logic (binary paths, helper functions, logging, env loading). This acts as the foundational layer to strictly prevent any circular imports between the API and the Bot.
-
-*Both the API and Discord bot can be run entirely independently, or combined in a single binary using `autoar both`.*
+- **`internal/api/`**: The core backend source of truth. Manages all scan states (`ActiveScans`), database operations, REST endpoints, and orchestration. The web dashboard UI is served from here.
+- **`internal/cmd/`**: The Cobra command layer — every `autoar` CLI subcommand is registered here.
+- **`internal/utils/`**: Centralized, shared logic (binary paths, helper functions, logging, env loading). This acts as the foundational layer to strictly prevent circular imports between packages.
 
 ---
 
-The repository includes a multi-stage **Dockerfile** and a comprehensive **docker-compose.yml** that manages the API, Dashboard UI, Discord Bot, and PostgreSQL.
+The repository includes a multi-stage **Dockerfile** and a **docker-compose.yml** that manages the API server (which also serves the Dashboard UI) and an optional PostgreSQL container.
 
 ### Environment Variables in Docker
 
@@ -695,17 +711,15 @@ AutoAR's Docker stack includes a dedicated PostgreSQL container. This is the **r
 
 ### Service Profiles
 
-| Profile | Services Started | Use Case |
-| ------- | ---------------- | -------- |
-| `api` | `autoar-api` | Running the backend/UI only |
-| `bot` | `autoar-discord` | Running the Discord bot only |
-| `full` | `autoar-api`, `autoar-discord`, `postgres` | Running everything with local DB |
-| `localdb` | `postgres` | Just starting the database |
+| Service / Profile | Services Started | Use Case |
+| ----------------- | ---------------- | -------- |
+| `autoar-api` (no profile) | `autoar-api` | API server + dashboard (uses an external/remote DB) |
+| `localdb` | `postgres` | Start the bundled PostgreSQL container |
 
 **Example:**
 ```bash
-# Run everything except Discord bot
-docker compose --profile api --profile localdb up -d
+# Run the API + dashboard together with a local PostgreSQL container
+docker compose --profile localdb up -d
 ```
 
 ### Path Mapping & Volumes
@@ -718,12 +732,12 @@ AutoAR maps the following host directories into the container:
 ### Typical `.env` for Docker Full Stack
 
 ```env
-AUTOAR_MODE=both
+AUTOAR_MODE=api
 AUTOAR_RESULTS_DIR=/app/new-results
 DB_TYPE=postgresql
 DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
 USE_R2_STORAGE=true
-OPENROUTER_API_KEY=...
+OPENCODE_API_KEY=oc-...   # or OPENROUTER_API_KEY / GEMINI_API_KEY
 ```
 
 ---
@@ -761,10 +775,10 @@ DB_HOST=./bughunt.db
 
 ### No Terminal Logs?
 
-AutoAR logs to a file by default (`autoar-bot.log`). To see live output:
+The API server logs to `api.log` by default. To see live output:
 
 ```bash
-tail -f autoar-bot.log
+tail -f api.log
 # or set LOG_LEVEL=debug in your .env
 ```
 

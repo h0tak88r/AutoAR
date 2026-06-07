@@ -73,10 +73,10 @@ func Run() error {
 	fmt.Println("   2. Configure your environment:")
 	fmt.Println("      cp env.example .env")
 	fmt.Println("      cp .env.example .env")
-	fmt.Println("   3. Start the bot:")
+	fmt.Println("   3. Start the API server + dashboard:")
 	fmt.Println("      # Edit .env with your API keys")
-	fmt.Println("      ./autoar bot")
-	fmt.Println("      # Or run in tmux: tmux new-session -d -s autoar './autoar bot'")
+	fmt.Println("      ./autoar api")
+	fmt.Println("      # Or run in tmux: tmux new-session -d -s autoar './autoar api'")
 	fmt.Println()
 
 	return nil

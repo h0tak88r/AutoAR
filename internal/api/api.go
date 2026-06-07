@@ -567,6 +567,8 @@ func SetupAPI() *gin.Engine {
 		// Bug bounty scope / target fetch endpoints
 		apiGroup.POST("/scope/fetch", apiFetchScope)
 		apiGroup.GET("/scope/platforms", apiScopePlatforms)
+		apiGroup.GET("/scope/programs", apiListPrograms)
+		apiGroup.POST("/scope/program-summaries", apiProgramScopeSummaries)
 		// AI finding validation & reporting
 		apiGroup.POST("/findings/validate", apiValidateFinding)
 		apiGroup.POST("/findings/report", apiReportFinding)
@@ -1878,4 +1880,3 @@ func shouldSkipArtifact(path string) bool {
 
 	return false
 }
-

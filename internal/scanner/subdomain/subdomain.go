@@ -63,7 +63,7 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 
 	// Initialize logger if not already initialized
 	if utils.Log == nil {
-		logConfig := utils.LogConfigFromEnv("autoar-bot.log")
+		logConfig := utils.LogConfigFromEnv("autoar.log")
 		if err := utils.InitLogger(logConfig); err != nil {
 			logger.GetLogger().Infof("[WARN] Failed to initialize logger: %v", err)
 		} else {
@@ -389,7 +389,6 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		logger.GetLogger().Infof("[DEBUG] Subdomain directory contains %d files", fileCount)
 	}
 
-	// R2 upload removed - files are sent directly to Discord threads in real-time
 
 	utils.Log.WithField("subdomain", subdomain).Info("Full subdomain scan completed successfully")
 

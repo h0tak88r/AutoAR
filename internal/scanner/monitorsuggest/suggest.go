@@ -217,7 +217,7 @@ func RankWithAI(domain string, candidates []Candidate) ([]Suggestion, error) {
 	if len(candidates) == 0 {
 		return nil, nil
 	}
-	if os.Getenv("OPENROUTER_API_KEY") == "" && os.Getenv("GEMINI_API_KEY") == "" {
+	if os.Getenv("OPENROUTER_API_KEY") == "" && os.Getenv("OPENCODE_API_KEY") == "" && os.Getenv("GEMINI_API_KEY") == "" {
 		return heuristicRank(domain, candidates), nil
 	}
 
