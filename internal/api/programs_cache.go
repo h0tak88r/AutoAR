@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +48,16 @@ var (
 	programsRefreshMu  sync.Mutex
 	programsRefreshing bool
 )
+
+// programsCacheEnabled reports whether the DB-backed cache should be used at all.
+// Without a DB configured there is nowhere to persist the payload, so the cache
+// (and its background refresh) is disabled — the handler then just does a live
+// fetch, exactly as it did before this cache existed. This prevents a DB-less
+// deployment from triggering an endless loop of expensive upstream rebuilds that
+// can never be saved.
+func programsCacheEnabled() bool {
+	return strings.TrimSpace(os.Getenv("DB_HOST")) != ""
+}
 
 // loadProgramsCache reads and unmarshals the persisted payload.
 // ok is false when the cache is absent or unreadable.

