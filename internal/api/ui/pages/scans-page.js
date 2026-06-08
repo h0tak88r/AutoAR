@@ -374,6 +374,14 @@
       const inp = document.getElementById('launch-target');
       if (inp) { try { inp.focus(); inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { /* ignore */ } }
     }
+    // Restore the post-launch status summary once (it would otherwise be wiped
+    // by this re-render). One-shot so it doesn't linger on later navigations.
+    if (window.state.scanLaunchUI && window.state.scanLaunchUI._launchStatus) {
+      const st = window.state.scanLaunchUI._launchStatus;
+      delete window.state.scanLaunchUI._launchStatus;
+      const se = document.getElementById('launch-status');
+      if (se) { se.textContent = st.text; se.style.color = st.color || 'var(--text-muted)'; se.style.display = st.text ? '' : 'none'; }
+    }
   }
 
   window.ScansPage = {
