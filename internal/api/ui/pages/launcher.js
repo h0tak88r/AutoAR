@@ -42,46 +42,49 @@
     bucket_list: 'Bucket list',
   };
 
+  // Flag definitions. `default` is shown (as a select/bool value, or as a
+  // "default: X" placeholder for number/text so an empty field uses the server
+  // default). `help` renders as a tooltip + a one-line hint under the field.
   const SCAN_FLAG_DEFS = {
-    domain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
-    subdomain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false }],
+    domain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false, help: 'Skip the directory-fuzzing phase to finish faster.' }],
+    subdomain_scan: [{ key: 'skip_ffuf', label: 'Skip FFuf', type: 'bool', advanced: false, help: 'Skip the directory-fuzzing phase to finish faster.' }],
     asr: [
-      { key: 'mode', label: 'ASR Mode', type: 'select', options: ['5', '4', '3', '2', '1'], advanced: false },
-      { key: 'threads', label: 'Threads', type: 'number', min: 1, advanced: true },
-      { key: 'resolvers', label: 'Resolvers file path', type: 'text', advanced: true },
+      { key: 'mode', label: 'ASR Mode', type: 'select', options: ['5', '4', '3', '2', '1'], default: '5', advanced: false, help: '5 = deepest (passive + brute + permute + resolve); 1 = fastest/lightest.' },
+      { key: 'threads', label: 'Threads', type: 'number', min: 1, default: 50, advanced: true, help: 'Concurrent DNS/HTTP workers.' },
+      { key: 'resolvers', label: 'Resolvers file path', type: 'text', advanced: true, help: 'Path to a custom DNS resolvers list on the server (optional).' },
     ],
     recon: [
-      { key: 'threads', label: 'Threads', type: 'number', min: 1, max: 500, advanced: false },
+      { key: 'threads', label: 'Threads', type: 'number', min: 1, max: 500, default: 100, advanced: false, help: 'Concurrency for subdomain enumeration.' },
     ],
-    nuclei: [{ key: 'mode', label: 'Mode', type: 'select', options: ['full', 'cves', 'panels', 'default-logins', 'vulnerabilities'], advanced: false }],
-    dns: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['takeover', 'dangling-ip'], advanced: false }],
-    dns_dangling: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['dangling-ip', 'takeover'], advanced: false }],
+    nuclei: [{ key: 'mode', label: 'Mode', type: 'select', options: ['full', 'cves', 'panels', 'default-logins', 'vulnerabilities'], default: 'full', advanced: false, help: 'Which template set to run. Runs recon first automatically if live hosts are missing.' }],
+    dns: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['takeover', 'dangling-ip'], default: 'takeover', advanced: false, help: 'takeover = CNAME/NS takeover checks; dangling-ip = dangling A-record checks.' }],
+    dns_dangling: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['dangling-ip', 'takeover'], default: 'dangling-ip', advanced: false, help: 'dangling-ip = dangling A-record checks.' }],
     s3: [
-      { key: 'region', label: 'Region (optional)', type: 'text', advanced: false },
-      { key: 'threads', label: 'Threads (reserved)', type: 'number', min: 1, advanced: true },
+      { key: 'region', label: 'Region (optional)', type: 'text', advanced: false, help: 'AWS region for the bucket, e.g. us-east-1. Leave empty to auto-detect.' },
+      { key: 'threads', label: 'Threads (reserved)', type: 'number', min: 1, advanced: true, help: 'Reserved for future concurrent bucket probing.' },
     ],
     ffuf: [
-      { key: 'threads', label: 'Threads', type: 'number', min: 1, advanced: false },
-      { key: 'recursion', label: 'Enable recursion', type: 'bool', advanced: false },
-      { key: 'recursion_depth', label: 'Recursion depth', type: 'number', min: 1, advanced: true },
-      { key: 'bypass_403', label: 'Bypass 403 checks', type: 'bool', advanced: true },
-      { key: 'extensions', label: 'Extensions (csv)', type: 'text', advanced: true },
-      { key: 'wordlist', label: 'Wordlist path', type: 'text', advanced: true },
+      { key: 'threads', label: 'Threads', type: 'number', min: 1, default: 40, advanced: false, help: 'Concurrent fuzzing requests.' },
+      { key: 'recursion', label: 'Enable recursion', type: 'bool', advanced: false, help: 'Recurse into discovered directories.' },
+      { key: 'recursion_depth', label: 'Recursion depth', type: 'number', min: 1, default: 1, advanced: true, help: 'Max recursion depth when recursion is enabled.' },
+      { key: 'bypass_403', label: 'Bypass 403 checks', type: 'bool', advanced: true, help: 'Try header/path tricks to bypass 403 responses on hits.' },
+      { key: 'extensions', label: 'Extensions (csv)', type: 'text', advanced: true, help: 'Comma-separated, e.g. php,bak,zip,json.' },
+      { key: 'wordlist', label: 'Wordlist path', type: 'text', advanced: true, help: 'Server-side wordlist path. Empty = built-in quick_fuzz list.' },
     ],
     zerodays: [
-      { key: 'threads', label: 'Threads', type: 'number', min: 1, advanced: false },
-      { key: 'dos_test', label: 'Enable DoS test', type: 'bool', advanced: true },
-      { key: 'enable_source_exposure', label: 'Enable source exposure', type: 'bool', advanced: true },
-      { key: 'silent', label: 'Silent mode', type: 'bool', advanced: true },
-      { key: 'cves', label: 'CVEs (csv)', type: 'text', advanced: true },
-      { key: 'mongodb_host', label: 'MongoDB host', type: 'text', advanced: true },
-      { key: 'mongodb_port', label: 'MongoDB port', type: 'number', min: 1, advanced: true },
+      { key: 'threads', label: 'Threads', type: 'number', min: 1, default: 20, advanced: false, help: 'Concurrent CVE probes.' },
+      { key: 'dos_test', label: 'Enable DoS test', type: 'bool', advanced: true, help: 'Includes DoS checks — only run on assets you own / have permission to disrupt.' },
+      { key: 'enable_source_exposure', label: 'Enable source exposure', type: 'bool', advanced: true, help: 'Probe React2Shell source-map / source exposure.' },
+      { key: 'silent', label: 'Silent mode', type: 'bool', advanced: true, help: 'Only emit confirmed-vulnerable hosts.' },
+      { key: 'cves', label: 'CVEs (csv)', type: 'text', advanced: true, help: 'Limit to specific CVE IDs, comma-separated. Empty = all supported.' },
+      { key: 'mongodb_host', label: 'MongoDB host', type: 'text', advanced: true, help: 'Target host for the MongoDB CVE-2025-14847 check.' },
+      { key: 'mongodb_port', label: 'MongoDB port', type: 'number', min: 1, default: 27017, advanced: true, help: 'MongoDB port (default 27017).' },
     ],
-    backup: [{ key: 'threads', label: 'Threads', type: 'number', min: 1, advanced: false }],
+    backup: [{ key: 'threads', label: 'Threads', type: 'number', min: 1, default: 20, advanced: false, help: 'Concurrent backup-file probes.' }],
     misconfig: [
-      { key: 'service_id', label: 'Service filter', type: 'text', advanced: false },
-      { key: 'delay', label: 'Delay ms', type: 'number', min: 0, advanced: true },
-      { key: 'permutations', label: 'Enable permutations', type: 'bool', advanced: true },
+      { key: 'service_id', label: 'Service filter', type: 'text', advanced: false, help: 'Limit to one service id (e.g. jenkins). Empty = all 100+ checks.' },
+      { key: 'delay', label: 'Delay ms', type: 'number', min: 0, default: 0, advanced: true, help: 'Delay between requests in milliseconds.' },
+      { key: 'permutations', label: 'Enable permutations', type: 'bool', advanced: true, help: 'Also test path permutations per service.' },
     ],
   };
 
@@ -265,17 +268,20 @@
     defs.forEach((d) => {
       const target = d.advanced ? advanced : essential;
       const id = `flag-${d.key}`;
+      const titleAttr = d.help ? ` title="${esc(d.help)}"` : '';
+      const ph = d.default != null ? ` placeholder="default: ${esc(String(d.default))}"` : '';
       let field = '';
       if (d.type === 'bool') {
-        field = `<input id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="bool" type="checkbox">`;
+        field = `<input id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="bool" type="checkbox"${d.default === true ? ' checked' : ''}>`;
       } else if (d.type === 'select') {
-        field = `<select id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="select">${(d.options || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select>`;
+        field = `<select id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="select">${(d.options || []).map((v) => `<option value="${esc(v)}"${String(d.default) === String(v) ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
       } else if (d.type === 'number') {
-        field = `<input id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="number" type="number" ${d.min != null ? `min="${d.min}"` : ''}>`;
+        field = `<input id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="number" type="number" ${d.min != null ? `min="${d.min}"` : ''}${ph}>`;
       } else {
-        field = `<input id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="text" type="text">`;
+        field = `<input id="${id}" data-flag-key="${esc(d.key)}" data-flag-type="text" type="text"${ph}>`;
       }
-      target.insertAdjacentHTML('beforeend', `<div class="launch-flag-item"><label for="${id}">${esc(d.label)}</label>${field}</div>`);
+      const helpLine = d.help ? `<div class="launch-flag-help" style="font-size:10px;color:var(--text-muted);line-height:1.3;margin-top:2px">${esc(d.help)}</div>` : '';
+      target.insertAdjacentHTML('beforeend', `<div class="launch-flag-item"><label for="${id}"${titleAttr}>${esc(d.label)}</label>${field}${helpLine}</div>`);
     });
 
     if (sel.value === 'dns_dangling') {
@@ -360,6 +366,13 @@
     }
 
     const btn = document.getElementById('launch-btn');
+    const statusEl = document.getElementById('launch-status');
+    const setStatus = (txt, color) => {
+      if (!statusEl) return;
+      statusEl.textContent = txt;
+      statusEl.style.color = color || 'var(--text-muted)';
+      statusEl.style.display = txt ? '' : 'none';
+    };
     btn.disabled = true;
     const bodies = buildScanRequestBodies(spec, mode, raw);
     if (!bodies.length) {
@@ -368,30 +381,53 @@
       return;
     }
 
+    const bodyLabel = (b) => b.domain || b.subdomain || b.url || b.repo || b.bucket || '(target)';
+    const total = bodies.length;
+
     try {
       const scanIds = [];
-      const failures = [];
+      const failures = []; // { target, error }
       const flags = collectFlagValues();
-      for (const body of bodies) {
+      for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
+        const label = bodyLabel(body);
+        if (total > 1) setStatus(`Launching ${i + 1}/${total}…  ${label}`, 'var(--accent-cyan)');
         try {
           const result = await window.apiPost(`/scan/${spec.path}`, { ...body, ...flags });
           if (result && result.scan_id) scanIds.push(result.scan_id);
+          else failures.push({ target: label, error: 'no scan_id returned' });
         } catch (e) {
-          failures.push(e.message || 'failed');
+          failures.push({ target: label, error: e.message || 'failed' });
         }
       }
-      if (scanIds.length) {
+
+      const failList = failures.slice(0, 5).map((f) => `${f.target}: ${f.error}`).join('\n');
+      const moreFails = failures.length > 5 ? `\n…and ${failures.length - 5} more` : '';
+
+      if (scanIds.length && !failures.length) {
+        setStatus(`Started ${scanIds.length} scan${scanIds.length > 1 ? 's' : ''}.`, 'var(--accent-emerald)');
         window.showToast('success', 'Scan started', `${scanIds.length} started${scanIds.length === 1 ? ` (ID: ${scanIds[0]})` : ''}`);
+      } else if (scanIds.length && failures.length) {
+        setStatus(`${scanIds.length} started · ${failures.length} failed (failed targets kept below to retry).`, '#f59e0b');
+        window.showToast('error', `${failures.length} of ${total} failed`, failList + moreFails);
+      } else {
+        setStatus(`All ${total} launch${total > 1 ? 'es' : ''} failed.`, 'var(--accent-red)');
+        window.showToast('error', 'All launches failed', failList || 'No scans started.');
       }
-      if (failures.length) {
-        const firstError = failures[0] ? ` First error: ${failures[0]}` : '';
-        window.showToast('error', 'Some launches failed', `${failures.length} failed.${firstError}`);
+
+      // Clear on full success; on partial failure keep just the failed targets
+      // in the bulk box so the user can fix + relaunch them.
+      if (!failures.length) {
+        singleInput.value = '';
+        listInput.value = '';
+      } else if (mode.endsWith('_list')) {
+        listInput.value = failures.map((f) => f.target).join('\n');
       }
-      singleInput.value = '';
-      listInput.value = '';
+      updateLaunchPreview();
       window.loadStats();
       window.loadScans();
     } catch (e) {
+      setStatus('', '');
       window.showToast('error', 'Failed to start scan', e.message);
     } finally {
       btn.disabled = false;
@@ -432,11 +468,78 @@
     }
   }
 
+  // launcherKeyForScanType maps a stored scan_type (the backend path, possibly
+  // with a mode suffix like "nuclei-full") back to a Quick-Launcher type key.
+  // Keys that actually have an <option> in the Quick Launcher select
+  // (kept in sync with scans-page.js renderScans). A clone must resolve to one
+  // of these, otherwise the <select> silently falls back to its first option.
+  const LAUNCH_DROPDOWN_KEYS = new Set([
+    'recon', 'domain_scan', 'subdomain_scan', 'asr', 'urls', 'tech', 'nuclei', 'ports',
+    'dns', 'dns_dangling', 'dns_cf1016', 's3', 'github', 'github_org', 'js', 'reflection',
+    'gf', 'backup', 'misconfig', 'zerodays', 'ffuf',
+  ]);
+
+  function launcherKeyForScanType(scanType) {
+    const st = String(scanType || '').toLowerCase().trim();
+    if (!st) return '';
+    const aliases = {
+      domain_run: 'domain_scan',
+      subdomain_run: 'subdomain_scan',
+      github_scan: 'github',
+      'dns-takeover': 'dns', // dropdown "dns (takeover)" runs the same takeover scan
+      'dns-cf1016': 'dns_cf1016',
+      'dns-dangling-ip': 'dns_dangling',
+    };
+    let key = '';
+    if (aliases[st]) key = aliases[st];
+    else if (st.startsWith('nuclei')) key = 'nuclei'; // nuclei-full, nuclei-cves, …
+    else if (LAUNCH_DROPDOWN_KEYS.has(st)) key = st;
+    else {
+      for (const [k, spec] of Object.entries(LAUNCH_SCAN_TYPES)) {
+        if (spec.path === st) { key = k; break; }
+      }
+    }
+    // Only return a key the dropdown can actually select; otherwise '' so the
+    // caller fills the target and prompts the user to pick a type.
+    return LAUNCH_DROPDOWN_KEYS.has(key) ? key : '';
+  }
+
+  // cloneScanToLauncher prefills the Quick Scan Launcher from a past scan so the
+  // user can tweak type/mode/flags before relaunching (unlike Rescan, which
+  // re-runs the exact same command). Original flags aren't persisted, so only
+  // type + target are restored.
+  function cloneScanToLauncher(scanType, target) {
+    const key = launcherKeyForScanType(scanType);
+    const spec = key ? LAUNCH_SCAN_TYPES[key] : null;
+    const tgt = String(target || '').trim();
+    window.state = window.state || {};
+    window.state.scanLaunchUI = window.state.scanLaunchUI || {};
+    const lui = window.state.scanLaunchUI;
+    if (spec) {
+      lui.scanType = key;
+      lui.targetMode = (spec.modes && spec.modes[0]) || 'domain';
+    }
+    lui.target = tgt;
+    lui.targetList = '';
+    // renderScans focuses + scrolls the launcher after it (re)renders, which is
+    // robust to the async loadScans fetch (a fixed setTimeout would race it).
+    lui._pendingCloneFocus = true;
+    if (typeof window.navigateTo === 'function') window.navigateTo('scans');
+    if (spec) {
+      window.showToast && window.showToast('info', 'Cloned to launcher', `${key} → ${tgt} — adjust flags/mode, then Launch.`);
+    } else {
+      window.showToast && window.showToast('info', 'Pick a scan type', `Target filled in — choose a scan type, then Launch (original type "${scanType}" isn't a standalone launcher option).`);
+    }
+  }
+
+  window.cloneScanToLauncher = cloneScanToLauncher;
+
   window.LauncherPage = {
     syncLaunchPlaceholder,
     renderLaunchFlags,
     updateLaunchPreview,
     triggerScan,
     handleLaunchFileUpload,
+    cloneScanToLauncher,
   };
 })();
