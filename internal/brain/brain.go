@@ -506,12 +506,14 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 	ocKey := strings.TrimSpace(os.Getenv("OPENCODE_API_KEY"))
 	zaiKey := strings.TrimSpace(os.Getenv("ZHIPU_API_KEY"))
 
+	var errs []string
 	if ocKey != "" {
 		res, err := callOpenCode(prompt, ocKey)
 		if err == nil {
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] OpenCode failed, falling back to other providers: %v", err)
+		errs = append(errs, "OpenCode("+openCodeModel()+"): "+err.Error())
 	}
 
 	if orKey != "" {
@@ -520,6 +522,7 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
+		errs = append(errs, "OpenRouter("+openRouterModel()+"): "+err.Error())
 	}
 
 	if zaiKey != "" {
@@ -528,13 +531,21 @@ func callAI(prompt, orKey, geminiKey string) (string, error) {
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] Z.ai failed, falling back to direct Gemini: %v", err)
+		errs = append(errs, "Z.ai: "+err.Error())
 	}
 
 	if geminiKey != "" {
-		return callGeminiDirect(prompt, geminiKey)
+		res, err := callGeminiDirect(prompt, geminiKey)
+		if err == nil {
+			return res, nil
+		}
+		errs = append(errs, "Gemini: "+err.Error())
 	}
 
-	return "", fmt.Errorf("no valid AI key found or all services failed")
+	if len(errs) == 0 {
+		return "", fmt.Errorf("%s", errNoAIKey)
+	}
+	return "", fmt.Errorf("all configured AI providers failed — %s", strings.Join(errs, " | "))
 }
 
 func callOpenRouter(prompt, apiKey string) (string, error) {
@@ -683,12 +694,14 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 	messages = append(messages, history...)
 	messages = append(messages, Message{Role: "user", Content: userMessage})
 
+	var errs []string
 	if openCodeKey != "" {
 		res, err := callOpenCodeMulti(messages, openCodeKey)
 		if err == nil {
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] OpenCode failed, falling back to other providers: %v", err)
+		errs = append(errs, "OpenCode("+openCodeModel()+"): "+err.Error())
 	}
 
 	if openRouterKey != "" {
@@ -697,6 +710,7 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] OpenRouter failed, falling back to other providers: %v", err)
+		errs = append(errs, "OpenRouter("+openRouterModel()+"): "+err.Error())
 	}
 
 	zaiKey := strings.TrimSpace(os.Getenv("ZHIPU_API_KEY"))
@@ -706,13 +720,21 @@ func ChatWithAI(history []Message, userMessage string, systemPrompt string) (str
 			return res, nil
 		}
 		logger.GetLogger().Infof("[BRAIN] Z.ai failed, falling back to Gemini: %v", err)
+		errs = append(errs, "Z.ai: "+err.Error())
 	}
 
 	if geminiKey != "" {
-		return callGeminiDirectMulti(messages, geminiKey)
+		res, err := callGeminiDirectMulti(messages, geminiKey)
+		if err == nil {
+			return res, nil
+		}
+		errs = append(errs, "Gemini: "+err.Error())
 	}
 
-	return "", fmt.Errorf("no valid AI key found or all services failed")
+	if len(errs) == 0 {
+		return "", fmt.Errorf("%s", errNoAIKey)
+	}
+	return "", fmt.Errorf("all configured AI providers failed — %s", strings.Join(errs, " | "))
 }
 
 // callOpenRouterMulti sends a multi-message conversation to OpenRouter
