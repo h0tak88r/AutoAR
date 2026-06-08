@@ -368,6 +368,11 @@
     const btn = document.getElementById('launch-btn');
     const statusEl = document.getElementById('launch-status');
     const setStatus = (txt, color) => {
+      // Persist the message so the final summary survives the loadScans()
+      // re-render that rebuilds the launcher DOM (renderScans restores it once).
+      window.state = window.state || {};
+      window.state.scanLaunchUI = window.state.scanLaunchUI || {};
+      window.state.scanLaunchUI._launchStatus = txt ? { text: txt, color: color || 'var(--text-muted)' } : null;
       if (!statusEl) return;
       statusEl.textContent = txt;
       statusEl.style.color = color || 'var(--text-muted)';
