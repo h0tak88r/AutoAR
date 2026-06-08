@@ -229,6 +229,9 @@
     const rescanBtn = !running
       ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.35);color:var(--accent-emerald)" onclick='event.stopPropagation();rescanScan(${JSON.stringify(scanID)})' title="Re-run with same command"> Rescan</button>`
       : '';
+    const cloneBtn = !running
+      ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(34,211,238,.35);color:var(--accent-cyan)" onclick='event.stopPropagation();cloneScanToLauncher(${JSON.stringify(scanType)}, ${JSON.stringify(target)})' title="Prefill the launcher to re-run with edits">Clone</button>`
+      : '';
     const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" onclick='event.stopPropagation();deleteScan(${JSON.stringify(scanID)}, ${JSON.stringify(target)})'>Delete</button>`;
     const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${window.esc(scanID)}" onclick="event.stopPropagation()" aria-label="Select scan" />`;
     return `<tr class="clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})'>
@@ -239,7 +242,7 @@
     <td>${phaseCol}</td>
     <td style="font-size:11px;color:var(--text-muted)">${window.fmtDate(startedAt)}</td>
     <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted)">${elapsed}</td>
-    <td onclick="event.stopPropagation()">${resultsCell}${rescanBtn}${deleteBtn}</td>
+    <td onclick="event.stopPropagation()">${resultsCell}${rescanBtn}${cloneBtn}${deleteBtn}</td>
   </tr>`;
   }
 
@@ -319,6 +322,11 @@
         <summary>Advanced flags</summary>
         <div id="launch-flags-advanced" class="launch-flags-grid"></div>
       </details>
+      <div id="launch-status" style="display:none;font-size:12px;margin-top:10px;font-family:'JetBrains Mono',monospace"></div>
+      <details class="launcher-accordion">
+        <summary>Request preview</summary>
+        <pre id="launch-preview" style="margin:0;padding:10px 12px;overflow:auto;max-height:220px;font-size:11px;line-height:1.45;font-family:'JetBrains Mono',monospace;color:var(--text-secondary);background:rgba(2,6,23,.4);border-radius:6px;white-space:pre-wrap;word-break:break-word">{}</pre>
+      </details>
     </div>`;
     html += `<div class="card" style="margin-bottom:20px; border:1px solid var(--border); background:rgba(13,17,23,0.4)"><div class="card-body" style="padding:16px"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div style="flex:1;min-width:280px;position:relative"><input type="text" id="scan-search-input" class="search-input" placeholder=" Search targets or scan types..." value="${window.esc(sUI.search)}" style="width:100%; padding-left:36px; background:var(--bg-secondary)"><span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none"></span></div><div style="min-width:180px"><select id="scan-type-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all">All Scan Types</option><optgroup label="Workflows"><option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option><option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option><option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option><option value="asr" ${sUI.typeFilter === 'asr' ? 'selected' : ''}>ASR Mode</option></optgroup><optgroup label="Modules"><option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option><option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option><option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option><option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option><option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option><option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option><option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option></optgroup></select></div><div style="min-width:180px"><select id="scan-status-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option><option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option><option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option><option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option><option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option></select></div></div></div></div>`;
     if (filteredActive.length) {
@@ -359,6 +367,13 @@
     container.onchange = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
     if (launchTargetMode && lUI.targetMode) launchTargetMode.dataset.preferred = lUI.targetMode;
     window.syncLaunchPlaceholder(true);
+    // After a "Clone" prefilled the launcher, focus + scroll it into view here
+    // (reliable regardless of the async loadScans re-render that rebuilt the DOM).
+    if (window.state.scanLaunchUI && window.state.scanLaunchUI._pendingCloneFocus) {
+      delete window.state.scanLaunchUI._pendingCloneFocus;
+      const inp = document.getElementById('launch-target');
+      if (inp) { try { inp.focus(); inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { /* ignore */ } }
+    }
   }
 
   window.ScansPage = {
