@@ -7,7 +7,18 @@
     const so = document.getElementById('sign-out-btn');
     if (so) {
       so.style.display = state.config?.auth_enabled ? 'block' : 'none';
-      so.onclick = () => {
+      so.onclick = async () => {
+        // Best-effort server-side revocation (invalidates the token for its
+        // remaining lifetime), then clear client state.
+        try {
+          const tok = state._authAccessToken || window.localTokenGet();
+          if (tok) {
+            await fetch(`${window.API}/api/auth/logout`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${tok}` },
+            });
+          }
+        } catch (_) { /* ignore network errors on logout */ }
         window.localTokenClear();
         state._authAccessToken = null;
         state._dashboardStarted = false;
