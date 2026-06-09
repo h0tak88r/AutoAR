@@ -14,10 +14,10 @@
     if (['apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'].includes(view)) {
       const tok = state._authAccessToken || window.localTokenGet();
       if (tok) {
-        document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict`;
-        document.cookie = `autoar_token=${tok}; path=/ui/ipaauditor; max-age=3600; SameSite=Strict`;
-        document.cookie = `autoar_token=${tok}; path=/ui/adbauditor; max-age=3600; SameSite=Strict`;
-        document.cookie = `autoar_token=${tok}; path=/ui/securitylab; max-age=3600; SameSite=Strict`;
+        document.cookie = `autoar_token=${tok}; path=/ui/apkauditor; max-age=3600; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`;
+        document.cookie = `autoar_token=${tok}; path=/ui/ipaauditor; max-age=3600; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`;
+        document.cookie = `autoar_token=${tok}; path=/ui/adbauditor; max-age=3600; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`;
+        document.cookie = `autoar_token=${tok}; path=/ui/securitylab; max-age=3600; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`;
       }
       const modeMap = { apkauditor: 'android', ipaauditor: 'ios', adbauditor: 'adb' };
       const auditorPathMap = {
