@@ -47,8 +47,8 @@ var (
 	apiScansMutex         sync.RWMutex
 
 	// scanSemaphore limits concurrent child-process scans (#2 rate limiting).
-	scanSemaphore = make(chan struct{}, maxConcurrentScans)
-	resourceLimitsOnce   sync.Once
+	scanSemaphore      = make(chan struct{}, maxConcurrentScans)
+	resourceLimitsOnce sync.Once
 )
 
 // safeEnvPrefixes lists environment variable prefixes that are safe to
@@ -289,7 +289,7 @@ func (s *scanOutputCapture) ResultURL() string {
 type moduleExecutionEntry struct {
 	Module         string    `json:"module"`
 	PhaseKey       string    `json:"phase_key,omitempty"` // matches the phaseKey in RunWorkflowPhase (used for log lookup)
-	Status         string    `json:"status"`               // started|completed|failed|cancelled
+	Status         string    `json:"status"`              // started|completed|failed|cancelled
 	StartedAt      time.Time `json:"started_at"`
 	CompletedAt    time.Time `json:"completed_at,omitempty"`
 	DurationMS     int64     `json:"duration_ms,omitempty"`
@@ -466,7 +466,28 @@ func SetupAPI() *gin.Engine {
 
 	gin.SetMode(gin.ReleaseMode)
 	gin.DefaultWriter = utils.GetLogger().Out
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
+	// Access log with the ?token= query value redacted so session JWTs passed via
+	// query string (EventSource/downloads) don't land in logs.
+	r.Use(gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
+		return fmt.Sprintf("[GIN] %v | %3d | %13v | %15s | %-7s %s\n",
+			p.TimeStamp.Format("2006/01/02 - 15:04:05"), p.StatusCode, p.Latency,
+			p.ClientIP, p.Method, redactTokenInPath(p.Path))
+	}))
+	// Do not trust X-Forwarded-* by default — otherwise a client could spoof its
+	// IP (e.g. X-Forwarded-For: 127.0.0.1) to bypass the rate-limiter's localhost
+	// skip. Set AUTOAR_TRUSTED_PROXIES (comma-separated CIDRs/IPs) when behind a
+	// real reverse proxy.
+	if tp := strings.TrimSpace(os.Getenv("AUTOAR_TRUSTED_PROXIES")); tp != "" {
+		parts := strings.Split(tp, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		_ = r.SetTrustedProxies(parts)
+	} else {
+		_ = r.SetTrustedProxies(nil)
+	}
 
 	reconcileStaleScansOnStartup()
 
@@ -508,6 +529,7 @@ func SetupAPI() *gin.Engine {
 	r.GET("/api/config", apiConfigHandler)
 	r.POST("/api/settings", auth, apiUpdateSettingsHandler)
 	r.POST("/api/auth/login", apiLocalAuthLogin)
+	r.POST("/api/auth/logout", auth, apiLocalAuthLogout)
 
 	// ── Dashboard data API (protected when DASHBOARD_USER/PASSWORD is set) ───
 	apiGroup := r.Group("/api")
@@ -615,7 +637,7 @@ func SetupAPI() *gin.Engine {
 		api.POST("/js-endpoints", scanJSEndpoints)
 		api.POST("/github", scanGitHub)
 		api.POST("/github_org", scanGitHubOrg)
-		api.POST("/recon", scanRecon) // Unified asset discovery: subdomains, livehosts, tech, cnames
+		api.POST("/recon", scanRecon)         // Unified asset discovery: subdomains, livehosts, tech, cnames
 		api.POST("/ffuf", scanFFuf)           // FFuf fuzzing
 		api.POST("/backup", scanBackup)       // Backup file discovery
 		api.POST("/misconfig", scanMisconfig) // Cloud misconfiguration scan
@@ -639,7 +661,6 @@ func SetupAPI() *gin.Engine {
 
 	return r
 }
-
 
 func readInt64FromFile(path string) (int64, error) {
 	b, err := os.ReadFile(path)
@@ -692,7 +713,6 @@ func availableMemoryBytes() int64 {
 	}
 	return -1
 }
-
 
 // apiUploadHandler handles file uploads for analysis
 func apiUploadHandler(c *gin.Context) {
@@ -807,7 +827,6 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
 
 func rootHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
@@ -1512,8 +1531,8 @@ func executeScan(scanID string, command []string, scanType string) {
 	if initialTotalPhases == 0 {
 		scanLabel := map[string]string{
 			"dns_cf1016": "CF1016 Dangling DNS", "dns-cf1016": "CF1016 Dangling DNS",
-				"mcp-discovery": "MCP Discovery",
-			"misconfig": "Misconfiguration", "s3": "S3 Bucket",
+			"mcp-discovery": "MCP Discovery",
+			"misconfig":     "Misconfiguration", "s3": "S3 Bucket",
 			"github": "GitHub Recon", "github_org": "GitHub Org Recon",
 			"dns-takeover": "DNS Takeover", "dns-dangling-ip": "Dangling IP",
 			"nuclei": "Nuclei Scan", "tech": "Tech Detection",
@@ -1781,7 +1800,7 @@ func IndexWorkflowArtifactsFromR2(scanID, scanType, target string) {
 	switch st {
 	case "domain_run", "subdomain_run":
 		r2Prefixes = workflowScanR2Prefixes(target)
-	case "github", "github_org": 
+	case "github", "github_org":
 		slug := target
 		if strings.Contains(target, "/") {
 			parts := strings.Split(target, "/")
@@ -1843,14 +1862,14 @@ func shouldSkipArtifact(path string) bool {
 		// keep these
 	} else {
 		// skip others by default
-		// return true 
+		// return true
 	}
 
 	base := strings.ToLower(filepath.Base(path))
 	if base == "scan-manifest.json" || base == "cache_info.json" || base == "report-table.json" {
 		return true
 	}
-	
+
 	skipByName := []string{
 		"misconfig-scan-results.txt",
 		"ffuf-results.txt",
