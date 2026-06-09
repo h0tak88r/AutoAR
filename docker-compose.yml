@@ -29,6 +29,15 @@ services:
             - API_HOST=0.0.0.0
             - API_PORT=8000
 
+            # Dashboard auth. API_HOST=0.0.0.0 is a PUBLIC bind, so the server
+            # refuses to start unless you EITHER set DASHBOARD_USER + DASHBOARD_PASSWORD
+            # (recommended — enables login) OR AUTOAR_API_AUTH_DISABLED=true (run open).
+            - DASHBOARD_USER=${DASHBOARD_USER:-}
+            - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
+            - AUTOAR_JWT_SECRET=${AUTOAR_JWT_SECRET:-}
+            - AUTOAR_API_AUTH_DISABLED=${AUTOAR_API_AUTH_DISABLED:-}
+            - AUTOAR_TRUSTED_PROXIES=${AUTOAR_TRUSTED_PROXIES:-}
+
             # Core Configuration
             - AUTOAR_SCRIPT_PATH=/usr/local/bin/autoar
             - AUTOAR_CONFIG_FILE=/app/autoar.yaml

@@ -29,6 +29,14 @@ func StartAPI() error {
 	apiHostEnv := utils.GetEnv("API_HOST", "0.0.0.0")
 	apiPortEnv := utils.GetEnv("API_PORT", "8000")
 
+	// Fail closed: refuse to expose an unauthenticated dashboard on a public
+	// (non-loopback) interface. Set DASHBOARD_USER/DASHBOARD_PASSWORD to enable
+	// login, or AUTOAR_API_AUTH_DISABLED=true to explicitly opt out.
+	if err := api.CheckAuthBindSafety(apiHostEnv); err != nil {
+		fmt.Printf("\n[FATAL] %v\n\n", err)
+		return err
+	}
+
 	// Initialize Logger
 	logConfig := utils.LogConfigFromEnv("api.log")
 	if os.Getenv("LOG_JSON") == "" {
