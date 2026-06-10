@@ -223,13 +223,13 @@ func ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
 }
 
 // ListAllSubdomainsPaginated returns a paginated global list of subdomains matching a search.
-func ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error) {
+func ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter int, liveOnly bool, limit, offset int) ([]GlobalSubdomain, int, error) {
 	if dbInstance == nil {
 		if err := Init(); err != nil {
 			return nil, 0, err
 		}
 	}
-	return dbInstance.ListAllSubdomainsPaginated(search, techFilter, cnameFilter, statusFilter, limit, offset)
+	return dbInstance.ListAllSubdomainsPaginated(search, techFilter, cnameFilter, statusFilter, liveOnly, limit, offset)
 }
 
 // UpdateSubdomainTech updates the technology stack string for a resolved subdomain

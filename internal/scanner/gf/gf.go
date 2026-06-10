@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/h0tak88r/AutoAR/internal/scanner/recon"
 	gflib "github.com/h0tak88r/AutoAR/internal/tools/gf"
-	"github.com/h0tak88r/AutoAR/internal/scanner/fastlook"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -30,7 +30,7 @@ func ResultFileForPattern(pattern string) string {
 // Options for GF scan
 type Options struct {
 	Domain    string // Domain name (for directory structure)
-	URLsFile  string // Optional: direct path to URLs file (skips fastlook)
+	URLsFile  string // Optional: direct path to URLs file (skips recon URL collection)
 	SkipCheck bool   // Skip URL file validation/regeneration
 }
 
@@ -61,11 +61,12 @@ func ScanGFWithOptions(opts Options) (*Result, error) {
 		var tmpErr error
 		urlsFile, urlsCleanup, tmpErr = utils.WriteTempURLFile(opts.Domain)
 		if tmpErr != nil {
-			// No existing URLs corpus — run fastlook to build one, then retry.
+			// No existing URLs corpus — run recon (which now collects URLs) to
+			// build one, then retry.
 			if !opts.SkipCheck {
-				logger.GetLogger().Infof("[INFO] No URLs found for %s, running fastlook first", opts.Domain)
-				if _, flErr := fastlook.RunFastlook(opts.Domain, nil); flErr != nil {
-					return nil, fmt.Errorf("failed to run fastlook: %w", flErr)
+				logger.GetLogger().Infof("[INFO] No URLs found for %s, running recon first", opts.Domain)
+				if _, rErr := recon.RunFullRecon(opts.Domain, 0); rErr != nil {
+					return nil, fmt.Errorf("failed to run recon: %w", rErr)
 				}
 				urlsFile, urlsCleanup, tmpErr = utils.WriteTempURLFile(opts.Domain)
 			}

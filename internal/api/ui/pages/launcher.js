@@ -148,9 +148,11 @@
           break;
         case 'subdomain':
         case 'subdomain_list':
-          // Some endpoints (e.g. /scan/backup) intentionally accept only "domain"
-          // but can still operate on a single subdomain value.
-          if (spec.path === 'backup' || spec.path === 'tech' || spec.path === 'ports' || spec.path === 'gf' || spec.path === 'misconfig' || spec.path === 'recon' || spec.path === 'domain_run') {
+          // Some endpoints (e.g. /scan/backup, /scan/js, /scan/nuclei) only read
+          // the "domain"/"url" field server-side, so a subdomain value must be
+          // sent as `domain` or the request 400s. Endpoints that genuinely accept
+          // a `subdomain` field (e.g. dns-cf1016) fall through to the else branch.
+          if (spec.path === 'backup' || spec.path === 'tech' || spec.path === 'ports' || spec.path === 'gf' || spec.path === 'misconfig' || spec.path === 'recon' || spec.path === 'domain_run' || spec.path === 'js' || spec.path === 'nuclei') {
             body.domain = item;
           } else {
             body.subdomain = item;
@@ -170,18 +172,6 @@
         case 'bucket':
         case 'bucket_list':
           body.bucket = item;
-          break;
-        case 'token':
-          body.token = item;
-          break;
-        case 'file_path':
-          body.file_path = item;
-          break;
-        case 'package_id':
-          body.package_id = item;
-          break;
-        case 'upload':
-          body.file_path = item;
           break;
         default:
           body.domain = normalizedItem;
@@ -215,8 +205,12 @@
     input.placeholder = ph;
     listInput.placeholder = ph;
 
-    input.style.display = (isList || mode === 'upload') ? 'none' : '';
+    input.style.display = isList ? 'none' : '';
     listInput.style.display = isList ? '' : 'none';
+    // In bulk (list) mode the textarea needs the full width, so let the target
+    // field break onto its own row instead of sharing the launcher's flex row.
+    const targetField = document.getElementById('launch-target-field');
+    if (targetField) targetField.classList.toggle('launcher-field-target--list', isList);
     help.textContent = isList
       ? 'Bulk mode: one target per line (comma also supported).'
       : `Single target mode: ${LAUNCH_MODE_LABELS[mode] || mode}.`;
@@ -227,25 +221,6 @@
       } else {
         help.textContent += ' S3 scan probes unauthenticated LIST/READ/PUT/DELETE behavior and records exposed permissions.';
       }
-    }
-
-    const uploadWrapperId = 'launch-upload-wrapper';
-    let wrapper = document.getElementById(uploadWrapperId);
-    if (mode === 'upload') {
-      input.style.display = 'none';
-      if (!wrapper) {
-        input.insertAdjacentHTML('afterend', `
-          <div id="${uploadWrapperId}" style="display:flex;gap:8px;align-items:center;flex:1">
-            <input type="text" id="launch-upload-path" class="input" placeholder="No file uploaded" readonly style="flex:1">
-            <button type="button" class="btn btn-ghost" onclick="document.getElementById('launch-file-input').click()"> Choose</button>
-            <input type="file" id="launch-file-input" style="display:none" onchange="handleLaunchFileUpload(this)">
-          </div>
-        `);
-      } else {
-        wrapper.style.display = 'flex';
-      }
-    } else if (wrapper) {
-      wrapper.style.display = 'none';
     }
 
     renderLaunchFlags();
@@ -319,34 +294,23 @@
     return out;
   }
 
+  // Persist the current launcher inputs (type, mode, target text) to app state so
+  // they survive the loadScans() re-render that rebuilds the launcher DOM. This was
+  // formerly also responsible for rendering a JSON "Request preview"; that preview
+  // has been removed, so this is now a pure state-sync helper. It must NOT early-return
+  // on a missing preview element (that would silently stop persisting inputs).
   function updateLaunchPreview() {
-    const pre = document.getElementById('launch-preview');
-    if (!pre) return;
+    if (!window.state) return;
     const key = document.getElementById('launch-type')?.value;
     const mode = document.getElementById('launch-target-mode')?.value;
-    const spec = key ? LAUNCH_SCAN_TYPES[key] : null;
     const singleInput = document.getElementById('launch-target');
     const listInput = document.getElementById('launch-target-list');
-    if (!spec) {
-      pre.textContent = '{}';
-      return;
-    }
-    const raw = (mode && mode.endsWith('_list') ? listInput?.value : singleInput?.value || '').trim();
-    if (window.state) {
-      window.state.scanLaunchUI = window.state.scanLaunchUI || { scanType: 'recon', targetMode: 'domain', target: '', targetList: '' };
-      window.state.scanLaunchUI.scanType = key || window.state.scanLaunchUI.scanType;
-      window.state.scanLaunchUI.targetMode = mode || window.state.scanLaunchUI.targetMode;
-      window.state.scanLaunchUI.target = singleInput?.value || '';
-      window.state.scanLaunchUI.targetList = listInput?.value || '';
-    }
-    const bodies = raw ? buildScanRequestBodies(spec, mode, raw) : [];
-    const flags = collectFlagValues();
-    const previewBodies = bodies.slice(0, 2).map((b) => ({ ...b, ...flags }));
-    pre.textContent = JSON.stringify({
-      endpoint: `/scan/${spec.path}`,
-      count: bodies.length || 1,
-      sample_payloads: previewBodies.length ? previewBodies : [{ ...flags }],
-    }, null, 2);
+    window.state.scanLaunchUI = window.state.scanLaunchUI || { scanType: 'recon', targetMode: 'domain', target: '', targetList: '' };
+    const lui = window.state.scanLaunchUI;
+    if (key) lui.scanType = key;
+    if (mode) lui.targetMode = mode;
+    if (singleInput) lui.target = singleInput.value || '';
+    if (listInput) lui.targetList = listInput.value || '';
   }
 
   async function triggerScan() {
@@ -439,40 +403,6 @@
     }
   }
 
-  async function handleLaunchFileUpload(inputEl) {
-    const file = inputEl.files[0];
-    if (!file) return;
-    const pathDisplay = document.getElementById('launch-upload-path');
-    const mainInput = document.getElementById('launch-target');
-    if (pathDisplay) pathDisplay.value = `Uploading ${file.name}...`;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const resp = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-        headers: window.state?._authAccessToken ? { Authorization: `Bearer ${window.state._authAccessToken}` } : {},
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || `Upload failed with status ${resp.status}`);
-      }
-      const data = await resp.json();
-      if (pathDisplay) pathDisplay.value = file.name;
-      if (mainInput) {
-        mainInput.value = data.file_path;
-        updateLaunchPreview();
-      }
-      window.showToast('success', 'Upload', `File uploaded to ${data.file_path}`);
-    } catch (e) {
-      if (pathDisplay) pathDisplay.value = 'Upload failed';
-      window.showToast('error', 'Upload failed', e.message);
-    }
-  }
-
   // launcherKeyForScanType maps a stored scan_type (the backend path, possibly
   // with a mode suffix like "nuclei-full") back to a Quick-Launcher type key.
   // Keys that actually have an <option> in the Quick Launcher select
@@ -544,7 +474,6 @@
     renderLaunchFlags,
     updateLaunchPreview,
     triggerScan,
-    handleLaunchFileUpload,
     cloneScanToLauncher,
   };
 })();

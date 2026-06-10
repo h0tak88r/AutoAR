@@ -77,7 +77,7 @@
               </tr></thead>
               <tbody>
                 ${!filtered.length
-          ? `<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--text-muted)">No results</td></tr>`
+          ? `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted)">No results</td></tr>`
           : filtered.map(s => {
             const subN = s.Subdomain || s.subdomain || '';
             const live = s.IsLive || s.is_live;
@@ -145,10 +145,24 @@
       const limit = window.state.subdomainsLimit || 30;
       const pages = Math.max(1, Math.ceil(total / limit));
 
-      if (!subs.length && !window.state.subdomainsSearch) {
+      const st = window.state;
+      // User-entered filters only (the default live-only toggle is NOT a user filter).
+      const hasActiveFilter = !!(
+        st.subdomainsSearch ||
+        (st.subdStatus && st.subdStatus !== '0') ||
+        st.subdTech ||
+        st.subdCname
+      );
+      // Show the onboarding state only when the DB genuinely has no subdomains at all,
+      // so a default live-only view that hides dead hosts doesn't masquerade as "untracked".
+      const noneTracked = !(st.stats && st.stats.subdomains > 0);
+      if (!subs.length && !hasActiveFilter && noneTracked) {
         container.innerHTML = window.emptyState('', 'No subdomains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
         return;
       }
+      const noResultsMsg = st.subdLive === '1'
+        ? "No subdomains match these filters. Try unchecking ‘Live only’ to include dead hosts."
+        : 'No subdomains match these filters.';
 
       const codeColor = (code) => {
         if (!code) return 'var(--text-muted)';
@@ -214,7 +228,7 @@
                 </tr>
               </thead>
               <tbody>
-                ${!subs.length ? '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted)">No subdomains found</td></tr>' : renderRows(subs)}
+                ${!subs.length ? `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted)">${window.esc(noResultsMsg)}</td></tr>` : renderRows(subs)}
               </tbody>
             </table>
           </div>
@@ -238,12 +252,20 @@
 
     async copyAllSubdomainsMatching() {
       try {
-        const q = encodeURIComponent(window.state.subdomainsSearch || '');
+        // Mirror the filters currently applied to the table so the copied list
+        // matches exactly what the user is looking at.
+        const s = window.state;
+        const q = encodeURIComponent(s.subdomainsSearch || '');
+        const status = s.subdStatus || '0';
+        const tech = encodeURIComponent(s.subdTech || '');
+        const cname = encodeURIComponent(s.subdCname || '');
+        const live = s.subdLive || '1';
+        const filterQs = `&status=${status}&tech=${tech}&cname=${cname}&live=${live}`;
         const pageSize = 500;
         let page = 1;
         const all = [];
         for (;;) {
-          const data = await window.apiFetch(`/api/subdomains?page=${page}&limit=${pageSize}&search=${q}`);
+          const data = await window.apiFetch(`/api/subdomains?page=${page}&limit=${pageSize}&search=${q}${filterQs}`);
           const batch = data.subdomains || [];
           all.push(...batch);
           const total = data.total || 0;
@@ -252,7 +274,7 @@
           if (page > 2000) break;
         }
         if (!all.length) {
-          window.showToast('error', 'Nothing to copy', 'No subdomains match the current search.');
+          window.showToast('error', 'Nothing to copy', 'No subdomains match the current filters.');
           return;
         }
         await window.copyToClipboard(all.map((s) => s.subdomain).join('\n'));
@@ -264,4 +286,14 @@
   };
 
   window.DomainsPage = DomainsPage;
+
+  // Pagination handler referenced by the Previous/Next buttons in renderSubdomainsPage().
+  // Clamps the requested page to the valid range and preserves the active search term.
+  window.changeSubdomainsPage = (page) => {
+    const total = window.state.allSubdomainsTotal || 0;
+    const limit = window.state.subdomainsLimit || 30;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const target = Math.min(Math.max(1, page || 1), pages);
+    window.loadSubdomains(target, window.state.subdomainsSearch || '');
+  };
 })();
