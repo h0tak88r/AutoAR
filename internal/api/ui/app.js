@@ -502,11 +502,6 @@ function refreshScanDetailIfRunning(scanId) {
   if (fn) return fn(scanId);
 }
 
-function clearApkxCacheForScan(scan) {
-  const fn = scanDetailPageMethod('clearApkxCacheForScan');
-  if (fn) return fn(scan);
-}
-
 function renderDomainGrid() {
   const fn = domainsPageMethod('renderDomainGrid');
   if (fn) return fn();
@@ -612,10 +607,6 @@ function updateLaunchPreview() {
 
 async function triggerScan() {
   return callPageMethod('LauncherPage', 'triggerScan');
-}
-
-async function handleLaunchFileUpload(inputEl) {
-  return callPageMethod('LauncherPage', 'handleLaunchFileUpload', [inputEl]);
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

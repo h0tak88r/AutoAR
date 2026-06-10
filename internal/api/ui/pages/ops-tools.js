@@ -225,5 +225,15 @@
   window.promptImportSubdomains = promptImportSubdomains;
   window.closeImportSubdomainsModal = closeImportSubdomainsModal;
   window.submitImportSubdomains = submitImportSubdomains;
-  setTimeout(startCnamesProgressPolling, 1000);
+
+  // On load, reconnect to an in-progress CNAME job (e.g. started in another tab) with a
+  // single probe — only then begin the 2s polling loop. Avoids an idle authenticated
+  // request + flashing the progress bar on every dashboard load.
+  async function resumeCnamesProgressIfRunning() {
+    try {
+      const data = await window.apiFetch('/api/subdomains/cnames/progress');
+      if (data && data.is_running) startCnamesProgressPolling();
+    } catch (_) {}
+  }
+  setTimeout(resumeCnamesProgressIfRunning, 1000);
 })();

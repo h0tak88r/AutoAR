@@ -879,7 +879,7 @@ func (p *PostgresDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus,
 }
 
 // ListAllSubdomainsPaginated returns a subset of all tracked subdomains across all domains.
-func (p *PostgresDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error) {
+func (p *PostgresDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter int, liveOnly bool, limit, offset int) ([]GlobalSubdomain, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -890,9 +890,15 @@ func (p *PostgresDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter 
 	searchStr := "%" + search + "%"
 	techStr := "%" + techFilter + "%"
 	cnameStr := "%" + cnameFilter + "%"
-	
+	liveInt := 0
+	if liveOnly {
+		liveInt = 1
+	}
+
 	ctx, cancel := context.WithTimeout(p.ctx, 6*time.Second)
 	defer cancel()
+	// $4 handles both exact codes (e.g. 200) and single-digit class buckets (2 = 2xx …);
+	// HTTP codes are always >= 100 so the two interpretations never collide.
 	var total int
 	err := p.pool.QueryRow(ctx, `
 		SELECT COUNT(s.id)
@@ -901,18 +907,21 @@ func (p *PostgresDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter 
 		WHERE ($1 = '%%' OR s.subdomain ILIKE $1 OR d.domain ILIKE $1)
 		  AND ($2 = '%%' OR s.techs ILIKE $2)
 		  AND ($3 = '%%' OR s.cnames ILIKE $3)
-		  AND ($4 = 0 OR s.http_status = $4 OR s.https_status = $4)
-	`, searchStr, techStr, cnameStr, statusFilter).Scan(&total)
+		  AND ($4 = 0
+		       OR COALESCE(s.http_status, 0) = $4 OR COALESCE(s.http_status, 0) / 100 = $4
+		       OR COALESCE(s.https_status, 0) = $4 OR COALESCE(s.https_status, 0) / 100 = $4)
+		  AND ($5 = 0 OR COALESCE(s.is_live, false) = true)
+	`, searchStr, techStr, cnameStr, statusFilter, liveInt).Scan(&total)
 
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count global subdomains: %v", err)
 	}
 
 	rows, err := p.pool.Query(ctx, `
-		SELECT d.domain, s.subdomain, 
-		       COALESCE(s.http_url, ''), 
-		       COALESCE(s.https_url, ''), 
-		       COALESCE(s.http_status, 0), 
+		SELECT d.domain, s.subdomain,
+		       COALESCE(s.http_url, ''),
+		       COALESCE(s.https_url, ''),
+		       COALESCE(s.http_status, 0),
 		       COALESCE(s.https_status, 0),
 		       COALESCE(s.is_live, false),
 		       COALESCE(s.techs, ''),
@@ -922,10 +931,13 @@ func (p *PostgresDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter 
 		WHERE ($1 = '%%' OR s.subdomain ILIKE $1 OR d.domain ILIKE $1)
 		  AND ($2 = '%%' OR s.techs ILIKE $2)
 		  AND ($3 = '%%' OR s.cnames ILIKE $3)
-		  AND ($4 = 0 OR s.http_status = $4 OR s.https_status = $4)
+		  AND ($4 = 0
+		       OR COALESCE(s.http_status, 0) = $4 OR COALESCE(s.http_status, 0) / 100 = $4
+		       OR COALESCE(s.https_status, 0) = $4 OR COALESCE(s.https_status, 0) / 100 = $4)
+		  AND ($5 = 0 OR COALESCE(s.is_live, false) = true)
 		ORDER BY d.domain ASC, s.subdomain ASC
-		LIMIT $5 OFFSET $6;
-	`, searchStr, techStr, cnameStr, statusFilter, limit, offset)
+		LIMIT $6 OFFSET $7;
+	`, searchStr, techStr, cnameStr, statusFilter, liveInt, limit, offset)
 
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query global subdomains paginated: %v", err)

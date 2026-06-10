@@ -144,7 +144,7 @@ func isScanFindingType(scanType string) bool {
 	for _, ft := range []string{"dns_cf1016", "dns-cf1016", "dns", "dns-takeover", "dns-dangling-ip",
 		"nuclei", "nuclei-full", "nuclei-cves", "nuclei-panels", "nuclei-vulnerabilities",
 		"nuclei-default-logins", "misconfig", "s3", "github", "reflection",
-		"zerodays", "jwt", "gf", "ffuf", "apkx", "sqlmap", "backup", "mcp-discovery"} {
+		"zerodays", "jwt", "gf", "ffuf", "sqlmap", "backup", "mcp-discovery"} {
 		if strings.EqualFold(scanType, ft) {
 			return true
 		}

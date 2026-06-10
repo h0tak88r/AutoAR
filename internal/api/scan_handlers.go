@@ -840,12 +840,11 @@ func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
 		})
 		return newScanID, true
 	case "mcp-discovery":
-		newScanID = generateScanID()
 		go RunScanInProcess(newScanID, "mcp-discovery", target, func() error {
 			_, err := mcpdiscovery.Run(mcpdiscovery.Options{Target: target, Threads: 15})
 			return err
 		})
-		ok = true
+		return newScanID, true
 	case "dns_cf1016", "dns-cf1016":
 		go RunScanInProcess(newScanID, "dns_cf1016", target, func() error {
 			clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")

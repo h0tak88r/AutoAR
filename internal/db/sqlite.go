@@ -755,7 +755,7 @@ func (s *SQLiteDB) ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, e
 }
 
 // ListAllSubdomainsPaginated returns a subset of all tracked subdomains across all domains.
-func (s *SQLiteDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error) {
+func (s *SQLiteDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter int, liveOnly bool, limit, offset int) ([]GlobalSubdomain, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -766,7 +766,14 @@ func (s *SQLiteDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter st
 	searchStr := "%" + search + "%"
 	techStr := "%" + techFilter + "%"
 	cnameStr := "%" + cnameFilter + "%"
-	
+	liveInt := 0
+	if liveOnly {
+		liveInt = 1
+	}
+
+	// Status predicate handles both exact codes (e.g. 200) and single-digit class
+	// buckets (2 = 2xx, 3 = 3xx …). HTTP status codes are always >= 100, so an exact
+	// code never collides with a class digit and a class digit never equals a real code.
 	var total int
 	err := s.db.QueryRow(`
 		SELECT COUNT(s.id)
@@ -775,8 +782,12 @@ func (s *SQLiteDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter st
 		WHERE (? = '%%' OR s.subdomain LIKE ? OR d.domain LIKE ?)
 		  AND (? = '%%' OR COALESCE(s.techs, '') LIKE ?)
 		  AND (? = '%%' OR COALESCE(s.cnames, '') LIKE ?)
-		  AND (? = 0 OR COALESCE(s.http_status, 0) = ? OR COALESCE(s.https_status, 0) = ?)
-	`, searchStr, searchStr, searchStr, techStr, techStr, cnameStr, cnameStr, statusFilter, statusFilter, statusFilter).Scan(&total)
+		  AND (? = 0
+		       OR COALESCE(s.http_status, 0) = ? OR COALESCE(s.http_status, 0) / 100 = ?
+		       OR COALESCE(s.https_status, 0) = ? OR COALESCE(s.https_status, 0) / 100 = ?)
+		  AND (? = 0 OR COALESCE(s.is_live, 0) = 1)
+	`, searchStr, searchStr, searchStr, techStr, techStr, cnameStr, cnameStr,
+		statusFilter, statusFilter, statusFilter, statusFilter, statusFilter, liveInt).Scan(&total)
 
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count global subdomains: %v", err)
@@ -796,10 +807,14 @@ func (s *SQLiteDB) ListAllSubdomainsPaginated(search, techFilter, cnameFilter st
 		WHERE (? = '%%' OR s.subdomain LIKE ? OR d.domain LIKE ?)
 		  AND (? = '%%' OR COALESCE(s.techs, '') LIKE ?)
 		  AND (? = '%%' OR COALESCE(s.cnames, '') LIKE ?)
-		  AND (? = 0 OR COALESCE(s.http_status, 0) = ? OR COALESCE(s.https_status, 0) = ?)
+		  AND (? = 0
+		       OR COALESCE(s.http_status, 0) = ? OR COALESCE(s.http_status, 0) / 100 = ?
+		       OR COALESCE(s.https_status, 0) = ? OR COALESCE(s.https_status, 0) / 100 = ?)
+		  AND (? = 0 OR COALESCE(s.is_live, 0) = 1)
 		ORDER BY d.domain ASC, s.subdomain ASC
 		LIMIT ? OFFSET ?;
-	`, searchStr, searchStr, searchStr, techStr, techStr, cnameStr, cnameStr, statusFilter, statusFilter, statusFilter, limit, offset)
+	`, searchStr, searchStr, searchStr, techStr, techStr, cnameStr, cnameStr,
+		statusFilter, statusFilter, statusFilter, statusFilter, statusFilter, liveInt, limit, offset)
 
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query global subdomains paginated: %v", err)

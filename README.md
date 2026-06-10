@@ -64,7 +64,7 @@ autoar lite run        -d <domain>           Lighter workflow: livehosts → ref
                        [--phase-timeout]     Set default phase timeout in seconds
                        [--timeout-<phase>]   Specific overrides (e.g. --timeout-livehosts)
 
-autoar fastlook run    -d <domain>           Quick recon: subdomains → live hosts → URLs/JS collection
+autoar recon run       -d <domain>           Unified recon: subdomains → live hosts → tech → CNAMEs → URLs/JS
 
 autoar asr             -d <domain>           High-depth reconnaissance (ASR Modes)
                        [-mode 1-5]           Recon mode (default: 5)
@@ -222,14 +222,6 @@ The **APK Auditor** is a fully browser-based static analysis tool available at `
 # Enter the package ID, optionally enable MITM patch, click Start
 ```
 
-Or via API:
-```bash
-curl -X POST https://your-server/scan/apkx \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"package_id": "com.example.app", "mitm": true}'
-```
-
 What happens:
 1. Downloads the APK from APKPure (supports `.xapk` / split APKs automatically)
 2. *(Optional)* Patches `network_security_config.xml` to trust user-installed CAs + disables certificate pinning
@@ -240,13 +232,6 @@ What happens:
 5. Automatically loads the APK into the browser auditor for analysis
 
 > **Scan records from APK Auditor are hidden from the main Scans dashboard** — they exist only within the Auditor context.
-
-```bash
-autoar apkx scan       -i <apk_or_ipa_path>  Analyze a local APK or IPA file
-                       -p <package_id>        Download and scan by package ID
-                       [--mitm]               Patch APK for MITM traffic analysis
-autoar apkx mitm       -i <apk_path>          Patch APK for MITM traffic analysis
-```
 
 ### Mobile Application Analysis (IPA Auditor)
 
