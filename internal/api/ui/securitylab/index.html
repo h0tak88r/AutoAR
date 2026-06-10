@@ -213,6 +213,18 @@
         </div>
         <div id="jwtAttackResults" class="list" style="max-height:400px"></div>
       </div>
+      <div class="card" id="jwtBruteCard">
+        <div class="k">HMAC Secret Brute-Force</div>
+        <div class="muted" style="margin-bottom:10px">Recover the signing secret of an HS256/384/512 token by testing a wordlist server-side, in parallel. Paste a token above, then crack.</div>
+        <label class="muted" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="jwtBruteUseDefault" checked style="width:auto;flex:none;padding:0;margin:0"> Include bundled common-secrets wordlist
+        </label>
+        <textarea id="jwtBruteSecrets" placeholder="Optional: extra secrets to try, one per line" style="min-height:70px"></textarea>
+        <div class="row" style="margin-top:8px;margin-bottom:12px">
+          <button class="btn" id="jwtBruteBtn">Crack HMAC Secret</button>
+        </div>
+        <div id="jwtBruteResults" class="list"></div>
+      </div>
     </section>
 
     <section class="panel" id="panel-regex">
@@ -626,6 +638,58 @@
         $('jwtAttacksCard').style.display = 'none';
       }
     });
+
+    // ─────────────────────────────────────────────
+    //  HMAC Secret Brute-Force (server-side, parallel)
+    // ─────────────────────────────────────────────
+
+    // The Security Lab runs in an iframe/new tab where the dashboard sets a
+    // JS-readable autoar_token cookie; the /api auth middleware wants it as a
+    // Bearer header, so lift it out of the cookie here.
+    function getAuthToken() {
+      const m = document.cookie.match(/(?:^|;\s*)autoar_token=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    async function bruteForceJWT() {
+      const out = $('jwtBruteResults');
+      const raw = $('jwtInput').value.trim();
+      if (!raw) {
+        out.innerHTML = '<div class="item muted">Paste a JWT token in the box above first.</div>';
+        return;
+      }
+      const btn = $('jwtBruteBtn');
+      btn.disabled = true;
+      out.innerHTML = '<div class="item muted">Cracking — testing the wordlist in parallel…</div>';
+      try {
+        const tok = getAuthToken();
+        const resp = await fetch('/api/jwt/brute', {
+          method: 'POST',
+          headers: Object.assign({ 'Content-Type': 'application/json' }, tok ? { Authorization: 'Bearer ' + tok } : {}),
+          body: JSON.stringify({
+            token: raw,
+            secrets: $('jwtBruteSecrets').value,
+            use_default: $('jwtBruteUseDefault').checked,
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+        if (data.found) {
+          const shown = data.secret === '' ? '(empty string)' : data.secret;
+          out.innerHTML = `<div class="finding-row"><span class="pill critical">CRACKED</span><div class="finding-desc"><b>Secret recovered:</b> <code>${escapeHTML(shown)}</code><div class="finding-extra">${escapeHTML(data.alg)} · tried ${data.tried} candidate(s). The signing key is weak — an attacker can forge valid tokens. Rotate to a long random secret.</div></div></div>`;
+        } else if (data.error) {
+          out.innerHTML = `<div class="finding-row"><span class="pill info">N/A</span><div class="finding-desc"><b>${escapeHTML(data.error)}</b></div></div>`;
+        } else {
+          out.innerHTML = `<div class="finding-row"><span class="pill ok">NOT FOUND</span><div class="finding-desc"><b>No match in the wordlist.</b><div class="finding-extra">${escapeHTML(data.alg)} · tried ${data.tried} candidate(s). Add a bigger wordlist above, or use hashcat mode 16500 for heavy cracking.</div></div></div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<div class="finding-row"><span class="pill critical">ERROR</span><div class="finding-desc"><b>Brute-force failed</b><div class="finding-extra">${escapeHTML(e.message)}</div></div></div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    $('jwtBruteBtn').addEventListener('click', bruteForceJWT);
 
     // ─────────────────────────────────────────────
     //  Attack Token Generator

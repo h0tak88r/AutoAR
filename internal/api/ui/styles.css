@@ -1669,108 +1669,171 @@ input, select, textarea { font-family: inherit; }
 
 /* ── Trigger Scan Form (in overview) ──────────────────────────────────────────── */
 
+/* ── Quick Scan Launcher ─────────────────────────────────────────── */
 .scan-launcher {
-  background: var(--bg-card);
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(6, 182, 212, 0.06), transparent 55%),
+    var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 20px;
   margin-bottom: 20px;
 }
 
+.scan-launcher-head { margin-bottom: 16px; }
+
 .scan-launcher-title {
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.scan-launcher-icon {
+  color: var(--accent-cyan);
+  filter: drop-shadow(0 0 6px var(--accent-cyan-glow));
+}
+
+.scan-launcher-sub {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.launcher-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.launcher-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.launcher-field > label {
+  font-size: 11px;
   font-weight: 600;
-  margin-bottom: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.launcher-field-type { flex: 0 1 220px; }
+.launcher-field-mode { flex: 0 1 160px; }
+.launcher-field-target { flex: 1 1 260px; }
+.launcher-field-action { flex: 0 0 auto; }
+/* Bulk (list) mode: textarea takes its own full-width row. */
+.launcher-field-target--list { flex-basis: 100%; }
+
+.launcher-field select,
+.launcher-field > input[type='text'] {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.launcher-field select:focus,
+.launcher-field > input[type='text']:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+}
+
+.launcher-field .launch-target-list {
+  width: 100%;
+  min-height: 96px;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.launcher-field .launch-target-list:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+}
+
+.launcher-field-action .btn-primary {
+  height: 40px;
+  padding: 0 22px;
+}
+
+.launch-btn-icon { font-size: 11px; }
+
+.launch-help {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.launcher-flags {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+  .launcher-flags { grid-template-columns: 1fr; }
+}
+
+.launcher-accordion {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+  align-self: start;
+}
+
+.launcher-accordion summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+  list-style: none;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.scan-form {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+.launcher-accordion summary::-webkit-details-marker { display: none; }
+
+.launcher-accordion summary::before {
+  content: '▸';
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform var(--transition);
 }
 
-.scan-form select {
-  padding: 8px 12px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-  transition: border-color var(--transition);
-}
-
-.scan-form select:focus {
-  border-color: var(--accent-cyan);
-}
-
-.scan-form input {
-  flex: 1;
-  min-width: 200px;
-  padding: 8px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-  transition: all var(--transition);
-}
-
-.scan-form input::placeholder { color: var(--text-muted); }
-.scan-form input:focus {
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 3px var(--accent-cyan-dim);
-}
-
-.scan-form .launch-target-list {
-  width: 100%;
-  min-height: 96px;
-  padding: 10px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  resize: vertical;
-  outline: none;
-  transition: all var(--transition);
-}
-
-.scan-form .launch-target-list:focus {
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 3px var(--accent-cyan-dim);
-}
-
-.launch-help {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.launcher-accordion {
-  margin-top: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.launcher-accordion summary {
-  cursor: pointer;
-  padding: 10px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  user-select: none;
-}
+.launcher-accordion[open] summary::before { transform: rotate(90deg); }
+.launcher-accordion[open] summary { border-bottom: 1px solid var(--border); }
 
 .launch-flags-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  padding: 0 12px 12px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  padding: 14px;
 }
 
 .launch-flag-item {
@@ -1781,6 +1844,7 @@ input, select, textarea { font-family: inherit; }
 
 .launch-flag-item label {
   font-size: 12px;
+  font-weight: 500;
   color: var(--text-secondary);
 }
 
@@ -1793,16 +1857,70 @@ input, select, textarea { font-family: inherit; }
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 12px;
+  outline: none;
+  transition: border-color var(--transition);
 }
 
-.launch-preview {
-  margin: 0;
-  padding: 0 12px 12px 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 11px;
-  color: var(--text-secondary);
+.launch-flag-item input:focus,
+.launch-flag-item select:focus,
+.launch-flag-item textarea:focus { border-color: var(--accent-cyan); }
+
+.launch-flag-item input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-cyan);
+  align-self: flex-start;
+}
+
+.launch-status {
+  margin-top: 12px;
+  font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+
+/* ── Scans toolbar (search + filters) ────────────────────────────── */
+.scans-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  background: rgba(13, 17, 23, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+
+.scans-toolbar-search {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.scans-toolbar-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.scans-toolbar-search .search-input {
+  width: 100%;
+  max-width: none;
+  padding-left: 34px;
+  background: var(--bg-input);
+}
+
+.scans-toolbar-select {
+  flex: 0 1 190px;
+  background: var(--bg-input);
 }
 
 .btn-primary {

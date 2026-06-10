@@ -218,7 +218,7 @@
     const elapsed = completedAt ? elapsedBetween(startedAt, completedAt) : elapsedStr(startedAt);
     const scanID = s.scan_id || s.ScanID || '';
     const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
-    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'gf', 'ffuf', 'apkx', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
+    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
     const label = isFindingType ? 'findings' : 'files';
     const icon = isFindingType ? '' : '';
     const badgeHtml = filesUploaded > 0 ? `<span class="badge badge-running" style="font-size:10px;padding:2px 6px;margin-bottom:4px;display:inline-block;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);color:var(--accent-cyan);cursor:help" title="${filesUploaded} ${label} identified">${icon} ${filesUploaded} ${label}</span><br/>` : '';
@@ -258,7 +258,11 @@
       const type = (s.scan_type || s.ScanType || '').toLowerCase();
       const status = (s.status || s.Status || '').toLowerCase();
       const matchesSearch = !sUI.search || target.includes(sUI.search.toLowerCase());
-      const matchesType = sUI.typeFilter === 'all' || type === sUI.typeFilter.toLowerCase();
+      // Stored scan_type values are often suffixed (nuclei-full, dns-takeover,
+      // dns_cf1016…), so match the filter as a type prefix on a -/_ boundary,
+      // not by exact equality, or those scans become unfilterable.
+      const tf = sUI.typeFilter.toLowerCase();
+      const matchesType = sUI.typeFilter === 'all' || type === tf || type.startsWith(`${tf}-`) || type.startsWith(`${tf}_`);
       let matchesStatus = sUI.statusFilter === 'all' || status === sUI.statusFilter.toLowerCase();
       if (sUI.statusFilter === 'stopped' && (status === 'cancelled' || status === 'stopped')) matchesStatus = true;
       return matchesSearch && matchesType && matchesStatus;
@@ -269,66 +273,105 @@
     if (scanErr) {
       html += `<div class="card" style="margin-bottom:16px;border:1px solid var(--accent-red);background:rgba(239,68,68,0.08)"><div class="card-body" style="padding:14px 16px;font-size:13px;color:var(--accent-red)">Could not load scans: ${window.esc(scanErr)}</div></div>`;
     }
-    html += `<div class="scan-launcher" style="margin-bottom:20px">
-      <div class="scan-launcher-title"> Quick Scan Launcher</div>
-      <div class="scan-form">
-        <select id="launch-type">
-          <optgroup label="Workflows">
-            <option value="recon" ${lUI.scanType === 'recon' ? 'selected' : ''}>recon (Asset Discovery)</option>
-            <option value="domain_scan" ${lUI.scanType === 'domain_scan' ? 'selected' : ''}>domain_scan (Full Workflow)</option>
-            <option value="subdomain_scan" ${lUI.scanType === 'subdomain_scan' ? 'selected' : ''}>subdomain_scan (Single Subdomain)</option>
-            <option value="asr" ${lUI.scanType === 'asr' ? 'selected' : ''}>asr (Attack Surface Reduction)</option>
-          </optgroup>
-          <optgroup label="Modules">
-            <option value="urls" ${lUI.scanType === 'urls' ? 'selected' : ''}>urls</option>
-            <option value="tech" ${lUI.scanType === 'tech' ? 'selected' : ''}>tech</option>
-            <option value="nuclei" ${lUI.scanType === 'nuclei' ? 'selected' : ''}>nuclei</option>
-            <option value="ports" ${lUI.scanType === 'ports' ? 'selected' : ''}>ports</option>
-          </optgroup>
-          <optgroup label="DNS">
-            <option value="dns" ${lUI.scanType === 'dns' ? 'selected' : ''}>dns (takeover)</option>
-            <option value="dns_dangling" ${lUI.scanType === 'dns_dangling' ? 'selected' : ''}>dns (dangling-ip)</option>
-            <option value="dns_cf1016" ${lUI.scanType === 'dns_cf1016' ? 'selected' : ''}>dns-cf1016</option>
-          </optgroup>
-          <optgroup label="Cloud &amp; source">
-            <option value="s3" ${lUI.scanType === 's3' ? 'selected' : ''}>s3 (bucket)</option>
-            <option value="github" ${lUI.scanType === 'github' ? 'selected' : ''}>github</option>
-            <option value="github_org" ${lUI.scanType === 'github_org' ? 'selected' : ''}>github_org</option>
-          </optgroup>
-          <optgroup label="Advanced">
-            <option value="js" ${lUI.scanType === 'js' ? 'selected' : ''}>js</option>
-            <option value="reflection" ${lUI.scanType === 'reflection' ? 'selected' : ''}>reflection</option>
-            <option value="gf" ${lUI.scanType === 'gf' ? 'selected' : ''}>gf</option>
-            <option value="backup" ${lUI.scanType === 'backup' ? 'selected' : ''}>backup</option>
-            <option value="misconfig" ${lUI.scanType === 'misconfig' ? 'selected' : ''}>misconfig</option>
-            <option value="zerodays" ${lUI.scanType === 'zerodays' ? 'selected' : ''}>zerodays</option>
-            <option value="ffuf" ${lUI.scanType === 'ffuf' ? 'selected' : ''}>ffuf</option>
-          </optgroup>
-        </select>
-        <select id="launch-target-mode"></select>
-        <input type="text" id="launch-target" value="${window.esc(lUI.target || '')}" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
-        <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none">${window.esc(lUI.targetList || '')}</textarea>
-        <button class="btn-primary" id="launch-btn">
-          <span></span>
-          <span>Launch</span>
-        </button>
+    html += `<div class="scan-launcher">
+      <div class="scan-launcher-head">
+        <div class="scan-launcher-title"><span class="scan-launcher-icon">⚡</span> Quick Scan Launcher</div>
+        <div class="scan-launcher-sub">Pick a scan type, point it at a target, tune the flags, then launch.</div>
+      </div>
+      <div class="launcher-grid">
+        <div class="launcher-field launcher-field-type">
+          <label for="launch-type">Scan type</label>
+          <select id="launch-type">
+            <optgroup label="Workflows">
+              <option value="recon" ${lUI.scanType === 'recon' ? 'selected' : ''}>recon (Asset Discovery)</option>
+              <option value="domain_scan" ${lUI.scanType === 'domain_scan' ? 'selected' : ''}>domain_scan (Full Workflow)</option>
+              <option value="subdomain_scan" ${lUI.scanType === 'subdomain_scan' ? 'selected' : ''}>subdomain_scan (Single Subdomain)</option>
+              <option value="asr" ${lUI.scanType === 'asr' ? 'selected' : ''}>asr (Attack Surface Reduction)</option>
+            </optgroup>
+            <optgroup label="Modules">
+              <option value="urls" ${lUI.scanType === 'urls' ? 'selected' : ''}>urls</option>
+              <option value="tech" ${lUI.scanType === 'tech' ? 'selected' : ''}>tech</option>
+              <option value="nuclei" ${lUI.scanType === 'nuclei' ? 'selected' : ''}>nuclei</option>
+              <option value="ports" ${lUI.scanType === 'ports' ? 'selected' : ''}>ports</option>
+            </optgroup>
+            <optgroup label="DNS">
+              <option value="dns" ${lUI.scanType === 'dns' ? 'selected' : ''}>dns (takeover)</option>
+              <option value="dns_dangling" ${lUI.scanType === 'dns_dangling' ? 'selected' : ''}>dns (dangling-ip)</option>
+              <option value="dns_cf1016" ${lUI.scanType === 'dns_cf1016' ? 'selected' : ''}>dns-cf1016</option>
+            </optgroup>
+            <optgroup label="Cloud &amp; source">
+              <option value="s3" ${lUI.scanType === 's3' ? 'selected' : ''}>s3 (bucket)</option>
+              <option value="github" ${lUI.scanType === 'github' ? 'selected' : ''}>github</option>
+              <option value="github_org" ${lUI.scanType === 'github_org' ? 'selected' : ''}>github_org</option>
+            </optgroup>
+            <optgroup label="Advanced">
+              <option value="js" ${lUI.scanType === 'js' ? 'selected' : ''}>js</option>
+              <option value="reflection" ${lUI.scanType === 'reflection' ? 'selected' : ''}>reflection</option>
+              <option value="gf" ${lUI.scanType === 'gf' ? 'selected' : ''}>gf</option>
+              <option value="backup" ${lUI.scanType === 'backup' ? 'selected' : ''}>backup</option>
+              <option value="misconfig" ${lUI.scanType === 'misconfig' ? 'selected' : ''}>misconfig</option>
+              <option value="zerodays" ${lUI.scanType === 'zerodays' ? 'selected' : ''}>zerodays</option>
+              <option value="ffuf" ${lUI.scanType === 'ffuf' ? 'selected' : ''}>ffuf</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="launcher-field launcher-field-mode">
+          <label for="launch-target-mode">Input</label>
+          <select id="launch-target-mode"></select>
+        </div>
+        <div class="launcher-field launcher-field-target" id="launch-target-field">
+          <label for="launch-target">Target</label>
+          <input type="text" id="launch-target" value="${window.esc(lUI.target || '')}" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
+          <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none">${window.esc(lUI.targetList || '')}</textarea>
+        </div>
+        <div class="launcher-field launcher-field-action">
+          <button class="btn-primary" id="launch-btn"><span class="launch-btn-icon">▶</span><span>Launch</span></button>
+        </div>
       </div>
       <div id="launch-help" class="launch-help"></div>
-      <details class="launcher-accordion" open>
-        <summary>Essential flags</summary>
-        <div id="launch-flags-essential" class="launch-flags-grid"></div>
-      </details>
-      <details class="launcher-accordion">
-        <summary>Advanced flags</summary>
-        <div id="launch-flags-advanced" class="launch-flags-grid"></div>
-      </details>
-      <div id="launch-status" style="display:none;font-size:12px;margin-top:10px;font-family:'JetBrains Mono',monospace"></div>
-      <details class="launcher-accordion">
-        <summary>Request preview</summary>
-        <pre id="launch-preview" style="margin:0;padding:10px 12px;overflow:auto;max-height:220px;font-size:11px;line-height:1.45;font-family:'JetBrains Mono',monospace;color:var(--text-secondary);background:rgba(2,6,23,.4);border-radius:6px;white-space:pre-wrap;word-break:break-word">{}</pre>
-      </details>
+      <div class="launcher-flags">
+        <details class="launcher-accordion" open>
+          <summary>Essential flags</summary>
+          <div id="launch-flags-essential" class="launch-flags-grid"></div>
+        </details>
+        <details class="launcher-accordion">
+          <summary>Advanced flags</summary>
+          <div id="launch-flags-advanced" class="launch-flags-grid"></div>
+        </details>
+      </div>
+      <div id="launch-status" class="launch-status" style="display:none"></div>
     </div>`;
-    html += `<div class="card" style="margin-bottom:20px; border:1px solid var(--border); background:rgba(13,17,23,0.4)"><div class="card-body" style="padding:16px"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div style="flex:1;min-width:280px;position:relative"><input type="text" id="scan-search-input" class="search-input" placeholder=" Search targets or scan types..." value="${window.esc(sUI.search)}" style="width:100%; padding-left:36px; background:var(--bg-secondary)"><span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none"></span></div><div style="min-width:180px"><select id="scan-type-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all">All Scan Types</option><optgroup label="Workflows"><option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option><option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option><option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option><option value="asr" ${sUI.typeFilter === 'asr' ? 'selected' : ''}>ASR Mode</option></optgroup><optgroup label="Modules"><option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option><option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option><option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option><option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option><option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option><option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option><option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option></optgroup></select></div><div style="min-width:180px"><select id="scan-status-filter" class="input" style="width:100%; background:var(--bg-secondary)"><option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option><option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option><option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option><option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option><option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option></select></div></div></div></div>`;
+    html += `<div class="scans-toolbar">
+      <div class="scans-toolbar-search">
+        <span class="scans-toolbar-search-icon">🔍</span>
+        <input type="text" id="scan-search-input" class="search-input" placeholder="Search targets or scan types…" value="${window.esc(sUI.search)}" autocomplete="off" />
+      </div>
+      <select id="scan-type-filter" class="input scans-toolbar-select">
+        <option value="all">All Scan Types</option>
+        <optgroup label="Workflows">
+          <option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option>
+          <option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option>
+          <option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option>
+          <option value="asr" ${sUI.typeFilter === 'asr' ? 'selected' : ''}>ASR Mode</option>
+        </optgroup>
+        <optgroup label="Modules">
+          <option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option>
+          <option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option>
+          <option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option>
+          <option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option>
+          <option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option>
+          <option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option>
+          <option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option>
+        </optgroup>
+      </select>
+      <select id="scan-status-filter" class="input scans-toolbar-select">
+        <option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option>
+        <option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option>
+        <option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option>
+        <option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option>
+        <option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option>
+      </select>
+    </div>`;
     if (filteredActive.length) {
       html += `<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title"> Active Scans <span class="badge badge-running">${filteredActive.length}</span></div></div><div class="card-body">${filteredActive.map((s) => scanItemHtml(s)).join('')}</div></div>`;
     }

@@ -146,13 +146,6 @@
         };
       }
 
-      const clearCacheBtn = document.getElementById('scan-detail-clear-cache-btn');
-      if (clearCacheBtn) {
-        const isApkx = /apkx/i.test(String(st || ''));
-        clearCacheBtn.style.display = isApkx ? 'inline-flex' : 'none';
-        clearCacheBtn.onclick = isApkx ? () => clearApkxCacheForScan(scan) : null;
-      }
-
       const files = sum.files || [];
       const total = sum.total || 0;
 
@@ -251,23 +244,6 @@
 
     } catch (e) {
       container.innerHTML = `<div class="modern-card" style="padding:20px;border-color:var(--accent-red)"><div style="color:var(--accent-red)">${esc(e.message || String(e))}</div></div>`;
-    }
-  }
-
-  async function clearApkxCacheForScan(scan) {
-    const target = String(scan?.target || scan?.Target || '').trim();
-    const looksLikePackage = /^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+$/.test(target);
-    const scopeLabel = looksLikePackage ? `package cache for ${target}` : 'ALL APK cache';
-    if (!confirm(`Clear ${scopeLabel}?`)) return;
-    try {
-      const body = looksLikePackage ? { package: target } : { all: true };
-      const res = await apiPost('/api/apkx/cache/clear', body);
-      const localN = Number(res?.local_removed || 0);
-      const r2N = Number(res?.r2_removed || 0);
-      const r2Err = String(res?.r2_error || '').trim();
-      window.showToast('success', 'APK cache cleared', `Local: ${localN}, R2: ${r2N}${r2Err ? ' (R2 warning)' : ''}`);
-    } catch (e) {
-      window.showToast('error', 'Failed to clear APK cache', e.message || String(e));
     }
   }
 
@@ -1417,7 +1393,6 @@
     doScanDetailRefresh,
     loadReconUnifiedTable,
     wireScanDetailFilters,
-    clearApkxCacheForScan,
     // Manifest helpers re-exported for back-compat
     renderScanManifestCard,
     manifestArtifactLabel,

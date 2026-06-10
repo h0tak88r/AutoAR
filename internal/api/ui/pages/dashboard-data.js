@@ -11,6 +11,14 @@
       badge.textContent = state().stats.active_scans;
       badge.classList.toggle('pulse', state().stats.active_scans > 0);
     }
+    // Sidebar subdomains badge reflects the unfiltered grand total so it is correct
+    // from boot and is not skewed by the per-page live-only / status filters.
+    const sdBadge = byId('subdomains-badge');
+    if (sdBadge && state().stats) {
+      const n = state().stats.subdomains || 0;
+      sdBadge.textContent = n;
+      sdBadge.style.display = n ? '' : 'none';
+    }
   }
 
   async function loadDomains() {
@@ -31,10 +39,14 @@
     const st = byId('subdomains-status-filter')?.value || '0';
     const tc = byId('subdomains-tech-filter')?.value || '';
     const cn = byId('subdomains-cname-filter')?.value || '';
+    const liveEl = byId('subdomains-live-only');
+    // Default to live-only when the toggle is absent (first render before it mounts).
+    const live = liveEl ? (liveEl.checked ? '1' : '0') : '1';
 
     state().subdStatus = st;
     state().subdTech = tc;
     state().subdCname = cn;
+    state().subdLive = live;
     state().subdomainsLimit = 30;
     state().loading.subdomains = true;
     state().error.subdomains = null;
@@ -49,17 +61,13 @@
 
     try {
       const q = encodeURIComponent(state().subdomainsSearch);
-      const qs = `page=${page}&limit=${state().subdomainsLimit}&search=${q}&status=${state().subdStatus}&tech=${encodeURIComponent(state().subdTech)}&cname=${encodeURIComponent(state().subdCname)}`;
+      const qs = `page=${page}&limit=${state().subdomainsLimit}&search=${q}&status=${state().subdStatus}&tech=${encodeURIComponent(state().subdTech)}&cname=${encodeURIComponent(state().subdCname)}&live=${state().subdLive}`;
       const data = await window.apiFetch(`/api/subdomains?${qs}`);
       if (state()._subdomainsReqId !== reqId) return;
       state().allSubdomains = data.subdomains || [];
       state().allSubdomainsTotal = data.total || 0;
-
-      const badge = byId('subdomains-badge');
-      if (badge) {
-        badge.textContent = state().allSubdomainsTotal;
-        badge.style.display = state().allSubdomainsTotal ? '' : 'none';
-      }
+      // Note: the filtered total is shown in the page header ("Total Subdomains Match").
+      // The sidebar nav badge is the unfiltered grand total, set in loadStats().
     } catch (e) {
       if (state()._subdomainsReqId !== reqId) return;
       state().allSubdomains = [];
