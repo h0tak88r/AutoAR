@@ -363,7 +363,6 @@ type ScanRequest struct {
 	Bucket            *string `json:"bucket"`
 	Region            *string `json:"region"`
 	Repo              *string `json:"repo"`
-	FilePath          *string `json:"file_path"`
 	Strategy          *string `json:"strategy"`
 	Pattern           *string `json:"pattern"`
 	Interval          *int    `json:"interval"`
@@ -398,15 +397,6 @@ type ScanRequest struct {
 	CVEs                 *[]string `json:"cves"`                   // CVEs to check (CVE-2025-55182, CVE-2025-14847)
 	MongoDBHost          *string   `json:"mongodb_host"`           // MongoDB host for CVE-2025-14847
 	MongoDBPort          *int      `json:"mongodb_port"`           // MongoDB port for CVE-2025-14847
-	// ApkX options
-	PackageID *string `json:"package_id"`
-	MITM      *bool   `json:"mitm"`
-	// JWT options
-	Token            *string `json:"token"`              // JWT token
-	SkipCrack        *bool   `json:"skip_crack"`         // JWT skip crack
-	SkipPayloads     *bool   `json:"skip_payloads"`      // JWT skip payloads
-	WordlistPath     *string `json:"wordlist_path"`      // JWT wordlist
-	MaxCrackAttempts *int    `json:"max_crack_attempts"` // JWT max crack attempts
 	// Misconfig options
 	ServiceID    *string `json:"service_id"`   // Misconfig service ID
 	Delay        *int    `json:"delay"`        // Misconfig delay (ms)
@@ -602,8 +592,8 @@ func SetupAPI() *gin.Engine {
 		apiGroup.GET("/system/metrics", apiGetSystemMetrics)
 		apiGroup.GET("/system/limits", apiGetRuntimeLimits)
 		apiGroup.GET("/nuclei/templates", apiListNucleiTemplates)
-		// Upload handler
-		apiGroup.POST("/upload", apiUploadHandler)
+		// Security Lab — JWT HMAC secret brute-force (client-side analyzer calls this)
+		apiGroup.POST("/jwt/brute", apiJWTBrute)
 		// Report Templates
 		apiGroup.GET("/report-templates", apiListReportTemplates)
 		apiGroup.GET("/report-templates/export", apiExportReportTemplates)
@@ -712,81 +702,6 @@ func availableMemoryBytes() int64 {
 		}
 	}
 	return -1
-}
-
-// apiUploadHandler handles file uploads for analysis
-func apiUploadHandler(c *gin.Context) {
-	file, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
-		return
-	}
-
-	// Create temp directory for uploads
-	uploadDir := filepath.Join(utils.GetResultsDir(), "uploads")
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
-		return
-	}
-
-	// Clean filename to prevent traversal
-	filename := filepath.Base(file.Filename)
-	destPath := filepath.Join(uploadDir, fmt.Sprintf("%d-%s", time.Now().Unix(), filename))
-
-	if err := c.SaveUploadedFile(file, destPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save file: %v", err)})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":   "File uploaded successfully",
-		"file_path": destPath,
-		"filename":  filename,
-	})
-}
-
-// validateFilePath ensures the given path is inside an allowed directory (#5 path traversal protection).
-func validateFilePath(filePath string) error {
-	if strings.TrimSpace(filePath) == "" {
-		return fmt.Errorf("file_path is required")
-	}
-	allowedRoots := []string{
-		utils.GetResultsDir(),
-		os.TempDir(),
-		"/app",
-		"/tmp",
-	}
-	if extra := os.Getenv("AUTOAR_ALLOWED_FILE_ROOT"); extra != "" {
-		allowedRoots = append(allowedRoots, extra)
-	}
-
-	resolvedPath, err := filepath.EvalSymlinks(filePath)
-	if err != nil {
-		return fmt.Errorf("invalid file_path %q: %w", filePath, err)
-	}
-	resolvedPath, err = filepath.Abs(resolvedPath)
-	if err != nil {
-		return fmt.Errorf("invalid file_path %q: %w", filePath, err)
-	}
-
-	for _, root := range allowedRoots {
-		if root == "" {
-			continue
-		}
-		resolvedRoot, rErr := filepath.EvalSymlinks(root)
-		if rErr != nil {
-			resolvedRoot = root // root may not exist in some deployments; keep conservative fallback
-		}
-		resolvedRoot, rErr = filepath.Abs(filepath.Clean(resolvedRoot))
-		if rErr != nil {
-			continue
-		}
-		rel, relErr := filepath.Rel(resolvedRoot, resolvedPath)
-		if relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil
-		}
-	}
-	return fmt.Errorf("file_path %q is outside the allowed directories — only paths under AUTOAR_RESULTS_DIR or /tmp are permitted", filePath)
 }
 
 func corsMiddleware() gin.HandlerFunc {

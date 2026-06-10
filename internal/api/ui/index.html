@@ -275,7 +275,6 @@
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn btn-ghost" id="scan-detail-export-csv-btn" style="font-size:12px;min-width:108px;border-color:var(--accent-cyan);color:var(--accent-cyan)"> Export CSV</button>
             <button type="button" class="scan-control-btn-r2" id="scan-detail-r2-btn" style="display:none;min-width:108px">Browse R2</button>
-            <button type="button" class="btn btn-ghost" id="scan-detail-clear-cache-btn" style="display:none;font-size:12px;min-width:108px;border-color:rgba(251,191,36,.45);color:var(--accent-amber)"> Clear Cache</button>
             <button type="button" class="btn btn-ghost" id="scan-detail-rescan-btn" style="display:none;font-size:12px;min-width:108px;border-color:rgba(52,211,153,.4);color:var(--accent-emerald)" onclick="document.getElementById('scan-detail-rescan-btn')._rescan && document.getElementById('scan-detail-rescan-btn')._rescan()"> Rescan</button>
             <button type="button" class="btn btn-ghost" id="scan-detail-delete-btn" style="font-size:12px;min-width:108px;border-color:rgba(248,113,113,.4);color:var(--accent-red)"> Delete</button>
           </div>
@@ -334,18 +333,25 @@
             </button>
           </div>
         </div>
-        <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
           <input class="search-input" id="subdomains-search" placeholder="Search by subdomain or root…" autocomplete="off" style="flex:2;min-width:200px" />
-          <select class="search-input" id="subdomains-status-filter" style="flex:1;min-width:120px;cursor:pointer">
+          <select class="search-input" id="subdomains-status-filter" style="flex:1;min-width:140px;cursor:pointer">
             <option value="0" selected>Any Status</option>
+            <option value="2">2xx Success</option>
+            <option value="3">3xx Redirect</option>
+            <option value="4">4xx Client Error</option>
+            <option value="5">5xx Server Error</option>
             <option value="200">200 OK</option>
-            <option value="301">301 / 302 Redirect</option>
+            <option value="401">401 Unauthorized</option>
             <option value="403">403 Forbidden</option>
             <option value="404">404 Not Found</option>
-            <option value="500">50x Error</option>
           </select>
           <input class="search-input" id="subdomains-tech-filter" placeholder="Filter Tech (e.g. React)…" autocomplete="off" style="flex:1;min-width:140px" />
           <input class="search-input" id="subdomains-cname-filter" placeholder="Filter CNAME…" autocomplete="off" style="flex:1;min-width:140px" />
+          <label for="subdomains-live-only" title="Show only subdomains that responded (is_live). Uncheck to include dead hosts." style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text-secondary);white-space:nowrap;cursor:pointer;padding:0 6px;user-select:none">
+            <input type="checkbox" id="subdomains-live-only" checked style="cursor:pointer;width:15px;height:15px;accent-color:#10b981" />
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 5px #10b981"></span>Live only</span>
+          </label>
         </div>
         <div id="subdomains-container">
           <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>

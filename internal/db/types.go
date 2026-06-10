@@ -44,8 +44,10 @@ type DB interface {
 	ListSubdomains(domain string) ([]string, error)
 	// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain
 	ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error)
-	// ListAllSubdomainsPaginated returns a paginated global list of subdomains matching a search and filters
-	ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter, limit, offset int) ([]GlobalSubdomain, int, error)
+	// ListAllSubdomainsPaginated returns a paginated global list of subdomains matching a search and filters.
+	// statusFilter is 0 for any, a single digit 2-5 to match an HTTP status class (2xx-5xx), or a full code for an exact match.
+	// liveOnly restricts results to subdomains with is_live set.
+	ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter int, liveOnly bool, limit, offset int) ([]GlobalSubdomain, int, error)
 	
 	// UpdateSubdomainTech updates the technology stack string for a resolved subdomain
 	UpdateSubdomainTech(domain, subdomain, techs string) error

@@ -388,13 +388,15 @@ func apiAllSubdomainsPaginated(c *gin.Context) {
 	techFilter := strings.TrimSpace(c.Query("tech"))
 	cnameFilter := strings.TrimSpace(c.Query("cname"))
 	statusFilter, _ := strconv.Atoi(c.Query("status"))
+	live := strings.TrimSpace(c.Query("live"))
+	liveOnly := live == "1" || strings.EqualFold(live, "true")
 
 	offset := (page - 1) * limit
 
 	_ = db.Init()
 	_ = db.EnsureSchema()
 
-	subs, total, err := db.ListAllSubdomainsPaginated(search, techFilter, cnameFilter, statusFilter, limit, offset)
+	subs, total, err := db.ListAllSubdomainsPaginated(search, techFilter, cnameFilter, statusFilter, liveOnly, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -473,7 +475,7 @@ func apiRetryCnames(c *gin.Context) {
 		var allSubs []db.GlobalSubdomain
 		limit := 10000
 		for offset := 0; ; offset += limit {
-			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, limit, offset)
+			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, false, limit, offset)
 			if err != nil {
 				log.Printf("[ERROR] Failed to fetch subdomains: %v", err)
 				break
@@ -503,7 +505,6 @@ func apiRetryCnames(c *gin.Context) {
 		var wg sync.WaitGroup
 		jobs := make(chan db.GlobalSubdomain, len(allSubs))
 		threads := 50 // Be gentle
-		var foundMatches int32 = 0
 
 		for i := 0; i < threads; i++ {
 			wg.Add(1)
@@ -546,6 +547,12 @@ func apiRetryCnames(c *gin.Context) {
 		}
 		close(jobs)
 		wg.Wait()
+
+		// Snapshot the real match count (incremented under the same mutex in the workers)
+		// so the completion log and webhook report the actual number, not a stale 0.
+		cnameProgress.Lock()
+		foundMatches := cnameProgress.Matches
+		cnameProgress.Unlock()
 
 		log.Printf("[INFO] Background CNAME retry completed. Matches found: %d", foundMatches)
 		if matchStr != "" {
@@ -593,7 +600,7 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		limit := 10000
 		totalSubs := 0
 		for offset := 0; ; offset += limit {
-			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, limit, offset)
+			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, false, limit, offset)
 			if err != nil || len(subs) == 0 {
 				break
 			}

@@ -9,6 +9,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/scanner/tech"
+	"github.com/h0tak88r/AutoAR/internal/scanner/urls"
 )
 
 // Result holds the summary of a full recon run.
@@ -18,10 +19,14 @@ type Result struct {
 	LiveHosts  int
 	CNAMEs     int
 	TechHosts  int
+	TotalURLs  int
+	JSURLs     int
 	Duration   time.Duration
 }
 
-// RunFullRecon runs subdomains, livehosts, tech and cnames in a single pipeline.
+// RunFullRecon runs subdomains, livehosts, tech, cnames and URL collection in a
+// single pipeline. The URL phase produces urls/all-urls.txt, which downstream
+// scanners (gf, sqlmap, …) consume — this is what the retired fastlook module did.
 func RunFullRecon(domain string, threads int) (*Result, error) {
 	if domain == "" {
 		return nil, fmt.Errorf("domain is required")
@@ -36,7 +41,7 @@ func RunFullRecon(domain string, threads int) (*Result, error) {
 	logger.GetLogger().Infof("[RECON] Starting unified asset discovery for %s", domain)
 
 	// Phase 1: Subdomains
-	logger.GetLogger().Infof("[RECON] [1/4] Enumerating subdomains...")
+	logger.GetLogger().Infof("[RECON] [1/5] Enumerating subdomains...")
 	subs, err := subdomains.EnumerateSubdomains(domain, threads)
 	if err != nil {
 		logger.GetLogger().Infof("[RECON] [WARN] Subdomain enumeration failed: %v", err)
@@ -46,7 +51,7 @@ func RunFullRecon(domain string, threads int) (*Result, error) {
 	}
 
 	// Phase 2: Live Hosts
-	logger.GetLogger().Infof("[RECON] [2/4] Identifying live hosts...")
+	logger.GetLogger().Infof("[RECON] [2/5] Identifying live hosts...")
 	lhRes, err := livehosts.FilterLiveHosts(domain, threads, false) // skip enum since we just did it
 	if err != nil {
 		logger.GetLogger().Infof("[RECON] [WARN] Live host filtering failed: %v", err)
@@ -56,7 +61,7 @@ func RunFullRecon(domain string, threads int) (*Result, error) {
 	}
 
 	// Phase 3: Tech Detection
-	logger.GetLogger().Infof("[RECON] [3/4] Detecting technologies...")
+	logger.GetLogger().Infof("[RECON] [3/5] Detecting technologies...")
 	techRes, err := tech.DetectTech(domain, threads)
 	if err != nil {
 		logger.GetLogger().Infof("[RECON] [WARN] Tech detection failed: %v", err)
@@ -66,13 +71,25 @@ func RunFullRecon(domain string, threads int) (*Result, error) {
 	}
 
 	// Phase 4: CNAME Collection
-	logger.GetLogger().Infof("[RECON] [4/4] Collecting CNAME records...")
+	logger.GetLogger().Infof("[RECON] [4/5] Collecting CNAME records...")
 	cnameRes, err := cnames.CollectCNAMEs(domain)
 	if err != nil {
 		logger.GetLogger().Infof("[RECON] [WARN] CNAME collection failed: %v", err)
 	} else if cnameRes != nil {
 		res.CNAMEs = cnameRes.Records
 		logger.GetLogger().Infof("[RECON] [OK] Collected %d CNAME records", res.CNAMEs)
+	}
+
+	// Phase 5: URL Collection — produces urls/all-urls.txt and urls/js-urls.txt.
+	// skipSubdomainEnum=false reuses the subs/live-subs already gathered above.
+	logger.GetLogger().Infof("[RECON] [5/5] Collecting URLs...")
+	urlRes, err := urls.CollectURLs(domain, threads, false)
+	if err != nil {
+		logger.GetLogger().Infof("[RECON] [WARN] URL collection failed: %v", err)
+	} else if urlRes != nil {
+		res.TotalURLs = urlRes.TotalURLs
+		res.JSURLs = urlRes.JSURLs
+		logger.GetLogger().Infof("[RECON] [OK] Collected %d URLs (%d JS)", res.TotalURLs, res.JSURLs)
 	}
 
 	res.Duration = time.Since(start)

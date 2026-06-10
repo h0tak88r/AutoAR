@@ -90,6 +90,7 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 
 *.txt
 !internal/api/ui/adbauditor/robots.txt
+!internal/api/jwt_secrets.txt
 
 # Exclude all markdown files except README.md
 *.md
