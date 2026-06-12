@@ -509,13 +509,27 @@
       },
       detail(r) {
         const target = s(r.host || r.target || '');
-        return buildFields([
-          ['Target',     target, { isLink: true }],
-          ['Finding',    s(r.title || r.finding || ''), { full: true }],
-          ['Module',     s(r.module || '')],
-          ['Severity',   s(r.severity)],
-          ['URL',        s(r.url || r.link || ''), { isLink: true }],
-        ]);
+        const raw = (r.raw && typeof r.raw === 'object') ? r.raw : {};
+        const fields = [
+          ['Target',   target, { isLink: true }],
+          ['Finding',  s(r.title || r.finding || ''), { full: true }],
+          ['Module',   s(r.module || '')],
+          ['Severity', s(r.severity)],
+          ['URL',      s(r.url || r.link || ''), { isLink: true }],
+        ];
+        // Enriched findings (e.g. zerodays React2Shell / MongoDB) carry an explicit
+        // CVE plus the request/response PoC. Show which bug it is + the proof.
+        const cve = s(raw.cve || '');
+        const req = s(raw.request || '');
+        const resp = s(raw.response || '');
+        if (cve || req || resp) {
+          fields.splice(1, 0, ['Vulnerability', s(cve || raw['template-id'] || ''), { full: true }]);
+          if (raw.type) fields.push(['Variant', s(raw.type)]);
+          if (raw.status_code != null && s(raw.status_code) !== '') fields.push(['Response status', s(raw.status_code)]);
+          if (req) fields.push(['PoC — Request', req, { full: true, code: true }]);
+          if (resp) fields.push(['PoC — Response', resp, { full: true, code: true }]);
+        }
+        return buildFields(fields);
       },
     },
 
