@@ -58,6 +58,10 @@ type React2ShellFinding struct {
 	URL      string
 	Type     string // e.g., "normal", "waf-bypass", "vercel-waf", "dos", "source-exposure"
 	Severity string
+	// PoC evidence captured by next88 (the proof, previously discarded).
+	Request    string // exact request next88 sent
+	Response   string // response that matched the vulnerable signature
+	StatusCode int    // HTTP status of the matched response
 }
 
 // MongoDBFinding represents a MongoDB CVE-2025-14847 vulnerability finding
@@ -157,6 +161,10 @@ func Run(opts Options) (*Result, error) {
 				Module     string `json:"module"`
 				Type       string `json:"type,omitempty"`
 				Finding    string `json:"finding"`
+				CVE        string `json:"cve,omitempty"`         // which bug this finding is
+				StatusCode int    `json:"status_code,omitempty"` // PoC: response status
+				Request    string `json:"request,omitempty"`     // PoC: exact request sent
+				Response   string `json:"response,omitempty"`    // PoC: matched response
 			}
 			findings := make([]zerodayFinding, 0, result.TotalVulnerable)
 			seen := make(map[string]struct{})
@@ -185,7 +193,11 @@ func Run(opts Options) (*Result, error) {
 					Severity:   sev,
 					Module:     "zerodays",
 					Type:       vType,
-					Finding:    "Potential React2Shell exploitation path detected",
+					Finding:    react2ShellFindingText(vType),
+					CVE:        "CVE-2025-55182",
+					StatusCode: v.StatusCode,
+					Request:    capPoC(v.Request),
+					Response:   capPoC(v.Response),
 				})
 			}
 
@@ -206,7 +218,10 @@ func Run(opts Options) (*Result, error) {
 					Severity:   "high",
 					Module:     "zerodays",
 					Type:       "mongodb-memory-leak",
-					Finding:    fmt.Sprintf("Leaked %d bytes from MongoDB response", len(v.LeakedData)),
+					Finding:    fmt.Sprintf("MongoDB memory leak (CVE-2025-14847) — leaked %d bytes", len(v.LeakedData)),
+					CVE:        "CVE-2025-14847",
+					Request:    fmt.Sprintf("OP_MSG BSON probe with an oversized memory-leak request → %s", targetAddr),
+					Response:   previewLeak(v.LeakedData),
 				})
 			}
 
@@ -373,12 +388,15 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 		return nil, 0, fmt.Errorf("next88 scan failed: %w", err)
 	}
 
-	// Convert results to findings
-	for url, vulnType := range results {
+	// Convert results to findings (carrying the request/response PoC evidence)
+	for url, res := range results {
 		findings = append(findings, React2ShellFinding{
-			URL:      url,
-			Type:     vulnType,
-			Severity: "HIGH", // React2Shell is a high severity RCE
+			URL:        url,
+			Type:       res.VulnType,
+			Severity:   "HIGH", // React2Shell is a high severity RCE
+			Request:    next88Request(res),
+			Response:   next88Response(res),
+			StatusCode: next88StatusCode(res),
 		})
 	}
 
@@ -389,7 +407,8 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 		dosResults, err := runNext88Scan(dosCtx, hosts, []string{"-dos-test", "-dos-requests", "100"}, opts.Threads, opts.Silent)
 		dosCancel()
 		if err == nil {
-			for url, vulnType := range dosResults {
+			for url, res := range dosResults {
+				vulnType := res.VulnType
 				// Check if already exists
 				found := false
 				for i := range findings {
@@ -403,9 +422,12 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 				}
 				if !found {
 					findings = append(findings, React2ShellFinding{
-						URL:      url,
-						Type:     vulnType,
-						Severity: "HIGH",
+						URL:        url,
+						Type:       vulnType,
+						Severity:   "HIGH",
+						Request:    next88Request(res),
+						Response:   next88Response(res),
+						StatusCode: next88StatusCode(res),
 					})
 				}
 			}
@@ -419,7 +441,8 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 		sourceResults, err := runNext88Scan(sourceCtx, hosts, []string{"-check-source-exposure"}, opts.Threads, opts.Silent)
 		sourceCancel()
 		if err == nil {
-			for url, vulnType := range sourceResults {
+			for url, res := range sourceResults {
+				vulnType := res.VulnType
 				found := false
 				for i := range findings {
 					if findings[i].URL == url {
@@ -432,9 +455,12 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 				}
 				if !found {
 					findings = append(findings, React2ShellFinding{
-						URL:      url,
-						Type:     vulnType,
-						Severity: "MEDIUM",
+						URL:        url,
+						Type:       vulnType,
+						Severity:   "MEDIUM",
+						Request:    next88Request(res),
+						Response:   next88Response(res),
+						StatusCode: next88StatusCode(res),
 					})
 				}
 			}
@@ -720,9 +746,10 @@ func buildMalformedMongoDBPacket(leakSize int) ([]byte, error) {
 	return append(header, opCompressed...), nil
 }
 
-// runNext88Scan runs next88 scan and returns results with threading support
-func runNext88Scan(ctx context.Context, hosts []string, args []string, requestedThreads int, silent bool) (map[string]string, error) {
-	results := make(map[string]string)
+// runNext88Scan runs next88 scan and returns the full per-host results (including
+// the request/response PoC evidence) with threading support.
+func runNext88Scan(ctx context.Context, hosts []string, args []string, requestedThreads int, silent bool) (map[string]next88.ScanResult, error) {
+	results := make(map[string]next88.ScanResult)
 	var mu sync.Mutex
 
 	// Determine thread count
@@ -774,16 +801,101 @@ func runNext88Scan(ctx context.Context, hosts []string, args []string, requested
 		return nil, fmt.Errorf("next88 scan failed: %w", err)
 	}
 
-	// Convert results to map
+	// Convert results to map, keeping the full result (request/response PoC).
 	for _, result := range scanResults {
 		if result.Vulnerable != nil && *result.Vulnerable {
 			mu.Lock()
-			results[result.Host] = result.VulnType
+			results[result.Host] = result
 			mu.Unlock()
 		}
 	}
 
 	return results, nil
+}
+
+// next88StatusCode safely dereferences the optional status code.
+func next88StatusCode(r next88.ScanResult) int {
+	if r.StatusCode != nil {
+		return *r.StatusCode
+	}
+	return 0
+}
+
+// next88Request/next88Response prefer the full request/response, falling back to the body-only capture.
+func next88Request(r next88.ScanResult) string {
+	if strings.TrimSpace(r.Request) != "" {
+		return r.Request
+	}
+	return r.RequestBody
+}
+
+func next88Response(r next88.ScanResult) string {
+	if strings.TrimSpace(r.Response) != "" {
+		return r.Response
+	}
+	return r.ResponseBody
+}
+
+// react2ShellFindingText builds a finding string that names the specific
+// sub-check(s) that fired (RCE exploitation, DoS, source-code exposure), so the
+// dashboard clearly tags which React2Shell issue was detected. vType may be a
+// comma-joined list when a single host matched multiple checks.
+func react2ShellFindingText(vType string) string {
+	v := strings.ToLower(vType)
+	var issues []string
+
+	hasRCE := strings.Contains(v, "normal") || strings.Contains(v, "waf") || strings.Contains(v, "vercel")
+	if hasRCE || v == "" {
+		rce := "RCE exploitation path"
+		if strings.Contains(v, "waf") || strings.Contains(v, "vercel") {
+			rce += " (WAF bypass)"
+		}
+		issues = append(issues, rce)
+	}
+	if strings.Contains(v, "dos") {
+		issues = append(issues, "denial-of-service path")
+	}
+	if strings.Contains(v, "source") {
+		issues = append(issues, "source-code / source-map exposure")
+	}
+	if len(issues) == 0 {
+		issues = append(issues, "exploitation path")
+	}
+	return "React2Shell (CVE-2025-55182) — " + strings.Join(issues, " + ") + " detected"
+}
+
+// capPoC trims and truncates a request/response body so the results JSON stays
+// small even when a host returns a large HTML error page.
+func capPoC(s string) string {
+	const max = 8000
+	s = strings.TrimSpace(s)
+	if len(s) > max {
+		return s[:max] + fmt.Sprintf("\n… [truncated, %d total bytes]", len(s))
+	}
+	return s
+}
+
+// previewLeak renders leaked MongoDB bytes as a safe, capped printable preview
+// (non-printable bytes shown as '.') for use as PoC evidence.
+func previewLeak(b []byte) string {
+	const max = 2048
+	n := len(b)
+	if n > max {
+		b = b[:max]
+	}
+	var sb strings.Builder
+	for _, c := range b {
+		if c == '\n' || c == '\t' || (c >= 0x20 && c < 0x7f) {
+			sb.WriteByte(c)
+		} else {
+			sb.WriteByte('.')
+		}
+	}
+	out := sb.String()
+	if n > max {
+		out += fmt.Sprintf("\n… [truncated, %d total bytes leaked]", n)
+	}
+	return out
 }
 
 // contains checks if a string slice contains a value
