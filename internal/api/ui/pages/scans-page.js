@@ -275,7 +275,7 @@
     }
     html += `<div class="scan-launcher">
       <div class="scan-launcher-head">
-        <div class="scan-launcher-title"><span class="scan-launcher-icon">⚡</span> Quick Scan Launcher</div>
+        <div class="scan-launcher-title"><span class="scan-launcher-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span> Quick Scan Launcher</div>
         <div class="scan-launcher-sub">Pick a scan type, point it at a target, tune the flags, then launch.</div>
       </div>
       <div class="launcher-grid">
@@ -325,7 +325,7 @@
           <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none">${window.esc(lUI.targetList || '')}</textarea>
         </div>
         <div class="launcher-field launcher-field-action">
-          <button class="btn-primary" id="launch-btn"><span class="launch-btn-icon">▶</span><span>Launch</span></button>
+          <button class="btn-primary" id="launch-btn"><span class="launch-btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px"><polygon points="5 3 19 12 5 21 5 3"/></svg></span><span>Launch</span></button>
         </div>
       </div>
       <div id="launch-help" class="launch-help"></div>
@@ -343,7 +343,7 @@
     </div>`;
     html += `<div class="scans-toolbar">
       <div class="scans-toolbar-search">
-        <span class="scans-toolbar-search-icon">🔍</span>
+        <span class="scans-toolbar-search-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></span>
         <input type="text" id="scan-search-input" class="search-input" placeholder="Search targets or scan types…" value="${window.esc(sUI.search)}" autocomplete="off" />
       </div>
       <select id="scan-type-filter" class="input scans-toolbar-select">
