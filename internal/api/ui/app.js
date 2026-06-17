@@ -733,6 +733,9 @@ function targetsLaunchScan(domain) {
 async function targetsCopyAll() {
   return callPageMethod('TargetsPage', 'targetsCopyAll');
 }
+async function targetsCopyOne(value) {
+  return callPageMethod('TargetsPage', 'targetsCopyOne', [value]);
+}
 
 // ── Keyhacks ─────────────────────────────────────────────────────────────────
 

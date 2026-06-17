@@ -942,7 +942,7 @@ func RunFFufDomainMode(opts Options) (*Result, error) {
 
 	// Setup output directory
 	resultsDir := utils.GetResultsDir()
-	outputDir := filepath.Join(resultsDir, opts.Domain, "ffuf")
+	outputDir := filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.Domain), "ffuf")
 	if err := utils.EnsureDir(outputDir); err != nil {
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
@@ -1194,10 +1194,10 @@ func runFFufSingleTarget(opts Options) (*Result, error) {
 	// Otherwise use the legacy single-target layout:
 	//   {resultsDir}/{subdomain}/ffuf/
 	resultsDir := utils.GetResultsDir()
-	subdomainName := extractDomain(opts.Target)
+	subdomainName := utils.SanitizeTargetSegment(extractDomain(opts.Target))
 	var outputDir string
 	if opts.ParentDomain != "" {
-		outputDir = filepath.Join(resultsDir, opts.ParentDomain, "ffuf", subdomainName)
+		outputDir = filepath.Join(resultsDir, utils.SanitizeTargetSegment(opts.ParentDomain), "ffuf", subdomainName)
 	} else {
 		outputDir = filepath.Join(resultsDir, subdomainName, "ffuf")
 	}

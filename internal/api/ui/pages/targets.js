@@ -18,7 +18,15 @@
   };
 
   function escapeSafe(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    // Escapes &, ", <, > AND ' — the single quote matters because these values are
+    // interpolated into single-quoted onclick="fn('...')" string literals; leaving
+    // it unescaped lets a crafted scope target break out and execute JS (XSS).
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/'/g, '&#39;');
   }
 
   function renderPlatformCredFields(p, colors) {
@@ -330,5 +338,6 @@
     targetsAddAllDomains,
     targetsLaunchScan,
     targetsCopyAll,
+    targetsCopyOne,
   };
 })();
