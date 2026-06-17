@@ -1462,6 +1462,65 @@ function setupPreviewRotator() {
     }, 3600);
 }
 
+// The auditor is served in an iframe/tab where the dashboard sets a JS-readable
+// autoar_token cookie; the /api auth middleware wants it as a Bearer header.
+function getAuthTokenFromCookie() {
+    const m = document.cookie.match(/(?:^|;\s*)autoar_token=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+}
+
+// patchApkForMitm uploads the currently-loaded APK to the server, which patches
+// it (trust user CAs + disable cert pinning) and re-signs it, then downloads the
+// patched APK. The patching is server-side (apktool + uber-apk-signer) and can
+// take a few minutes — this is the one action where the APK leaves the tab.
+async function patchApkForMitm() {
+    const btn = $('#mitmPatchBtn');
+    const label = $('#mitmPatchBtnLabel');
+    if (!State.currentFile) {
+        toast('Load an .apk first, then patch it for MITM', 'error');
+        return;
+    }
+    if (!/\.apk$/i.test(State.currentFile.name)) {
+        toast('MITM patching only works on .apk files', 'error');
+        return;
+    }
+    const origLabel = label ? label.textContent : 'Patch for MITM';
+    if (btn) btn.disabled = true;
+    if (label) label.textContent = 'Patching…';
+    toast('Uploading & patching APK — apktool + re-signing runs on the server and can take a few minutes…', 'info');
+    try {
+        const fd = new FormData();
+        fd.append('apk', State.currentFile, State.currentFile.name);
+        const tok = getAuthTokenFromCookie();
+        const resp = await fetch('/api/apk/mitm', {
+            method: 'POST',
+            headers: tok ? { Authorization: 'Bearer ' + tok } : {},
+            body: fd,
+        });
+        if (!resp.ok) {
+            let msg = 'HTTP ' + resp.status;
+            try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (_) { /* non-JSON */ }
+            throw new Error(msg);
+        }
+        const blob = await resp.blob();
+        const base = State.currentFile.name.replace(/\.apk$/i, '');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = base + '-patched.apk';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        toast('Patched APK downloaded — uninstall the original, then install this one on your test device.', 'success');
+    } catch (e) {
+        toast('MITM patch failed: ' + e.message, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+        if (label) label.textContent = origLabel;
+    }
+}
+
 function init() {
     setupGlobalErrors();
     if ('serviceWorker' in navigator) {
@@ -1476,6 +1535,7 @@ function init() {
     setupCursorSpot();
     setupPreviewRotator();
     $('#newScanBtn') && $('#newScanBtn').addEventListener('click', () => $('#fileInput').click());
+    $('#mitmPatchBtn') && $('#mitmPatchBtn').addEventListener('click', patchApkForMitm);
     $('#heroCta') && $('#heroCta').addEventListener('click', () => $('#fileInput').click());
     $('#downloadFileBtn') && $('#downloadFileBtn').addEventListener('click', downloadCurrentFile);
     document.querySelectorAll('a.logo, .logo[href]').forEach(el => {

@@ -594,6 +594,8 @@ func SetupAPI() *gin.Engine {
 		apiGroup.GET("/nuclei/templates", apiListNucleiTemplates)
 		// Security Lab — JWT HMAC secret brute-force (client-side analyzer calls this)
 		apiGroup.POST("/jwt/brute", apiJWTBrute)
+		// APK Auditor — patch an uploaded APK for MITM (trust user CAs + disable pinning)
+		apiGroup.POST("/apk/mitm", apiAPKMitm)
 		// Report Templates
 		apiGroup.GET("/report-templates", apiListReportTemplates)
 		apiGroup.GET("/report-templates/export", apiExportReportTemplates)
