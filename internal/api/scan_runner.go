@@ -52,7 +52,8 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		// Without a DB record the scan would be invisible to the UI — abort rather
 		// than run an orphaned scan whose results can never be retrieved.
 		log.Printf("[runner] ABORT: failed to create DB record for %s (%s): %v", scanID, scanType, err)
-		<-scanSemaphore // release slot acquired above
+		// The deferred release above already frees the acquired slot; releasing
+		// again here would unbalance the semaphore (steal another scan's slot).
 		return
 	}
 

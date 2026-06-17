@@ -74,10 +74,16 @@ func (b *logBus) Subscribe(scanID string) (history []string, ch chan string) {
 	history = make([]string, len(stored))
 	copy(history, stored)
 
-	ch = make(chan string, logBusChanSize)
-	if len(b.subs[scanID]) < logBusMaxSubs {
-		b.subs[scanID] = append(b.subs[scanID], ch)
+	if len(b.subs[scanID]) >= logBusMaxSubs {
+		// At the subscriber cap: hand back an already-closed channel so the SSE
+		// loop receives ok=false and tears down cleanly, instead of an orphaned
+		// open channel that Close() can never close (relying on client disconnect).
+		ch = make(chan string)
+		close(ch)
+		return history, ch
 	}
+	ch = make(chan string, logBusChanSize)
+	b.subs[scanID] = append(b.subs[scanID], ch)
 	return history, ch
 }
 
