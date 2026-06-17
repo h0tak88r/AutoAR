@@ -150,6 +150,10 @@
                         <button class="export-item" data-export="sarif" role="menuitem" type="button"><span class="export-item-name">SARIF 2.1</span><span class="export-item-desc">GitHub Code Scanning</span></button>
                     </div>
                 </div>
+                <button class="btn btn-ghost" id="mitmPatchBtn" type="button" title="Patch this APK to trust user CAs &amp; disable certificate pinning, then download the re-signed APK">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3z"/><path d="m9 12 2 2 4-4"/></svg>
+                    <span id="mitmPatchBtnLabel">Patch for MITM</span>
+                </button>
                 <button class="btn btn-primary" id="newScanBtn" type="button">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                     New Scan

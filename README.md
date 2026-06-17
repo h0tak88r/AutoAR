@@ -34,7 +34,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
 |  **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
 |  **APK Auditor**     | Browser-based Android analysis: DEX decompiler, manifest + cert parsing, tracker detection, MASVS mapping, and regex-driven findings with APX secret patterns. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
-|  **MITM Patch**      | Fetch any Android app by Package ID → auto-patch `network_security_config.xml` → re-sign → R2 download link in one click             |
+|  **MITM Patch**      | One-click **Patch for MITM** in the APK Auditor → server runs `apktool` + `uber-apk-signer` to trust user CAs, disable cert pinning, and re-sign → direct download of the patched APK |
 |  **IPA Auditor**     | Browser-based iOS IPA analysis: plist + Mach-O inspection, binary strings extraction, and findings tab powered by 200+ regex signatures plus MASVS-style rules. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
 |  **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching. (Based on [adbauditor](https://github.com/thecybersandeep/adbauditor) by @thecybersandeep) |
 |  **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
@@ -215,23 +215,21 @@ The **APK Auditor** is a fully browser-based static analysis tool available at `
 - Regex presets and bulk pattern scans for secrets/tokens across code and resources
 - OWASP MASVS aligned reporting — one-click export
 
-**Remote Fetch by Package ID (server-side, with MITM patch):**
+**MITM Patch (server-side, `apk-mitm` style):**
 
 ```bash
-# Via the dashboard UI — click "Fetch Package ID" in the APK Auditor page
-# Enter the package ID, optionally enable MITM patch, click Start
+# In the APK Auditor page, load a .apk, then click "Patch for MITM"
 ```
 
-What happens:
-1. Downloads the APK from APKPure (supports `.xapk` / split APKs automatically)
-2. *(Optional)* Patches `network_security_config.xml` to trust user-installed CAs + disables certificate pinning
-3. Re-signs with `uber-apk-signer` and uploads the patched APK to R2
-4. Shows a **download panel** in the Auditor UI with direct R2 links for:
-   -  Original APK
-   -  MITM Patched APK (if requested)
-5. Automatically loads the APK into the browser auditor for analysis
+What happens (runs `apktool` + `uber-apk-signer` on the server):
+1. Decodes the APK with `apktool`
+2. Injects a network security config that trusts user-installed CAs and disables certificate pinning, and sets `android:networkSecurityConfig` + `android:debuggable` on the manifest
+3. Rebuilds and re-signs the APK with a debug key (`uber-apk-signer`)
+4. Streams the patched, re-signed APK straight back as a **direct download** — uninstall the original, install this one on your test device, and you can intercept its HTTPS traffic with Burp/mitmproxy
 
-> **Scan records from APK Auditor are hidden from the main Scans dashboard** — they exist only within the Auditor context.
+> Requires the Docker image (it bundles `apktool` + `uber-apk-signer` + a JRE). The in-browser analysis above still runs entirely in the tab; only the MITM patch uploads the APK to the server.
+
+> **The APK Auditor never creates records in the main Scans dashboard** — it runs in its own context.
 
 ### Mobile Application Analysis (IPA Auditor)
 
