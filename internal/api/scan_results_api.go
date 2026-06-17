@@ -2056,18 +2056,17 @@ func apiGetScanReport(c *gin.Context) {
 	templateName := strings.TrimSpace(c.DefaultQuery("template", "default"))
 	format := strings.ToLower(strings.TrimSpace(c.DefaultQuery("format", "markdown")))
 
-	scanRec, _ := db.GetScan(scanID)
-	target := ""
-	scanType := ""
-	status := "unknown"
+	scanRec, err := db.GetScan(scanID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	target := scanRec.Target
+	scanType := scanRec.ScanType
+	status := scanRec.Status
 	dateStr := time.Now().UTC().Format("2006-01-02")
-	if scanRec != nil {
-		target = scanRec.Target
-		scanType = scanRec.ScanType
-		status = scanRec.Status
-		if !scanRec.CompletedAt.IsZero() {
-			dateStr = scanRec.CompletedAt.UTC().Format("2006-01-02")
-		}
+	if scanRec.CompletedAt != nil && !scanRec.CompletedAt.IsZero() {
+		dateStr = scanRec.CompletedAt.UTC().Format("2006-01-02")
 	}
 
 	// Build a simple Markdown findings table from parsed results (top 50 rows).
