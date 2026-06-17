@@ -177,7 +177,7 @@
                 <div class="settings-hint">Where monitor change alerts are sent. Discord webhook URLs work out of the box.</div>
               </div>
               <div class="settings-control">
-                <input type="text" id="monitor-webhook-input" value="${escValue(cfg.monitor_webhook || '')}" placeholder="https://discord.com/api/webhooks/..." class="form-control premium-input">
+                <input type="text" id="monitor-webhook-input" value="" placeholder="${cfg.monitor_webhook_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
                 <button class="btn btn-primary" onclick="window.SettingsPage.saveWebhookSettings()">Save</button>
               </div>
             </div>
@@ -362,6 +362,12 @@
     const input = document.getElementById('monitor-webhook-input');
     if (!input) return;
     const webhook = input.value.trim();
+    // The raw webhook is no longer returned by /api/config (it's a secret), so the
+    // field renders empty; an empty submit means "no change" rather than clearing it.
+    if (!webhook) {
+      window.showToast('info', 'No change', 'Enter a webhook URL to set or replace the current one.');
+      return;
+    }
     try {
       const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
       const res = await fetch('/api/settings', {
