@@ -1024,3 +1024,30 @@ input, select { font: inherit; color: inherit; }
     .stats-grid { grid-template-columns: 1fr; }
     .quick-access-list { grid-template-columns: 1fr; }
 }
+
+/* ── MITM Readiness card (Overview) ────────────────────────────────────────── */
+.mitm-readiness { margin: 0 0 22px; }
+.mitm-card {
+    border: 1px solid var(--lum-30);
+    border-left: 4px solid var(--mitm-c, var(--vital));
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: var(--mitm-bg, rgba(52, 211, 153, 0.06));
+}
+.mitm-ready, .mitm-easy { --mitm-c: var(--vital); --mitm-bg: rgba(52, 211, 153, 0.06); }
+.mitm-pinned           { --mitm-c: var(--warm);  --mitm-bg: rgba(251, 146, 60, 0.06); }
+.mitm-hard             { --mitm-c: var(--alert); --mitm-bg: rgba(244, 63, 94, 0.06); }
+.mitm-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mitm-badge {
+    background: var(--mitm-c, var(--vital));
+    color: var(--depth-1);
+    font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
+    padding: 3px 9px; border-radius: 6px; white-space: nowrap;
+}
+.mitm-title { font-size: 14px; font-weight: 700; color: var(--lum-90); }
+.mitm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 11px 0 9px; }
+.mitm-chip {
+    font-size: 11px; padding: 2px 9px; border-radius: 999px;
+    border: 1px solid var(--lum-30); color: var(--lum-70);
+}
+.mitm-tip { font-size: 12.5px; line-height: 1.55; color: var(--lum-70); }
