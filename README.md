@@ -34,7 +34,6 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
 |  **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
 |  **APK Auditor**     | Browser-based Android analysis: DEX decompiler, manifest + cert parsing, tracker detection, MASVS mapping, and regex-driven findings with APX secret patterns. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
-|  **MITM Patch**      | One-click **Patch for MITM** in the APK Auditor → server runs `apktool` + `uber-apk-signer` to trust user CAs, disable cert pinning, and re-sign → direct download of the patched APK |
 |  **IPA Auditor**     | Browser-based iOS IPA analysis: plist + Mach-O inspection, binary strings extraction, and findings tab powered by 200+ regex signatures plus MASVS-style rules. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
 |  **ADB Auditor**    | Browser-based ADB security tool: USB device inspection, app enumeration, logcat tailing, file pull, activity launching. (Based on [adbauditor](https://github.com/thecybersandeep/adbauditor) by @thecybersandeep) |
 |  **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
@@ -43,7 +42,7 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **AI Agent**        | Full AI hunt loop from the CLI (`autoar agent` / `autoar explain`) — defaults to **deepseek-v4-flash-free via OpenCode Zen** — free tier, no card required |
 |  **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 |  **Smart Alerts**    | Rich webhook notifications for zero-findings scans — no more empty files or spam                                                       |
-|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, MITM remote scan, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
+|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
 
 
 ---
@@ -215,19 +214,7 @@ The **APK Auditor** is a fully browser-based static analysis tool available at `
 - Regex presets and bulk pattern scans for secrets/tokens across code and resources
 - OWASP MASVS aligned reporting — one-click export
 
-**MITM Patch (server-side, `apk-mitm` style):**
-
-```bash
-# In the APK Auditor page, load a .apk, then click "Patch for MITM"
-```
-
-What happens (runs `apktool` + `uber-apk-signer` on the server):
-1. Decodes the APK with `apktool`
-2. Injects a network security config that trusts user-installed CAs and disables certificate pinning, and sets `android:networkSecurityConfig` + `android:debuggable` on the manifest
-3. Rebuilds and re-signs the APK with a debug key (`uber-apk-signer`)
-4. Streams the patched, re-signed APK straight back as a **direct download** — uninstall the original, install this one on your test device, and you can intercept its HTTPS traffic with Burp/mitmproxy
-
-> Requires the Docker image (it bundles `apktool` + `uber-apk-signer` + a JRE). The in-browser analysis above still runs entirely in the tab; only the MITM patch uploads the APK to the server.
+> **Want to MITM an app's HTTPS traffic?** The auditor is static-analysis only — kept deliberately lightweight (all in-browser, no heavy server-side Java toolchain). To prepare an APK for interception, patch it locally with [apk-mitm](https://github.com/niklashigi/apk-mitm) (`npx apk-mitm app.apk`), install the patched build on your test device, then drop it back into the auditor if you want to analyze it.
 
 > **The APK Auditor never creates records in the main Scans dashboard** — it runs in its own context.
 
