@@ -250,7 +250,70 @@ function updateBadges(r) {
     }
 }
 
+// computeMitmReadiness assesses — purely from the static analysis already done in
+// the browser — whether the app can be prepped for HTTPS interception with
+// apk-mitm. No server-side toolchain (apktool/JRE) is involved; it just reads the
+// findings the engine produced (pinning, integrity checks, trust-all) + appInfo.
+function computeMitmReadiness(r) {
+    const ids = new Set((r.findings || []).map(f => f.ruleId));
+    const pinning = ids.has('cert_pinning');       // CertificatePinner / pin-sha256 / PublicKeyPinning
+    const antiTamper = ids.has('integrity_check'); // SafetyNet / Play Integrity
+    const trustAll = ids.has('trust_all');         // app already accepts all certs
+    const nsc = !!(r.appInfo && r.appInfo.networkSecurityConfig);
+    const targetSdk = (r.appInfo && r.appInfo.targetSdk) || 0;
+
+    let level, verdict, tip;
+    if (antiTamper) {
+        level = 'hard';
+        verdict = 'Integrity / attestation present';
+        tip = 'SafetyNet / Play Integrity was detected — re-signing with a debug key (what apk-mitm does) is often detected, so the app may refuse to run or fail its requests. You can still try apk-mitm, but you will likely also need to bypass attestation at runtime with Frida.';
+    } else if (pinning) {
+        level = 'pinned';
+        verdict = 'Patchable, but pinned';
+        tip = 'Certificate pinning was detected. apk-mitm defeats Network-Security-Config / system-trust pinning, but programmatic pinning (OkHttp CertificatePinner, TrustKit) can survive it. Patch with apk-mitm; if interception still fails, disable pinning at runtime with Frida / objection ("android sslpinning disable").';
+    } else if (trustAll) {
+        level = 'easy';
+        verdict = 'Trivially interceptable';
+        tip = 'The app already accepts all certificates / uses a permissive trust manager — MITM is usually trivial. Installing your CA (or a quick apk-mitm patch) should be enough.';
+    } else {
+        level = 'ready';
+        verdict = 'Likely patchable';
+        tip = (targetSdk >= 24
+            ? 'Targets Android 7+, so it will not trust user-installed CAs by default — which is exactly what apk-mitm fixes. '
+            : '') + 'No certificate pinning or integrity checks were detected, so apk-mitm\'s standard patch (trust user CAs + drop NSC pinning) should let you intercept its HTTPS traffic. Patch it locally with "npx apk-mitm <app>.apk", install the patched build, and proxy through Burp/mitmproxy.';
+    }
+    return { level, verdict, pinning, antiTamper, trustAll, nsc, tip };
+}
+
+function renderMitmReadiness(r) {
+    const el = document.getElementById('mitmReadiness');
+    if (!el) return;
+    const m = computeMitmReadiness(r);
+    const META = {
+        ready:  { tag: 'READY',  ic: '✓' },
+        easy:   { tag: 'EASY',   ic: '✓' },
+        pinned: { tag: 'PINNED', ic: '!' },
+        hard:   { tag: 'HARD',   ic: '✕' },
+    }[m.level];
+    const chips = [
+        m.pinning ? 'Cert pinning' : null,
+        m.antiTamper ? 'Integrity / attestation' : null,
+        m.trustAll ? 'Accepts all certs' : null,
+        m.nsc ? 'Has network security config' : 'No network security config',
+    ].filter(Boolean);
+    el.innerHTML = html`
+      <div class="mitm-card mitm-${m.level}">
+        <div class="mitm-head">
+          <span class="mitm-badge">${META.ic + ' ' + META.tag}</span>
+          <span class="mitm-title">MITM Readiness — ${m.verdict}</span>
+        </div>
+        <div class="mitm-chips">${chips.map(c => ({ __raw: true, html: `<span class="mitm-chip">${esc(c)}</span>` }))}</div>
+        <div class="mitm-tip">${m.tip}</div>
+      </div>`;
+}
+
 function renderOverview(r) {
+    renderMitmReadiness(r);
     const s = r.summary || { issue: 0, info: 0, secure: 0 };
     const issue = s.issue || 0, info = s.info || 0, secure = s.secure || 0;
     const score = r.securityScore != null ? r.securityScore : 0;
