@@ -116,7 +116,18 @@ func (s *SQLiteDB) InitSchema() error {
 	
 	-- Create unique index on js_url
 	CREATE UNIQUE INDEX IF NOT EXISTS js_files_js_url_key ON js_files (js_url);
-	
+
+	-- Create js_endpoints table for JS endpoint-diff monitoring
+	CREATE TABLE IF NOT EXISTS js_endpoints (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		domain TEXT NOT NULL,
+		endpoint TEXT NOT NULL,
+		source_js TEXT DEFAULT '',
+		first_seen_at TIMESTAMP DEFAULT (datetime('now')),
+		UNIQUE(domain, endpoint)
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_endpoints_domain ON js_endpoints(domain);
+
 	-- Create keyhack_templates table
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,6 +177,7 @@ func (s *SQLiteDB) InitSchema() error {
 		interval_seconds INTEGER DEFAULT 3600,
 		threads INTEGER DEFAULT 100,
 		check_new INTEGER DEFAULT 1,
+		monitor_js INTEGER DEFAULT 0,
 		is_running INTEGER DEFAULT 0,
 		last_run_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT (datetime('now')),
@@ -278,6 +290,10 @@ func (s *SQLiteDB) InitSchema() error {
 	}
 	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN cnames TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
 		logger.GetLogger().Warnf("[WARN] Failed to add subdomains.cnames column: %v", merr)
+	}
+	// Add monitor_js to existing subdomain_monitor_targets tables (JS endpoint diff opt-in).
+	if _, merr := s.db.Exec(`ALTER TABLE subdomain_monitor_targets ADD COLUMN monitor_js INTEGER DEFAULT 0`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		logger.GetLogger().Warnf("[WARN] Failed to add subdomain_monitor_targets.monitor_js column: %v", merr)
 	}
 	// Migrate scan_artifacts table: add module and category columns
 	if _, merr := s.db.Exec(`ALTER TABLE scan_artifacts ADD COLUMN module TEXT`); merr != nil {
@@ -501,6 +517,54 @@ func (s *SQLiteDB) InsertJSFile(domain, jsURL, contentHash string) error {
 	}
 
 	return nil
+}
+
+// ListJSEndpoints returns all known JS-derived endpoints for a domain.
+func (s *SQLiteDB) ListJSEndpoints(domain string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT endpoint FROM js_endpoints WHERE domain = ? ORDER BY endpoint;`, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query js_endpoints: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var ep string
+		if err := rows.Scan(&ep); err != nil {
+			return nil, fmt.Errorf("failed to scan js_endpoint: %v", err)
+		}
+		out = append(out, ep)
+	}
+	return out, rows.Err()
+}
+
+// InsertJSEndpoints records JS-derived endpoints for a domain (idempotent on (domain, endpoint)).
+func (s *SQLiteDB) InsertJSEndpoints(domain string, endpoints []JSEndpoint) error {
+	if len(endpoints) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	stmt, err := tx.Prepare(`
+		INSERT INTO js_endpoints (domain, endpoint, source_js)
+		VALUES (?, ?, ?)
+		ON CONFLICT (domain, endpoint) DO NOTHING;
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare js_endpoints insert: %v", err)
+	}
+	defer stmt.Close()
+	for _, ep := range endpoints {
+		if strings.TrimSpace(ep.Endpoint) == "" {
+			continue
+		}
+		if _, err := stmt.Exec(domain, ep.Endpoint, ep.SourceJS); err != nil {
+			return fmt.Errorf("failed to insert js_endpoint: %v", err)
+		}
+	}
+	return tx.Commit()
 }
 
 // InsertKeyhackTemplate inserts or updates a KeyHack template
@@ -1076,7 +1140,7 @@ func (s *SQLiteDB) GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 // ListSubdomainMonitorTargets returns all subdomain monitoring targets
 func (s *SQLiteDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error) {
 	rows, err := s.db.Query(`
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, monitor_js, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		ORDER BY domain;
 	`)
@@ -1088,11 +1152,12 @@ func (s *SQLiteDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, erro
 	var targets []SubdomainMonitorTarget
 	for rows.Next() {
 		var t SubdomainMonitorTarget
-		var checkNewInt, isRunningInt int
-		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &isRunningInt, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var checkNewInt, monitorJSInt, isRunningInt int
+		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &monitorJSInt, &isRunningInt, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan subdomain monitor target: %v", err)
 		}
 		t.CheckNew = checkNewInt != 0
+		t.MonitorJS = monitorJSInt != 0
 		t.IsRunning = isRunningInt != 0
 		targets = append(targets, t)
 	}
@@ -1103,7 +1168,7 @@ func (s *SQLiteDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, erro
 }
 
 // AddSubdomainMonitorTarget adds a new subdomain monitoring target
-func (s *SQLiteDB) AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew bool) error {
+func (s *SQLiteDB) AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew, monitorJS bool) error {
 	if interval <= 0 {
 		interval = 3600 // Default 1 hour
 	}
@@ -1114,15 +1179,20 @@ func (s *SQLiteDB) AddSubdomainMonitorTarget(domain string, interval int, thread
 	if checkNew {
 		checkNewInt = 1
 	}
+	monitorJSInt := 0
+	if monitorJS {
+		monitorJSInt = 1
+	}
 	_, err := s.db.Exec(`
-		INSERT INTO subdomain_monitor_targets (domain, interval_seconds, threads, check_new)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO subdomain_monitor_targets (domain, interval_seconds, threads, check_new, monitor_js)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (domain) DO UPDATE SET
 			interval_seconds = excluded.interval_seconds,
 			threads = excluded.threads,
 			check_new = excluded.check_new,
+			monitor_js = excluded.monitor_js,
 			updated_at = datetime('now');
-	`, domain, interval, threads, checkNewInt)
+	`, domain, interval, threads, checkNewInt, monitorJSInt)
 
 	if err != nil {
 		return fmt.Errorf("failed to add subdomain monitor target: %v", err)
@@ -1166,12 +1236,12 @@ func (s *SQLiteDB) SetSubdomainMonitorRunningStatus(id int, isRunning bool) erro
 // GetSubdomainMonitorTargetByID returns a single subdomain monitor target by ID
 func (s *SQLiteDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error) {
 	var t SubdomainMonitorTarget
-	var checkNewInt, isRunningInt int
+	var checkNewInt, monitorJSInt, isRunningInt int
 	err := s.db.QueryRow(`
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, monitor_js, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		WHERE id = ?;
-	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &isRunningInt, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &checkNewInt, &monitorJSInt, &isRunningInt, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("subdomain monitor target not found with id: %d", id)
@@ -1180,6 +1250,7 @@ func (s *SQLiteDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarge
 		return nil, fmt.Errorf("failed to get subdomain monitor target by id: %v", err)
 	}
 	t.CheckNew = checkNewInt != 0
+	t.MonitorJS = monitorJSInt != 0
 	t.IsRunning = isRunningInt != 0
 	return &t, nil
 }

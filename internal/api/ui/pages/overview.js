@@ -67,6 +67,7 @@
       became_dead: '',
       content_changed: '',
       status_changed: '',
+      new_js_endpoint: '',
     };
     const preview = String(detail || '').slice(0, 200);
     return `<div class="change-item">

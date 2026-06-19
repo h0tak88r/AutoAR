@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +17,143 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/logger"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
+
+// scriptSrcRe matches <script ... src="..."> tags to discover JS bundles from a host's HTML.
+var scriptSrcRe = regexp.MustCompile(`(?i)<script[^>]+src\s*=\s*["']([^"'>\s]+)["']`)
+
+// Endpoint is a single API path extracted from a JS bundle, with the bundle it came from.
+type Endpoint struct {
+	Path   string
+	Source string // the JS URL it was found in
+}
+
+const (
+	maxMonitorHosts = 100 // cap live hosts processed per cycle (weak-VPS friendly)
+	maxMonitorJS    = 600 // cap distinct JS bundles downloaded per cycle
+)
+
+// CollectEndpointsForHosts discovers API endpoints from the live hosts' current JS bundles,
+// entirely in memory: it fetches each host's HTML, resolves its <script src> bundles,
+// downloads them, and extracts endpoints. No katana, no file/scan state, no DB — designed
+// for recurring monitoring so it always sees the CURRENT (hashed) bundle names after a deploy.
+// The returned endpoints are unique by path (first-seen source wins).
+func CollectEndpointsForHosts(hosts []string, threads int) ([]Endpoint, error) {
+	if threads <= 0 {
+		threads = 20
+	}
+	if len(hosts) > maxMonitorHosts {
+		logger.GetLogger().Infof("[INFO] jsendpoints: capping monitored hosts %d→%d (set a smaller scope to cover all)", len(hosts), maxMonitorHosts)
+		hosts = hosts[:maxMonitorHosts]
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+		Timeout:   15 * time.Second,
+	}
+
+	// Phase 1: discover unique JS bundle URLs across all hosts (HTML <script src>).
+	jsSet := make(map[string]struct{})
+	var jsMu sync.Mutex
+	var hwg sync.WaitGroup
+	hsem := make(chan struct{}, threads)
+	for _, h := range hosts {
+		base := normalizeHostURL(h)
+		if base == "" {
+			continue
+		}
+		hwg.Add(1)
+		go func(hostURL string) {
+			defer hwg.Done()
+			hsem <- struct{}{}
+			defer func() { <-hsem }()
+			html, err := downloadFile(client, hostURL)
+			if err != nil {
+				return
+			}
+			baseURL, perr := url.Parse(hostURL)
+			if perr != nil {
+				return
+			}
+			for _, m := range scriptSrcRe.FindAllStringSubmatch(html, -1) {
+				if len(m) < 2 {
+					continue
+				}
+				ref, perr := url.Parse(strings.TrimSpace(m[1]))
+				if perr != nil {
+					continue
+				}
+				abs := baseURL.ResolveReference(ref)
+				if abs.Scheme != "http" && abs.Scheme != "https" {
+					continue
+				}
+				if !strings.Contains(strings.ToLower(abs.Path), ".js") {
+					continue
+				}
+				jsMu.Lock()
+				jsSet[abs.String()] = struct{}{}
+				jsMu.Unlock()
+			}
+		}(base)
+	}
+	hwg.Wait()
+
+	jsURLs := make([]string, 0, len(jsSet))
+	for u := range jsSet {
+		jsURLs = append(jsURLs, u)
+	}
+	if len(jsURLs) > maxMonitorJS {
+		logger.GetLogger().Infof("[INFO] jsendpoints: capping JS bundles %d→%d this cycle", len(jsURLs), maxMonitorJS)
+		jsURLs = jsURLs[:maxMonitorJS]
+	}
+
+	// Phase 2: download each bundle and extract endpoints.
+	results := make(map[string]string) // path → source JS
+	var rMu sync.Mutex
+	var jwg sync.WaitGroup
+	jsem := make(chan struct{}, threads)
+	for _, ju := range jsURLs {
+		jwg.Add(1)
+		go func(jsURL string) {
+			defer jwg.Done()
+			jsem <- struct{}{}
+			defer func() { <-jsem }()
+			content, err := downloadFile(client, jsURL)
+			if err != nil {
+				return
+			}
+			eps := extractEndpoints(content, jsURL)
+			if len(eps) == 0 {
+				return
+			}
+			rMu.Lock()
+			for _, ep := range eps {
+				if _, ok := results[ep]; !ok {
+					results[ep] = jsURL
+				}
+			}
+			rMu.Unlock()
+		}(ju)
+	}
+	jwg.Wait()
+
+	out := make([]Endpoint, 0, len(results))
+	for ep, src := range results {
+		out = append(out, Endpoint{Path: ep, Source: src})
+	}
+	return out, nil
+}
+
+// normalizeHostURL returns an http(s) base URL for a host string, defaulting to https.
+func normalizeHostURL(h string) string {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return ""
+	}
+	if strings.HasPrefix(h, "http://") || strings.HasPrefix(h, "https://") {
+		return strings.TrimRight(h, "/")
+	}
+	return "https://" + strings.TrimRight(h, "/")
+}
 
 // Options controls JS endpoint extraction behaviour.
 type Options struct {
