@@ -11,10 +11,11 @@ type ManagerOptions struct {
 	Action   string // "add", "remove", "list", "start", "stop"
 	Domain   string
 	ID       int
-	Interval int
-	Threads  int
-	CheckNew bool
-	All      bool
+	Interval  int
+	Threads   int
+	CheckNew  bool
+	MonitorJS bool
+	All       bool
 }
 
 // ManageTargets manages subdomain monitoring targets
@@ -44,7 +45,7 @@ func ManageTargets(opts ManagerOptions) error {
 		if opts.Threads <= 0 {
 			opts.Threads = 100
 		}
-		return handleAdd(opts.Domain, opts.Interval, opts.Threads, opts.CheckNew)
+		return handleAdd(opts.Domain, opts.Interval, opts.Threads, opts.CheckNew, opts.MonitorJS)
 	case "remove":
 		if opts.ID > 0 {
 			target, err := db.GetSubdomainMonitorTargetByID(opts.ID)
@@ -91,12 +92,12 @@ func handleList() error {
 	return nil
 }
 
-func handleAdd(domain string, interval int, threads int, checkNew bool) error {
-	if err := db.AddSubdomainMonitorTarget(domain, interval, threads, checkNew); err != nil {
+func handleAdd(domain string, interval int, threads int, checkNew, monitorJS bool) error {
+	if err := db.AddSubdomainMonitorTarget(domain, interval, threads, checkNew, monitorJS); err != nil {
 		return err
 	}
-	fmt.Printf("[OK] Added subdomain monitoring target: %s (interval: %ds, threads: %d, check_new: %v)\n",
-		domain, interval, threads, checkNew)
+	fmt.Printf("[OK] Added subdomain monitoring target: %s (interval: %ds, threads: %d, check_new: %v, monitor_js: %v)\n",
+		domain, interval, threads, checkNew, monitorJS)
 	return nil
 }
 

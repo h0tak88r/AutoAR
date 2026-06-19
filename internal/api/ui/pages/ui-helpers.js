@@ -71,6 +71,7 @@
       became_dead: 'Host Went Down',
       content_changed: 'Content Changed',
       status_changed: 'Status Changed',
+      new_js_endpoint: 'New JS Endpoint',
     };
     return map[t] || t;
   }

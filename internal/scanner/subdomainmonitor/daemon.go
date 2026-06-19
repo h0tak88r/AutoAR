@@ -147,11 +147,18 @@ func checkAllRunningTargets() {
 			}()
 			logger.GetLogger().Infof("[INFO] Running subdomain monitoring for %s (interval: %ds)", t.Domain, t.Interval)
 
+			// First run for this target establishes a baseline (no new_subdomain /
+			// new_js_endpoint spam); LastRunAt is nil until the post-run update below.
+			isBaseline := t.LastRunAt == nil
+
 			result, err := MonitorSubdomains(MonitorOptions{
-				Domain:   t.Domain,
-				Threads:  t.Threads,
-				CheckNew: t.CheckNew,
-				Notify:   true,
+				Domain:           t.Domain,
+				Threads:          t.Threads,
+				CheckNew:         t.CheckNew,
+				Reenumerate:      t.CheckNew, // "detect new subs" also drives passive re-enumeration
+				MonitorJS:        t.MonitorJS,
+				SuppressBaseline: isBaseline,
+				Notify:           true,
 			})
 			if err != nil {
 				logger.GetLogger().Infof("[ERROR] Failed to monitor subdomains for %s: %v", t.Domain, err)
@@ -164,11 +171,11 @@ func checkAllRunningTargets() {
 			}
 
 			totalChanges := len(result.NewSubdomains) + len(result.StatusChanges) +
-				len(result.BecameLive) + len(result.BecameDead)
+				len(result.BecameLive) + len(result.BecameDead) + len(result.NewEndpoints)
 			if totalChanges > 0 {
-				logger.GetLogger().Infof("[OK] Monitor %s: %d new, %d status changes, %d live, %d dead",
+				logger.GetLogger().Infof("[OK] Monitor %s: %d new, %d status changes, %d live, %d dead, %d new JS endpoints",
 					t.Domain, len(result.NewSubdomains), len(result.StatusChanges),
-					len(result.BecameLive), len(result.BecameDead))
+					len(result.BecameLive), len(result.BecameDead), len(result.NewEndpoints))
 				persistAndNotifyChanges(t, result)
 			} else {
 				logger.GetLogger().Infof("[OK] Monitor %s: no changes", t.Domain)
@@ -202,6 +209,24 @@ func persistAndNotifyChanges(t db.SubdomainMonitorTarget, result *MonitorResult)
 		}
 	}
 
+	for _, ep := range result.NewEndpoints {
+		detail, _ := json.Marshal(map[string]interface{}{
+			"endpoint":  ep.Endpoint,
+			"source_js": ep.SourceJS,
+			"message":   "New JS endpoint discovered",
+		})
+		if err := db.InsertMonitorChange(&db.MonitorChange{
+			TargetType: "subdomain",
+			TargetID:   t.ID,
+			Domain:     t.Domain,
+			ChangeType: string(ChangeTypeNewJSEndpoint),
+			Detail:     string(detail),
+			Notified:   true,
+		}); err != nil {
+			logger.GetLogger().Infof("[WARN] Failed to persist JS endpoint change for %s: %v", ep.Endpoint, err)
+		}
+	}
+
 	msg := formatChangeAlert(t.Domain, result)
 	logger.GetLogger().Infof("[SUBDOMAIN-MONITOR] Alert: %s", msg)
 	utils.SendMonitorWebhook(msg)
@@ -232,6 +257,12 @@ func formatChangeAlert(domain string, r *MonitorResult) string {
 		msg += fmt.Sprintf(" **%d** status change(s)\n", len(r.StatusChanges))
 		for _, c := range r.StatusChanges {
 			msg += fmt.Sprintf("  • `%s` — %s\n", c.Subdomain, c.Message)
+		}
+	}
+	if len(r.NewEndpoints) > 0 {
+		msg += fmt.Sprintf(" **%d new** JS endpoint(s) discovered\n", len(r.NewEndpoints))
+		for _, e := range r.NewEndpoints {
+			msg += fmt.Sprintf("  • `%s`\n", e.Endpoint)
 		}
 	}
 	return msg

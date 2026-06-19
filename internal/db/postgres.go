@@ -224,7 +224,18 @@ func (p *PostgresDB) InitSchema() error {
 			CREATE UNIQUE INDEX js_files_js_url_key ON js_files (js_url);
 		END IF;
 	END $$;
-	
+
+	-- Create js_endpoints table for JS endpoint-diff monitoring
+	CREATE TABLE IF NOT EXISTS js_endpoints (
+		id SERIAL PRIMARY KEY,
+		domain VARCHAR(255) NOT NULL,
+		endpoint VARCHAR(1024) NOT NULL,
+		source_js VARCHAR(1024) DEFAULT '',
+		first_seen_at TIMESTAMP DEFAULT NOW(),
+		UNIQUE(domain, endpoint)
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_endpoints_domain ON js_endpoints(domain);
+
 	-- Create keyhack_templates table with proper constraints
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
 		id SERIAL PRIMARY KEY,
@@ -308,17 +319,21 @@ func (p *PostgresDB) InitSchema() error {
 		interval_seconds INTEGER DEFAULT 3600,
 		threads INTEGER DEFAULT 100,
 		check_new BOOLEAN DEFAULT TRUE,
+		monitor_js BOOLEAN DEFAULT FALSE,
 		is_running BOOLEAN DEFAULT FALSE,
 		last_run_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
-	
+
 	-- Ensure last_run_at exists (for backward compatibility)
 	DO $$
 	BEGIN
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='subdomain_monitor_targets' AND column_name='last_run_at') THEN
 			ALTER TABLE subdomain_monitor_targets ADD COLUMN last_run_at TIMESTAMP;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='subdomain_monitor_targets' AND column_name='monitor_js') THEN
+			ALTER TABLE subdomain_monitor_targets ADD COLUMN monitor_js BOOLEAN DEFAULT FALSE;
 		END IF;
 	END $$;
 
@@ -623,6 +638,55 @@ func (p *PostgresDB) InsertJSFile(domain, jsURL, contentHash string) error {
 		return fmt.Errorf("failed to insert/update JS file: %v", err)
 	}
 
+	return nil
+}
+
+// ListJSEndpoints returns all known JS-derived endpoints for a domain.
+func (p *PostgresDB) ListJSEndpoints(domain string) ([]string, error) {
+	rows, err := p.pool.Query(p.ctx, `SELECT endpoint FROM js_endpoints WHERE domain = $1 ORDER BY endpoint;`, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query js_endpoints: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var ep string
+		if err := rows.Scan(&ep); err != nil {
+			return nil, fmt.Errorf("failed to scan js_endpoint: %v", err)
+		}
+		out = append(out, ep)
+	}
+	return out, rows.Err()
+}
+
+// InsertJSEndpoints records JS-derived endpoints for a domain (idempotent on (domain, endpoint)).
+func (p *PostgresDB) InsertJSEndpoints(domain string, endpoints []JSEndpoint) error {
+	if len(endpoints) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	queued := 0
+	for _, ep := range endpoints {
+		if strings.TrimSpace(ep.Endpoint) == "" {
+			continue
+		}
+		batch.Queue(`
+			INSERT INTO js_endpoints (domain, endpoint, source_js)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (domain, endpoint) DO NOTHING;
+		`, domain, ep.Endpoint, ep.SourceJS)
+		queued++
+	}
+	if queued == 0 {
+		return nil
+	}
+	br := p.pool.SendBatch(p.ctx, batch)
+	defer br.Close()
+	for i := 0; i < queued; i++ {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("failed to insert js_endpoint: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -1179,7 +1243,7 @@ func (p *PostgresDB) GetMonitorTargetByID(id int) (*MonitorTarget, error) {
 // ListSubdomainMonitorTargets returns all subdomain monitoring targets
 func (p *PostgresDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error) {
 	rows, err := p.pool.Query(p.ctx, `
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, monitor_js, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		ORDER BY domain;
 	`)
@@ -1191,7 +1255,7 @@ func (p *PostgresDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, er
 	var targets []SubdomainMonitorTarget
 	for rows.Next() {
 		var t SubdomainMonitorTarget
-		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.MonitorJS, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan subdomain monitor target: %v", err)
 		}
 		targets = append(targets, t)
@@ -1203,7 +1267,7 @@ func (p *PostgresDB) ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, er
 }
 
 // AddSubdomainMonitorTarget adds a new subdomain monitoring target
-func (p *PostgresDB) AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew bool) error {
+func (p *PostgresDB) AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew, monitorJS bool) error {
 	if interval <= 0 {
 		interval = 3600 // Default 1 hour
 	}
@@ -1211,14 +1275,15 @@ func (p *PostgresDB) AddSubdomainMonitorTarget(domain string, interval int, thre
 		threads = 100
 	}
 	_, err := p.pool.Exec(p.ctx, `
-		INSERT INTO subdomain_monitor_targets (domain, interval_seconds, threads, check_new)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO subdomain_monitor_targets (domain, interval_seconds, threads, check_new, monitor_js)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (domain) DO UPDATE SET
 			interval_seconds = EXCLUDED.interval_seconds,
 			threads = EXCLUDED.threads,
 			check_new = EXCLUDED.check_new,
+			monitor_js = EXCLUDED.monitor_js,
 			updated_at = NOW();
-	`, domain, interval, threads, checkNew)
+	`, domain, interval, threads, checkNew, monitorJS)
 
 	if err != nil {
 		return fmt.Errorf("failed to add subdomain monitor target: %v", err)
@@ -1255,10 +1320,10 @@ func (p *PostgresDB) SetSubdomainMonitorRunningStatus(id int, isRunning bool) er
 func (p *PostgresDB) GetSubdomainMonitorTargetByID(id int) (*SubdomainMonitorTarget, error) {
 	var t SubdomainMonitorTarget
 	err := p.pool.QueryRow(p.ctx, `
-		SELECT id, domain, interval_seconds, threads, check_new, is_running, last_run_at, created_at, updated_at
+		SELECT id, domain, interval_seconds, threads, check_new, monitor_js, is_running, last_run_at, created_at, updated_at
 		FROM subdomain_monitor_targets
 		WHERE id = $1;
-	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.Domain, &t.Interval, &t.Threads, &t.CheckNew, &t.MonitorJS, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("subdomain monitor target not found with id: %d", id)
