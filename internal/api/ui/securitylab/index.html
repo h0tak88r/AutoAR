@@ -321,7 +321,10 @@
         </div>
       </div>
       <div class="card">
-        <div class="k">Generated Payloads</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px">
+          <div class="k" style="margin:0">Generated Payloads</div>
+          <button class="copy-bulk-btn" id="ssrfCopyAll">Copy All</button>
+        </div>
         <div id="ssrfResults" class="list" style="max-height: 500px;"></div>
       </div>
     </section>
@@ -1237,6 +1240,43 @@
     });
 
     // SSRF Logic
+    // Robust clipboard copy that also works over plain HTTP (the Clipboard API is
+    // only available in secure contexts, so the dashboard needs an execCommand fallback).
+    function ssrfCopyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise((resolve, reject) => {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.top = '-1000px';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          ok ? resolve() : reject(new Error('copy command rejected'));
+        } catch (e) { reject(e); }
+      });
+    }
+
+    function ssrfFlashBtn(btn, msg, restore) {
+      if (!btn) return;
+      btn.textContent = msg;
+      setTimeout(() => { btn.textContent = restore; }, 1600);
+    }
+
+    // Filtered render state, kept so Copy All / Copy group operate on exactly what's shown.
+    let ssrfFilteredUrls = [];
+    let ssrfGroups = [];
+
+    function ssrfCopyAllLabel() {
+      return ssrfFilteredUrls.length ? `Copy All (${ssrfFilteredUrls.length})` : 'Copy All';
+    }
+
     function renderSSRF() {
       const allowed = $('ssrfAllowed').value || 'reservation.walibi.nl';
       const attacker = $('ssrfAttacker').value || 'evil.com';
@@ -1250,12 +1290,13 @@
       }
 
       let html = '';
-      let count = 0;
+      ssrfFilteredUrls = [];
+      ssrfGroups = [];
 
       window.SSRF_PAYLOADS.forEach(group => {
         let groupHtml = '';
-        let groupCount = 0;
-        
+        const groupUrls = [];
+
         (group.payloads || []).forEach(p => {
           if (filter) {
             const desc = (p.description || '').toLowerCase();
@@ -1263,33 +1304,60 @@
             if (!desc.includes(filter) && !tags.includes(filter)) return;
           }
 
-          let pl = p.payload || '';
-          pl = pl.replace(/<allowed>/g, allowed).replace(/<attacker>/g, attacker);
-          
-          let fullUrl = (p.prefix || '') + pl + (p.suffix || '');
-          let displayUrl = escapeHTML(fullUrl);
-          
+          let pl = (p.payload || '').replace(/<allowed>/g, allowed).replace(/<attacker>/g, attacker);
+          const fullUrl = (p.prefix || '') + pl + (p.suffix || '');
+          const idx = ssrfFilteredUrls.length;
+          ssrfFilteredUrls.push(fullUrl);
+          groupUrls.push(fullUrl);
+
+          // data-i indexes ssrfFilteredUrls; copy is handled by delegation below so we
+          // never inline-escape payloads (which broke on quotes / backslashes / newlines).
           groupHtml += `<div class="item" style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
             <div style="word-break: break-all;">
-              <code style="color:var(--text); font-size:14px; display:block; margin-bottom:4px">${displayUrl}</code>
+              <code style="color:var(--text); font-size:14px; display:block; margin-bottom:4px">${escapeHTML(fullUrl)}</code>
               <span class="muted" style="font-size:11px">${escapeHTML(p.description || 'No description')}</span>
             </div>
-            <button class="btn ghost" style="padding:4px 8px; font-size:11px" onclick="navigator.clipboard.writeText('${escapeHTML(fullUrl).replace(/'/g, "\\'")}')">Copy</button>
+            <button class="btn ghost ssrf-copy-one" data-i="${idx}" style="padding:4px 8px; font-size:11px; flex-shrink:0">Copy</button>
           </div>`;
-          groupCount++;
-          count++;
         });
 
-        if (groupCount > 0) {
-          html += `<div style="padding: 8px; background: rgba(123,139,255,.05); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;">
-            <b style="color:var(--accent)">${escapeHTML(group.name)}</b> <span class="muted">(${groupCount})</span>
+        if (groupUrls.length) {
+          const gi = ssrfGroups.length;
+          ssrfGroups.push({ name: group.name, urls: groupUrls });
+          html += `<div style="padding: 8px; background: rgba(123,139,255,.05); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <span><b style="color:var(--accent)">${escapeHTML(group.name)}</b> <span class="muted">(${groupUrls.length})</span></span>
+            <button class="btn ghost ssrf-copy-group" data-g="${gi}" style="padding:3px 8px; font-size:10px; flex-shrink:0">Copy group</button>
           </div>` + groupHtml;
         }
       });
 
       resultsEl.innerHTML = html || '<div class="item muted">No payloads found.</div>';
-      statsEl.textContent = `${count} payload(s) generated.`;
+      statsEl.textContent = `${ssrfFilteredUrls.length} payload(s) generated.`;
+      $('ssrfCopyAll').textContent = ssrfCopyAllLabel();
     }
+
+    // Single delegated handler for per-payload and per-group copy (survives re-renders).
+    $('ssrfResults').addEventListener('click', (e) => {
+      const one = e.target.closest('.ssrf-copy-one');
+      if (one) {
+        const url = ssrfFilteredUrls[+one.dataset.i];
+        if (url != null) ssrfCopyText(url).then(() => ssrfFlashBtn(one, 'Copied', 'Copy'));
+        return;
+      }
+      const grp = e.target.closest('.ssrf-copy-group');
+      if (grp) {
+        const urls = (ssrfGroups[+grp.dataset.g] || {}).urls || [];
+        if (urls.length) ssrfCopyText(urls.join('\n')).then(() => ssrfFlashBtn(grp, `Copied ${urls.length}`, 'Copy group'));
+      }
+    });
+
+    $('ssrfCopyAll').addEventListener('click', function () {
+      if (!ssrfFilteredUrls.length) return;
+      ssrfCopyText(ssrfFilteredUrls.join('\n')).then(() => {
+        this.textContent = `Copied ${ssrfFilteredUrls.length}!`;
+        setTimeout(() => { this.textContent = ssrfCopyAllLabel(); }, 1800);
+      });
+    });
 
     $('ssrfGenerate').addEventListener('click', renderSSRF);
     $('ssrfFilter').addEventListener('input', renderSSRF);
