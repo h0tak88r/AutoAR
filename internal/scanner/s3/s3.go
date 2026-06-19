@@ -192,18 +192,13 @@ func handleDomainEnumAndScan(opts Options, resultsDir string) error {
 		if region == "" {
 			region = opts.Region
 		}
-		regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"}
+		regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1", "ap-south-1", "eu-central-1"}
 		if region != "" {
 			regions = []string{region}
 		}
 	out:
 		for _, r := range regions {
-			urls := []string{
-				fmt.Sprintf("https://%s.s3.amazonaws.com/?list-type=2", fb.name),
-				fmt.Sprintf("https://%s.s3-%s.amazonaws.com/?list-type=2", fb.name, r),
-				fmt.Sprintf("https://s3.amazonaws.com/%s/?list-type=2", fb.name),
-				fmt.Sprintf("https://s3-%s.amazonaws.com/%s/?list-type=2", r, fb.name),
-			}
+			urls := bucketListURLs(fb.name, r)
 			for _, u := range urls {
 				bucketDir := filepath.Join(outputDir, fb.name)
 				_ = os.MkdirAll(bucketDir, 0755)
@@ -455,6 +450,26 @@ func handleScan(opts Options, resultsDir string) error {
 		return fmt.Errorf("bucket name is required for scan action")
 	}
 
+	// Accept a full S3 URL (bucket.s3.region.amazonaws.com, path-style, with or without
+	// scheme) as well as a plain bucket name — extract the bucket and any embedded region.
+	if b, r := ParseBucketInput(opts.Bucket); b != "" {
+		opts.Bucket = b
+		if opts.Region == "" {
+			opts.Region = r
+		}
+	}
+	// Auto-detect the region when still unknown. Required for buckets outside us-east-1
+	// (e.g. ap-south-1) whose virtual-hosted endpoints differ from the global host; also
+	// fulfils the launcher's "leave empty to auto-detect" hint.
+	if opts.Region == "" {
+		if r := detectBucketRegion(opts.Bucket); r != "" {
+			opts.Region = r
+			logger.GetLogger().Infof("[INFO] S3 scan: auto-detected region %s for bucket %s", r, opts.Bucket)
+		} else {
+			logger.GetLogger().Infof("[INFO] S3 scan: could not auto-detect region for %s (bucket may not exist); falling back to multi-region probing", opts.Bucket)
+		}
+	}
+
 	outputDir := filepath.Join(resultsDir, "s3", utils.SanitizeTargetSegment(opts.Bucket))
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %v", err)
@@ -552,22 +567,17 @@ func handleScan(opts Options, resultsDir string) error {
 		}
 		fmt.Printf("[INFO] Testing bucket %s without authentication (public access check)...\n", opts.Bucket)
 		
-		regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"}
+		regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1", "ap-south-1", "eu-central-1"}
 		if opts.Region != "" {
 			regions = []string{opts.Region}
 		}
 		logger.GetLogger().Infof("[INFO] S3 scan: Testing %d region(s) for public access", len(regions))
-		
+
 		var foundURL string
 		totalURLsTested := 0
 		for _, region := range regions {
-			urls := []string{
-				fmt.Sprintf("https://%s.s3.amazonaws.com/?list-type=2", opts.Bucket),
-				fmt.Sprintf("https://%s.s3-%s.amazonaws.com/?list-type=2", opts.Bucket, region),
-				fmt.Sprintf("https://s3.amazonaws.com/%s/?list-type=2", opts.Bucket),
-				fmt.Sprintf("https://s3-%s.amazonaws.com/%s/?list-type=2", region, opts.Bucket),
-			}
-			
+			urls := bucketListURLs(opts.Bucket, region)
+
 			logger.GetLogger().Infof("[INFO] S3 scan: Testing region %s (%d URL format(s))", region, len(urls))
 			for _, testURL := range urls {
 				totalURLsTested++
@@ -674,13 +684,164 @@ func handleScan(opts Options, resultsDir string) error {
 	return nil
 }
 
+// ParseBucketInput accepts a plain bucket name OR any S3 URL form and returns the
+// bucket name and (when present) the AWS region. Recognised forms:
+//
+//	bucket-name
+//	bucket.s3.amazonaws.com                       (virtual-hosted, global/us-east-1)
+//	bucket.s3.ap-south-1.amazonaws.com            (virtual-hosted, modern dot)
+//	bucket.s3-ap-south-1.amazonaws.com            (virtual-hosted, legacy dash)
+//	bucket.s3.dualstack.ap-south-1.amazonaws.com  (virtual-hosted, dualstack)
+//	s3.amazonaws.com/bucket                       (path-style, global)
+//	s3.ap-south-1.amazonaws.com/bucket            (path-style, regional)
+//	https://…/…                                   (scheme, port and trailing path are stripped)
+func ParseBucketInput(input string) (bucket, region string) {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return "", ""
+	}
+	if i := strings.Index(s, "://"); i != -1 {
+		s = s[i+3:]
+	}
+	host := s
+	path := ""
+	if i := strings.IndexByte(s, '/'); i != -1 {
+		host = s[:i]
+		path = strings.Trim(s[i+1:], "/")
+	}
+	if i := strings.IndexByte(host, ':'); i != -1 { // strip port
+		host = host[:i]
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+
+	const sfx = ".amazonaws.com"
+	if !strings.HasSuffix(host, sfx) {
+		// Plain bucket name (no AWS host) — return as-is.
+		return host, ""
+	}
+
+	core := strings.TrimSuffix(host, sfx) // e.g. "bucket.s3.ap-south-1", "bucket.s3", "s3.ap-south-1", "s3"
+
+	// Path-style: host is "s3" / "s3.<region>" / "s3-<region>", bucket is first path segment.
+	switch {
+	case core == "s3":
+		return firstSegment(path), ""
+	case strings.HasPrefix(core, "s3."):
+		return firstSegment(path), cleanRegion(strings.TrimPrefix(core, "s3."))
+	case strings.HasPrefix(core, "s3-"):
+		return firstSegment(path), cleanRegion(strings.TrimPrefix(core, "s3-"))
+	}
+
+	// Virtual-hosted: "<bucket>.s3" / "<bucket>.s3.<region>" / "<bucket>.s3-<region>".
+	// LastIndex so bucket names that themselves contain ".s3" still parse correctly.
+	if strings.HasSuffix(core, ".s3") {
+		return strings.TrimSuffix(core, ".s3"), ""
+	}
+	if i := strings.LastIndex(core, ".s3."); i != -1 {
+		return core[:i], cleanRegion(core[i+len(".s3."):])
+	}
+	if i := strings.LastIndex(core, ".s3-"); i != -1 {
+		return core[:i], cleanRegion(core[i+len(".s3-"):])
+	}
+	// Unknown amazonaws host shape — fall back to the first label.
+	return firstSegment(core), ""
+}
+
+// firstSegment returns everything before the first '/' (a bucket name, which may
+// itself contain dots, so we deliberately do not split on '.').
+func firstSegment(s string) string {
+	if i := strings.IndexByte(s, '/'); i != -1 {
+		return s[:i]
+	}
+	return s
+}
+
+// cleanRegion strips dualstack/website prefixes and trailing labels, leaving the bare
+// region (e.g. "dualstack.ap-south-1" -> "ap-south-1"). Returns "" for non-regions.
+func cleanRegion(r string) string {
+	r = strings.TrimPrefix(r, "dualstack.")
+	r = strings.TrimPrefix(r, "dualstack-")
+	r = strings.TrimPrefix(r, "website-")
+	r = strings.TrimPrefix(r, "website.")
+	if i := strings.IndexByte(r, '.'); i != -1 { // region is a single label
+		r = r[:i]
+	}
+	switch r {
+	case "", "external-1", "website", "dualstack", "accelerate":
+		// Non-region S3 host keywords (transfer-acceleration, website, FIPS dualstack).
+		return ""
+	}
+	return r
+}
+
+// detectBucketRegion returns the bucket's AWS region from the x-amz-bucket-region
+// response header, which S3 sets on any request to the bucket — even unauthenticated
+// 301/403/400 responses. Returns "" if it can't be determined.
+func detectBucketRegion(bucketName string) string {
+	if bucketName == "" {
+		return ""
+	}
+	client := &http.Client{Timeout: 8 * time.Second}
+	for _, u := range []string{
+		"https://" + bucketName + ".s3.amazonaws.com",
+		"https://s3.amazonaws.com/" + bucketName,
+	} {
+		req, err := http.NewRequest("HEAD", u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		region := resp.Header.Get("x-amz-bucket-region")
+		resp.Body.Close()
+		if region != "" {
+			return region
+		}
+	}
+	return ""
+}
+
+// bucketListURLs returns the candidate list-objects endpoints for a bucket, covering
+// the modern dot-style regional host (required for buckets outside us-east-1, e.g.
+// ap-south-1), the legacy dash-style host, and both virtual-hosted and path-style forms.
+func bucketListURLs(bucketName, region string) []string {
+	const q = "/?list-type=2"
+	urls := []string{
+		fmt.Sprintf("https://%s.s3.amazonaws.com%s", bucketName, q),
+		fmt.Sprintf("https://s3.amazonaws.com/%s%s", bucketName, q),
+	}
+	if region != "" && region != "us-east-1" {
+		urls = append(urls,
+			fmt.Sprintf("https://%s.s3.%s.amazonaws.com%s", bucketName, region, q), // modern dot (virtual-hosted)
+			fmt.Sprintf("https://s3.%s.amazonaws.com/%s%s", region, bucketName, q),  // modern dot (path-style)
+			fmt.Sprintf("https://%s.s3-%s.amazonaws.com%s", bucketName, region, q),  // legacy dash (virtual-hosted)
+			fmt.Sprintf("https://s3-%s.amazonaws.com/%s%s", region, bucketName, q),  // legacy dash (path-style)
+		)
+	}
+	return urls
+}
+
 func probeBucketPermissions(bucketName, region string, logFile io.Writer) (canList, canRead, canWrite, canDelete bool) {
+	// Resolve the region if the caller didn't supply one, so write/read/delete probes
+	// hit the bucket's real regional endpoint instead of only the global host (which
+	// 301-redirects for buckets outside us-east-1, making every probe read false).
+	if region == "" {
+		region = detectBucketRegion(bucketName)
+	}
 	client := &http.Client{Timeout: 8 * time.Second}
 	urls := []string{
 		fmt.Sprintf("https://%s.s3.amazonaws.com", bucketName),
 	}
-	if region != "" {
-		urls = append(urls, fmt.Sprintf("https://%s.s3-%s.amazonaws.com", bucketName, region))
+	if region != "" && region != "us-east-1" {
+		// Modern dot-style host first — required for buckets outside us-east-1 (e.g.
+		// ap-south-1); the global host above returns a 301 redirect for those, so
+		// without this the permission probe always reads false. Legacy dash kept as fallback.
+		urls = append(urls,
+			fmt.Sprintf("https://%s.s3.%s.amazonaws.com", bucketName, region),
+			fmt.Sprintf("https://%s.s3-%s.amazonaws.com", bucketName, region),
+		)
 	}
 	testKey := fmt.Sprintf("autoar-perm-test-%d.txt", time.Now().UnixNano())
 	testBody := []byte("autoar permission test")

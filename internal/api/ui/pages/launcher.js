@@ -20,7 +20,7 @@
     dns_dangling: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'dangling-ip' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_takeover: { path: 'dns-takeover', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_cf1016: { path: 'dns-cf1016', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
-    s3: { path: 's3', modes: ['bucket', 'bucket_list', 'domain', 'domain_list'], placeholders: { bucket: 'bucket-name', bucket_list: 'one bucket per line', domain: 'example.com', domain_list: 'one domain per line' } },
+    s3: { path: 's3', modes: ['bucket', 'bucket_list', 'domain', 'domain_list'], placeholders: { bucket: 'bucket-name or bucket.s3.ap-south-1.amazonaws.com', bucket_list: 'one bucket name or s3 URL per line', domain: 'example.com', domain_list: 'one domain per line' } },
     github: { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository or github.com/owner/repo', repo_list: 'one owner/repo per line' } },
     github_org: { path: 'github_org', modes: ['domain', 'domain_list'], placeholders: { domain: 'org-name or github.com/org', domain_list: 'one org per line' } },
     zerodays: { path: 'zerodays', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
@@ -60,7 +60,7 @@
     dns: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['takeover', 'dangling-ip'], default: 'takeover', advanced: false, help: 'takeover = CNAME/NS takeover checks; dangling-ip = dangling A-record checks.' }],
     dns_dangling: [{ key: 'dns_type', label: 'DNS type', type: 'select', options: ['dangling-ip', 'takeover'], default: 'dangling-ip', advanced: false, help: 'dangling-ip = dangling A-record checks.' }],
     s3: [
-      { key: 'region', label: 'Region (optional)', type: 'text', advanced: false, help: 'AWS region for the bucket, e.g. us-east-1. Leave empty to auto-detect.' },
+      { key: 'region', label: 'Region (optional)', type: 'text', advanced: false, help: 'AWS region, e.g. ap-south-1. Leave empty to auto-detect (parsed from the URL if you paste a full s3 URL, else read from the bucket itself).' },
       { key: 'threads', label: 'Threads (reserved)', type: 'number', min: 1, advanced: true, help: 'Reserved for future concurrent bucket probing.' },
     ],
     ffuf: [
