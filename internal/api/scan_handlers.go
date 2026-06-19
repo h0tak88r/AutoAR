@@ -706,6 +706,16 @@ func scanS3(c *gin.Context) {
 	if req.Region != nil {
 		opts.Region = *req.Region
 	}
+	// Accept a full S3 URL (e.g. bucket.s3.ap-south-1.amazonaws.com) in the bucket
+	// field: use the clean bucket name for the scan record/title and adopt an embedded
+	// region when none was supplied. handleScan re-parses + auto-detects too.
+	if b, r := s3mod.ParseBucketInput(bucket); b != "" {
+		bucket = b
+		opts.Bucket = b
+		if opts.Region == "" && r != "" {
+			opts.Region = r
+		}
+	}
 	scanID := generateScanID()
 	go RunScanInProcess(scanID, "s3", bucket, func() error {
 		return s3mod.Run(opts)
