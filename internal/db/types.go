@@ -22,6 +22,11 @@ type DB interface {
 	// InsertJSFile inserts or updates a JS file for a subdomain
 	InsertJSFile(domain, jsURL, contentHash string) error
 
+	// ListJSEndpoints returns all known JS-derived endpoints for a domain (for diffing).
+	ListJSEndpoints(domain string) ([]string, error)
+	// InsertJSEndpoints records JS-derived endpoints for a domain (idempotent: existing rows are kept).
+	InsertJSEndpoints(domain string, endpoints []JSEndpoint) error
+
 	// InsertKeyhackTemplate inserts or updates a KeyHack template
 	InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description string) error
 
@@ -82,8 +87,9 @@ type DB interface {
 	// ListSubdomainMonitorTargets returns all subdomain monitoring targets
 	ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error)
 
-	// AddSubdomainMonitorTarget adds a new subdomain monitoring target
-	AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew bool) error
+	// AddSubdomainMonitorTarget adds a new subdomain monitoring target.
+	// monitorJS enables the (heavier) per-cycle JS endpoint diff for the domain.
+	AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew, monitorJS bool) error
 
 	// RemoveSubdomainMonitorTarget removes a subdomain monitoring target by domain
 	RemoveSubdomainMonitorTarget(domain string) error
@@ -242,11 +248,18 @@ type SubdomainMonitorTarget struct {
 	Domain    string
 	Interval  int        // Check interval in seconds
 	Threads   int        // Threads for httpx
-	CheckNew  bool       // Check for new subdomains
+	CheckNew  bool       // Check for new subdomains (drives passive re-enumeration each cycle)
+	MonitorJS bool       // Diff JS endpoints each cycle (heavier: crawls live hosts' bundles)
 	IsRunning bool
 	LastRunAt *time.Time // when this target was last actually checked (NOT the same as UpdatedAt)
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// JSEndpoint is a single API endpoint extracted from a domain's JavaScript bundles.
+type JSEndpoint struct {
+	Endpoint string // e.g. /api/v2/users
+	SourceJS string // the JS URL it was found in (best-effort)
 }
 
 // MonitorChange records a detected change for history/querying
@@ -255,7 +268,7 @@ type MonitorChange struct {
 	TargetType  string    // "subdomain" | "url"
 	TargetID    int       // FK to subdomain_monitor_targets or updates_targets
 	Domain      string    // domain or URL being monitored
-	ChangeType  string    // "new_subdomain", "became_live", "became_dead", "status_changed", "content_changed"
+	ChangeType  string    // "new_subdomain", "became_live", "became_dead", "status_changed", "content_changed", "new_js_endpoint"
 	Detail      string    // JSON blob with old/new values
 	DetectedAt  time.Time
 	Notified    bool      // whether a webhook alert was sent

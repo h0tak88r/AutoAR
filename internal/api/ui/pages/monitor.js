@@ -59,6 +59,7 @@
     const intEl = document.getElementById('monitor-sub-interval');
     const thEl = document.getElementById('monitor-sub-threads');
     const cnEl = document.getElementById('monitor-sub-checknew');
+    const jsEl = document.getElementById('monitor-sub-monitorjs');
     const stEl = document.getElementById('monitor-sub-autostart');
     if (!dEl) return;
     const domain = dEl.value.trim().toLowerCase();
@@ -69,6 +70,7 @@
     const interval_seconds = intEl ? Math.max(60, parseInt(intEl.value, 10) || 3600) : 3600;
     const threads = thEl ? Math.min(500, Math.max(1, parseInt(thEl.value, 10) || 100)) : 100;
     const check_new = cnEl ? cnEl.checked : true;
+    const monitor_js = jsEl ? jsEl.checked : false;
     const start = stEl ? stEl.checked : true;
     try {
       await window.apiPost('/api/monitor/subdomain-targets', {
@@ -76,6 +78,7 @@
         interval_seconds,
         threads,
         check_new,
+        monitor_js,
         start,
       });
       window.showToast('success', 'Subdomain monitor added', start ? 'The subdomain monitor daemon will run on your interval.' : 'Saved; start from CLI when ready.');
@@ -277,6 +280,10 @@
       if (o.old_hash && o.new_hash) {
         return `hash: ${String(o.old_hash).slice(0, 10)}… → ${String(o.new_hash).slice(0, 10)}…`;
       }
+      if (o.endpoint) {
+        const src = o.source_js ? ` (in ${String(o.source_js).slice(0, 80)})` : '';
+        return `${String(o.endpoint).slice(0, 120)}${src}`;
+      }
     } catch (e) { /* use raw */ }
     return detail;
   }
@@ -356,7 +363,7 @@
     const detailPreview = formatMonitorDetailPreview(detail);
     const iconMap = {
       new_subdomain: '', became_live: '', became_dead: '',
-      content_changed: '', status_changed: '',
+      content_changed: '', status_changed: '', new_js_endpoint: '',
     };
     return `<div class="change-item">
       <div class="change-dot ${ctype}"></div>

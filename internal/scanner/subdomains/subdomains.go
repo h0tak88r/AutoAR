@@ -126,6 +126,42 @@ func EnumerateSubdomains(domain string, threads int) ([]string, error) {
 	return results, nil
 }
 
+// EnumerateFresh enumerates subdomains from passive API/CT sources + subfinder WITHOUT
+// consulting or writing the database, and without emitting scan-dir JSON. It is intended
+// for recurring monitoring, where the caller diffs the returned set against the DB itself
+// to detect brand-new hostnames. The result is the unique set of discovered subdomains.
+func EnumerateFresh(domain string, threads int) ([]string, error) {
+	if strings.TrimSpace(domain) == "" {
+		return nil, fmt.Errorf("domain is required")
+	}
+
+	var results []string
+	unique := make(map[string]bool)
+	add := func(subdomain string) {
+		subdomain = strings.ToLower(strings.TrimSpace(subdomain))
+		if subdomain == "" || strings.Contains(subdomain, "*") {
+			return
+		}
+		if !unique[subdomain] {
+			unique[subdomain] = true
+			results = append(results, subdomain)
+		}
+	}
+
+	for _, s := range getSubdomainsFromAPIs(domain) {
+		add(s)
+	}
+	if subfinderResults, err := getSubdomainsFromSubfinder(domain, threads); err != nil {
+		logger.GetLogger().Infof("[WARN] EnumerateFresh: subfinder failed for %s: %v", domain, err)
+	} else {
+		for _, s := range subfinderResults {
+			add(s)
+		}
+	}
+
+	return results, nil
+}
+
 // getSubdomainsFromAPIs collects subdomains from multiple passive DNS and CT sources in parallel
 func getSubdomainsFromAPIs(domain string) []string {
 	var results []string
