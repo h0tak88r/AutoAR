@@ -122,6 +122,26 @@ func InsertJSFile(domain, jsURL, contentHash string) error {
 	return dbInstance.InsertJSFile(domain, jsURL, contentHash)
 }
 
+// ListJSEndpoints returns all known JS-derived endpoints for a domain (for diffing).
+func ListJSEndpoints(domain string) ([]string, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListJSEndpoints(domain)
+}
+
+// InsertJSEndpoints records JS-derived endpoints for a domain (idempotent).
+func InsertJSEndpoints(domain string, endpoints []JSEndpoint) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.InsertJSEndpoints(domain, endpoints)
+}
+
 // InsertKeyhackTemplate inserts or updates a KeyHack template
 func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description string) error {
 	if dbInstance == nil {
@@ -373,14 +393,15 @@ func ListSubdomainMonitorTargets() ([]SubdomainMonitorTarget, error) {
 	return dbInstance.ListSubdomainMonitorTargets()
 }
 
-// AddSubdomainMonitorTarget adds a new subdomain monitoring target
-func AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew bool) error {
+// AddSubdomainMonitorTarget adds a new subdomain monitoring target.
+// monitorJS enables the (heavier) per-cycle JS endpoint diff for the domain.
+func AddSubdomainMonitorTarget(domain string, interval int, threads int, checkNew, monitorJS bool) error {
 	if dbInstance == nil {
 		if err := Init(); err != nil {
 			return err
 		}
 	}
-	return dbInstance.AddSubdomainMonitorTarget(domain, interval, threads, checkNew)
+	return dbInstance.AddSubdomainMonitorTarget(domain, interval, threads, checkNew, monitorJS)
 }
 
 // RemoveSubdomainMonitorTarget removes a subdomain monitoring target by domain

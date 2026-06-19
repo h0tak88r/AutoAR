@@ -1647,6 +1647,7 @@ func apiPostMonitorSubdomainTarget(c *gin.Context) {
 		IntervalSeconds int    `json:"interval_seconds"`
 		Threads         int    `json:"threads"`
 		CheckNew        *bool  `json:"check_new"`
+		MonitorJS       *bool  `json:"monitor_js"`
 		Start           *bool  `json:"start"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -1672,8 +1673,12 @@ func apiPostMonitorSubdomainTarget(c *gin.Context) {
 	if body.CheckNew != nil {
 		checkNew = *body.CheckNew
 	}
+	monitorJS := false
+	if body.MonitorJS != nil {
+		monitorJS = *body.MonitorJS
+	}
 
-	if err := db.AddSubdomainMonitorTarget(domain, interval, threads, checkNew); err != nil {
+	if err := db.AddSubdomainMonitorTarget(domain, interval, threads, checkNew, monitorJS); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -1720,6 +1725,7 @@ func apiPostMonitorSubdomainTarget(c *gin.Context) {
 		"interval_seconds": interval,
 		"threads":          threads,
 		"check_new":        checkNew,
+		"monitor_js":       monitorJS,
 		"started":          start,
 	})
 }
