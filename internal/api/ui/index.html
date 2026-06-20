@@ -105,9 +105,19 @@
           <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg></span>
           <span>ADB Auditor</span>
         </div>
-        <div class="nav-item" id="nav-securitylab" data-label="Security Lab">
+        <div class="nav-item nav-group-head" id="nav-securitylab" data-label="Security Lab" aria-expanded="false">
           <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5h0c-1.4 0-2.5-1.1-2.5-2.5V2"/><path d="M8.5 2h7"/><path d="M14.5 16h-5"/></svg></span>
           <span>Security Lab</span>
+          <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        <div class="nav-subitems" id="securitylab-subnav" role="menu">
+          <div class="nav-subitem" data-sltab="jwt" role="menuitem">JWT Analyzer</div>
+          <div class="nav-subitem" data-sltab="regex" role="menuitem">Regex Workbench</div>
+          <div class="nav-subitem" data-sltab="depconf" role="menuitem">Dependency Confusion</div>
+          <div class="nav-subitem" data-sltab="ssrf" role="menuitem">SSRF Payloads</div>
+          <div class="nav-subitem" data-sltab="xss" role="menuitem">XSS Cheat Sheet</div>
+          <div class="nav-subitem" data-sltab="dorks" role="menuitem">Recon Dorks</div>
+          <div class="nav-subitem" data-sltab="takeover" role="menuitem">Takeover Reference</div>
         </div>
 
         <div class="nav-item" id="nav-r2" data-label="R2 Browser">
