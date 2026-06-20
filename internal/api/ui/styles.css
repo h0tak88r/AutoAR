@@ -275,6 +275,56 @@ input, select, textarea { font-family: inherit; }
   flex-shrink: 0;
 }
 
+/* Expandable nav group (Security Lab) */
+.nav-caret {
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.18s ease, opacity var(--transition);
+}
+.nav-group-head:hover .nav-caret { opacity: 0.9; }
+.nav-group-head.expanded .nav-caret { transform: rotate(90deg); opacity: 0.9; }
+.nav-subitems {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.22s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-group-head.expanded + .nav-subitems { max-height: 340px; padding: 2px 0; }
+.nav-subitem {
+  display: flex;
+  align-items: center;
+  padding: 7px 10px 7px 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  position: relative;
+  transition: all var(--transition);
+}
+.nav-subitem::before {
+  content: '';
+  position: absolute;
+  left: 26px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  transform: translateY(-50%);
+}
+.nav-subitem:hover { background: var(--bg-card); color: var(--text-primary); }
+.nav-subitem.active { color: var(--accent-cyan); background: var(--accent-cyan-dim); }
+.nav-subitem.active::before { opacity: 1; }
+/* Collapsed (icon-only) sidebar: hide the caret and the whole submenu. */
+.sidebar.collapsed .nav-caret,
+.sidebar.collapsed .nav-subitems { display: none; }
+
 .nav-badge {
   margin-left: auto;
   background: var(--accent-cyan-dim);

@@ -26,13 +26,26 @@
         adbauditor: '/ui/adbauditor/?mode=adb',
       };
       const frame = document.getElementById(`${view}-frame`);
-      if (frame && !frame.getAttribute('data-loaded')) {
+      if (view === 'securitylab') {
+        // Deep-link a specific tool when chosen from the sidebar submenu.
+        const slTab = state._securityLabTab;
+        state._securityLabTab = null;
+        if (frame && !frame.getAttribute('data-loaded')) {
+          frame.setAttribute('data-loaded', '1');
+          setTimeout(() => {
+            try { frame.src = '/ui/securitylab/' + (slTab ? '#' + slTab : ''); }
+            catch (e) { console.warn('[router] securitylab iframe init failed', e); }
+          }, 30);
+        } else if (frame && slTab) {
+          // Already loaded — switch tab in place, no reload.
+          try { frame.contentWindow.postMessage({ type: 'securitylab-tab', tab: slTab }, '*'); }
+          catch (e) { /* ignore cross-frame edge cases */ }
+        }
+      } else if (frame && !frame.getAttribute('data-loaded')) {
         frame.setAttribute('data-loaded', '1');
         setTimeout(() => {
-          try {
-            if (view === 'securitylab') frame.src = '/ui/securitylab/';
-            else frame.src = auditorPathMap[view] || `/ui/apkauditor/?mode=${modeMap[view]}`;
-          } catch (e) {
+          try { frame.src = auditorPathMap[view] || `/ui/apkauditor/?mode=${modeMap[view]}`; }
+          catch (e) {
             // Keep SPA navigation alive even if iframe init fails in a browser/extension edge case.
             console.warn('[router] auditor iframe init failed', e);
           }
