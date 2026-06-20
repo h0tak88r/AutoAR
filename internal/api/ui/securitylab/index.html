@@ -166,9 +166,38 @@
     .verified-icon { font-size:12px; }
     .tref-noresults { padding:24px; text-align:center; color:var(--muted); font-size:13px; }
     .tref-loading { padding:20px; text-align:center; color:var(--muted); }
+
+    /* Recon Dorks */
+    .dork-sevs { display:flex; gap:6px; flex-wrap:wrap; }
+    .dork-sev-btn { background: rgba(21,26,51,.6); color: var(--muted); border:1px solid var(--border); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12px; font-weight:600; }
+    .dork-sev-btn:hover { color: var(--text); border-color: rgba(123,139,255,.4); }
+    .dork-sev-btn.active { color: var(--text); border-color: var(--accent); background: rgba(123,139,255,.14); }
+    .dork-quick { display:flex; flex-wrap:wrap; gap:8px; }
+    .dork-quick a { color: var(--accent); text-decoration:none; font-size:12px; background: rgba(123,139,255,.08); border:1px solid var(--border); border-radius:8px; padding:5px 10px; white-space:nowrap; }
+    .dork-quick a:hover { background: rgba(123,139,255,.18); }
+    .dork-sec-head { display:flex; align-items:center; gap:8px; margin:16px 0 8px; }
+    .dork-sec-head:first-child { margin-top:4px; }
+    .dork-sec-head h3 { margin:0; font-size:14px; font-weight:800; }
+    .dork-sec-count { color: var(--muted); font-size:12px; }
+    .dork-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+    .dork-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(330px,1fr)); gap:10px; }
+    .dork-card { display:block; background: var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px; text-decoration:none; color: var(--text); transition: border-color .15s, transform .1s; }
+    .dork-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .dork-card .dt { font-weight:700; font-size:13px; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+    .dork-card .dq { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; color: var(--muted); word-break:break-all; max-height:64px; overflow:auto; margin-bottom:8px; }
+    .dork-card .df { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .dork-badge { font-size:10px; padding:2px 7px; border-radius:6px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
+    .dork-copy { background: rgba(255,255,255,.06); color: var(--text); border:1px solid var(--border); border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; }
+    .dork-copy:hover { background: rgba(123,139,255,.18); }
+    .sev-critical{color:#f87171} .sev-high{color:#fb923c} .sev-medium{color:#fbbf24} .sev-low{color:#60a5fa} .sev-info{color:#34d399}
+    .dot-critical{background:#f87171} .dot-high{background:#fb923c} .dot-medium{background:#fbbf24} .dot-low{background:#60a5fa} .dot-info{background:#34d399}
+    .bg-google{background:#4285f4;color:#fff} .bg-github{background:#2b3137;color:#fff} .bg-shodan{background:#c0392b;color:#fff}
+    .bg-wayback{background:#2c3e50;color:#fff} .bg-crtsh{background:#16a085;color:#fff} .bg-censys{background:#8e44ad;color:#fff}
+    .bg-urlscan{background:#2980b9;color:#fff} .bg-fofa{background:#d35400;color:#fff} .bg-grep{background:#27ae60;color:#fff} .bg-intx{background:#34495e;color:#fff}
   </style>
   <script src="ssrf-payloads.js"></script>
   <script src="xss-payloads.js"></script>
+  <script src="dorks.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -181,6 +210,7 @@
       <button class="tab" data-tab="depconf">Dependency Confusion</button>
       <button class="tab" data-tab="ssrf">SSRF Payloads</button>
       <button class="tab" data-tab="xss">XSS Cheat Sheet</button>
+      <button class="tab" data-tab="dorks">Recon Dorks</button>
       <button class="tab" data-tab="takeover">Takeover Reference</button>
     </div>
 
@@ -346,6 +376,47 @@
         <div class="xss-results-box" id="xssResults">
           <div class="item muted" style="padding:20px">Loading payloads...</div>
         </div>
+      </div>
+    </section>
+
+    <!-- Recon Dorks Panel -->
+    <section class="panel" id="panel-dorks">
+      <div class="cols">
+        <div class="card">
+          <div class="k">Target Domain</div>
+          <input id="dorkTarget" placeholder="example.com" />
+          <div class="row" style="margin-top:8px">
+            <button class="btn" id="dorkApply">Apply Dorks</button>
+            <button class="copy-bulk-btn" id="dorkCopyAll">Copy All</button>
+          </div>
+          <div class="muted" style="margin-top:8px; font-size:11px">
+            Generates search-engine dorks (Google, GitHub, Shodan, crt.sh, Wayback…) for the target.
+            Clicking a card opens the search in a new tab. Use only on authorized targets.
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">Filter</div>
+          <input id="dorkFilter" placeholder="Search title or query..." />
+          <div class="dork-sevs" id="dorkSevFilter" style="margin-top:8px">
+            <button class="dork-sev-btn active" data-sev="all">All</button>
+            <button class="dork-sev-btn active" data-sev="critical">Critical</button>
+            <button class="dork-sev-btn active" data-sev="high">High</button>
+            <button class="dork-sev-btn active" data-sev="medium">Medium</button>
+            <button class="dork-sev-btn active" data-sev="low">Low</button>
+            <button class="dork-sev-btn active" data-sev="info">Info / Recon</button>
+          </div>
+          <div class="muted" id="dorkStats" style="margin-top:8px">0 dorks</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="k">Quick Recon Links</div>
+        <div class="dork-quick" id="dorkQuick" style="margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px">
+          <div class="k" style="margin:0">Generated Dorks</div>
+        </div>
+        <div id="dorkResults" class="list" style="max-height:600px; overflow:auto"></div>
       </div>
     </section>
 
@@ -1362,6 +1433,131 @@
     $('ssrfGenerate').addEventListener('click', renderSSRF);
     $('ssrfFilter').addEventListener('input', renderSSRF);
     if (window.SSRF_PAYLOADS) renderSSRF();
+
+    // ─────────────────────────────────────────────
+    //  Recon Dorks (client-side search-engine dork generator)
+    // ─────────────────────────────────────────────
+    (function () {
+      if (!window.DORKS_DB) return;
+      const DORKS = window.DORKS_DB;
+      const SEV_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
+      const SEV_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info / Recon' };
+      const BADGE_CLASS = { google: 'bg-google', github: 'bg-github', shodan: 'bg-shodan', wayback: 'bg-wayback', crtsh: 'bg-crtsh', censys: 'bg-censys', urlscan: 'bg-urlscan', fofa: 'bg-fofa', grep: 'bg-grep', intx: 'bg-intx' };
+
+      let target = 'example.com';
+      let filterText = '';
+      const activeSevs = new Set(SEV_ORDER);
+      let visibleQueries = [];
+
+      function sanitize(raw) {
+        if (!raw) return 'example.com';
+        return raw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/[^a-zA-Z0-9.\-_]/g, '') || 'example.com';
+      }
+      // google queries become a Google search URL; every other platform's query is already a full URL.
+      function buildUrl(d, t) {
+        const q = d.query.replace(/\{T\}/g, t);
+        if ((d.platforms || []).includes('google') && !/^https?:/i.test(q)) {
+          return 'https://www.google.com/search?q=' + encodeURIComponent(q);
+        }
+        return q;
+      }
+      function copyAllLabel() { return visibleQueries.length ? `Copy All (${visibleQueries.length})` : 'Copy All'; }
+
+      function renderQuick(t) {
+        const e = encodeURIComponent(t);
+        $('dorkQuick').innerHTML = [
+          ['🔍 Google site:', `https://www.google.com/search?q=site%3A${e}`],
+          ['🐙 GitHub Code', `https://github.com/search?q=%22${e}%22&type=code`],
+          ['🛰️ Shodan', `https://www.shodan.io/search?query=hostname%3A%22${e}%22`],
+          ['📜 crt.sh', `https://crt.sh/?q=%25.${e}`],
+          ['🔭 URLScan', `https://urlscan.io/search/#domain%3A${e}`],
+          ['🏛️ Wayback', `https://web.archive.org/cdx/search/cdx?url=*.${e}/*&output=text&fl=original&collapse=urlkey`],
+          ['🔬 Censys', `https://search.censys.io/search?resource=hosts&q=dns.names%3A${e}`],
+          ['🛡️ Sec Headers', `https://securityheaders.com/?q=${e}&followRedirects=on`],
+          ['🕶️ IntelX', `https://intelx.io/?s=${e}`],
+          ['🐞 OpenBugBounty', `https://www.openbugbounty.org/search/?search=${e}`],
+          ['📄 PublicWWW', `https://publicwww.com/websites/%22${e}%22/`],
+        ].map(([label, url]) => `<a href="${escapeHTML(url)}" target="_blank" rel="noopener">${label}</a>`).join('');
+      }
+
+      function render() {
+        const c = $('dorkResults');
+        const ft = filterText.toLowerCase();
+        let html = '';
+        let total = 0;
+        visibleQueries = [];
+        for (const sev of SEV_ORDER) {
+          if (!activeSevs.has(sev)) continue;
+          const list = (DORKS[sev] || []).filter(d => !ft || d.title.toLowerCase().includes(ft) || d.query.toLowerCase().includes(ft));
+          if (!list.length) continue;
+          total += list.length;
+          html += `<div class="dork-sec-head"><span class="dork-dot dot-${sev}"></span><h3 class="sev-${sev}">${SEV_LABEL[sev]}</h3><span class="dork-sec-count">${list.length} dork${list.length !== 1 ? 's' : ''}</span></div><div class="dork-grid">`;
+          for (const d of list) {
+            const q = d.query.replace(/\{T\}/g, target);
+            const url = buildUrl(d, target);
+            const idx = visibleQueries.length;
+            visibleQueries.push(q);
+            const badges = (d.platforms || []).map(p => `<span class="dork-badge ${BADGE_CLASS[p] || 'bg-google'}">${escapeHTML(p)}</span>`).join(' ');
+            html += `<a href="${escapeHTML(url)}" target="_blank" rel="noopener" class="dork-card">
+              <div class="dt"><span>${escapeHTML(d.icon || '🔎')}</span>${escapeHTML(d.title)}</div>
+              <div class="dq">${escapeHTML(q)}</div>
+              <div class="df"><span>${badges}</span><button class="dork-copy" data-i="${idx}">copy</button></div>
+            </a>`;
+          }
+          html += `</div>`;
+        }
+        c.innerHTML = html || '<div class="item muted">No dorks match the current filter.</div>';
+        $('dorkStats').textContent = `${total} dork(s) for ${target}`;
+        $('dorkCopyAll').textContent = copyAllLabel();
+      }
+
+      function applyTarget() {
+        target = sanitize($('dorkTarget').value);
+        $('dorkTarget').value = target;
+        render();
+        renderQuick(target);
+      }
+
+      $('dorkApply').addEventListener('click', applyTarget);
+      $('dorkTarget').addEventListener('keypress', e => { if (e.key === 'Enter') applyTarget(); });
+      $('dorkFilter').addEventListener('input', e => { filterText = e.target.value.trim(); render(); });
+
+      $('dorkSevFilter').querySelectorAll('.dork-sev-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const s = btn.dataset.sev;
+          if (s === 'all') {
+            const allOn = activeSevs.size === SEV_ORDER.length;
+            SEV_ORDER.forEach(x => { if (allOn) activeSevs.delete(x); else activeSevs.add(x); });
+          } else if (activeSevs.has(s)) { activeSevs.delete(s); } else { activeSevs.add(s); }
+          $('dorkSevFilter').querySelectorAll('.dork-sev-btn').forEach(b => {
+            const bs = b.dataset.sev;
+            b.classList.toggle('active', bs === 'all' ? activeSevs.size === SEV_ORDER.length : activeSevs.has(bs));
+          });
+          render();
+        });
+      });
+
+      // Per-card copy (delegated; prevents the card link from opening).
+      $('dorkResults').addEventListener('click', e => {
+        const btn = e.target.closest('.dork-copy');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const q = visibleQueries[+btn.dataset.i];
+        if (q != null) ssrfCopyText(q).then(() => ssrfFlashBtn(btn, '✓', 'copy'));
+      });
+
+      $('dorkCopyAll').addEventListener('click', function () {
+        if (!visibleQueries.length) return;
+        ssrfCopyText(visibleQueries.join('\n')).then(() => {
+          this.textContent = `Copied ${visibleQueries.length}!`;
+          setTimeout(() => { this.textContent = copyAllLabel(); }, 1800);
+        });
+      });
+
+      render();
+      renderQuick(target);
+    })();
 
     // ─────────────────────────────────────────────
     //  XSS Cheat Sheet
