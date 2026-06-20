@@ -10,6 +10,30 @@
       }
     });
 
+    // Security Lab is an expandable group: clicking the head toggles its tool list
+    // (it still navigates via the handler above); each sub-item deep-links to one tool.
+    const slHead = document.getElementById('nav-securitylab');
+    if (slHead) {
+      slHead.addEventListener('click', () => {
+        const expanded = slHead.classList.toggle('expanded');
+        slHead.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      });
+    }
+    document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tab = el.dataset.sltab;
+        document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((x) => x.classList.remove('active'));
+        el.classList.add('active');
+        if (slHead) {
+          slHead.classList.add('expanded');
+          slHead.setAttribute('aria-expanded', 'true');
+        }
+        window.state._securityLabTab = tab;
+        window.navigateTo('securitylab');
+      });
+    });
+
     const refreshBtn = document.getElementById('refresh-btn');
     if (refreshBtn) refreshBtn.addEventListener('click', window.manualRefresh);
 

@@ -506,6 +506,23 @@
       });
     });
 
+    // Deep-linking: the parent dashboard can open a specific tool either via the URL
+    // hash on first load (#ssrf) or via postMessage once the iframe is already loaded.
+    // We click the tab button so any lazy initialization (e.g. XSS) also runs.
+    (function () {
+      function openTab(name) {
+        if (!name) return;
+        const btn = document.querySelector('.tab[data-tab="' + name + '"]');
+        if (btn) btn.click();
+      }
+      openTab((location.hash || '').replace(/^#/, ''));
+      window.addEventListener('hashchange', () => openTab((location.hash || '').replace(/^#/, '')));
+      window.addEventListener('message', (e) => {
+        const d = e.data;
+        if (d && d.type === 'securitylab-tab' && typeof d.tab === 'string') openTab(d.tab);
+      });
+    })();
+
     function pretty(v) { try { return JSON.stringify(v, null, 2); } catch { return String(v); } }
     function b64urlDecode(str) {
       const pad = '='.repeat((4 - (str.length % 4)) % 4);
