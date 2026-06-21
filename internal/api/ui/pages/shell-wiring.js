@@ -5,30 +5,42 @@
 
     (window.VIEWS || []).forEach((v) => {
       const el = document.getElementById(`nav-${v}`);
-      if (el) {
+      // A group head that is also a view (Security Lab) must NOT navigate on click —
+      // it only opens its submenu (handled by the group-toggle wiring below); its
+      // sub-items do the navigating. Binding navigate here too would double-fire.
+      if (el && !el.classList.contains('nav-group-head')) {
         el.addEventListener('click', () => window.navigateTo(v));
       }
     });
 
-    // Security Lab is an expandable group: clicking the head toggles its tool list
-    // (it still navigates via the handler above); each sub-item deep-links to one tool.
-    const slHead = document.getElementById('nav-securitylab');
-    if (slHead) {
-      slHead.addEventListener('click', () => {
-        const expanded = slHead.classList.toggle('expanded');
-        slHead.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    // Expandable nav groups (Asset Management, Mobile, Security Lab): clicking a group
+    // head toggles its submenu. Security Lab's head is also a real view, so it still
+    // navigates via the VIEWS loop above; the Mobile / Asset Management heads are pure
+    // toggles whose sub-items (real views) navigate via the VIEWS loop too.
+    document.querySelectorAll('.nav-group-head').forEach((head) => {
+      head.addEventListener('click', () => {
+        // In icon-only (collapsed) mode the submenu is hidden, so expand the sidebar
+        // first — otherwise the grouped views would be unreachable. Then open the group.
+        const sidebar = document.getElementById('app-sidebar');
+        if (sidebar && sidebar.classList.contains('collapsed')) {
+          sidebar.classList.remove('collapsed');
+          try { localStorage.setItem('autoar.sidebar.collapsed', 'false'); } catch (e) { /* ignore */ }
+          head.classList.add('expanded');
+          head.setAttribute('aria-expanded', 'true');
+          return;
+        }
+        const expanded = head.classList.toggle('expanded');
+        head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       });
-    }
+    });
+
+    // Security Lab sub-items are tabs within the single Security Lab view — deep-link to them.
     document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((el) => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const tab = el.dataset.sltab;
         document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((x) => x.classList.remove('active'));
         el.classList.add('active');
-        if (slHead) {
-          slHead.classList.add('expanded');
-          slHead.setAttribute('aria-expanded', 'true');
-        }
         window.state._securityLabTab = tab;
         window.navigateTo('securitylab');
       });
