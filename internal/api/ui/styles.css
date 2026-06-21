@@ -32,7 +32,7 @@
   /* Text */
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;
-  --text-muted: #475569;
+  --text-muted: #7d8da3; /* lightened for WCAG AA (~5.5:1 on the dark bg) */
   --text-accent: #06b6d4;
 
   /* Sidebar */
@@ -287,12 +287,13 @@ input, select, textarea { font-family: inherit; }
 .nav-subitems {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.22s ease;
+  visibility: hidden; /* collapsed sub-items leave the tab order / a11y tree */
+  transition: max-height 0.22s ease, visibility 0.22s ease;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.nav-group-head.expanded + .nav-subitems { max-height: 340px; padding: 2px 0; }
+.nav-group-head.expanded + .nav-subitems { max-height: 340px; visibility: visible; padding: 2px 0; }
 .nav-subitem {
   display: flex;
   align-items: center;
@@ -2037,6 +2038,19 @@ input, select, textarea { font-family: inherit; }
   background: var(--accent-cyan-dim);
 }
 
+/* Small button variant (report-template actions + table pagination) */
+.btn-sm { padding: 6px 12px; font-size: 12px; gap: 4px; }
+.btn:disabled,
+.btn-sm:disabled,
+.btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+
+/* Visible keyboard focus ring for the sidebar nav (items are divs, not buttons) */
+.nav-item:focus-visible,
+.nav-subitem:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+
 .scan-actions {
   margin-top: 10px;
 }
@@ -2135,12 +2149,24 @@ input, select, textarea { font-family: inherit; }
 
 .toast.success { border-left: 3px solid var(--accent-emerald); }
 .toast.error { border-left: 3px solid var(--accent-red); }
+.toast.warning { border-left: 3px solid var(--accent-amber); }
 .toast.info { border-left: 3px solid var(--accent-cyan); }
 
 .toast-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
 .toast-body { flex: 1; }
 .toast-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .toast-msg { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.toast-close:hover { color: var(--text-primary); }
 
 /* ── Responsive ─────────────────────────────────────────────────────────────── */
 
