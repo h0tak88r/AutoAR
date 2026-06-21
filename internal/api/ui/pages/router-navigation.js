@@ -53,6 +53,9 @@
       }
     }
 
+    // Reset group-head "contains the active view" markers; recomputed in the loop below.
+    document.querySelectorAll('.nav-group-head').forEach((h) => h.classList.remove('has-active-child'));
+
     (window.VIEWS || []).forEach((v) => {
       const el = document.getElementById(`view-${v}`);
       const nav = document.getElementById(`nav-${v}`);
@@ -63,7 +66,20 @@
           el.style.display = isActive ? 'flex' : 'none';
         }
       }
-      if (nav) nav.classList.toggle('active', v === view);
+      if (nav) {
+        const navActive = v === view;
+        nav.classList.toggle('active', navActive);
+        // If the active view lives inside a collapsible group (Mobile / Asset Management),
+        // expand that group so the highlighted item is visible.
+        if (navActive && nav.classList.contains('nav-subitem')) {
+          const head = nav.closest('.nav-group')?.querySelector('.nav-group-head');
+          if (head) {
+            head.classList.add('expanded');
+            head.setAttribute('aria-expanded', 'true');
+            head.classList.add('has-active-child'); // surfaces active state when collapsed
+          }
+        }
+      }
     });
 
     document.getElementById('topbar-title').textContent = window.viewTitle(view);
