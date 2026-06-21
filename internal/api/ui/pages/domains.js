@@ -6,7 +6,7 @@
       const domains = window.state.domains?.domains || [];
 
       if (!domains.length) {
-        container.innerHTML = window.emptyState('', 'No domains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
+        container.innerHTML = window.emptyState('', 'No domains tracked', 'Launch a scan to start tracking domains — or add one from the Targets page.', { label: 'Launch a scan', onclick: "window.navigateTo('scans')" });
         return;
       }
 
@@ -157,7 +157,7 @@
       // so a default live-only view that hides dead hosts doesn't masquerade as "untracked".
       const noneTracked = !(st.stats && st.stats.subdomains > 0);
       if (!subs.length && !hasActiveFilter && noneTracked) {
-        container.innerHTML = window.emptyState('', 'No subdomains tracked', 'Run a scan with autoar domain run -d <domain> to start tracking.');
+        container.innerHTML = window.emptyState('', 'No subdomains tracked', 'Launch a scan to enumerate subdomains for your domains.', { label: 'Launch a scan', onclick: "window.navigateTo('scans')" });
         return;
       }
       const noResultsMsg = st.subdLive === '1'

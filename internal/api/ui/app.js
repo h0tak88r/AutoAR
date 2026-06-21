@@ -660,8 +660,8 @@ function humanChangeType(t) {
   return callPageMethod('UIHelpers', 'humanChangeType', [t], t);
 }
 
-function emptyState(icon, title, desc) {
-  return callPageMethod('UIHelpers', 'emptyState', [icon, title, desc], `<div class="empty-state"><div class="empty-icon">${icon}</div><div class="empty-title">${esc(title)}</div><div class="empty-desc">${esc(desc)}</div></div>`);
+function emptyState(icon, title, desc, action) {
+  return callPageMethod('UIHelpers', 'emptyState', [icon, title, desc, action], `<div class="empty-state"><div class="empty-icon">${icon}</div><div class="empty-title">${esc(title)}</div><div class="empty-desc">${esc(desc)}</div></div>`);
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────

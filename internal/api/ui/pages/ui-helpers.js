@@ -76,26 +76,41 @@
     return map[t] || t;
   }
 
-  function emptyState(icon, title, desc) {
+  // action (optional): { label, onclick } where onclick is an inline-handler string,
+  // e.g. emptyState('', 'No domains yet', 'Add one to get started', { label: 'Run a scan', onclick: "window.navigateTo('scans')" }).
+  function emptyState(icon, title, desc, action) {
+    const cta = action && action.label
+      ? `<button class="btn btn-primary" style="margin-top:14px"${action.onclick ? ` onclick="${action.onclick}"` : ''}>${window.esc(action.label)}</button>`
+      : '';
     return `<div class="empty-state">
     <div class="empty-icon">${icon}</div>
     <div class="empty-title">${window.esc(title)}</div>
     <div class="empty-desc">${window.esc(desc)}</div>
+    ${cta}
   </div>`;
   }
 
   function showToast(type, title, msg) {
     const container = document.getElementById('toast-container');
-    const icons = { success: '', error: '', info: '[i]' };
+    const icons = { success: '', error: '', warning: '!', info: '[i]' };
     const el = document.createElement('div');
     el.className = `toast ${type}`;
+    // Errors/warnings stay until dismissed (a 4s auto-hide can make a failed action
+    // look like it succeeded); success/info auto-dismiss as before.
+    const sticky = type === 'error' || type === 'warning';
     el.innerHTML = `<div class="toast-icon">${icons[type] || '[i]'}</div>
     <div class="toast-body">
       <div class="toast-title">${window.esc(title)}</div>
       ${msg ? `<div class="toast-msg">${window.esc(msg)}</div>` : ''}
-    </div>`;
+    </div>
+    ${sticky ? '<button class="toast-close" type="button" aria-label="Dismiss">×</button>' : ''}`;
     container.appendChild(el);
-    setTimeout(() => el.remove(), 4000);
+    if (sticky) {
+      const close = el.querySelector('.toast-close');
+      if (close) close.addEventListener('click', () => el.remove());
+    } else {
+      setTimeout(() => el.remove(), 4000);
+    }
   }
 
   function updateClock() {
