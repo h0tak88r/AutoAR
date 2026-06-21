@@ -275,7 +275,7 @@ input, select, textarea { font-family: inherit; }
   flex-shrink: 0;
 }
 
-/* Expandable nav group (Security Lab) */
+/* Expandable nav groups (Asset Management, Mobile, Security Lab) */
 .nav-caret {
   margin-left: auto;
   flex-shrink: 0;
@@ -321,9 +321,17 @@ input, select, textarea { font-family: inherit; }
 .nav-subitem:hover { background: var(--bg-card); color: var(--text-primary); }
 .nav-subitem.active { color: var(--accent-cyan); background: var(--accent-cyan-dim); }
 .nav-subitem.active::before { opacity: 1; }
-/* Collapsed (icon-only) sidebar: hide the caret and the whole submenu. */
+/* Collapsed (icon-only) sidebar: hide the caret and submenus. Grouped views stay
+   reachable because clicking a group icon while collapsed expands the sidebar first
+   (handled in shell-wiring.js), rather than relying on a flyout that the sidebar's
+   overflow:hidden would clip. */
 .sidebar.collapsed .nav-caret,
 .sidebar.collapsed .nav-subitems { display: none; }
+/* When collapsed, the active sub-item is hidden, so highlight its group icon instead. */
+.sidebar.collapsed .nav-group-head.has-active-child {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+}
 
 .nav-badge {
   margin-left: auto;
