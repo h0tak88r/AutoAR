@@ -11,6 +11,8 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/api"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
+	"github.com/h0tak88r/AutoAR/internal/scanner/monitor"
+	"github.com/h0tak88r/AutoAR/internal/scanner/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -65,6 +67,12 @@ func StartAPI() error {
 	// Ensure scans don't remain "running" across restarts (single-instance mode).
 	reconcileStaleScansOnStartup()
 
+	// Monitor daemons are in-memory goroutines that don't survive a process restart,
+	// but the DB keeps is_running=true — so the dashboard would show monitors "running"
+	// while nothing actually polls. Resume the daemons for any still-running targets so
+	// the persisted state is truthful and monitoring continues after a Docker restart.
+	resumeMonitorsOnStartup()
+
 	// Pre-warm and keep the Programs catalogue cache fresh in the background so the
 	// Programs page loads instantly instead of fetching ~1000 upstream calls per visit.
 	if os.Getenv("DB_HOST") != "" {
@@ -117,6 +125,47 @@ func reconcileStaleScansOnStartup() {
 	}
 	if n > 0 {
 		log.Printf("[INFO] Marked %d interrupted scan(s) as failed (API restart — no running worker).", n)
+	}
+}
+
+// resumeMonitorsOnStartup restarts the monitor daemon goroutines (which don't survive
+// a process restart) when the DB still has monitor targets marked is_running, so polling
+// actually resumes instead of the dashboard merely showing a stale "running" flag.
+func resumeMonitorsOnStartup() {
+	if err := db.Init(); err != nil {
+		return
+	}
+	_ = db.EnsureSchema()
+
+	// Subdomain monitors.
+	if targets, err := db.ListSubdomainMonitorTargets(); err == nil {
+		running := 0
+		for _, t := range targets {
+			if t.IsRunning {
+				running++
+			}
+		}
+		if running > 0 {
+			if err := subdomainmonitor.StartDaemon(); err != nil {
+				log.Printf("[WARN] Could not resume subdomain monitor daemon: %v", err)
+			} else {
+				log.Printf("[INFO] Resumed subdomain monitor daemon for %d running target(s) after restart.", running)
+			}
+		}
+	}
+
+	// URL monitors.
+	if targets, err := db.ListMonitorTargets(); err == nil {
+		running := 0
+		for _, t := range targets {
+			if t.IsRunning {
+				running++
+			}
+		}
+		if running > 0 {
+			monitor.StartURLMonitorDaemon()
+			log.Printf("[INFO] Resumed URL monitor daemon for %d running target(s) after restart.", running)
+		}
 	}
 }
 
