@@ -58,11 +58,13 @@
       });
     });
 
-    // Security Lab sub-items are tabs within the single Security Lab view — deep-link to them.
-    document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((el) => {
+    // Security Lab tool tabs (data-sltab) deep-link into the single Security Lab view.
+    // (Keyhacks also lives in this submenu but is a real view, so it's wired by the
+    // VIEWS loop above — exclude it here via the [data-sltab] filter.)
+    document.querySelectorAll('#securitylab-subnav .nav-subitem[data-sltab]').forEach((el) => {
       bindActivate(el, () => {
         const tab = el.dataset.sltab;
-        document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((x) => x.classList.remove('active'));
+        document.querySelectorAll('#securitylab-subnav .nav-subitem[data-sltab]').forEach((x) => x.classList.remove('active'));
         el.classList.add('active');
         window.state._securityLabTab = tab;
         window.navigateTo('securitylab');

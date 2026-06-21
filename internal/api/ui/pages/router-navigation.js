@@ -56,6 +56,13 @@
     // Reset group-head "contains the active view" markers; recomputed in the loop below.
     document.querySelectorAll('.nav-group-head').forEach((h) => h.classList.remove('has-active-child'));
 
+    // Security Lab tool tabs (data-sltab) aren't views — clear their highlight whenever
+    // we leave the Security Lab view, so its dropdown never shows two active items
+    // (e.g. Keyhacks active + a stale tool still highlighted).
+    if (view !== 'securitylab') {
+      document.querySelectorAll('#securitylab-subnav .nav-subitem[data-sltab].active').forEach((x) => x.classList.remove('active'));
+    }
+
     (window.VIEWS || []).forEach((v) => {
       const el = document.getElementById(`view-${v}`);
       const nav = document.getElementById(`nav-${v}`);
