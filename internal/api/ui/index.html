@@ -78,14 +78,16 @@
           <span>Monitor</span>
         </div>
 
-        <div class="nav-item" id="nav-targets" data-label="Targets">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span>
-          <span>Targets</span>
-        </div>
-
-        <div class="nav-item" id="nav-programs" data-label="Programs">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-          <span>Programs</span>
+        <div class="nav-group">
+          <div class="nav-item nav-group-head" id="nav-group-assets" data-label="Asset Management" aria-expanded="false">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>
+            <span>Asset Management</span>
+            <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="nav-subitems" id="assets-subnav" role="menu">
+            <div class="nav-subitem" id="nav-targets" data-label="Targets" role="menuitem">Targets</div>
+            <div class="nav-subitem" id="nav-programs" data-label="Programs" role="menuitem">Programs</div>
+          </div>
         </div>
 
         <div class="nav-item" id="nav-keyhacks" data-label="Keyhacks">
@@ -93,31 +95,34 @@
           <span>Keyhacks</span>
         </div>
 
-        <div class="nav-item" id="nav-apkauditor" data-label="APK Auditor">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><path d="M12 18h.01"/></svg></span>
-          <span>APK Auditor</span>
+        <div class="nav-group">
+          <div class="nav-item nav-group-head" id="nav-group-mobile" data-label="Mobile" aria-expanded="false">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></span>
+            <span>Mobile</span>
+            <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="nav-subitems" id="mobile-subnav" role="menu">
+            <div class="nav-subitem" id="nav-apkauditor" data-label="APK Auditor" role="menuitem">APK Auditor</div>
+            <div class="nav-subitem" id="nav-ipaauditor" data-label="IPA Auditor" role="menuitem">IPA Auditor</div>
+            <div class="nav-subitem" id="nav-adbauditor" data-label="ADB Auditor" role="menuitem">ADB Auditor</div>
+          </div>
         </div>
-        <div class="nav-item" id="nav-ipaauditor" data-label="IPA Auditor">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 13 5 21 8 21c1.25 0 2.5-1.06 4-1.06z"/><path d="M10 2c0 2.5 2 4 2 4s2-1.5 2-4"/></svg></span>
-          <span>IPA Auditor</span>
-        </div>
-        <div class="nav-item" id="nav-adbauditor" data-label="ADB Auditor">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg></span>
-          <span>ADB Auditor</span>
-        </div>
-        <div class="nav-item nav-group-head" id="nav-securitylab" data-label="Security Lab" aria-expanded="false">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5h0c-1.4 0-2.5-1.1-2.5-2.5V2"/><path d="M8.5 2h7"/><path d="M14.5 16h-5"/></svg></span>
-          <span>Security Lab</span>
-          <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-        </div>
-        <div class="nav-subitems" id="securitylab-subnav" role="menu">
-          <div class="nav-subitem" data-sltab="jwt" role="menuitem">JWT Analyzer</div>
-          <div class="nav-subitem" data-sltab="regex" role="menuitem">Regex Workbench</div>
-          <div class="nav-subitem" data-sltab="depconf" role="menuitem">Dependency Confusion</div>
-          <div class="nav-subitem" data-sltab="ssrf" role="menuitem">SSRF Payloads</div>
-          <div class="nav-subitem" data-sltab="xss" role="menuitem">XSS Cheat Sheet</div>
-          <div class="nav-subitem" data-sltab="dorks" role="menuitem">Recon Dorks</div>
-          <div class="nav-subitem" data-sltab="takeover" role="menuitem">Takeover Reference</div>
+
+        <div class="nav-group">
+          <div class="nav-item nav-group-head" id="nav-securitylab" data-label="Security Lab" aria-expanded="false">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5h0c-1.4 0-2.5-1.1-2.5-2.5V2"/><path d="M8.5 2h7"/><path d="M14.5 16h-5"/></svg></span>
+            <span>Security Lab</span>
+            <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="nav-subitems" id="securitylab-subnav" role="menu">
+            <div class="nav-subitem" data-sltab="jwt" role="menuitem">JWT Analyzer</div>
+            <div class="nav-subitem" data-sltab="regex" role="menuitem">Regex Workbench</div>
+            <div class="nav-subitem" data-sltab="depconf" role="menuitem">Dependency Confusion</div>
+            <div class="nav-subitem" data-sltab="ssrf" role="menuitem">SSRF Payloads</div>
+            <div class="nav-subitem" data-sltab="xss" role="menuitem">XSS Cheat Sheet</div>
+            <div class="nav-subitem" data-sltab="dorks" role="menuitem">Recon Dorks</div>
+            <div class="nav-subitem" data-sltab="takeover" role="menuitem">Takeover Reference</div>
+          </div>
         </div>
 
         <div class="nav-item" id="nav-r2" data-label="R2 Browser">
