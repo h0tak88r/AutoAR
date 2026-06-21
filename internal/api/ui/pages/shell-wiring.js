@@ -3,41 +3,64 @@
     if (window.state._shellWired) return;
     window.state._shellWired = true;
 
+    // Sidebar items are <div>s, not buttons — make them keyboard-operable: focusable
+    // and activated by Enter/Space, in addition to click.
+    const bindActivate = (el, fn) => {
+      if (!el) return;
+      el.setAttribute('tabindex', '0');
+      if (!el.getAttribute('role')) el.setAttribute('role', 'button');
+      el.addEventListener('click', fn);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+      });
+    };
+
     (window.VIEWS || []).forEach((v) => {
       const el = document.getElementById(`nav-${v}`);
       // A group head that is also a view (Security Lab) must NOT navigate on click —
-      // it only opens its submenu (handled by the group-toggle wiring below); its
-      // sub-items do the navigating. Binding navigate here too would double-fire.
+      // it only opens its submenu (handled below); binding navigate here too would
+      // double-fire. Its sub-items do the navigating.
       if (el && !el.classList.contains('nav-group-head')) {
-        el.addEventListener('click', () => window.navigateTo(v));
+        bindActivate(el, () => window.navigateTo(v));
       }
     });
 
-    // Expandable nav groups (Asset Management, Mobile, Security Lab): clicking a group
-    // head toggles its submenu. Security Lab's head is also a real view, so it still
-    // navigates via the VIEWS loop above; the Mobile / Asset Management heads are pure
-    // toggles whose sub-items (real views) navigate via the VIEWS loop too.
+    // Expandable nav groups (Asset Management, Mobile, Security Lab): the head toggles
+    // its submenu, and the open/closed choice is remembered across reloads.
+    const GROUPS_KEY = 'autoar.sidebar.groups';
+    const saveGroupState = () => {
+      const m = {};
+      document.querySelectorAll('.nav-group-head').forEach((h) => { if (h.id) m[h.id] = h.classList.contains('expanded'); });
+      try { localStorage.setItem(GROUPS_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ }
+    };
+    let savedGroups = {};
+    try { savedGroups = JSON.parse(localStorage.getItem(GROUPS_KEY) || '{}'); } catch (e) { /* ignore */ }
+
     document.querySelectorAll('.nav-group-head').forEach((head) => {
-      head.addEventListener('click', () => {
+      if (savedGroups[head.id]) {
+        head.classList.add('expanded');
+        head.setAttribute('aria-expanded', 'true');
+      }
+      bindActivate(head, () => {
+        const sidebar = document.getElementById('app-sidebar');
         // In icon-only (collapsed) mode the submenu is hidden, so expand the sidebar
         // first — otherwise the grouped views would be unreachable. Then open the group.
-        const sidebar = document.getElementById('app-sidebar');
         if (sidebar && sidebar.classList.contains('collapsed')) {
           sidebar.classList.remove('collapsed');
           try { localStorage.setItem('autoar.sidebar.collapsed', 'false'); } catch (e) { /* ignore */ }
           head.classList.add('expanded');
           head.setAttribute('aria-expanded', 'true');
-          return;
+        } else {
+          const expanded = head.classList.toggle('expanded');
+          head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
         }
-        const expanded = head.classList.toggle('expanded');
-        head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        saveGroupState();
       });
     });
 
     // Security Lab sub-items are tabs within the single Security Lab view — deep-link to them.
     document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((el) => {
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
+      bindActivate(el, () => {
         const tab = el.dataset.sltab;
         document.querySelectorAll('#securitylab-subnav .nav-subitem').forEach((x) => x.classList.remove('active'));
         el.classList.add('active');
