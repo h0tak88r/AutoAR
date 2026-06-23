@@ -125,6 +125,12 @@ type DB interface {
 	// Used at boot to clean rows poisoned by past identifier-collision bugs (e.g. all
 	// Intigriti programs ending up under "it:detail").
 	DeleteProgramScopeAssetsByKey(programKey string) (int64, error)
+	// TruncateProgramScopeAssets wipes every program_assets row. Used by the one-shot
+	// program-monitor reset so all programs re-baseline silently after a known-bad build.
+	TruncateProgramScopeAssets() (int64, error)
+	// DeleteMonitorChangesByType clears monitor_changes rows of the given change type.
+	// Used to scrub the historical flood of false "new_program_asset" entries.
+	DeleteMonitorChangesByType(changeType string) (int64, error)
 
 	// DNS Takeover Providers
 	ListVulnerableDNSProviders() (map[string]string, error)
