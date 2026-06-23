@@ -142,6 +142,35 @@ func ProgramWatchOnRefresh(programs []ProgramSummary) {
 	_ = db.SetSetting(programWatchWatermarkKey, freshest.LatestTargetUpdatedAt)
 }
 
+// ProgramWatchCheckProgram fires the watch for a SINGLE program — used when a
+// force-refreshed scope summary comes back (e.g. user searched the Programs page
+// for "ryan-bbp"). If the program's latest_target_updated_at is newer than the
+// persisted watermark, alert immediately and advance the watermark so the next
+// warmer refresh doesn't re-alert. No-op when watch is disabled or the program
+// can't be checked. Bypasses the boot intro and the per-cycle cap.
+func ProgramWatchCheckProgram(p ProgramSummary) {
+	if !programWatchEnabled() || !programWatchPlatformAllowed(p.Platform) {
+		return
+	}
+	if p.LatestTargetUpdatedAt == "" {
+		return
+	}
+	programWatchMu.Lock()
+	defer programWatchMu.Unlock()
+	watermark, _ := db.GetSetting(programWatchWatermarkKey)
+	if watermark == "" {
+		// No baseline yet — let the regular refresh path establish it silently
+		// (otherwise the first search after a fresh install would alert on
+		// whatever happened to be cached).
+		return
+	}
+	if !isNewerProgramTime(p.LatestTargetUpdatedAt, watermark) {
+		return
+	}
+	sendProgramUpdateDiscord(p)
+	_ = db.SetSetting(programWatchWatermarkKey, p.LatestTargetUpdatedAt)
+}
+
 func sendProgramIntroDiscord(p ProgramSummary) {
 	msg := fmt.Sprintf("📌 **Scope watch ready** — most recent update: **%s** (`%s` · %s)\n• Latest asset: `%s`\n• Updated: %s",
 		programWatchName(p), p.Handle, strings.ToUpper(p.Platform),

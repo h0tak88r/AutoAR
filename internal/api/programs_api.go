@@ -307,6 +307,13 @@ func apiProgramScopeSummaries(c *gin.Context) {
 			// hide the program's real scope until the TTL expires.
 			if fetched {
 				setCachedProgramScope(cacheKey, summary)
+				// User-initiated force-fetch (Programs page search) → also feed the
+				// scope-update watch so a genuinely-newer-than-watermark program
+				// alerts Discord immediately, instead of waiting for the next
+				// warmer refresh that might re-rate-limit it.
+				if req.Force {
+					ProgramWatchCheckProgram(summary)
+				}
 			}
 			mu.Lock()
 			summaries[cacheKey] = summary
