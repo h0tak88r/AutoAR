@@ -504,26 +504,48 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 // request fails or H1 returns a non-200 (e.g. 429 rate-limit / 403) — the caller must
 // NOT cache a !ok result, otherwise a transient failure would hide a program's real
 // scope (showing "—") for the whole cache TTL.
+//
+// 429s are retried with exponential backoff (honoring Retry-After when supplied) so
+// the warmer doesn't routinely leave hundreds of programs with stale empty scopes.
 func fetchH1ScopeSummary(handle, auth string) (ProgramSummary, bool) {
 	url := fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100", handle)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return ProgramSummary{}, false
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Basic "+auth)
-
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return ProgramSummary{}, false
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		// 429 (rate-limited by hammering the API), 403, 401, etc. — signal failure so
-		// the empty result isn't cached and the next refresh retries.
+	var body []byte
+	var statusCode int
+	const maxAttempts = 3
+	backoff := 2 * time.Second
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return ProgramSummary{}, false
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Basic "+auth)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return ProgramSummary{}, false
+		}
+		body, _ = io.ReadAll(resp.Body)
+		statusCode = resp.StatusCode
+		// Honor an explicit Retry-After (seconds) if H1 sent one.
+		retryAfter := backoff
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if secs, err := strconv.Atoi(strings.TrimSpace(ra)); err == nil && secs > 0 && secs < 30 {
+				retryAfter = time.Duration(secs) * time.Second
+			}
+		}
+		resp.Body.Close()
+
+		if statusCode != http.StatusTooManyRequests || attempt == maxAttempts-1 {
+			break // 200 (success), 4xx that isn't 429 (auth/permission), or out of retries
+		}
+		time.Sleep(retryAfter)
+		backoff *= 2
+	}
+
+	if statusCode != http.StatusOK {
 		return ProgramSummary{}, false
 	}
 

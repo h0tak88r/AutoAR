@@ -44,7 +44,12 @@
       case 'domains': window.loadDomains(); break;
       case 'subdomains': window.loadSubdomains(); break;
       case 'targets': window.loadTargetsPlatforms(); break;
-      case 'programs': window.ProgramsPage.loadPrograms(); break;
+      case 'programs':
+        // Manual Refresh on Programs should actually pull fresh scope from the
+        // platforms — not just re-read the cached payload. refreshNow() triggers a
+        // backend warmer rebuild, then re-renders the table once it's done.
+        window.ProgramsPage.refreshNow();
+        break;
       case 'monitor': window.loadMonitor(); break;
       case 'keyhacks': window.loadKeyhacks(); break;
       case 'report-templates': window.renderReportTemplates(); break;
