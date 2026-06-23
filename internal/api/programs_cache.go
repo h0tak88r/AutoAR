@@ -174,6 +174,11 @@ func refreshProgramsCache() bool {
 
 	saveProgramsCache(payload)
 	log.Printf("[PROGRAMS] cache refreshed: %d programs in %s", len(payload.Programs), time.Since(start).Round(time.Second))
+
+	// Scope-update watch: detect programs whose latest_target_updated_at moved past
+	// the persisted watermark and post a Discord alert for each. Passive — reuses
+	// the data we just fetched, no extra API calls. No-op without a webhook.
+	ProgramWatchOnRefresh(payload.Programs)
 	return true
 }
 

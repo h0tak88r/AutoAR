@@ -80,10 +80,10 @@ func StartAPI() error {
 	// Gated by a settings marker so it runs exactly once across deployments.
 	resetProgramMonitorOnce()
 
-	// Bug-bounty scope-change monitor: slow rolling sweep of all programs that alerts
-	// to MONITOR_WEBHOOK_URL (Discord) whenever a new in-scope asset appears. No-op when
-	// no webhook is configured or PROGRAM_MONITOR=off.
-	api.StartProgramMonitor()
+	// Bug-bounty scope-change watch: passive — piggybacks on the programs warmer's
+	// existing latest_target_updated_at field instead of polling each program's scope.
+	// Alerts are posted from refreshProgramsCache directly. No goroutine to start here;
+	// see internal/api/program_watch.go.
 
 	// Pre-warm and keep the Programs catalogue cache fresh in the background so the
 	// Programs page loads instantly instead of fetching ~1000 upstream calls per visit.
