@@ -605,6 +605,26 @@ func (s *SQLiteDB) DeleteProgramScopeAssetsByKey(programKey string) (int64, erro
 	return n, nil
 }
 
+// TruncateProgramScopeAssets wipes every program_assets row.
+func (s *SQLiteDB) TruncateProgramScopeAssets() (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM program_assets;`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to truncate program_assets: %v", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// DeleteMonitorChangesByType clears monitor_changes rows of the given change type.
+func (s *SQLiteDB) DeleteMonitorChangesByType(changeType string) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM monitor_changes WHERE change_type = ?;`, changeType)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete monitor_changes by type: %v", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // RecordProgramScopeAssets diffs+stores the current asset set, returning newly-seen assets.
 func (s *SQLiteDB) RecordProgramScopeAssets(programKey string, assets []string) ([]string, bool, error) {
 	existing, err := s.ListProgramScopeAssets(programKey)
