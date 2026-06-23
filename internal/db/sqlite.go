@@ -128,6 +128,16 @@ func (s *SQLiteDB) InitSchema() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_js_endpoints_domain ON js_endpoints(domain);
 
+	-- Create program_assets table for bug-bounty scope-change monitoring
+	CREATE TABLE IF NOT EXISTS program_assets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		program_key TEXT NOT NULL,
+		asset TEXT NOT NULL,
+		first_seen_at TIMESTAMP DEFAULT (datetime('now')),
+		UNIQUE(program_key, asset)
+	);
+	CREATE INDEX IF NOT EXISTS idx_program_assets_key ON program_assets(program_key);
+
 	-- Create keyhack_templates table
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -565,6 +575,68 @@ func (s *SQLiteDB) InsertJSEndpoints(domain string, endpoints []JSEndpoint) erro
 		}
 	}
 	return tx.Commit()
+}
+
+// ListProgramScopeAssets returns the stored in-scope assets for a program.
+func (s *SQLiteDB) ListProgramScopeAssets(programKey string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT asset FROM program_assets WHERE program_key = ? ORDER BY asset;`, programKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query program_assets: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, fmt.Errorf("failed to scan program_asset: %v", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// RecordProgramScopeAssets diffs+stores the current asset set, returning newly-seen assets.
+func (s *SQLiteDB) RecordProgramScopeAssets(programKey string, assets []string) ([]string, bool, error) {
+	existing, err := s.ListProgramScopeAssets(programKey)
+	if err != nil {
+		return nil, false, err
+	}
+	have := make(map[string]bool, len(existing))
+	for _, a := range existing {
+		have[a] = true
+	}
+	firstRun := len(existing) == 0
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stmt, err := tx.Prepare(`INSERT INTO program_assets (program_key, asset) VALUES (?, ?) ON CONFLICT(program_key, asset) DO NOTHING;`)
+	if err != nil {
+		return nil, false, err
+	}
+	defer stmt.Close()
+
+	var newAssets []string
+	seen := make(map[string]bool, len(assets))
+	for _, a := range assets {
+		a = strings.TrimSpace(a)
+		if a == "" || seen[a] || have[a] {
+			continue
+		}
+		seen[a] = true
+		if _, err := stmt.Exec(programKey, a); err != nil {
+			return nil, false, err
+		}
+		if !firstRun {
+			newAssets = append(newAssets, a)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return newAssets, firstRun, nil
 }
 
 // InsertKeyhackTemplate inserts or updates a KeyHack template

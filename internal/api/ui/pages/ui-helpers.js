@@ -72,6 +72,7 @@
       content_changed: 'Content Changed',
       status_changed: 'Status Changed',
       new_js_endpoint: 'New JS Endpoint',
+      new_program_asset: 'New Program Asset',
     };
     return map[t] || t;
   }
