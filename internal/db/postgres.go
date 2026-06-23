@@ -718,6 +718,15 @@ func (p *PostgresDB) ListProgramScopeAssets(programKey string) ([]string, error)
 	return out, rows.Err()
 }
 
+// DeleteProgramScopeAssetsByKey clears every stored asset for a program key.
+func (p *PostgresDB) DeleteProgramScopeAssetsByKey(programKey string) (int64, error) {
+	tag, err := p.pool.Exec(p.ctx, `DELETE FROM program_assets WHERE program_key = $1;`, programKey)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete program_assets: %v", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // RecordProgramScopeAssets diffs+stores the current asset set, returning newly-seen assets.
 func (p *PostgresDB) RecordProgramScopeAssets(programKey string, assets []string) ([]string, bool, error) {
 	existing, err := p.ListProgramScopeAssets(programKey)
