@@ -284,6 +284,12 @@
         const src = o.source_js ? ` (in ${String(o.source_js).slice(0, 80)})` : '';
         return `${String(o.endpoint).slice(0, 120)}${src}`;
       }
+      if (Array.isArray(o.assets)) {
+        const head = o.assets.slice(0, 5).join(', ');
+        const more = o.assets.length > 5 ? ` +${o.assets.length - 5} more` : '';
+        const prog = o.name || o.program || '';
+        return `${prog ? prog + ': ' : ''}${head}${more}`;
+      }
     } catch (e) { /* use raw */ }
     return detail;
   }
@@ -363,7 +369,7 @@
     const detailPreview = formatMonitorDetailPreview(detail);
     const iconMap = {
       new_subdomain: '', became_live: '', became_dead: '',
-      content_changed: '', status_changed: '', new_js_endpoint: '',
+      content_changed: '', status_changed: '', new_js_endpoint: '', new_program_asset: '',
     };
     return `<div class="change-item">
       <div class="change-dot ${ctype}"></div>

@@ -236,6 +236,16 @@ func (p *PostgresDB) InitSchema() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_js_endpoints_domain ON js_endpoints(domain);
 
+	-- Create program_assets table for bug-bounty scope-change monitoring
+	CREATE TABLE IF NOT EXISTS program_assets (
+		id SERIAL PRIMARY KEY,
+		program_key VARCHAR(255) NOT NULL,
+		asset VARCHAR(1024) NOT NULL,
+		first_seen_at TIMESTAMP DEFAULT NOW(),
+		UNIQUE(program_key, asset)
+	);
+	CREATE INDEX IF NOT EXISTS idx_program_assets_key ON program_assets(program_key);
+
 	-- Create keyhack_templates table with proper constraints
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
 		id SERIAL PRIMARY KEY,
@@ -688,6 +698,63 @@ func (p *PostgresDB) InsertJSEndpoints(domain string, endpoints []JSEndpoint) er
 		}
 	}
 	return nil
+}
+
+// ListProgramScopeAssets returns the stored in-scope assets for a program.
+func (p *PostgresDB) ListProgramScopeAssets(programKey string) ([]string, error) {
+	rows, err := p.pool.Query(p.ctx, `SELECT asset FROM program_assets WHERE program_key = $1 ORDER BY asset;`, programKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query program_assets: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, fmt.Errorf("failed to scan program_asset: %v", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// RecordProgramScopeAssets diffs+stores the current asset set, returning newly-seen assets.
+func (p *PostgresDB) RecordProgramScopeAssets(programKey string, assets []string) ([]string, bool, error) {
+	existing, err := p.ListProgramScopeAssets(programKey)
+	if err != nil {
+		return nil, false, err
+	}
+	have := make(map[string]bool, len(existing))
+	for _, a := range existing {
+		have[a] = true
+	}
+	firstRun := len(existing) == 0
+
+	batch := &pgx.Batch{}
+	var newAssets []string
+	seen := make(map[string]bool, len(assets))
+	for _, a := range assets {
+		a = strings.TrimSpace(a)
+		if a == "" || seen[a] || have[a] {
+			continue
+		}
+		seen[a] = true
+		batch.Queue(`INSERT INTO program_assets (program_key, asset) VALUES ($1, $2) ON CONFLICT (program_key, asset) DO NOTHING;`, programKey, a)
+		if !firstRun {
+			newAssets = append(newAssets, a)
+		}
+	}
+	if batch.Len() == 0 {
+		return newAssets, firstRun, nil
+	}
+	br := p.pool.SendBatch(p.ctx, batch)
+	defer br.Close()
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			return nil, false, fmt.Errorf("failed to insert program_asset: %v", err)
+		}
+	}
+	return newAssets, firstRun, nil
 }
 
 // InsertKeyhackTemplate inserts or updates a KeyHack template

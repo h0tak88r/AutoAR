@@ -115,6 +115,13 @@ type DB interface {
 	// ClearMonitorChanges deletes all rows in monitor_changes and resets URL target change_count.
 	ClearMonitorChanges() error
 
+	// ListProgramScopeAssets returns the stored in-scope assets for a program (key = "platform:handle").
+	ListProgramScopeAssets(programKey string) ([]string, error)
+	// RecordProgramScopeAssets stores the current asset set for a program and returns the
+	// newly-seen assets. firstRun is true when the program had no stored assets yet — in
+	// that case the assets are baselined silently and newAssets is empty (no alert).
+	RecordProgramScopeAssets(programKey string, assets []string) (newAssets []string, firstRun bool, err error)
+
 	// DNS Takeover Providers
 	ListVulnerableDNSProviders() (map[string]string, error)
 	AddVulnerableDNSProvider(name, fingerprint string) error

@@ -142,6 +142,26 @@ func InsertJSEndpoints(domain string, endpoints []JSEndpoint) error {
 	return dbInstance.InsertJSEndpoints(domain, endpoints)
 }
 
+// ListProgramScopeAssets returns the stored in-scope assets for a program.
+func ListProgramScopeAssets(programKey string) ([]string, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListProgramScopeAssets(programKey)
+}
+
+// RecordProgramScopeAssets diffs+stores a program's assets, returning newly-seen ones.
+func RecordProgramScopeAssets(programKey string, assets []string) ([]string, bool, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, false, err
+		}
+	}
+	return dbInstance.RecordProgramScopeAssets(programKey, assets)
+}
+
 // InsertKeyhackTemplate inserts or updates a KeyHack template
 func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description string) error {
 	if dbInstance == nil {

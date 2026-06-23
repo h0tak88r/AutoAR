@@ -42,6 +42,7 @@ type ProgramSummary struct {
 	LatestTargetBrief     string       `json:"latest_target_brief"`      // brief context for the latest target
 	UpdatedAt             string       `json:"updated_at"`               // when we last fetched this
 	Stats                 ProgramStats `json:"stats"`
+	Assets                []string     `json:"-"`                        // all in-scope asset identifiers (internal, for scope-change monitoring)
 }
 
 // ProgramStats holds user-specific stats from H1.
@@ -526,6 +527,9 @@ func fetchH1ScopeSummary(handle, auth string) (ProgramSummary, bool) {
 		if attrs.Get("eligible_for_submission").Bool() {
 			summary.ScopeTargets++
 			target := attrs.Get("asset_identifier").Str
+			if target != "" {
+				summary.Assets = append(summary.Assets, target)
+			}
 			updatedAt := firstGJSONString(attrs, "updated_at", "created_at", "last_updated_at")
 			if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
 				summary.LatestTarget = target
@@ -719,6 +723,9 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 			scope.Get("targets").ForEach(func(_, t gjson.Result) bool {
 				summary.ScopeTargets++
 				target := firstGJSONString(t, "uri", "name", "target")
+				if target != "" {
+					summary.Assets = append(summary.Assets, target)
+				}
 				updatedAt := firstGJSONString(t, "updatedAt", "updated_at", "lastUpdatedAt", "createdAt", "created_at")
 				if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
 					summary.LatestTarget = target
@@ -920,6 +927,9 @@ func fetchITScopeSummary(client *http.Client, token, programID string) ProgramSu
 			}
 			summary.ScopeTargets++
 			target := strings.TrimSpace(v.Get("endpoint").Str)
+			if target != "" {
+				summary.Assets = append(summary.Assets, target)
+			}
 			if target != "" && summary.LatestTarget == "" {
 				summary.LatestTarget = target
 				summary.LatestTargetBrief = firstGJSONString(v, "description", "type.value")
