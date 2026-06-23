@@ -1,7 +1,10 @@
 package api
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -13,6 +16,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/logger"
 	"github.com/h0tak88r/AutoAR/internal/utils"
+	"github.com/tidwall/gjson"
 )
 
 // ─── Passive program-scope watch ───────────────────────────────────────────────
@@ -318,4 +322,83 @@ func apiProgramWatchTest(c *gin.Context) {
 	programWatchSessionN++
 	programWatchMu.Unlock()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// GET /api/scope/debug?platform=h1&handle=dialogue
+// Fetches a single program's scope live and returns BOTH the raw H1 response
+// (first 10 scope entries) AND what our parser extracts, so a "we're missing
+// the new assets" report can be diagnosed without guessing — you can see at a
+// glance whether H1 is rate-limiting, whether the assets are there but under
+// unexpected field names, or whether our parser is dropping them.
+func apiProgramScopeDebug(c *gin.Context) {
+	platform := strings.ToLower(strings.TrimSpace(c.Query("platform")))
+	handle := strings.TrimSpace(c.Query("handle"))
+	if handle == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "handle query param required"})
+		return
+	}
+	if platform == "" {
+		platform = "h1"
+	}
+	if platform != "h1" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only platform=h1 supported currently"})
+		return
+	}
+
+	u, t := os.Getenv("H1_USERNAME"), os.Getenv("H1_TOKEN")
+	if u == "" || t == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "H1_USERNAME / H1_TOKEN not set"})
+		return
+	}
+	auth := base64.StdEncoding.EncodeToString([]byte(u + ":" + t))
+
+	url := fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100", handle)
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Basic "+auth)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	out := gin.H{
+		"request_url": url,
+		"status_code": resp.StatusCode,
+		"headers": gin.H{
+			"retry_after":         resp.Header.Get("Retry-After"),
+			"ratelimit_remaining": resp.Header.Get("X-Rate-Limit-Remaining"),
+			"ratelimit_reset":     resp.Header.Get("X-Rate-Limit-Reset"),
+		},
+	}
+
+	// Capture the first 10 raw scope entries so we can see what field names
+	// (and values) H1 is actually sending for this program.
+	var rawScopes []any
+	data := gjson.GetBytes(body, "data").Array()
+	out["scope_entries_returned"] = len(data)
+	for i, s := range data {
+		if i >= 10 {
+			break
+		}
+		var entry any
+		if err := json.Unmarshal([]byte(s.Raw), &entry); err == nil {
+			rawScopes = append(rawScopes, entry)
+		}
+	}
+	out["raw_scope_entries_sample"] = rawScopes
+
+	// What our parser would extract (or skip, if H1 returned non-200).
+	parsed, ok := fetchH1ScopeSummary(handle, auth)
+	out["parser_output"] = gin.H{
+		"ok":                       ok,
+		"scope_targets":            parsed.ScopeTargets,
+		"latest_target":            parsed.LatestTarget,
+		"latest_target_updated_at": parsed.LatestTargetUpdatedAt,
+		"all_assets_count":         len(parsed.Assets),
+	}
+
+	c.JSON(http.StatusOK, out)
 }
