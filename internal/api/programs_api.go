@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/tidwall/gjson"
 )
 
@@ -297,7 +298,11 @@ func apiProgramScopeSummaries(c *gin.Context) {
 			case "bc", "bugcrowd":
 				if bcToken != "" {
 					summary = fetchBCScopeSummary(item.Handle, item.URL, bcToken)
-					fetched = true
+					// fetchBCScopeSummary doesn't return ok — all 8 failure paths
+					// return a zero-valued summary. Treat any empty result as a
+					// failed fetch so we don't overwrite persisted good data.
+					// (Matches the enrichBCScopeCounts guard.)
+					fetched = summary.ScopeTargets > 0 || summary.LatestTarget != ""
 				}
 			}
 
@@ -307,6 +312,13 @@ func apiProgramScopeSummaries(c *gin.Context) {
 			// hide the program's real scope until the TTL expires.
 			if fetched {
 				setCachedProgramScope(cacheKey, summary)
+				// Persist last-known-good in the DB — so a search-driven refresh
+				// for a program that the warmer keeps rate-limiting still wins.
+				_ = db.UpsertProgramScope(db.PersistedProgramScope{
+					Platform: summary.Platform, Handle: summary.Handle,
+					ScopeTargets: summary.ScopeTargets, LatestTarget: summary.LatestTarget,
+					LatestTargetUpdatedAt: summary.LatestTargetUpdatedAt, LatestTargetBrief: summary.LatestTargetBrief,
+				})
 				// User-initiated force-fetch (Programs page search) → also feed the
 				// scope-update watch so a genuinely-newer-than-watermark program
 				// alerts Discord immediately, instead of waiting for the next
@@ -494,6 +506,13 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 				p.LatestTarget = summary.LatestTarget
 				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
 				p.LatestTargetBrief = summary.LatestTargetBrief
+				// Persist last-known-good — failed/rate-limited fetches don't
+				// reach here, so a transient 429 never overwrites real data.
+				_ = db.UpsertProgramScope(db.PersistedProgramScope{
+					Platform: p.Platform, Handle: p.Handle,
+					ScopeTargets: p.ScopeTargets, LatestTarget: p.LatestTarget,
+					LatestTargetUpdatedAt: p.LatestTargetUpdatedAt, LatestTargetBrief: p.LatestTargetBrief,
+				})
 			}
 		}(&programs[i])
 	}
@@ -679,10 +698,19 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 			time.Sleep(500 * time.Millisecond) // extra spacing for BC
 
 			summary := fetchBCScopeSummary(p.Handle, p.URL, token)
-			p.ScopeTargets = summary.ScopeTargets
-			p.LatestTarget = summary.LatestTarget
-			p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
-			p.LatestTargetBrief = summary.LatestTargetBrief
+			// Only persist (and overwrite the in-memory row) when fetch actually
+			// returned scope — empty/transient failures leave prior data intact.
+			if summary.ScopeTargets > 0 || summary.LatestTarget != "" {
+				p.ScopeTargets = summary.ScopeTargets
+				p.LatestTarget = summary.LatestTarget
+				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+				p.LatestTargetBrief = summary.LatestTargetBrief
+				_ = db.UpsertProgramScope(db.PersistedProgramScope{
+					Platform: p.Platform, Handle: p.Handle,
+					ScopeTargets: p.ScopeTargets, LatestTarget: p.LatestTarget,
+					LatestTargetUpdatedAt: p.LatestTargetUpdatedAt, LatestTargetBrief: p.LatestTargetBrief,
+				})
+			}
 		}(&programs[i])
 	}
 	wg.Wait()
@@ -916,10 +944,26 @@ func enrichITScopeCounts(programs []ProgramSummary, token string) {
 			defer func() { <-sem }()
 
 			summary := fetchITScopeSummary(client, token, p.ID)
-			p.ScopeTargets = summary.ScopeTargets
-			if p.LatestTarget == "" {
-				p.LatestTarget = summary.LatestTarget
-				p.LatestTargetBrief = summary.LatestTargetBrief
+			// Only persist on a real scope payload — IT often rate-limits and the
+			// fetcher swallows that as an empty summary; leaving the in-memory row
+			// alone preserves whatever was already there (e.g. from the merged DB).
+			if summary.ScopeTargets > 0 || summary.LatestTarget != "" {
+				p.ScopeTargets = summary.ScopeTargets
+				if p.LatestTarget == "" {
+					p.LatestTarget = summary.LatestTarget
+					p.LatestTargetBrief = summary.LatestTargetBrief
+				}
+				// Overwrite LatestTargetUpdatedAt with the asset-level timestamp from
+				// fetchITScopeSummary (may be empty if IT didn't expose it). DROP the
+				// program-level lastUpdatedAt that fetchITPrograms set — otherwise the
+				// scope-update watch fires on every program edit (bounty bump, etc.)
+				// not just on real scope changes.
+				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+				_ = db.UpsertProgramScope(db.PersistedProgramScope{
+					Platform: p.Platform, Handle: p.Handle,
+					ScopeTargets: p.ScopeTargets, LatestTarget: p.LatestTarget,
+					LatestTargetUpdatedAt: p.LatestTargetUpdatedAt, LatestTargetBrief: p.LatestTargetBrief,
+				})
 			}
 		}(&programs[i])
 	}
@@ -967,9 +1011,16 @@ func fetchITScopeSummary(client *http.Client, token, programID string) ProgramSu
 			if target != "" {
 				summary.Assets = append(summary.Assets, target)
 			}
-			if target != "" && summary.LatestTarget == "" {
+			// Per-asset timestamp (try common IT field names). Use the LATEST one
+			// across all assets so the watch fires only when scope genuinely changes
+			// — NOT on unrelated program edits (bounty bump, description change, …)
+			// which would otherwise look like scope updates if we used the program
+			// list's program-level lastUpdatedAt.
+			updatedAt := firstGJSONString(v, "updatedAt", "lastUpdatedAt", "modifiedAt", "addedAt", "createdAt")
+			if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
 				summary.LatestTarget = target
 				summary.LatestTargetBrief = firstGJSONString(v, "description", "type.value")
+				summary.LatestTargetUpdatedAt = updatedAt
 			}
 			return true
 		})
