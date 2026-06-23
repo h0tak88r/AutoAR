@@ -53,6 +53,7 @@ type ProgramStats struct {
 
 type programScopeRequest struct {
 	Programs []programScopeRequestItem `json:"programs"`
+	Force    bool                      `json:"force"` // bypass the scope cache (manual Refresh)
 }
 
 type programScopeRequestItem struct {
@@ -270,11 +271,13 @@ func apiProgramScopeSummaries(c *gin.Context) {
 		}
 
 		cacheKey := programScopeCacheKey(item.Platform, item.Handle)
-		if summary, ok := getCachedProgramScope(cacheKey); ok {
-			mu.Lock()
-			summaries[cacheKey] = summary
-			mu.Unlock()
-			continue
+		if !req.Force {
+			if summary, ok := getCachedProgramScope(cacheKey); ok {
+				mu.Lock()
+				summaries[cacheKey] = summary
+				mu.Unlock()
+				continue
+			}
 		}
 
 		wg.Add(1)
@@ -288,8 +291,7 @@ func apiProgramScopeSummaries(c *gin.Context) {
 			switch item.Platform {
 			case "h1", "hackerone":
 				if h1Auth != "" {
-					summary = fetchH1ScopeSummary(item.Handle, h1Auth)
-					fetched = true
+					summary, fetched = fetchH1ScopeSummary(item.Handle, h1Auth)
 				}
 			case "bc", "bugcrowd":
 				if bcToken != "" {
@@ -300,6 +302,8 @@ func apiProgramScopeSummaries(c *gin.Context) {
 
 			summary.Platform = item.Platform
 			summary.Handle = item.Handle
+			// Only cache a successful fetch — caching a rate-limited/empty result would
+			// hide the program's real scope until the TTL expires.
 			if fetched {
 				setCachedProgramScope(cacheKey, summary)
 			}
@@ -476,21 +480,27 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			summary := fetchH1ScopeSummary(p.Handle, auth)
-			p.ScopeTargets = summary.ScopeTargets
-			p.LatestTarget = summary.LatestTarget
-			p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
-			p.LatestTargetBrief = summary.LatestTargetBrief
+			summary, ok := fetchH1ScopeSummary(p.Handle, auth)
+			if ok {
+				p.ScopeTargets = summary.ScopeTargets
+				p.LatestTarget = summary.LatestTarget
+				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+				p.LatestTargetBrief = summary.LatestTargetBrief
+			}
 		}(&programs[i])
 	}
 	wg.Wait()
 }
 
-func fetchH1ScopeSummary(handle, auth string) ProgramSummary {
+// fetchH1ScopeSummary returns the scope summary and an ok flag. ok is false when the
+// request fails or H1 returns a non-200 (e.g. 429 rate-limit / 403) — the caller must
+// NOT cache a !ok result, otherwise a transient failure would hide a program's real
+// scope (showing "—") for the whole cache TTL.
+func fetchH1ScopeSummary(handle, auth string) (ProgramSummary, bool) {
 	url := fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100", handle)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return ProgramSummary{}
+		return ProgramSummary{}, false
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Basic "+auth)
@@ -498,10 +508,16 @@ func fetchH1ScopeSummary(handle, auth string) ProgramSummary {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return ProgramSummary{}
+		return ProgramSummary{}, false
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// 429 (rate-limited by hammering the API), 403, 401, etc. — signal failure so
+		// the empty result isn't cached and the next refresh retries.
+		return ProgramSummary{}, false
+	}
 
 	scopes := gjson.Get(string(body), "data")
 	summary := ProgramSummary{Platform: "h1", Handle: handle}
@@ -518,7 +534,7 @@ func fetchH1ScopeSummary(handle, auth string) ProgramSummary {
 			}
 		}
 	}
-	return summary
+	return summary, true
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
