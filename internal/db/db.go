@@ -192,6 +192,26 @@ func DeleteMonitorChangesByType(changeType string) (int64, error) {
 	return dbInstance.DeleteMonitorChangesByType(changeType)
 }
 
+// UpsertProgramScope persists last-known-good scope for one program.
+func UpsertProgramScope(s PersistedProgramScope) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpsertProgramScope(s)
+}
+
+// LoadProgramScopes returns every persisted scope row keyed by platform:handle.
+func LoadProgramScopes() (map[string]PersistedProgramScope, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.LoadProgramScopes()
+}
+
 // InsertKeyhackTemplate inserts or updates a KeyHack template
 func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description string) error {
 	if dbInstance == nil {
