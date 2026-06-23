@@ -233,11 +233,62 @@
     scopeSearchDebounce = setTimeout(hydrateMatchingScope, 350);
   }
 
+  async function loadWatchStatus() {
+    try {
+      const res = await window.apiFetch('/api/scope/watch-status');
+      renderWatchStatus(res || {});
+    } catch (e) {
+      // Status is a polish surface; failing to load it shouldn't block the Programs page.
+    }
+  }
+
+  function renderWatchStatus(s) {
+    const el = document.getElementById('programs-watch-status');
+    if (!el) return;
+    const dot = (color) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};margin-right:6px"></span>`;
+    const okColor = '#34d399', warnColor = '#fbbf24', badColor = '#f87171';
+    const statusDot = s.enabled ? dot(okColor) : (s.webhook_configured ? dot(warnColor) : dot(badColor));
+    const statusLabel = s.enabled ? 'watching' : (s.webhook_configured ? 'disabled (PROGRAM_MONITOR=off)' : 'no webhook');
+    const freshest = s.freshest_program
+      ? `<strong>${esc(s.freshest_program)}</strong>${s.freshest_asset ? ` · <span style="color:rgba(255,255,255,0.7)">${esc(s.freshest_asset)}</span>` : ''}`
+      : '<span style="color:rgba(255,255,255,0.4)">—</span>';
+    const watermark = s.watermark_iso
+      ? `<span title="${esc(s.watermark_iso)}">${esc(s.watermark_human || s.watermark_iso)}</span>`
+      : '<span style="color:rgba(255,255,255,0.4)">not yet baselined</span>';
+    const testBtn = s.webhook_configured
+      ? `<button onclick="window.ProgramsPage.testWatch()" style="background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);border-radius:6px;padding:4px 10px;color:#9be8ff;font-size:11px;cursor:pointer;">🔔 Test webhook</button>`
+      : `<span style="color:rgba(255,255,255,0.35);font-size:11px">Set <code>MONITOR_WEBHOOK_URL</code> to enable</span>`;
+    el.innerHTML = `
+      <div style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:12px;color:rgba(255,255,255,0.7)">
+        <span style="font-weight:600;color:rgba(255,255,255,0.9)">📡 Scope Update Watch</span>
+        <span>${statusDot}${esc(statusLabel)}</span>
+        <span style="color:rgba(255,255,255,0.45)">|</span>
+        <span>Freshest update: ${freshest}</span>
+        <span style="color:rgba(255,255,255,0.45)">|</span>
+        <span>Watermark: ${watermark}</span>
+        <span style="color:rgba(255,255,255,0.45)">|</span>
+        <span>Alerts this session: <strong>${Number(s.alerts_this_session) || 0}</strong></span>
+        <span style="margin-left:auto">${testBtn}</span>
+      </div>
+    `;
+  }
+
+  async function testWatch() {
+    try {
+      await window.apiPost('/api/scope/watch-test', {});
+      if (window.showToast) window.showToast('success', 'Test sent', 'Check your Discord channel for the test message.');
+      loadWatchStatus(); // refresh the session counter
+    } catch (e) {
+      if (window.showToast) window.showToast('error', 'Webhook test failed', e?.message || String(e));
+    }
+  }
+
   async function loadPrograms(force = false) {
     const seq = ++loadSeq;
     const platform = document.getElementById('programs-platform-filter')?.value || 'all';
     const container = document.getElementById('programs-container');
     if (container) container.innerHTML = '<div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading programs…</div></div>';
+    loadWatchStatus();
 
     try {
       const params = new URLSearchParams({ platform, sort: 'name' });
@@ -405,5 +456,5 @@
     }
   }
 
-  window.ProgramsPage = { loadPrograms, renderPrograms, onSearch, setSort, refreshNow };
+  window.ProgramsPage = { loadPrograms, renderPrograms, onSearch, setSort, refreshNow, testWatch };
 })();
