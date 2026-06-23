@@ -134,12 +134,55 @@ func buildProgramsPayload() programsCachePayload {
 
 	wg.Wait()
 
+	// Overlay last-known-good scope from the program_scope DB table. This is the
+	// key persistence guarantee: a program previously fetched successfully keeps
+	// its real values on the dashboard even when this refresh's enrichment came
+	// back empty (e.g. rate-limited). The enrich functions ONLY upsert on success,
+	// so anything in the DB is real data — never an empty value masquerading.
+	overlayPersistedProgramScope(all)
+
 	return programsCachePayload{
 		Programs:    all,
 		HasH1Token:  os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
 		HasBCToken:  os.Getenv("BUGCROWD_TOKEN") != "",
 		HasITToken:  hasIntigritiToken(),
 		GeneratedAt: time.Now().UTC(),
+	}
+}
+
+// overlayPersistedProgramScope fills any program row whose fresh enrichment left
+// scope empty (ScopeTargets==0 AND no LatestTarget) from the program_scope DB
+// table. Rows where this refresh DID get fresh scope are left alone — the latest
+// successful fetch always wins. Mutates in place.
+func overlayPersistedProgramScope(programs []ProgramSummary) {
+	persisted, err := db.LoadProgramScopes()
+	if err != nil || len(persisted) == 0 {
+		return
+	}
+	restored := 0
+	for i := range programs {
+		p := &programs[i]
+		// Only treat scope as "fresh this refresh" when we actually got a target
+		// or a count. LatestTargetUpdatedAt can be populated from the program-list
+		// API (e.g. IT's program-level lastUpdatedAt) even when scope enrich
+		// returned nothing — checking it here would suppress the overlay and
+		// leave the dashboard showing "—".
+		if p.ScopeTargets > 0 || p.LatestTarget != "" {
+			continue // this refresh enriched scope — keep the fresh value
+		}
+		key := strings.ToLower(p.Platform) + ":" + p.Handle
+		s, ok := persisted[key]
+		if !ok || (s.ScopeTargets == 0 && s.LatestTarget == "") {
+			continue
+		}
+		p.ScopeTargets = s.ScopeTargets
+		p.LatestTarget = s.LatestTarget
+		p.LatestTargetUpdatedAt = s.LatestTargetUpdatedAt
+		p.LatestTargetBrief = s.LatestTargetBrief
+		restored++
+	}
+	if restored > 0 {
+		log.Printf("[PROGRAMS] preserved last-known-good scope for %d program(s) where this refresh came back empty", restored)
 	}
 }
 

@@ -246,6 +246,20 @@ func (p *PostgresDB) InitSchema() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_program_assets_key ON program_assets(program_key);
 
+	-- Persistent last-known-good scope per program. Catalogue payload overlays
+	-- these onto the freshly-fetched program list — a rate-limited refresh never
+	-- wipes a program's previously-known scope.
+	CREATE TABLE IF NOT EXISTS program_scope (
+		platform VARCHAR(16) NOT NULL,
+		handle VARCHAR(255) NOT NULL,
+		scope_targets INTEGER DEFAULT 0,
+		latest_target VARCHAR(1024) DEFAULT '',
+		latest_target_updated_at VARCHAR(64) DEFAULT '',
+		latest_target_brief VARCHAR(2048) DEFAULT '',
+		fetched_at TIMESTAMP DEFAULT NOW(),
+		PRIMARY KEY (platform, handle)
+	);
+
 	-- Create keyhack_templates table with proper constraints
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
 		id SERIAL PRIMARY KEY,
@@ -725,6 +739,52 @@ func (p *PostgresDB) DeleteProgramScopeAssetsByKey(programKey string) (int64, er
 		return 0, fmt.Errorf("failed to delete program_assets: %v", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// UpsertProgramScope writes the last-known-good scope for one program. Only
+// called on a SUCCESSFUL fetch — failed/rate-limited fetches don't touch the
+// row, so prior data is preserved.
+func (p *PostgresDB) UpsertProgramScope(s PersistedProgramScope) error {
+	platform := strings.ToLower(strings.TrimSpace(s.Platform))
+	handle := strings.TrimSpace(s.Handle)
+	if platform == "" || handle == "" {
+		return nil
+	}
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO program_scope (platform, handle, scope_targets, latest_target, latest_target_updated_at, latest_target_brief, fetched_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		ON CONFLICT (platform, handle) DO UPDATE SET
+			scope_targets = EXCLUDED.scope_targets,
+			latest_target = EXCLUDED.latest_target,
+			latest_target_updated_at = EXCLUDED.latest_target_updated_at,
+			latest_target_brief = EXCLUDED.latest_target_brief,
+			fetched_at = EXCLUDED.fetched_at;
+	`, platform, handle, s.ScopeTargets, s.LatestTarget, s.LatestTargetUpdatedAt, s.LatestTargetBrief)
+	if err != nil {
+		return fmt.Errorf("failed to upsert program_scope: %v", err)
+	}
+	return nil
+}
+
+// LoadProgramScopes returns every persisted scope row keyed by "<platform>:<handle>".
+func (p *PostgresDB) LoadProgramScopes() (map[string]PersistedProgramScope, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT platform, handle, scope_targets, latest_target, latest_target_updated_at, latest_target_brief, fetched_at
+		FROM program_scope;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query program_scope: %v", err)
+	}
+	defer rows.Close()
+	out := make(map[string]PersistedProgramScope)
+	for rows.Next() {
+		var s PersistedProgramScope
+		if err := rows.Scan(&s.Platform, &s.Handle, &s.ScopeTargets, &s.LatestTarget, &s.LatestTargetUpdatedAt, &s.LatestTargetBrief, &s.FetchedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan program_scope: %v", err)
+		}
+		out[strings.ToLower(s.Platform)+":"+s.Handle] = s
+	}
+	return out, rows.Err()
 }
 
 // TruncateProgramScopeAssets wipes every program_assets row.
