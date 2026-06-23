@@ -132,6 +132,15 @@ type DB interface {
 	// Used to scrub the historical flood of false "new_program_asset" entries.
 	DeleteMonitorChangesByType(changeType string) (int64, error)
 
+	// UpsertProgramScope persists the last-known-good scope summary for a single
+	// program. Only called on SUCCESSFUL fetches — a failed/rate-limited fetch must
+	// NOT call this, otherwise we'd overwrite good data with empty values.
+	UpsertProgramScope(s PersistedProgramScope) error
+	// LoadProgramScopes returns every persisted scope row keyed by
+	// "<lower(platform)>:<handle>" so the warmer can overlay it onto a fresh
+	// catalogue payload (preserving prior scope when a refresh's enrichment fails).
+	LoadProgramScopes() (map[string]PersistedProgramScope, error)
+
 	// DNS Takeover Providers
 	ListVulnerableDNSProviders() (map[string]string, error)
 	AddVulnerableDNSProvider(name, fingerprint string) error
@@ -277,6 +286,21 @@ type SubdomainMonitorTarget struct {
 type JSEndpoint struct {
 	Endpoint string // e.g. /api/v2/users
 	SourceJS string // the JS URL it was found in (best-effort)
+}
+
+// PersistedProgramScope is the last-known-good scope summary for a single
+// bug-bounty program. UpsertProgramScope writes one of these PER successful
+// fetch; a failed/rate-limited fetch must never call upsert. The serving layer
+// overlays this on top of the freshly-built catalogue so the dashboard keeps
+// showing real values even when this refresh's enrichment came back empty.
+type PersistedProgramScope struct {
+	Platform              string // "h1" | "bc" | "it"
+	Handle                string // platform handle (e.g. "ryan-bbp")
+	ScopeTargets          int
+	LatestTarget          string
+	LatestTargetUpdatedAt string
+	LatestTargetBrief     string
+	FetchedAt             time.Time
 }
 
 // MonitorChange records a detected change for history/querying

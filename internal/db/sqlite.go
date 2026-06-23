@@ -138,6 +138,20 @@ func (s *SQLiteDB) InitSchema() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_program_assets_key ON program_assets(program_key);
 
+	-- Persistent last-known-good scope per program. The catalogue payload overlays
+	-- these on top of the freshly-fetched program list, so a rate-limited refresh
+	-- never wipes a program's previously-known scope from the dashboard.
+	CREATE TABLE IF NOT EXISTS program_scope (
+		platform TEXT NOT NULL,
+		handle TEXT NOT NULL,
+		scope_targets INTEGER DEFAULT 0,
+		latest_target TEXT DEFAULT '',
+		latest_target_updated_at TEXT DEFAULT '',
+		latest_target_brief TEXT DEFAULT '',
+		fetched_at TIMESTAMP DEFAULT (datetime('now')),
+		PRIMARY KEY (platform, handle)
+	);
+
 	-- Create keyhack_templates table
 	CREATE TABLE IF NOT EXISTS keyhack_templates (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -603,6 +617,52 @@ func (s *SQLiteDB) DeleteProgramScopeAssetsByKey(programKey string) (int64, erro
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+// UpsertProgramScope writes the last-known-good scope for one program. Called
+// only on a SUCCESSFUL fetch — failed fetches don't touch the table, so prior
+// data is preserved.
+func (s *SQLiteDB) UpsertProgramScope(p PersistedProgramScope) error {
+	platform := strings.ToLower(strings.TrimSpace(p.Platform))
+	handle := strings.TrimSpace(p.Handle)
+	if platform == "" || handle == "" {
+		return nil
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO program_scope (platform, handle, scope_targets, latest_target, latest_target_updated_at, latest_target_brief, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT (platform, handle) DO UPDATE SET
+			scope_targets = excluded.scope_targets,
+			latest_target = excluded.latest_target,
+			latest_target_updated_at = excluded.latest_target_updated_at,
+			latest_target_brief = excluded.latest_target_brief,
+			fetched_at = excluded.fetched_at;
+	`, platform, handle, p.ScopeTargets, p.LatestTarget, p.LatestTargetUpdatedAt, p.LatestTargetBrief)
+	if err != nil {
+		return fmt.Errorf("failed to upsert program_scope: %v", err)
+	}
+	return nil
+}
+
+// LoadProgramScopes returns every persisted scope row keyed by "<platform>:<handle>".
+func (s *SQLiteDB) LoadProgramScopes() (map[string]PersistedProgramScope, error) {
+	rows, err := s.db.Query(`
+		SELECT platform, handle, scope_targets, latest_target, latest_target_updated_at, latest_target_brief, fetched_at
+		FROM program_scope;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query program_scope: %v", err)
+	}
+	defer rows.Close()
+	out := make(map[string]PersistedProgramScope)
+	for rows.Next() {
+		var p PersistedProgramScope
+		if err := rows.Scan(&p.Platform, &p.Handle, &p.ScopeTargets, &p.LatestTarget, &p.LatestTargetUpdatedAt, &p.LatestTargetBrief, &p.FetchedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan program_scope: %v", err)
+		}
+		out[strings.ToLower(p.Platform)+":"+p.Handle] = p
+	}
+	return out, rows.Err()
 }
 
 // TruncateProgramScopeAssets wipes every program_assets row.
