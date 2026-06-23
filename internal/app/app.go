@@ -73,6 +73,12 @@ func StartAPI() error {
 	// the persisted state is truthful and monitoring continues after a Docker restart.
 	resumeMonitorsOnStartup()
 
+	// One-shot cleanup: a previous build mis-parsed Intigriti program handles as the
+	// literal "detail" path segment, collapsing every IT program into a single
+	// program_assets bucket and producing a Discord alert flood. Wipe that row so the
+	// monitor re-baselines under the now-correct keys.
+	cleanupCorruptedProgramAssets()
+
 	// Bug-bounty scope-change monitor: slow rolling sweep of all programs that alerts
 	// to MONITOR_WEBHOOK_URL (Discord) whenever a new in-scope asset appears. No-op when
 	// no webhook is configured or PROGRAM_MONITOR=off.
@@ -130,6 +136,21 @@ func reconcileStaleScansOnStartup() {
 	}
 	if n > 0 {
 		log.Printf("[INFO] Marked %d interrupted scan(s) as failed (API restart — no running worker).", n)
+	}
+}
+
+// cleanupCorruptedProgramAssets drops program_assets rows poisoned by past
+// identifier-collision bugs (currently: every Intigriti program shared the key
+// "it:detail" because the handle parser took "/detail" as the handle). Safe to call
+// every boot — it only deletes the known-bad keys; healthy rows are untouched.
+func cleanupCorruptedProgramAssets() {
+	if err := db.Init(); err != nil {
+		return
+	}
+	for _, key := range []string{"it:detail"} {
+		if n, err := db.DeleteProgramScopeAssetsByKey(key); err == nil && n > 0 {
+			log.Printf("[INFO] Cleaned %d poisoned program_assets row(s) under key %q.", n, key)
+		}
 	}
 }
 

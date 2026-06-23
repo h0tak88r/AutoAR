@@ -821,9 +821,17 @@ func fetchITPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 			if i := strings.Index(detail, "="); i >= 0 && i+1 < len(detail) {
 				programPath = detail[i+1:]
 			}
-			handle := programPath
-			if i := strings.LastIndex(strings.TrimRight(programPath, "/"), "/"); i >= 0 {
-				handle = strings.TrimRight(programPath, "/")[i+1:]
+			// Intigriti's webLinks.detail paths look like
+			//   ".../programs/<company>/<program-handle>/detail"
+			// — the LAST segment is the literal word "detail", not the handle.
+			// Strip a trailing "/detail" first, then take the last segment.
+			// (Without this every IT program gets handle="detail", which collides
+			// into a single program_assets bucket and floods the scope monitor.)
+			handlePath := strings.TrimRight(programPath, "/")
+			handlePath = strings.TrimSuffix(handlePath, "/detail")
+			handle := handlePath
+			if i := strings.LastIndex(handlePath, "/"); i >= 0 {
+				handle = handlePath[i+1:]
 			}
 			name := strings.TrimSpace(rec.Get("name").Str)
 			if name == "" {
