@@ -73,11 +73,12 @@ func StartAPI() error {
 	// the persisted state is truthful and monitoring continues after a Docker restart.
 	resumeMonitorsOnStartup()
 
-	// One-shot cleanup: a previous build mis-parsed Intigriti program handles as the
-	// literal "detail" path segment, collapsing every IT program into a single
-	// program_assets bucket and producing a Discord alert flood. Wipe that row so the
-	// monitor re-baselines under the now-correct keys.
-	cleanupCorruptedProgramAssets()
+	// One-shot total reset of the program-scope monitor state. A prior build mis-parsed
+	// Intigriti program handles as the literal "/detail" segment, collapsing every IT
+	// program into a single bucket and flooding Discord with false "new asset" alerts.
+	// This wipes all baselines AND the historical false alerts from monitor_changes.
+	// Gated by a settings marker so it runs exactly once across deployments.
+	resetProgramMonitorOnce()
 
 	// Bug-bounty scope-change monitor: slow rolling sweep of all programs that alerts
 	// to MONITOR_WEBHOOK_URL (Discord) whenever a new in-scope asset appears. No-op when
@@ -139,19 +140,35 @@ func reconcileStaleScansOnStartup() {
 	}
 }
 
-// cleanupCorruptedProgramAssets drops program_assets rows poisoned by past
-// identifier-collision bugs (currently: every Intigriti program shared the key
-// "it:detail" because the handle parser took "/detail" as the handle). Safe to call
-// every boot — it only deletes the known-bad keys; healthy rows are untouched.
-func cleanupCorruptedProgramAssets() {
+// resetProgramMonitorOnce performs a one-time total reset of the program-scope
+// monitor: wipes every program_assets baseline AND every historical "new_program_asset"
+// row from monitor_changes (the false Discord-flood records). A settings marker
+// prevents it from re-running on subsequent boots — otherwise every container restart
+// would re-wipe the baseline and the monitor could never establish stable state.
+// Bump the marker key (programMonitorResetKey) to trigger a fresh reset in the future.
+func resetProgramMonitorOnce() {
+	const programMonitorResetKey = "program_monitor_reset_v2"
 	if err := db.Init(); err != nil {
 		return
 	}
-	for _, key := range []string{"it:detail"} {
-		if n, err := db.DeleteProgramScopeAssetsByKey(key); err == nil && n > 0 {
-			log.Printf("[INFO] Cleaned %d poisoned program_assets row(s) under key %q.", n, key)
-		}
+	if v, _ := db.GetSetting(programMonitorResetKey); v == "done" {
+		return // already reset on a previous boot
 	}
+	assetsCleared, err := db.TruncateProgramScopeAssets()
+	if err != nil {
+		log.Printf("[WARN] Program monitor reset: failed to truncate program_assets: %v", err)
+		return
+	}
+	alertsCleared, err := db.DeleteMonitorChangesByType("new_program_asset")
+	if err != nil {
+		log.Printf("[WARN] Program monitor reset: failed to clear new_program_asset history: %v", err)
+		// Continue: even if alert wipe failed, the baseline wipe matters more.
+	}
+	if err := db.SetSetting(programMonitorResetKey, "done"); err != nil {
+		log.Printf("[WARN] Program monitor reset: failed to record marker (will retry next boot): %v", err)
+	}
+	log.Printf("[INFO] Program monitor reset: wiped %d baseline asset row(s) and %d false alert(s). Next sweep baselines silently.",
+		assetsCleared, alertsCleared)
 }
 
 // resumeMonitorsOnStartup restarts the monitor daemon goroutines (which don't survive
