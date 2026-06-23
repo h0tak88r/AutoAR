@@ -184,6 +184,55 @@
     renderStats(false);
   }
 
+  function matchesProgram(p, q) {
+    return (p.name || '').toLowerCase().includes(q) ||
+      (p.handle || '').toLowerCase().includes(q) ||
+      (p.latest_target || '').toLowerCase().includes(q) ||
+      (p.latest_target_brief || '').toLowerCase().includes(q);
+  }
+
+  // When the user searches, the warm program list often carries an empty/rate-limited
+  // scope for the match (the background warmer can't enrich ~800 H1 programs without
+  // hitting the API rate limit). Fetch the matched programs' scope on demand with
+  // force=true so a stale/empty cached value can't keep showing "—".
+  let scopeSearchDebounce;
+  async function hydrateMatchingScope() {
+    const q = (document.getElementById('programs-search')?.value || '').toLowerCase().trim();
+    if (q.length < 2) return;
+    const need = programsData.filter(p =>
+      p.platform && p.handle && !p._scope_loading && !p._scope_fresh &&
+      !(Number(p.scope_targets) > 0) && !p.latest_target && matchesProgram(p, q)
+    ).slice(0, 25);
+    if (!need.length) return;
+    const mySeq = loadSeq;
+    need.forEach(p => { p._scope_loading = true; });
+    renderPrograms();
+    try {
+      const res = await window.apiPost('/api/scope/program-summaries', {
+        programs: need.map(p => ({ platform: p.platform, handle: p.handle, url: p.url })),
+        force: true,
+      });
+      if (mySeq !== loadSeq) return;
+      const summaries = res.summaries || {};
+      need.forEach(p => {
+        const summary = summaries[programKey(p)] || summaries[`${p.platform}:${p.handle}`];
+        if (summary) mergeScopeSummary(p, summary);
+        p._scope_loading = false;
+        p._scope_fresh = true; // attempted a live fetch; don't re-hit on every keystroke
+      });
+    } catch (e) {
+      need.forEach(p => { p._scope_loading = false; });
+    }
+    renderPrograms();
+  }
+
+  // Wired to the search box: filter immediately, then live-fetch scope for matches.
+  function onSearch() {
+    renderPrograms();
+    clearTimeout(scopeSearchDebounce);
+    scopeSearchDebounce = setTimeout(hydrateMatchingScope, 350);
+  }
+
   async function loadPrograms(force = false) {
     const seq = ++loadSeq;
     const platform = document.getElementById('programs-platform-filter')?.value || 'all';
@@ -230,6 +279,8 @@
   // the fresh data once it has likely finished.
   function refreshNow() {
     if (window.showToast) window.showToast('info', 'Refreshing', 'Rebuilding the program cache in the background…');
+    // Allow the on-search live scope fetch to re-attempt after a manual refresh.
+    programsData.forEach(p => { p._scope_fresh = false; });
     loadPrograms(true);
     setTimeout(() => { if (window.state && window.state.view === 'programs') loadPrograms(false); }, 30000);
   }
@@ -354,5 +405,5 @@
     }
   }
 
-  window.ProgramsPage = { loadPrograms, renderPrograms, setSort, refreshNow };
+  window.ProgramsPage = { loadPrograms, renderPrograms, onSearch, setSort, refreshNow };
 })();
