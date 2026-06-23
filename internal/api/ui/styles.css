@@ -879,6 +879,7 @@ input, select, textarea { font-family: inherit; }
 .change-dot.content_changed { color: var(--accent-amber); background: var(--accent-amber); }
 .change-dot.status_changed { color: var(--accent-purple); background: var(--accent-purple); }
 .change-dot.new_js_endpoint { color: var(--accent-pink, #ec4899); background: var(--accent-pink, #ec4899); }
+.change-dot.new_program_asset { color: var(--accent-emerald); background: var(--accent-emerald); }
 
 .change-body { flex: 1; min-width: 0; }
 

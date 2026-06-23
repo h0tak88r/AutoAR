@@ -73,6 +73,11 @@ func StartAPI() error {
 	// the persisted state is truthful and monitoring continues after a Docker restart.
 	resumeMonitorsOnStartup()
 
+	// Bug-bounty scope-change monitor: slow rolling sweep of all programs that alerts
+	// to MONITOR_WEBHOOK_URL (Discord) whenever a new in-scope asset appears. No-op when
+	// no webhook is configured or PROGRAM_MONITOR=off.
+	api.StartProgramMonitor()
+
 	// Pre-warm and keep the Programs catalogue cache fresh in the background so the
 	// Programs page loads instantly instead of fetching ~1000 upstream calls per visit.
 	if os.Getenv("DB_HOST") != "" {

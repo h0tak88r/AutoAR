@@ -68,6 +68,7 @@
       content_changed: '',
       status_changed: '',
       new_js_endpoint: '',
+      new_program_asset: '',
     };
     const preview = String(detail || '').slice(0, 200);
     return `<div class="change-item">
