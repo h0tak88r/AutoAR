@@ -22,7 +22,9 @@
   let cacheWarm = false;
   let cacheStale = false;
   let cacheGeneratedAt = '';
-  let sortState = { key: 'name', direction: 'asc' };
+  // Default sort: freshest scope update first — that's the most actionable view
+  // for a hunter (programs that just changed scope = lowest competition right now).
+  let sortState = { key: 'latest', direction: 'desc' };
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
