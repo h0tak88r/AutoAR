@@ -172,6 +172,26 @@ func DeleteProgramScopeAssetsByKey(programKey string) (int64, error) {
 	return dbInstance.DeleteProgramScopeAssetsByKey(programKey)
 }
 
+// TruncateProgramScopeAssets wipes every program_assets row.
+func TruncateProgramScopeAssets() (int64, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return 0, err
+		}
+	}
+	return dbInstance.TruncateProgramScopeAssets()
+}
+
+// DeleteMonitorChangesByType clears monitor_changes rows of the given change type.
+func DeleteMonitorChangesByType(changeType string) (int64, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return 0, err
+		}
+	}
+	return dbInstance.DeleteMonitorChangesByType(changeType)
+}
+
 // InsertKeyhackTemplate inserts or updates a KeyHack template
 func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description string) error {
 	if dbInstance == nil {

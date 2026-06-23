@@ -727,6 +727,24 @@ func (p *PostgresDB) DeleteProgramScopeAssetsByKey(programKey string) (int64, er
 	return tag.RowsAffected(), nil
 }
 
+// TruncateProgramScopeAssets wipes every program_assets row.
+func (p *PostgresDB) TruncateProgramScopeAssets() (int64, error) {
+	tag, err := p.pool.Exec(p.ctx, `DELETE FROM program_assets;`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to truncate program_assets: %v", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteMonitorChangesByType clears monitor_changes rows of the given change type.
+func (p *PostgresDB) DeleteMonitorChangesByType(changeType string) (int64, error) {
+	tag, err := p.pool.Exec(p.ctx, `DELETE FROM monitor_changes WHERE change_type = $1;`, changeType)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete monitor_changes by type: %v", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // RecordProgramScopeAssets diffs+stores the current asset set, returning newly-seen assets.
 func (p *PostgresDB) RecordProgramScopeAssets(programKey string, assets []string) ([]string, bool, error) {
 	existing, err := p.ListProgramScopeAssets(programKey)
