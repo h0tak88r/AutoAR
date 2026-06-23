@@ -140,6 +140,25 @@ func collectProgramsForMonitor() []ProgramSummary {
 	return all
 }
 
+// programMonitorKey returns a unique-per-program key for the program_assets store.
+// p.ID (the platform's stable UUID/ID) is preferred when present so a future handle
+// parsing bug can't collapse multiple programs into one bucket — that exact mistake
+// is what caused the Intigriti "/detail" flood: every IT program ended up with
+// Handle="detail" and shared a single program_assets row.
+func programMonitorKey(p ProgramSummary) string {
+	id := strings.TrimSpace(p.ID)
+	if id != "" {
+		return strings.ToLower(p.Platform) + ":id:" + id
+	}
+	return strings.ToLower(p.Platform) + ":" + p.Handle
+}
+
+// floodSuspectThreshold caps a single program's "new asset" alert. Real scope
+// additions are 1-5 assets at a time; a huge "diff" on a watched catalogue is
+// almost always an identifier-collision/key bug. Above this we silently re-baseline
+// and log a warning instead of flooding Discord.
+const floodSuspectThreshold = 20
+
 // sweepProgram fetches one program's current in-scope assets and alerts on new ones.
 func sweepProgram(p ProgramSummary) {
 	assets := fetchProgramAssets(p)
@@ -148,7 +167,7 @@ func sweepProgram(p ProgramSummary) {
 		// otherwise the next successful fetch would report every asset as "new".
 		return
 	}
-	key := programScopeCacheKey(p.Platform, p.Handle)
+	key := programMonitorKey(p)
 	newAssets, firstRun, err := db.RecordProgramScopeAssets(key, assets)
 	if err != nil {
 		logger.GetLogger().Infof("[PROGRAM-MONITOR] record failed for %s: %v", key, err)
@@ -156,6 +175,14 @@ func sweepProgram(p ProgramSummary) {
 	}
 	if firstRun || len(newAssets) == 0 {
 		return // baseline run, or nothing new
+	}
+	// Safety cap: a real scope change is incremental. A huge sudden delta almost
+	// always means a key collision (multiple programs mapped to one row) or a
+	// platform API change. Skip the alert rather than spam.
+	if len(newAssets) >= floodSuspectThreshold || len(newAssets) == len(assets) {
+		logger.GetLogger().Infof("[PROGRAM-MONITOR] WARN suspicious delta for %s (%s): %d/%d assets reported new — silently re-baselining, no alert sent",
+			p.Handle, p.Platform, len(newAssets), len(assets))
+		return
 	}
 	alertNewAssets(p, newAssets)
 }

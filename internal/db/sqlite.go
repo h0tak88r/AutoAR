@@ -595,6 +595,16 @@ func (s *SQLiteDB) ListProgramScopeAssets(programKey string) ([]string, error) {
 	return out, rows.Err()
 }
 
+// DeleteProgramScopeAssetsByKey clears every stored asset for a program key.
+func (s *SQLiteDB) DeleteProgramScopeAssetsByKey(programKey string) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM program_assets WHERE program_key = ?;`, programKey)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete program_assets: %v", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // RecordProgramScopeAssets diffs+stores the current asset set, returning newly-seen assets.
 func (s *SQLiteDB) RecordProgramScopeAssets(programKey string, assets []string) ([]string, bool, error) {
 	existing, err := s.ListProgramScopeAssets(programKey)

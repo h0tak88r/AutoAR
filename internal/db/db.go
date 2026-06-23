@@ -162,6 +162,16 @@ func RecordProgramScopeAssets(programKey string, assets []string) ([]string, boo
 	return dbInstance.RecordProgramScopeAssets(programKey, assets)
 }
 
+// DeleteProgramScopeAssetsByKey clears stored assets for a program key.
+func DeleteProgramScopeAssetsByKey(programKey string) (int64, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return 0, err
+		}
+	}
+	return dbInstance.DeleteProgramScopeAssetsByKey(programKey)
+}
+
 // InsertKeyhackTemplate inserts or updates a KeyHack template
 func InsertKeyhackTemplate(keyname, commandTemplate, method, url, header, body, notes, description string) error {
 	if dbInstance == nil {

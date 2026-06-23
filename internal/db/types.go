@@ -121,6 +121,10 @@ type DB interface {
 	// newly-seen assets. firstRun is true when the program had no stored assets yet — in
 	// that case the assets are baselined silently and newAssets is empty (no alert).
 	RecordProgramScopeAssets(programKey string, assets []string) (newAssets []string, firstRun bool, err error)
+	// DeleteProgramScopeAssetsByKey removes every asset row stored under the given key.
+	// Used at boot to clean rows poisoned by past identifier-collision bugs (e.g. all
+	// Intigriti programs ending up under "it:detail").
+	DeleteProgramScopeAssetsByKey(programKey string) (int64, error)
 
 	// DNS Takeover Providers
 	ListVulnerableDNSProviders() (map[string]string, error)
