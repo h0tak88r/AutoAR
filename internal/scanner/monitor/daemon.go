@@ -212,7 +212,17 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 	}
 
 	text := string(body)
-	match := re.FindString(text)
+	// Use ALL matches and pick the MAX (latest date / highest version / lexically
+	// largest), not FindString's first match. A page that lists multiple matching
+	// items (e.g. blog posts) often re-orders them between requests — picking the
+	// first match flapped the baseline, e.g. blackline.com/blog/ alerting 23 → 24 →
+	// 23 → 24 inside 4 minutes as the featured post shuffled. The max is stable
+	// regardless of ordering.
+	matches := re.FindAllString(text, -1)
+	if len(matches) == 0 {
+		return // nothing to compare; don't churn the baseline on a transient empty fetch
+	}
+	match := maxRegexMatch(matches)
 
 	// Switched from hash strategy — old last_hash is hex; establish fresh regex baseline.
 	baseline := t.LastHash
@@ -226,8 +236,19 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 		return
 	}
 
-	if match == baseline {
+	// Forward-only watermark: a regex monitor is for "latest X" — a backward jump
+	// (older date / lower version) is almost always page-ordering noise, not a real
+	// rollback. Skip the alert AND don't advance the baseline so the baseline stays
+	// at the genuine high-water-mark; the next refresh comparing against it will be
+	// stable. Use compareWatchValue which parses dates (ISO + "Jan 2, 2006") and
+	// falls back to lexical compare for arbitrary patterns.
+	cmp := compareWatchValue(match, baseline)
+	if cmp == 0 {
 		_ = db.UpdateMonitorTargetLastRun(t.ID, match, false)
+		return
+	}
+	if cmp < 0 {
+		// Match went backwards — keep the baseline, don't alert, don't advance.
 		return
 	}
 
@@ -266,4 +287,52 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 	)
 	logger.GetLogger().Infof("[URL-MONITOR] Alert: %s", msg)
 	utils.SendMonitorWebhook(msg)
+}
+
+// maxRegexMatch returns the "largest" of a non-empty slice of regex matches,
+// using compareWatchValue (date-aware where possible, lexical otherwise). This
+// makes "latest update" monitoring stable on pages that list multiple matching
+// items in a varying order.
+func maxRegexMatch(matches []string) string {
+	best := matches[0]
+	for _, m := range matches[1:] {
+		if compareWatchValue(m, best) > 0 {
+			best = m
+		}
+	}
+	return best
+}
+
+// compareWatchValue returns >0 if a>b, <0 if a<b, 0 if equal. Tries common date
+// formats first so chronological ordering wins ("Jul 1, 2026" > "Jun 30, 2026"
+// even though lexically Jul<Jun). Falls back to plain string compare for
+// arbitrary patterns (version strings, hashes, etc.) where ASCII order is fine.
+func compareWatchValue(a, b string) int {
+	ta, aOK := tryParseWatchDate(a)
+	tb, bOK := tryParseWatchDate(b)
+	if aOK && bOK {
+		return ta.Compare(tb)
+	}
+	return strings.Compare(a, b)
+}
+
+func tryParseWatchDate(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	formats := []string{
+		"2006-01-02",
+		"Jan 2, 2006",
+		"January 2, 2006",
+		"Jan 02, 2006",
+		"02 Jan 2006",
+		time.RFC3339,
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
