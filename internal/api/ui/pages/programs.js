@@ -3,9 +3,10 @@
     h1: { bg: '#1a2e1a', border: '#2a5a2a', accent: '#2ecc71', text: '#2ecc71' },
     bc: { bg: '#2e1e10', border: '#5a3820', accent: '#e67e22', text: '#e67e22' },
     it: { bg: '#1a1430', border: '#3a2a6a', accent: '#9b8cff', text: '#b3a6ff' },
+    ha: { bg: '#2e1020', border: '#5a2040', accent: '#f472b6', text: '#f472b6' },
   };
 
-  const PLATFORM_LABELS = { h1: 'H1', bc: 'BC', it: 'IT' };
+  const PLATFORM_LABELS = { h1: 'H1', bc: 'BC', it: 'IT', ha: 'HA' };
   const STATE_LABELS = {
     public_mode: 'Public',
     soft_launched: 'Private',
@@ -76,6 +77,7 @@
     const h1Count = programsData.filter(p => p.platform === 'h1').length;
     const bcCount = programsData.filter(p => p.platform === 'bc').length;
     const itCount = programsData.filter(p => p.platform === 'it').length;
+    const haCount = programsData.filter(p => p.platform === 'ha').length;
     const scopeCount = programsData.filter(p => p.latest_target || p.scope_targets > 0 || p._scope_loaded).length;
     const scopeStatus = hydrating
       ? `<span style="color:rgba(0,212,255,0.75);">Latest: <strong>${scopeLoadedCount}/${programsData.length}</strong> checked</span>`
@@ -90,7 +92,7 @@
       const staleNote = cacheStale ? ' · refreshing…' : '';
       cacheStatus = ` · <span style="color:rgba(255,255,255,0.4);" title="${esc(cacheGeneratedAt)}">Updated ${esc(age)}${staleNote}</span> · <a href="#" onclick="window.ProgramsPage.refreshNow();return false;" style="color:rgba(0,212,255,0.75);text-decoration:none;">Refresh now</a>`;
     }
-    statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> bounty programs</span><span style="color:#2ecc71;">H1: <strong>${h1Count}</strong></span><span style="color:#e67e22;">BC: <strong>${bcCount}</strong></span><span style="color:#b3a6ff;">IT: <strong>${itCount}</strong></span>${scopeStatus ? ` ${scopeStatus}` : ''}${cacheStatus}` + (tokenHints.length ? ` · ${tokenHints.join(' · ')}` : '');
+    statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> bounty programs</span><span style="color:#2ecc71;">H1: <strong>${h1Count}</strong></span><span style="color:#e67e22;">BC: <strong>${bcCount}</strong></span><span style="color:#b3a6ff;">IT: <strong>${itCount}</strong></span>${haCount ? `<span style="color:#f472b6;">HA: <strong>${haCount}</strong></span>` : ''}${scopeStatus ? ` ${scopeStatus}` : ''}${cacheStatus}` + (tokenHints.length ? ` · ${tokenHints.join(' · ')}` : '');
   }
 
   function sortDirectionFor(key) {
@@ -306,6 +308,7 @@
       if (!data.has_h1_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">H1 token not set — latest scope requires H1 auth</span>');
       if (!data.has_bc_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">BC token not set — set BUGCROWD_TOKEN to load Bugcrowd programs</span>');
       if (!data.has_it_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">Intigriti token not set — set INTIGRITI_TOKEN to load Intigriti programs</span>');
+      if (!data.has_ha_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">HackAdvisor token not set — set HACKADVISOR_TOKEN for external targets (Immunefi, Standoff365, …)</span>');
 
       if (data.scope_included) {
         // Warm cache already carries scope counts + latest targets — no per-program
@@ -376,6 +379,10 @@
           </div>`
         : p._scope_loading
           ? '<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.45);">checking...</span>'
+        : latestAge
+          // No representative target (e.g. HackAdvisor list rows) but we DO know when
+          // scope last changed — show the age so the "latest update" column isn't blank.
+          ? `<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.6);" title="${esc(p.latest_target_updated_at)}">${esc(latestAge)}</span>`
         : '<span style="color:rgba(255,255,255,0.25);">-</span>';
 
       return `
@@ -388,7 +395,10 @@
         </td>
         <td style="padding:10px 12px;">
           <a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:#fff;text-decoration:none;font-weight:600;font-size:13px;" onmouseenter="this.style.textDecoration='underline'" onmouseleave="this.style.textDecoration='none'">${esc(p.name)}</a>
-          <div style="font-size:10px;color:rgba(255,255,255,0.35);">${esc(p.handle)}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.35);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <span>${esc(p.handle)}</span>
+            ${p.external_platform ? `<span style="padding:1px 6px;border-radius:4px;background:rgba(244,114,182,0.12);color:#f9a8d4;border:1px solid rgba(244,114,182,0.25);font-size:9px;font-weight:600;">${esc(p.external_platform)}</span>` : ''}
+          </div>
         </td>
         <td style="padding:10px 12px;">
           <span style="font-size:11px;padding:3px 8px;border-radius:12px;background:${stateColor(p.state)};color:${stateTextColor(p.state)};font-weight:500;">${stateLabel}</span>
