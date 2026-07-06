@@ -340,8 +340,30 @@ func apiProgramScopeDebug(c *gin.Context) {
 	if platform == "" {
 		platform = "h1"
 	}
+	// HackAdvisor: reuse the same fetcher the catalogue/force-fetch use.
+	if platform == "ha" || platform == "hackadvisor" {
+		if !hasHackAdvisorToken() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "HACKADVISOR_TOKEN not set"})
+			return
+		}
+		summary, ok := fetchHAScopeSummary(handle)
+		c.JSON(http.StatusOK, gin.H{
+			"platform":  "ha",
+			"handle":    handle,
+			"scope_url": fmt.Sprintf("%s/programs/%s/scope/", hackAdvisorBase, handle),
+			"parser_output": gin.H{
+				"ok":                       ok,
+				"scope_targets":            summary.ScopeTargets,
+				"latest_target":            summary.LatestTarget,
+				"latest_target_updated_at": summary.LatestTargetUpdatedAt,
+				"all_assets_count":         len(summary.Assets),
+				"assets_sample":            firstN(summary.Assets, 15),
+			},
+		})
+		return
+	}
 	if platform != "h1" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only platform=h1 supported currently"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only platform=h1 or ha supported currently"})
 		return
 	}
 
