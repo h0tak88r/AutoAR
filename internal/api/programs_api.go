@@ -44,6 +44,7 @@ type ProgramSummary struct {
 	UpdatedAt             string       `json:"updated_at"`               // when we last fetched this
 	Stats                 ProgramStats `json:"stats"`
 	Assets                []string     `json:"-"`                        // all in-scope asset identifiers (internal, for scope-change monitoring)
+	ExternalPlatform      string       `json:"external_platform,omitempty"` // real platform for aggregator sources (e.g. "Immunefi" for Platform=="ha")
 }
 
 // ProgramStats holds user-specific stats from H1.
@@ -206,6 +207,10 @@ func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform
 			if p.Platform == "it" {
 				programs = append(programs, p)
 			}
+		case "ha", "hackadvisor", "external":
+			if p.Platform == "ha" {
+				programs = append(programs, p)
+			}
 		}
 	}
 
@@ -217,6 +222,7 @@ func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform
 		"has_h1_token":   payload.HasH1Token,
 		"has_bc_token":   payload.HasBCToken,
 		"has_it_token":   payload.HasITToken,
+		"has_ha_token":   payload.HasHAToken,
 		"scope_included": true,
 		"warm":           true,
 		"stale":          stale,
@@ -303,6 +309,10 @@ func apiProgramScopeSummaries(c *gin.Context) {
 					// failed fetch so we don't overwrite persisted good data.
 					// (Matches the enrichBCScopeCounts guard.)
 					fetched = summary.ScopeTargets > 0 || summary.LatestTarget != ""
+				}
+			case "ha", "hackadvisor":
+				if hasHackAdvisorToken() {
+					summary, fetched = fetchHAScopeSummary(item.Handle)
 				}
 			}
 
