@@ -29,6 +29,20 @@
         <div class="settings-value ${cls}">${escValue(String(value ?? '—'))}</div>
       </div>`;
 
+    // Masked secret-token row: password input (never pre-filled), placeholder shows
+    // whether a value is already saved, Save button calls the given handler.
+    const tokenRow = (title, hint, inputId, saveFn, placeholder, isSet) => `
+      <div class="settings-item">
+        <div class="settings-label">
+          <div class="settings-title">${title}</div>
+          <div class="settings-hint">${hint} ${isSet ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
+        </div>
+        <div class="settings-control">
+          <input type="password" id="${inputId}" value="" placeholder="${isSet ? '••••••• (saved)' : escValue(placeholder)}" class="form-control premium-input">
+          <button class="btn btn-primary" onclick="${saveFn}">Save</button>
+        </div>
+      </div>`;
+
     el.innerHTML = `
       <div class="settings-container-premium">
         <div class="settings-section">
@@ -117,6 +131,48 @@
                   placeholder="${cfg.gemini_key_set ? '••••••• (saved)' : 'AIza…'}"
                   class="form-control premium-input">
                 <button class="btn btn-primary" onclick="window.SettingsPage.saveGeminiKey()">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-header"> Bug Bounty Platform API Keys</div>
+          <div class="settings-section-description">
+            Credentials for the Programs catalogue. Saved securely on the server (never
+            shown back) and applied immediately — the Programs list refreshes in the
+            background. Leave a field blank to keep the current value.
+          </div>
+          <div class="settings-section-body">
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">HackerOne</div>
+                <div class="settings-hint">Username + API token (<a href="https://hackerone.com/settings/api_token" target="_blank" rel="noopener">get a token</a>). ${cfg.h1_token_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
+              </div>
+              <div class="settings-control" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <input type="text" id="h1-username-input" value="" placeholder="${cfg.h1_username_set ? 'username saved — type to change' : 'username'}" class="form-control premium-input">
+                <div style="display:flex;gap:8px;">
+                  <input type="password" id="h1-token-input" value="" placeholder="${cfg.h1_token_set ? '••••••• (saved)' : 'API token'}" class="form-control premium-input" style="flex:1;">
+                  <button class="btn btn-primary" onclick="window.SettingsPage.saveH1Creds()">Save</button>
+                </div>
+              </div>
+            </div>
+            ${tokenRow('Bugcrowd', 'Value of the <code>_crowdcontrol_session_key</code> session cookie.', 'bc-token-input', 'window.SettingsPage.saveBugcrowdToken()', 'session cookie value', cfg.bc_token_set)}
+            ${tokenRow('Intigriti', 'Researcher API token.', 'it-token-input', 'window.SettingsPage.saveIntigritiToken()', 'API token', cfg.it_token_set)}
+            ${tokenRow('YesWeHack', 'JWT token.', 'ywh-token-input', 'window.SettingsPage.saveYWHToken()', 'JWT token', cfg.ywh_token_set)}
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">HackAdvisor <span style="font-size:10px;color:#f472b6;font-weight:600;">external targets</span></div>
+                <div class="settings-hint">Bearer token from <a href="https://hackadvisor.io/api-docs" target="_blank" rel="noopener">hackadvisor.io/api-docs</a> — adds Immunefi, Standoff365, BI.ZONE, YesWeHack &amp; self-hosted programs. ${cfg.ha_token_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
+              </div>
+              <div class="settings-control" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <div style="display:flex;gap:8px;">
+                  <input type="password" id="ha-token-input" value="" placeholder="${cfg.ha_token_set ? '••••••• (saved)' : 'ha_...'}" class="form-control premium-input" style="flex:1;">
+                  <button class="btn btn-primary" onclick="window.SettingsPage.saveHackAdvisorCreds()">Save</button>
+                </div>
+                <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="checkbox" id="ha-include-native-input" ${cfg.ha_include_native ? 'checked' : ''}> Also include its HackerOne/Bugcrowd/Intigriti listings (off = external only, avoids duplicates)
+                </label>
               </div>
             </div>
           </div>
@@ -383,6 +439,61 @@
     }
   }
 
+  // postSettings sends a partial settings body and reloads the config on success.
+  async function postSettings(payload, successMsg) {
+    const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/settings', { method: 'POST', headers, body: JSON.stringify(payload) });
+    if (!res.ok) throw new Error('Failed to update server config');
+    window.showToast('success', 'Saved!', successMsg);
+    try { window.state.config = await window.apiFetch('/api/config'); renderSettings(); } catch (_) {}
+  }
+
+  // Generic single-token save (Bugcrowd / Intigriti / YesWeHack). Empty = no change.
+  async function savePlatformToken(field, inputId, label) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) { window.showToast('info', 'No change', `Enter a ${label} value to set or replace it.`); return; }
+    try {
+      await postSettings({ [field]: val }, `${label} saved. Programs will refresh shortly.`);
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
+  function saveBugcrowdToken()  { return savePlatformToken('bc_token', 'bc-token-input', 'Bugcrowd token'); }
+  function saveIntigritiToken() { return savePlatformToken('it_token', 'it-token-input', 'Intigriti token'); }
+  function saveYWHToken()       { return savePlatformToken('ywh_token', 'ywh-token-input', 'YesWeHack token'); }
+
+  async function saveH1Creds() {
+    const u = document.getElementById('h1-username-input');
+    const t = document.getElementById('h1-token-input');
+    const username = u ? u.value.trim() : '';
+    const token = t ? t.value.trim() : '';
+    if (!username && !token) { window.showToast('info', 'No change', 'Enter a HackerOne username and/or token.'); return; }
+    // Empty = keep current (the username is no longer pre-filled, so a blank field
+    // must NOT clear it — only send when the user typed something).
+    const body = {};
+    if (username) body.h1_username = username;
+    if (token) body.h1_token = token;
+    try {
+      await postSettings(body, 'HackerOne credentials saved. Programs will refresh shortly.');
+      if (t) t.value = '';
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
+  async function saveHackAdvisorCreds() {
+    const t = document.getElementById('ha-token-input');
+    const n = document.getElementById('ha-include-native-input');
+    const token = t ? t.value.trim() : '';
+    const body = {};
+    if (token) body.ha_token = token;
+    if (n) body.ha_include_native = n.checked; // bool → always sent so the toggle persists
+    if (!token && !n) { window.showToast('info', 'No change', 'Enter a HackAdvisor token.'); return; }
+    try {
+      await postSettings(body, 'HackAdvisor saved — external targets will load on the next Programs refresh.');
+      if (t) t.value = '';
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
   window.SettingsPage = {
     loadConfig,
     renderSettings,
@@ -393,5 +504,10 @@
     saveGeminiKey,
     saveTimeoutSettings,
     saveWebhookSettings,
+    saveH1Creds,
+    saveBugcrowdToken,
+    saveIntigritiToken,
+    saveYWHToken,
+    saveHackAdvisorCreds,
   };
 })();

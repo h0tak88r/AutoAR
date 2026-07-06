@@ -73,6 +73,17 @@ func apiConfigHandler(c *gin.Context) {
 		"opencode_key_set":   strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "",
 		"openrouter_key_set": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "",
 		"gemini_key_set":     strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
+		// Bug-bounty platform credentials — tokens are never returned, only whether
+		// each is configured. This endpoint is public (read pre-login), so we don't
+		// echo the H1 username value either (it's an identity handle) — just whether
+		// it's set. HackAdvisor's include-native flag is a plain non-secret bool.
+		"h1_username_set":   strings.TrimSpace(os.Getenv("H1_USERNAME")) != "",
+		"h1_token_set":      strings.TrimSpace(os.Getenv("H1_TOKEN")) != "",
+		"bc_token_set":      strings.TrimSpace(os.Getenv("BUGCROWD_TOKEN")) != "",
+		"it_token_set":      strings.TrimSpace(os.Getenv("INTIGRITI_TOKEN")) != "",
+		"ywh_token_set":     strings.TrimSpace(os.Getenv("YWH_TOKEN")) != "",
+		"ha_token_set":      strings.TrimSpace(os.Getenv("HACKADVISOR_TOKEN")) != "",
+		"ha_include_native": strings.EqualFold(strings.TrimSpace(os.Getenv("HACKADVISOR_INCLUDE_NATIVE")), "true"),
 		// Models — fall back to defaults when env is unset so the UI always shows something.
 		"opencode_model":   utils.GetEnv("OPENCODE_MODEL", "deepseek-v4-flash-free"),
 		"openrouter_model": utils.GetEnv("OPENROUTER_MODEL", "z-ai/glm-4.5-air:free"),
@@ -99,6 +110,16 @@ type UpdateSettingsBody struct {
 	OpenRouterKey  string `json:"openrouter_key"`
 	OpenCodeKey    string `json:"opencode_key"`
 	GeminiKey      string `json:"gemini_key"`
+	// Bug-bounty platform credentials. Empty string = "no change" (can't clear a
+	// secret with a blank submit); H1Username is a *string so it can be set/cleared
+	// explicitly. HAIncludeNative is a *bool (present = update).
+	H1Username      *string `json:"h1_username,omitempty"`
+	H1Token         string  `json:"h1_token"`
+	BugcrowdToken   string  `json:"bc_token"`
+	IntigritiToken  string  `json:"it_token"`
+	YWHToken        string  `json:"ywh_token"`
+	HackAdvisorKey  string  `json:"ha_token"`
+	HAIncludeNative *bool   `json:"ha_include_native,omitempty"`
 	// AI model overrides — empty string keeps the current value, "default" clears the override.
 	OpenRouterModel *string `json:"openrouter_model,omitempty"`
 	OpenCodeModel   *string `json:"opencode_model,omitempty"`
@@ -129,6 +150,47 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	}
 	if body.GeminiKey != "" {
 		_ = envloader.UpdateEnv("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
+	}
+
+	// Bug-bounty platform credentials. Each non-empty value is persisted to .env AND
+	// applied live via envloader.UpdateEnv (os.Setenv). When any of these change we
+	// kick a background Programs-cache rebuild so the new/updated source shows up
+	// without waiting for the next warm cycle.
+	platformCredsChanged := false
+	if body.H1Username != nil {
+		_ = envloader.UpdateEnv("H1_USERNAME", strings.TrimSpace(*body.H1Username))
+		platformCredsChanged = true
+	}
+	if body.H1Token != "" {
+		_ = envloader.UpdateEnv("H1_TOKEN", strings.TrimSpace(body.H1Token))
+		platformCredsChanged = true
+	}
+	if body.BugcrowdToken != "" {
+		_ = envloader.UpdateEnv("BUGCROWD_TOKEN", strings.TrimSpace(body.BugcrowdToken))
+		platformCredsChanged = true
+	}
+	if body.IntigritiToken != "" {
+		_ = envloader.UpdateEnv("INTIGRITI_TOKEN", strings.TrimSpace(body.IntigritiToken))
+		platformCredsChanged = true
+	}
+	if body.YWHToken != "" {
+		_ = envloader.UpdateEnv("YWH_TOKEN", strings.TrimSpace(body.YWHToken))
+		platformCredsChanged = true
+	}
+	if body.HackAdvisorKey != "" {
+		_ = envloader.UpdateEnv("HACKADVISOR_TOKEN", strings.TrimSpace(body.HackAdvisorKey))
+		platformCredsChanged = true
+	}
+	if body.HAIncludeNative != nil {
+		v := "false"
+		if *body.HAIncludeNative {
+			v = "true"
+		}
+		_ = envloader.UpdateEnv("HACKADVISOR_INCLUDE_NATIVE", v)
+		platformCredsChanged = true
+	}
+	if platformCredsChanged {
+		refreshProgramsCacheAsync()
 	}
 	// Model overrides — pointer = field was present in the request.
 	// Value "" or "default" clears the override (provider falls back to its built-in default).
