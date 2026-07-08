@@ -43,6 +43,16 @@
     return s(v);
   }
 
+  /* first non-empty value among the given keys (handles nuclei underscore vs
+     hyphen key variants, e.g. matched_at / matched-at) */
+  function pick(o, ...keys) {
+    for (const k of keys) {
+      const v = o && o[k];
+      if (v != null && v !== '') return v;
+    }
+    return '';
+  }
+
   /* ── severity colour map ────────────────────────────────────────────────── */
 
   const SEV = {
@@ -72,6 +82,9 @@
     'xss-detection': 'xss-detection', 'mod:xss-detection': 'xss-detection',
     'misconfig': 'misconfig', 'mod:misconfig': 'misconfig',
     'github-scan': 'github', 'mod:github': 'github',
+    // DNS / subdomain-takeover findings (nuclei + custom takeover detector + CNAME collection)
+    'dns': 'dns', 'dns-takeover': 'dns', 'mod:dns': 'dns', 'mod:dns-takeover': 'dns',
+    'cnames': 'dns', 'mod:cnames': 'dns', 'takeover': 'dns',
   };
 
   function resolveKey(activeKind) {
@@ -491,6 +504,74 @@
     },
 
     /* ── Default (fallback for any unknown module) ──────────────────────── */
+    /* ── DNS / subdomain takeover ──────────────────────────────────────────
+       DNS-takeover findings come from nuclei (underscore OR hyphen keys) or the
+       custom takeover detector. The old default schema only showed 5 fields, so
+       the panel looked almost empty. This surfaces the CNAME, the vulnerable
+       service, the nuclei evidence, AND dumps every remaining raw key so a DNS
+       finding can never render a near-empty detail panel again. */
+    dns: {
+      columns: [
+        { id: 'target',  label: 'TARGET',          flex: '2', type: 'link'       },
+        { id: 'sev',     label: 'SEV',             w: '68px', type: 'sev-badge', align: 'center' },
+        { id: 'finding', label: 'FINDING',         flex: '2', type: 'mono-trunc' },
+        { id: 'cname',   label: 'CNAME / MATCHED', flex: '2', type: 'mono-muted' },
+      ],
+      extract(r) {
+        const raw  = (r.raw && typeof r.raw === 'object') ? r.raw : {};
+        const info = (raw.info && typeof raw.info === 'object') ? raw.info : {};
+        const target = s(r.host || r.target || raw.host || '-');
+        const cname  = s(pick(raw, 'cname', 'CNAME', 'matched_at', 'matched-at') ||
+                         (Array.isArray(raw.extracted_results) ? raw.extracted_results[0] : ''));
+        return {
+          target:  { href: toHref(target), label: target },
+          sev:     sevMeta(r.severity || info.severity),
+          finding: s(r.title || info.name || pick(raw, 'template_id', 'template-id') || r.finding || '—'),
+          cname,
+        };
+      },
+      detail(r) {
+        const raw  = (r.raw && typeof r.raw === 'object') ? r.raw : {};
+        const info = (raw.info && typeof raw.info === 'object') ? raw.info : {};
+        const target = s(r.host || r.target || raw.host || '');
+        const fields = [
+          ['Target',                 target, { isLink: true }],
+          ['Finding',                s(r.title || info.name || pick(raw, 'template_id', 'template-id') || r.finding || ''), { full: true }],
+          ['CNAME',                  s(pick(raw, 'cname', 'CNAME'))],
+          ['Vulnerable Service',     s(info.name || pick(raw, 'template_id', 'template-id'))],
+          ['Matched At',             s(pick(raw, 'matched_at', 'matched-at')), { isLink: true }],
+          ['Matcher',                s(pick(raw, 'matcher_name', 'matcher-name'))],
+          ['Fingerprint / Extracted', arr(pick(raw, 'extracted_results', 'extracted-results'))],
+          ['Description',            s(info.description), { full: true }],
+          ['Remediation',            s(info.remediation), { full: true }],
+          ['Tags',                   arr(info.tags)],
+          ['References',             arr(info.reference), { full: true }],
+          ['Severity',               s(r.severity || info.severity)],
+          ['IP',                     s(raw.ip)],
+          ['Timestamp',              s(pick(raw, 'timestamp', 'time'))],
+          ['Curl Command',           s(pick(raw, 'curl_command', 'curl-command')), { full: true, code: true }],
+        ];
+        // Safety net — dump any remaining raw keys we didn't explicitly surface.
+        const shown = new Set([
+          'host', 'info', 'template_id', 'template-id', 'matched_at', 'matched-at',
+          'matcher_name', 'matcher-name', 'extracted_results', 'extracted-results',
+          'cname', 'CNAME', 'curl_command', 'curl-command', 'severity', 'ip',
+          'timestamp', 'time', 'type', 'template', 'template_url', 'template-url',
+          'template_path', 'template-path', 'matcher_status', 'matcher-status',
+          'request', 'response',
+        ]);
+        Object.keys(raw).forEach((k) => {
+          if (shown.has(k)) return;
+          const v = raw[k];
+          if (v == null || v === '') return;
+          const val = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+          if (!val || val === '{}' || val === '[]' || val === 'null') return;
+          fields.push([k, val, { full: val.length > 60, code: typeof v === 'object' }]);
+        });
+        return buildFields(fields);
+      },
+    },
+
     default: {
       columns: [
         { id: 'target',  label: 'TARGET',           flex: '2', type: 'link'      },
