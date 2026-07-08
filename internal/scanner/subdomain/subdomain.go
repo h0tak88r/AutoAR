@@ -3,7 +3,7 @@ package subdomain
 import (
 	"context"
 	"fmt"
-	"github.com/h0tak88r/AutoAR/internal/logger"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,17 +11,19 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/logger"
+
+	"github.com/h0tak88r/AutoAR/internal/envloader"
 	aemmod "github.com/h0tak88r/AutoAR/internal/scanner/aem"
 	"github.com/h0tak88r/AutoAR/internal/scanner/backup"
 	"github.com/h0tak88r/AutoAR/internal/scanner/cnames"
 	"github.com/h0tak88r/AutoAR/internal/scanner/depconfusion"
 	"github.com/h0tak88r/AutoAR/internal/scanner/dns"
-	"github.com/h0tak88r/AutoAR/internal/scanner/mcpdiscovery"
-	"github.com/h0tak88r/AutoAR/internal/envloader"
 	"github.com/h0tak88r/AutoAR/internal/scanner/ffuf"
 	"github.com/h0tak88r/AutoAR/internal/scanner/gf"
 	"github.com/h0tak88r/AutoAR/internal/scanner/jsendpoints"
 	"github.com/h0tak88r/AutoAR/internal/scanner/jsscan"
+	"github.com/h0tak88r/AutoAR/internal/scanner/mcpdiscovery"
 	"github.com/h0tak88r/AutoAR/internal/scanner/misconfig"
 	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
 	"github.com/h0tak88r/AutoAR/internal/scanner/ports"
@@ -29,9 +31,9 @@ import (
 	s3mod "github.com/h0tak88r/AutoAR/internal/scanner/s3"
 	"github.com/h0tak88r/AutoAR/internal/scanner/tech"
 	"github.com/h0tak88r/AutoAR/internal/scanner/urls"
-	"github.com/h0tak88r/AutoAR/internal/utils"
 	wpconfusion "github.com/h0tak88r/AutoAR/internal/scanner/wp-confusion"
 	zerodaysmod "github.com/h0tak88r/AutoAR/internal/scanner/zerodays"
+	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/projectdiscovery/httpx/runner"
 )
 
@@ -114,12 +116,15 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		return int(atomic.AddInt32(&currentStep, 1))
 	}
 
-	// Phase 1: Live Check (Sequential - Critical Path)
+	// Phase 1: Live Check — BEST EFFORT, not a hard gate. A failure here (transient
+	// httpx/DNS hiccup, WAF, slow TLS, redirect quirk) must NOT abort the whole scan.
+	// Log it, seed the target itself as a fallback live host so the remaining modules
+	// still have something to run against, then continue with the rest of the pipeline.
 	if err := utils.RunWorkflowPhase("livehosts", getNextStep(), totalSteps, "Live host check", subdomain, 0, func() error {
 		return checkAndSaveLiveSubdomain(subdomain, liveHostsFile)
 	}); err != nil {
-		logger.GetLogger().Infof("[ERROR] Live host check failed: %v", err)
-		return nil, fmt.Errorf("subdomain %s is not live or check failed: %v", subdomain, err)
+		logger.GetLogger().Infof("[WARN] Live host check did not confirm %s as live (%v) — continuing anyway with the target as a fallback so the other modules still run", subdomain, err)
+		seedFallbackLiveHost(subdomain, liveHostsFile)
 	}
 
 	// Phase 2: Discovery Group (Parallel, requires LiveHosts)
@@ -389,7 +394,6 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 		logger.GetLogger().Infof("[DEBUG] Subdomain directory contains %d files", fileCount)
 	}
 
-
 	utils.Log.WithField("subdomain", subdomain).Info("Full subdomain scan completed successfully")
 
 	// Track successful completion
@@ -495,8 +499,18 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 
 	httpxRunner.RunEnumeration()
 
+	// Second opinion: httpx occasionally returns nothing for hosts that are actually
+	// reachable (TLS/redirect/proxy quirks or aggressive defaults). Before declaring
+	// the host dead, try a plain browser-like GET — if it responds at all, count it.
 	if len(liveHosts) == 0 {
-		return fmt.Errorf("subdomain %s is not live", subdomain)
+		if url := directLivenessProbe(subdomain); url != "" {
+			liveHosts = append(liveHosts, url)
+			logger.GetLogger().Infof("[INFO] httpx found no live host for %s; direct HTTP probe reached %s", subdomain, url)
+		}
+	}
+
+	if len(liveHosts) == 0 {
+		return fmt.Errorf("host %s not confirmed live: httpx and a direct HTTP probe both got no response (target may be down, DNS-unresolvable, or blocking automated clients)", subdomain)
 	}
 
 	// Ensure directory exists before writing
@@ -518,6 +532,56 @@ func checkAndSaveLiveSubdomain(subdomain, liveHostsFile string) error {
 
 	logger.GetLogger().Infof("[OK] Found %d live URL(s) for %s", len(liveHosts), subdomain)
 	return nil
+}
+
+// directLivenessProbe is a lightweight fallback for checkAndSaveLiveSubdomain: a
+// plain net/http GET with a browser-like User-Agent, following redirects, with a
+// generous timeout. It catches reachable hosts the httpx library occasionally
+// misses. Returns the reachable URL, or "" when nothing responded.
+func directLivenessProbe(subdomain string) string {
+	targets := []string{"https://" + subdomain, "http://" + subdomain}
+	if strings.HasPrefix(subdomain, "http://") || strings.HasPrefix(subdomain, "https://") {
+		targets = []string{subdomain}
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	for _, u := range targets {
+		req, err := http.NewRequest("GET", u, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0; +https://github.com/h0tak88r/AutoAR)")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode > 0 {
+			return u
+		}
+	}
+	return ""
+}
+
+// seedFallbackLiveHost guarantees the live-hosts file has at least the target
+// itself, so downstream modules still run when the live check couldn't confirm
+// liveness. It never overwrites a file that already has hosts.
+func seedFallbackLiveHost(subdomain, liveHostsFile string) {
+	if data, err := os.ReadFile(liveHostsFile); err == nil && strings.TrimSpace(string(data)) != "" {
+		return // already has live hosts — leave them
+	}
+	target := subdomain
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "https://" + subdomain
+	}
+	if err := os.MkdirAll(filepath.Dir(liveHostsFile), 0755); err != nil {
+		logger.GetLogger().Infof("[WARN] could not create dir for fallback live host: %v", err)
+		return
+	}
+	if err := os.WriteFile(liveHostsFile, []byte(target+"\n"), 0644); err != nil {
+		logger.GetLogger().Infof("[WARN] could not seed fallback live host: %v", err)
+		return
+	}
+	logger.GetLogger().Infof("[INFO] seeded fallback live host so the remaining modules run: %s", target)
 }
 
 // extractDomain extracts the root domain from a subdomain
