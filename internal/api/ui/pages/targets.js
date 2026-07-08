@@ -104,6 +104,79 @@
     } catch (e) {
       window.showToast('error', 'Scope Error', e.message);
     }
+    // Chaos key status hint (best-effort — doesn't block the page)
+    try {
+      const cfg = window.state?.config || await window.apiFetch('/api/config');
+      const el = document.getElementById('targets-chaos-status');
+      if (el) {
+        el.innerHTML = cfg.chaos_key_set
+          ? '<span style="color:#2ecc71">● key configured</span>'
+          : '<span style="color:#e67e22">● no CHAOS_API_KEY — set it in Settings</span>';
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  /* ── Chaos subdomain lookup ─────────────────────────────────────────────── */
+  let chaosSubs = [];
+
+  async function chaosFetch(prefill) {
+    const input = document.getElementById('targets-chaos-domain');
+    if (prefill && input) input.value = prefill;
+    const domain = (prefill || (input && input.value) || '').trim();
+    if (!domain) { window.showToast('warning', 'No domain', 'Enter a domain first'); return; }
+    const save = document.getElementById('targets-chaos-save')?.checked ?? true;
+    const btn = document.getElementById('targets-chaos-btn');
+    const results = document.getElementById('targets-chaos-results');
+    if (btn) { btn.textContent = 'Querying…'; btn.disabled = true; }
+    if (results) results.innerHTML = '<div style="padding:14px;color:var(--text-muted)">Querying Chaos…</div>';
+    try {
+      const data = await window.apiPost('/api/chaos/subdomains', { domain, save });
+      chaosRenderResults(data);
+      window.showToast('success', 'Chaos',
+        `${data.count} subdomain${data.count === 1 ? '' : 's'} for ${data.domain}${data.saved ? ` · ${data.saved} saved` : ''}`);
+    } catch (e) {
+      if (results) results.innerHTML = '';
+      window.showToast('error', 'Chaos failed', e.message || String(e));
+    } finally {
+      if (btn) { btn.textContent = 'Get Subdomains'; btn.disabled = false; }
+    }
+  }
+
+  function chaosRenderResults(data) {
+    const el = document.getElementById('targets-chaos-results');
+    if (!el) return;
+    chaosSubs = data.subdomains || [];
+    if (!chaosSubs.length) {
+      el.innerHTML = `<div style="padding:14px;color:var(--text-muted)">Chaos has no subdomains for <code>${escapeSafe(data.domain || '')}</code>.</div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:12px;color:var(--text-muted)">
+          <strong style="color:#fff">${data.count}</strong> subdomains for <code>${escapeSafe(data.domain)}</code>
+          ${data.saved ? ` · <span style="color:#2ecc71">${data.saved} saved to Subdomains DB</span>` : ''}
+          ${data.save_error ? ` · <span style="color:#e74c3c">save failed: ${escapeSafe(data.save_error)}</span>` : ''}
+        </div>
+        <button class="btn btn-sm" onclick="window.TargetsPage.chaosCopyAll()">Copy all</button>
+      </div>
+      <div style="max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+        ${chaosSubs.map((sd, i) => `
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;">
+            <span style="color:var(--text-muted);width:40px;flex-shrink:0">${i + 1}</span>
+            <a href="https://${escapeSafe(sd)}" target="_blank" rel="noopener" style="font-family:monospace;color:var(--accent-cyan);text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeSafe(sd)}</a>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  async function chaosCopyAll() {
+    if (!chaosSubs.length) return;
+    const text = chaosSubs.join('\n');
+    try {
+      await window.copyToClipboard(text);
+      window.showToast('success', 'Copied', `${chaosSubs.length} subdomains copied`);
+    } catch (e) {
+      window.showToast('error', 'Copy failed', e.message || String(e));
+    }
   }
 
   function targetsUpdateCred(platformId, field, value) {
@@ -227,6 +300,11 @@
                              background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
                       + Add
                     </button>
+                    <button onclick="window.TargetsPage.chaosFetch('${escapeSafe(d)}')" title="Fetch subdomains from Chaos"
+                      style="padding:4px 12px;border-radius:8px;border:1px solid ${colors.border};
+                             background:transparent;color:${colors.text};font-size:11px;cursor:pointer;">
+                      🌀 Chaos
+                    </button>
                     <button onclick="targetsLaunchScan('${escapeSafe(d)}')"
                       style="padding:4px 12px;border-radius:8px;border:none;
                              background:${colors.accent};color:#fff;font-size:11px;cursor:pointer;font-weight:600;">
@@ -339,5 +417,7 @@
     targetsLaunchScan,
     targetsCopyAll,
     targetsCopyOne,
+    chaosFetch,
+    chaosCopyAll,
   };
 })();

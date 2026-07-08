@@ -360,6 +360,26 @@
           <div class="view-subtitle">Fetch in-scope root domains from HackerOne, Bugcrowd, YesWeHack, Intigriti &amp; Immunefi</div>
         </div>
 
+        <!-- Chaos subdomain lookup (ProjectDiscovery dataset) -->
+        <div class="card" id="targets-chaos-card" style="margin-bottom:24px;">
+          <div class="card-title">
+            <span class="card-title-icon">🌀</span><span>Chaos Subdomains</span>
+            <span id="targets-chaos-status" style="font-size:11px;font-weight:400;margin-left:10px;"></span>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin:6px 0 12px;">
+            Pull a root domain's known subdomains from ProjectDiscovery's Chaos dataset — instant, no full recon. Uses <code>CHAOS_API_KEY</code>.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input class="search-input" id="targets-chaos-domain" placeholder="example.com" autocomplete="off"
+                   onkeydown="if(event.key==='Enter'){window.TargetsPage.chaosFetch();}" style="flex:1;min-width:220px;" />
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap;">
+              <input type="checkbox" id="targets-chaos-save" checked /> Save to Subdomains DB
+            </label>
+            <button class="btn btn-primary" id="targets-chaos-btn" onclick="window.TargetsPage.chaosFetch()">Get Subdomains</button>
+          </div>
+          <div id="targets-chaos-results" style="margin-top:14px;"></div>
+        </div>
+
         <!-- Platform Cards -->
         <div id="targets-platforms-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:28px;"></div>
 

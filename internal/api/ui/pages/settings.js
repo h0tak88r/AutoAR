@@ -175,6 +175,7 @@
                 </label>
               </div>
             </div>
+            ${tokenRow('Chaos (ProjectDiscovery)', 'Subdomain-dataset API key — powers the <strong>Chaos</strong> lookup in the Targets tab. Get one at <a href="https://cloud.projectdiscovery.io" target="_blank" rel="noopener">cloud.projectdiscovery.io</a>.', 'chaos-key-input', 'window.SettingsPage.saveChaosKey()', 'chaos API key', cfg.chaos_key_set)}
           </div>
         </div>
 
@@ -462,6 +463,7 @@
   function saveBugcrowdToken()  { return savePlatformToken('bc_token', 'bc-token-input', 'Bugcrowd token'); }
   function saveIntigritiToken() { return savePlatformToken('it_token', 'it-token-input', 'Intigriti token'); }
   function saveYWHToken()       { return savePlatformToken('ywh_token', 'ywh-token-input', 'YesWeHack token'); }
+  function saveChaosKey()       { return savePlatformToken('chaos_key', 'chaos-key-input', 'Chaos API key'); }
 
   async function saveH1Creds() {
     const u = document.getElementById('h1-username-input');
@@ -509,5 +511,6 @@
     saveIntigritiToken,
     saveYWHToken,
     saveHackAdvisorCreds,
+    saveChaosKey,
   };
 })();

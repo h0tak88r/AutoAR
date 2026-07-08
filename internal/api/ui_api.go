@@ -84,6 +84,7 @@ func apiConfigHandler(c *gin.Context) {
 		"ywh_token_set":     strings.TrimSpace(os.Getenv("YWH_TOKEN")) != "",
 		"ha_token_set":      strings.TrimSpace(os.Getenv("HACKADVISOR_TOKEN")) != "",
 		"ha_include_native": strings.EqualFold(strings.TrimSpace(os.Getenv("HACKADVISOR_INCLUDE_NATIVE")), "true"),
+		"chaos_key_set":     strings.TrimSpace(os.Getenv("CHAOS_API_KEY")) != "",
 		// Models — fall back to defaults when env is unset so the UI always shows something.
 		"opencode_model":   utils.GetEnv("OPENCODE_MODEL", "deepseek-v4-flash-free"),
 		"openrouter_model": utils.GetEnv("OPENROUTER_MODEL", "z-ai/glm-4.5-air:free"),
@@ -120,6 +121,7 @@ type UpdateSettingsBody struct {
 	YWHToken        string  `json:"ywh_token"`
 	HackAdvisorKey  string  `json:"ha_token"`
 	HAIncludeNative *bool   `json:"ha_include_native,omitempty"`
+	ChaosKey        string  `json:"chaos_key"`
 	// AI model overrides — empty string keeps the current value, "default" clears the override.
 	OpenRouterModel *string `json:"openrouter_model,omitempty"`
 	OpenCodeModel   *string `json:"opencode_model,omitempty"`
@@ -180,6 +182,9 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	if body.HackAdvisorKey != "" {
 		_ = envloader.UpdateEnv("HACKADVISOR_TOKEN", strings.TrimSpace(body.HackAdvisorKey))
 		platformCredsChanged = true
+	}
+	if body.ChaosKey != "" {
+		_ = envloader.UpdateEnv("CHAOS_API_KEY", strings.TrimSpace(body.ChaosKey))
 	}
 	if body.HAIncludeNative != nil {
 		v := "false"

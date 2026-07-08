@@ -578,6 +578,7 @@ func SetupAPI() *gin.Engine {
 		apiGroup.POST("/r2/delete", apiR2Delete)
 		// Bug bounty scope / target fetch endpoints
 		apiGroup.POST("/scope/fetch", apiFetchScope)
+		apiGroup.POST("/chaos/subdomains", apiChaosSubdomains) // Chaos dataset subdomain lookup
 		apiGroup.GET("/scope/platforms", apiScopePlatforms)
 		apiGroup.GET("/scope/programs", apiListPrograms)
 		apiGroup.POST("/scope/program-summaries", apiProgramScopeSummaries)
