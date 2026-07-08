@@ -116,7 +116,10 @@ func RunWorkflowPhase(phaseKey string, step, total int, description, target stri
 		if err == ErrTimeout {
 			GetLogger().Warnf("[WARN] %s timed out", description)
 		} else {
-			GetLogger().WithError(err).Errorf("[ERROR] %s failed", description)
+			// Use the error STRING as the field value — WithError(err) serializes a
+			// plain error to "{}" under the JSON formatter, which is what produced
+			// the useless {"error":{}} phase-failure logs.
+			GetLogger().WithField("error", err.Error()).Errorf("[ERROR] %s failed", description)
 		}
 
 		if scanID != "" {
