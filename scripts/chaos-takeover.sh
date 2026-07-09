@@ -21,9 +21,9 @@
 #     --candidates-too  also send raw CNAME candidates to Discord (batched; noisy)
 #     -h | --help
 #
-# Env:
-#   CHAOS_API_KEY   sent as Authorization on the index/ZIP requests if the
-#                   public dataset is gated.
+# Note: the bulk dataset (index.json + program ZIPs) is a PUBLIC endpoint and is
+# fetched WITHOUT auth — sending CHAOS_API_KEY to it returns HTTP 400. The key is
+# only used by the per-domain DNS API (the AutoAR Chaos integration / chaos-client).
 #
 # Deps: curl jq unzip dnsx httpx nuclei notify
 set -euo pipefail
