@@ -84,15 +84,15 @@ fi
 mkdir -p "$OUT/zips"
 cd "$OUT"
 
-# curl auth header if a key is set (only used if the endpoint gates the data)
-KEY_HDR=()
-[ -n "${CHAOS_API_KEY:-}" ] && KEY_HDR=(-H "Authorization: ${CHAOS_API_KEY}")
+# NOTE: the bulk dataset (index.json + program ZIPs) is a PUBLIC endpoint and
+# rejects an Authorization header with HTTP 400 — so we deliberately do NOT send
+# CHAOS_API_KEY here. The key is only for the per-domain DNS API.
 
 # ── 1. index ──────────────────────────────────────────────────────────────────
 if [ "$DO_DOWNLOAD" -eq 1 ]; then
   echo "[*] Fetching Chaos index…"
   curl -fsSL --retry 4 --retry-delay 2 -A "Mozilla/5.0 (chaos-takeover)" \
-       "${KEY_HDR[@]}" "$INDEX_URL" -o index.json
+       "$INDEX_URL" -o index.json
   echo "    $(jq 'length' index.json) programs"
 
   # ── 2. download every ZIP — hardened (retries, resumable, non-fatal) ───────
@@ -103,9 +103,9 @@ if [ "$DO_DOWNLOAD" -eq 1 ]; then
         f="zips/$(basename "$1")"
         [ -s "$f" ] && exit 0
         curl -fsSL --retry 6 --retry-all-errors --retry-delay 2 --connect-timeout 15 \
-             -A "Mozilla/5.0 (chaos-takeover)" "${@:2}" "$1" -o "$f" \
+             -A "Mozilla/5.0 (chaos-takeover)" "$1" -o "$f" \
           || { echo "$1" >> download_errors.log; rm -f "$f"; }
-      ' _ {} "${KEY_HDR[@]}" || true
+      ' _ {} || true
 
   ok=$(ls zips/*.zip 2>/dev/null | wc -l | tr -d ' ')
   fail=$(wc -l < download_errors.log 2>/dev/null | tr -d ' ' || echo 0)
