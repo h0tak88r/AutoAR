@@ -59,7 +59,9 @@ while [ $# -gt 0 ]; do
 done
 
 # ── deps ──────────────────────────────────────────────────────────────────────
-for t in curl jq unzip dnsx httpx nuclei notify; do
+# Note: no httpx — nuclei probes hosts itself, and many systems have the Python
+# httpx CLI shadowing ProjectDiscovery's, which breaks the pipeline.
+for t in curl jq unzip dnsx nuclei notify; do
   command -v "$t" >/dev/null || { echo "[!] missing dependency: $t" >&2; exit 1; }
 done
 
@@ -120,20 +122,25 @@ else
   echo "[*] --no-download: reusing $(ls zips/*.zip 2>/dev/null | wc -l | tr -d ' ') existing ZIPs"
 fi
 
+# Ensure the takeover templates are installed (first run / stale index).
+echo "[*] Ensuring nuclei templates are up to date…"
+nuclei -update-templates -silent 2>/dev/null || nuclei -ut 2>/dev/null || true
+
 # ── 3. streaming resolve → match → verify → notify ──────────────────────────
 DNSX_ARGS=(-cname -resp -silent -t "$DNSX_T")
 [ -n "$RESOLVERS" ] && DNSX_ARGS+=(-r "$RESOLVERS")
 
-echo "[*] Streaming: unzip → dnsx → grep → httpx → nuclei → notify"
+echo "[*] Streaming: unzip → dnsx → grep → nuclei(takeover) → notify"
 : > candidates.txt; : > confirmed.txt
 
+# No httpx stage: nuclei probes each host itself, and -tags takeover selects the
+# takeover templates by tag (path-independent across nuclei versions).
 for z in zips/*.zip; do unzip -p "$z" 2>/dev/null || true; done \
   | dnsx "${DNSX_ARGS[@]}" \
   | stdbuf -oL grep -iE "$FP" \
   | tee -a candidates.txt \
   | awk '{print $1}' \
-  | httpx -silent \
-  | nuclei -t http/takeovers/ -silent \
+  | nuclei -tags takeover -silent \
   | tee -a confirmed.txt \
   | while IFS= read -r hit; do
       printf '🚨 Subdomain takeover confirmed: %s\n' "$hit" | notify -silent -id "$NOTIFY_ID"
