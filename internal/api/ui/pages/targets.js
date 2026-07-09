@@ -60,30 +60,37 @@
       const card = document.createElement('div');
       card.id = `targets-platform-${p.id}`;
       card.style.cssText = `
-      background:${colors.bg};border:2px solid ${isSelected ? colors.accent : colors.border};
-      border-radius:16px;padding:20px;cursor:pointer;transition:all 0.2s;
-      ${isSelected ? `box-shadow:0 0 24px ${colors.accent}33;` : ''}
+      background:${colors.bg};border:1.5px solid ${isSelected ? colors.accent : colors.border};
+      border-radius:16px;padding:18px;cursor:pointer;transition:all 0.18s;
+      display:flex;flex-direction:column;
+      ${isSelected ? `box-shadow:0 0 0 1px ${colors.accent}55, 0 8px 28px ${colors.accent}22;` : ''}
     `;
+      const statusPill = p.env_configured
+        ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#2ecc71;">
+             <span style="width:7px;height:7px;border-radius:50%;background:#2ecc71;box-shadow:0 0 6px #2ecc71;"></span>Configured</span>`
+        : `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#e67e22;">
+             <span style="width:7px;height:7px;border-radius:50%;background:#e67e22;"></span>Needs credentials</span>`;
       card.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-        <span style="font-size:28px">${p.logo}</span>
-        <div>
-          <div style="font-weight:700;font-size:15px;color:${colors.text}">${p.name}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
-            ${p.env_configured
-    ? `<span style="color:#2ecc71">OK Credentials configured</span>`
-    : `<span style="color:#e74c3c">! Credentials needed</span>`}
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:11px;min-width:0;">
+          ${p.logo ? `<span style="font-size:28px;line-height:1;flex-shrink:0;">${p.logo}</span>` : ''}
+          <div style="min-width:0;">
+            <div style="font-weight:700;font-size:15px;color:${colors.text};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeSafe(p.name)}</div>
+            <div style="margin-top:4px;">${statusPill}</div>
           </div>
         </div>
+        ${isSelected ? `<span style="flex-shrink:0;font-size:9px;font-weight:800;letter-spacing:.06em;color:${colors.accent};border:1px solid ${colors.accent}66;border-radius:20px;padding:3px 9px;">SELECTED</span>` : ''}
       </div>
-      <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:14px">${p.description}</div>
-      ${renderPlatformCredFields(p, colors)}
-      <button onclick="targetsSelectPlatform('${p.id}')"
-        style="width:100%;margin-top:14px;padding:9px;border-radius:10px;border:none;
-               background:${isSelected ? colors.accent : colors.border};
-               color:${isSelected ? '#fff' : colors.text};font-weight:600;font-size:13px;cursor:pointer;transition:all 0.2s;">
-        ${isSelected ? 'OK Selected' : 'Select'}
-      </button>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.55;margin-bottom:14px;">${escapeSafe(p.description)}</div>
+      <div style="margin-top:auto;">
+        ${renderPlatformCredFields(p, colors)}
+        <button onclick="targetsSelectPlatform('${p.id}')"
+          style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:none;
+                 background:${isSelected ? colors.accent : colors.border};
+                 color:${isSelected ? '#fff' : colors.text};font-weight:600;font-size:13px;cursor:pointer;transition:all 0.18s;">
+          ${isSelected ? '✓ Selected' : 'Select'}
+        </button>
+      </div>
     `;
       card.addEventListener('mouseenter', () => {
         if (!isSelected) card.style.borderColor = colors.accent;
