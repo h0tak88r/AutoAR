@@ -5,7 +5,7 @@
 #
 # Pipeline (every stage runs concurrently via pipes — no save-then-wait):
 #   download all program ZIPs  →  unzip -p  →  dnsx (CNAME)  →  grep fingerprints
-#     →  httpx  →  nuclei takeover templates  →  notify (Discord, per confirmed hit)
+#     →  nuclei takeover templates  →  notify (Discord, per confirmed hit)
 #
 # A CNAME match is only a CANDIDATE. nuclei verifies fingerprint + unclaimed
 # target before it's alerted, so Discord only gets real, reportable takeovers.
@@ -25,7 +25,7 @@
 # fetched WITHOUT auth — sending CHAOS_API_KEY to it returns HTTP 400. The key is
 # only used by the per-domain DNS API (the AutoAR Chaos integration / chaos-client).
 #
-# Deps: curl jq unzip dnsx httpx nuclei notify
+# Deps: curl jq unzip dnsx nuclei notify
 set -euo pipefail
 
 # ── defaults ──────────────────────────────────────────────────────────────────
