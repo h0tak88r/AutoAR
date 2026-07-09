@@ -109,16 +109,72 @@ func SendMonitorWebhook(msg string) {
 	GetLogger().Info("[MONITOR] Successfully sent monitor webhook alert.")
 }
 
+// discordContentLimit is Discord's hard cap on a webhook message's `content`
+// field (2000). We chunk to a margin below it so a batched alert (e.g. the
+// subdomain monitor listing many changed hosts) doesn't get rejected with a 400
+// and silently vanish — which is exactly why bulk subdomain alerts never arrived
+// while short per-URL alerts did.
+const discordContentLimit = 1900
+
 // SendMonitorWebhookErr posts msg to MONITOR_WEBHOOK_URL and returns the delivery
-// error (or a "not configured" error). Lets callers like the test endpoint report
-// real status instead of failing silently.
+// error (or a "not configured" error). Messages longer than Discord's limit are
+// split into multiple posts so nothing is dropped.
 func SendMonitorWebhookErr(msg string) error {
 	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
 	if webhookURL == "" {
 		return fmt.Errorf("MONITOR_WEBHOOK_URL is not set")
 	}
+	for _, chunk := range chunkDiscordContent(msg, discordContentLimit) {
+		if err := postDiscordContent(webhookURL, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	payload := map[string]any{"content": msg}
+// chunkDiscordContent splits content into pieces no larger than max, breaking on
+// line boundaries where possible (a single over-long line is hard-split).
+func chunkDiscordContent(msg string, max int) []string {
+	msg = strings.TrimRight(msg, "\n")
+	if msg == "" {
+		return nil
+	}
+	if len(msg) <= max {
+		return []string{msg}
+	}
+	var chunks []string
+	var b strings.Builder
+	flush := func() {
+		if b.Len() > 0 {
+			chunks = append(chunks, b.String())
+			b.Reset()
+		}
+	}
+	for _, line := range strings.Split(msg, "\n") {
+		// Hard-split any single line longer than max.
+		for len(line) > max {
+			flush()
+			chunks = append(chunks, line[:max])
+			line = line[max:]
+		}
+		need := len(line)
+		if b.Len() > 0 {
+			need++ // for the joining newline
+		}
+		if b.Len()+need > max {
+			flush()
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
+	}
+	flush()
+	return chunks
+}
+
+func postDiscordContent(webhookURL, content string) error {
+	payload := map[string]any{"content": content}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
