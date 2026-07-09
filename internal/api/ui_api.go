@@ -80,7 +80,10 @@ func apiConfigHandler(c *gin.Context) {
 		"h1_username_set":   strings.TrimSpace(os.Getenv("H1_USERNAME")) != "",
 		"h1_token_set":      strings.TrimSpace(os.Getenv("H1_TOKEN")) != "",
 		"bc_token_set":      strings.TrimSpace(os.Getenv("BUGCROWD_TOKEN")) != "",
-		"it_token_set":      strings.TrimSpace(os.Getenv("INTIGRITI_TOKEN")) != "",
+		// hasIntigritiToken accepts both INTIGRITI_TOKEN and the INTIGRITI_API_KEY
+		// alias — a raw INTIGRITI_TOKEN check would wrongly show "not set" when only
+		// the alias is configured (even though Intigriti fetching works fine).
+		"it_token_set":      hasIntigritiToken(),
 		"ywh_token_set":     strings.TrimSpace(os.Getenv("YWH_TOKEN")) != "",
 		"ha_token_set":      strings.TrimSpace(os.Getenv("HACKADVISOR_TOKEN")) != "",
 		"ha_include_native": strings.EqualFold(strings.TrimSpace(os.Getenv("HACKADVISOR_INCLUDE_NATIVE")), "true"),
