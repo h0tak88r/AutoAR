@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 #
-# chaos-takeover.sh — bulk subdomain-takeover hunt over the ProjectDiscovery
-# Chaos dataset, fully streamed (resolve → CNAME match → verify → Discord).
+# chaos-takeover.sh — bulk subdomain CNAME-fingerprint hunt over the
+# ProjectDiscovery Chaos dataset, fully streamed (resolve → match → Discord).
 #
 # Pipeline (every stage runs concurrently via pipes — no save-then-wait):
 #   download all program ZIPs  →  unzip -p  →  dnsx (CNAME)  →  grep fingerprints
-#     →  nuclei takeover templates  →  notify (Discord, per confirmed hit)
+#     →  notify (Discord, per matched host)
 #
-# A CNAME match is only a CANDIDATE. nuclei verifies fingerprint + unclaimed
-# target before it's alerted, so Discord only gets real, reportable takeovers.
+# NO VERIFICATION STEP. A CNAME match only means the host points at one of the
+# fingerprinted services — most are CLAIMED (not exploitable). This is a raw
+# candidate feed, not a confirmed-findings feed: expect false positives, and
+# manually confirm (unclaimed target / claimable) before treating anything here
+# as a reportable bug.
 #
 # Usage:
 #   ./chaos-takeover.sh [options]
@@ -18,14 +21,13 @@
 #     --par N           parallel ZIP downloads (default: 4)
 #     --threads N       dnsx threads           (default: 300)
 #     --no-download     skip download, reuse zips/ already on disk
-#     --candidates-too  also send raw CNAME candidates to Discord (batched; noisy)
 #     -h | --help
 #
 # Note: the bulk dataset (index.json + program ZIPs) is a PUBLIC endpoint and is
 # fetched WITHOUT auth — sending CHAOS_API_KEY to it returns HTTP 400. The key is
 # only used by the per-domain DNS API (the AutoAR Chaos integration / chaos-client).
 #
-# Deps: curl jq unzip dnsx nuclei notify
+# Deps: curl jq unzip dnsx notify
 set -euo pipefail
 
 # ── defaults ──────────────────────────────────────────────────────────────────
@@ -36,11 +38,11 @@ DNSX_T=300
 RESOLVERS=""
 WEBHOOK=""
 DO_DOWNLOAD=1
-CANDIDATES_TOO=0
 NOTIFY_ID="takeover"
 
-# Takeover-able service fingerprints matched against the CNAME target. A match is
-# a candidate only; nuclei confirms. Reference: github.com/EdOverflow/can-i-take-over-xyz
+# Service fingerprints matched against the CNAME target. UNVERIFIED — a match
+# means "points at this service", not "takeover confirmed". Most are claimed.
+# Reference: github.com/EdOverflow/can-i-take-over-xyz
 FP='vercel-dns\.com|github\.io|netlify\.app|azurewebsites\.net|elasticbeanstalk\.com|webflow\.io|gitbook\.io|readme\.io|railway\.app|herokudns\.com|herokuapp\.com|fastly\.net|ghost\.io|helpscoutdocs\.com|surge\.sh|bitbucket\.io|wpengine\.com|pantheonsite\.io|zendesk\.com|statuspage\.io'
 
 # ── args ──────────────────────────────────────────────────────────────────────
@@ -52,16 +54,14 @@ while [ $# -gt 0 ]; do
     --par)            DL_PAR="$2"; shift 2 ;;
     --threads)        DNSX_T="$2"; shift 2 ;;
     --no-download)    DO_DOWNLOAD=0; shift ;;
-    --candidates-too) CANDIDATES_TOO=1; shift ;;
     -h|--help)        sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
 # ── deps ──────────────────────────────────────────────────────────────────────
-# Note: no httpx — nuclei probes hosts itself, and many systems have the Python
-# httpx CLI shadowing ProjectDiscovery's, which breaks the pipeline.
-for t in curl jq unzip dnsx nuclei notify; do
+# Note: no httpx/nuclei — this is a raw grep-match pipeline, unverified by design.
+for t in curl jq unzip dnsx notify; do
   command -v "$t" >/dev/null || { echo "[!] missing dependency: $t" >&2; exit 1; }
 done
 
@@ -122,45 +122,21 @@ else
   echo "[*] --no-download: reusing $(ls zips/*.zip 2>/dev/null | wc -l | tr -d ' ') existing ZIPs"
 fi
 
-# Ensure the takeover templates are actually installed. This is NOT best-effort —
-# `nuclei -update-templates` was previously swallowed by `|| true`, so a first-run
-# machine with an empty ~/nuclei-templates dir would silently proceed straight to
-# "no templates provided for scan" with zero hits ever alerted. Fail loud instead.
-echo "[*] Ensuring nuclei templates are installed…"
-nuclei -update-templates 2>&1 | tail -5
-TAKEOVER_TPL_COUNT=$(nuclei -tags takeover -tl 2>/dev/null | grep -c '\.yaml$' || true)
-if [ "${TAKEOVER_TPL_COUNT:-0}" -eq 0 ]; then
-  echo "[!] 0 takeover templates found after update — nuclei can't verify anything." >&2
-  echo "    Check 'nuclei -update-templates' output above for the real error." >&2
-  exit 1
-fi
-echo "    ${TAKEOVER_TPL_COUNT} takeover templates available"
-
-# ── 3. streaming resolve → match → verify → notify ──────────────────────────
+# ── 3. streaming resolve → match → notify (no verification step) ────────────
 DNSX_ARGS=(-cname -resp -silent -t "$DNSX_T")
 [ -n "$RESOLVERS" ] && DNSX_ARGS+=(-r "$RESOLVERS")
 
-echo "[*] Streaming: unzip → dnsx → grep → nuclei(takeover) → notify"
-: > candidates.txt; : > confirmed.txt
+echo "[*] Streaming: unzip → dnsx → grep → notify (every match, unverified)"
+: > candidates.txt
 
-# No httpx stage: nuclei probes each host itself, and -tags takeover selects the
-# takeover templates by tag (path-independent across nuclei versions).
 for z in zips/*.zip; do unzip -p "$z" 2>/dev/null || true; done \
   | dnsx "${DNSX_ARGS[@]}" \
   | stdbuf -oL grep -iE "$FP" \
   | tee -a candidates.txt \
-  | awk '{print $1}' \
-  | nuclei -tags takeover -silent \
-  | tee -a confirmed.txt \
-  | while IFS= read -r hit; do
-      printf '🚨 Subdomain takeover confirmed: %s\n' "$hit" | notify -silent -id "$NOTIFY_ID"
+  | while IFS= read -r line; do
+      printf '🎯 CNAME match: %s\n' "$line" | notify -silent -id "$NOTIFY_ID"
     done
 
-# ── 4. optional: batch the raw candidates to Discord too (noisy) ────────────
-if [ "$CANDIDATES_TOO" -eq 1 ] && [ -s candidates.txt ]; then
-  echo "[*] Sending $(wc -l < candidates.txt | tr -d ' ') raw candidates (batched)…"
-  notify -silent -id "$NOTIFY_ID" -bulk < candidates.txt || true
-fi
-
-echo "[✓] Done — candidates=$(wc -l < candidates.txt | tr -d ' ')  confirmed=$(wc -l < confirmed.txt | tr -d ' ')"
-echo "    candidates.txt (all CNAME matches) · confirmed.txt (nuclei-verified)"
+echo "[✓] Done — candidates=$(wc -l < candidates.txt | tr -d ' ')"
+echo "    candidates.txt has every CNAME match, sent to Discord live as found."
+echo "    UNVERIFIED — confirm each is actually unclaimed before reporting."
