@@ -122,9 +122,19 @@ else
   echo "[*] --no-download: reusing $(ls zips/*.zip 2>/dev/null | wc -l | tr -d ' ') existing ZIPs"
 fi
 
-# Ensure the takeover templates are installed (first run / stale index).
-echo "[*] Ensuring nuclei templates are up to date…"
-nuclei -update-templates -silent 2>/dev/null || nuclei -ut 2>/dev/null || true
+# Ensure the takeover templates are actually installed. This is NOT best-effort —
+# `nuclei -update-templates` was previously swallowed by `|| true`, so a first-run
+# machine with an empty ~/nuclei-templates dir would silently proceed straight to
+# "no templates provided for scan" with zero hits ever alerted. Fail loud instead.
+echo "[*] Ensuring nuclei templates are installed…"
+nuclei -update-templates 2>&1 | tail -5
+TAKEOVER_TPL_COUNT=$(nuclei -tags takeover -tl 2>/dev/null | grep -c '\.yaml$' || true)
+if [ "${TAKEOVER_TPL_COUNT:-0}" -eq 0 ]; then
+  echo "[!] 0 takeover templates found after update — nuclei can't verify anything." >&2
+  echo "    Check 'nuclei -update-templates' output above for the real error." >&2
+  exit 1
+fi
+echo "    ${TAKEOVER_TPL_COUNT} takeover templates available"
 
 # ── 3. streaming resolve → match → verify → notify ──────────────────────────
 DNSX_ARGS=(-cname -resp -silent -t "$DNSX_T")
