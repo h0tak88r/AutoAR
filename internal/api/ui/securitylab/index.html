@@ -1429,21 +1429,27 @@
       const one = e.target.closest('.ssrf-copy-one');
       if (one) {
         const url = ssrfFilteredUrls[+one.dataset.i];
-        if (url != null) ssrfCopyText(url).then(() => ssrfFlashBtn(one, 'Copied', 'Copy'));
+        if (url != null) ssrfCopyText(url).then(() => ssrfFlashBtn(one, 'Copied', 'Copy')).catch(() => ssrfFlashBtn(one, 'Copy failed', 'Copy'));
         return;
       }
       const grp = e.target.closest('.ssrf-copy-group');
       if (grp) {
         const urls = (ssrfGroups[+grp.dataset.g] || {}).urls || [];
-        if (urls.length) ssrfCopyText(urls.join('\n')).then(() => ssrfFlashBtn(grp, `Copied ${urls.length}`, 'Copy group'));
+        if (urls.length) ssrfCopyText(urls.join('\n')).then(() => ssrfFlashBtn(grp, `Copied ${urls.length}`, 'Copy group')).catch(() => ssrfFlashBtn(grp, 'Copy failed', 'Copy group'));
       }
     });
 
     $('ssrfCopyAll').addEventListener('click', function () {
       if (!ssrfFilteredUrls.length) return;
+      const btn = this;
       ssrfCopyText(ssrfFilteredUrls.join('\n')).then(() => {
-        this.textContent = `Copied ${ssrfFilteredUrls.length}!`;
-        setTimeout(() => { this.textContent = ssrfCopyAllLabel(); }, 1800);
+        btn.textContent = `Copied ${ssrfFilteredUrls.length}!`;
+        setTimeout(() => { btn.textContent = ssrfCopyAllLabel(); }, 1800);
+      }).catch(() => {
+        // Clipboard denied (e.g. missing iframe clipboard-write permission) — surface
+        // it instead of failing silently, which is exactly what broke this button.
+        btn.textContent = 'Copy failed — check permissions';
+        setTimeout(() => { btn.textContent = ssrfCopyAllLabel(); }, 2500);
       });
     });
 
@@ -1561,14 +1567,18 @@
         e.preventDefault();
         e.stopPropagation();
         const q = visibleQueries[+btn.dataset.i];
-        if (q != null) ssrfCopyText(q).then(() => ssrfFlashBtn(btn, '✓', 'copy'));
+        if (q != null) ssrfCopyText(q).then(() => ssrfFlashBtn(btn, '✓', 'copy')).catch(() => ssrfFlashBtn(btn, '✗', 'copy'));
       });
 
       $('dorkCopyAll').addEventListener('click', function () {
         if (!visibleQueries.length) return;
+        const btn = this;
         ssrfCopyText(visibleQueries.join('\n')).then(() => {
-          this.textContent = `Copied ${visibleQueries.length}!`;
-          setTimeout(() => { this.textContent = copyAllLabel(); }, 1800);
+          btn.textContent = `Copied ${visibleQueries.length}!`;
+          setTimeout(() => { btn.textContent = copyAllLabel(); }, 1800);
+        }).catch(() => {
+          btn.textContent = 'Copy failed — check permissions';
+          setTimeout(() => { btn.textContent = copyAllLabel(); }, 2500);
         });
       });
 
@@ -1756,10 +1766,16 @@
 
     $('xssCopyAll').addEventListener('click', function() {
       if (!xssFilteredPayloads.length) return;
+      const btn = this;
       const text = xssFilteredPayloads.map(p => p.code).join('\n\n');
-      navigator.clipboard.writeText(text).then(() => {
-        this.textContent = ' Copied ' + xssFilteredPayloads.length + ' payloads!';
-        setTimeout(() => this.textContent = ' Copy All Visible', 2000);
+      // ssrfCopyText (defined above) falls back to execCommand on non-secure
+      // contexts and never leaves a rejected promise unhandled.
+      ssrfCopyText(text).then(() => {
+        btn.textContent = ' Copied ' + xssFilteredPayloads.length + ' payloads!';
+        setTimeout(() => btn.textContent = ' Copy All Visible', 2000);
+      }).catch(() => {
+        btn.textContent = ' Copy failed — check permissions';
+        setTimeout(() => btn.textContent = ' Copy All Visible', 2500);
       });
     });
 
