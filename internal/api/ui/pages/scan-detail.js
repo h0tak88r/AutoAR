@@ -1270,12 +1270,19 @@
           if (info.line) detailParts.push(`line: ${info.line}`);
           if (info.url) detailParts.push(`url: ${info.url}`);
           if (info.matched || info.match) detailParts.push(`match: ${info.matched || info.match}`);
+          // Several bulk-discovery kinds (urls, tech, dns-takeover, ...) carry no
+          // real per-row description — finding/title is just an echo of the module
+          // name (e.g. "autoar"/"tech-detect"). Repeating that placeholder makes
+          // otherwise-distinct rows (they always have a different TARGET) look like
+          // duplicates. Drop it there; TARGET already carries the real content.
+          const rawFinding = r.finding || r.title || '';
+          const finding = (rawFinding && rawFinding !== r.module && rawFinding !== r.kind) ? rawFinding : '';
           return [
             r.module || '',
             r.kind || '',
             r.severity || '',
             r.target || r.host || '',
-            r.finding || r.title || '',
+            finding,
             detailParts.join(' | '),
           ];
         });
