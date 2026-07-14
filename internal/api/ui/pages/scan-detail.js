@@ -1256,69 +1256,29 @@
     }
     if (exportCsvBtn) {
       exportCsvBtn.onclick = () => {
-        const exportedRows = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
-        if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings in the current view to export.'); return; }
+        // Page-level export: the whole scan's findings across every tab/module,
+        // not just whatever tab happens to be active (which defaults to "assets"
+        // and can legitimately have zero unified-table rows).
+        const exportedRows = allRows.filter(r => !HIDDEN_KINDS.has(r.kind));
+        if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings for this scan to export.'); return; }
 
-        const dynamicRawMode = exportedRows.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
-          isGitHubTableKind(activeKind) &&
-          !/nuclei/.test(String(activeKind || '').toLowerCase());
-        const dynamicCols = dynamicRawMode ? collectDynamicColumns(exportedRows) : [];
-
-        let headers, rows;
-        if (dynamicRawMode) {
-          headers = ['DETECTORNAME', 'SEV', ...dynamicCols];
-          rows = exportedRows.map(r => {
-            const info = (r.raw && r.raw.info) || {};
-            return [
-              r.title || info.detector_name || '',
-              r.severity || 'info',
-              ...dynamicCols.map(k => {
-                const v = r.raw[k];
-                return v !== undefined && v !== null ? String(v) : '';
-              }),
-            ];
-          });
-        } else if (isGitHubTableKind(activeKind)) {
-          headers = ['DETECTORNAME', 'SEV', 'VERIFIED', 'REDACTED', 'SOURCE FILE', 'LINE', 'SOURCE LINK'];
-          rows = exportedRows.map(r => {
-            const info = (r.raw && r.raw.info) || {};
-            return [
-              r.title || info.detector_name || '',
-              r.severity || 'info',
-              info.verified ? 'Yes' : 'No',
-              info.redacted ? 'Yes' : 'No',
-              r.file || r.module || '',
-              info.line || '',
-              info.url || '',
-            ];
-          });
-        } else {
-          const schema = window.ModuleRegistry?.get ? window.ModuleRegistry.get(activeKind) : null;
-          if (presetMode !== 'raw' && schema && schema.columns) {
-            const schemaCols = schema.columns;
-            headers = schemaCols.map(c => c.label);
-            rows = exportedRows.map(r => {
-              const extracted = schema.extract ? schema.extract(r, window.getModuleDisplayInfo(r.module)) : r;
-              return schemaCols.map(c => {
-                const val = extracted[c.id];
-                if (val && typeof val === 'object') {
-                  if (val.href && val.label) return `${val.label} (${val.href})`;
-                  if (val.label) return val.label;
-                  try { return JSON.stringify(val); } catch (_) { return String(val); }
-                }
-                return val !== undefined && val !== null ? String(val) : '';
-              });
-            });
-          } else {
-            headers = ['TARGET', 'SEV', 'FINDING', 'MODULE'];
-            rows = exportedRows.map(r => [
-              r.target || r.host || '',
-              r.severity || '',
-              r.finding || r.title || '',
-              r.module || '',
-            ]);
-          }
-        }
+        const headers = ['MODULE', 'KIND', 'SEVERITY', 'TARGET', 'FINDING', 'DETAIL'];
+        const rows = exportedRows.map(r => {
+          const info = (r.raw && r.raw.info) || {};
+          const detailParts = [];
+          if (r.file) detailParts.push(`file: ${r.file}`);
+          if (info.line) detailParts.push(`line: ${info.line}`);
+          if (info.url) detailParts.push(`url: ${info.url}`);
+          if (info.matched || info.match) detailParts.push(`match: ${info.matched || info.match}`);
+          return [
+            r.module || '',
+            r.kind || '',
+            r.severity || '',
+            r.target || r.host || '',
+            r.finding || r.title || '',
+            detailParts.join(' | '),
+          ];
+        });
 
         const csvEscape = (v) => {
           const s = String(v ?? '');
@@ -1331,7 +1291,7 @@
         const target = String(scanRecord?.target || scanRecord?.Target || scanId).replace(/[^a-z0-9._-]+/gi, '_');
         const a = document.createElement('a');
         a.href = url;
-        a.download = `findings-${target}-${activeKind}.csv`;
+        a.download = `findings-${target}.csv`;
         document.body.appendChild(a);
         a.click();
         a.remove();
