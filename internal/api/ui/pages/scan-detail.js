@@ -1203,6 +1203,7 @@
     const copyTsvBtn = root.querySelector('#recon-copy-selected-tsv');
     const exportJsonBtn = root.querySelector('#recon-export-all-json');
     const reportAiBtn = root.querySelector('#recon-report-selected-ai');
+    const exportCsvBtn = document.getElementById('scan-detail-export-csv-btn');
     if (copyTsvBtn) {
       copyTsvBtn.addEventListener('click', async () => {
         const rows = collectCheckedFindingRows();
@@ -1252,6 +1253,92 @@
           reportAiBtn.disabled = false; reportAiBtn.textContent = orig;
         }
       });
+    }
+    if (exportCsvBtn) {
+      exportCsvBtn.onclick = () => {
+        const exportedRows = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
+        if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings in the current view to export.'); return; }
+
+        const dynamicRawMode = exportedRows.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
+          isGitHubTableKind(activeKind) &&
+          !/nuclei/.test(String(activeKind || '').toLowerCase());
+        const dynamicCols = dynamicRawMode ? collectDynamicColumns(exportedRows) : [];
+
+        let headers, rows;
+        if (dynamicRawMode) {
+          headers = ['DETECTORNAME', 'SEV', ...dynamicCols];
+          rows = exportedRows.map(r => {
+            const info = (r.raw && r.raw.info) || {};
+            return [
+              r.title || info.detector_name || '',
+              r.severity || 'info',
+              ...dynamicCols.map(k => {
+                const v = r.raw[k];
+                return v !== undefined && v !== null ? String(v) : '';
+              }),
+            ];
+          });
+        } else if (isGitHubTableKind(activeKind)) {
+          headers = ['DETECTORNAME', 'SEV', 'VERIFIED', 'REDACTED', 'SOURCE FILE', 'LINE', 'SOURCE LINK'];
+          rows = exportedRows.map(r => {
+            const info = (r.raw && r.raw.info) || {};
+            return [
+              r.title || info.detector_name || '',
+              r.severity || 'info',
+              info.verified ? 'Yes' : 'No',
+              info.redacted ? 'Yes' : 'No',
+              r.file || r.module || '',
+              info.line || '',
+              info.url || '',
+            ];
+          });
+        } else {
+          const schema = window.ModuleRegistry?.get ? window.ModuleRegistry.get(activeKind) : null;
+          if (presetMode !== 'raw' && schema && schema.columns) {
+            const schemaCols = schema.columns;
+            headers = schemaCols.map(c => c.label);
+            rows = exportedRows.map(r => {
+              const extracted = schema.extract ? schema.extract(r, window.getModuleDisplayInfo(r.module)) : r;
+              return schemaCols.map(c => {
+                const val = extracted[c.id];
+                if (val && typeof val === 'object') {
+                  if (val.href && val.label) return `${val.label} (${val.href})`;
+                  if (val.label) return val.label;
+                  try { return JSON.stringify(val); } catch (_) { return String(val); }
+                }
+                return val !== undefined && val !== null ? String(val) : '';
+              });
+            });
+          } else {
+            headers = ['TARGET', 'SEV', 'FINDING', 'MODULE'];
+            rows = exportedRows.map(r => [
+              r.target || r.host || '',
+              r.severity || '',
+              r.finding || r.title || '',
+              r.module || '',
+            ]);
+          }
+        }
+
+        const csvEscape = (v) => {
+          const s = String(v ?? '');
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csv = [headers, ...rows].map(row => row.map(csvEscape).join(',')).join('\r\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const target = String(scanRecord?.target || scanRecord?.Target || scanId).replace(/[^a-z0-9._-]+/gi, '_');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `findings-${target}-${activeKind}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        showToast('success', 'Exported', `Exported ${exportedRows.length} finding(s) as CSV`);
+      };
     }
     if (exportJsonBtn) {
       exportJsonBtn.addEventListener('click', async () => {
