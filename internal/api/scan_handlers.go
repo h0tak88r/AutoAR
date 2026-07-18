@@ -619,6 +619,9 @@ func scanZerodays(c *gin.Context) {
 	if req.CVEs != nil {
 		opts.CVEs = *req.CVEs
 	}
+	if req.WP2ShellConfirmSQLi != nil {
+		opts.WP2ShellConfirmSQLi = *req.WP2ShellConfirmSQLi
+	}
 	if req.MongoDBHost != nil {
 		opts.MongoDBHost = *req.MongoDBHost
 	}
