@@ -736,6 +736,21 @@ async function targetsCopyAll() {
 async function targetsCopyOne(value) {
   return callPageMethod('TargetsPage', 'targetsCopyOne', [value]);
 }
+async function targetsManageAccounts(platformId) {
+  return callPageMethod('TargetsPage', 'targetsManageAccounts', [platformId]);
+}
+function targetsCloseAccountsModal() {
+  return callPageMethod('TargetsPage', 'targetsCloseAccountsModal');
+}
+async function targetsAddAccount(platformId) {
+  return callPageMethod('TargetsPage', 'targetsAddAccount', [platformId]);
+}
+async function targetsToggleAccount(id, enabled, platformId) {
+  return callPageMethod('TargetsPage', 'targetsToggleAccount', [id, enabled, platformId]);
+}
+async function targetsDeleteAccount(id, platformId) {
+  return callPageMethod('TargetsPage', 'targetsDeleteAccount', [id, platformId]);
+}
 
 // ── Keyhacks ─────────────────────────────────────────────────────────────────
 

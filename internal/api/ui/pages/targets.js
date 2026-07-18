@@ -65,11 +65,19 @@
       display:flex;flex-direction:column;
       ${isSelected ? `box-shadow:0 0 0 1px ${colors.accent}55, 0 8px 28px ${colors.accent}22;` : ''}
     `;
+      const acctCount = p.account_count || 0;
+      const acctSuffix = acctCount > 0 ? ` · ${acctCount} account${acctCount > 1 ? 's' : ''}` : '';
       const statusPill = p.env_configured
         ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#2ecc71;">
-             <span style="width:7px;height:7px;border-radius:50%;background:#2ecc71;box-shadow:0 0 6px #2ecc71;"></span>Configured</span>`
+             <span style="width:7px;height:7px;border-radius:50%;background:#2ecc71;box-shadow:0 0 6px #2ecc71;"></span>Configured${acctSuffix}</span>`
         : `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#e67e22;">
              <span style="width:7px;height:7px;border-radius:50%;background:#e67e22;"></span>Needs credentials</span>`;
+      const manageBtn = (p.auth_fields && p.auth_fields.length)
+        ? `<button onclick="event.stopPropagation();targetsManageAccounts('${p.id}')"
+             style="width:100%;margin-top:8px;padding:8px;border-radius:9px;border:1px solid ${colors.border};
+                    background:transparent;color:${colors.text};font-weight:600;font-size:12px;cursor:pointer;">
+             ⚙ Manage accounts${acctCount > 0 ? ` (${acctCount})` : ''}</button>`
+        : '';
       card.innerHTML = `
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;">
         <div style="display:flex;align-items:center;gap:11px;min-width:0;">
@@ -84,6 +92,7 @@
       <div style="font-size:12px;color:var(--text-muted);line-height:1.55;margin-bottom:14px;">${escapeSafe(p.description)}</div>
       <div style="margin-top:auto;">
         ${renderPlatformCredFields(p, colors)}
+        ${manageBtn}
         <button onclick="targetsSelectPlatform('${p.id}')"
           style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:none;
                  background:${isSelected ? colors.accent : colors.border};
@@ -409,6 +418,124 @@
     }
   }
 
+  /* ── Multi-account management ──────────────────────────────────────────── */
+
+  const AUTH_FIELDS_BY_PLATFORM = {
+    h1: ['username', 'token'],
+    bc: ['token'],
+    it: ['token'],
+    ywh: ['token', 'email', 'password'],
+  };
+
+  async function targetsManageAccounts(platformId) {
+    const p = targetsState.platforms.find((x) => x.id === platformId);
+    if (!p) return;
+    let accts = [];
+    try {
+      const data = await window.apiFetch(`/api/accounts?platform=${encodeURIComponent(platformId)}`);
+      accts = data.accounts || [];
+    } catch (e) {
+      window.showToast('error', 'Load failed', e.message);
+    }
+    renderAccountsModal(p, accts);
+  }
+
+  function renderAccountsModal(p, accts) {
+    document.getElementById('targets-accounts-modal')?.remove();
+    const colors = PLATFORM_COLORS[p.id] || PLATFORM_COLORS.immunefi;
+    const fields = AUTH_FIELDS_BY_PLATFORM[p.id] || ['token'];
+
+    const rows = accts.length
+      ? accts.map((a) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid ${colors.border};border-radius:9px;margin-bottom:8px;background:rgba(0,0,0,0.25);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:${colors.text};font-size:13px;">${escapeSafe(a.label)}${a.enabled ? '' : ' <span style="color:#e67e22;font-size:11px;">(disabled)</span>'}</div>
+            <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              ${a.username ? escapeSafe(a.username) + ' · ' : ''}${a.token_set ? 'token ' + escapeSafe(a.token_mask) : 'no token'}</div>
+          </div>
+          <button onclick="targetsToggleAccount(${a.id}, ${a.enabled ? 'false' : 'true'}, '${p.id}')" title="${a.enabled ? 'Disable' : 'Enable'}"
+            style="padding:5px 9px;border-radius:7px;border:1px solid ${colors.border};background:transparent;color:${a.enabled ? '#2ecc71' : '#e67e22'};font-size:11px;cursor:pointer;">${a.enabled ? 'On' : 'Off'}</button>
+          <button onclick="targetsDeleteAccount(${a.id}, '${p.id}')" title="Delete"
+            style="padding:5px 9px;border-radius:7px;border:1px solid #7a2a2a;background:transparent;color:#e74c3c;font-size:11px;cursor:pointer;">✕</button>
+        </div>`).join('')
+      : `<div style="color:var(--text-muted);font-size:12px;padding:6px 0 12px;">No accounts yet — add one below. Your env-var credential (if set) is used automatically as an extra "env" account.</div>`;
+
+    const addFields = fields.map((f) => {
+      const label = f.charAt(0).toUpperCase() + f.slice(1);
+      const isPass = f === 'password' || f === 'token';
+      return `<input id="acct-add-${p.id}-${f}" type="${isPass ? 'password' : 'text'}" placeholder="${label}"
+        style="width:100%;box-sizing:border-box;background:rgba(0,0,0,0.3);border:1px solid ${colors.border};border-radius:8px;padding:8px 10px;color:#fff;font-size:12px;margin-bottom:7px;outline:none;" />`;
+    }).join('');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'targets-accounts-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(2,6,23,0.72);display:flex;align-items:center;justify-content:center;padding:24px;';
+    overlay.innerHTML = `
+      <div style="background:#0b1220;border:1px solid ${colors.border};border-radius:14px;max-width:460px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+        <div style="display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid ${colors.border};">
+          <div style="font-weight:700;font-size:15px;color:${colors.text};flex:1;">${escapeSafe(p.name)} — accounts</div>
+          <button onclick="targetsCloseAccountsModal()" style="background:transparent;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;">✕</button>
+        </div>
+        <div style="padding:16px 18px;">
+          ${rows}
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid ${colors.border};">
+            <div style="font-size:12px;font-weight:700;color:${colors.text};margin-bottom:9px;">Add account</div>
+            <input id="acct-add-${p.id}-label" type="text" placeholder="Label (e.g. main, alt)"
+              style="width:100%;box-sizing:border-box;background:rgba(0,0,0,0.3);border:1px solid ${colors.border};border-radius:8px;padding:8px 10px;color:#fff;font-size:12px;margin-bottom:7px;outline:none;" />
+            ${addFields}
+            <button onclick="targetsAddAccount('${p.id}')"
+              style="width:100%;margin-top:4px;padding:9px;border-radius:9px;border:none;background:${colors.accent};color:#fff;font-weight:600;font-size:13px;cursor:pointer;">+ Add account</button>
+          </div>
+        </div>
+      </div>`;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) targetsCloseAccountsModal(); });
+    document.body.appendChild(overlay);
+  }
+
+  function targetsCloseAccountsModal() {
+    document.getElementById('targets-accounts-modal')?.remove();
+  }
+
+  async function targetsAddAccount(platformId) {
+    const fields = AUTH_FIELDS_BY_PLATFORM[platformId] || ['token'];
+    const label = (document.getElementById(`acct-add-${platformId}-label`)?.value || '').trim();
+    if (!label) { window.showToast('warning', 'Label required', 'Give the account a label'); return; }
+    const body = { platform: platformId, label, enabled: true };
+    for (const f of fields) {
+      body[f] = (document.getElementById(`acct-add-${platformId}-${f}`)?.value || '').trim();
+    }
+    try {
+      await window.apiPost('/api/accounts', body);
+      window.showToast('success', 'Account added', `${label} saved`);
+      await loadTargetsPlatforms();
+      targetsManageAccounts(platformId);
+    } catch (e) {
+      window.showToast('error', 'Add failed', e.message);
+    }
+  }
+
+  async function targetsToggleAccount(id, enabled, platformId) {
+    try {
+      await window.apiPost(`/api/accounts/${id}/toggle`, { enabled });
+      await loadTargetsPlatforms();
+      targetsManageAccounts(platformId);
+    } catch (e) {
+      window.showToast('error', 'Toggle failed', e.message);
+    }
+  }
+
+  async function targetsDeleteAccount(id, platformId) {
+    if (!window.confirm('Delete this account?')) return;
+    try {
+      await window.apiDelete(`/api/accounts/${id}`);
+      window.showToast('success', 'Deleted', 'Account removed');
+      await loadTargetsPlatforms();
+      targetsManageAccounts(platformId);
+    } catch (e) {
+      window.showToast('error', 'Delete failed', e.message);
+    }
+  }
+
   window.TargetsPage = {
     loadTargetsPlatforms,
     renderTargetsPlatforms,
@@ -426,5 +553,11 @@
     targetsCopyOne,
     chaosFetch,
     chaosCopyAll,
+    targetsManageAccounts,
+    renderAccountsModal,
+    targetsCloseAccountsModal,
+    targetsAddAccount,
+    targetsToggleAccount,
+    targetsDeleteAccount,
   };
 })();

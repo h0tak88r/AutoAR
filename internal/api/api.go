@@ -580,6 +580,11 @@ func SetupAPI() *gin.Engine {
 		apiGroup.POST("/scope/fetch", apiFetchScope)
 		apiGroup.POST("/chaos/subdomains", apiChaosSubdomains) // Chaos dataset subdomain lookup
 		apiGroup.GET("/scope/platforms", apiScopePlatforms)
+		// Multi-account management (multiple accounts per platform)
+		apiGroup.GET("/accounts", apiListBBPAccounts)
+		apiGroup.POST("/accounts", apiUpsertBBPAccount)
+		apiGroup.POST("/accounts/:id/toggle", apiToggleBBPAccount)
+		apiGroup.DELETE("/accounts/:id", apiDeleteBBPAccount)
 		apiGroup.GET("/scope/programs", apiListPrograms)
 		apiGroup.POST("/scope/program-summaries", apiProgramScopeSummaries)
 		apiGroup.GET("/scope/watch-status", apiProgramWatchStatus)

@@ -446,6 +446,20 @@ func (p *PostgresDB) InitSchema() error {
 		value TEXT NOT NULL DEFAULT '',
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
+
+	-- Bug-bounty platform accounts (multiple accounts per platform).
+	CREATE TABLE IF NOT EXISTS bbp_accounts (
+		id         BIGSERIAL PRIMARY KEY,
+		platform   TEXT NOT NULL,
+		label      TEXT NOT NULL DEFAULT '',
+		username   TEXT NOT NULL DEFAULT '',
+		token      TEXT NOT NULL DEFAULT '',
+		email      TEXT NOT NULL DEFAULT '',
+		password   TEXT NOT NULL DEFAULT '',
+		enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at TIMESTAMP DEFAULT NOW(),
+		UNIQUE(platform, label)
+	);
 	`
 
 	_, err := p.pool.Exec(p.ctx, schema)
@@ -2085,6 +2099,61 @@ func (p *PostgresDB) SetSetting(key, value string) error {
 		VALUES ($1, $2, NOW())
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
 	`, key, value)
+	return err
+}
+
+// ── Bug-bounty platform accounts ─────────────────────────────────────────────
+
+// ListBBPAccounts returns accounts, optionally filtered by platform ("" = all).
+func (p *PostgresDB) ListBBPAccounts(platform string) ([]BBPAccount, error) {
+	q := `SELECT id, platform, label, username, token, email, password, enabled, created_at
+	      FROM bbp_accounts`
+	args := []any{}
+	if platform != "" {
+		q += ` WHERE platform = $1`
+		args = append(args, platform)
+	}
+	q += ` ORDER BY platform, label, id`
+	rows, err := p.pool.Query(p.ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BBPAccount
+	for rows.Next() {
+		var a BBPAccount
+		if err := rows.Scan(&a.ID, &a.Platform, &a.Label, &a.Username, &a.Token, &a.Email, &a.Password, &a.Enabled, &a.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// UpsertBBPAccount inserts a new account or updates the existing one for
+// (platform,label). Returns the row id.
+func (p *PostgresDB) UpsertBBPAccount(a BBPAccount) (int64, error) {
+	var id int64
+	err := p.pool.QueryRow(p.ctx, `
+		INSERT INTO bbp_accounts (platform, label, username, token, email, password, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (platform, label) DO UPDATE SET
+			username = EXCLUDED.username, token = EXCLUDED.token,
+			email = EXCLUDED.email, password = EXCLUDED.password, enabled = EXCLUDED.enabled
+		RETURNING id
+	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, a.Enabled).Scan(&id)
+	return id, err
+}
+
+// SetBBPAccountEnabled toggles an account's enabled flag.
+func (p *PostgresDB) SetBBPAccountEnabled(id int64, enabled bool) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE bbp_accounts SET enabled = $2 WHERE id = $1`, id, enabled)
+	return err
+}
+
+// DeleteBBPAccount removes an account by id.
+func (p *PostgresDB) DeleteBBPAccount(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM bbp_accounts WHERE id = $1`, id)
 	return err
 }
 

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/tidwall/gjson"
 )
@@ -45,6 +46,38 @@ type ProgramSummary struct {
 	Stats                 ProgramStats `json:"stats"`
 	Assets                []string     `json:"-"`                        // all in-scope asset identifiers (internal, for scope-change monitoring)
 	ExternalPlatform      string       `json:"external_platform,omitempty"` // real platform for aggregator sources (e.g. "Immunefi" for Platform=="ha")
+	Sources               []string     `json:"sources,omitempty"`        // account label(s) that can see this program (multi-account)
+}
+
+// mergeProgramsByHandle appends src programs into dst, deduping by (platform,
+// handle). When a program is already present from another account, the source
+// account label is unioned onto its Sources tag rather than duplicating the row.
+func mergeProgramsByHandle(dst []ProgramSummary, idx map[string]int, src []ProgramSummary, sourceLabel string) []ProgramSummary {
+	for _, p := range src {
+		key := strings.ToLower(p.Platform + "|" + p.Handle)
+		if at, ok := idx[key]; ok {
+			dst[at].Sources = appendUniqueStr(dst[at].Sources, sourceLabel)
+			continue
+		}
+		if sourceLabel != "" {
+			p.Sources = appendUniqueStr(p.Sources, sourceLabel)
+		}
+		dst = append(dst, p)
+		idx[key] = len(dst) - 1
+	}
+	return dst
+}
+
+func appendUniqueStr(s []string, v string) []string {
+	if v == "" {
+		return s
+	}
+	for _, x := range s {
+		if x == v {
+			return s
+		}
+	}
+	return append(s, v)
 }
 
 // ProgramStats holds user-specific stats from H1.
@@ -178,9 +211,12 @@ func apiListPrograms(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"programs":       allPrograms,
 		"total":          len(allPrograms),
-		"has_h1_token":   os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
-		"has_bc_token":   os.Getenv("BUGCROWD_TOKEN") != "",
-		"has_it_token":   hasIntigritiToken(),
+		"has_h1_token":   accounts.Count("h1") > 0,
+		"has_bc_token":   accounts.Count("bc") > 0,
+		"has_it_token":   accounts.Count("it") > 0,
+		"h1_accounts":    accounts.Count("h1"),
+		"bc_accounts":    accounts.Count("bc"),
+		"it_accounts":    accounts.Count("it"),
 		"scope_included": includeScope,
 		"warm":           false,
 	})
@@ -263,13 +299,19 @@ func apiProgramScopeSummaries(c *gin.Context) {
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
 
-	h1Username := os.Getenv("H1_USERNAME")
-	h1Token := os.Getenv("H1_TOKEN")
-	h1Auth := ""
-	if h1Username != "" && h1Token != "" {
-		h1Auth = base64.StdEncoding.EncodeToString([]byte(h1Username + ":" + h1Token))
+	// Build one auth per account so a program only one account can see still resolves.
+	var h1Auths []string
+	for _, a := range accounts.For("h1") {
+		if a.Username != "" && a.Token != "" {
+			h1Auths = append(h1Auths, base64.StdEncoding.EncodeToString([]byte(a.Username+":"+a.Token)))
+		}
 	}
-	bcToken := os.Getenv("BUGCROWD_TOKEN")
+	var bcTokens []string
+	for _, a := range accounts.For("bc") {
+		if a.Token != "" {
+			bcTokens = append(bcTokens, a.Token)
+		}
+	}
 
 	for _, item := range req.Programs {
 		item.Platform = strings.ToLower(strings.TrimSpace(item.Platform))
@@ -298,17 +340,23 @@ func apiProgramScopeSummaries(c *gin.Context) {
 			fetched := false
 			switch item.Platform {
 			case "h1", "hackerone":
-				if h1Auth != "" {
-					summary, fetched = fetchH1ScopeSummary(item.Handle, h1Auth)
+				// Try each H1 account until one can see the program's scope.
+				for _, auth := range h1Auths {
+					summary, fetched = fetchH1ScopeSummary(item.Handle, auth)
+					if fetched {
+						break
+					}
 				}
 			case "bc", "bugcrowd":
-				if bcToken != "" {
-					summary = fetchBCScopeSummary(item.Handle, item.URL, bcToken)
-					// fetchBCScopeSummary doesn't return ok — all 8 failure paths
-					// return a zero-valued summary. Treat any empty result as a
-					// failed fetch so we don't overwrite persisted good data.
-					// (Matches the enrichBCScopeCounts guard.)
+				// fetchBCScopeSummary doesn't return ok — all 8 failure paths
+				// return a zero-valued summary. Treat any empty result as a
+				// failed fetch so we don't overwrite persisted good data.
+				for _, tok := range bcTokens {
+					summary = fetchBCScopeSummary(item.Handle, item.URL, tok)
 					fetched = summary.ScopeTargets > 0 || summary.LatestTarget != ""
+					if fetched {
+						break
+					}
 				}
 			case "ha", "hackadvisor":
 				if hasHackAdvisorToken() {
@@ -352,13 +400,31 @@ func apiProgramScopeSummaries(c *gin.Context) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func fetchH1Programs(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
-	username := os.Getenv("H1_USERNAME")
-	token := os.Getenv("H1_TOKEN")
-
-	if username != "" && token != "" {
-		return fetchH1WithREST(bbpOnly, includeScope, username, token)
+	accts := accounts.For("h1")
+	if len(accts) == 0 {
+		// No credentials anywhere — fall back to the public GraphQL listing.
+		return fetchH1WithGraphQL(bbpOnly)
 	}
-	return fetchH1WithGraphQL(bbpOnly)
+
+	var merged []ProgramSummary
+	idx := map[string]int{}
+	var firstErr error
+	for _, a := range accts {
+		progs, err := fetchH1WithREST(bbpOnly, includeScope, a.Username, a.Token)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			fmt.Fprintf(os.Stderr, "H1 account %q fetch error: %v\n", a.Label, err)
+			continue
+		}
+		merged = mergeProgramsByHandle(merged, idx, progs, a.Label)
+	}
+	// Only surface an error if every account failed (no data at all).
+	if len(merged) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return merged, nil
 }
 
 func fetchH1WithREST(bbpOnly, includeScope bool, username, token string) ([]ProgramSummary, error) {
@@ -604,7 +670,30 @@ func fetchH1ScopeSummary(handle, auth string) (ProgramSummary, bool) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func fetchBCPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
-	token := os.Getenv("BUGCROWD_TOKEN")
+	accts := accounts.For("bc")
+	if len(accts) == 0 {
+		return nil, nil
+	}
+	var merged []ProgramSummary
+	idx := map[string]int{}
+	var firstErr error
+	for _, a := range accts {
+		progs, err := fetchBCProgramsWithToken(a.Token, bbpOnly, includeScope)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		merged = mergeProgramsByHandle(merged, idx, progs, a.Label)
+	}
+	if len(merged) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return merged, nil
+}
+
+func fetchBCProgramsWithToken(token string, bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 	if token == "" {
 		// No BC token — return empty list gracefully (public BC API requires auth)
 		return nil, nil
@@ -830,7 +919,30 @@ func intigritiToken() string {
 func hasIntigritiToken() bool { return intigritiToken() != "" }
 
 func fetchITPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
-	token := intigritiToken()
+	accts := accounts.For("it")
+	if len(accts) == 0 {
+		return nil, nil
+	}
+	var merged []ProgramSummary
+	idx := map[string]int{}
+	var firstErr error
+	for _, a := range accts {
+		progs, err := fetchITProgramsWithToken(a.Token, bbpOnly, includeScope)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		merged = mergeProgramsByHandle(merged, idx, progs, a.Label)
+	}
+	if len(merged) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return merged, nil
+}
+
+func fetchITProgramsWithToken(token string, bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 	if token == "" {
 		// No token — return empty gracefully (mirrors Bugcrowd behavior).
 		return nil, nil

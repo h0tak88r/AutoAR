@@ -295,6 +295,20 @@ func (s *SQLiteDB) InitSchema() error {
 		value TEXT NOT NULL DEFAULT '',
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
 	);
+
+	-- Bug-bounty platform accounts (multiple accounts per platform).
+	CREATE TABLE IF NOT EXISTS bbp_accounts (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		platform   TEXT NOT NULL,
+		label      TEXT NOT NULL DEFAULT '',
+		username   TEXT NOT NULL DEFAULT '',
+		token      TEXT NOT NULL DEFAULT '',
+		email      TEXT NOT NULL DEFAULT '',
+		password   TEXT NOT NULL DEFAULT '',
+		enabled    INTEGER NOT NULL DEFAULT 1,
+		created_at TIMESTAMP DEFAULT (datetime('now')),
+		UNIQUE(platform, label)
+	);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -2049,6 +2063,78 @@ func (s *SQLiteDB) SetSetting(key, value string) error {
 		VALUES (?, ?, datetime('now'))
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
 	`, key, value)
+	return err
+}
+
+// ── Bug-bounty platform accounts ─────────────────────────────────────────────
+
+// ListBBPAccounts returns accounts, optionally filtered by platform ("" = all).
+func (s *SQLiteDB) ListBBPAccounts(platform string) ([]BBPAccount, error) {
+	q := `SELECT id, platform, label, username, token, email, password, enabled, created_at
+	      FROM bbp_accounts`
+	args := []any{}
+	if platform != "" {
+		q += ` WHERE platform = ?`
+		args = append(args, platform)
+	}
+	q += ` ORDER BY platform, label, id`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BBPAccount
+	for rows.Next() {
+		var a BBPAccount
+		var enabled int
+		if err := rows.Scan(&a.ID, &a.Platform, &a.Label, &a.Username, &a.Token, &a.Email, &a.Password, &enabled, &a.CreatedAt); err != nil {
+			continue
+		}
+		a.Enabled = enabled != 0
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// UpsertBBPAccount inserts a new account or updates the existing one for
+// (platform,label). Returns the row id.
+func (s *SQLiteDB) UpsertBBPAccount(a BBPAccount) (int64, error) {
+	en := 0
+	if a.Enabled {
+		en = 1
+	}
+	res, err := s.db.Exec(`
+		INSERT INTO bbp_accounts (platform, label, username, token, email, password, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (platform, label) DO UPDATE SET
+			username = excluded.username, token = excluded.token,
+			email = excluded.email, password = excluded.password, enabled = excluded.enabled
+	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, en)
+	if err != nil {
+		return 0, err
+	}
+	// LastInsertId is only meaningful on insert; on update, look the row up.
+	if id, e := res.LastInsertId(); e == nil && id > 0 {
+		return id, nil
+	}
+	var id int64
+	_ = s.db.QueryRow(`SELECT id FROM bbp_accounts WHERE platform = ? AND label = ?`, a.Platform, a.Label).Scan(&id)
+	return id, nil
+}
+
+// SetBBPAccountEnabled toggles an account's enabled flag.
+func (s *SQLiteDB) SetBBPAccountEnabled(id int64, enabled bool) error {
+	en := 0
+	if enabled {
+		en = 1
+	}
+	_, err := s.db.Exec(`UPDATE bbp_accounts SET enabled = ? WHERE id = ?`, en, id)
+	return err
+}
+
+// DeleteBBPAccount removes an account by id.
+func (s *SQLiteDB) DeleteBBPAccount(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM bbp_accounts WHERE id = ?`, id)
 	return err
 }
 
