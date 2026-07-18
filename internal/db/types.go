@@ -174,11 +174,33 @@ type DB interface {
 	SetSetting(key, value string) error
 	GetAllSettings() (map[string]string, error)
 
+	// Bug-bounty platform accounts (multi-account per platform).
+	// ListBBPAccounts with platform=="" returns every account.
+	ListBBPAccounts(platform string) ([]BBPAccount, error)
+	UpsertBBPAccount(a BBPAccount) (int64, error)
+	SetBBPAccountEnabled(id int64, enabled bool) error
+	DeleteBBPAccount(id int64) error
+
 	// UpdateScanStats updates the counts for findings/files and errors.
 	UpdateScanStats(scanID string, filesUploaded, errorCount int) error
 
 	// Close closes the database connection
 	Close()
+}
+
+// BBPAccount is one bug-bounty platform account (a platform can have several).
+// Token/Username/Email/Password are used per platform's auth model:
+//   h1  -> Username + Token          bc/it/ywh -> Token (ywh may use Email+Password)
+type BBPAccount struct {
+	ID        int64     `json:"id"`
+	Platform  string    `json:"platform"`
+	Label     string    `json:"label"`
+	Username  string    `json:"username"`
+	Token     string    `json:"token"`
+	Email     string    `json:"email"`
+	Password  string    `json:"password"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ScanRecord represents a scan stored in the database

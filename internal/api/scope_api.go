@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/accounts"
 	scopemod "github.com/h0tak88r/AutoAR/internal/scanner/scope"
+	"github.com/sw33tLie/bbscope/pkg/scope"
 )
 
 // platformMeta describes one bug bounty platform for the UI.
@@ -67,6 +69,7 @@ func apiScopePlatforms(c *gin.Context) {
 	type platformStatus struct {
 		platformMeta
 		EnvConfigured bool `json:"env_configured"`
+		AccountCount  int  `json:"account_count"`
 	}
 	out := make([]platformStatus, 0, len(platforms))
 	for _, p := range platforms {
@@ -77,7 +80,11 @@ func apiScopePlatforms(c *gin.Context) {
 				break
 			}
 		}
-		out = append(out, platformStatus{p, configured})
+		cnt := accounts.Count(p.ID)
+		if cnt > 0 {
+			configured = true
+		}
+		out = append(out, platformStatus{p, configured, cnt})
 	}
 	c.JSON(http.StatusOK, gin.H{"platforms": out})
 }
@@ -127,36 +134,13 @@ func apiFetchScope(c *gin.Context) {
 		return
 	}
 
-	// Fall back to env vars for credentials if not supplied in request
-	username := firstNonEmpty(req.Username, os.Getenv("H1_USERNAME"))
-	token := req.Token
-	if token == "" {
-		switch platform {
-		case scopemod.PlatformHackerOne:
-			token = os.Getenv("H1_TOKEN")
-		case scopemod.PlatformBugcrowd:
-			token = os.Getenv("BUGCROWD_TOKEN")
-		case scopemod.PlatformIntigriti:
-			token = intigritiToken() // INTIGRITI_TOKEN, or INTIGRITI_API_KEY alias
-		case scopemod.PlatformYesWeHack:
-			// YWH supports a JWT token directly (no email/password needed)
-			token = os.Getenv("YWH_TOKEN")
-		}
-	}
-	email := firstNonEmpty(req.Email, os.Getenv("YWH_EMAIL"))
-	password := firstNonEmpty(req.Password, os.Getenv("YWH_PASSWORD"))
-
 	extractRoots := true // default
 	if req.ExtractRoots != nil {
 		extractRoots = *req.ExtractRoots
 	}
 
-	opts := scopemod.Options{
+	baseOpts := scopemod.Options{
 		Platform:     platform,
-		Username:     username,
-		Token:        token,
-		Email:        email,
-		Password:     password,
 		Categories:   "all",
 		Concurrency:  5,
 		BBPOnly:      req.BBPOnly,
@@ -167,9 +151,40 @@ func apiFetchScope(c *gin.Context) {
 		ExtractRoots: extractRoots,
 	}
 
-	programs, err := scopemod.FetchScope(opts)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch scope: " + err.Error()})
+	var programs []scope.ProgramData
+	var fetchErr error
+	accountsUsed := 0
+
+	if strings.TrimSpace(req.Token) != "" || platform == scopemod.PlatformImmunefi {
+		// Explicit token in the request (or no-auth immunefi) → single fetch.
+		opts := baseOpts
+		opts.Username = firstNonEmpty(req.Username, os.Getenv("H1_USERNAME"))
+		opts.Token = req.Token
+		opts.Email = firstNonEmpty(req.Email, os.Getenv("YWH_EMAIL"))
+		opts.Password = firstNonEmpty(req.Password, os.Getenv("YWH_PASSWORD"))
+		programs, fetchErr = scopemod.FetchScope(opts)
+		accountsUsed = 1
+	} else {
+		// No explicit creds → fetch across every stored account for the platform and merge.
+		for _, a := range accounts.For(accounts.Canonical(req.Platform)) {
+			opts := baseOpts
+			opts.Username = a.Username
+			opts.Token = a.Token
+			opts.Email = a.Email
+			opts.Password = a.Password
+			ps, e := scopemod.FetchScope(opts)
+			if e != nil {
+				if fetchErr == nil {
+					fetchErr = e
+				}
+				continue
+			}
+			programs = append(programs, ps...)
+			accountsUsed++
+		}
+	}
+	if len(programs) == 0 && fetchErr != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch scope: " + fetchErr.Error()})
 		return
 	}
 
@@ -187,12 +202,17 @@ func apiFetchScope(c *gin.Context) {
 
 	rawTargets := scopemod.ExtractRawTargets(programs)
 
+	// Merging multiple accounts can yield duplicate domains/targets — dedupe.
+	rootDomains = uniqueStrings(rootDomains)
+	rawTargets = uniqueStrings(rawTargets)
+
 	c.JSON(http.StatusOK, gin.H{
-		"platform":     req.Platform,
-		"programs":     len(programs),
-		"root_domains": rootDomains,
-		"raw_targets":  rawTargets,
-		"domain_count": len(rootDomains),
-		"target_count": len(rawTargets),
+		"platform":      req.Platform,
+		"programs":      len(programs),
+		"accounts_used": accountsUsed,
+		"root_domains":  rootDomains,
+		"raw_targets":   rawTargets,
+		"domain_count":  len(rootDomains),
+		"target_count":  len(rawTargets),
 	})
 }
