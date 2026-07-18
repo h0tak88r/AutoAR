@@ -42,6 +42,7 @@ type Options struct {
 	MongoDBHost          string   // MongoDB host (for CVE-2025-14847)
 	MongoDBPort          int      // MongoDB port (default: 27017)
 	MongoDBLeakSize      int      // Memory leak size in bytes (default: 65536)
+	WP2ShellConfirmSQLi  bool     // wp2shell (CVE-2026-63030): also run the time-based SQLi confirmation
 }
 
 // Result holds scan results
@@ -49,6 +50,7 @@ type Result struct {
 	Domain            string
 	React2ShellVulns  []React2ShellFinding
 	MongoDBVulns      []MongoDBFinding
+	WP2ShellVulns     []WP2ShellFinding
 	TotalHostsScanned int
 	TotalVulnerable   int
 }
@@ -99,7 +101,7 @@ func Run(opts Options) (*Result, error) {
 	cvesToCheck := opts.CVEs
 	if len(cvesToCheck) == 0 {
 		// Default: check all
-		cvesToCheck = []string{"CVE-2025-55182", "CVE-2025-14847"}
+		cvesToCheck = []string{"CVE-2025-55182", "CVE-2025-14847", WP2ShellCVE}
 	}
 
 	// Check React2Shell (CVE-2025-55182)
@@ -141,6 +143,20 @@ func Run(opts Options) (*Result, error) {
 					result.TotalVulnerable++
 				}
 			}
+		}
+	}
+
+	// Check wp2shell REST batch route confusion (CVE-2026-63030)
+	if contains(cvesToCheck, WP2ShellCVE) {
+		wpResult, count, err := checkWP2Shell(opts)
+		if err != nil {
+			opts.logWarn("[WARN] wp2shell (%s) check failed: %v", WP2ShellCVE, err)
+		} else {
+			result.WP2ShellVulns = wpResult
+			if result.TotalHostsScanned < count {
+				result.TotalHostsScanned = count
+			}
+			result.TotalVulnerable += len(wpResult)
 		}
 	}
 
@@ -195,6 +211,39 @@ func Run(opts Options) (*Result, error) {
 					Type:       vType,
 					Finding:    react2ShellFindingText(vType),
 					CVE:        "CVE-2025-55182",
+					StatusCode: v.StatusCode,
+					Request:    capPoC(v.Request),
+					Response:   capPoC(v.Response),
+				})
+			}
+
+			for _, v := range result.WP2ShellVulns {
+				if strings.TrimSpace(v.URL) == "" {
+					continue
+				}
+				cve := WP2ShellCVE
+				label := "wp2shell route confusion (" + WP2ShellCVE + ")"
+				if v.Level == "sqli-confirmed" {
+					cve = "CVE-2026-60137"
+					label = "wp2shell SQLi confirmed (CVE-2026-60137)"
+				}
+				sev := strings.TrimSpace(strings.ToLower(v.Severity))
+				if sev == "" {
+					sev = "high"
+				}
+				key := label + "|" + v.URL
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				findings = append(findings, zerodayFinding{
+					TemplateID: label,
+					MatchedAt:  v.URL,
+					Severity:   sev,
+					Module:     "zerodays",
+					Type:       v.Level,
+					Finding:    wp2shellFindingText(v.Level),
+					CVE:        cve,
 					StatusCode: v.StatusCode,
 					Request:    capPoC(v.Request),
 					Response:   capPoC(v.Response),

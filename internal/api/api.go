@@ -394,9 +394,10 @@ type ScanRequest struct {
 	DOSTest              *bool     `json:"dos_test"`               // Zerodays DoS test
 	EnableSourceExposure *bool     `json:"enable_source_exposure"` // Zerodays source exposure
 	Silent               *bool     `json:"silent"`                 // Zerodays silent mode
-	CVEs                 *[]string `json:"cves"`                   // CVEs to check (CVE-2025-55182, CVE-2025-14847)
+	CVEs                 *[]string `json:"cves"`                   // CVEs to check (CVE-2025-55182, CVE-2025-14847, CVE-2026-63030)
 	MongoDBHost          *string   `json:"mongodb_host"`           // MongoDB host for CVE-2025-14847
 	MongoDBPort          *int      `json:"mongodb_port"`           // MongoDB port for CVE-2025-14847
+	WP2ShellConfirmSQLi  *bool     `json:"wp2shell_confirm_sqli"`  // wp2shell: also run the time-based SQLi confirmation
 	// Misconfig options
 	ServiceID    *string `json:"service_id"`   // Misconfig service ID
 	Delay        *int    `json:"delay"`        // Misconfig delay (ms)
