@@ -4,6 +4,7 @@
       overview: 'Overview', scans: 'Scans', domains: 'Domains', subdomains: 'Subdomains',
       targets: 'Bug Bounty Targets',
       programs: 'Programs',
+      'program-lookup': 'Program Lookup',
       keyhacks: 'Keyhacks',
       monitor: 'Monitor', r2: 'R2 Storage', settings: 'Settings',
       'report-templates': 'Report Templates',

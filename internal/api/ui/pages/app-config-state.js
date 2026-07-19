@@ -3,7 +3,7 @@ window.AppConfigState = {
   POLL_INTERVAL: 15000,
   POLL_FAST_SCANS: 3500,
   POLL_FAST_ANY: 7000,
-  VIEWS: ['overview', 'scans', 'domains', 'subdomains', 'targets', 'programs', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'],
+  VIEWS: ['overview', 'scans', 'domains', 'subdomains', 'targets', 'programs', 'program-lookup', 'keyhacks', 'monitor', 'r2', 'settings', 'report-templates', 'apkauditor', 'ipaauditor', 'adbauditor', 'securitylab'],
   state: {
     view: 'overview',
     config: null,

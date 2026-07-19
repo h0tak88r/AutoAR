@@ -309,6 +309,28 @@ func (s *SQLiteDB) InitSchema() error {
 		created_at TIMESTAMP DEFAULT (datetime('now')),
 		UNIQUE(platform, label)
 	);
+
+	-- Bug-bounty program catalog for keyword/domain lookup.
+	CREATE TABLE IF NOT EXISTS bbp_catalog_programs (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		source        TEXT NOT NULL,
+		company       TEXT NOT NULL DEFAULT '',
+		handle        TEXT NOT NULL DEFAULT '',
+		url           TEXT NOT NULL DEFAULT '',
+		rewards       TEXT NOT NULL DEFAULT '',
+		safe_harbor   TEXT NOT NULL DEFAULT '',
+		offers_bounty INTEGER NOT NULL DEFAULT 1,
+		updated_at    TIMESTAMP DEFAULT (datetime('now')),
+		UNIQUE(source, handle)
+	);
+	CREATE INDEX IF NOT EXISTS idx_bbp_catalog_company ON bbp_catalog_programs(lower(company));
+	CREATE TABLE IF NOT EXISTS bbp_catalog_domains (
+		program_id INTEGER NOT NULL REFERENCES bbp_catalog_programs(id) ON DELETE CASCADE,
+		domain     TEXT NOT NULL,
+		in_scope   INTEGER NOT NULL DEFAULT 1,
+		UNIQUE(program_id, domain)
+	);
+	CREATE INDEX IF NOT EXISTS idx_bbp_catalog_domain ON bbp_catalog_domains(lower(domain));
 	`
 
 	_, err := s.db.Exec(schema)
@@ -2136,6 +2158,115 @@ func (s *SQLiteDB) SetBBPAccountEnabled(id int64, enabled bool) error {
 func (s *SQLiteDB) DeleteBBPAccount(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM bbp_accounts WHERE id = ?`, id)
 	return err
+}
+
+// ── Bug-bounty program catalog ───────────────────────────────────────────────
+
+func (s *SQLiteDB) UpsertCatalogProgram(c CatalogProgram) (int64, error) {
+	ob := 0
+	if c.OffersBounty {
+		ob = 1
+	}
+	res, err := s.db.Exec(`
+		INSERT INTO bbp_catalog_programs (source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at)
+		VALUES (?,?,?,?,?,?,?,datetime('now'))
+		ON CONFLICT (source, handle) DO UPDATE SET
+			company=excluded.company, url=excluded.url, rewards=excluded.rewards,
+			safe_harbor=excluded.safe_harbor, offers_bounty=excluded.offers_bounty, updated_at=datetime('now')
+	`, c.Source, c.Company, c.Handle, c.URL, c.Rewards, c.SafeHarbor, ob)
+	if err != nil {
+		return 0, err
+	}
+	if id, e := res.LastInsertId(); e == nil && id > 0 {
+		return id, nil
+	}
+	var id int64
+	_ = s.db.QueryRow(`SELECT id FROM bbp_catalog_programs WHERE source=? AND handle=?`, c.Source, c.Handle).Scan(&id)
+	return id, nil
+}
+
+func (s *SQLiteDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error {
+	if _, err := s.db.Exec(`DELETE FROM bbp_catalog_domains WHERE program_id = ?`, programID); err != nil {
+		return err
+	}
+	for _, d := range domains {
+		if d.Domain == "" {
+			continue
+		}
+		in := 0
+		if d.InScope {
+			in = 1
+		}
+		if _, err := s.db.Exec(`
+			INSERT INTO bbp_catalog_domains (program_id, domain, in_scope) VALUES (?,?,?)
+			ON CONFLICT (program_id, domain) DO UPDATE SET in_scope=excluded.in_scope
+		`, programID, d.Domain, in); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteDB) ClearCatalogSource(source string) error {
+	_, err := s.db.Exec(`DELETE FROM bbp_catalog_programs WHERE source = ?`, source)
+	return err
+}
+
+func (s *SQLiteDB) SearchCatalogByKeyword(q string, limit int) ([]CatalogProgram, error) {
+	rows, err := s.db.Query(`
+		SELECT id, source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at
+		FROM bbp_catalog_programs
+		WHERE lower(company) LIKE '%'||lower(?)||'%' OR lower(handle) LIKE '%'||lower(?)||'%'
+		ORDER BY offers_bounty DESC, company LIMIT ?
+	`, q, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CatalogProgram
+	for rows.Next() {
+		var c CatalogProgram
+		var ob int
+		if err := rows.Scan(&c.ID, &c.Source, &c.Company, &c.Handle, &c.URL, &c.Rewards, &c.SafeHarbor, &ob, &c.UpdatedAt); err != nil {
+			continue
+		}
+		c.OffersBounty = ob != 0
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) SearchCatalogByDomain(q string, limit int) ([]CatalogDomainMatch, error) {
+	rows, err := s.db.Query(`
+		SELECT p.id, p.source, p.company, p.handle, p.url, p.rewards, p.safe_harbor, p.offers_bounty, p.updated_at,
+		       d.domain, d.in_scope
+		FROM bbp_catalog_domains d JOIN bbp_catalog_programs p ON d.program_id = p.id
+		WHERE lower(d.domain) = lower(?) OR lower(d.domain) LIKE '%'||lower(?)||'%'
+		ORDER BY (lower(d.domain) = lower(?)) DESC, d.in_scope DESC, p.company LIMIT ?
+	`, q, q, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CatalogDomainMatch
+	for rows.Next() {
+		var m CatalogDomainMatch
+		var ob, in int
+		if err := rows.Scan(&m.ID, &m.Source, &m.Company, &m.Handle, &m.URL, &m.Rewards, &m.SafeHarbor, &ob, &m.UpdatedAt, &m.MatchedDomain, &in); err != nil {
+			continue
+		}
+		m.OffersBounty = ob != 0
+		m.InScope = in != 0
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) CatalogCounts() (int, int, error) {
+	var progs, doms int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM bbp_catalog_programs`).Scan(&progs)
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM bbp_catalog_domains`).Scan(&doms)
+	return progs, doms, nil
 }
 
 // GetAllSettings returns every setting as a key→value map.

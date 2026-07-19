@@ -70,6 +70,7 @@
           <div class="nav-subitems" id="assets-subnav" role="menu">
             <div class="nav-subitem" id="nav-targets" data-label="Platforms" role="menuitem">Platforms</div>
             <div class="nav-subitem" id="nav-programs" data-label="Programs" role="menuitem">Programs</div>
+            <div class="nav-subitem" id="nav-program-lookup" data-label="Program Lookup" role="menuitem">Program Lookup</div>
             <div class="nav-subitem" id="nav-domains" data-label="Domains" role="menuitem">Domains</div>
             <div class="nav-subitem" id="nav-subdomains" data-label="Subdomains" role="menuitem">Subdomains<span class="nav-badge" id="subdomains-badge" style="display:none"></span></div>
           </div>
@@ -457,6 +458,29 @@
 
 
       <!-- ══════════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: Program Lookup                                                -->
+      <!-- ══════════════════════════════════════════════════════════════════ -->
+      <div class="view" id="view-program-lookup">
+        <div class="view-header">
+          <h1 class="view-title">Program Lookup</h1>
+          <div class="view-subtitle">Find the bug-bounty program for a keyword or domain — your accounts + public aggregator (paying programs only)</div>
+        </div>
+
+        <div class="filter-bar" style="gap:8px;flex-wrap:wrap;align-items:center;">
+          <input class="search-input" id="plookup-search" placeholder="Company keyword or domain (e.g. acme, api.acme.com)…" autocomplete="off"
+                 onkeydown="if(event.key==='Enter'){window.programLookupSearch();}" style="flex:1;min-width:260px;" />
+          <button class="btn btn-primary" onclick="window.programLookupSearch()">Search</button>
+          <button class="btn btn-ghost" id="plookup-sync-btn" onclick="window.programLookupSync()" title="Rebuild the catalog from your accounts + the as93 aggregator">⟳ Sync catalog</button>
+        </div>
+
+        <div id="plookup-status" style="margin-bottom:12px;font-size:12px;color:rgba(255,255,255,0.5);"></div>
+        <div id="plookup-results">
+          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Search a keyword or domain to find its bug-bounty program</div></div>
+        </div>
+      </div><!-- /view-program-lookup -->
+
+
+      <!-- ══════════════════════════════════════════════════════════════════ -->
       <!-- VIEW: Keyhacks                                                     -->
       <!-- ══════════════════════════════════════════════════════════════════ -->
       <div class="view" id="view-keyhacks">
@@ -800,6 +824,7 @@
 <script src="/ui/pages/app-config-state.js"></script>
 <script src="/ui/pages/targets.js"></script>
 <script src="/ui/pages/programs.js"></script>
+<script src="/ui/pages/program-lookup.js"></script>
 <script src="/ui/pages/keyhacks.js"></script>
 <script src="/ui/pages/report-templates.js"></script>
 <script src="/ui/pages/monitor.js"></script>

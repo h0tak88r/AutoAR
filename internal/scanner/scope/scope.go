@@ -20,28 +20,28 @@ import (
 type Platform string
 
 const (
-	PlatformHackerOne  Platform = "h1"
-	PlatformBugcrowd   Platform = "bc"
-	PlatformIntigriti  Platform = "it"
-	PlatformYesWeHack  Platform = "ywh"
-	PlatformImmunefi   Platform = "immunefi"
+	PlatformHackerOne Platform = "h1"
+	PlatformBugcrowd  Platform = "bc"
+	PlatformIntigriti Platform = "it"
+	PlatformYesWeHack Platform = "ywh"
+	PlatformImmunefi  Platform = "immunefi"
 )
 
 // Options contains options for fetching scope
 type Options struct {
-	Platform      Platform
-	Username      string
-	Token         string
-	Email         string
-	Password      string
-	Categories    string
-	BBPOnly       bool
-	PvtOnly       bool
-	IncludeOOS    bool
-	Concurrency   int
-	PublicOnly    bool // For HackerOne
-	ActiveOnly    bool // For HackerOne
-	ExtractRoots  bool // Extract root domains (default: true for backward compatibility)
+	Platform     Platform
+	Username     string
+	Token        string
+	Email        string
+	Password     string
+	Categories   string
+	BBPOnly      bool
+	PvtOnly      bool
+	IncludeOOS   bool
+	Concurrency  int
+	PublicOnly   bool // For HackerOne
+	ActiveOnly   bool // For HackerOne
+	ExtractRoots bool // Extract root domains (default: true for backward compatibility)
 }
 
 // FetchScope fetches scope from the specified platform
@@ -131,7 +131,7 @@ func FetchScope(opts Options) ([]scope.ProgramData, error) {
 func isMobileOrAppTarget(target, category string) bool {
 	targetLower := strings.ToLower(target)
 	categoryLower := strings.ToLower(category)
-	
+
 	// Filter by category first (more reliable)
 	mobileCategories := []string{
 		"mobile", "android", "apple", "ios", "executable", "code", "hardware",
@@ -139,13 +139,13 @@ func isMobileOrAppTarget(target, category string) bool {
 		"downloadable_executables", "windows_app_store_app_id", "smart_contract",
 		"source_code", "ai_model", "other", "hardware",
 	}
-	
+
 	for _, cat := range mobileCategories {
 		if strings.Contains(categoryLower, cat) {
 			return true
 		}
 	}
-	
+
 	// Also check target string for keywords
 	mobileKeywords := []string{
 		"ios", "android", "apple", "google", "ipa", "exe", "dmg", "deb", "rpm",
@@ -154,17 +154,45 @@ func isMobileOrAppTarget(target, category string) bool {
 		"package", "bundle", "executable", "installer", "binary", "smart_contract",
 		"source_code", "hardware", "ai_model",
 	}
-	
+
 	for _, keyword := range mobileKeywords {
 		if strings.Contains(targetLower, keyword) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
-// ExtractRootDomains extracts root domains from scope data
+// ScopeElementRoots extracts unique root domains from a list of scope elements
+// (in- or out-of-scope), skipping mobile/app/cloud targets. Used by the program
+// catalog to index in/out-of-scope domains per program.
+func ScopeElementRoots(elems []scope.ScopeElement) []string {
+	cacheDir := filepath.Join(os.TempDir(), "tld.cache")
+	extract, err := tldextract.New(cacheDir, false)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range elems {
+		if isMobileOrAppTarget(e.Target, e.Category) {
+			continue
+		}
+		for _, d := range extractRootFromTarget(e.Target, extract) {
+			if d != "" && !seen[d] {
+				seen[d] = true
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// InScopeRoots / OutScopeRoots are convenience wrappers over ScopeElementRoots.
+func InScopeRoots(pd scope.ProgramData) []string  { return ScopeElementRoots(pd.InScope) }
+func OutScopeRoots(pd scope.ProgramData) []string { return ScopeElementRoots(pd.OutOfScope) }
+
 func ExtractRootDomains(programs []scope.ProgramData) ([]string, error) {
 	// Create tldextract instance
 	cacheDir := filepath.Join(os.TempDir(), "tld.cache")
@@ -183,7 +211,7 @@ func ExtractRootDomains(programs []scope.ProgramData) ([]string, error) {
 			if isMobileOrAppTarget(elem.Target, elem.Category) {
 				continue
 			}
-			
+
 			domains := extractRootFromTarget(elem.Target, extract)
 			for _, domain := range domains {
 				if domain != "" {
@@ -198,7 +226,7 @@ func ExtractRootDomains(programs []scope.ProgramData) ([]string, error) {
 			if isMobileOrAppTarget(elem.Target, elem.Category) {
 				continue
 			}
-			
+
 			domains := extractRootFromTarget(elem.Target, extract)
 			for _, domain := range domains {
 				if domain != "" {
@@ -344,4 +372,3 @@ func WriteRootDomains(domains []string, outputFile string) error {
 
 	return nil
 }
-
