@@ -50,6 +50,7 @@
         // backend warmer rebuild, then re-renders the table once it's done.
         window.ProgramsPage.refreshNow();
         break;
+      case 'program-lookup': window.loadProgramLookup(); break;
       case 'monitor': window.loadMonitor(); break;
       case 'keyhacks': window.loadKeyhacks(); break;
       case 'report-templates': window.renderReportTemplates(); break;

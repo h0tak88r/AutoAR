@@ -181,6 +181,14 @@ type DB interface {
 	SetBBPAccountEnabled(id int64, enabled bool) error
 	DeleteBBPAccount(id int64) error
 
+	// Bug-bounty program catalog (for keyword/domain program lookup).
+	UpsertCatalogProgram(p CatalogProgram) (int64, error)
+	ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error
+	ClearCatalogSource(source string) error
+	SearchCatalogByKeyword(q string, limit int) ([]CatalogProgram, error)
+	SearchCatalogByDomain(q string, limit int) ([]CatalogDomainMatch, error)
+	CatalogCounts() (programs int, domains int, err error)
+
 	// UpdateScanStats updates the counts for findings/files and errors.
 	UpdateScanStats(scanID string, filesUploaded, errorCount int) error
 
@@ -201,6 +209,33 @@ type BBPAccount struct {
 	Password  string    `json:"password"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// CatalogProgram is one bug-bounty program in the lookup catalog.
+type CatalogProgram struct {
+	ID           int64     `json:"id"`
+	Source       string    `json:"source"` // h1, bc, it, ywh, as93
+	Company      string    `json:"company"`
+	Handle       string    `json:"handle"`
+	URL          string    `json:"url"`
+	Rewards      string    `json:"rewards"`
+	SafeHarbor   string    `json:"safe_harbor"`
+	OffersBounty bool      `json:"offers_bounty"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// CatalogDomain is one in/out-of-scope domain for a catalog program.
+type CatalogDomain struct {
+	Domain  string `json:"domain"`
+	InScope bool   `json:"in_scope"`
+}
+
+// CatalogDomainMatch is a domain-search hit: the owning program plus whether the
+// matched domain is in or out of scope.
+type CatalogDomainMatch struct {
+	CatalogProgram
+	MatchedDomain string `json:"matched_domain"`
+	InScope       bool   `json:"in_scope"`
 }
 
 // ScanRecord represents a scan stored in the database

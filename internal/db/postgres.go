@@ -460,6 +460,28 @@ func (p *PostgresDB) InitSchema() error {
 		created_at TIMESTAMP DEFAULT NOW(),
 		UNIQUE(platform, label)
 	);
+
+	-- Bug-bounty program catalog for keyword/domain lookup.
+	CREATE TABLE IF NOT EXISTS bbp_catalog_programs (
+		id            BIGSERIAL PRIMARY KEY,
+		source        TEXT NOT NULL,
+		company       TEXT NOT NULL DEFAULT '',
+		handle        TEXT NOT NULL DEFAULT '',
+		url           TEXT NOT NULL DEFAULT '',
+		rewards       TEXT NOT NULL DEFAULT '',
+		safe_harbor   TEXT NOT NULL DEFAULT '',
+		offers_bounty BOOLEAN NOT NULL DEFAULT TRUE,
+		updated_at    TIMESTAMP DEFAULT NOW(),
+		UNIQUE(source, handle)
+	);
+	CREATE INDEX IF NOT EXISTS idx_bbp_catalog_company ON bbp_catalog_programs(lower(company));
+	CREATE TABLE IF NOT EXISTS bbp_catalog_domains (
+		program_id BIGINT NOT NULL REFERENCES bbp_catalog_programs(id) ON DELETE CASCADE,
+		domain     TEXT NOT NULL,
+		in_scope   BOOLEAN NOT NULL DEFAULT TRUE,
+		UNIQUE(program_id, domain)
+	);
+	CREATE INDEX IF NOT EXISTS idx_bbp_catalog_domain ON bbp_catalog_domains(lower(domain));
 	`
 
 	_, err := p.pool.Exec(p.ctx, schema)
@@ -2155,6 +2177,97 @@ func (p *PostgresDB) SetBBPAccountEnabled(id int64, enabled bool) error {
 func (p *PostgresDB) DeleteBBPAccount(id int64) error {
 	_, err := p.pool.Exec(p.ctx, `DELETE FROM bbp_accounts WHERE id = $1`, id)
 	return err
+}
+
+// ── Bug-bounty program catalog ───────────────────────────────────────────────
+
+func (p *PostgresDB) UpsertCatalogProgram(c CatalogProgram) (int64, error) {
+	var id int64
+	err := p.pool.QueryRow(p.ctx, `
+		INSERT INTO bbp_catalog_programs (source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+		ON CONFLICT (source, handle) DO UPDATE SET
+			company = EXCLUDED.company, url = EXCLUDED.url, rewards = EXCLUDED.rewards,
+			safe_harbor = EXCLUDED.safe_harbor, offers_bounty = EXCLUDED.offers_bounty, updated_at = NOW()
+		RETURNING id
+	`, c.Source, c.Company, c.Handle, c.URL, c.Rewards, c.SafeHarbor, c.OffersBounty).Scan(&id)
+	return id, err
+}
+
+func (p *PostgresDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error {
+	if _, err := p.pool.Exec(p.ctx, `DELETE FROM bbp_catalog_domains WHERE program_id = $1`, programID); err != nil {
+		return err
+	}
+	for _, d := range domains {
+		if d.Domain == "" {
+			continue
+		}
+		_, err := p.pool.Exec(p.ctx, `
+			INSERT INTO bbp_catalog_domains (program_id, domain, in_scope) VALUES ($1,$2,$3)
+			ON CONFLICT (program_id, domain) DO UPDATE SET in_scope = EXCLUDED.in_scope
+		`, programID, d.Domain, d.InScope)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *PostgresDB) ClearCatalogSource(source string) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM bbp_catalog_programs WHERE source = $1`, source)
+	return err
+}
+
+func (p *PostgresDB) SearchCatalogByKeyword(q string, limit int) ([]CatalogProgram, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at
+		FROM bbp_catalog_programs
+		WHERE company ILIKE '%'||$1||'%' OR handle ILIKE '%'||$1||'%'
+		ORDER BY offers_bounty DESC, company LIMIT $2
+	`, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CatalogProgram
+	for rows.Next() {
+		var c CatalogProgram
+		if err := rows.Scan(&c.ID, &c.Source, &c.Company, &c.Handle, &c.URL, &c.Rewards, &c.SafeHarbor, &c.OffersBounty, &c.UpdatedAt); err != nil {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresDB) SearchCatalogByDomain(q string, limit int) ([]CatalogDomainMatch, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT p.id, p.source, p.company, p.handle, p.url, p.rewards, p.safe_harbor, p.offers_bounty, p.updated_at,
+		       d.domain, d.in_scope
+		FROM bbp_catalog_domains d JOIN bbp_catalog_programs p ON d.program_id = p.id
+		WHERE lower(d.domain) = lower($1) OR d.domain ILIKE '%'||$1||'%'
+		ORDER BY (lower(d.domain) = lower($1)) DESC, d.in_scope DESC, p.company LIMIT $2
+	`, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CatalogDomainMatch
+	for rows.Next() {
+		var m CatalogDomainMatch
+		if err := rows.Scan(&m.ID, &m.Source, &m.Company, &m.Handle, &m.URL, &m.Rewards, &m.SafeHarbor, &m.OffersBounty, &m.UpdatedAt, &m.MatchedDomain, &m.InScope); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresDB) CatalogCounts() (int, int, error) {
+	var progs, doms int
+	_ = p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM bbp_catalog_programs`).Scan(&progs)
+	_ = p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM bbp_catalog_domains`).Scan(&doms)
+	return progs, doms, nil
 }
 
 // GetAllSettings returns every setting as a key→value map.
