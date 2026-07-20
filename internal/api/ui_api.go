@@ -24,7 +24,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/brain"
 	"github.com/h0tak88r/AutoAR/internal/db"
-	"github.com/h0tak88r/AutoAR/internal/envloader"
 	"github.com/h0tak88r/AutoAR/internal/r2storage"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitor"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitorsuggest"
@@ -145,56 +144,56 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	}
 
 	if body.MonitorWebhook != "" {
-		_ = envloader.UpdateEnv("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
+		saveEnvSetting("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
 	}
 	if body.OpenRouterKey != "" {
-		_ = envloader.UpdateEnv("OPENROUTER_API_KEY", strings.TrimSpace(body.OpenRouterKey))
+		saveEnvSetting("OPENROUTER_API_KEY", strings.TrimSpace(body.OpenRouterKey))
 	}
 	if body.OpenCodeKey != "" {
-		_ = envloader.UpdateEnv("OPENCODE_API_KEY", strings.TrimSpace(body.OpenCodeKey))
+		saveEnvSetting("OPENCODE_API_KEY", strings.TrimSpace(body.OpenCodeKey))
 	}
 	if body.GeminiKey != "" {
-		_ = envloader.UpdateEnv("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
+		saveEnvSetting("GEMINI_API_KEY", strings.TrimSpace(body.GeminiKey))
 	}
 
-	// Bug-bounty platform credentials. Each non-empty value is persisted to .env AND
-	// applied live via envloader.UpdateEnv (os.Setenv). When any of these change we
-	// kick a background Programs-cache rebuild so the new/updated source shows up
-	// without waiting for the next warm cycle.
+	// Bug-bounty platform credentials. Each non-empty value is persisted to the DB
+	// (survives redeployments) AND applied live via os.Setenv/.env — see
+	// saveEnvSetting. When any of these change we kick a background Programs-cache
+	// rebuild so the new/updated source shows up without waiting for the next warm cycle.
 	platformCredsChanged := false
 	if body.H1Username != nil {
-		_ = envloader.UpdateEnv("H1_USERNAME", strings.TrimSpace(*body.H1Username))
+		saveEnvSetting("H1_USERNAME", strings.TrimSpace(*body.H1Username))
 		platformCredsChanged = true
 	}
 	if body.H1Token != "" {
-		_ = envloader.UpdateEnv("H1_TOKEN", strings.TrimSpace(body.H1Token))
+		saveEnvSetting("H1_TOKEN", strings.TrimSpace(body.H1Token))
 		platformCredsChanged = true
 	}
 	if body.BugcrowdToken != "" {
-		_ = envloader.UpdateEnv("BUGCROWD_TOKEN", strings.TrimSpace(body.BugcrowdToken))
+		saveEnvSetting("BUGCROWD_TOKEN", strings.TrimSpace(body.BugcrowdToken))
 		platformCredsChanged = true
 	}
 	if body.IntigritiToken != "" {
-		_ = envloader.UpdateEnv("INTIGRITI_TOKEN", strings.TrimSpace(body.IntigritiToken))
+		saveEnvSetting("INTIGRITI_TOKEN", strings.TrimSpace(body.IntigritiToken))
 		platformCredsChanged = true
 	}
 	if body.YWHToken != "" {
-		_ = envloader.UpdateEnv("YWH_TOKEN", strings.TrimSpace(body.YWHToken))
+		saveEnvSetting("YWH_TOKEN", strings.TrimSpace(body.YWHToken))
 		platformCredsChanged = true
 	}
 	if body.HackAdvisorKey != "" {
-		_ = envloader.UpdateEnv("HACKADVISOR_TOKEN", strings.TrimSpace(body.HackAdvisorKey))
+		saveEnvSetting("HACKADVISOR_TOKEN", strings.TrimSpace(body.HackAdvisorKey))
 		platformCredsChanged = true
 	}
 	if body.ChaosKey != "" {
-		_ = envloader.UpdateEnv("CHAOS_API_KEY", strings.TrimSpace(body.ChaosKey))
+		saveEnvSetting("CHAOS_API_KEY", strings.TrimSpace(body.ChaosKey))
 	}
 	if body.HAIncludeNative != nil {
 		v := "false"
 		if *body.HAIncludeNative {
 			v = "true"
 		}
-		_ = envloader.UpdateEnv("HACKADVISOR_INCLUDE_NATIVE", v)
+		saveEnvSetting("HACKADVISOR_INCLUDE_NATIVE", v)
 		platformCredsChanged = true
 	}
 	if platformCredsChanged {
@@ -205,17 +204,17 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	if body.OpenRouterModel != nil {
 		v := strings.TrimSpace(*body.OpenRouterModel)
 		if v == "" || strings.EqualFold(v, "default") {
-			_ = envloader.UpdateEnv("OPENROUTER_MODEL", "")
+			saveEnvSetting("OPENROUTER_MODEL", "")
 		} else {
-			_ = envloader.UpdateEnv("OPENROUTER_MODEL", v)
+			saveEnvSetting("OPENROUTER_MODEL", v)
 		}
 	}
 	if body.OpenCodeModel != nil {
 		v := strings.TrimSpace(*body.OpenCodeModel)
 		if v == "" || strings.EqualFold(v, "default") {
-			_ = envloader.UpdateEnv("OPENCODE_MODEL", "")
+			saveEnvSetting("OPENCODE_MODEL", "")
 		} else {
-			_ = envloader.UpdateEnv("OPENCODE_MODEL", v)
+			saveEnvSetting("OPENCODE_MODEL", v)
 		}
 	}
 
