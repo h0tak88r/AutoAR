@@ -312,6 +312,9 @@
             <button id="run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
                Run Nuclei Template
             </button>
+            <button id="root-pipeline-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)" onclick="promptRootPipeline()">
+               Root Pipeline
+            </button>
             <div id="cnames-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
               ... <span id="cnames-progress-text">0/0</span>
             </div>
@@ -791,6 +794,43 @@
     <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
       <button type="button" class="btn btn-ghost" onclick="closeNucleiModal()">Cancel</button>
       <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)"> Run Scan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Root Pipeline Modal -->
+<div id="root-pipeline-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
+  <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+    <h2 class="auth-title" style="margin-bottom: 8px;">Run Root Pipeline</h2>
+    <p class="auth-sub" style="margin-bottom: 20px;">
+      Pulls every in-scope root domain from your configured platforms, runs a fast subdomain
+      enumeration on the roots that have no subdomains stored yet, then runs a Nuclei template
+      over the freshly-found subdomains. Every hit is sent to your Discord webhook.
+    </p>
+
+    <div style="display:flex; flex-direction:column; gap:14px;">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">Nuclei template <span style="color:var(--text-muted);font-weight:400;">(optional — path/ID or raw YAML; blank = your custom template set)</span></label>
+        <textarea id="pipeline-template-input" class="search-input auth-input"
+          style="width:100%; min-height:120px; overflow-y:auto; font-family:'JetBrains Mono', monospace; font-size:13px; line-height:1.5; padding:12px; resize:vertical; background:#010409;"
+          placeholder="cves/2021/CVE-2021-44228.yaml&#10;&#10;-- OR leave blank to use ~/nuclei-templates-custom --"></textarea>
+      </div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+        <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="pipeline-new-only" checked> Only roots without subdomains yet
+        </label>
+        <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+          Threads <input type="number" id="pipeline-threads" value="30" min="1" max="200" class="search-input" style="width:80px;padding:6px 8px;font-size:12px;">
+        </label>
+        <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+          Max roots <input type="number" id="pipeline-max-roots" value="0" min="0" class="search-input" style="width:80px;padding:6px 8px;font-size:12px;" title="0 = no cap">
+        </label>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
+      <button type="button" class="btn btn-ghost" onclick="closeRootPipelineModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitRootPipeline()" style="background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)"> Run Pipeline</button>
     </div>
   </div>
 </div>
