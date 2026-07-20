@@ -64,6 +64,14 @@ func StartAPI() error {
 	// dashboard Settings page persist across redeployments.
 	utils.InitTimeoutDB(db.GetSetting)
 
+	// Hydrate UI-saved API keys / webhooks from the DB into the process env so they
+	// survive Dokploy redeployments (which reset the container .env). DB values win
+	// over the container env for these keys; keys never saved via the UI are left
+	// as the container env provides them.
+	if os.Getenv("DB_HOST") != "" {
+		api.HydrateEnvFromDB()
+	}
+
 	// Ensure scans don't remain "running" across restarts (single-instance mode).
 	reconcileStaleScansOnStartup()
 
