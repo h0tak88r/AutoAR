@@ -205,6 +205,38 @@
     }
   }
 
+  function promptRootPipeline() {
+    document.getElementById('root-pipeline-modal').style.display = 'flex';
+  }
+
+  function closeRootPipelineModal() {
+    document.getElementById('root-pipeline-modal').style.display = 'none';
+  }
+
+  async function submitRootPipeline() {
+    const template = document.getElementById('pipeline-template-input').value.trim();
+    const newOnly = document.getElementById('pipeline-new-only').checked;
+    const threads = parseInt(document.getElementById('pipeline-threads').value, 10) || 30;
+    const maxRoots = parseInt(document.getElementById('pipeline-max-roots').value, 10) || 0;
+    try {
+      const data = await window.apiPost('/api/pipeline/root-scan', {
+        template,
+        new_roots_only: newOnly,
+        threads,
+        max_roots: maxRoots,
+      });
+      closeRootPipelineModal();
+      window.showToast('success', 'Started', data.message || 'Root pipeline started');
+      if (typeof window.navigateTo === 'function') {
+        setTimeout(() => window.navigateTo('scans'), 400);
+      } else {
+        setTimeout(() => document.getElementById('nav-scans')?.click(), 400);
+      }
+    } catch (err) {
+      window.showToast('error', 'Error', err.message);
+    }
+  }
+
   window.OpsToolsPage = {
     exportScanResultsCSV,
     generateScanReport,
@@ -216,6 +248,9 @@
     promptImportSubdomains,
     closeImportSubdomainsModal,
     submitImportSubdomains,
+    promptRootPipeline,
+    closeRootPipelineModal,
+    submitRootPipeline,
   };
 
   window.promptRetryCnames = promptRetryCnames;
@@ -225,6 +260,9 @@
   window.promptImportSubdomains = promptImportSubdomains;
   window.closeImportSubdomainsModal = closeImportSubdomainsModal;
   window.submitImportSubdomains = submitImportSubdomains;
+  window.promptRootPipeline = promptRootPipeline;
+  window.closeRootPipelineModal = closeRootPipelineModal;
+  window.submitRootPipeline = submitRootPipeline;
 
   // On load, reconnect to an in-progress CNAME job (e.g. started in another tab) with a
   // single probe — only then begin the 2s polling loop. Avoids an idle authenticated

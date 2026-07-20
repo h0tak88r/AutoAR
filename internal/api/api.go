@@ -537,6 +537,7 @@ func SetupAPI() *gin.Engine {
 		apiGroup.GET("/subdomains/cnames/progress", apiRetryCnamesProgress)
 		apiGroup.POST("/subdomains/nuclei/run", apiRunGlobalNuclei)
 		apiGroup.POST("/subdomains/import", apiImportSubdomains)
+		apiGroup.POST("/pipeline/root-scan", apiRunRootPipeline)
 		apiGroup.GET("/scans", apiListScans)
 		apiGroup.GET("/scans/:id/results/summary", apiScanResultsSummary)
 		apiGroup.GET("/scans/:id/results/files", apiScanResultFiles)
