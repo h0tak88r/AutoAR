@@ -3883,3 +3883,54 @@ select.input {
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/* ── Settings category tabs ─────────────────────────────────────── */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 4px 0 14px;
+  margin-bottom: 4px;
+  background: var(--bg-base, var(--bg-surface));
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+
+.settings-tab:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-cyan-dim, var(--accent-cyan));
+}
+
+.settings-tab.active {
+  color: #05121a;
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 4px 14px var(--accent-cyan-dim, rgba(34, 211, 238, 0.25));
+}
+
+@media (max-width: 720px) {
+  .settings-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .settings-tabs::-webkit-scrollbar { display: none; }
+  .settings-control { width: 100%; }
+  .settings-item { flex-direction: column; gap: 12px; }
+}
