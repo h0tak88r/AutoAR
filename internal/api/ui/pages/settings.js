@@ -45,7 +45,14 @@
 
     el.innerHTML = `
       <div class="settings-container-premium">
-        <div class="settings-section">
+        <div class="settings-tabs" role="tablist">
+          <button class="settings-tab" data-tab="platforms" onclick="window.SettingsPage.settingsTab('platforms')">Platforms &amp; Keys</button>
+          <button class="settings-tab" data-tab="ai" onclick="window.SettingsPage.settingsTab('ai')">AI Providers</button>
+          <button class="settings-tab" data-tab="timeouts" onclick="window.SettingsPage.settingsTab('timeouts')">Scan Timeouts</button>
+          <button class="settings-tab" data-tab="notifications" onclick="window.SettingsPage.settingsTab('notifications')">Notifications</button>
+          <button class="settings-tab" data-tab="status" onclick="window.SettingsPage.settingsTab('status')">System</button>
+        </div>
+        <div class="settings-section" data-tab="status">
           <div class="settings-section-header"> System Status</div>
           <div class="settings-section-body">
             ${item('Version', cfg.version)}
@@ -65,7 +72,7 @@
           </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section" data-tab="ai">
           <div class="settings-section-header"> AI Intelligence</div>
           <div class="settings-section-body">
             <div class="settings-item">
@@ -136,7 +143,7 @@
           </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section" data-tab="platforms">
           <div class="settings-section-header"> Bug Bounty Platform API Keys</div>
           <div class="settings-section-description">
             Credentials for the Programs catalogue. Saved securely on the server (never
@@ -179,7 +186,7 @@
           </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section" data-tab="timeouts">
           <div class="settings-section-header"> Scan Phase Timeouts</div>
           <div class="settings-section-description">
             Define max duration for each scan phase. Set to <strong>0</strong> for unlimited. 
@@ -225,7 +232,7 @@
           </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section" data-tab="notifications">
           <div class="settings-section-header"> Notifications</div>
           <div class="settings-section-body">
             <div class="settings-item">
@@ -241,7 +248,7 @@
           </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section" data-tab="status">
           <div class="settings-section-header"> Cloudflare R2 Infrastructure</div>
           <div class="settings-section-body">
             ${item('R2 Status', cfg.r2_enabled ? 'Connected' : 'Not Configured', 'Cloud artifact storage', cfg.r2_enabled ? 'ok' : 'warn')}
@@ -250,7 +257,7 @@
           </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section" data-tab="status">
           <div class="settings-section-header"> API Endpoints</div>
           <div class="settings-section-body">
           ${item('API Gateway', window.location.origin + '/api', 'Base endpoint for all requests')}
@@ -258,6 +265,22 @@
           </div>
         </div>
       </div>`;
+
+    // Restore last-active tab (default: Platforms & Keys — the most-used surface).
+    settingsTab(window.state._settingsTab || 'platforms');
+  }
+
+  // Show only the sections belonging to the chosen tab; highlight the active pill.
+  function settingsTab(id) {
+    window.state._settingsTab = id;
+    const root = document.getElementById('settings-container');
+    if (!root) return;
+    root.querySelectorAll('.settings-tab').forEach((b) => {
+      b.classList.toggle('active', b.dataset.tab === id);
+    });
+    root.querySelectorAll('.settings-section[data-tab]').forEach((s) => {
+      s.style.display = s.dataset.tab === id ? '' : 'none';
+    });
   }
 
   async function saveOpenRouterKey() {
@@ -499,6 +522,7 @@
   window.SettingsPage = {
     loadConfig,
     renderSettings,
+    settingsTab,
     saveOpenRouterKey,
     saveOpenCodeKey,
     saveOpenCodeModel,
