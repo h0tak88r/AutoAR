@@ -179,7 +179,7 @@
                 </div>
               </div>
             </div>
-            ${tokenRow('Bugcrowd', 'Value of the <code>_crowdcontrol_session_key</code> session cookie.', 'bc-token-input', 'window.SettingsPage.saveBugcrowdToken()', 'session cookie value', cfg.bc_token_set)}
+            ${tokenRow('Bugcrowd', 'Your Bugcrowd API token (format <code>id:secret</code>) — or the <code>_crowdcontrol_session_key</code> session-cookie value. Paste either; both are sent the same way.', 'bc-token-input', 'window.SettingsPage.saveBugcrowdToken()', 'id:secret token', cfg.bc_token_set)}
             ${tokenRow('Intigriti', 'Researcher API token.', 'it-token-input', 'window.SettingsPage.saveIntigritiToken()', 'API token', cfg.it_token_set)}
             ${tokenRow('YesWeHack', 'JWT token.', 'ywh-token-input', 'window.SettingsPage.saveYWHToken()', 'JWT token', cfg.ywh_token_set)}
             <div class="settings-item">
