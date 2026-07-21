@@ -676,8 +676,17 @@ func apiRunGlobalNuclei(c *gin.Context) {
 				break
 			}
 			for _, s := range subs {
-				if s.Subdomain != "" {
-					tmpFile.WriteString(s.Subdomain + "\n")
+				// For subdomains already probed live, use the stored scheme-prefixed
+				// URL (https://host) so nuclei skips its own httpx probing. Unprobed
+				// hosts fall back to the bare name (nuclei resolves the scheme itself).
+				target := s.Subdomain
+				if s.IsLive {
+					if u := s.BestURL(); u != "" {
+						target = u
+					}
+				}
+				if target != "" {
+					tmpFile.WriteString(target + "\n")
 					totalSubs++
 				}
 			}

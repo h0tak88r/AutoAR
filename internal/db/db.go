@@ -312,6 +312,28 @@ func ListSubdomainsWithStatus(domain string) ([]SubdomainStatus, error) {
 	return dbInstance.ListSubdomainsWithStatus(domain)
 }
 
+// ListLiveSubdomainURLs returns the stored, scheme-prefixed URL for every live
+// subdomain of a domain (e.g. https://api.example.com). Using these as nuclei
+// targets lets a scan skip the httpx probing step, since the scheme was already
+// resolved when the subdomain was probed. Returns nothing if the domain has no
+// live subdomains stored yet (caller should then run httpx).
+func ListLiveSubdomainURLs(domain string) ([]string, error) {
+	subs, err := ListSubdomainsWithStatus(domain)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(subs))
+	for _, s := range subs {
+		if !s.IsLive {
+			continue
+		}
+		if u := s.BestURL(); u != "" {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
 // ListAllSubdomainsPaginated returns a paginated global list of subdomains matching a search.
 func ListAllSubdomainsPaginated(search, techFilter, cnameFilter string, statusFilter int, liveOnly bool, limit, offset int) ([]GlobalSubdomain, int, error) {
 	if dbInstance == nil {

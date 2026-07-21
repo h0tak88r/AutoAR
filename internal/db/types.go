@@ -384,6 +384,26 @@ type SubdomainStatus struct {
 	CNAMEs      string `json:"cnames,omitempty"`
 }
 
+// BestURL returns the scheme-prefixed URL to use for this subdomain, preferring
+// the scheme that actually responded (https first). Used so downstream nuclei
+// scans can target the already-probed URL and skip re-running httpx.
+func (s SubdomainStatus) BestURL() string {
+	switch {
+	case s.HTTPSStatus > 0 && s.HTTPSURL != "":
+		return s.HTTPSURL
+	case s.HTTPStatus > 0 && s.HTTPURL != "":
+		return s.HTTPURL
+	case s.HTTPSURL != "":
+		return s.HTTPSURL
+	case s.HTTPURL != "":
+		return s.HTTPURL
+	case s.Subdomain != "":
+		return "https://" + s.Subdomain
+	default:
+		return ""
+	}
+}
+
 // GlobalSubdomain extends SubdomainStatus with the root domain
 type GlobalSubdomain struct {
 	SubdomainStatus
