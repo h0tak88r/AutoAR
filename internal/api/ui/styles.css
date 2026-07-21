@@ -4011,3 +4011,45 @@ select.input {
 }
 .acct-input { flex: 1; min-width: 130px; }
 .acct-add-btn { flex-shrink: 0; }
+
+/* credential validity tag + test controls */
+.acct-status {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.acct-status.valid   { color: var(--accent-emerald); background: rgba(16, 185, 129, 0.13); border-color: rgba(16, 185, 129, 0.35); }
+.acct-status.invalid { color: #ef4444; background: rgba(239, 68, 68, 0.13); border-color: rgba(239, 68, 68, 0.35); }
+.acct-status.blocked { color: var(--accent-amber); background: rgba(245, 158, 11, 0.13); border-color: rgba(245, 158, 11, 0.35); }
+.acct-status.error   { color: var(--accent-amber); background: rgba(245, 158, 11, 0.10); border-color: rgba(245, 158, 11, 0.3); }
+.acct-status.checking{ color: var(--accent-cyan); background: var(--accent-cyan-dim, rgba(34, 211, 238, 0.13)); border-color: rgba(34, 211, 238, 0.3); }
+.acct-status.muted   { color: var(--text-muted); background: rgba(255, 255, 255, 0.04); border-color: var(--border); }
+
+.acct-test {
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.acct-test:hover { color: var(--text-primary); border-color: var(--accent-cyan-dim, var(--accent-cyan)); }
+
+.acct-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.acct-testall {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.acct-testall:hover { color: var(--accent-cyan); border-color: var(--accent-cyan-dim, var(--accent-cyan)); }
