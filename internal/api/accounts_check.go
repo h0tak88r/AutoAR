@@ -3,10 +3,8 @@ package api
 import (
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -87,7 +85,9 @@ func checkAccountCredential(a db.BBPAccount) (status, detail string) {
 		if a.Token == "" {
 			return "invalid", "missing JWT token"
 		}
-		req, _ := http.NewRequest("GET", "https://api.yeswehack.com/programs?page=1", nil)
+		// /user is auth-gated (401 without a valid JWT); the /programs list is public
+		// so it can't distinguish a good token from a bad one.
+		req, _ := http.NewRequest("GET", "https://api.yeswehack.com/user", nil)
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Authorization", "Bearer "+a.Token)
 		return interpretAPI(client.Do(req))
@@ -96,9 +96,11 @@ func checkAccountCredential(a db.BBPAccount) (status, detail string) {
 		if a.Token == "" {
 			return "invalid", "missing session cookie"
 		}
-		req, _ := http.NewRequest("GET", "https://bugcrowd.com/engagements.json?category=bug_bounty&sort_by=promoted&sort_direction=desc&page=1", nil)
+		// /dashboard requires an authenticated session: a valid _crowdcontrol_session_key
+		// returns 200, an expired/invalid one 302-redirects to /user/sign_in. (The public
+		// engagements.json list is NOT auth-gated, so it can't tell a good token from a bad one.)
+		req, _ := http.NewRequest("GET", "https://bugcrowd.com/dashboard", nil)
 		req.Header.Set("Cookie", "_crowdcontrol_session_key="+a.Token)
-		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", acctCheckUA)
 		return interpretBugcrowd(client.Do(req))
 
@@ -125,8 +127,9 @@ func interpretAPI(resp *http.Response, err error) (string, string) {
 	}
 }
 
-// interpretBugcrowd handles the cookie-auth case: a valid session returns 200
-// with the engagements JSON; an expired one 302s to login (or 200 login HTML).
+// interpretBugcrowd handles the cookie-auth case against /dashboard: a valid
+// session returns 200; an expired/invalid one 302-redirects to the login page
+// (redirects are not followed, so we see the 3xx directly).
 func interpretBugcrowd(resp *http.Response, err error) (string, string) {
 	if err != nil {
 		return "error", trimErr(err.Error())
@@ -134,13 +137,9 @@ func interpretBugcrowd(resp *http.Response, err error) (string, string) {
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case 200:
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if strings.Contains(string(body), "engagements") || strings.Contains(string(body), "paginationMeta") {
-			return "valid", "session cookie accepted (200)"
-		}
-		return "invalid", "session cookie expired — refresh it"
+		return "valid", "session authenticated (200)"
 	case 301, 302, 303, 307, 308, 401:
-		return "invalid", "session cookie expired — refresh it"
+		return "invalid", "session cookie expired or invalid — re-grab it"
 	case 403, 406:
 		return "blocked", "Bugcrowd WAF/IP block — try again later"
 	case 429:
