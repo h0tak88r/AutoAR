@@ -144,6 +144,21 @@
         </div>
 
         <div class="settings-section" data-tab="platforms">
+          <div class="settings-section-header"> Multiple Accounts</div>
+          <div class="settings-section-description">
+            Add more than one credential per platform to pull programs, domains and scope from
+            <strong>all</strong> of your accounts at once. Every enabled account is queried and the
+            results are merged (deduplicated). The single credential in the section below is used
+            automatically as an extra <code>env</code> account.
+          </div>
+          <div class="settings-section-body">
+            <div id="settings-accounts-manager" style="padding:8px 24px 16px;">
+              <div style="color:var(--text-muted);font-size:13px;">Loading accounts…</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="platforms">
           <div class="settings-section-header"> Bug Bounty Platform API Keys</div>
           <div class="settings-section-description">
             Credentials for the Programs catalogue. Saved securely on the server (never
@@ -268,6 +283,104 @@
 
     // Restore last-active tab (default: Platforms & Keys — the most-used surface).
     settingsTab(window.state._settingsTab || 'platforms');
+    // Populate the multi-account manager (async — fills the placeholder in-place).
+    loadSettingsAccounts();
+  }
+
+  // ── Multi-account manager (Platforms & Keys tab) ──────────────────────────
+  // Lets the user store several credentials per platform. Every enabled account
+  // is queried when fetching programs/scope (see accounts.For on the server) and
+  // the results are merged — so one dashboard pulls from all your accounts.
+  const ACCT_PLATFORMS = [
+    { id: 'h1', name: 'HackerOne', fields: ['username', 'token'] },
+    { id: 'bc', name: 'Bugcrowd', fields: ['token'] },
+    { id: 'it', name: 'Intigriti', fields: ['token'] },
+    { id: 'ywh', name: 'YesWeHack', fields: ['token', 'email', 'password'] },
+  ];
+
+  async function loadSettingsAccounts() {
+    const host = document.getElementById('settings-accounts-manager');
+    if (!host) return;
+    let accts = [];
+    try {
+      const data = await window.apiFetch('/api/accounts'); // "" platform = all
+      accts = data.accounts || [];
+    } catch (e) {
+      host.innerHTML = `<div style="color:var(--accent-amber);font-size:13px;">Failed to load accounts: ${escValue(e.message || String(e))}</div>`;
+      return;
+    }
+    renderSettingsAccounts(host, accts);
+  }
+
+  function renderSettingsAccounts(host, accts) {
+    const byPlatform = {};
+    for (const a of accts) (byPlatform[a.platform] = byPlatform[a.platform] || []).push(a);
+
+    host.innerHTML = ACCT_PLATFORMS.map((p) => {
+      const list = byPlatform[p.id] || [];
+      const rows = list.length
+        ? list.map((a) => `
+          <div class="acct-row">
+            <div class="acct-meta">
+              <div class="acct-label">${escValue(a.label)}${a.enabled ? '' : ' <span class="acct-disabled">(disabled)</span>'}</div>
+              <div class="acct-sub">${a.username ? escValue(a.username) + ' · ' : ''}${a.token_set ? 'token ' + escValue(a.token_mask || '••••') : 'no token'}</div>
+            </div>
+            <button class="acct-toggle ${a.enabled ? 'on' : 'off'}" onclick="window.SettingsPage.toggleAccount(${a.id}, ${a.enabled ? 'false' : 'true'})">${a.enabled ? 'On' : 'Off'}</button>
+            <button class="acct-del" title="Delete" onclick="window.SettingsPage.deleteAccount(${a.id})">✕</button>
+          </div>`).join('')
+        : `<div class="acct-empty">No extra accounts yet — add one below.</div>`;
+      const addFields = p.fields.map((f) => {
+        const isSecret = f === 'password' || f === 'token';
+        const ph = f.charAt(0).toUpperCase() + f.slice(1);
+        return `<input id="acct-${p.id}-${f}" type="${isSecret ? 'password' : 'text'}" placeholder="${ph}" class="form-control premium-input acct-input">`;
+      }).join('');
+      return `
+        <div class="acct-platform">
+          <div class="acct-platform-head">${escValue(p.name)}${list.length ? ` <span class="acct-count">${list.length}</span>` : ''}</div>
+          <div class="acct-list">${rows}</div>
+          <div class="acct-add">
+            <input id="acct-${p.id}-label" type="text" placeholder="Label (e.g. main, alt)" class="form-control premium-input acct-input">
+            ${addFields}
+            <button class="btn btn-primary acct-add-btn" onclick="window.SettingsPage.addAccount('${p.id}')">+ Add</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function addAccount(platformId) {
+    const p = ACCT_PLATFORMS.find((x) => x.id === platformId);
+    if (!p) return;
+    const label = (document.getElementById(`acct-${platformId}-label`)?.value || '').trim();
+    if (!label) { window.showToast('warning', 'Label required', 'Give the account a label (e.g. main, alt).'); return; }
+    const body = { platform: platformId, label, enabled: true };
+    for (const f of p.fields) body[f] = (document.getElementById(`acct-${platformId}-${f}`)?.value || '').trim();
+    try {
+      await window.apiPost('/api/accounts', body);
+      window.showToast('success', 'Account added', `${label} saved — programs will refresh in the background.`);
+      await loadSettingsAccounts();
+    } catch (e) {
+      window.showToast('error', 'Add failed', e.message);
+    }
+  }
+
+  async function toggleAccount(id, enabled) {
+    try {
+      await window.apiPost(`/api/accounts/${id}/toggle`, { enabled });
+      await loadSettingsAccounts();
+    } catch (e) {
+      window.showToast('error', 'Toggle failed', e.message);
+    }
+  }
+
+  async function deleteAccount(id) {
+    if (!window.confirm('Delete this account?')) return;
+    try {
+      await window.apiDelete(`/api/accounts/${id}`);
+      window.showToast('success', 'Deleted', 'Account removed.');
+      await loadSettingsAccounts();
+    } catch (e) {
+      window.showToast('error', 'Delete failed', e.message);
+    }
   }
 
   // Show only the sections belonging to the chosen tab; highlight the active pill.
@@ -523,6 +636,10 @@
     loadConfig,
     renderSettings,
     settingsTab,
+    loadSettingsAccounts,
+    addAccount,
+    toggleAccount,
+    deleteAccount,
     saveOpenRouterKey,
     saveOpenCodeKey,
     saveOpenCodeModel,
