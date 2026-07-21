@@ -144,12 +144,15 @@
         </div>
 
         <div class="settings-section" data-tab="platforms">
-          <div class="settings-section-header"> Multiple Accounts</div>
+          <div class="settings-section-header"> Bug Bounty Platform Accounts</div>
           <div class="settings-section-description">
-            Add more than one credential per platform to pull programs, domains and scope from
-            <strong>all</strong> of your accounts at once. Every enabled account is queried and the
-            results are merged (deduplicated). The single credential in the section below is used
-            automatically as an extra <code>env</code> account.
+            The single source for HackerOne, Bugcrowd, Intigriti and YesWeHack credentials — all
+            stored in the database and surviving redeploys. Add one or more accounts per platform;
+            every <strong>enabled</strong> account is queried and the programs, domains and scope
+            are merged (deduplicated). Each account shows a live <strong>validity</strong> tag.
+            Any credential you had in the old single-key fields was imported here automatically.
+            <br><em>Bugcrowd</em> takes the <code>_crowdcontrol_session_key</code> cookie value from
+            your logged-in browser (DevTools → Cookies) — not the "API Credentials" token.
           </div>
           <div class="settings-section-body">
             <div id="settings-accounts-manager" style="padding:8px 24px 16px;">
@@ -159,29 +162,13 @@
         </div>
 
         <div class="settings-section" data-tab="platforms">
-          <div class="settings-section-header"> Bug Bounty Platform API Keys</div>
+          <div class="settings-section-header"> External Aggregators &amp; Recon Keys</div>
           <div class="settings-section-description">
-            Credentials for the Programs catalogue. Saved securely on the server (never
-            shown back) and applied immediately — the Programs list refreshes in the
-            background. Leave a field blank to keep the current value.
+            Single-value service keys (not per-account) — an aggregator that pulls extra external
+            programs, and a recon dataset key. Saved to the database; leave a field blank to keep
+            the current value.
           </div>
           <div class="settings-section-body">
-            <div class="settings-item">
-              <div class="settings-label">
-                <div class="settings-title">HackerOne</div>
-                <div class="settings-hint">Username + API token (<a href="https://hackerone.com/settings/api_token" target="_blank" rel="noopener">get a token</a>). ${cfg.h1_token_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
-              </div>
-              <div class="settings-control" style="flex-direction:column;align-items:stretch;gap:6px;">
-                <input type="text" id="h1-username-input" value="" placeholder="${cfg.h1_username_set ? 'username saved — type to change' : 'username'}" class="form-control premium-input">
-                <div style="display:flex;gap:8px;">
-                  <input type="password" id="h1-token-input" value="" placeholder="${cfg.h1_token_set ? '••••••• (saved)' : 'API token'}" class="form-control premium-input" style="flex:1;">
-                  <button class="btn btn-primary" onclick="window.SettingsPage.saveH1Creds()">Save</button>
-                </div>
-              </div>
-            </div>
-            ${tokenRow('Bugcrowd', 'The value of your <code>_crowdcontrol_session_key</code> cookie — from your logged-in browser (bugcrowd.com → DevTools → Application/Storage → Cookies). This is the session cookie, <em>not</em> the "API Credentials" token, which this integration can\'t use.', 'bc-token-input', 'window.SettingsPage.saveBugcrowdToken()', '_crowdcontrol_session_key value', cfg.bc_token_set)}
-            ${tokenRow('Intigriti', 'Researcher API token.', 'it-token-input', 'window.SettingsPage.saveIntigritiToken()', 'API token', cfg.it_token_set)}
-            ${tokenRow('YesWeHack', 'JWT token.', 'ywh-token-input', 'window.SettingsPage.saveYWHToken()', 'JWT token', cfg.ywh_token_set)}
             <div class="settings-item">
               <div class="settings-label">
                 <div class="settings-title">HackAdvisor <span style="font-size:10px;color:#f472b6;font-weight:600;">external targets</span></div>

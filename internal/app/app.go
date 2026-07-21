@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/api"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
@@ -70,6 +71,10 @@ func StartAPI() error {
 	// as the container env provides them.
 	if os.Getenv("DB_HOST") != "" {
 		api.HydrateEnvFromDB()
+		// Import the legacy single-account env credentials into the DB accounts
+		// table (one-shot) so the Settings accounts manager is the single source of
+		// truth. Runs after HydrateEnvFromDB so UI-saved values are picked up too.
+		accounts.MigrateEnvAccounts()
 	}
 
 	// Ensure scans don't remain "running" across restarts (single-instance mode).
