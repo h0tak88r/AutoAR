@@ -243,9 +243,19 @@
       <!-- ══════════════════════════════════════════════════════════════════ -->
       <div class="view" id="view-scans">
 
-        <div class="view-header">
-          <h1 class="view-title">Scans</h1>
-          <div class="view-subtitle">Active and recent scan history</div>
+        <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <h1 class="view-title">Scans</h1>
+            <div class="view-subtitle">Active and recent scan history</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button id="scans-root-pipeline-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)" onclick="promptRootPipeline()">
+               Root Pipeline
+            </button>
+            <button id="scans-run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
+               Run Nuclei Template
+            </button>
+          </div>
         </div>
 
         <div id="scans-container">

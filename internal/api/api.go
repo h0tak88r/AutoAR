@@ -1577,7 +1577,7 @@ func indexScanArtifacts(scanID, scanType, target string) {
 		"urls": true, "js": true, "jsscan": true, "reflection": true,
 		"nuclei": true, "tech": true, "ports": true, "gf": true,
 		"backup": true, "aem": true, "depconfusion": true, "wp_confusion": true,
-		"zerodays": true,
+		"zerodays": true, "pipeline": true,
 	}
 
 	if domainRootTypes[scanType] && target != "" {

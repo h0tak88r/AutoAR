@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/db"
+	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
 	scopemod "github.com/h0tak88r/AutoAR/internal/scanner/scope"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
@@ -114,31 +115,45 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 			defer wg.Done()
 			defer func() { <-sem }()
 			subs, err := subdomains.EnumerateSubdomains(root, threads)
-			mu.Lock()
-			defer mu.Unlock()
-			done++
 			if err != nil {
+				mu.Lock()
+				done++
 				stdLog(scanID, "[WARN] enum %s failed: %v", root, err)
+				mu.Unlock()
 				return
 			}
 			if len(subs) > 0 {
 				if ierr := db.BatchInsertSubdomains(root, subs, false); ierr != nil {
 					stdLog(scanID, "[WARN] store %s subs failed: %v", root, ierr)
 				}
-				allSubs = append(allSubs, subs...)
 			}
-			stdLog(scanID, "[OK] %s → %d subs (%d/%d roots)", root, len(subs), done, len(targetRoots))
+			// httpx: probe for live hosts (marks live in the DB) and scan only those.
+			// Falls back to the raw subdomains if the probe finds nothing (nuclei does
+			// its own probing anyway, so no host is lost).
+			targets := subs
+			liveN := 0
+			if res, herr := livehosts.FilterLiveHosts(root, threads, true); herr == nil && res != nil && res.LiveSubsFile != "" {
+				if live, rerr := utils.ReadLines(res.LiveSubsFile); rerr == nil && len(live) > 0 {
+					targets = live
+					liveN = len(live)
+				}
+			}
+			mu.Lock()
+			done++
+			allSubs = append(allSubs, targets...)
+			stdLog(scanID, "[OK] %s → %d subs, %d live (%d/%d roots)", root, len(subs), liveN, done, len(targetRoots))
+			mu.Unlock()
 		}(r)
 	}
 	wg.Wait()
 
 	allSubs = uniqueStrings(allSubs)
-	stdLog(scanID, "[INFO] enumeration complete: %d new subdomain(s)", len(allSubs))
+	stdLog(scanID, "[INFO] enumeration + httpx complete: %d live host(s) to scan", len(allSubs))
 	if len(allSubs) == 0 {
-		utils.SendMonitorWebhook(" Root Pipeline: enumeration found no subdomains for the new roots.")
+		utils.SendMonitorWebhook(" Root Pipeline: no live hosts found for the new roots.")
 		return nil
 	}
-	utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: enumerated **%d** subdomains — running nuclei…", len(allSubs)))
+	utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: %d live host(s) — running nuclei…", len(allSubs)))
 
 	// Write the discovered subs to a temp target file for nuclei.
 	tmpFile, err := os.CreateTemp("", "root-pipeline-targets-*.txt")
@@ -178,6 +193,9 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	if err != nil {
 		return fmt.Errorf("nuclei scan failed: %w", err)
 	}
+
+	// Record the finding count so the Scans page shows the "N findings" tag.
+	_ = db.UpdateScanStats(scanID, matches, 0)
 
 	stdLog(scanID, "[OK] Root Pipeline complete — %d roots, %d subs, %d matches", len(targetRoots), len(allSubs), matches)
 	utils.SendMonitorWebhook(fmt.Sprintf(" **Root Pipeline complete**\nTemplate: `%s`\nNew roots: %d\nSubdomains: %d\nMatches: %d",
