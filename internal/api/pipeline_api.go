@@ -114,6 +114,19 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 		go func(root string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+
+			// Fast path: if this root already has probed live URLs stored, reuse them
+			// and skip enumeration + httpx entirely — the schemes were resolved when
+			// the subdomains were first probed, so nuclei can target them directly.
+			if stored, serr := db.ListLiveSubdomainURLs(root); serr == nil && len(stored) > 0 {
+				mu.Lock()
+				done++
+				allSubs = append(allSubs, stored...)
+				stdLog(scanID, "[OK] %s → %d stored live URLs, skipped httpx (%d/%d roots)", root, len(stored), done, len(targetRoots))
+				mu.Unlock()
+				return
+			}
+
 			subs, err := subdomains.EnumerateSubdomains(root, threads)
 			if err != nil {
 				mu.Lock()
@@ -127,21 +140,20 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 					stdLog(scanID, "[WARN] store %s subs failed: %v", root, ierr)
 				}
 			}
-			// httpx: probe for live hosts (marks live in the DB) and scan only those.
-			// Falls back to the raw subdomains if the probe finds nothing (nuclei does
-			// its own probing anyway, so no host is lost).
-			targets := subs
-			liveN := 0
-			if res, herr := livehosts.FilterLiveHosts(root, threads, true); herr == nil && res != nil && res.LiveSubsFile != "" {
-				if live, rerr := utils.ReadLines(res.LiveSubsFile); rerr == nil && len(live) > 0 {
-					targets = live
-					liveN = len(live)
-				}
+			// httpx: probe for live hosts — marks them live AND stores the resolved
+			// scheme-prefixed URL per host in the DB, so future runs skip httpx.
+			_, _ = livehosts.FilterLiveHosts(root, threads, true)
+			// Use the stored scheme-prefixed live URLs as nuclei targets (nuclei then
+			// skips its own probing). Fall back to raw subs if nothing came back live.
+			targets, _ := db.ListLiveSubdomainURLs(root)
+			liveN := len(targets)
+			if liveN == 0 {
+				targets = subs // fallback: nuclei probes these itself
 			}
 			mu.Lock()
 			done++
 			allSubs = append(allSubs, targets...)
-			stdLog(scanID, "[OK] %s → %d subs, %d live (%d/%d roots)", root, len(subs), liveN, done, len(targetRoots))
+			stdLog(scanID, "[OK] %s → %d subs, %d live URLs (%d/%d roots)", root, len(subs), liveN, done, len(targetRoots))
 			mu.Unlock()
 		}(r)
 	}
