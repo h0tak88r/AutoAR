@@ -149,7 +149,7 @@
           <span style="font-size:11px;color:var(--text-muted)">Phase ${currentPhase}${totalPhases > 0 ? '/' + totalPhases : ''} · ${pct}%</span>
           <div style="display:flex;gap:10px;align-items:center">
             ${(() => {
-    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
+    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'pipeline', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
     const label = isFindingType ? (filesUploaded === 1 ? 'finding' : 'findings') : (filesUploaded === 1 ? 'file' : 'files');
     const icon = isFindingType ? '' : '';
     return filesUploaded > 0 ? `<span style="font-size:10px;color:var(--text-muted)">${icon} ${filesUploaded} ${label}</span>` : '';
@@ -218,7 +218,7 @@
     const elapsed = completedAt ? elapsedBetween(startedAt, completedAt) : elapsedStr(startedAt);
     const scanID = s.scan_id || s.ScanID || '';
     const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
-    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
+    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'pipeline', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
     const label = isFindingType ? 'findings' : 'files';
     const icon = isFindingType ? '' : '';
     const badgeHtml = filesUploaded > 0 ? `<span class="badge badge-running" style="font-size:10px;padding:2px 6px;margin-bottom:4px;display:inline-block;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);color:var(--accent-cyan);cursor:help" title="${filesUploaded} ${label} identified">${icon} ${filesUploaded} ${label}</span><br/>` : '';

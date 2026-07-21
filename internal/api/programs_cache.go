@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/db"
 )
 
@@ -42,6 +43,7 @@ type programsCachePayload struct {
 	HasH1Token  bool             `json:"has_h1_token"`
 	HasBCToken  bool             `json:"has_bc_token"`
 	HasITToken  bool             `json:"has_it_token"`
+	HasYWHToken bool             `json:"has_ywh_token"`
 	HasHAToken  bool             `json:"has_ha_token"`
 	GeneratedAt time.Time        `json:"generated_at"`
 }
@@ -133,6 +135,21 @@ func buildProgramsPayload() programsCachePayload {
 		mu.Unlock()
 	}()
 
+	// YesWeHack — native fetch across every configured YWH account (bbscope). No-op
+	// unless a YWH account/token is configured.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		progs, err := fetchYWHPrograms(true, true)
+		if err != nil {
+			log.Printf("[PROGRAMS] YesWeHack fetch failed: %v", err)
+			return
+		}
+		mu.Lock()
+		all = append(all, progs...)
+		mu.Unlock()
+	}()
+
 	// HackAdvisor — external targets aggregator (Immunefi, Standoff365, BI.ZONE,
 	// YesWeHack, self-hosted, …). No-op unless HACKADVISOR_TOKEN is set. The list
 	// already carries scope_count + scope_updated_at, so no per-program enrichment.
@@ -160,9 +177,10 @@ func buildProgramsPayload() programsCachePayload {
 
 	return programsCachePayload{
 		Programs:    all,
-		HasH1Token:  os.Getenv("H1_USERNAME") != "" && os.Getenv("H1_TOKEN") != "",
-		HasBCToken:  os.Getenv("BUGCROWD_TOKEN") != "",
+		HasH1Token:  accounts.Count("h1") > 0,
+		HasBCToken:  accounts.Count("bc") > 0,
 		HasITToken:  hasIntigritiToken(),
+		HasYWHToken: accounts.Count("ywh") > 0,
 		HasHAToken:  hasHackAdvisorToken(),
 		GeneratedAt: time.Now().UTC(),
 	}

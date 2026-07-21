@@ -243,6 +243,10 @@ func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform
 			if p.Platform == "it" {
 				programs = append(programs, p)
 			}
+		case "ywh", "yeswehack":
+			if p.Platform == "ywh" {
+				programs = append(programs, p)
+			}
 		case "ha", "hackadvisor", "external":
 			if p.Platform == "ha" {
 				programs = append(programs, p)
@@ -258,6 +262,7 @@ func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform
 		"has_h1_token":   payload.HasH1Token,
 		"has_bc_token":   payload.HasBCToken,
 		"has_it_token":   payload.HasITToken,
+		"has_ywh_token":  payload.HasYWHToken,
 		"has_ha_token":   payload.HasHAToken,
 		"scope_included": true,
 		"warm":           true,

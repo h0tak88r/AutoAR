@@ -735,6 +735,9 @@ func apiRunGlobalNuclei(c *gin.Context) {
 			return fmt.Errorf("nuclei SDK scan failed: %w", err)
 		}
 
+		// Record the finding count so the Scans page shows the "N findings" tag.
+		_ = db.UpdateScanStats(scanID, matches, 0)
+
 		stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches)
 		utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
 

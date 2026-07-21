@@ -21,31 +21,63 @@ func TestMigrateEnvAccounts(t *testing.T) {
 		t.Fatalf("db.EnsureSchema: %v", err)
 	}
 
-	t.Setenv("H1_USERNAME", "0x88")
-	t.Setenv("H1_TOKEN", "h1-secret")
-	t.Setenv("BUGCROWD_TOKEN", "bc-secret")
+	// Use a distinct platform (Intigriti) + unique token so the assertions are
+	// robust even though db.Init caches one global instance across tests.
+	t.Setenv("INTIGRITI_TOKEN", "it-secret-xyz")
 
 	MigrateEnvAccounts()
 
-	// h1 env creds imported as a "default" DB account.
-	rows, err := db.ListBBPAccounts("h1")
+	// The env Intigriti token is imported as a "default" DB account.
+	def := findAccount(t, "it", "default")
+	if def.Token != "it-secret-xyz" {
+		t.Fatalf("it/default not imported correctly: %+v", def)
+	}
+
+	// After migration, For(it) no longer injects an env-source account (DB is
+	// authoritative) and does include the migrated credential.
+	foundMigrated := false
+	for _, a := range For("it") {
+		if a.Source == "env" {
+			t.Fatalf("env account still injected after migration: %+v", a)
+		}
+		if a.Token == "it-secret-xyz" {
+			foundMigrated = true
+		}
+	}
+	if !foundMigrated {
+		t.Fatalf("migrated it account missing from For(it)")
+	}
+
+	// Idempotent: a second run must not create a duplicate "default".
+	MigrateEnvAccounts()
+	if n := countAccounts(t, "it", "default"); n != 1 {
+		t.Fatalf("migration not idempotent: %d it/default accounts", n)
+	}
+}
+
+func findAccount(t *testing.T, platform, label string) db.BBPAccount {
+	t.Helper()
+	rows, err := db.ListBBPAccounts(platform)
 	if err != nil {
-		t.Fatalf("ListBBPAccounts(h1): %v", err)
+		t.Fatalf("ListBBPAccounts(%s): %v", platform, err)
 	}
-	if len(rows) != 1 || rows[0].Label != "default" || rows[0].Username != "0x88" || rows[0].Token != "h1-secret" {
-		t.Fatalf("h1 not imported correctly: %+v", rows)
+	for _, r := range rows {
+		if r.Label == label {
+			return r
+		}
 	}
+	t.Fatalf("no %s/%s account found in %+v", platform, label, rows)
+	return db.BBPAccount{}
+}
 
-	// After migration, For(h1) serves exactly the DB account — the env account is
-	// no longer injected (would otherwise duplicate the same credential).
-	acc := For("h1")
-	if len(acc) != 1 || acc[0].Source != "db" || acc[0].Token != "h1-secret" {
-		t.Fatalf("For(h1) after migration = %+v, want one db account", acc)
+func countAccounts(t *testing.T, platform, label string) int {
+	t.Helper()
+	rows, _ := db.ListBBPAccounts(platform)
+	n := 0
+	for _, r := range rows {
+		if r.Label == label {
+			n++
+		}
 	}
-
-	// Idempotent: a second run must not create duplicates.
-	MigrateEnvAccounts()
-	if rows2, _ := db.ListBBPAccounts("h1"); len(rows2) != 1 {
-		t.Fatalf("migration not idempotent: %d h1 rows", len(rows2))
-	}
+	return n
 }
