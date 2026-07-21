@@ -3934,3 +3934,80 @@ select.input {
   .settings-control { width: 100%; }
   .settings-item { flex-direction: column; gap: 12px; }
 }
+
+/* ── Multi-account manager (Settings → Platforms & Keys) ─────────────── */
+.acct-platform {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.acct-platform:last-child { border-bottom: none; }
+
+.acct-platform-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acct-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background: var(--accent-cyan-dim, rgba(34, 211, 238, 0.15));
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.acct-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  margin-bottom: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.acct-meta { flex: 1; min-width: 0; }
+.acct-label { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.acct-disabled { color: var(--accent-amber); font-size: 11px; font-weight: 500; }
+.acct-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acct-toggle {
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.acct-toggle.on { color: var(--accent-emerald); border-color: rgba(16, 185, 129, 0.4); }
+.acct-toggle.off { color: var(--accent-amber); border-color: rgba(245, 158, 11, 0.4); }
+.acct-del {
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: transparent;
+  color: #ef4444;
+  font-size: 11px;
+  cursor: pointer;
+}
+.acct-empty { font-size: 12px; color: var(--text-muted); padding: 2px 0 8px; }
+
+.acct-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.acct-input { flex: 1; min-width: 130px; }
+.acct-add-btn { flex-shrink: 0; }
