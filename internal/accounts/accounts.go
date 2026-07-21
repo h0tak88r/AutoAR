@@ -110,11 +110,59 @@ func For(platform string) []Account {
 		}
 	}
 
-	// Add the legacy env account unless its token is already represented.
-	if env := envAccount(p); hasCreds(env) && (env.Token == "" || !seenTok[env.Token]) {
-		out = append(out, env)
+	// Add the legacy env account unless its token is already represented — but only
+	// until the env credentials have been migrated into the DB (see
+	// MigrateEnvAccounts). After migration the DB is the single source of truth, so
+	// the env vars are no longer injected as an implicit extra account.
+	if !envMigrated() {
+		if env := envAccount(p); hasCreds(env) && (env.Token == "" || !seenTok[env.Token]) {
+			out = append(out, env)
+		}
 	}
 	return out
+}
+
+const envMigratedMarker = "bbp_env_migrated"
+
+// envMigrated reports whether the one-time env→DB account migration has run.
+func envMigrated() bool {
+	v, _ := db.GetSetting(envMigratedMarker)
+	return v == "done"
+}
+
+// MigrateEnvAccounts imports the legacy single-account env credentials
+// (H1_USERNAME/H1_TOKEN, BUGCROWD_TOKEN, INTIGRITI_TOKEN, YWH_*) into the
+// bbp_accounts DB table as a "default" account per platform, so the DB becomes
+// the single source of truth for the Settings accounts manager. It is idempotent
+// and one-shot (guarded by a settings marker), so it is safe to call on every
+// boot. An env credential already present as a DB account (same token) is skipped.
+func MigrateEnvAccounts() {
+	if envMigrated() {
+		return
+	}
+	for _, p := range []string{"h1", "bc", "it", "ywh"} {
+		env := envAccount(p)
+		if !hasCreds(env) {
+			continue
+		}
+		exists := false
+		if rows, err := db.ListBBPAccounts(p); err == nil {
+			for _, r := range rows {
+				if r.Token != "" && r.Token == env.Token {
+					exists = true
+					break
+				}
+			}
+		}
+		if exists {
+			continue
+		}
+		_, _ = db.UpsertBBPAccount(db.BBPAccount{
+			Platform: p, Label: "default", Username: env.Username,
+			Token: env.Token, Email: env.Email, Password: env.Password, Enabled: true,
+		})
+	}
+	_ = db.SetSetting(envMigratedMarker, "done")
 }
 
 // Labels returns the account labels for a platform (for source tagging).
