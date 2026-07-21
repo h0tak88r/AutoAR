@@ -586,6 +586,7 @@ func SetupAPI() *gin.Engine {
 		apiGroup.GET("/accounts", apiListBBPAccounts)
 		apiGroup.POST("/accounts", apiUpsertBBPAccount)
 		apiGroup.POST("/accounts/:id/toggle", apiToggleBBPAccount)
+		apiGroup.GET("/accounts/:id/check", apiCheckBBPAccount)
 		apiGroup.DELETE("/accounts/:id", apiDeleteBBPAccount)
 		// Program Lookup (keyword/domain → bug-bounty program) catalog
 		apiGroup.GET("/assets/program-lookup", apiProgramLookup)

@@ -312,22 +312,42 @@
     renderSettingsAccounts(host, accts);
   }
 
+  // Status-tag presentation for a credential-validity state.
+  function acctStatusMeta(status) {
+    switch (status) {
+      case 'valid': return { cls: 'valid', label: 'Valid' };
+      case 'invalid': return { cls: 'invalid', label: 'Invalid' };
+      case 'blocked': return { cls: 'blocked', label: 'Blocked' };
+      case 'checking': return { cls: 'checking', label: 'Checking…' };
+      case 'error': return { cls: 'error', label: 'Error' };
+      case 'unsupported': return { cls: 'muted', label: 'N/A' };
+      default: return { cls: 'muted', label: 'Untested' };
+    }
+  }
+
   function renderSettingsAccounts(host, accts) {
     const byPlatform = {};
     for (const a of accts) (byPlatform[a.platform] = byPlatform[a.platform] || []).push(a);
+    const statuses = window.state._acctStatus || {};
 
-    host.innerHTML = ACCT_PLATFORMS.map((p) => {
+    const platformsHTML = ACCT_PLATFORMS.map((p) => {
       const list = byPlatform[p.id] || [];
       const rows = list.length
-        ? list.map((a) => `
+        ? list.map((a) => {
+            const st = statuses[a.id];
+            const m = acctStatusMeta(st ? st.status : 'untested');
+            return `
           <div class="acct-row">
             <div class="acct-meta">
               <div class="acct-label">${escValue(a.label)}${a.enabled ? '' : ' <span class="acct-disabled">(disabled)</span>'}</div>
               <div class="acct-sub">${a.username ? escValue(a.username) + ' · ' : ''}${a.token_set ? 'token ' + escValue(a.token_mask || '••••') : 'no token'}</div>
             </div>
+            <span class="acct-status ${m.cls}" data-acct="${a.id}" title="${escValue(st ? st.detail : 'Not yet tested')}">${m.label}</span>
+            <button class="acct-test" onclick="window.SettingsPage.checkAccount(${a.id})" title="Test this credential">Test</button>
             <button class="acct-toggle ${a.enabled ? 'on' : 'off'}" onclick="window.SettingsPage.toggleAccount(${a.id}, ${a.enabled ? 'false' : 'true'})">${a.enabled ? 'On' : 'Off'}</button>
             <button class="acct-del" title="Delete" onclick="window.SettingsPage.deleteAccount(${a.id})">✕</button>
-          </div>`).join('')
+          </div>`;
+          }).join('')
         : `<div class="acct-empty">No extra accounts yet — add one below.</div>`;
       const addFields = p.fields.map((f) => {
         const isSecret = f === 'password' || f === 'token';
@@ -345,6 +365,46 @@
           </div>
         </div>`;
     }).join('');
+
+    const anyAccounts = accts.length > 0;
+    host.innerHTML = `
+      ${anyAccounts ? `<div class="acct-toolbar"><button class="acct-testall" onclick="window.SettingsPage.checkAllAccounts()">↻ Test all credentials</button></div>` : ''}
+      ${platformsHTML}`;
+
+    // Auto-test any account we haven't checked yet this session (first load and
+    // newly-added accounts). Already-checked accounts keep their cached tag so a
+    // re-render (toggle/add) doesn't re-hit the platforms.
+    const untested = accts.map((a) => a.id).filter((id) => !statuses[id]);
+    untested.forEach((id) => checkAccount(id));
+  }
+
+  async function checkAccount(id) {
+    setAcctStatus(id, 'checking', 'testing…');
+    try {
+      const r = await window.apiFetch(`/api/accounts/${id}/check`);
+      setAcctStatus(id, r.status || (r.valid ? 'valid' : 'invalid'), r.detail || '');
+    } catch (e) {
+      setAcctStatus(id, 'error', e.message || String(e));
+    }
+  }
+
+  function setAcctStatus(id, status, detail) {
+    window.state._acctStatus = window.state._acctStatus || {};
+    window.state._acctStatus[id] = { status, detail: detail || '' };
+    const el = document.querySelector(`.acct-status[data-acct="${id}"]`);
+    if (el) {
+      const m = acctStatusMeta(status);
+      el.className = `acct-status ${m.cls}`;
+      el.textContent = m.label;
+      el.title = detail || '';
+    }
+  }
+
+  async function checkAllAccounts() {
+    const ids = Array.from(document.querySelectorAll('.acct-status[data-acct]'))
+      .map((e) => parseInt(e.dataset.acct, 10))
+      .filter((n) => !Number.isNaN(n));
+    await Promise.all(ids.map((id) => checkAccount(id)));
   }
 
   async function addAccount(platformId) {
@@ -640,6 +700,8 @@
     addAccount,
     toggleAccount,
     deleteAccount,
+    checkAccount,
+    checkAllAccounts,
     saveOpenRouterKey,
     saveOpenCodeKey,
     saveOpenCodeModel,
