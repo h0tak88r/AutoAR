@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/bbcatalog"
 	"github.com/h0tak88r/AutoAR/internal/db"
+	scopemod "github.com/h0tak88r/AutoAR/internal/scanner/scope"
 )
 
 // lookupResult is one row in a program-lookup response.
@@ -66,7 +67,7 @@ func apiProgramLookup(c *gin.Context) {
 				seen[k] = true
 				in := m.InScope
 				out = append(out, lookupResult{
-					Source: m.Source, Company: m.Company, Handle: m.Handle, URL: m.URL,
+					Source: m.Source, Company: m.Company, Handle: m.Handle, URL: scopemod.PublicProgramURL(m.URL),
 					Rewards: m.Rewards, SafeHarbor: m.SafeHarbor, OffersBounty: m.OffersBounty,
 					MatchType: "domain", MatchedDomain: m.MatchedDomain, InScope: &in,
 				})
@@ -84,7 +85,7 @@ func apiProgramLookup(c *gin.Context) {
 				}
 				seen[k] = true
 				out = append(out, lookupResult{
-					Source: p.Source, Company: p.Company, Handle: p.Handle, URL: p.URL,
+					Source: p.Source, Company: p.Company, Handle: p.Handle, URL: scopemod.PublicProgramURL(p.URL),
 					Rewards: p.Rewards, SafeHarbor: p.SafeHarbor, OffersBounty: p.OffersBounty,
 					MatchType: "keyword",
 				})

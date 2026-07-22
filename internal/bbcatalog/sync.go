@@ -109,7 +109,7 @@ func Sync() (SyncResult, error) {
 					continue
 				}
 				id, err := db.UpsertCatalogProgram(db.CatalogProgram{
-					Source: code, Company: titleize(handle), Handle: handle, URL: pd.Url, OffersBounty: true,
+					Source: code, Company: titleize(handle), Handle: handle, URL: scopemod.PublicProgramURL(pd.Url), OffersBounty: true,
 				})
 				if err != nil {
 					continue
