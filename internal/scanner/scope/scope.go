@@ -164,6 +164,14 @@ func isMobileOrAppTarget(target, category string) bool {
 	return false
 }
 
+// PublicProgramURL converts a platform's API program URL to its human-facing,
+// browsable URL. bbscope returns YesWeHack programs as
+// https://api.yeswehack.com/programs/<slug>, but the page a researcher opens is
+// https://yeswehack.com/programs/<slug>. Other platforms are returned unchanged.
+func PublicProgramURL(u string) string {
+	return strings.Replace(u, "://api.yeswehack.com/", "://yeswehack.com/", 1)
+}
+
 // ScopeElementRoots extracts unique root domains from a list of scope elements
 // (in- or out-of-scope), skipping mobile/app/cloud targets. Used by the program
 // catalog to index in/out-of-scope domains per program.

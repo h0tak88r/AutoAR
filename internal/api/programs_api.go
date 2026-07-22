@@ -200,6 +200,21 @@ func apiListPrograms(c *gin.Context) {
 		}()
 	}
 
+	if platform == "all" || platform == "ywh" || platform == "yeswehack" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			progs, err := fetchYWHPrograms(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching YesWeHack programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
 	wg.Wait()
 
 	sortPrograms(allPrograms, sortBy)
