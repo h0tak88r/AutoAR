@@ -79,32 +79,24 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	}
 	stdLog(scanID, "[INFO] %d unique root domain(s) across platforms", len(roots))
 
-	// Keep only roots we haven't enumerated yet (no subdomains stored).
+	// Process every in-scope root. Per root: reuse stored live URLs if we have them
+	// (cheap — no re-probing), otherwise enumerate + httpx. newOnly additionally skips
+	// roots that already have subdomains but no live URLs (avoids redoing an expensive
+	// enumeration on a partially-processed domain) — it never skips a reusable root.
 	targetRoots := roots
-	if newOnly {
-		targetRoots = targetRoots[:0]
-		for _, r := range roots {
-			if n, err := db.CountSubdomains(r); err == nil && n == 0 {
-				targetRoots = append(targetRoots, r)
-			}
-		}
-	}
 	if maxRoots > 0 && len(targetRoots) > maxRoots {
-		stdLog(scanID, "[INFO] capping to first %d of %d candidate roots", maxRoots, len(targetRoots))
+		stdLog(scanID, "[INFO] capping to first %d of %d roots", maxRoots, len(targetRoots))
 		targetRoots = targetRoots[:maxRoots]
 	}
-	stdLog(scanID, "[INFO] %d root(s) need enumeration", len(targetRoots))
-	if len(targetRoots) == 0 {
-		utils.SendMonitorWebhook(" Root Pipeline: every known root already has subdomains — nothing new to enumerate.")
-		return nil
-	}
-	utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: enumerating **%d** new root(s) of %d total…", len(targetRoots), len(roots)))
+	stdLog(scanID, "[INFO] processing %d root(s)", len(targetRoots))
+	utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: processing **%d** root(s) — reusing stored live URLs where available…", len(targetRoots)))
 
-	// Enumerate roots concurrently (bounded), storing each root's subs as we go.
+	// Enumerate/reuse roots concurrently (bounded), storing each root's subs as we go.
 	var (
 		mu      sync.Mutex
 		allSubs []string
 		done    int
+		skipped int
 		wg      sync.WaitGroup
 		sem     = make(chan struct{}, 5) // at most 5 roots enumerating at once
 	)
@@ -125,6 +117,19 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 				stdLog(scanID, "[OK] %s → %d stored live URLs, skipped httpx (%d/%d roots)", root, len(stored), done, len(targetRoots))
 				mu.Unlock()
 				return
+			}
+
+			// newOnly: skip roots that already have subdomains but no live URLs —
+			// they were partially enumerated before; don't redo the expensive work.
+			// (Reusable roots were already handled by the fast path above.)
+			if newOnly {
+				if n, cerr := db.CountSubdomains(root); cerr == nil && n > 0 {
+					mu.Lock()
+					skipped++
+					stdLog(scanID, "[SKIP] %s already has %d subs, no live URLs — new-roots-only", root, n)
+					mu.Unlock()
+					return
+				}
 			}
 
 			subs, err := subdomains.EnumerateSubdomains(root, threads)
@@ -160,9 +165,9 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	wg.Wait()
 
 	allSubs = uniqueStrings(allSubs)
-	stdLog(scanID, "[INFO] enumeration + httpx complete: %d live host(s) to scan", len(allSubs))
+	stdLog(scanID, "[INFO] collection complete: %d live host(s) to scan (%d root(s) skipped as new-roots-only)", len(allSubs), skipped)
 	if len(allSubs) == 0 {
-		utils.SendMonitorWebhook(" Root Pipeline: no live hosts found for the new roots.")
+		utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: no live hosts to scan (%d root(s) skipped).", skipped))
 		return nil
 	}
 	utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: %d live host(s) — running nuclei…", len(allSubs)))

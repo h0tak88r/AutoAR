@@ -52,7 +52,7 @@ func SendScanNotification(event, scanID, target, scanType, status string, findin
 	switch event {
 	case "start":
 		msg = fmt.Sprintf(" **Scan Started**\n**Target:** `%s`\n**Type:** `%s`\n**ID:** `%s`", target, scanType, scanID)
-	case "finish":
+	case "finish", "complete": // scan_runner.go emits "complete"; both mean the scan ended
 		resultEmoji := ""
 		if status == "failed" {
 			resultEmoji = ""
