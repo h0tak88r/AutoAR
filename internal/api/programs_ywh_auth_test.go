@@ -33,3 +33,22 @@ func TestTOTPRFC6238(t *testing.T) {
 		t.Errorf("spaced/lowercase secret should parse: %v", err)
 	}
 }
+
+// TestExtractTOTPSecret covers the common mistake of pasting the whole otpauth://
+// URI (or a secret= query) instead of just the base32 seed.
+func TestExtractTOTPSecret(t *testing.T) {
+	cases := map[string]string{
+		"GEZDGNBVGY3TQOJQ": "GEZDGNBVGY3TQOJQ", // bare seed → unchanged
+		"otpauth://totp/YesWeHack:me@x.com?secret=GEZDGNBVGY3TQOJQ&issuer=YesWeHack&digits=6": "GEZDGNBVGY3TQOJQ",
+		"secret=GEZDGNBVGY3TQOJQ&period=30": "GEZDGNBVGY3TQOJQ",
+	}
+	for in, want := range cases {
+		if got := extractTOTPSecret(in); got != want {
+			t.Errorf("extractTOTPSecret(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// An otpauth URI must now produce a valid code (RFC vector secret embedded).
+	if code, err := totpAt("otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", time.Unix(59, 0)); err != nil || code != "287082" {
+		t.Errorf("otpauth URI TOTP = %q, err=%v; want 287082", code, err)
+	}
+}

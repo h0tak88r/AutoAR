@@ -290,7 +290,7 @@
   // Friendly placeholders for account fields (esp. the YWH 2FA seed).
   const ACCT_FIELD_LABELS = {
     username: 'Username', token: 'Token', email: 'Email', password: 'Password',
-    totp_secret: '2FA secret (base32) — optional',
+    totp_secret: '2FA secret or otpauth:// URI — optional',
   };
 
   async function loadSettingsAccounts() {

@@ -97,8 +97,12 @@ RUN mkdir -p /app/new-results /app/nuclei_templates || true
 RUN chmod +x /usr/local/bin/autoar-entrypoint \
     && echo "All modules are now Go-based - pure Go implementation" || true
 
-# Add a non-root user
-RUN useradd -m -u 10001 autoar && \
+# Add a non-root user.
+# `ulimit -n 1024` first: some libc/useradd versions loop over every possible file
+# descriptor up to the (build container's) nofile limit, which can busy-spin for
+# minutes when that limit is huge. Capping it keeps this step fast.
+RUN ulimit -n 1024 2>/dev/null || true; \
+    useradd -m -u 10001 autoar && \
     chown -R autoar:autoar /app && \
     chown autoar:autoar /usr/local/bin/autoar-entrypoint
 USER autoar

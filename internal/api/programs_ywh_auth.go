@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +21,26 @@ import (
 // setting up 2FA, NOT a one-time code.
 func generateTOTP(secret string) (string, error) { return totpAt(secret, time.Now()) }
 
+// extractTOTPSecret returns the bare base32 seed from whatever the user pasted.
+// Users often paste the whole otpauth:// URI (or a "…secret=XXXX&…" query) from
+// the 2FA QR code instead of just the seed — pull the secret= value out of it.
+func extractTOTPSecret(raw string) string {
+	s := strings.TrimSpace(raw)
+	if i := strings.Index(strings.ToLower(s), "secret="); i >= 0 {
+		v := s[i+len("secret="):]
+		if j := strings.IndexAny(v, "&?#\r\n\t "); j >= 0 {
+			v = v[:j]
+		}
+		if dec, err := url.QueryUnescape(v); err == nil {
+			v = dec
+		}
+		return v
+	}
+	return s
+}
+
 func totpAt(secret string, t time.Time) (string, error) {
-	s := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(secret), " ", ""))
+	s := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(extractTOTPSecret(secret)), " ", ""))
 	if s == "" {
 		return "", fmt.Errorf("empty TOTP secret")
 	}

@@ -24,26 +24,16 @@ func main() {
 	os.Setenv("AUTOAR_ENV", "docker")
 	fmt.Println("[entrypoint] Configuration loaded successfully")
 
-	fmt.Println("[entrypoint] Checking IPATOOL environment variables...")
-	if val := os.Getenv("IPATOOL_EMAIL"); val != "" {
-		fmt.Printf("[entrypoint] IPATOOL_EMAIL is set (length: %d)\n", len(val))
-	} else {
-		fmt.Println("[entrypoint] IPATOOL_EMAIL is NOT set")
-	}
-	if val := os.Getenv("IPATOOL_PASSWORD"); val != "" {
-		fmt.Printf("[entrypoint] IPATOOL_PASSWORD is set (length: %d)\n", len(val))
-	} else {
-		fmt.Println("[entrypoint] IPATOOL_PASSWORD is NOT set")
-	}
-	if val := os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE"); val != "" {
-		fmt.Printf("[entrypoint] IPATOOL_KEYCHAIN_PASSPHRASE is set (length: %d)\n", len(val))
-	} else {
-		fmt.Println("[entrypoint] IPATOOL_KEYCHAIN_PASSPHRASE is NOT set - iOS downloads will fail!")
-	}
-	if val := os.Getenv("IPATOOL_AUTH_CODE"); val != "" {
-		fmt.Printf("[entrypoint] IPATOOL_AUTH_CODE is set (length: %d)\n", len(val))
-	} else {
-		fmt.Println("[entrypoint] IPATOOL_AUTH_CODE is not set (optional)")
+	// ipatool (iOS .ipa downloads) is OPTIONAL — only relevant if the operator
+	// configured IPATOOL_* credentials. Don't emit a scary "iOS downloads will
+	// fail" error line when the feature is simply unused (the common case).
+	switch {
+	case os.Getenv("IPATOOL_EMAIL") == "" && os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE") == "":
+		fmt.Println("[entrypoint] ipatool (iOS downloads) not configured — optional, skipping")
+	case os.Getenv("IPATOOL_EMAIL") != "" && os.Getenv("IPATOOL_PASSWORD") != "" && os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE") != "":
+		fmt.Println("[entrypoint] ipatool (iOS downloads) configured")
+	default:
+		fmt.Println("[entrypoint] ipatool partially configured — set IPATOOL_EMAIL, IPATOOL_PASSWORD and IPATOOL_KEYCHAIN_PASSPHRASE to enable iOS downloads")
 	}
 
 	fmt.Println("[entrypoint] Database schema initialization delegated to API/Bot startup")
