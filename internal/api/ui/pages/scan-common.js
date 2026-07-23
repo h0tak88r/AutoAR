@@ -175,6 +175,60 @@
     return modules[mod] || modules.unknown;
   }
 
+  // Flatten one file-preview payload (from /results/file) into table rows. Used as
+  // the fallback in scan-detail when the parsed-findings API returns nothing (e.g.
+  // a scan still running with no findings yet). Must never throw — an empty/binary
+  // file yields [] so the UI shows "No findings" instead of a JS error row.
+  function pdGetPath(obj, path) {
+    if (!obj || typeof obj !== 'object') return undefined;
+    if (path.indexOf('.') === -1) return obj[path];
+    return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+  }
+  function pdFirstOf(o, keys) {
+    for (const k of keys) {
+      const v = pdGetPath(o, k);
+      if (v != null && v !== '') return v;
+    }
+    return '';
+  }
+  function previewDataToFlatRows(data, f) {
+    if (!data || typeof data !== 'object') return [];
+    const base = {
+      file: (f && (f.file_name || f.fileName)) || data.file_name || '',
+      module: (f && f.module) || '',
+      source: (f && f.source) || '—',
+      severity: '—',
+      target: '—',
+      finding: '',
+    };
+
+    // Already-flat rows, or one of the preview array shapes.
+    if (Array.isArray(data.rows)) return data.rows;
+    let items = [];
+    if (Array.isArray(data.items)) items = data.items;
+    else if (Array.isArray(data.findings)) items = data.findings;
+    else if (Array.isArray(data.results)) items = data.results;
+    else if (Array.isArray(data.lines)) items = data.lines;
+    if (!items.length) return []; // empty / binary / too_large / no findings
+
+    const str = (v) => (v == null ? '' : (typeof v === 'string' ? v : String(v)));
+    return items.map((it) => {
+      if (it == null) return { ...base };
+      if (typeof it !== 'object') {
+        const s = str(it).trim();
+        return s ? { ...base, target: s } : { ...base };
+      }
+      const target = str(pdFirstOf(it, ['matched-at', 'matched_at', 'host', 'matched', 'url', 'target', 'input', 'subdomain', 'ip'])) || '—';
+      const severity = str(pdFirstOf(it, ['info.severity', 'severity'])) || '—';
+      let finding = str(pdFirstOf(it, ['info.name', 'template-id', 'templateID', 'template', 'name', 'title', 'finding', 'description']));
+      if (!finding) {
+        try { finding = JSON.stringify(it).slice(0, 300); } catch (_) { finding = ''; }
+      }
+      return { ...base, target, severity, finding };
+    });
+  }
+  window.previewDataToFlatRows = previewDataToFlatRows;
+
   window.ScanCommonPage = {
     getFileTypeFromName,
     getFileTypeIcon,
@@ -186,5 +240,6 @@
     detectModuleFromFileName,
     normalizeModuleKey,
     getModuleDisplayInfo,
+    previewDataToFlatRows,
   };
 })();
