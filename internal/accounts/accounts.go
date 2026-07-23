@@ -14,14 +14,15 @@ import (
 
 // Account is one resolved platform account ready to authenticate with.
 type Account struct {
-	ID       int64  `json:"id"`
-	Platform string `json:"platform"`
-	Label    string `json:"label"`
-	Username string `json:"username"`
-	Token    string `json:"token"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Source   string `json:"source"` // "db" or "env"
+	ID         int64  `json:"id"`
+	Platform   string `json:"platform"`
+	Label      string `json:"label"`
+	Username   string `json:"username"`
+	Token      string `json:"token"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	TOTPSecret string `json:"totp_secret"` // base32 2FA seed (YWH auto-reauth)
+	Source     string `json:"source"`      // "db" or "env"
 }
 
 // Canonical maps platform aliases to the short codes used across AutoAR.
@@ -75,6 +76,7 @@ func envAccount(platform string) Account {
 		a.Token = strings.TrimSpace(os.Getenv("YWH_TOKEN"))
 		a.Email = strings.TrimSpace(os.Getenv("YWH_EMAIL"))
 		a.Password = strings.TrimSpace(os.Getenv("YWH_PASSWORD"))
+		a.TOTPSecret = strings.TrimSpace(os.Getenv("YWH_TOTP_SECRET"))
 	}
 	return a
 }
@@ -98,7 +100,8 @@ func For(platform string) []Account {
 			}
 			a := Account{
 				ID: r.ID, Platform: p, Label: r.Label, Username: r.Username,
-				Token: r.Token, Email: r.Email, Password: r.Password, Source: "db",
+				Token: r.Token, Email: r.Email, Password: r.Password,
+				TOTPSecret: r.TOTPSecret, Source: "db",
 			}
 			if !hasCreds(a) {
 				continue

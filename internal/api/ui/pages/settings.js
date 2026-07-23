@@ -153,6 +153,9 @@
             Any credential you had in the old single-key fields was imported here automatically.
             <br><em>Bugcrowd</em> takes the <code>_crowdcontrol_session_key</code> cookie value from
             your logged-in browser (DevTools → Cookies) — not the "API Credentials" token.
+            <br><em>YesWeHack</em> JWTs expire quickly — add <strong>email + password</strong> (and the
+            <strong>2FA secret</strong> if 2FA is on) and the tool re-authenticates to refresh the JWT
+            automatically when it goes stale. Leave the Token field blank to use email/password.
           </div>
           <div class="settings-section-body">
             <div id="settings-accounts-manager" style="padding:8px 24px 16px;">
@@ -282,8 +285,13 @@
     { id: 'h1', name: 'HackerOne', fields: ['username', 'token'] },
     { id: 'bc', name: 'Bugcrowd', fields: ['token'] },
     { id: 'it', name: 'Intigriti', fields: ['token'] },
-    { id: 'ywh', name: 'YesWeHack', fields: ['token', 'email', 'password'] },
+    { id: 'ywh', name: 'YesWeHack', fields: ['token', 'email', 'password', 'totp_secret'] },
   ];
+  // Friendly placeholders for account fields (esp. the YWH 2FA seed).
+  const ACCT_FIELD_LABELS = {
+    username: 'Username', token: 'Token', email: 'Email', password: 'Password',
+    totp_secret: '2FA secret (base32) — optional',
+  };
 
   async function loadSettingsAccounts() {
     const host = document.getElementById('settings-accounts-manager');
@@ -337,8 +345,8 @@
           }).join('')
         : `<div class="acct-empty">No extra accounts yet — add one below.</div>`;
       const addFields = p.fields.map((f) => {
-        const isSecret = f === 'password' || f === 'token';
-        const ph = f.charAt(0).toUpperCase() + f.slice(1);
+        const isSecret = f === 'password' || f === 'token' || f === 'totp_secret';
+        const ph = ACCT_FIELD_LABELS[f] || (f.charAt(0).toUpperCase() + f.slice(1));
         return `<input id="acct-${p.id}-${f}" type="${isSecret ? 'password' : 'text'}" placeholder="${ph}" class="form-control premium-input acct-input">`;
       }).join('');
       return `

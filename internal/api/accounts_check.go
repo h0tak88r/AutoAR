@@ -82,15 +82,33 @@ func checkAccountCredential(a db.BBPAccount) (status, detail string) {
 		return interpretAPI(client.Do(req))
 
 	case "ywh":
-		if a.Token == "" {
-			return "invalid", "missing JWT token"
-		}
 		// /user is auth-gated (401 without a valid JWT); the /programs list is public
 		// so it can't distinguish a good token from a bad one.
-		req, _ := http.NewRequest("GET", "https://api.yeswehack.com/user", nil)
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Authorization", "Bearer "+a.Token)
-		return interpretAPI(client.Do(req))
+		if a.Token != "" {
+			req, _ := http.NewRequest("GET", "https://api.yeswehack.com/user", nil)
+			req.Header.Set("Accept", "application/json")
+			req.Header.Set("Authorization", "Bearer "+a.Token)
+			if status, detail := interpretAPI(client.Do(req)); status == "valid" {
+				return status, detail
+			}
+		}
+		// JWT missing/expired — try re-authenticating with the stored credentials
+		// (email + password + optional 2FA). On success, persist the fresh JWT so the
+		// tag goes green and future fetches reuse it.
+		if a.Email != "" && a.Password != "" {
+			jwt, rerr := ywhReauth(a.Email, a.Password, a.TOTPSecret)
+			if rerr != nil {
+				return "invalid", "re-auth failed: "+trimErr(rerr.Error())
+			}
+			if a.ID > 0 {
+				_ = db.UpdateBBPAccountToken(a.ID, jwt)
+			}
+			return "valid", "re-authenticated via email/password"
+		}
+		if a.Token == "" {
+			return "invalid", "no token, and no email/password to re-auth"
+		}
+		return "invalid", "JWT expired — add email/password (+2FA) to auto-refresh"
 
 	case "bc":
 		if a.Token == "" {

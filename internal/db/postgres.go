@@ -449,15 +449,16 @@ func (p *PostgresDB) InitSchema() error {
 
 	-- Bug-bounty platform accounts (multiple accounts per platform).
 	CREATE TABLE IF NOT EXISTS bbp_accounts (
-		id         BIGSERIAL PRIMARY KEY,
-		platform   TEXT NOT NULL,
-		label      TEXT NOT NULL DEFAULT '',
-		username   TEXT NOT NULL DEFAULT '',
-		token      TEXT NOT NULL DEFAULT '',
-		email      TEXT NOT NULL DEFAULT '',
-		password   TEXT NOT NULL DEFAULT '',
-		enabled    BOOLEAN NOT NULL DEFAULT TRUE,
-		created_at TIMESTAMP DEFAULT NOW(),
+		id          BIGSERIAL PRIMARY KEY,
+		platform    TEXT NOT NULL,
+		label       TEXT NOT NULL DEFAULT '',
+		username    TEXT NOT NULL DEFAULT '',
+		token       TEXT NOT NULL DEFAULT '',
+		email       TEXT NOT NULL DEFAULT '',
+		password    TEXT NOT NULL DEFAULT '',
+		totp_secret TEXT NOT NULL DEFAULT '',
+		enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at  TIMESTAMP DEFAULT NOW(),
 		UNIQUE(platform, label)
 	);
 
@@ -498,6 +499,9 @@ func (p *PostgresDB) InitSchema() error {
 	// Migrate scan_artifacts table: add module and category columns
 	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scan_artifacts ADD COLUMN IF NOT EXISTS module TEXT`)
 	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scan_artifacts ADD COLUMN IF NOT EXISTS category TEXT`)
+
+	// Migrate bbp_accounts: totp_secret for YWH auto-reauth (email+password+2FA).
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE bbp_accounts ADD COLUMN IF NOT EXISTS totp_secret TEXT NOT NULL DEFAULT ''`)
 
 	// Deduplicate legacy artifact rows before enforcing uniqueness.
 	_, _ = p.pool.Exec(p.ctx, `
@@ -2128,7 +2132,7 @@ func (p *PostgresDB) SetSetting(key, value string) error {
 
 // ListBBPAccounts returns accounts, optionally filtered by platform ("" = all).
 func (p *PostgresDB) ListBBPAccounts(platform string) ([]BBPAccount, error) {
-	q := `SELECT id, platform, label, username, token, email, password, enabled, created_at
+	q := `SELECT id, platform, label, username, token, email, password, totp_secret, enabled, created_at
 	      FROM bbp_accounts`
 	args := []any{}
 	if platform != "" {
@@ -2144,7 +2148,7 @@ func (p *PostgresDB) ListBBPAccounts(platform string) ([]BBPAccount, error) {
 	var out []BBPAccount
 	for rows.Next() {
 		var a BBPAccount
-		if err := rows.Scan(&a.ID, &a.Platform, &a.Label, &a.Username, &a.Token, &a.Email, &a.Password, &a.Enabled, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Platform, &a.Label, &a.Username, &a.Token, &a.Email, &a.Password, &a.TOTPSecret, &a.Enabled, &a.CreatedAt); err != nil {
 			continue
 		}
 		out = append(out, a)
@@ -2157,19 +2161,26 @@ func (p *PostgresDB) ListBBPAccounts(platform string) ([]BBPAccount, error) {
 func (p *PostgresDB) UpsertBBPAccount(a BBPAccount) (int64, error) {
 	var id int64
 	err := p.pool.QueryRow(p.ctx, `
-		INSERT INTO bbp_accounts (platform, label, username, token, email, password, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO bbp_accounts (platform, label, username, token, email, password, totp_secret, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (platform, label) DO UPDATE SET
 			username = EXCLUDED.username, token = EXCLUDED.token,
-			email = EXCLUDED.email, password = EXCLUDED.password, enabled = EXCLUDED.enabled
+			email = EXCLUDED.email, password = EXCLUDED.password,
+			totp_secret = EXCLUDED.totp_secret, enabled = EXCLUDED.enabled
 		RETURNING id
-	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, a.Enabled).Scan(&id)
+	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, a.TOTPSecret, a.Enabled).Scan(&id)
 	return id, err
 }
 
 // SetBBPAccountEnabled toggles an account's enabled flag.
 func (p *PostgresDB) SetBBPAccountEnabled(id int64, enabled bool) error {
 	_, err := p.pool.Exec(p.ctx, `UPDATE bbp_accounts SET enabled = $2 WHERE id = $1`, id, enabled)
+	return err
+}
+
+// UpdateBBPAccountToken persists a refreshed token (e.g. a freshly re-authed YWH JWT).
+func (p *PostgresDB) UpdateBBPAccountToken(id int64, token string) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE bbp_accounts SET token = $2 WHERE id = $1`, id, token)
 	return err
 }
 

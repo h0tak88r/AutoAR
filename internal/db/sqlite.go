@@ -298,15 +298,16 @@ func (s *SQLiteDB) InitSchema() error {
 
 	-- Bug-bounty platform accounts (multiple accounts per platform).
 	CREATE TABLE IF NOT EXISTS bbp_accounts (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
-		platform   TEXT NOT NULL,
-		label      TEXT NOT NULL DEFAULT '',
-		username   TEXT NOT NULL DEFAULT '',
-		token      TEXT NOT NULL DEFAULT '',
-		email      TEXT NOT NULL DEFAULT '',
-		password   TEXT NOT NULL DEFAULT '',
-		enabled    INTEGER NOT NULL DEFAULT 1,
-		created_at TIMESTAMP DEFAULT (datetime('now')),
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		platform    TEXT NOT NULL,
+		label       TEXT NOT NULL DEFAULT '',
+		username    TEXT NOT NULL DEFAULT '',
+		token       TEXT NOT NULL DEFAULT '',
+		email       TEXT NOT NULL DEFAULT '',
+		password    TEXT NOT NULL DEFAULT '',
+		totp_secret TEXT NOT NULL DEFAULT '',
+		enabled     INTEGER NOT NULL DEFAULT 1,
+		created_at  TIMESTAMP DEFAULT (datetime('now')),
 		UNIQUE(platform, label)
 	);
 
@@ -347,6 +348,9 @@ func (s *SQLiteDB) InitSchema() error {
 	// Migrate techs/cnames back to SQLite database subdomains
 	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN techs TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
 		logger.GetLogger().Warnf("[WARN] Failed to add subdomains.techs column: %v", merr)
+	}
+	if _, merr := s.db.Exec(`ALTER TABLE bbp_accounts ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		logger.GetLogger().Warnf("[WARN] Failed to add bbp_accounts.totp_secret column: %v", merr)
 	}
 	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN cnames TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
 		logger.GetLogger().Warnf("[WARN] Failed to add subdomains.cnames column: %v", merr)
@@ -2092,7 +2096,7 @@ func (s *SQLiteDB) SetSetting(key, value string) error {
 
 // ListBBPAccounts returns accounts, optionally filtered by platform ("" = all).
 func (s *SQLiteDB) ListBBPAccounts(platform string) ([]BBPAccount, error) {
-	q := `SELECT id, platform, label, username, token, email, password, enabled, created_at
+	q := `SELECT id, platform, label, username, token, email, password, totp_secret, enabled, created_at
 	      FROM bbp_accounts`
 	args := []any{}
 	if platform != "" {
@@ -2109,7 +2113,7 @@ func (s *SQLiteDB) ListBBPAccounts(platform string) ([]BBPAccount, error) {
 	for rows.Next() {
 		var a BBPAccount
 		var enabled int
-		if err := rows.Scan(&a.ID, &a.Platform, &a.Label, &a.Username, &a.Token, &a.Email, &a.Password, &enabled, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Platform, &a.Label, &a.Username, &a.Token, &a.Email, &a.Password, &a.TOTPSecret, &enabled, &a.CreatedAt); err != nil {
 			continue
 		}
 		a.Enabled = enabled != 0
@@ -2126,12 +2130,13 @@ func (s *SQLiteDB) UpsertBBPAccount(a BBPAccount) (int64, error) {
 		en = 1
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO bbp_accounts (platform, label, username, token, email, password, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO bbp_accounts (platform, label, username, token, email, password, totp_secret, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (platform, label) DO UPDATE SET
 			username = excluded.username, token = excluded.token,
-			email = excluded.email, password = excluded.password, enabled = excluded.enabled
-	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, en)
+			email = excluded.email, password = excluded.password,
+			totp_secret = excluded.totp_secret, enabled = excluded.enabled
+	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, a.TOTPSecret, en)
 	if err != nil {
 		return 0, err
 	}
@@ -2151,6 +2156,12 @@ func (s *SQLiteDB) SetBBPAccountEnabled(id int64, enabled bool) error {
 		en = 1
 	}
 	_, err := s.db.Exec(`UPDATE bbp_accounts SET enabled = ? WHERE id = ?`, en, id)
+	return err
+}
+
+// UpdateBBPAccountToken persists a refreshed token (e.g. a freshly re-authed YWH JWT).
+func (s *SQLiteDB) UpdateBBPAccountToken(id int64, token string) error {
+	_, err := s.db.Exec(`UPDATE bbp_accounts SET token = ? WHERE id = ?`, token, id)
 	return err
 }
 

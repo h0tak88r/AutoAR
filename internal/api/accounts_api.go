@@ -39,6 +39,7 @@ func apiListBBPAccounts(c *gin.Context) {
 		TokenSet    bool   `json:"token_set"`
 		Email       string `json:"email"`
 		PasswordSet bool   `json:"password_set"`
+		TOTPSet     bool   `json:"totp_set"`
 		Enabled     bool   `json:"enabled"`
 	}
 	out := make([]acctOut, 0, len(rows))
@@ -46,20 +47,22 @@ func apiListBBPAccounts(c *gin.Context) {
 		out = append(out, acctOut{
 			ID: r.ID, Platform: r.Platform, Label: r.Label, Username: r.Username,
 			TokenMask: maskSecret(r.Token), TokenSet: r.Token != "",
-			Email: r.Email, PasswordSet: r.Password != "", Enabled: r.Enabled,
+			Email: r.Email, PasswordSet: r.Password != "", TOTPSet: r.TOTPSecret != "",
+			Enabled: r.Enabled,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"accounts": out})
 }
 
 type bbpAccountBody struct {
-	Platform string `json:"platform"`
-	Label    string `json:"label"`
-	Username string `json:"username"`
-	Token    string `json:"token"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Enabled  *bool  `json:"enabled"`
+	Platform   string `json:"platform"`
+	Label      string `json:"label"`
+	Username   string `json:"username"`
+	Token      string `json:"token"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	TOTPSecret string `json:"totp_secret"`
+	Enabled    *bool  `json:"enabled"`
 }
 
 // POST /api/accounts — create or update an account (keyed by platform+label).
@@ -89,8 +92,9 @@ func apiUpsertBBPAccount(c *gin.Context) {
 	}
 	token := strings.TrimSpace(b.Token)
 	password := b.Password
+	totpSecret := strings.TrimSpace(b.TOTPSecret)
 	// Preserve stored secrets when the body omits them (masked-edit case).
-	if token == "" || password == "" {
+	if token == "" || password == "" || totpSecret == "" {
 		if existing, err := db.ListBBPAccounts(p); err == nil {
 			for _, e := range existing {
 				if e.Label == label {
@@ -99,6 +103,9 @@ func apiUpsertBBPAccount(c *gin.Context) {
 					}
 					if password == "" {
 						password = e.Password
+					}
+					if totpSecret == "" {
+						totpSecret = e.TOTPSecret
 					}
 					break
 				}
@@ -112,7 +119,8 @@ func apiUpsertBBPAccount(c *gin.Context) {
 
 	a := db.BBPAccount{
 		Platform: p, Label: label, Username: strings.TrimSpace(b.Username),
-		Token: token, Email: strings.TrimSpace(b.Email), Password: password, Enabled: enabled,
+		Token: token, Email: strings.TrimSpace(b.Email), Password: password,
+		TOTPSecret: totpSecret, Enabled: enabled,
 	}
 	id, err := db.UpsertBBPAccount(a)
 	if err != nil {
