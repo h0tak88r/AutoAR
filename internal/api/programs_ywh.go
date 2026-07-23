@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/accounts"
+	"github.com/h0tak88r/AutoAR/internal/db"
 )
 
 // fetchYWHPrograms fetches YesWeHack programs (with in-scope assets) across every
@@ -28,10 +29,32 @@ func fetchYWHPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 	idx := map[string]int{}
 	var firstErr error
 	for _, a := range accts {
-		if a.Token == "" {
+		token := a.Token
+		hasCreds := a.Email != "" && a.Password != ""
+
+		// No stored token but we have login creds → mint a fresh JWT now.
+		if token == "" && hasCreds {
+			if jwt, err := ywhReauth(a.Email, a.Password, a.TOTPSecret); err == nil {
+				token = jwt
+				ywhPersistToken(a, jwt)
+			} else if firstErr == nil {
+				firstErr = err
+			}
+		}
+		if token == "" {
 			continue
 		}
-		progs, err := fetchYWHProgramsWithToken(a.Token, bbpOnly, includeScope)
+
+		progs, err := fetchYWHProgramsWithToken(token, bbpOnly, includeScope)
+		// Stored JWT expired (401) → re-authenticate with the stored creds and retry
+		// once, persisting the fresh token so the next run reuses it.
+		if err != nil && isYWHUnauthorized(err) && hasCreds {
+			if jwt, rerr := ywhReauth(a.Email, a.Password, a.TOTPSecret); rerr == nil {
+				token = jwt
+				ywhPersistToken(a, jwt)
+				progs, err = fetchYWHProgramsWithToken(token, bbpOnly, includeScope)
+			}
+		}
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -44,6 +67,18 @@ func fetchYWHPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 		return nil, firstErr
 	}
 	return merged, nil
+}
+
+func isYWHUnauthorized(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "(401)")
+}
+
+// ywhPersistToken saves a freshly-minted JWT back to a DB account so subsequent
+// fetches reuse it instead of logging in again.
+func ywhPersistToken(a accounts.Account, jwt string) {
+	if a.ID > 0 && jwt != "" {
+		_ = db.UpdateBBPAccountToken(a.ID, jwt)
+	}
 }
 
 type ywhListItem struct {

@@ -26,6 +26,14 @@ func SetBBPAccountEnabled(id int64, enabled bool) error {
 	return dbInstance.SetBBPAccountEnabled(id, enabled)
 }
 
+// UpdateBBPAccountToken persists a refreshed token for an account.
+func UpdateBBPAccountToken(id int64, token string) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.UpdateBBPAccountToken(id, token)
+}
+
 // DeleteBBPAccount removes an account by id.
 func DeleteBBPAccount(id int64) error {
 	if err := Init(); err != nil {

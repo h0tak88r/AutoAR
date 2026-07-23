@@ -179,6 +179,7 @@ type DB interface {
 	ListBBPAccounts(platform string) ([]BBPAccount, error)
 	UpsertBBPAccount(a BBPAccount) (int64, error)
 	SetBBPAccountEnabled(id int64, enabled bool) error
+	UpdateBBPAccountToken(id int64, token string) error
 	DeleteBBPAccount(id int64) error
 
 	// Bug-bounty program catalog (for keyword/domain program lookup).
@@ -200,15 +201,16 @@ type DB interface {
 // Token/Username/Email/Password are used per platform's auth model:
 //   h1  -> Username + Token          bc/it/ywh -> Token (ywh may use Email+Password)
 type BBPAccount struct {
-	ID        int64     `json:"id"`
-	Platform  string    `json:"platform"`
-	Label     string    `json:"label"`
-	Username  string    `json:"username"`
-	Token     string    `json:"token"`
-	Email     string    `json:"email"`
-	Password  string    `json:"password"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	Platform   string    `json:"platform"`
+	Label      string    `json:"label"`
+	Username   string    `json:"username"`
+	Token      string    `json:"token"`
+	Email      string    `json:"email"`
+	Password   string    `json:"password"`
+	TOTPSecret string    `json:"totp_secret"` // base32 2FA seed, for auto-reauth (YWH)
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // CatalogProgram is one bug-bounty program in the lookup catalog.
