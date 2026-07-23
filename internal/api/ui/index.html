@@ -793,7 +793,7 @@
 <div id="nuclei-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
   <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
     <h2 class="auth-title" style="margin-bottom: 8px;">Run Global Nuclei Scan</h2>
-    <p class="auth-sub" style="margin-bottom: 20px;">Enter a Nuclei template path/ID, OR paste raw YAML template code.</p>
+    <p class="auth-sub" style="margin-bottom: 20px;">Runs against <strong>all live hosts in the database</strong> (their stored <code>https://</code> URLs) — no httpx re-probing. Enter a Nuclei template path/ID, OR paste raw YAML template code.</p>
     
     <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
       <textarea id="nuclei-template-input" class="search-input auth-input" 
