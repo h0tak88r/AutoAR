@@ -671,19 +671,17 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		limit := 10000
 		totalSubs := 0
 		for offset := 0; ; offset += limit {
-			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, false, limit, offset)
+			// liveOnly=true: only pull hosts already probed live via httpx. Each is
+			// written as its stored scheme-prefixed URL (https://host), so nuclei runs
+			// the template directly against it and never re-probes (no httpx step).
+			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, true, limit, offset)
 			if err != nil || len(subs) == 0 {
 				break
 			}
 			for _, s := range subs {
-				// For subdomains already probed live, use the stored scheme-prefixed
-				// URL (https://host) so nuclei skips its own httpx probing. Unprobed
-				// hosts fall back to the bare name (nuclei resolves the scheme itself).
-				target := s.Subdomain
-				if s.IsLive {
-					if u := s.BestURL(); u != "" {
-						target = u
-					}
+				target := s.BestURL()
+				if target == "" {
+					target = s.Subdomain
 				}
 				if target != "" {
 					tmpFile.WriteString(target + "\n")
@@ -694,10 +692,10 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		tmpFile.Close()
 
 		if totalSubs == 0 {
-			return fmt.Errorf("no subdomains found for global nuclei scan")
+			return fmt.Errorf("no live hosts found in the database — run a scan/httpx first so there are live URLs to test")
 		}
 
-		stdLog(scanID, "[INFO] Loaded %d targets for scan", totalSubs)
+		stdLog(scanID, "[INFO] Loaded %d live host(s) from the database (httpx skipped)", totalSubs)
 
 		var templatePath string
 		var cleanupTemplate func()
