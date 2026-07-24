@@ -67,7 +67,7 @@
       window.showToast('error', 'Domain required', 'Enter a root domain (e.g. example.com).');
       return;
     }
-    const interval_seconds = intEl ? Math.max(60, parseInt(intEl.value, 10) || 3600) : 3600;
+    const interval_seconds = intEl ? Math.max(60, parseInt(intEl.value, 10) || 86400) : 86400;
     const threads = thEl ? Math.min(500, Math.max(1, parseInt(thEl.value, 10) || 100)) : 100;
     const check_new = cnEl ? cnEl.checked : true;
     const monitor_js = jsEl ? jsEl.checked : false;

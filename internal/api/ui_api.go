@@ -1742,7 +1742,7 @@ func apiPostMonitorSubdomainTarget(c *gin.Context) {
 
 	interval := body.IntervalSeconds
 	if interval <= 0 {
-		interval = 3600
+		interval = 86400
 	}
 	threads := body.Threads
 	if threads <= 0 {
