@@ -831,6 +831,11 @@ const ANDROID_RULES = [
         description: 'URI data from deep link intent read without validation. Can enable open redirect, SSRF, or account takeover if used in navigation or API calls.', cwe: 'CWE-601', owasp: 'M1', masvs: 'PLATFORM-3'
     },
     {
+        id: 'nav_deeplink_ids', name: 'Jetpack Navigation Deep-Link Intent-Extra Handling', severity: 'issue',
+        patterns: [/android-support-nav:controller:deepLink(?:Ids|Args|Extras)/g, /NavController[\s\S]{0,60}?\.handleDeepLink\s*\(/g, /findNavController\s*\([^)]*\)[\s\S]{0,60}?\.handleDeepLink\s*\(/g],
+        description: 'App uses Jetpack Navigation’s Intent-extra deep-link mechanism (NavController.handleDeepLink). The deepLinkIds/deepLinkArgs/deepLinkExtras extras are trusted from whatever Intent reaches the NavHost’s activity — they are not scoped to the app’s own intent-filter data URIs. If an exported activity hosts this NavController without stripping these extras first, any co-installed app can force navigation to arbitrary destinations by their numeric resource ID, bypassing intended start-destination gating (e.g. login/profile screens). See "Jetpack Navigation Deep-Link Injection" below if this app also declares an exported activity without a permission.', cwe: 'CWE-284', owasp: 'M1', masvs: 'PLATFORM-3'
+    },
+    {
         id: 'dynamic_receiver', name: 'Dynamic Broadcast Receiver (Potentially Exported)', severity: 'issue',
         patterns: [/registerReceiver\s*\([^)]*(?:new\s+IntentFilter|filter)/g],
         description: 'Dynamically registered BroadcastReceiver. On Android 14+, receivers must specify RECEIVER_NOT_EXPORTED or RECEIVER_EXPORTED flag. Missing flag defaults to exported.', cwe: 'CWE-926', owasp: 'M1', masvs: 'PLATFORM-4'
@@ -3100,6 +3105,27 @@ async function analyzeAPK(arrayBuffer, fileMeta, opts) {
                 }
             }
         } catch (e) { R.warnings.push('Failed to scan ' + path + ': ' + (e.message || e)); }
+    }
+
+    // Correlate Jetpack Navigation deep-link handling with an exported, unprotected
+    // activity: this is the exact "forced navigation via deep-link Intent extras"
+    // primitive (CWE-284) — a malicious co-installed app can pass
+    // android-support-nav:controller:deepLinkIds/deepLinkArgs/deepLinkExtras to
+    // force navigation to arbitrary destinations, bypassing session/login gating.
+    if (R.findings.some(f => f.ruleId === 'nav_deeplink_ids')) {
+        const exposedActivities = (R.components && R.components.activities || []).filter(a => a.exported && !a.permission);
+        if (exposedActivities.length > 0) {
+            const names = exposedActivities.map(a => a.name).slice(0, 5).join(', ') + (exposedActivities.length > 5 ? `, +${exposedActivities.length - 5} more` : '');
+            R.findings.push({
+                ruleId: 'nav_deeplink_forced_navigation',
+                ruleName: 'Jetpack Navigation Deep-Link Injection (Forced Navigation) — Verify Manually',
+                severity: 'issue',
+                description: `This app both uses Jetpack Navigation's deep-link Intent-extra mechanism (NavController.handleDeepLink) AND declares exported activities without a permission: ${names}. If any of these hosts the NavHostFragment, a malicious co-installed app can send an Intent with the "android-support-nav:controller:deepLinkIds" extra set to a destination's numeric resource ID and force navigation there directly — bypassing the graph's start destination (commonly a login/profile gate) and potentially rendering authenticated-only screens while logged out. Verify: decompile with apktool, confirm the activity's layout declares a NavHostFragment/FragmentContainerView, enumerate destination IDs in res/navigation/*.xml, then test with 'adb shell am start -n <pkg>/<activity> --eia "android-support-nav:controller:deepLinkIds" <id>' after a cold start (force-stop first — onNewIntent() often re-guards the warm-start path). Fix: strip android-support-nav:controller:* extras from the launch Intent before the NavController initializes, or re-check session state on entry to sensitive destinations instead of relying on the start destination alone.`,
+                cwe: 'CWE-284', owasp: 'M1', masvs: 'PLATFORM-1',
+                file: 'AndroidManifest.xml + classes.dex', line: null,
+                match: `${exposedActivities.length} exported activit${exposedActivities.length === 1 ? 'y' : 'ies'} + Jetpack Navigation deep-link handling`,
+            });
+        }
     }
 
     onProgress(90, 'Detecting trackers');
