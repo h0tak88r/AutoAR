@@ -179,12 +179,16 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	// Index artifacts written by the module.
 	indexScanArtifacts(scanID, scanType, target)
 
-	progress := 0
-	if status == "completed" {
-		progress = 100
+	// findingsCount comes from the DB row's files_uploaded (set by the module via
+	// db.UpdateScanStats, e.g. pipeline/global-nuclei match counts) -- NOT a
+	// percent-complete flag. A prior version passed a 0/100 "progress" value here,
+	// so every completed scan reported "100 findings" regardless of real matches.
+	findingsCount := 0
+	if record != nil {
+		findingsCount = record.FilesUploaded
 	}
 	ScanLogf(scanID, "[%s] scan %s in %s", scanType, status, completedAt.Sub(startedAt).Round(time.Second))
-	utils.SendScanNotification("complete", scanID, target, scanType, status, progress)
+	utils.SendScanNotification("complete", scanID, target, scanType, status, findingsCount)
 	log.Printf("[runner] scan %s (%s/%s) %s in %s",
 		scanID, scanType, target, status, completedAt.Sub(startedAt).Round(time.Second))
 
