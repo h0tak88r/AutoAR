@@ -567,7 +567,15 @@ const ANDROID_RULES = [
     },
     {
         id: 'trust_all', name: 'Trust All SSL Certificates', severity: 'issue',
-        patterns: [/checkServerTrusted/g, /X509TrustManager/g, /TrustAllCerts/g],
+        // Bare 'checkServerTrusted'/'X509TrustManager' identifiers fire on EVERY
+        // legitimate implementation too -- e.g. OkHttp's own internal
+        // AndroidCertificateChainCleaner always contains both, calls the real
+        // platform X509TrustManagerExtensions, and re-throws on failure. Verified
+        // against a real banking app: 100% false positive on bare identifiers.
+        // 'TrustAllCerts' (the textbook copy-paste-vulnerable class name) and a
+        // literal EMPTY checkServerTrusted body are the actual "accepts everything"
+        // signatures -- require one of those instead.
+        patterns: [/TrustAllCerts/g, /checkServerTrusted\s*\([^)]*\)(?:\s*throws\s+[\w.]+)?\s*\{\s*\}/g],
         description: 'Accepting all certificates makes the app vulnerable to man-in-the-middle attacks.', cwe: 'CWE-295', owasp: 'M3', masvs: 'NETWORK-4'
     },
     {
@@ -1087,13 +1095,16 @@ const ANDROID_RULES = [
      patterns:[new RegExp("aws[_-]?access[_-]?key[_-]?id(=| =|:| :)", 'gi')],
      description:'Detected sensitive pattern: aws_access_key_id - 1. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_aws_access_key_id_value',name:"AWS Access Key ID Value",severity:'issue',
-     patterns:[new RegExp("(A3T[A-Z0-9]|AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}", 'gi')],
+     // Case-SENSITIVE ('g' only): real AWS key IDs are always fully uppercase. The
+     // previous 'gi' flag matched mixed-case runs (e.g. "ASIAAAAAUMOUw0OhIZQg") that
+     // AWS never issues -- almost always a coincidental hit on binary-derived text.
+     patterns:[new RegExp("(A3T[A-Z0-9]|AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}", 'g')],
      description:'Detected sensitive pattern: AWS Access Key ID Value. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_aws_api_gateway',name:"AWS API Gateway",severity:'issue',
      patterns:[new RegExp("[0-9a-z]+.execute-api.[0-9a-z._-]+.amazonaws.com", 'gi')],
      description:'Detected sensitive pattern: AWS API Gateway. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_aws_api_key',name:"AWS API Key",severity:'issue',
-     patterns:[new RegExp("AKIA[0-9A-Z]{16}", 'gi')],
+     patterns:[new RegExp("AKIA[0-9A-Z]{16}", 'g')],
      description:'Detected sensitive pattern: AWS API Key. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_aws_appsync_graphql_key',name:"AWS AppSync GraphQL Key",severity:'issue',
      patterns:[new RegExp("da2-[a-z0-9]{26}", 'gi')],
@@ -1102,7 +1113,8 @@ const ANDROID_RULES = [
      patterns:[new RegExp("arn:aws:[a-z0-9\\-]+:[a-z]{2}-[a-z]+-[0-9]+:[0-9]+:.+", 'gi')],
      description:'Detected sensitive pattern: AWS ARN. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_aws_client_id',name:"AWS client ID",severity:'issue',
-     patterns:[new RegExp("(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}", 'gi')],
+     // Case-sensitive -- see apx_aws_access_key_id_value above.
+     patterns:[new RegExp("(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}", 'g')],
      description:'Detected sensitive pattern: AWS client ID. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_aws_config_accesskeyid',name:"aws_config_accesskeyid",severity:'issue',
      patterns:[new RegExp("aws[_-]?config[_-]?accesskeyid(=| =|:| :)", 'gi')],
@@ -1546,7 +1558,9 @@ const ANDROID_RULES = [
      patterns:[new RegExp("key-[0-9a-zA-Z]{32}", 'gi')],
      description:'Detected sensitive pattern: Mailgun API Key - 1. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_mailgun_api_key_2',name:"Mailgun API key - 2",severity:'issue',
-     patterns:[new RegExp("(mailgun|mg)[0-9a-z]{32}", 'gi')],
+     // 'mg' alone (without the full 'mailgun' word) as a 2-char prefix matched almost
+     // any 34-char alphanumeric run in binary-derived string data -- dropped it.
+     patterns:[new RegExp("mailgun[0-9a-z]{32}", 'gi')],
      description:'Detected sensitive pattern: Mailgun API key - 2. Ensure no secrets are hardcoded.',cwe:'CWE-798',owasp:'M9',masvs:'STORAGE-14'},
     {id:'apx_mailgun_apikey',name:"mailgun_apikey",severity:'issue',
      patterns:[new RegExp("mailgun[_-]?apikey(=| =|:| :)", 'gi')],
@@ -1824,6 +1838,23 @@ function extractManifestInfo(R) {
     }
 }
 
+// Sanity backstop for the bulk-imported 'apx_*' secret-pattern rules (~180 loose
+// keyword/format regexes). Large real APKs contain a lot of binary-derived text
+// (compressed assets, native blobs) that coincidentally satisfies a short
+// fixed-prefix + alnum-run pattern. Real secrets are high-entropy; coincidental
+// matches on binary noise tend to have repeated characters or low character
+// diversity. This doesn't validate a secret is real -- it only filters out the
+// most obviously-not-random matches, which measurably cut false positives on a
+// real banking-app APK (e.g. "ASIAAAAAUMOUw0OhIZQg") without touching well-formed
+// keys we could verify independently (e.g. a real "AIzaSy..." Google API key).
+function looksLikeRealSecret(s) {
+    if (!s || s.length < 10) return true; // too short to judge meaningfully either way
+    if (/(.)\1{3,}/.test(s)) return false; // 4+ identical chars in a row
+    const uniq = new Set(s.toLowerCase()).size;
+    if (s.length >= 12 && uniq / s.length < 0.35) return false; // too repetitive for random data
+    return true;
+}
+
 function analyzeContent(content, filePath, rules) {
     const findings = [];
     const safe = content.length > 300000 ? content.slice(0, 300000) : content;
@@ -1833,6 +1864,10 @@ function analyzeContent(content, filePath, rules) {
                 pat.lastIndex = 0;
                 let m, count = 0;
                 while ((m = pat.exec(safe)) !== null && count++ < 20) {
+                    if (rule.id.startsWith('apx_') && !looksLikeRealSecret(m[0])) {
+                        if (m.index === pat.lastIndex) pat.lastIndex++;
+                        continue;
+                    }
                     const ln = (safe.substring(0, m.index).match(/\n/g) || []).length + 1;
                     findings.push({
                         ruleId: rule.id, ruleName: rule.name, severity: rule.severity,
@@ -3140,7 +3175,15 @@ async function analyzeAPK(arrayBuffer, fileMeta, opts) {
     // primitive (CWE-284) — a malicious co-installed app can pass
     // android-support-nav:controller:deepLinkIds/deepLinkArgs/deepLinkExtras to
     // force navigation to arbitrary destinations, bypassing session/login gating.
-    if (R.findings.some(f => f.ruleId === 'nav_deeplink_ids')) {
+    //
+    // A real, in-scope banking app (io.wio.sme) false-positived on this: the marker
+    // string was present only because a transitively-bundled library depends on
+    // androidx.navigation, but the app itself (a FlutterActivity with
+    // flutter_deeplinking_enabled=false) had no res/navigation/ graph at all --
+    // there was nothing for handleDeepLink() to actually navigate to. Require an
+    // actual navigation-graph resource in the APK before escalating.
+    const hasNavGraphResource = (R.files || []).some(f => /^res\/navigation(-[^/]+)?\//i.test(f));
+    if (R.findings.some(f => f.ruleId === 'nav_deeplink_ids') && hasNavGraphResource) {
         const exposedActivities = (R.components && R.components.activities || []).filter(a => a.exported && !a.permission);
         if (exposedActivities.length > 0) {
             const names = exposedActivities.map(a => a.name).slice(0, 5).join(', ') + (exposedActivities.length > 5 ? `, +${exposedActivities.length - 5} more` : '');
@@ -3153,6 +3196,19 @@ async function analyzeAPK(arrayBuffer, fileMeta, opts) {
                 file: 'AndroidManifest.xml + classes.dex', line: null,
                 match: `${exposedActivities.length} exported activit${exposedActivities.length === 1 ? 'y' : 'ies'} + Jetpack Navigation deep-link handling`,
             });
+        }
+    }
+
+    // provider_query_exposed fires on any ContentResolver.query() call in decompiled
+    // code with zero awareness of whether any provider is actually exported --
+    // Android forbids other apps from querying a non-exported provider at all, so
+    // without a genuinely exported+unprotected provider this can never be
+    // exploited by another app. Drop it entirely when none exists (the common case:
+    // apps routinely query their own local/non-exported providers as normal code).
+    if (R.findings.some(f => f.ruleId === 'provider_query_exposed')) {
+        const exposedProviders = (R.components && R.components.providers || []).filter(p => p.exported && !p.permission && !p.readPermission);
+        if (exposedProviders.length === 0) {
+            R.findings = R.findings.filter(f => f.ruleId !== 'provider_query_exposed');
         }
     }
 
