@@ -1893,6 +1893,22 @@ function detectTrackers(strings, files) {
     return [...new Set(TRACKER_SIGS.filter(([, sigs]) => sigs.some(s => combined.includes(s))).map(([name]) => name))];
 }
 
+// The Jetpack Navigation library's own deep-link Intent-extra key constants.
+// Present verbatim in the dex string pool whenever an app uses
+// NavController.handleDeepLink() with implicit/explicit deep links — R8/ProGuard
+// minification renames identifiers but does not alter string literal content, so
+// this survives in release builds. Checked against the FULL string pool (not the
+// per-class decompiled-source scan, which is capped at 1000 classes/dex for
+// performance and can miss this since it lives in a third-party library class).
+const NAV_DEEPLINK_MARKERS = [
+    'android-support-nav:controller:deepLinkIds',
+    'android-support-nav:controller:deepLinkArgs',
+    'android-support-nav:controller:deepLinkExtras',
+];
+function detectNavDeepLinkHandling(strings) {
+    return strings.some(s => NAV_DEEPLINK_MARKERS.some(m => s.includes(m)));
+}
+
 function buildSmaliTree(classes, tree, dexIdx) {
     const limited = classes.slice(0, 5000);
     for (const cls of limited) {
@@ -3017,6 +3033,18 @@ async function analyzeAPK(arrayBuffer, fileMeta, opts) {
                 R.warnings.push(dp + ' could not be parsed');
             }
         } catch (e) { R.warnings.push(dp + ' parse error: ' + e.message); }
+    }
+
+    // Authoritative, uncapped check for Jetpack Navigation deep-link handling —
+    // see detectNavDeepLinkHandling for why this can't rely on the per-class
+    // decompiled-source scan below.
+    if (detectNavDeepLinkHandling(allDexStrings)) {
+        R.findings.push({
+            ruleId: 'nav_deeplink_ids', ruleName: 'Jetpack Navigation Deep-Link Intent-Extra Handling', severity: 'issue',
+            description: 'App bundles Jetpack Navigation’s Intent-extra deep-link mechanism (NavController.handleDeepLink) — its dex string pool contains the library’s android-support-nav:controller:deepLinkIds/deepLinkArgs/deepLinkExtras key constants. These extras are trusted from whatever Intent reaches the NavHost’s activity. If an exported activity hosts this NavController without stripping these extras first, any co-installed app can force navigation to arbitrary destinations by their numeric resource ID, bypassing intended start-destination gating (e.g. login/profile screens). See "Jetpack Navigation Deep-Link Injection" below if this app also declares an exported activity without a permission.',
+            cwe: 'CWE-284', owasp: 'M1', masvs: 'PLATFORM-3',
+            file: 'classes.dex (string pool)', line: null, match: 'android-support-nav:controller:deepLinkIds',
+        });
     }
 
     onProgress(54, 'Parsing resources');
