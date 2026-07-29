@@ -57,7 +57,7 @@
                     Ship safer<br>
                     <span class="hero-title-accent">Android apps.</span>
                 </h1>
-                <p class="hero-subtitle">A static security scanner for <code>.apk</code> files. Real DEX parsing, AXML manifest, signing certificate, entropy-aware secrets. All running in your browser. Nothing leaves the tab.</p>
+                <p class="hero-subtitle">A static security scanner for <code>.apk</code> files (also accepts <code>.apks</code> bundletool sets and <code>.xapk</code> — the base APK is extracted automatically). Real DEX parsing, AXML manifest, signing certificate, entropy-aware secrets. All running in your browser. Nothing leaves the tab.</p>
 
                 <div class="hero-cta">
                     <button class="btn btn-primary btn-lg" id="heroCta" type="button">
@@ -91,7 +91,7 @@
                                 <circle cx="46" cy="23.5" r="2.5" fill="#818cf8"/>
                             </svg>
                         </div>
-                        <div class="dropzone-title">Drop <code>.apk</code> to scan</div>
+                        <div class="dropzone-title">Drop <code>.apk</code>, <code>.apks</code> or <code>.xapk</code> to scan</div>
                         <div class="dropzone-desc">or click to select · max 1 GB</div>
                     </div>
                 </div>
@@ -115,7 +115,7 @@
                 </div>
             </div>
 
-            <input type="file" id="fileInput" class="file-input" accept=".apk,.zip" aria-label="Select APK file">
+            <input type="file" id="fileInput" class="file-input" accept=".apk,.apks,.xapk,.zip" aria-label="Select APK file">
         </div>
 
         <div class="hero-feats-row">

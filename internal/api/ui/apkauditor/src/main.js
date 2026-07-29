@@ -180,8 +180,8 @@ function hideProgress() {
 
 async function startAnalysis(file) {
     if (!file) return;
-    if (!/\.apk$/i.test(file.name) && !/\.zip$/i.test(file.name)) {
-        toast('Please select a .apk or .zip file', 'error'); return;
+    if (!/\.(apk|zip|apks|xapk)$/i.test(file.name)) {
+        toast('Please select a .apk, .apks, .xapk or .zip file', 'error'); return;
     }
     try {
         const results = await analyzeFile(file);

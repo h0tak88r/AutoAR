@@ -2948,6 +2948,55 @@ function generateSmaliView(cls, buf, allStrings, allTypes, allMethods, allFields
     return L.join('\n');
 }
 
+// unwrapApkContainer detects a split-APK container (.apks from `bundletool
+// build-apks`, or .xapk from APKPure) and extracts the base APK's bytes so the
+// rest of the pipeline can analyze it exactly like a plain .apk. Both formats
+// are themselves zip files wrapping a real base .apk one level deeper — without
+// this, AndroidManifest.xml lookup at the container root silently finds nothing
+// and the whole analysis comes back empty.
+//   .apks (bundletool): universal.apk (single-APK mode) OR splits/base-master.apk
+//                        / splits/base.apk (default split mode) at the root.
+//   .xapk (APKPure):     a root-level manifest.json plus one or more root-level
+//                        *.apk files; the base APK is the one NOT prefixed
+//                        "config." (those are density/ABI/language splits).
+// If nothing recognizable is found, returns the original buffer unchanged so
+// existing behavior (attempt analysis, warn if no manifest) is preserved.
+async function unwrapApkContainer(arrayBuffer, fileName) {
+    const notAContainer = { buffer: arrayBuffer, containerFormat: null, entryName: null };
+    try {
+        const outer = await JSZip.loadAsync(arrayBuffer);
+        if (outer.file('AndroidManifest.xml')) return notAContainer; // already a plain APK
+
+        const paths = Object.keys(outer.files).filter(p => !outer.files[p].dir);
+        const rootApks = paths.filter(p => /^[^/]+\.apk$/i.test(p));
+
+        // bundletool .apks
+        let entry = paths.find(p => p === 'universal.apk')
+            || paths.find(p => p === 'splits/base-master.apk')
+            || paths.find(p => p === 'splits/base.apk')
+            || paths.find(p => /^splits\/base[-.]master\.apk$/i.test(p));
+        let format = entry ? 'bundletool .apks' : null;
+
+        // APKPure .xapk: prefer a root .apk not named like a config/density/abi/lang split
+        if (!entry && rootApks.length) {
+            entry = rootApks.find(p => !/^config\./i.test(p)) || rootApks[0];
+            format = 'APKPure .xapk';
+        }
+
+        if (!entry) return notAContainer;
+
+        const innerBuf = await outer.file(entry).async('arraybuffer');
+        // Sanity check: the extracted entry must itself contain a manifest, or this
+        // guess was wrong -- fall back rather than silently analyzing garbage.
+        const innerZip = await JSZip.loadAsync(innerBuf);
+        if (!innerZip.file('AndroidManifest.xml')) return notAContainer;
+
+        return { buffer: innerBuf, containerFormat: format, entryName: entry };
+    } catch (e) {
+        return notAContainer; // corrupt/unrecognized container -- fall through, don't crash
+    }
+}
+
 async function analyzeAPK(arrayBuffer, fileMeta, opts) {
     opts = opts || {};
     const onProgress = opts.onProgress || (() => {});
@@ -2966,11 +3015,21 @@ async function analyzeAPK(arrayBuffer, fileMeta, opts) {
     };
 
     onProgress(5, 'Reading APK');
+    if (typeof JSZip === 'undefined') throw new Error('JSZip not loaded');
+
+    onProgress(10, 'Detecting file format');
+    const unwrapped = await unwrapApkContainer(arrayBuffer, fileMeta.name);
+    if (unwrapped.containerFormat) {
+        R.appInfo.containerFormat = unwrapped.containerFormat;
+        R.appInfo.containerEntry = unwrapped.entryName;
+        R.warnings.push(`Detected ${unwrapped.containerFormat} container — analyzing the base APK inside it: ${unwrapped.entryName}`);
+    }
+    arrayBuffer = unwrapped.buffer; // from here on, arrayBuffer/zip refer to the real base APK
+
     R.appInfo.sha256 = await sha256hex(arrayBuffer);
     R.appInfo.md5 = await md5hex(arrayBuffer);
 
     onProgress(14, 'Extracting');
-    if (typeof JSZip === 'undefined') throw new Error('JSZip not loaded');
     const zip = await JSZip.loadAsync(arrayBuffer);
 
     onProgress(18, 'Indexing files');
@@ -3292,7 +3351,7 @@ const api = {
     generateJavaView, generateSmaliView, disassembleCode,
     dexTypeToJava, smaliFlags,
     sha256hex, md5hex, formatSize, esc,
-    analyzeAPK,
+    analyzeAPK, unwrapApkContainer,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
