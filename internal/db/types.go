@@ -103,6 +103,24 @@ type DB interface {
 	// UpdateSubdomainMonitorLastRun updates last_run_at to now for a subdomain monitor target
 	UpdateSubdomainMonitorLastRun(id int) error
 
+	// Hunter monitoring targets (tracks a HackerOne username's public reputation
+	// and resolved-report hacktivity, alerting on Discord when either changes).
+	ListHunterMonitorTargets() ([]HunterMonitorTarget, error)
+	AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error)
+	RemoveHunterMonitorTarget(id int64) error
+	SetHunterMonitorRunningStatus(id int64, isRunning bool) error
+	GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error)
+	// UpdateHunterMonitorSnapshot persists the latest known reputation/signal/rank
+	// and the resolved H1 numeric user ID (cached after first resolution), and
+	// stamps last_run_at to now.
+	UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error
+
+	// HasSeenHunterReport reports whether a resolved-report ID has already been
+	// recorded for this target (so the daemon only alerts on genuinely new ones).
+	HasSeenHunterReport(targetID int64, reportID string) (bool, error)
+	// RecordSeenHunterReport stores a resolved report as seen for this target.
+	RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error
+
 	// UpdateMonitorTargetLastRun updates last_hash and last_run_at for a URL monitor target
 	UpdateMonitorTargetLastRun(id int, hash string, changed bool) error
 
@@ -339,6 +357,35 @@ type SubdomainMonitorTarget struct {
 	LastRunAt *time.Time // when this target was last actually checked (NOT the same as UpdatedAt)
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// HunterMonitorTarget tracks a HackerOne username's public reputation/signal/rank
+// and resolved-report hacktivity. UserID is the platform's numeric user ID,
+// resolved from the username on first check and cached (avoids re-resolving it
+// every poll). Last* fields hold the most recent known snapshot for diffing.
+type HunterMonitorTarget struct {
+	ID              int64
+	Username        string
+	UserID          string // H1 numeric user ID, cached after first resolution
+	IntervalSeconds int
+	IsRunning       bool
+	LastReputation  *float64
+	LastSignal      *float64
+	LastRank        *float64
+	LastRunAt       *time.Time
+	CreatedAt       time.Time
+}
+
+// HunterResolvedReport is one resolved-report hacktivity entry already recorded
+// as seen for a hunter monitor target (used to detect newly-resolved reports).
+type HunterResolvedReport struct {
+	ID            int64
+	TargetID      int64
+	ReportID      string
+	ProgramHandle string
+	ProgramName   string
+	ResolvedAt    time.Time
+	FirstSeenAt   time.Time
 }
 
 // JSEndpoint is a single API endpoint extracted from a domain's JavaScript bundles.

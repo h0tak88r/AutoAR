@@ -222,7 +222,34 @@ func (s *SQLiteDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_domain ON monitor_changes(domain);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
-	
+
+	-- Hunter monitor: track a HackerOne username's public reputation/signal/rank
+	-- and resolved-report hacktivity, alerting on Discord when either changes.
+	CREATE TABLE IF NOT EXISTS hunter_monitor_targets (
+		id               INTEGER PRIMARY KEY AUTOINCREMENT,
+		username         TEXT NOT NULL UNIQUE,
+		user_id          TEXT NOT NULL DEFAULT '',
+		interval_seconds INTEGER NOT NULL DEFAULT 86400,
+		is_running       INTEGER NOT NULL DEFAULT 1,
+		last_reputation  REAL,
+		last_signal      REAL,
+		last_rank        REAL,
+		last_run_at      TIMESTAMP,
+		created_at       TIMESTAMP DEFAULT (datetime('now'))
+	);
+
+	CREATE TABLE IF NOT EXISTS hunter_monitor_seen_reports (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		target_id      INTEGER NOT NULL REFERENCES hunter_monitor_targets(id) ON DELETE CASCADE,
+		report_id      TEXT NOT NULL,
+		program_handle TEXT NOT NULL DEFAULT '',
+		program_name   TEXT NOT NULL DEFAULT '',
+		resolved_at    TIMESTAMP,
+		first_seen_at  TIMESTAMP DEFAULT (datetime('now')),
+		UNIQUE(target_id, report_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_hunter_monitor_seen_target ON hunter_monitor_seen_reports(target_id);
+
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1468,6 +1495,103 @@ func (s *SQLiteDB) UpdateSubdomainMonitorLastRun(id int) error {
 		return fmt.Errorf("failed to update subdomain monitor last_run_at: %v", err)
 	}
 	return nil
+}
+
+// ── Hunter monitor ───────────────────────────────────────────────────────────
+
+func (s *SQLiteDB) ListHunterMonitorTargets() ([]HunterMonitorTarget, error) {
+	rows, err := s.db.Query(`
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HunterMonitorTarget
+	for rows.Next() {
+		var t HunterMonitorTarget
+		var running int
+		if err := rows.Scan(&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &running,
+			&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt); err != nil {
+			continue
+		}
+		t.IsRunning = running != 0
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO hunter_monitor_targets (username, interval_seconds, is_running)
+		VALUES (?, ?, 1)
+		ON CONFLICT(username) DO UPDATE SET interval_seconds = excluded.interval_seconds`,
+		username, intervalSeconds)
+	if err != nil {
+		return 0, err
+	}
+	if id, e := res.LastInsertId(); e == nil && id > 0 {
+		return id, nil
+	}
+	var id int64
+	_ = s.db.QueryRow(`SELECT id FROM hunter_monitor_targets WHERE username = ?`, username).Scan(&id)
+	return id, nil
+}
+
+func (s *SQLiteDB) RemoveHunterMonitorTarget(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM hunter_monitor_targets WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) SetHunterMonitorRunningStatus(id int64, isRunning bool) error {
+	running := 0
+	if isRunning {
+		running = 1
+	}
+	_, err := s.db.Exec(`UPDATE hunter_monitor_targets SET is_running = ? WHERE id = ?`, running, id)
+	return err
+}
+
+func (s *SQLiteDB) GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error) {
+	var t HunterMonitorTarget
+	var running int
+	err := s.db.QueryRow(`
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets WHERE id = ?`, id).Scan(
+		&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &running,
+		&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	t.IsRunning = running != 0
+	return &t, nil
+}
+
+func (s *SQLiteDB) UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error {
+	_, err := s.db.Exec(`
+		UPDATE hunter_monitor_targets
+		SET user_id = ?, last_reputation = ?, last_signal = ?, last_rank = ?, last_run_at = datetime('now')
+		WHERE id = ?`, userID, reputation, signal, rank, id)
+	return err
+}
+
+func (s *SQLiteDB) HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
+	var exists int
+	err := s.db.QueryRow(`
+		SELECT COUNT(1) FROM hunter_monitor_seen_reports WHERE target_id = ? AND report_id = ?`,
+		targetID, reportID).Scan(&exists)
+	return exists > 0, err
+}
+
+func (s *SQLiteDB) RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error {
+	_, err := s.db.Exec(`
+		INSERT INTO hunter_monitor_seen_reports (target_id, report_id, program_handle, program_name, resolved_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(target_id, report_id) DO NOTHING`,
+		targetID, reportID, programHandle, programName, resolvedAt)
+	return err
 }
 
 // UpdateMonitorTargetLastRun updates last_hash, last_run_at, and optionally increments change_count

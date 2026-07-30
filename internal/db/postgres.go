@@ -375,7 +375,34 @@ func (p *PostgresDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_domain ON monitor_changes(domain);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
-	
+
+	-- Hunter monitor: track a HackerOne username's public reputation/signal/rank
+	-- and resolved-report hacktivity, alerting on Discord when either changes.
+	CREATE TABLE IF NOT EXISTS hunter_monitor_targets (
+		id               BIGSERIAL PRIMARY KEY,
+		username         TEXT NOT NULL UNIQUE,
+		user_id          TEXT NOT NULL DEFAULT '',
+		interval_seconds INTEGER NOT NULL DEFAULT 86400,
+		is_running       BOOLEAN NOT NULL DEFAULT TRUE,
+		last_reputation  DOUBLE PRECISION,
+		last_signal      DOUBLE PRECISION,
+		last_rank        DOUBLE PRECISION,
+		last_run_at      TIMESTAMP,
+		created_at       TIMESTAMP DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS hunter_monitor_seen_reports (
+		id             BIGSERIAL PRIMARY KEY,
+		target_id      BIGINT NOT NULL REFERENCES hunter_monitor_targets(id) ON DELETE CASCADE,
+		report_id      TEXT NOT NULL,
+		program_handle TEXT NOT NULL DEFAULT '',
+		program_name   TEXT NOT NULL DEFAULT '',
+		resolved_at    TIMESTAMP,
+		first_seen_at  TIMESTAMP DEFAULT NOW(),
+		UNIQUE(target_id, report_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_hunter_monitor_seen_target ON hunter_monitor_seen_reports(target_id);
+
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
 		id SERIAL PRIMARY KEY,
@@ -1539,6 +1566,88 @@ func (p *PostgresDB) UpdateSubdomainMonitorLastRun(id int) error {
 		return fmt.Errorf("failed to update subdomain monitor last_run_at: %v", err)
 	}
 	return nil
+}
+
+// ── Hunter monitor ───────────────────────────────────────────────────────────
+
+func (p *PostgresDB) ListHunterMonitorTargets() ([]HunterMonitorTarget, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HunterMonitorTarget
+	for rows.Next() {
+		var t HunterMonitorTarget
+		if err := rows.Scan(&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &t.IsRunning,
+			&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresDB) AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error) {
+	var id int64
+	err := p.pool.QueryRow(p.ctx, `
+		INSERT INTO hunter_monitor_targets (username, interval_seconds, is_running)
+		VALUES ($1, $2, TRUE)
+		ON CONFLICT (username) DO UPDATE SET interval_seconds = EXCLUDED.interval_seconds
+		RETURNING id`, username, intervalSeconds).Scan(&id)
+	return id, err
+}
+
+func (p *PostgresDB) RemoveHunterMonitorTarget(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM hunter_monitor_targets WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresDB) SetHunterMonitorRunningStatus(id int64, isRunning bool) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE hunter_monitor_targets SET is_running = $2 WHERE id = $1`, id, isRunning)
+	return err
+}
+
+func (p *PostgresDB) GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error) {
+	var t HunterMonitorTarget
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets WHERE id = $1`, id).Scan(
+		&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &t.IsRunning,
+		&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (p *PostgresDB) UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error {
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE hunter_monitor_targets
+		SET user_id = $2, last_reputation = $3, last_signal = $4, last_rank = $5, last_run_at = NOW()
+		WHERE id = $1`, id, userID, reputation, signal, rank)
+	return err
+}
+
+func (p *PostgresDB) HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
+	var exists bool
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT EXISTS(SELECT 1 FROM hunter_monitor_seen_reports WHERE target_id = $1 AND report_id = $2)`,
+		targetID, reportID).Scan(&exists)
+	return exists, err
+}
+
+func (p *PostgresDB) RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error {
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO hunter_monitor_seen_reports (target_id, report_id, program_handle, program_name, resolved_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (target_id, report_id) DO NOTHING`,
+		targetID, reportID, programHandle, programName, resolvedAt)
+	return err
 }
 
 // UpdateMonitorTargetLastRun updates last_hash, last_run_at, and optionally increments change_count

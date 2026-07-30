@@ -12,6 +12,7 @@ window.AppConfigState = {
     scans: { active_scans: [], recent_scans: [] },
     monitorTargets: [],
     subMonitorTargets: [],
+    hunterMonitorTargets: [],
     monitorChanges: [],
     r2: { prefix: '', dirs: [], files: [] },
     selectedDomain: null,

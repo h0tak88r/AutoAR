@@ -612,6 +612,36 @@
           </div>
         </div>
 
+        <!-- Hunter Monitor Targets -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header">
+            <div class="card-title"><span class="card-title-icon"></span>Hunter Monitor</div>
+          </div>
+          <div class="card-body">
+            <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:10px">Quick launch</div>
+              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+                <div style="flex:1;min-width:200px">
+                  <label for="monitor-hunter-username-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">HackerOne username</label>
+                  <input class="search-input" id="monitor-hunter-username-input" type="text" placeholder="0x88" autocomplete="off" style="width:100%;box-sizing:border-box" />
+                </div>
+                <div style="width:110px">
+                  <label for="monitor-hunter-interval" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Interval (s)</label>
+                  <input class="search-input" id="monitor-hunter-interval" type="number" min="60" step="60" value="3600" style="width:100%;box-sizing:border-box" />
+                </div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+                  <input type="checkbox" id="monitor-hunter-autostart" checked /> Start monitor now
+                </label>
+                <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="window.MonitorPage.quickAddHunterMonitor()">Add monitor</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Polls the hunter's public HackerOne profile and hacktivity feed. Sends a Discord alert (via the monitor webhook) when a new report resolves or reputation increases.</div>
+            </div>
+            <div id="monitor-hunter-container">
+              <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Change History Feed -->
         <div class="card">
           <div class="card-header">

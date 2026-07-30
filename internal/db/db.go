@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/logger"
 )
@@ -534,6 +535,86 @@ func UpdateSubdomainMonitorLastRun(id int) error {
 		}
 	}
 	return dbInstance.UpdateSubdomainMonitorLastRun(id)
+}
+
+// ListHunterMonitorTargets returns all hunter monitoring targets
+func ListHunterMonitorTargets() ([]HunterMonitorTarget, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListHunterMonitorTargets()
+}
+
+// AddHunterMonitorTarget adds (or updates the interval of) a hunter monitoring target
+func AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return 0, err
+		}
+	}
+	return dbInstance.AddHunterMonitorTarget(username, intervalSeconds)
+}
+
+// RemoveHunterMonitorTarget removes a hunter monitoring target by ID
+func RemoveHunterMonitorTarget(id int64) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.RemoveHunterMonitorTarget(id)
+}
+
+// SetHunterMonitorRunningStatus updates the running status of a hunter monitor target
+func SetHunterMonitorRunningStatus(id int64, isRunning bool) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.SetHunterMonitorRunningStatus(id, isRunning)
+}
+
+// GetHunterMonitorTargetByID returns a single hunter monitor target by ID
+func GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.GetHunterMonitorTargetByID(id)
+}
+
+// UpdateHunterMonitorSnapshot updates the cached user id and reputation/signal/rank snapshot for a hunter monitor target
+func UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateHunterMonitorSnapshot(id, userID, reputation, signal, rank)
+}
+
+// HasSeenHunterReport reports whether a resolved report has already been recorded for a hunter monitor target
+func HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return false, err
+		}
+	}
+	return dbInstance.HasSeenHunterReport(targetID, reportID)
+}
+
+// RecordSeenHunterReport records a resolved report as seen for a hunter monitor target
+func RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.RecordSeenHunterReport(targetID, reportID, programHandle, programName, resolvedAt)
 }
 
 // UpdateMonitorTargetLastRun updates last_hash and last_run_at for a URL monitor target

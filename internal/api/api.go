@@ -576,6 +576,11 @@ func SetupAPI() *gin.Engine {
 		apiGroup.DELETE("/monitor/subdomain-targets/:id", apiDeleteMonitorSubdomainTarget)
 		apiGroup.POST("/monitor/subdomain-targets/:id/pause", apiPauseMonitorSubdomainTarget)
 		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiResumeMonitorSubdomainTarget)
+		apiGroup.GET("/monitor/hunter-targets", apiHunterMonitorTargets)
+		apiGroup.POST("/monitor/hunter-targets", apiPostHunterMonitorTarget)
+		apiGroup.DELETE("/monitor/hunter-targets/:id", apiDeleteHunterMonitorTarget)
+		apiGroup.POST("/monitor/hunter-targets/:id/pause", apiPauseHunterMonitorTarget)
+		apiGroup.POST("/monitor/hunter-targets/:id/resume", apiResumeHunterMonitorTarget)
 		apiGroup.GET("/r2/files", apiR2Files)
 		apiGroup.POST("/r2/delete", apiR2Delete)
 		// Bug bounty scope / target fetch endpoints

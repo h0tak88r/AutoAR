@@ -12,6 +12,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/api"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
+	"github.com/h0tak88r/AutoAR/internal/scanner/huntermonitor"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitor"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/utils"
@@ -221,6 +222,23 @@ func resumeMonitorsOnStartup() {
 		if running > 0 {
 			monitor.StartURLMonitorDaemon()
 			log.Printf("[INFO] Resumed URL monitor daemon for %d running target(s) after restart.", running)
+		}
+	}
+
+	// Hunter monitors.
+	if targets, err := db.ListHunterMonitorTargets(); err == nil {
+		running := 0
+		for _, t := range targets {
+			if t.IsRunning {
+				running++
+			}
+		}
+		if running > 0 {
+			if err := huntermonitor.StartDaemon(); err != nil {
+				log.Printf("[WARN] Could not resume hunter monitor daemon: %v", err)
+			} else {
+				log.Printf("[INFO] Resumed hunter monitor daemon for %d running target(s) after restart.", running)
+			}
 		}
 	}
 }

@@ -6,13 +6,15 @@
   const humanChangeType = (...args) => (typeof window.humanChangeType === 'function' ? window.humanChangeType(...args) : String(args[0] ?? ''));
 
   async function loadMonitor() {
-    const [targets, subTargets, changes] = await Promise.allSettled([
+    const [targets, subTargets, hunterTargets, changes] = await Promise.allSettled([
       window.apiFetch('/api/monitor/targets'),
       window.apiFetch('/api/monitor/subdomain-targets'),
+      window.apiFetch('/api/monitor/hunter-targets'),
       window.apiFetch('/api/monitor/changes'),
     ]);
     window.state.monitorTargets = targets.status === 'fulfilled' ? (targets.value.targets || []) : [];
     window.state.subMonitorTargets = subTargets.status === 'fulfilled' ? (subTargets.value.targets || []) : [];
+    window.state.hunterMonitorTargets = hunterTargets.status === 'fulfilled' ? (hunterTargets.value.targets || []) : [];
     window.state.monitorChanges = changes.status === 'fulfilled' ? (changes.value.changes || []) : [];
     if (window.state.view === 'monitor') renderMonitor();
   }
@@ -87,6 +89,67 @@
       window.loadStats();
     } catch (e) {
       window.showToast('error', 'Could not add subdomain monitor', e.message);
+    }
+  }
+
+  async function quickAddHunterMonitor() {
+    const uEl = document.getElementById('monitor-hunter-username-input');
+    const intEl = document.getElementById('monitor-hunter-interval');
+    const stEl = document.getElementById('monitor-hunter-autostart');
+    if (!uEl) return;
+    const username = uEl.value.trim().replace(/^@/, '');
+    if (!username) {
+      window.showToast('error', 'Username required', 'Enter a HackerOne username (e.g. 0x88).');
+      return;
+    }
+    const interval_seconds = intEl ? Math.max(60, parseInt(intEl.value, 10) || 3600) : 3600;
+    const start = stEl ? stEl.checked : true;
+    try {
+      await window.apiPost('/api/monitor/hunter-targets', {
+        username,
+        interval_seconds,
+        start,
+      });
+      window.showToast('success', 'Hunter monitor added', start ? 'Watching for new resolved reports and reputation gains.' : 'Saved; resume when ready.');
+      uEl.value = '';
+      await loadMonitor();
+      window.loadStats();
+    } catch (e) {
+      window.showToast('error', 'Could not add hunter monitor', e.message);
+    }
+  }
+
+  async function pauseHunterMonitor(id) {
+    try {
+      await window.apiPost(`/api/monitor/hunter-targets/${encodeURIComponent(id)}/pause`, {});
+      window.showToast('success', 'Hunter monitor paused', '');
+      await loadMonitor();
+      window.loadStats();
+    } catch (e) {
+      window.showToast('error', 'Pause failed', e.message);
+    }
+  }
+
+  async function resumeHunterMonitor(id) {
+    try {
+      await window.apiPost(`/api/monitor/hunter-targets/${encodeURIComponent(id)}/resume`, {});
+      window.showToast('success', 'Hunter monitor resumed', '');
+      await loadMonitor();
+      window.loadStats();
+    } catch (e) {
+      window.showToast('error', 'Resume failed', e.message);
+    }
+  }
+
+  async function deleteHunterMonitor(id) {
+    if (!confirm('Remove this hunter monitor?')) return;
+    try {
+      await window.apiDelete(`/api/monitor/hunter-targets/${encodeURIComponent(id)}`);
+      window.showToast('success', 'Monitor removed', '');
+      await loadMonitor();
+      window.loadStats();
+    } catch (e) {
+      window.showToast('error', 'Delete failed', e.message);
     }
   }
 
@@ -297,8 +360,9 @@
   function renderMonitor() {
     const urlContainer = document.getElementById('monitor-url-container');
     const subContainer = document.getElementById('monitor-sub-container');
+    const hunterContainer = document.getElementById('monitor-hunter-container');
     const feedContainer = document.getElementById('monitor-changes-feed');
-    if (!urlContainer || !subContainer || !feedContainer) return;
+    if (!urlContainer || !subContainer || !hunterContainer || !feedContainer) return;
 
     const targets = window.state.monitorTargets;
     if (!targets.length) {
@@ -353,6 +417,38 @@
       </table>`;
     }
 
+    const hunterTargets = window.state.hunterMonitorTargets;
+    if (!hunterTargets.length) {
+      hunterContainer.innerHTML = window.emptyState('', 'No hunters tracked yet', 'Add a HackerOne username above to get notified of new resolved reports or reputation gains.');
+    } else {
+      hunterContainer.innerHTML = `<table class="data-table">
+        <thead><tr><th>Username</th><th>Reputation</th><th>Rank</th><th>Signal</th><th>Status</th><th>Last Checked</th><th>Actions</th></tr></thead>
+        <tbody>${hunterTargets.map((t) => {
+        const id = t.ID ?? t.id;
+        const username = t.Username || t.username || '';
+        const reputation = t.LastReputation ?? t.last_reputation;
+        const rank = t.LastRank ?? t.last_rank;
+        const signal = t.LastSignal ?? t.last_signal;
+        const running = !!(t.IsRunning ?? t.is_running);
+        const pauseResume = running
+          ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.pauseHunterMonitor(${id})">Pause</button>`
+          : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.resumeHunterMonitor(${id})">Resume</button>`;
+        return `<tr>
+          <td><a href="https://hackerone.com/${encodeURIComponent(username)}" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);text-decoration:none">@${esc(username)}</a></td>
+          <td style="font-size:12px;color:var(--text-muted)">${reputation != null ? Math.round(reputation) : '—'}</td>
+          <td style="font-size:12px;color:var(--text-muted)">${rank != null ? '#' + Math.round(rank) : '—'}</td>
+          <td style="font-size:12px;color:var(--text-muted)">${signal != null ? signal : '—'}</td>
+          <td>${running
+            ? `<span class="badge badge-monitor-on">* running</span>`
+            : `<span class="badge badge-monitor-off">stopped</span>`}</td>
+          <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
+          <td style="white-space:nowrap">${pauseResume}
+            <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="window.MonitorPage.deleteHunterMonitor(${id})">Delete</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+      </table>`;
+    }
+
     const changes = window.state.monitorChanges;
     if (!changes.length) {
       feedContainer.innerHTML = window.emptyState('', 'No changes recorded', 'Changes will appear here once monitors run.');
@@ -395,6 +491,10 @@
     pauseSubdomainMonitor,
     resumeSubdomainMonitor,
     deleteSubdomainMonitor,
+    quickAddHunterMonitor,
+    pauseHunterMonitor,
+    resumeHunterMonitor,
+    deleteHunterMonitor,
     clearMonitorChangeHistory,
     renderMonitor,
   };
