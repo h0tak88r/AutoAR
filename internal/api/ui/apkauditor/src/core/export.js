@@ -14,7 +14,7 @@ function flatFindings(results) {
                 out.push({
                     ruleId: g.ruleId, ruleName: g.ruleName, severity: g.severity,
                     description: g.description, cwe: g.cwe, owasp: g.owasp, masvs: g.masvs,
-                    category: g.category,
+                    category: g.category, occurrences: g.count, avgConfidence: g.avgConfidence,
                     confidence: inst.confidence, confidenceLabel: inst.confidenceLabel, entropy: inst.entropy,
                     file: inst.file, line: inst.line, match: inst.match,
                 });
@@ -23,7 +23,7 @@ function flatFindings(results) {
             out.push({
                 ruleId: g.ruleId, ruleName: g.ruleName, severity: g.severity,
                 description: g.description, cwe: g.cwe, owasp: g.owasp, masvs: g.masvs,
-                category: g.category,
+                category: g.category, occurrences: g.count, avgConfidence: g.avgConfidence,
             });
         }
     }
@@ -56,23 +56,50 @@ function toJSON(results) {
     return JSON.stringify(json, null, 2);
 }
 
+// Values come from decompiled APK content, which is attacker-controlled. Excel and
+// Sheets execute a cell starting with = + - @ (or a leading tab/CR) as a formula, so
+// those are prefixed with an apostrophe before quoting.
 function csvEscape(v) {
     if (v == null) return '';
-    const s = String(v);
+    let s = String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
     if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
     return s;
 }
 
+const CSV_COLUMNS = [
+    ['package_name',     (f, ai) => ai.packageName],
+    ['app_label',        (f, ai) => ai.appLabel],
+    ['version_name',     (f, ai) => ai.versionName],
+    ['version_code',     (f, ai) => ai.versionCode],
+    ['file_name',        (f, ai) => ai.fileName],
+    ['sha256',           (f, ai) => ai.sha256],
+    ['severity',         (f) => f.severity],
+    ['confidence',       (f) => f.confidence],
+    ['confidence_label', (f) => f.confidenceLabel],
+    ['avg_confidence',   (f) => f.avgConfidence],
+    ['entropy',          (f) => f.entropy],
+    ['occurrences',      (f) => f.occurrences],
+    ['rule_id',          (f) => f.ruleId],
+    ['rule_name',        (f) => f.ruleName],
+    ['category',         (f) => f.category],
+    ['cwe',              (f) => f.cwe],
+    ['owasp',            (f) => f.owasp],
+    ['masvs',            (f) => f.masvs],
+    ['file',             (f) => f.file],
+    ['line',             (f) => f.line],
+    ['match',            (f) => (f.match || '').slice(0, 2000)],
+    ['description',      (f) => f.description],
+];
+
 function toCSV(results) {
-    const rows = [['severity', 'confidence', 'rule_id', 'rule_name', 'category', 'cwe', 'owasp', 'masvs', 'file', 'line', 'match', 'description']];
+    const ai = results.appInfo || {};
+    const rows = [CSV_COLUMNS.map(c => c[0])];
     for (const f of flatFindings(results)) {
-        rows.push([
-            f.severity, f.confidence != null ? f.confidence : '', f.ruleId, f.ruleName, f.category || '',
-            f.cwe || '', f.owasp || '', f.masvs || '',
-            f.file || '', f.line != null ? f.line : '',
-            (f.match || '').slice(0, 500),
-            (f.description || '').slice(0, 500),
-        ]);
+        rows.push(CSV_COLUMNS.map(c => {
+            const v = c[1](f, ai);
+            return v == null ? '' : v;
+        }));
     }
     return rows.map(r => r.map(csvEscape).join(',')).join('\n');
 }
