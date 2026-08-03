@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 )
 
 func main() {
@@ -23,18 +22,6 @@ func main() {
 	os.Setenv("AUTOAR_CONFIG_FILE", "/app/autoar.yaml")
 	os.Setenv("AUTOAR_ENV", "docker")
 	fmt.Println("[entrypoint] Configuration loaded successfully")
-
-	// ipatool (iOS .ipa downloads) is OPTIONAL — only relevant if the operator
-	// configured IPATOOL_* credentials. Don't emit a scary "iOS downloads will
-	// fail" error line when the feature is simply unused (the common case).
-	switch {
-	case os.Getenv("IPATOOL_EMAIL") == "" && os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE") == "":
-		fmt.Println("[entrypoint] ipatool (iOS downloads) not configured — optional, skipping")
-	case os.Getenv("IPATOOL_EMAIL") != "" && os.Getenv("IPATOOL_PASSWORD") != "" && os.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE") != "":
-		fmt.Println("[entrypoint] ipatool (iOS downloads) configured")
-	default:
-		fmt.Println("[entrypoint] ipatool partially configured — set IPATOOL_EMAIL, IPATOOL_PASSWORD and IPATOOL_KEYCHAIN_PASSPHRASE to enable iOS downloads")
-	}
 
 	fmt.Println("[entrypoint] Database schema initialization delegated to API/Bot startup")
 
@@ -57,11 +44,6 @@ func main() {
 	}
 	if err := os.MkdirAll(resultsDir, 0755); err != nil {
 		fmt.Printf("[entrypoint] Warning: Failed to create results directory: %v\n", err)
-	}
-
-	if strings.TrimSpace(os.Getenv("APKX_WORKERS")) == "" {
-		_ = os.Setenv("APKX_WORKERS", "2")
-		fmt.Println("[entrypoint] APKX_WORKERS not set; defaulting to 2 for stability")
 	}
 
 	if _, err := os.Stat("/usr/local/bin/autoar"); err != nil {
