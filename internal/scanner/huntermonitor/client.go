@@ -13,15 +13,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const graphqlEndpoint = "https://hackerone.com/graphql"
 
-// ActionBugResolved is the latest_disclosable_action value HackerOne uses
-// when a report's most recent public state change is resolution.
-const ActionBugResolved = "Activities::BugResolved"
+// latest_disclosable_action values worth alerting on. BugResolved is the report
+// being fixed; BountyAwarded is the hunter getting paid for one. Both mean the
+// hunter just landed something, and a given report surfaces as whichever of the
+// two happened most recently — so tracking only BugResolved silently drops every
+// report whose latest activity was the payout.
+const (
+	ActionBugResolved   = "Activities::BugResolved"
+	ActionBountyAwarded = "Activities::BountyAwarded"
+)
 
 var httpClient = &http.Client{Timeout: 20 * time.Second}
 
@@ -43,10 +51,22 @@ type ResolvedReport struct {
 	ActivityAt    string
 }
 
-// IsResolved reports whether this hacktivity entry's most recent public
-// action is a bug resolution.
+// IsResolved reports whether this hacktivity entry represents the hunter
+// landing a report — either it was resolved or a bounty was paid for it.
 func (r ResolvedReport) IsResolved() bool {
-	return r.Action == ActionBugResolved
+	return r.Action == ActionBugResolved || r.Action == ActionBountyAwarded
+}
+
+// ActionLabel renders the action for a Discord alert.
+func (r ResolvedReport) ActionLabel() string {
+	switch r.Action {
+	case ActionBountyAwarded:
+		return "bounty awarded"
+	case ActionBugResolved:
+		return "resolved"
+	default:
+		return strings.TrimPrefix(r.Action, "Activities::")
+	}
 }
 
 type graphQLError struct {
@@ -175,6 +195,94 @@ func decodeRelayNumericID(gid string) (string, error) {
 		return "", fmt.Errorf("empty numeric id in decoded gid %q", string(decoded))
 	}
 	return numericID, nil
+}
+
+// hackerOneAPIHacktivity is the official REST hacktivity endpoint. Authenticated
+// with any hacker API token it returns entries the anonymous view withholds:
+// reports on private/confidential programs, with the report title redacted but
+// the program handle+name, the action and the timestamp intact. Verified against
+// hunter "whocallme" — anonymous stops at 2026-06-23 while the same request with
+// Basic auth returns 2026-07-31 BountyAwarded on program "beside_bbp" (Beside),
+// matching what the profile page shows a logged-in viewer. This is the only
+// source for private-program activity; the public GraphQL hacktivity index has
+// none of it.
+const hackerOneAPIHacktivity = "https://api.hackerone.com/v1/hackers/hacktivity"
+
+// FetchHacktivityAPI returns the reporter's most recent hacktivity via the
+// official API, authenticated as the supplied hacker account. Results come back
+// newest-first. size is capped by the API (100).
+func FetchHacktivityAPI(apiUser, apiToken, reporterUsername string, size int) ([]ResolvedReport, error) {
+	if apiUser == "" || apiToken == "" {
+		return nil, fmt.Errorf("hackerone api credentials required")
+	}
+	if size <= 0 || size > 100 {
+		size = 100
+	}
+
+	q := url.Values{}
+	q.Set("queryString", "reporter:"+reporterUsername)
+	q.Set("page[size]", strconv.Itoa(size))
+
+	req, err := http.NewRequest("GET", hackerOneAPIHacktivity+"?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(apiUser, apiToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "AutoAR-HunterMonitor/1.0")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("hackerone api request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read hackerone api response: %w", err)
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("hackerone api rejected the credentials (401) — token may be revoked or expired")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("hackerone api returned status %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+
+	var payload struct {
+		Data []struct {
+			ID         json.Number `json:"id"`
+			Attributes struct {
+				Action     string `json:"latest_disclosable_action"`
+				ActivityAt string `json:"latest_disclosable_activity_at"`
+			} `json:"attributes"`
+			Relationships struct {
+				Program struct {
+					Data struct {
+						Attributes struct {
+							Handle string `json:"handle"`
+							Name   string `json:"name"`
+						} `json:"attributes"`
+					} `json:"data"`
+				} `json:"program"`
+			} `json:"relationships"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse hackerone api response: %w", err)
+	}
+
+	out := make([]ResolvedReport, 0, len(payload.Data))
+	for _, d := range payload.Data {
+		p := d.Relationships.Program.Data.Attributes
+		out = append(out, ResolvedReport{
+			ID:            d.ID.String(),
+			ProgramHandle: p.Handle,
+			ProgramName:   p.Name,
+			Action:        d.Attributes.Action,
+			ActivityAt:    d.Attributes.ActivityAt,
+		})
+	}
+	return out, nil
 }
 
 const hacktivitySearchQuery = `

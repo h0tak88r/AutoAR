@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/logger"
 	"github.com/h0tak88r/AutoAR/internal/utils"
@@ -150,6 +151,32 @@ func checkAllRunningTargets() {
 	}
 }
 
+// fetchHacktivityBestSource prefers the authenticated HackerOne API, which is
+// the only source that returns private/confidential-program activity. It falls
+// back to the anonymous GraphQL hacktivity index when no H1 account is
+// configured, or when the stored token is rejected — that view is weeks behind
+// for hunters who work private programs, but it is better than no data, and
+// degrading silently to it would hide a revoked token, so the caller logs which
+// source produced the result.
+func fetchHacktivityBestSource(username, numericUserID string) ([]ResolvedReport, string, error) {
+	for _, a := range accounts.For("h1") {
+		if a.Username == "" || a.Token == "" {
+			continue
+		}
+		reports, err := FetchHacktivityAPI(a.Username, a.Token, username, hacktivityFetchSize)
+		if err == nil {
+			return reports, "authenticated API (" + a.Label + ")", nil
+		}
+		logger.GetLogger().Infof("[WARN] H1 API account %q failed for %s (%v) — trying next", a.Label, username, err)
+	}
+
+	reports, err := FetchHacktivity(numericUserID, hacktivityFetchSize)
+	if err != nil {
+		return nil, "", err
+	}
+	return reports, "anonymous GraphQL (no private-program activity)", nil
+}
+
 // checkTarget polls one hunter's public H1 profile + hacktivity feed,
 // persists the new snapshot, and fires a Discord alert for newly resolved
 // reports and/or a reputation increase. The very first check for a target
@@ -167,11 +194,12 @@ func checkTarget(t db.HunterMonitorTarget) {
 		return
 	}
 
-	reports, err := FetchHacktivity(snap.UserID, hacktivityFetchSize)
+	reports, source, err := fetchHacktivityBestSource(t.Username, snap.UserID)
 	if err != nil {
 		logger.GetLogger().Infof("[ERROR] Failed to fetch H1 hacktivity for %s: %v", t.Username, err)
 		return
 	}
+	logger.GetLogger().Infof("[INFO] Hunter monitor %s: %d hacktivity entries via %s", t.Username, len(reports), source)
 
 	var newResolved []ResolvedReport
 	for _, r := range reports {
@@ -229,13 +257,23 @@ func formatHunterAlert(username string, newResolved []ResolvedReport, prevReputa
 	msg := fmt.Sprintf(" **Hunter Monitor Alert** — `%s`\n", username)
 
 	if len(newResolved) > 0 {
-		msg += fmt.Sprintf(" **%d new resolved** report(s):\n", len(newResolved))
+		msg += fmt.Sprintf(" **%d new** report event(s):\n", len(newResolved))
 		for _, r := range newResolved {
 			program := r.ProgramName
 			if program == "" {
 				program = r.ProgramHandle
 			}
-			msg += fmt.Sprintf("  • `%s` (%s)\n", program, r.ProgramHandle)
+			if program == "" {
+				program = "(program withheld)"
+			}
+			line := fmt.Sprintf("  • **%s** — %s", program, r.ActionLabel())
+			if r.ProgramHandle != "" {
+				line += fmt.Sprintf(" (`%s`)", r.ProgramHandle)
+			}
+			if len(r.ActivityAt) >= 10 {
+				line += " · " + r.ActivityAt[:10]
+			}
+			msg += line + "\n"
 		}
 	}
 
