@@ -594,6 +594,84 @@ input, select, textarea { font-family: inherit; }
 
 .card-body { padding: 0; }
 
+/* ── Collapsible sections ───────────────────────────────────────────────────
+   Used by the Monitor page so its four panels (and each panel's "add" form)
+   fold away instead of stacking into one very long scroll. Height animates via
+   grid-template-rows 0fr→1fr rather than a max-height guess, because the
+   target tables grow with the number of monitors. */
+
+.acc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acc-caret {
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.2s ease, opacity var(--transition);
+}
+.acc-toggle:hover .acc-caret { opacity: 0.95; }
+.acc-toggle[aria-expanded="true"] .acc-caret { transform: rotate(90deg); opacity: 0.9; }
+.acc-toggle:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.26s ease;
+}
+.acc-panel.open { grid-template-rows: 1fr; }
+/* min-height:0 lets the grid row actually collapse below content height. */
+.acc-panel > .acc-inner { overflow: hidden; min-height: 0; }
+
+/* A collapsed panel has nothing under the header, so drop the divider. */
+.card-header.collapsed { border-bottom-color: transparent; }
+
+.acc-chip {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.acc-chip.on {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan-dim);
+}
+
+/* Nested "add a monitor" disclosure inside a panel. */
+.acc-sub {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .2);
+  margin-bottom: 18px;
+}
+.acc-sub-head { padding: 11px 14px; }
+.acc-sub-title { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.acc-sub-body { padding: 0 14px 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .acc-panel, .acc-caret { transition: none; }
+}
+
 /* ── Tables ─────────────────────────────────────────────────────────────────── */
 
 .data-table {
