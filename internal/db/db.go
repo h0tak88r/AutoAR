@@ -597,6 +597,16 @@ func UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, ra
 	return dbInstance.UpdateHunterMonitorSnapshot(id, userID, reputation, signal, rank)
 }
 
+// ResetHunterMonitorLastRun clears last_run_at so the next pass re-baselines and posts a snapshot
+func ResetHunterMonitorLastRun(id int64) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.ResetHunterMonitorLastRun(id)
+}
+
 // HasSeenHunterReport reports whether a resolved report has already been recorded for a hunter monitor target
 func HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
 	if dbInstance == nil {

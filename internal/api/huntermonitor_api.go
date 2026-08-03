@@ -152,6 +152,13 @@ func apiResumeHunterMonitorTarget(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// Clearing last_run_at makes the next daemon pass (within 60s) re-baseline
+	// instead of waiting out the remaining interval. That re-records silently and
+	// posts one snapshot of the hunter's latest activity, so resuming gives
+	// immediate confirmation plus whatever landed while the monitor was paused.
+	if err := db.ResetHunterMonitorLastRun(id); err != nil {
+		log.Printf("[WARN] hunter monitor: could not reset last_run_at for %d: %v", id, err)
+	}
 	if !huntermonitor.IsDaemonRunning() {
 		if err := huntermonitor.StartDaemon(); err != nil {
 			log.Printf("[WARN] hunter monitor daemon: %v", err)

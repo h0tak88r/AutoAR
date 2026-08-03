@@ -1633,6 +1633,11 @@ func (p *PostgresDB) UpdateHunterMonitorSnapshot(id int64, userID string, reputa
 	return err
 }
 
+func (p *PostgresDB) ResetHunterMonitorLastRun(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE hunter_monitor_targets SET last_run_at = NULL WHERE id = $1`, id)
+	return err
+}
+
 func (p *PostgresDB) HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
 	var exists bool
 	err := p.pool.QueryRow(p.ctx, `

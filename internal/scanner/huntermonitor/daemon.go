@@ -234,6 +234,10 @@ func checkTarget(t db.HunterMonitorTarget) {
 	}
 
 	if isBaseline {
+		// The baseline deliberately does not alert per report — a prolific hunter
+		// would produce hundreds. It does post one snapshot so adding or resuming a
+		// hunter visibly confirms the monitor is working and shows where they stand.
+		utils.SendMonitorWebhook(formatHunterSummary(t.Username, reports, snap))
 		logger.GetLogger().Infof("[OK] Hunter monitor %s: baseline established (%d resolved reports, reputation %.0f)",
 			t.Username, len(newResolved), snap.Reputation)
 		return
@@ -251,6 +255,57 @@ func checkTarget(t db.HunterMonitorTarget) {
 	utils.SendMonitorWebhook(msg)
 }
 
+// summaryItemCount is how many recent entries the baseline snapshot lists.
+const summaryItemCount = 5
+
+// formatHunterSummary renders the snapshot posted when a hunter is first added
+// or resumed: where they stand now, plus their most recent activity. Entries
+// arrive newest-first, so the head of the slice is the latest.
+func formatHunterSummary(username string, reports []ResolvedReport, snap *UserSnapshot) string {
+	msg := fmt.Sprintf(" **Hunter Monitor** — now watching `%s`\n", username)
+	msg += fmt.Sprintf(" Reputation: **%.0f** · Rank: **#%.0f** · Signal: **%.1f**\n", snap.Reputation, snap.Rank, snap.Signal)
+
+	var recent []ResolvedReport
+	for _, r := range reports {
+		if r.IsResolved() {
+			recent = append(recent, r)
+		}
+		if len(recent) >= summaryItemCount {
+			break
+		}
+	}
+
+	if len(recent) == 0 {
+		msg += " No resolved reports visible yet.\n"
+		return msg
+	}
+
+	msg += fmt.Sprintf(" Latest activity (%d most recent):\n", len(recent))
+	for _, r := range recent {
+		msg += "  • " + describeReport(r) + "\n"
+	}
+	return msg
+}
+
+// describeReport renders one hacktivity entry as a webhook bullet.
+func describeReport(r ResolvedReport) string {
+	program := r.ProgramName
+	if program == "" {
+		program = r.ProgramHandle
+	}
+	if program == "" {
+		program = "(program withheld)"
+	}
+	line := fmt.Sprintf("**%s** — %s", program, r.ActionLabel())
+	if r.ProgramHandle != "" && r.ProgramName != "" {
+		line += fmt.Sprintf(" (`%s`)", r.ProgramHandle)
+	}
+	if len(r.ActivityAt) >= 10 {
+		line += " · " + r.ActivityAt[:10]
+	}
+	return line
+}
+
 // formatHunterAlert renders a webhook-ready markdown summary of newly
 // resolved reports and/or a reputation increase for a hunter.
 func formatHunterAlert(username string, newResolved []ResolvedReport, prevReputation *float64, snap *UserSnapshot) string {
@@ -259,21 +314,7 @@ func formatHunterAlert(username string, newResolved []ResolvedReport, prevReputa
 	if len(newResolved) > 0 {
 		msg += fmt.Sprintf(" **%d new** report event(s):\n", len(newResolved))
 		for _, r := range newResolved {
-			program := r.ProgramName
-			if program == "" {
-				program = r.ProgramHandle
-			}
-			if program == "" {
-				program = "(program withheld)"
-			}
-			line := fmt.Sprintf("  • **%s** — %s", program, r.ActionLabel())
-			if r.ProgramHandle != "" {
-				line += fmt.Sprintf(" (`%s`)", r.ProgramHandle)
-			}
-			if len(r.ActivityAt) >= 10 {
-				line += " · " + r.ActivityAt[:10]
-			}
-			msg += line + "\n"
+			msg += "  • " + describeReport(r) + "\n"
 		}
 	}
 

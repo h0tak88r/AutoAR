@@ -1577,6 +1577,11 @@ func (s *SQLiteDB) UpdateHunterMonitorSnapshot(id int64, userID string, reputati
 	return err
 }
 
+func (s *SQLiteDB) ResetHunterMonitorLastRun(id int64) error {
+	_, err := s.db.Exec(`UPDATE hunter_monitor_targets SET last_run_at = NULL WHERE id = ?`, id)
+	return err
+}
+
 func (s *SQLiteDB) HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
 	var exists int
 	err := s.db.QueryRow(`

@@ -120,6 +120,10 @@ type DB interface {
 	HasSeenHunterReport(targetID int64, reportID string) (bool, error)
 	// RecordSeenHunterReport stores a resolved report as seen for this target.
 	RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error
+	// ResetHunterMonitorLastRun clears last_run_at so the next daemon pass treats
+	// the target as a fresh baseline: it re-records silently and posts one
+	// snapshot of the hunter's latest activity (used when resuming a monitor).
+	ResetHunterMonitorLastRun(id int64) error
 
 	// UpdateMonitorTargetLastRun updates last_hash and last_run_at for a URL monitor target
 	UpdateMonitorTargetLastRun(id int, hash string, changed bool) error
