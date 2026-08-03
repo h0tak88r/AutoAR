@@ -178,8 +178,8 @@ func decodeRelayNumericID(gid string) (string, error) {
 }
 
 const hacktivitySearchQuery = `
-query($query: QueryInput, $size: Int) {
-  search(index: CompleteHacktivityReportIndex, query: $query, size: $size) {
+query($query: QueryInput, $size: Int, $sort: SortInput) {
+  search(index: CompleteHacktivityReportIndex, query: $query, size: $size, sort: $sort) {
     total_count
     nodes {
       ... on HacktivityDocument {
@@ -195,6 +195,15 @@ query($query: QueryInput, $size: Int) {
 // FetchHacktivity returns up to size entries from the hunter's public
 // hacktivity feed (one entry per report, reflecting its most recent
 // disclosable public action), given their raw numeric H1 user ID.
+//
+// Results are sorted newest-first, which matters: the endpoint hard-caps the
+// response at 100 rows no matter what size is asked for, and its default order
+// is arbitrary (stable, but not chronological). Unsorted, a hunter with more
+// than 100 disclosed reports would get an arbitrary 100-row slice — a newly
+// resolved report could fall outside it and never be alerted on, and a shift in
+// that ordering could pull an old report into view and fire a false alert.
+// Sorting by activity date makes the window "the 100 most recent", so new
+// resolutions always enter at the top and older ones never re-enter.
 func FetchHacktivity(numericUserID string, size int) ([]ResolvedReport, error) {
 	variables := map[string]interface{}{
 		"query": map[string]interface{}{
@@ -209,6 +218,10 @@ func FetchHacktivity(numericUserID string, size int) ([]ResolvedReport, error) {
 			},
 		},
 		"size": size,
+		"sort": map[string]interface{}{
+			"field":     "latest_disclosable_activity_at",
+			"direction": "DESC",
+		},
 	}
 
 	var result struct {

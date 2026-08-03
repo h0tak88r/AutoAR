@@ -120,16 +120,15 @@ func checkAllRunningTargets() {
 			continue
 		}
 
-		var lastCheck time.Time
+		// A target that has never run baselines on the next tick instead of
+		// waiting out a full interval. Counting created_at as a check would mean
+		// a 12h interval leaves the dashboard showing empty reputation/rank for
+		// 12h after adding a hunter, with no way to tell it from a broken monitor.
 		if target.LastRunAt != nil {
-			lastCheck = *target.LastRunAt
-		} else {
-			lastCheck = target.CreatedAt
-		}
-		interval := time.Duration(target.IntervalSeconds) * time.Second
-
-		if now.Before(lastCheck.Add(interval)) {
-			continue // not time yet
+			interval := time.Duration(target.IntervalSeconds) * time.Second
+			if now.Before(target.LastRunAt.Add(interval)) {
+				continue // not time yet
+			}
 		}
 
 		monitorInFlightMu.Lock()
