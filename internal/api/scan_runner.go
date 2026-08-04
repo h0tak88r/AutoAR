@@ -67,6 +67,67 @@ func scanTimeoutFor(scanType string) time.Duration {
 	}
 }
 
+// updateScanResultWithRetry writes a scan's terminal status, retrying a few
+// times so a transient DB blip doesn't strand the row as permanently active.
+func updateScanResultWithRetry(scanID, status string) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err = db.UpdateScanResult(scanID, status, ""); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Second)
+	}
+	return err
+}
+
+// orphanGracePeriod is how long a DB row may claim to be active with no live
+// worker before the reaper closes it. It must exceed the window between
+// db.CreateScan and the ActiveScans registration in RunScanInProcess, or the
+// reaper would kill scans a few milliseconds into their own startup.
+const orphanGracePeriod = 15 * time.Minute
+
+// StartOrphanedScanReaper closes scan rows whose worker no longer exists.
+//
+// Until now the only cleanup ran at startup, so a row that lost its worker
+// mid-flight stayed "running" until the next restart — which is how 14 scans sat
+// active for hours with no process behind them, making "wait for all scans" and
+// the dashboard's active count both wrong. ActiveScans is the ground truth: this
+// process knows every scan it is running, so an active row absent from that map
+// (and past the grace period) has no worker and never will.
+func StartOrphanedScanReaper() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			reapOrphanedScans()
+		}
+	}()
+}
+
+func reapOrphanedScans() {
+	rows, err := db.ListActiveScans()
+	if err != nil {
+		return
+	}
+	for _, r := range rows {
+		if r == nil || time.Since(r.LastUpdate) < orphanGracePeriod {
+			continue
+		}
+		ScansMutex.RLock()
+		_, live := ActiveScans[r.ScanID]
+		ScansMutex.RUnlock()
+		if live {
+			continue // a worker is genuinely running it
+		}
+		if dbErr := updateScanResultWithRetry(r.ScanID, "failed"); dbErr != nil {
+			log.Printf("[reaper] could not close orphaned scan %s: %v", r.ScanID, dbErr)
+			continue
+		}
+		log.Printf("[reaper] closed orphaned scan %s (%s): status %q with no running worker, idle %s",
+			r.ScanID, r.ScanType, r.Status, time.Since(r.LastUpdate).Round(time.Minute))
+	}
+}
+
 // runScanInProcess is the generic in-process scan runner. fn should call the
 // module's Go API directly. target is used for display and notifications.
 func RunScanInProcess(scanID, scanType, target string, fn func() error) {
@@ -185,7 +246,14 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		log.Printf("[runner] scan %s (%s) failed: %v", scanID, scanType, err)
 	}
 
-	_ = db.UpdateScanResult(scanID, status, "")
+	// Do NOT discard this error. It is the only write that moves a scan out of
+	// "running", so a silent failure strands the row as permanently active — the
+	// worker is gone but the dashboard still shows it running, and "wait for all
+	// scans to finish" never returns. Retry briefly, then at least say so.
+	if dbErr := updateScanResultWithRetry(scanID, status); dbErr != nil {
+		log.Printf("[runner] CRITICAL: scan %s (%s) finished as %q but the status write failed: %v — row left active, the reaper will clear it",
+			scanID, scanType, status, dbErr)
+	}
 
 	// Ensure every in-process scan shows progress in the dashboard.
 	// Without this, one-shot scans like global nuclei / subdomain_run
