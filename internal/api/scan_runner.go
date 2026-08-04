@@ -24,11 +24,47 @@ import (
 // ErrScanCancelled is returned by RunScanInProcess when the user requested a stop.
 var ErrScanCancelled = errors.New("scan cancelled by user")
 
+// ErrScanTimedOut marks a scan the runner killed at its own deadline. Kept
+// distinct from ErrScanCancelled so the dashboard can tell "the operator
+// stopped this" apart from "this outgrew its budget" — they need opposite fixes.
+var ErrScanTimedOut = errors.New("scan exceeded its time budget")
+
 // stdLog re-emits to both the global logger and the scan-local log bus.
 func stdLog(scanID, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	log.Print(msg)
 	ScanLogf(scanID, "%s", msg)
+}
+
+// scanTimeoutFor returns the wall-clock budget for a scan type.
+//
+// The 6h default is sized for a single-domain scan. Fleet-wide jobs (the root
+// pipeline walks thousands of roots) legitimately run far longer, and sharing
+// the single-domain budget meant the pipeline was killed mid-collection every
+// time — a 3511-root run reached 1567 roots in 6h and never got as far as
+// nuclei, so six hours of enumeration produced zero template results. These
+// jobs still get a ceiling, just one matched to their scale.
+//
+// AUTOAR_SCAN_TIMEOUT overrides the default; AUTOAR_PIPELINE_TIMEOUT overrides
+// the long-job budget.
+func scanTimeoutFor(scanType string) time.Duration {
+	def, long := 6*time.Hour, 24*time.Hour
+	if d := os.Getenv("AUTOAR_SCAN_TIMEOUT"); d != "" {
+		if p, err := time.ParseDuration(d); err == nil && p > 0 {
+			def = p
+		}
+	}
+	if d := os.Getenv("AUTOAR_PIPELINE_TIMEOUT"); d != "" {
+		if p, err := time.ParseDuration(d); err == nil && p > 0 {
+			long = p
+		}
+	}
+	switch scanType {
+	case "pipeline", "collect":
+		return long
+	default:
+		return def
+	}
 }
 
 // runScanInProcess is the generic in-process scan runner. fn should call the
@@ -60,12 +96,7 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	// Create a cancel context with a configurable maximum duration so that a
 	// hung scanner (e.g. waiting on an unreachable host) doesn't hold a
 	// semaphore slot forever. Default: 6 hours. Override: AUTOAR_SCAN_TIMEOUT.
-	maxDur := 6 * time.Hour
-	if d := os.Getenv("AUTOAR_SCAN_TIMEOUT"); d != "" {
-		if parsed, err := time.ParseDuration(d); err == nil && parsed > 0 {
-			maxDur = parsed
-		}
-	}
+	maxDur := scanTimeoutFor(scanType)
 	ctx, cancelCtx := context.WithTimeout(context.Background(), maxDur)
 	defer cancelCtx() // always release resources
 
@@ -109,14 +140,21 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	case err = <-done:
 		// fn finished normally (or with an error)
 	case <-ctx.Done():
-		// CancelScanByID was called — wait briefly for fn to acknowledge, then proceed
+		// Either CancelScanByID was called or the budget expired — wait briefly
+		// for fn to acknowledge, then proceed.
 		select {
 		case err = <-done:
 		case <-time.After(5 * time.Second):
-			// fn didn't return in time; treat as cancelled anyway
+			// fn didn't return in time; treat as stopped anyway
 		}
-		// Override any fn error with the cancellation sentinel
-		err = ErrScanCancelled
+		// Distinguish the two: a deadline is the runner killing its own job, not
+		// the operator stopping it. Reporting a timeout as "cancelled by user"
+		// sends you looking for a person who never touched it.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("%w after %s", ErrScanTimedOut, maxDur)
+		} else {
+			err = ErrScanCancelled
+		}
 	}
 
 	// Also honour the CancelRequested flag (set by CancelScanByID before calling cancelCtx).
@@ -130,7 +168,12 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	completedAt := time.Now()
 	status := "completed"
 	errMsg := ""
-	if errors.Is(err, ErrScanCancelled) {
+	if errors.Is(err, ErrScanTimedOut) {
+		status = "timed_out"
+		errMsg = err.Error()
+		ScanLogf(scanID, "[%s] scan TIMED OUT: %v", scanType, err)
+		log.Printf("[runner] scan %s (%s) timed out after %s", scanID, scanType, maxDur)
+	} else if errors.Is(err, ErrScanCancelled) {
 		status = "cancelled"
 		errMsg = "cancelled by user"
 		ScanLogf(scanID, "[%s] scan cancelled by user", scanType)

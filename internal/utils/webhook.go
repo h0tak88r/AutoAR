@@ -58,6 +58,8 @@ func SendScanNotification(event, scanID, target, scanType, status string, findin
 			resultEmoji = ""
 		} else if status == "cancelled" {
 			resultEmoji = "⏹"
+		} else if status == "timed_out" {
+			resultEmoji = "⏱"
 		}
 		
 		findingsStr := "No findings"

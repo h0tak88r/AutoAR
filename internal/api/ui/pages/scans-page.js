@@ -264,7 +264,7 @@
       const tf = sUI.typeFilter.toLowerCase();
       const matchesType = sUI.typeFilter === 'all' || type === tf || type.startsWith(`${tf}-`) || type.startsWith(`${tf}_`);
       let matchesStatus = sUI.statusFilter === 'all' || status === sUI.statusFilter.toLowerCase();
-      if (sUI.statusFilter === 'stopped' && (status === 'cancelled' || status === 'stopped')) matchesStatus = true;
+      if (sUI.statusFilter === 'stopped' && (status === 'cancelled' || status === 'stopped' || status === 'timed_out')) matchesStatus = true;
       return matchesSearch && matchesType && matchesStatus;
     };
     const filteredActive = active_scans.filter(filterFn);

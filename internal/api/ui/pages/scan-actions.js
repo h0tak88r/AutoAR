@@ -83,7 +83,7 @@
     const ids = recent_scans.filter(s => {
       const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
       const statusRaw = (s.status || s.Status || '').toLowerCase();
-      const done = ['completed', 'done', 'failed', 'stopped', 'cancelled'].includes(statusRaw);
+      const done = ['completed', 'done', 'failed', 'stopped', 'cancelled', 'timed_out'].includes(statusRaw);
       return done && filesUploaded === 0;
     }).map(s => s.scan_id || s.ScanID).filter(Boolean);
 

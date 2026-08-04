@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,29 @@ type RootPipelineReq struct {
 	Threads int `json:"threads"`
 	// MaxRoots caps how many roots are enumerated this run (0 = no cap).
 	MaxRoots int `json:"max_roots"`
+	// CollectOnly stops after roots+hosts are in the DB, skipping nuclei.
+	//
+	// Collection and scanning have very different shapes: collection is slow,
+	// resumable, and only needs doing when scope changes; scanning is something
+	// you re-run per template against whatever is already stored. Fusing them
+	// meant a long collection consumed the whole budget and nuclei never ran —
+	// a 3511-root run spent 6h collecting and produced zero template results.
+	// Split, collection tops up the database and every later template runs
+	// straight off it via /api/subdomains/nuclei/run with no re-collection.
+	CollectOnly bool `json:"collect_only"`
+}
+
+// rootEnumConcurrency is how many roots enumerate at once. Enumeration is
+// network-latency bound, not CPU bound — the host sat near 50% load with 8GB
+// free while only 5 roots ran concurrently, so the cap was the bottleneck, not
+// the machine. Raising it shortens the walk without needing a bigger box.
+func rootEnumConcurrency() int {
+	if v := os.Getenv("AUTOAR_ROOT_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 12
 }
 
 // apiRunRootPipeline kicks off the on-demand pipeline:
@@ -57,19 +81,24 @@ func apiRunRootPipeline(c *gin.Context) {
 		threads = 30
 	}
 
-	scanID := "pipeline-" + time.Now().Format("20060102150405")
+	scanType, label, msg := "pipeline", "root-pipeline", "Root pipeline started — watch the Scans page and Discord."
+	if req.CollectOnly {
+		scanType, label = "collect", "root-collect"
+		msg = "Root collection started — filling in roots and hosts. Run nuclei separately when it finishes."
+	}
+	scanID := scanType + "-" + time.Now().Format("20060102150405")
 	c.JSON(200, gin.H{
 		"status":  "started",
 		"scan_id": scanID,
-		"message": "Root pipeline started — watch the Scans page and Discord.",
+		"message": msg,
 	})
 
-	go RunScanInProcess(scanID, "pipeline", "root-pipeline", func() error {
-		return runRootPipeline(scanID, req.Template, newOnly, threads, req.MaxRoots)
+	go RunScanInProcess(scanID, scanType, label, func() error {
+		return runRootPipeline(scanID, req.Template, newOnly, threads, req.MaxRoots, req.CollectOnly)
 	})
 }
 
-func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots int) error {
+func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots int, collectOnly bool) error {
 	stdLog(scanID, "[INFO] Gathering root domains from all bug-bounty platforms…")
 	utils.SendMonitorWebhook(" **Root Pipeline started** — gathering root domains from all platforms…")
 
@@ -98,7 +127,7 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 		done    int
 		skipped int
 		wg      sync.WaitGroup
-		sem     = make(chan struct{}, 5) // at most 5 roots enumerating at once
+		sem     = make(chan struct{}, rootEnumConcurrency())
 	)
 	for _, r := range targetRoots {
 		wg.Add(1)
@@ -166,6 +195,20 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 
 	allSubs = uniqueStrings(allSubs)
 	stdLog(scanID, "[INFO] collection complete: %d live host(s) to scan (%d root(s) skipped as new-roots-only)", len(allSubs), skipped)
+
+	if collectOnly {
+		// Everything found is already persisted per-root above, so stopping here
+		// loses nothing — and unlike the fused run, partial progress survives:
+		// roots done this pass are skipped or cheaply reused next time, so
+		// repeated runs converge instead of restarting.
+		stdLog(scanID, "[OK] Root collection complete — %d root(s) processed, %d skipped, %d live host(s) now available",
+			len(targetRoots), skipped, len(allSubs))
+		utils.SendMonitorWebhook(fmt.Sprintf(
+			" **Root collection complete**\nRoots processed: %d\nSkipped: %d\nLive hosts available: %d\n\nRun a template against them with **Run Nuclei** — no re-collection needed.",
+			len(targetRoots), skipped, len(allSubs)))
+		return nil
+	}
+
 	if len(allSubs) == 0 {
 		utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: no live hosts to scan (%d root(s) skipped).", skipped))
 		return nil

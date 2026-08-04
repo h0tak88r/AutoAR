@@ -1861,7 +1861,7 @@ func (p *PostgresDB) UpdateScanStatus(scanID string, status string) error {
 	now := time.Now()
 	var err error
 	
-	if status == "completed" || status == "failed" || status == "cancelled" {
+	if status == "completed" || status == "failed" || status == "cancelled" || status == "timed_out" {
 		_, err = p.pool.Exec(p.ctx, `
 			UPDATE scans SET
 				status = $1,

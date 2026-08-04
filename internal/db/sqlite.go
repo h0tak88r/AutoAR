@@ -1814,7 +1814,7 @@ func (s *SQLiteDB) UpdateScanStatus(scanID string, status string) error {
 	now := time.Now()
 	var err error
 	
-	if status == "completed" || status == "failed" || status == "cancelled" {
+	if status == "completed" || status == "failed" || status == "cancelled" || status == "timed_out" {
 		_, err = s.db.Exec(`
 			UPDATE scans SET
 				status = ?,

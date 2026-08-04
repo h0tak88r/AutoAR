@@ -742,7 +742,7 @@ func apiScanResultsSummary(c *gin.Context) {
 
 	st := strings.ToLower(strings.TrimSpace(rec.Status))
 	switch st {
-	case "completed", "done", "failed", "cancelled", "error":
+	case "completed", "done", "failed", "cancelled", "timed_out", "error":
 		c.Header("Cache-Control", "private, max-age=60")
 	}
 
