@@ -580,6 +580,24 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 }
 
 // RunGlobalTemplate executes a specific nuclei template against a list of targets using the SDK.
+// scanRequestHeaders returns headers sent with every nuclei request.
+//
+// Nuclei's default User-Agent names itself as a scanner, and commodity WAFs
+// reject it outright — which produces silent FALSE NEGATIVES, not errors. Proven
+// on a host with a confirmed CVE-2025-62138 exposure: identical requests, only
+// the UA differing, returned 404/406 with the default agent and 200 with a
+// browser one. The vulnerable endpoint answered {"INVALIDEMAIL":true} only in
+// the latter, so a WAF-fronted host looked clean when it was not.
+//
+// Override with AUTOAR_SCAN_USER_AGENT.
+func scanRequestHeaders() []string {
+	ua := os.Getenv("AUTOAR_SCAN_USER_AGENT")
+	if ua == "" {
+		ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+	}
+	return []string{"User-Agent: " + ua}
+}
+
 func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, onResult func(event *nucleiOutput.ResultEvent)) error {
 	targets, err := readTargetLines(targetFile)
 	if err != nil {
@@ -610,6 +628,7 @@ func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, on
 		context.Background(),
 		nucleiSDK.DisableUpdateCheck(),
 		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
+		nucleiSDK.WithHeaders(scanRequestHeaders()),
 		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{
 			Templates: []string{templatePath},
 		}),
