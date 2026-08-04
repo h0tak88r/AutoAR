@@ -2,6 +2,8 @@ package huntermonitor
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -159,22 +161,65 @@ func checkAllRunningTargets() {
 // degrading silently to it would hide a revoked token, so the caller logs which
 // source produced the result.
 func fetchHacktivityBestSource(username, numericUserID string) ([]ResolvedReport, string, error) {
+	// Query EVERY configured H1 account and merge, rather than stopping at the
+	// first that works. Private-program visibility is per-researcher: an account
+	// only sees activity on programs it is itself invited to, so each token
+	// exposes a different slice. Measured on this deployment, two accounts
+	// returned 50 and 50 reports for one hunter but 61 distinct between them —
+	// each seeing 5-8 programs the other could not. Using a single token silently
+	// drops whole programs.
+	seenID := make(map[string]bool)
+	var merged []ResolvedReport
+	var usedLabels []string
+	var lastErr error
+
 	for _, a := range accounts.For("h1") {
 		if a.Username == "" || a.Token == "" {
 			continue
 		}
 		reports, err := FetchHacktivityAPI(a.Username, a.Token, username, hacktivityFetchSize)
-		if err == nil {
-			return reports, "authenticated API (" + a.Label + ")", nil
+		if err != nil {
+			lastErr = err
+			logger.GetLogger().Infof("[WARN] H1 API account %q failed for %s: %v", a.Label, username, err)
+			continue
 		}
-		logger.GetLogger().Infof("[WARN] H1 API account %q failed for %s (%v) — trying next", a.Label, username, err)
+		usedLabels = append(usedLabels, a.Label)
+		for _, r := range reports {
+			if r.ID == "" || seenID[r.ID] {
+				continue
+			}
+			seenID[r.ID] = true
+			merged = append(merged, r)
+		}
 	}
 
+	if len(usedLabels) > 0 {
+		// Each account returns newest-first, but the concatenation is not, so
+		// re-sort — downstream (the baseline snapshot) takes the head as "latest".
+		sort.SliceStable(merged, func(i, j int) bool {
+			return hacktivityTime(merged[i]).After(hacktivityTime(merged[j]))
+		})
+		return merged, fmt.Sprintf("authenticated API (%s)", strings.Join(usedLabels, "+")), nil
+	}
+
+	if lastErr != nil {
+		logger.GetLogger().Infof("[WARN] All H1 API accounts failed for %s — falling back to anonymous view", username)
+	}
 	reports, err := FetchHacktivity(numericUserID, hacktivityFetchSize)
 	if err != nil {
 		return nil, "", err
 	}
 	return reports, "anonymous GraphQL (no private-program activity)", nil
+}
+
+// hacktivityTime parses an entry's activity timestamp; unparseable values sort
+// oldest so they never displace real entries at the head of the list.
+func hacktivityTime(r ResolvedReport) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, r.ActivityAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // checkTarget polls one hunter's public H1 profile + hacktivity feed,
