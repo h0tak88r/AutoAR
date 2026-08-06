@@ -492,7 +492,7 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 	count := 0
 	now := time.Now()
 	for _, subdomain := range subdomains {
-		subdomain = strings.TrimSpace(subdomain)
+		subdomain = SanitizeHostname(subdomain)
 		if subdomain == "" {
 			continue
 		}
@@ -515,6 +515,9 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 
 // InsertSubdomain inserts or updates a single subdomain
 func (s *SQLiteDB) InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL string, httpStatus, httpsStatus int) error {
+	if subdomain = SanitizeHostname(subdomain); subdomain == "" {
+		return nil
+	}
 	domainID, err := s.InsertOrGetDomain(domain)
 	if err != nil {
 		return fmt.Errorf("failed to get domain ID: %v", err)

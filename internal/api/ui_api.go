@@ -430,6 +430,9 @@ func apiListSubdomains(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	for i := range subs {
+		subs[i].Host = subs[i].BestURL()
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"domain":     domain,
@@ -474,6 +477,9 @@ func apiAllSubdomainsPaginated(c *gin.Context) {
 	}
 	if subs == nil {
 		subs = make([]db.GlobalSubdomain, 0)
+	}
+	for i := range subs {
+		subs[i].Host = subs[i].BestURL()
 	}
 
 	c.JSON(http.StatusOK, gin.H{

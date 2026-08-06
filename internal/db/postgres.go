@@ -619,7 +619,7 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 
 	count := 0
 	for _, subdomain := range subdomains {
-		subdomain = strings.TrimSpace(subdomain)
+		subdomain = SanitizeHostname(subdomain)
 		if subdomain == "" {
 			continue
 		}
@@ -642,6 +642,9 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 
 // InsertSubdomain inserts or updates a single subdomain
 func (p *PostgresDB) InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL string, httpStatus, httpsStatus int) error {
+	if subdomain = SanitizeHostname(subdomain); subdomain == "" {
+		return nil
+	}
 	domainID, err := p.InsertOrGetDomain(domain)
 	if err != nil {
 		return fmt.Errorf("failed to get domain ID: %v", err)
