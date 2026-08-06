@@ -268,6 +268,15 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 			TotalPhases:     1,
 			PhaseName:       scanLabel + " scan",
 			CompletedPhases: []string{scanLabel + " scan"},
+			// Carry the finding count and error count the module already wrote via
+			// UpdateScanStats. UpdateScanProgress overwrites files_uploaded/error_count
+			// unconditionally, so leaving these at their zero value silently reset a
+			// nuclei/pipeline run's match count to 0 in the DB — the scans list then
+			// showed "0 findings" while the results file (and the detail view) held
+			// the real hits. This is exactly why a confirmed CVE-2025-62138 match
+			// looked like 0 in the scan list.
+			FilesUploaded: record.FilesUploaded,
+			ErrorCount:    record.ErrorCount,
 		})
 	}
 
