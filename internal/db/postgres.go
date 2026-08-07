@@ -517,6 +517,20 @@ func (p *PostgresDB) InitSchema() error {
 		return fmt.Errorf("failed to create schema: %v", err)
 	}
 
+	// subdomain_hosts presents each subdomain as a probed URL (https://host) while
+	// the base table keeps the bare hostname as its unique dedup key. This is the
+	// SQL twin of SubdomainStatus.BestURL, so raw queries and external tooling see
+	// URLs without the storage ever holding one. CREATE OR REPLACE keeps it in
+	// sync if the formula changes.
+	_, err = p.pool.Exec(p.ctx, `
+		CREATE OR REPLACE VIEW subdomain_hosts AS
+		SELECT s.*,
+		       COALESCE(NULLIF(s.https_url, ''), NULLIF(s.http_url, ''), 'https://' || s.subdomain) AS host
+		FROM subdomains s`)
+	if err != nil {
+		return fmt.Errorf("failed to create subdomain_hosts view: %v", err)
+	}
+
 	// Migrate legacy DBs: CREATE TABLE IF NOT EXISTS does not add new columns to existing scans tables.
 	_, err = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS result_url TEXT`)
 	if err != nil {

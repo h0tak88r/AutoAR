@@ -365,6 +365,19 @@ func (s *SQLiteDB) InitSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %v", err)
 	}
+	// subdomain_hosts view: bare hostname stays the dedup key, host is the probed
+	// URL (SQL twin of BestURL). DROP+CREATE keeps it in sync (SQLite has no
+	// CREATE OR REPLACE VIEW).
+	if _, verr := s.db.Exec(`DROP VIEW IF EXISTS subdomain_hosts`); verr != nil {
+		return fmt.Errorf("failed to drop subdomain_hosts view: %v", verr)
+	}
+	if _, verr := s.db.Exec(`
+		CREATE VIEW subdomain_hosts AS
+		SELECT s.*,
+		       COALESCE(NULLIF(s.https_url, ''), NULLIF(s.http_url, ''), 'https://' || s.subdomain) AS host
+		FROM subdomains s`); verr != nil {
+		return fmt.Errorf("failed to create subdomain_hosts view: %v", verr)
+	}
 	// Migrate legacy scans table: ensure result_url exists (CREATE TABLE IF NOT EXISTS does not add columns)
 	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN result_url TEXT`); merr != nil {
 		low := strings.ToLower(merr.Error())
