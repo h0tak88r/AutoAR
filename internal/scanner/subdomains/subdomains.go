@@ -466,7 +466,6 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	providerMap := map[string]string{
 		"GITHUB_TOKEN":           "github",
 		"SECURITYTRAILS_API_KEY": "securitytrails",
-		"SHODAN_API_KEY":         "shodan",
 		"VIRUSTOTAL_API_KEY":     "virustotal",
 		"WORDPRESS_API_KEY":      "wordpress",
 		"BEVIGIL_API_KEY":        "bevigil",
@@ -539,6 +538,31 @@ func generateSubfinderConfigFromEnv() (string, error) {
 		}
 	}
 
+	// Shodan accepts multiple API keys — SHODAN_API_KEYS (comma/newline-separated
+	// list, settable from the dashboard) plus the legacy single SHODAN_API_KEY.
+	shodanKeys := utils.ParseKeyList(os.Getenv("SHODAN_API_KEYS"))
+	if legacy := strings.TrimSpace(os.Getenv("SHODAN_API_KEY")); legacy != "" {
+		shodanKeys = append(utils.ParseKeyList(legacy), shodanKeys...)
+		// Re-deduplicate after merging the legacy key in front.
+		seen := make(map[string]bool, len(shodanKeys))
+		deduped := shodanKeys[:0]
+		for _, k := range shodanKeys {
+			if !seen[k] {
+				seen[k] = true
+				deduped = append(deduped, k)
+			}
+		}
+		shodanKeys = deduped
+	}
+	if len(shodanKeys) > 0 {
+		quoted := make([]string, len(shodanKeys))
+		for i, k := range shodanKeys {
+			quoted[i] = fmt.Sprintf("%q", k)
+		}
+		builder.WriteString(fmt.Sprintf("shodan: [%s]\n", strings.Join(quoted, ", ")))
+		writtenProviders["shodan"] = true
+	}
+
 	// Handle single-value providers
 	for envVar, providerName := range providerMap {
 		// Skip if already written (multi-value providers)
@@ -546,8 +570,8 @@ func generateSubfinderConfigFromEnv() (string, error) {
 			continue
 		}
 
-		// Skip censys, fofa, passivetotal, quake, zoomeye (already handled)
-		if providerName == "censys" || providerName == "fofa" || providerName == "passivetotal" || providerName == "quake" || providerName == "zoomeye" {
+		// Skip censys, fofa, passivetotal, quake, zoomeye, shodan (already handled)
+		if providerName == "censys" || providerName == "fofa" || providerName == "passivetotal" || providerName == "quake" || providerName == "zoomeye" || providerName == "shodan" {
 			continue
 		}
 

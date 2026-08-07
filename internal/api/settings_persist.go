@@ -25,6 +25,53 @@ var persistedEnvKeys = []string{
 	"BUGCROWD_TOKEN", "INTIGRITI_TOKEN", "YWH_TOKEN",
 	"HACKADVISOR_TOKEN", "HACKADVISOR_INCLUDE_NATIVE",
 	"CHAOS_API_KEY",
+	"SHODAN_API_KEY", "SHODAN_API_KEYS",
+}
+
+// subfinderProviderKeys are the subfinder passive-source API keys manageable from
+// Settings. They are appended to persistedEnvKeys so a UI-entered value is saved
+// to the DB and re-hydrated into the process env on boot (DB wins over container
+// env — see HydrateEnvFromDB). The subfinder config generator already reads these
+// via os.Getenv, so "subfinder reads the DB value, falling back to the container
+// env when absent" holds without touching the subfinder package. Names must match
+// the providerMap in internal/scanner/subdomains (the subfinder env contract).
+var subfinderProviderKeys = []string{
+	"GITHUB_TOKEN",
+	"SECURITYTRAILS_API_KEY",
+	"VIRUSTOTAL_API_KEY",
+	"BEVIGIL_API_KEY",
+	"BINARYEDGE_API_KEY",
+	"URLSCAN_API_KEY",
+	"CENSYS_API_ID", "CENSYS_API_SECRET",
+	"CERTSPOTTER_API_KEY",
+	"FOFA_EMAIL", "FOFA_KEY",
+	"FULLHUNT_API_KEY",
+	"INTELX_API_KEY",
+	"PASSIVETOTAL_USERNAME", "PASSIVETOTAL_API_KEY",
+	"QUAKE_USERNAME", "QUAKE_PASSWORD",
+	"THREATBOOK_API_KEY",
+	"WHOISXMLAPI_API_KEY",
+	"ZOOMEYE_USERNAME", "ZOOMEYE_PASSWORD",
+	"ZOOMEYEAPI_API_KEY",
+}
+
+// subfinderProviderKeySet gates which keys the settings save endpoint accepts, so
+// an arbitrary key from a request body can never be written to the env/DB.
+var subfinderProviderKeySet = func() map[string]bool {
+	m := make(map[string]bool, len(subfinderProviderKeys))
+	for _, k := range subfinderProviderKeys {
+		m[k] = true
+	}
+	return m
+}()
+
+func init() {
+	// Fold the subfinder keys into the persisted allowlist so saveEnvSetting mirrors
+	// them to the DB and HydrateEnvFromDB restores them after a redeploy.
+	persistedEnvKeys = append(persistedEnvKeys, subfinderProviderKeys...)
+	for _, k := range subfinderProviderKeys {
+		persistedEnvSet[k] = true
+	}
 }
 
 var persistedEnvSet = func() map[string]bool {

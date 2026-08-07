@@ -188,6 +188,44 @@
               </div>
             </div>
             ${tokenRow('Chaos (ProjectDiscovery)', 'Subdomain-dataset API key — powers the <strong>Chaos</strong> lookup in the Targets tab. Get one at <a href="https://cloud.projectdiscovery.io" target="_blank" rel="noopener">cloud.projectdiscovery.io</a>.', 'chaos-key-input', 'window.SettingsPage.saveChaosKey()', 'chaos API key', cfg.chaos_key_set)}
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Shodan API Keys</div>
+                <div class="settings-hint">One or more Shodan keys — comma-separated or one per line. All keys are passed to subfinder for subdomain enumeration. Stored in the database. ${cfg.shodan_keys_set ? `<span class="badge badge-done">${cfg.shodan_keys_count} key(s) configured</span>` : '<span class="badge badge-failed">not set</span>'}</div>
+              </div>
+              <div class="settings-control" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <textarea id="shodan-keys-input" rows="3" placeholder="${cfg.shodan_keys_set ? '••••••• (saved — paste new keys to replace all)' : 'key1, key2, key3'}" class="form-control premium-input" style="resize:vertical;font-family:monospace;"></textarea>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn btn-primary" onclick="window.SettingsPage.saveShodanKeys()">Save</button>
+                  ${cfg.shodan_keys_set ? '<button class="btn btn-secondary" onclick="window.SettingsPage.clearShodanKeys()">Clear all</button>' : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="platforms">
+          <div class="settings-section-header"> Subfinder Provider Keys</div>
+          <div class="settings-section-description">
+            Passive-source API keys for subdomain enumeration. Saved to the database and used
+            by subfinder on its next run — a stored key overrides the container env of the same
+            name; leave a field blank to keep the current value. Chaos and Shodan are configured above.
+          </div>
+          <div class="settings-section-body">
+            <div class="settings-timeout-grid">
+              ${SUBFINDER_PROVIDERS.map((p) => {
+                const isSet = (cfg.subfinder_keys_set || {})[p.env];
+                return `<div class="timeout-field">
+                  <label>${p.label} ${isSet ? '<span class="badge badge-done">set</span>' : ''}</label>
+                  <input type="password" id="sf-${p.env}" data-sf-env="${p.env}" value=""
+                         placeholder="${isSet ? '••••••• (saved)' : (p.ph || p.env)}"
+                         class="form-control premium-input" autocomplete="off" />
+                </div>`;
+              }).join('')}
+            </div>
+            <div style="margin-top:12px;">
+              <button class="btn btn-primary" onclick="window.SettingsPage.saveSubfinderKeys()">Save subfinder keys</button>
+            </div>
           </div>
         </div>
 
@@ -651,10 +689,69 @@
     } catch (e) { window.showToast('error', 'Error', e.message); }
   }
 
+  // Subfinder passive-source providers exposed in Settings. env must match the
+  // provider-key names in the backend allowlist (subfinderProviderKeys).
+  const SUBFINDER_PROVIDERS = [
+    { env: 'VIRUSTOTAL_API_KEY',     label: 'VirusTotal' },
+    { env: 'SECURITYTRAILS_API_KEY', label: 'SecurityTrails' },
+    { env: 'GITHUB_TOKEN',           label: 'GitHub token' },
+    { env: 'CENSYS_API_ID',          label: 'Censys API ID' },
+    { env: 'CENSYS_API_SECRET',      label: 'Censys API secret' },
+    { env: 'BINARYEDGE_API_KEY',     label: 'BinaryEdge' },
+    { env: 'BEVIGIL_API_KEY',        label: 'BeVigil' },
+    { env: 'CERTSPOTTER_API_KEY',    label: 'CertSpotter' },
+    { env: 'FULLHUNT_API_KEY',       label: 'FullHunt' },
+    { env: 'INTELX_API_KEY',         label: 'IntelX' },
+    { env: 'URLSCAN_API_KEY',        label: 'urlscan.io' },
+    { env: 'WHOISXMLAPI_API_KEY',    label: 'WhoisXML API' },
+    { env: 'THREATBOOK_API_KEY',     label: 'ThreatBook' },
+    { env: 'FOFA_EMAIL',             label: 'FOFA email' },
+    { env: 'FOFA_KEY',               label: 'FOFA key' },
+    { env: 'PASSIVETOTAL_USERNAME',  label: 'PassiveTotal user' },
+    { env: 'PASSIVETOTAL_API_KEY',   label: 'PassiveTotal key' },
+    { env: 'ZOOMEYEAPI_API_KEY',     label: 'ZoomEye API' },
+  ];
+
+  // Collect every non-empty subfinder input into a {ENV: value} map and save.
+  // Blank fields are omitted so they keep their current stored value.
+  async function saveSubfinderKeys() {
+    const map = {};
+    document.querySelectorAll('input[data-sf-env]').forEach((el) => {
+      const v = el.value.trim();
+      if (v) map[el.getAttribute('data-sf-env')] = v;
+    });
+    if (Object.keys(map).length === 0) {
+      window.showToast('info', 'No change', 'Enter at least one subfinder key to save.');
+      return;
+    }
+    try {
+      await postSettings({ subfinder_keys: map }, `${Object.keys(map).length} subfinder key(s) saved.`);
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
   function saveBugcrowdToken()  { return savePlatformToken('bc_token', 'bc-token-input', 'Bugcrowd token'); }
   function saveIntigritiToken() { return savePlatformToken('it_token', 'it-token-input', 'Intigriti token'); }
   function saveYWHToken()       { return savePlatformToken('ywh_token', 'ywh-token-input', 'YesWeHack token'); }
   function saveChaosKey()       { return savePlatformToken('chaos_key', 'chaos-key-input', 'Chaos API key'); }
+
+  // Shodan multi-key list — the whole textarea replaces the stored list
+  // (server normalizes comma/newline-separated input).
+  async function saveShodanKeys() {
+    const input = document.getElementById('shodan-keys-input');
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) { window.showToast('info', 'No change', 'Paste one or more Shodan keys (comma-separated or one per line), or use Clear all.'); return; }
+    try {
+      await postSettings({ shodan_keys: val }, 'Shodan API keys saved.');
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
+  async function clearShodanKeys() {
+    if (!window.confirm('Remove all stored Shodan API keys?')) return;
+    try {
+      await postSettings({ shodan_keys: '' }, 'Shodan API keys cleared.');
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
 
   async function saveH1Creds() {
     const u = document.getElementById('h1-username-input');
@@ -710,5 +807,9 @@
     saveYWHToken,
     saveHackAdvisorCreds,
     saveChaosKey,
+    saveShodanKeys,
+    clearShodanKeys,
+    saveSubfinderKeys,
+    SUBFINDER_PROVIDERS,
   };
 })();

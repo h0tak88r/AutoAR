@@ -53,7 +53,15 @@ func apiConfigHandler(c *gin.Context) {
 		}
 		return n
 	}
+	// Shodan keys — list (SHODAN_API_KEYS) plus legacy single SHODAN_API_KEY.
+	// Only the count is exposed via the config endpoint, never the keys themselves.
+	shodanKeyCount := len(utils.ParseKeyList(os.Getenv("SHODAN_API_KEYS") + "," + os.Getenv("SHODAN_API_KEY")))
+	subfinderKeysSet := make(map[string]bool, len(subfinderProviderKeys))
+	for _, k := range subfinderProviderKeys {
+		subfinderKeysSet[k] = strings.TrimSpace(os.Getenv(k)) != ""
+	}
 	c.JSON(http.StatusOK, gin.H{
+		"subfinder_keys_set": subfinderKeysSet,
 		"version":         version.Version,
 		"r2_enabled":      r2storage.IsEnabled(),
 		"r2_public_url":   os.Getenv("R2_PUBLIC_URL"),
@@ -87,6 +95,8 @@ func apiConfigHandler(c *gin.Context) {
 		"ha_token_set":      strings.TrimSpace(os.Getenv("HACKADVISOR_TOKEN")) != "",
 		"ha_include_native": strings.EqualFold(strings.TrimSpace(os.Getenv("HACKADVISOR_INCLUDE_NATIVE")), "true"),
 		"chaos_key_set":     strings.TrimSpace(os.Getenv("CHAOS_API_KEY")) != "",
+		"shodan_keys_set":   shodanKeyCount > 0,
+		"shodan_keys_count": shodanKeyCount,
 		// Models — fall back to defaults when env is unset so the UI always shows something.
 		"opencode_model":   utils.GetEnv("OPENCODE_MODEL", "deepseek-v4-flash-free"),
 		"openrouter_model": utils.GetEnv("OPENROUTER_MODEL", "z-ai/glm-4.5-air:free"),
@@ -124,6 +134,13 @@ type UpdateSettingsBody struct {
 	HackAdvisorKey  string  `json:"ha_token"`
 	HAIncludeNative *bool   `json:"ha_include_native,omitempty"`
 	ChaosKey        string  `json:"chaos_key"`
+	// ShodanKeys is a *string so the dashboard can replace OR clear the whole list
+	// (empty string clears). Accepts comma/newline-separated keys.
+	ShodanKeys *string `json:"shodan_keys,omitempty"`
+	// SubfinderKeys maps a subfinder provider env-var name to its value, e.g.
+	// {"VIRUSTOTAL_API_KEY":"...","CENSYS_API_ID":"..."}. Only names in
+	// subfinderProviderKeySet are accepted; a blank value keeps the current one.
+	SubfinderKeys map[string]string `json:"subfinder_keys,omitempty"`
 	// AI model overrides — empty string keeps the current value, "default" clears the override.
 	OpenRouterModel *string `json:"openrouter_model,omitempty"`
 	OpenCodeModel   *string `json:"opencode_model,omitempty"`
@@ -187,6 +204,24 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	}
 	if body.ChaosKey != "" {
 		saveEnvSetting("CHAOS_API_KEY", strings.TrimSpace(body.ChaosKey))
+	}
+	// Shodan key list — pointer field, so an explicit empty value clears all keys.
+	// Normalized to a comma-separated list; persisted to DB via saveEnvSetting.
+	if body.ShodanKeys != nil {
+		keys := utils.ParseKeyList(*body.ShodanKeys)
+		saveEnvSetting("SHODAN_API_KEYS", strings.Join(keys, ","))
+	}
+	// Subfinder provider keys — only allowlisted names; a blank value keeps the
+	// current one (matching the "leave blank to keep" convention of the other
+	// fields). Saved to env+DB so subfinder picks them up on its next run.
+	for k, v := range body.SubfinderKeys {
+		if !subfinderProviderKeySet[k] {
+			continue
+		}
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		saveEnvSetting(k, strings.TrimSpace(v))
 	}
 	if body.HAIncludeNative != nil {
 		v := "false"
