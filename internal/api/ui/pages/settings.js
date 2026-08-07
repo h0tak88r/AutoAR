@@ -214,17 +214,23 @@
           <div class="settings-section-body">
             <div class="settings-timeout-grid">
               ${SUBFINDER_PROVIDERS.map((p) => {
-                const isSet = (cfg.subfinder_keys_set || {})[p.env];
+                const n = (cfg.subfinder_key_counts || {})[p.env] || 0;
+                const badge = n > 0 ? `<span class="badge badge-done">${n} key${n > 1 ? 's' : ''}</span>` : '';
                 return `<div class="timeout-field">
-                  <label>${p.label} ${isSet ? '<span class="badge badge-done">set</span>' : ''}</label>
-                  <input type="password" id="sf-${p.env}" data-sf-env="${p.env}" value=""
-                         placeholder="${isSet ? '••••••• (saved)' : (p.ph || p.env)}"
-                         class="form-control premium-input" autocomplete="off" />
+                  <label>${p.label} ${badge}</label>
+                  <div style="display:flex;gap:6px;">
+                    <input type="password" id="sf-${p.env}" data-sf-env="${p.env}" value=""
+                           placeholder="${n > 0 ? 'add another key' : (p.ph || p.env)}"
+                           class="form-control premium-input" autocomplete="off" style="flex:1;" />
+                    <button class="btn btn-secondary" title="Add this key (keeps existing)"
+                            onclick="window.SettingsPage.addSubfinderKey('${p.env}')">＋</button>
+                  </div>
                 </div>`;
               }).join('')}
             </div>
-            <div style="margin-top:12px;">
-              <button class="btn btn-primary" onclick="window.SettingsPage.saveSubfinderKeys()">Save subfinder keys</button>
+            <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+              <button class="btn btn-primary" onclick="window.SettingsPage.saveSubfinderKeys()">Add all filled keys</button>
+              <span style="font-size:11px;color:var(--text-muted);">＋ adds one provider; the button adds every filled field. Both append — existing keys are kept.</span>
             </div>
           </div>
         </div>
@@ -712,8 +718,18 @@
     { env: 'ZOOMEYEAPI_API_KEY',     label: 'ZoomEye API' },
   ];
 
-  // Collect every non-empty subfinder input into a {ENV: value} map and save.
-  // Blank fields are omitted so they keep their current stored value.
+  // Append one provider's key without replacing its existing list (the "+" action).
+  async function addSubfinderKey(env) {
+    const el = document.getElementById('sf-' + env);
+    const v = el ? el.value.trim() : '';
+    if (!v) { window.showToast('info', 'Nothing to add', 'Enter a key first.'); return; }
+    try {
+      await postSettings({ subfinder_keys_append: { [env]: v } }, `Key added to ${env}.`);
+      if (el) el.value = '';
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
+  // Append every filled provider field at once — all additive (existing kept).
   async function saveSubfinderKeys() {
     const map = {};
     document.querySelectorAll('input[data-sf-env]').forEach((el) => {
@@ -721,11 +737,11 @@
       if (v) map[el.getAttribute('data-sf-env')] = v;
     });
     if (Object.keys(map).length === 0) {
-      window.showToast('info', 'No change', 'Enter at least one subfinder key to save.');
+      window.showToast('info', 'No change', 'Fill at least one field to add.');
       return;
     }
     try {
-      await postSettings({ subfinder_keys: map }, `${Object.keys(map).length} subfinder key(s) saved.`);
+      await postSettings({ subfinder_keys_append: map }, `${Object.keys(map).length} subfinder key(s) added.`);
     } catch (e) { window.showToast('error', 'Error', e.message); }
   }
 
@@ -810,6 +826,7 @@
     saveShodanKeys,
     clearShodanKeys,
     saveSubfinderKeys,
+    addSubfinderKey,
     SUBFINDER_PROVIDERS,
   };
 })();

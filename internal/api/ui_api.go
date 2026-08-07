@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/apikeys"
 	"github.com/h0tak88r/AutoAR/internal/brain"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/r2storage"
@@ -56,12 +57,13 @@ func apiConfigHandler(c *gin.Context) {
 	// Shodan keys — list (SHODAN_API_KEYS) plus legacy single SHODAN_API_KEY.
 	// Only the count is exposed via the config endpoint, never the keys themselves.
 	shodanKeyCount := len(utils.ParseKeyList(os.Getenv("SHODAN_API_KEYS") + "," + os.Getenv("SHODAN_API_KEY")))
-	subfinderKeysSet := make(map[string]bool, len(subfinderProviderKeys))
+	// Per-provider key counts (DB-first via apikeys) so the UI can show "N keys".
+	subfinderKeyCounts := make(map[string]int, len(subfinderProviderKeys))
 	for _, k := range subfinderProviderKeys {
-		subfinderKeysSet[k] = strings.TrimSpace(os.Getenv(k)) != ""
+		subfinderKeyCounts[k] = len(apikeys.All(k))
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"subfinder_keys_set": subfinderKeysSet,
+		"subfinder_key_counts": subfinderKeyCounts,
 		"version":         version.Version,
 		"r2_enabled":      r2storage.IsEnabled(),
 		"r2_public_url":   os.Getenv("R2_PUBLIC_URL"),
@@ -137,10 +139,13 @@ type UpdateSettingsBody struct {
 	// ShodanKeys is a *string so the dashboard can replace OR clear the whole list
 	// (empty string clears). Accepts comma/newline-separated keys.
 	ShodanKeys *string `json:"shodan_keys,omitempty"`
-	// SubfinderKeys maps a subfinder provider env-var name to its value, e.g.
-	// {"VIRUSTOTAL_API_KEY":"...","CENSYS_API_ID":"..."}. Only names in
-	// subfinderProviderKeySet are accepted; a blank value keeps the current one.
+	// SubfinderKeys REPLACES a provider's whole value (map env-var name -> value).
+	// Only allowlisted names; a blank value keeps the current one.
 	SubfinderKeys map[string]string `json:"subfinder_keys,omitempty"`
+	// SubfinderKeysAppend ADDS key(s) to a provider's existing list without
+	// replacing it (the "+" action). Value may itself be a comma/space list.
+	// Merged and deduplicated against what is already stored.
+	SubfinderKeysAppend map[string]string `json:"subfinder_keys_append,omitempty"`
 	// AI model overrides — empty string keeps the current value, "default" clears the override.
 	OpenRouterModel *string `json:"openrouter_model,omitempty"`
 	OpenCodeModel   *string `json:"opencode_model,omitempty"`
@@ -211,17 +216,21 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 		keys := utils.ParseKeyList(*body.ShodanKeys)
 		saveEnvSetting("SHODAN_API_KEYS", strings.Join(keys, ","))
 	}
-	// Subfinder provider keys — only allowlisted names; a blank value keeps the
-	// current one (matching the "leave blank to keep" convention of the other
-	// fields). Saved to env+DB so subfinder picks them up on its next run.
+	// Subfinder provider keys — only allowlisted names. Replace (whole value) and
+	// append (add to the existing list) are both supported; blank keeps current.
 	for k, v := range body.SubfinderKeys {
-		if !subfinderProviderKeySet[k] {
+		if !subfinderProviderKeySet[k] || strings.TrimSpace(v) == "" {
 			continue
 		}
-		if strings.TrimSpace(v) == "" {
+		saveEnvSetting(k, strings.Join(utils.ParseKeyList(v), ","))
+	}
+	for k, v := range body.SubfinderKeysAppend {
+		if !subfinderProviderKeySet[k] || strings.TrimSpace(v) == "" {
 			continue
 		}
-		saveEnvSetting(k, strings.TrimSpace(v))
+		// Merge the new key(s) into whatever is already stored, deduped.
+		merged := apikeys.Append(k, utils.ParseKeyList(v))
+		saveEnvSetting(k, strings.Join(merged, ","))
 	}
 	if body.HAIncludeNative != nil {
 		v := "false"

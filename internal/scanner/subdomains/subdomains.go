@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/h0tak88r/AutoAR/internal/apikeys"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
@@ -499,40 +500,40 @@ func generateSubfinderConfigFromEnv() (string, error) {
 
 	// Handle special cases first (multi-value providers)
 	// Censys needs both ID and SECRET
-	if censysID := os.Getenv("CENSYS_API_ID"); censysID != "" {
-		if censysSecret := os.Getenv("CENSYS_API_SECRET"); censysSecret != "" {
+	if censysID := apikeys.Get("CENSYS_API_ID"); censysID != "" {
+		if censysSecret := apikeys.Get("CENSYS_API_SECRET"); censysSecret != "" {
 			builder.WriteString(fmt.Sprintf("censys: [\"%s\", \"%s\"]\n", censysID, censysSecret))
 			writtenProviders["censys"] = true
 		}
 	}
 
 	// FOFA needs both EMAIL and KEY
-	if fofaEmail := os.Getenv("FOFA_EMAIL"); fofaEmail != "" {
-		if fofaKey := os.Getenv("FOFA_KEY"); fofaKey != "" {
+	if fofaEmail := apikeys.Get("FOFA_EMAIL"); fofaEmail != "" {
+		if fofaKey := apikeys.Get("FOFA_KEY"); fofaKey != "" {
 			builder.WriteString(fmt.Sprintf("fofa: [\"%s\", \"%s\"]\n", fofaEmail, fofaKey))
 			writtenProviders["fofa"] = true
 		}
 	}
 
 	// Passivetotal needs both USERNAME and API_KEY
-	if ptUsername := os.Getenv("PASSIVETOTAL_USERNAME"); ptUsername != "" {
-		if ptAPIKey := os.Getenv("PASSIVETOTAL_API_KEY"); ptAPIKey != "" {
+	if ptUsername := apikeys.Get("PASSIVETOTAL_USERNAME"); ptUsername != "" {
+		if ptAPIKey := apikeys.Get("PASSIVETOTAL_API_KEY"); ptAPIKey != "" {
 			builder.WriteString(fmt.Sprintf("passivetotal: [\"%s\", \"%s\"]\n", ptUsername, ptAPIKey))
 			writtenProviders["passivetotal"] = true
 		}
 	}
 
 	// Quake needs both USERNAME and PASSWORD
-	if quakeUsername := os.Getenv("QUAKE_USERNAME"); quakeUsername != "" {
-		if quakePassword := os.Getenv("QUAKE_PASSWORD"); quakePassword != "" {
+	if quakeUsername := apikeys.Get("QUAKE_USERNAME"); quakeUsername != "" {
+		if quakePassword := apikeys.Get("QUAKE_PASSWORD"); quakePassword != "" {
 			builder.WriteString(fmt.Sprintf("quake: [\"%s\", \"%s\"]\n", quakeUsername, quakePassword))
 			writtenProviders["quake"] = true
 		}
 	}
 
 	// Zoomeye needs both USERNAME and PASSWORD
-	if zoomeyeUsername := os.Getenv("ZOOMEYE_USERNAME"); zoomeyeUsername != "" {
-		if zoomeyePassword := os.Getenv("ZOOMEYE_PASSWORD"); zoomeyePassword != "" {
+	if zoomeyeUsername := apikeys.Get("ZOOMEYE_USERNAME"); zoomeyeUsername != "" {
+		if zoomeyePassword := apikeys.Get("ZOOMEYE_PASSWORD"); zoomeyePassword != "" {
 			builder.WriteString(fmt.Sprintf("zoomeye: [\"%s\", \"%s\"]\n", zoomeyeUsername, zoomeyePassword))
 			writtenProviders["zoomeye"] = true
 		}
@@ -540,19 +541,10 @@ func generateSubfinderConfigFromEnv() (string, error) {
 
 	// Shodan accepts multiple API keys — SHODAN_API_KEYS (comma/newline-separated
 	// list, settable from the dashboard) plus the legacy single SHODAN_API_KEY.
-	shodanKeys := utils.ParseKeyList(os.Getenv("SHODAN_API_KEYS"))
-	if legacy := strings.TrimSpace(os.Getenv("SHODAN_API_KEY")); legacy != "" {
-		shodanKeys = append(utils.ParseKeyList(legacy), shodanKeys...)
-		// Re-deduplicate after merging the legacy key in front.
-		seen := make(map[string]bool, len(shodanKeys))
-		deduped := shodanKeys[:0]
-		for _, k := range shodanKeys {
-			if !seen[k] {
-				seen[k] = true
-				deduped = append(deduped, k)
-			}
-		}
-		shodanKeys = deduped
+	shodanKeys := apikeys.All("SHODAN_API_KEYS")
+	if legacy := apikeys.Get("SHODAN_API_KEY"); legacy != "" {
+		// Merge the legacy single key in front, then re-parse to dedup.
+		shodanKeys = utils.ParseKeyList(strings.Join(append([]string{legacy}, shodanKeys...), ","))
 	}
 	if len(shodanKeys) > 0 {
 		quoted := make([]string, len(shodanKeys))
@@ -575,11 +567,16 @@ func generateSubfinderConfigFromEnv() (string, error) {
 			continue
 		}
 
-		if value := os.Getenv(envVar); value != "" {
-			if !writtenProviders[providerName] {
-				builder.WriteString(fmt.Sprintf("%s: [\"%s\"]\n", providerName, value))
-				writtenProviders[providerName] = true
+		// apikeys.All is DB-first (Settings) with env fallback and returns every
+		// key configured for this provider — subfinder accepts a list, so all of
+		// them are used, not just the first.
+		if keys := apikeys.All(envVar); len(keys) > 0 && !writtenProviders[providerName] {
+			quoted := make([]string, len(keys))
+			for i, k := range keys {
+				quoted[i] = fmt.Sprintf("%q", k)
 			}
+			builder.WriteString(fmt.Sprintf("%s: [%s]\n", providerName, strings.Join(quoted, ", ")))
+			writtenProviders[providerName] = true
 		}
 	}
 
