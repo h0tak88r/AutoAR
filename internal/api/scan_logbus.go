@@ -48,11 +48,16 @@ func (b *logBus) Logf(scanID, format string, args ...interface{}) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Store for late joiners (capped).
+	// Store for late joiners, capped as a ring buffer keeping the NEWEST lines.
+	// The old code stopped appending at the cap, keeping the oldest N — so a
+	// late-joining UI replaying history on a long scan saw only the beginning and
+	// missed the terminal [VULN]/completed/timed_out lines. Drop-oldest keeps the
+	// end, which is what matters.
 	stored := b.logs[scanID]
-	if len(stored) < logBusMaxLogLines {
-		b.logs[scanID] = append(stored, line)
+	if len(stored) >= logBusMaxLogLines {
+		stored = stored[len(stored)-logBusMaxLogLines+1:]
 	}
+	b.logs[scanID] = append(stored, line)
 
 	// Fan out to all current subscribers.
 	for _, ch := range b.subs[scanID] {
