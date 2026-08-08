@@ -1762,28 +1762,23 @@ func (s *SQLiteDB) UpdateScanProgress(scanID string, progress *ScanProgress) err
 
 // AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
 func (s *SQLiteDB) AppendScanPhase(scanID, phaseName string, failed bool) error {
+	// col is a fixed identifier (never user input), so interpolating it is safe.
 	col := "completed_phases"
 	if failed {
 		col = "failed_phases"
 	}
-	var raw string
-	err := s.db.QueryRow(fmt.Sprintf(`SELECT %s FROM scans WHERE scan_id = ?`, col), scanID).Scan(&raw)
-	if err != nil {
-		return fmt.Errorf("AppendScanPhase read: %v", err)
-	}
-	var phases []string
-	if raw != "" {
-		unmarshalPhaseJSON(raw, &phases)
-	}
-	for _, ph := range phases {
-		if ph == phaseName {
-			return nil
-		}
-	}
-	phases = append(phases, phaseName)
-	data := marshalPhaseJSON(phases)
-	_, err = s.db.Exec(fmt.Sprintf(`UPDATE scans SET %s = ?, last_update = ?, updated_at = datetime('now') WHERE scan_id = ?`, col), data, time.Now(), scanID)
-	if err != nil {
+	// Single atomic statement instead of read-modify-write — see the Postgres twin.
+	// json_insert(..,'$[#]',?) appends to the array; the NOT EXISTS(json_each ..) guard
+	// preserves the old dedup. Already-present phase → WHERE excludes → no-op.
+	sql := fmt.Sprintf(`
+		UPDATE scans
+		SET %s = json_insert(COALESCE(NULLIF(%s, ''), '[]'), '$[#]', ?),
+		    last_update = ?, updated_at = datetime('now')
+		WHERE scan_id = ?
+		  AND NOT EXISTS (
+		      SELECT 1 FROM json_each(COALESCE(NULLIF(%s, ''), '[]')) WHERE value = ?
+		  )`, col, col, col)
+	if _, err := s.db.Exec(sql, phaseName, time.Now(), scanID, phaseName); err != nil {
 		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
 	return nil

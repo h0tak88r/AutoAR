@@ -1810,28 +1810,24 @@ func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) e
 
 // AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
 func (p *PostgresDB) AppendScanPhase(scanID, phaseName string, failed bool) error {
+	// col is a fixed identifier (never user input), so interpolating it is safe.
 	col := "completed_phases"
 	if failed {
 		col = "failed_phases"
 	}
-	// Read current value, append, write back
-	var raw []byte
-	err := p.pool.QueryRow(p.ctx, fmt.Sprintf(`SELECT %s FROM scans WHERE scan_id = $1`, col), scanID).Scan(&raw)
-	if err != nil {
-		return fmt.Errorf("AppendScanPhase read: %v", err)
-	}
-	var phases []string
-	unmarshalPhaseJSON(string(raw), &phases)
-	// Avoid duplicates
-	for _, ph := range phases {
-		if ph == phaseName {
-			return nil
-		}
-	}
-	phases = append(phases, phaseName)
-	data := marshalPhaseJSON(phases)
-	_, err = p.pool.Exec(p.ctx, fmt.Sprintf(`UPDATE scans SET %s = $1, last_update = NOW(), updated_at = NOW() WHERE scan_id = $2`, col), data, scanID)
-	if err != nil {
+	// Single atomic statement instead of read-modify-write: concurrent phases of the
+	// same scan (runParallelPhase launches each in its own goroutine) both used to
+	// SELECT the same array, append locally, and clobber each other's UPDATE — losing
+	// completed-phase entries so IsPhaseCompleted re-ran finished work. The `@>`
+	// containment guard keeps the dedup the old code had; `||` appends. If the phase
+	// is already present the WHERE excludes the row → no-op, no error.
+	sql := fmt.Sprintf(`
+		UPDATE scans
+		SET %s = COALESCE(%s, '[]'::jsonb) || to_jsonb($1::text),
+		    last_update = NOW(), updated_at = NOW()
+		WHERE scan_id = $2
+		  AND NOT (COALESCE(%s, '[]'::jsonb) @> to_jsonb($1::text))`, col, col, col)
+	if _, err := p.pool.Exec(p.ctx, sql, phaseName, scanID); err != nil {
 		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
 	return nil
