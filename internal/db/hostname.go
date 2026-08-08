@@ -34,8 +34,12 @@ func SanitizeHostname(raw string) string {
 		h = h[:i]
 	}
 	h = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), ".")
-	// A real hostname has no whitespace and at least one dot.
-	if h == "" || strings.ContainsAny(h, " \t\r\n") || !strings.Contains(h, ".") {
+	// A real hostname has no whitespace and at least one dot, and fits DNS limits.
+	// The length cap matters beyond validity: the Postgres subdomain column is
+	// VARCHAR(255) and BatchInsertSubdomains runs per-row Exec in one transaction,
+	// so a single over-long value would abort the transaction and roll back the
+	// ENTIRE batch (Postgres poisons the tx on any error), losing every host in it.
+	if h == "" || len(h) > 253 || strings.ContainsAny(h, " \t\r\n") || !strings.Contains(h, ".") {
 		return ""
 	}
 	return h

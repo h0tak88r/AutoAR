@@ -41,7 +41,7 @@ func (s *SQLiteDB) Init() error {
 	}
 
 	// Open database connection
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return fmt.Errorf("failed to open SQLite database: %v", err)
 	}
@@ -1980,7 +1980,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
 			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
-		WHERE status IN ('completed', 'failed', 'cancelled')
+		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
 		LIMIT ?;
 	`, limit)

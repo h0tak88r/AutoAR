@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -522,8 +523,18 @@ func (p *PostgresDB) InitSchema() error {
 	// SQL twin of SubdomainStatus.BestURL, so raw queries and external tooling see
 	// URLs without the storage ever holding one. CREATE OR REPLACE keeps it in
 	// sync if the formula changes.
+	// DROP+CREATE rather than CREATE OR REPLACE: the view selects s.*, and
+	// CREATE OR REPLACE VIEW cannot reorder existing columns. The next time a
+	// column is added to subdomains (via the idempotent ALTER pattern used
+	// elsewhere), s.* would shift `host`'s position and CREATE OR REPLACE would
+	// fail with "cannot change name of view column" — breaking InitSchema and
+	// the whole boot. Dropping first sidesteps that; the view is a leaf nothing
+	// depends on, so a plain DROP (no CASCADE) is safe.
+	if _, err = p.pool.Exec(p.ctx, `DROP VIEW IF EXISTS subdomain_hosts`); err != nil {
+		return fmt.Errorf("failed to drop subdomain_hosts view: %v", err)
+	}
 	_, err = p.pool.Exec(p.ctx, `
-		CREATE OR REPLACE VIEW subdomain_hosts AS
+		CREATE VIEW subdomain_hosts AS
 		SELECT s.*,
 		       COALESCE(NULLIF(s.https_url, ''), NULLIF(s.http_url, ''), 'https://' || s.subdomain) AS host
 		FROM subdomains s`)
@@ -2013,7 +2024,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
 			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
-		WHERE status IN ('completed', 'failed', 'cancelled')
+		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
 		LIMIT $1;
 	`, limit)
@@ -2236,11 +2247,14 @@ func (p *PostgresDB) GetSetting(key string) (string, error) {
 	var value string
 	err := p.pool.QueryRow(p.ctx, `SELECT value FROM settings WHERE key = $1 LIMIT 1`, key).Scan(&value)
 	if err != nil {
-		if err.Error() == "no rows in result set" || err.Error() == "context canceled" {
-			return "", nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil // genuinely absent — not an error
 		}
-		// pgx.ErrNoRows check by string (avoids import cycle)
-		return "", nil
+		// A real failure (pool exhausted, query error, cancellation) must NOT be
+		// masked as "" — that made a transient blip indistinguishable from "setting
+		// absent", so a configured API key (settings now back the provider keys)
+		// would read as unset instead of surfacing the failure.
+		return "", fmt.Errorf("GetSetting %q: %w", key, err)
 	}
 	return value, nil
 }
