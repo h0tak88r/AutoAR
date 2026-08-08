@@ -147,6 +147,12 @@ func checkAllRunningTargets() {
 				monitorInFlightMu.Lock()
 				delete(monitorInFlight, t.ID)
 				monitorInFlightMu.Unlock()
+				// The daemon shares the process with the gin API. A panic in checkTarget
+				// (a future nil-deref in a DB or format path) would otherwise unwind past
+				// this cleanup and crash the whole server. Contain it here.
+				if r := recover(); r != nil {
+					logger.GetLogger().Infof("[ERROR] Hunter monitor %s: recovered panic: %v", t.Username, r)
+				}
 			}()
 			checkTarget(t)
 		}(target)
@@ -246,6 +252,16 @@ func checkTarget(t db.HunterMonitorTarget) {
 	}
 	logger.GetLogger().Infof("[INFO] Hunter monitor %s: %d hacktivity entries via %s", t.Username, len(reports), source)
 
+	// previousLastRun gates which unseen reports count as "new": only activity
+	// after the last successful check. Reports with older activity are historical
+	// — e.g. months of a hunter's private-program reports that become visible only
+	// after an H1 token is added in Settings — and must be recorded silently, not
+	// alerted, or a source/account change floods Discord with old reports.
+	var previousLastRun time.Time
+	if t.LastRunAt != nil {
+		previousLastRun = *t.LastRunAt
+	}
+
 	var newResolved []ResolvedReport
 	for _, r := range reports {
 		if !r.IsResolved() {
@@ -259,15 +275,22 @@ func checkTarget(t db.HunterMonitorTarget) {
 		if seen {
 			continue
 		}
-		if !isBaseline {
-			newResolved = append(newResolved, r)
-		}
 		resolvedAt, parseErr := time.Parse(time.RFC3339Nano, r.ActivityAt)
+		storedAt := resolvedAt
 		if parseErr != nil {
-			resolvedAt = time.Now()
+			storedAt = time.Now() // for the seen-record only; we won't alert on it
 		}
-		if err := db.RecordSeenHunterReport(t.ID, r.ID, r.ProgramHandle, r.ProgramName, resolvedAt); err != nil {
-			logger.GetLogger().Infof("[WARN] Failed to record seen report for %s/%s: %v", t.Username, r.ID, err)
+		// Record as seen BEFORE deciding to alert. If the write fails, skip the alert
+		// this cycle rather than alerting on a report we couldn't persist — otherwise
+		// it stays unseen and re-alerts every interval forever.
+		if err := db.RecordSeenHunterReport(t.ID, r.ID, r.ProgramHandle, r.ProgramName, storedAt); err != nil {
+			logger.GetLogger().Infof("[WARN] Failed to record seen report for %s/%s (skipping alert this cycle): %v", t.Username, r.ID, err)
+			continue
+		}
+		// Alert only off the baseline, for a parseable activity time newer than the
+		// last check. Historical or unparseable entries are recorded but not alerted.
+		if !isBaseline && parseErr == nil && resolvedAt.After(previousLastRun) {
+			newResolved = append(newResolved, r)
 		}
 	}
 
