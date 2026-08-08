@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/apikeys"
 	"github.com/h0tak88r/AutoAR/internal/db"
@@ -163,6 +164,13 @@ func EnumerateFresh(domain string, threads int) ([]string, error) {
 	return results, nil
 }
 
+// passiveSourceClient bounds every passive-source HTTP call with a timeout.
+// Without one, a stalled TCP read (crt.sh is prone to this under load) makes
+// getSubdomainsFromAPIs' wg.Wait() block forever — wedging a pipeline enumeration
+// worker slot and leaking the socket/goroutine, since Go cannot interrupt an
+// in-flight blocking read.
+var passiveSourceClient = &http.Client{Timeout: 30 * time.Second}
+
 // getSubdomainsFromAPIs collects subdomains from multiple passive DNS and CT sources in parallel
 func getSubdomainsFromAPIs(domain string) []string {
 	var results []string
@@ -182,7 +190,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, err := http.Get(fmt.Sprintf("https://api.hackertarget.com/hostsearch/?q=%s", domain))
+		resp, err := passiveSourceClient.Get(fmt.Sprintf("https://api.hackertarget.com/hostsearch/?q=%s", domain))
 		if err != nil {
 			return
 		}
@@ -196,7 +204,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, err := http.Get(fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain))
+		resp, err := passiveSourceClient.Get(fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain))
 		if err != nil {
 			return
 		}
@@ -228,8 +236,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 		if apiKey := os.Getenv("URLSCAN_API_KEY"); apiKey != "" {
 			req.Header.Set("API-Key", apiKey)
 		}
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -273,8 +280,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 		if apiKey := os.Getenv("CERTSPOTTER_API_KEY"); apiKey != "" {
 			req.Header.Set("Authorization", "Bearer "+apiKey)
 		}
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -307,8 +313,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 		if apiKey := os.Getenv("OTX_API_KEY"); apiKey != "" {
 			req.Header.Set("X-OTX-API-KEY", apiKey)
 		}
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -341,8 +346,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -362,8 +366,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
