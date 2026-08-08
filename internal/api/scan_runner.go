@@ -197,34 +197,54 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	}()
 
 	var err error
+	// fnDone tracks whether the work goroutine actually returned. On a deadline or
+	// cancel it may still be running (a one-shot library call that ignores the
+	// context); the concurrency slot must NOT be freed until it truly exits, or a
+	// runaway keeps consuming CPU/memory while a new scan starts on top of it —
+	// enough of those and live goroutines exceed the cap and OOM the container.
+	fnDone := true
+	timedOut := false
 	select {
 	case err = <-done:
 		// fn finished normally (or with an error)
 	case <-ctx.Done():
-		// Either CancelScanByID was called or the budget expired — wait briefly
-		// for fn to acknowledge, then proceed.
+		// Either CancelScanByID was called or the budget expired.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			timedOut = true
+			// Fire the cooperative-cancel signal so modules that poll
+			// utils.IsScanCancelled (multi-phase scans, between phases) stop at the
+			// deadline instead of running the full remaining workflow. The scan is
+			// kept in ActiveScans until fn exits (below) so this signal stays live.
+			ScansMutex.Lock()
+			if si := ActiveScans[scanID]; si != nil {
+				si.CancelRequested = true
+			}
+			ScansMutex.Unlock()
+		}
+		// Wait briefly for fn to acknowledge.
 		select {
 		case err = <-done:
 		case <-time.After(5 * time.Second):
-			// fn didn't return in time; treat as stopped anyway
+			fnDone = false // still running; the slot is held until it exits (end of func)
 		}
-		// Distinguish the two: a deadline is the runner killing its own job, not
-		// the operator stopping it. Reporting a timeout as "cancelled by user"
-		// sends you looking for a person who never touched it.
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if timedOut {
 			err = fmt.Errorf("%w after %s", ErrScanTimedOut, maxDur)
 		} else {
 			err = ErrScanCancelled
 		}
 	}
 
-	// Also honour the CancelRequested flag (set by CancelScanByID before calling cancelCtx).
-	ScansMutex.RLock()
-	si, ok := ActiveScans[scanID]
-	if ok && si != nil && si.CancelRequested {
-		err = ErrScanCancelled
+	// Honour an explicit user cancel (CancelScanByID). Skip when WE timed out — the
+	// CancelRequested flag the deadline path set for the cooperative stop must not
+	// relabel a timeout as "cancelled by user".
+	if !timedOut {
+		ScansMutex.RLock()
+		si, ok := ActiveScans[scanID]
+		if ok && si != nil && si.CancelRequested {
+			err = ErrScanCancelled
+		}
+		ScansMutex.RUnlock()
 	}
-	ScansMutex.RUnlock()
 
 	completedAt := time.Now()
 	status := "completed"
@@ -280,9 +300,14 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		})
 	}
 
-	ScansMutex.Lock()
-	delete(ActiveScans, scanID)
-	ScansMutex.Unlock()
+	// Drop the ActiveScans entry now only if fn actually returned. If it is still
+	// running (timed out / cancelled but uninterruptible), KEEP the entry so
+	// IsScanCancelled keeps signalling a stop, and retire it after fn exits (below).
+	if fnDone {
+		ScansMutex.Lock()
+		delete(ActiveScans, scanID)
+		ScansMutex.Unlock()
+	}
 
 	apiScansMutex.Lock()
 	sr := &ScanResult{
@@ -319,4 +344,22 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 			globalLogBus.Close(scanID)
 		}
 	}()
+
+	// If fn is still running (it ignored the deadline/cancel), keep holding the
+	// concurrency slot — the deferred `<-scanSemaphore` fires only when this function
+	// returns — until fn actually exits, so live goroutines never exceed the cap.
+	// Bounded by a second budget: if it somehow never winds down (should not happen
+	// once network calls all have timeouts), release the slot and log rather than
+	// lose it permanently. Then retire the ActiveScans entry kept for the stop signal.
+	if !fnDone {
+		select {
+		case <-done: // fn returned or panicked (done is buffered, one send guaranteed)
+		case <-time.After(maxDur):
+			log.Printf("[runner] CRITICAL: scan %s (%s) still running %s past its %s deadline — releasing the slot; goroutine leaked",
+				scanID, scanType, maxDur, maxDur)
+		}
+		ScansMutex.Lock()
+		delete(ActiveScans, scanID)
+		ScansMutex.Unlock()
+	}
 }
