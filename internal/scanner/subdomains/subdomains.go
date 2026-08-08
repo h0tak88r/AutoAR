@@ -505,7 +505,7 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	// Censys needs both ID and SECRET
 	if censysID := apikeys.Get("CENSYS_API_ID"); censysID != "" {
 		if censysSecret := apikeys.Get("CENSYS_API_SECRET"); censysSecret != "" {
-			builder.WriteString(fmt.Sprintf("censys: [\"%s\", \"%s\"]\n", censysID, censysSecret))
+			builder.WriteString(fmt.Sprintf("censys: [%q, %q]\n", censysID, censysSecret))
 			writtenProviders["censys"] = true
 		}
 	}
@@ -513,7 +513,7 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	// FOFA needs both EMAIL and KEY
 	if fofaEmail := apikeys.Get("FOFA_EMAIL"); fofaEmail != "" {
 		if fofaKey := apikeys.Get("FOFA_KEY"); fofaKey != "" {
-			builder.WriteString(fmt.Sprintf("fofa: [\"%s\", \"%s\"]\n", fofaEmail, fofaKey))
+			builder.WriteString(fmt.Sprintf("fofa: [%q, %q]\n", fofaEmail, fofaKey))
 			writtenProviders["fofa"] = true
 		}
 	}
@@ -521,7 +521,7 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	// Passivetotal needs both USERNAME and API_KEY
 	if ptUsername := apikeys.Get("PASSIVETOTAL_USERNAME"); ptUsername != "" {
 		if ptAPIKey := apikeys.Get("PASSIVETOTAL_API_KEY"); ptAPIKey != "" {
-			builder.WriteString(fmt.Sprintf("passivetotal: [\"%s\", \"%s\"]\n", ptUsername, ptAPIKey))
+			builder.WriteString(fmt.Sprintf("passivetotal: [%q, %q]\n", ptUsername, ptAPIKey))
 			writtenProviders["passivetotal"] = true
 		}
 	}
@@ -529,7 +529,7 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	// Quake needs both USERNAME and PASSWORD
 	if quakeUsername := apikeys.Get("QUAKE_USERNAME"); quakeUsername != "" {
 		if quakePassword := apikeys.Get("QUAKE_PASSWORD"); quakePassword != "" {
-			builder.WriteString(fmt.Sprintf("quake: [\"%s\", \"%s\"]\n", quakeUsername, quakePassword))
+			builder.WriteString(fmt.Sprintf("quake: [%q, %q]\n", quakeUsername, quakePassword))
 			writtenProviders["quake"] = true
 		}
 	}
@@ -537,7 +537,7 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	// Zoomeye needs both USERNAME and PASSWORD
 	if zoomeyeUsername := apikeys.Get("ZOOMEYE_USERNAME"); zoomeyeUsername != "" {
 		if zoomeyePassword := apikeys.Get("ZOOMEYE_PASSWORD"); zoomeyePassword != "" {
-			builder.WriteString(fmt.Sprintf("zoomeye: [\"%s\", \"%s\"]\n", zoomeyeUsername, zoomeyePassword))
+			builder.WriteString(fmt.Sprintf("zoomeye: [%q, %q]\n", zoomeyeUsername, zoomeyePassword))
 			writtenProviders["zoomeye"] = true
 		}
 	}
