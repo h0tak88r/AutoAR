@@ -3,6 +3,7 @@ package api
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
@@ -92,6 +93,43 @@ func saveEnvSetting(key, value string) {
 		if err := db.SetSetting(key, value); err != nil {
 			log.Printf("[settings] failed to persist %s to DB: %v", key, err)
 		}
+	}
+}
+
+// SeedDBFromEnv makes the container env vars optional. For each persisted setting
+// that is present in the container env but has NEVER been written to the DB, it
+// copies the env value into the DB once. After this runs, the DB is the durable
+// source of truth (HydrateEnvFromDB then loads it back), so the value can be
+// removed from the deployment's env (e.g. Dokploy) without losing it on the next
+// redeploy — the same "env is only a seed" model the accounts manager already
+// uses. This is what lets MONITOR_WEBHOOK_URL and the provider keys move out of
+// the required-env set.
+//
+// Idempotent and non-destructive: a key already in the DB — INCLUDING one
+// deliberately cleared to empty in the UI — is never overwritten from the env, so
+// re-seeding can't resurrect a value the user removed. Call it at boot BEFORE
+// HydrateEnvFromDB.
+func SeedDBFromEnv() {
+	all, err := db.GetAllSettings()
+	if err != nil {
+		log.Printf("[settings] seed DB from env failed: %v", err)
+		return
+	}
+	n := 0
+	for _, k := range persistedEnvKeys {
+		if _, ok := all[k]; ok {
+			continue // DB is already authoritative for this key (empty counts)
+		}
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			if err := db.SetSetting(k, v); err != nil {
+				log.Printf("[settings] seed %s from env failed: %v", k, err)
+				continue
+			}
+			n++
+		}
+	}
+	if n > 0 {
+		log.Printf("[settings] seeded %d setting(s) from env into DB — those env vars are now optional", n)
 	}
 }
 

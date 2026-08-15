@@ -295,7 +295,7 @@
             <div class="settings-item">
               <div class="settings-label">
                 <div class="settings-title">Monitor Webhook</div>
-                <div class="settings-hint">Where monitor change alerts are sent. Discord webhook URLs work out of the box.</div>
+                <div class="settings-hint">Where monitor change alerts are sent. Discord webhook URLs work out of the box. Stored in the database and survives redeploys — no <code>MONITOR_WEBHOOK_URL</code> env var required. ${cfg.monitor_webhook_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
               </div>
               <div class="settings-control">
                 <input type="text" id="monitor-webhook-input" value="" placeholder="${cfg.monitor_webhook_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
@@ -356,7 +356,16 @@
       host.innerHTML = `<div style="color:var(--accent-amber);font-size:13px;">Failed to load accounts: ${escValue(e.message || String(e))}</div>`;
       return;
     }
+    // Cache for in-place re-render (e.g. entering/leaving edit mode) without refetch.
+    window.state._accounts = accts;
     renderSettingsAccounts(host, accts);
+  }
+
+  // Re-render the accounts manager from the cached list (used when toggling a row
+  // into/out of edit mode, so we don't refetch or lose cached test statuses).
+  function rerenderAccounts() {
+    const host = document.getElementById('settings-accounts-manager');
+    if (host) renderSettingsAccounts(host, window.state._accounts || []);
   }
 
   // Status-tag presentation for a credential-validity state.
@@ -381,6 +390,7 @@
       const list = byPlatform[p.id] || [];
       const rows = list.length
         ? list.map((a) => {
+            if (window.state._editingAcct === a.id) return renderAccountEditForm(p, a);
             const st = statuses[a.id];
             const m = acctStatusMeta(st ? st.status : 'untested');
             return `
@@ -390,6 +400,7 @@
               <div class="acct-sub">${a.username ? escValue(a.username) + ' · ' : ''}${a.token_set ? 'token ' + escValue(a.token_mask || '••••') : 'no token'}</div>
             </div>
             <span class="acct-status ${m.cls}" data-acct="${a.id}" title="${escValue(st ? st.detail : 'Not yet tested')}">${m.label}</span>
+            <button class="acct-edit" onclick="window.SettingsPage.editAccount(${a.id})" title="Edit this account">Edit</button>
             <button class="acct-test" onclick="window.SettingsPage.checkAccount(${a.id})" title="Test this credential">Test</button>
             <button class="acct-toggle ${a.enabled ? 'on' : 'off'}" onclick="window.SettingsPage.toggleAccount(${a.id}, ${a.enabled ? 'false' : 'true'})">${a.enabled ? 'On' : 'Off'}</button>
             <button class="acct-del" title="Delete" onclick="window.SettingsPage.deleteAccount(${a.id})">✕</button>
@@ -467,6 +478,64 @@
       await loadSettingsAccounts();
     } catch (e) {
       window.showToast('error', 'Add failed', e.message);
+    }
+  }
+
+  // Inline edit form for one stored account. The label is the account's identity
+  // (accounts are keyed by platform+label on the server), so it's read-only here —
+  // rename by delete + re-add. Secret fields render empty with a "keep current"
+  // hint: the server preserves a stored secret when the field is submitted blank,
+  // so editing a username/email never wipes the token.
+  function renderAccountEditForm(p, a) {
+    const inputs = p.fields.map((f) => {
+      const isSecret = f === 'password' || f === 'token' || f === 'totp_secret';
+      const setFlag = f === 'token' ? a.token_set : f === 'password' ? a.password_set : f === 'totp_secret' ? a.totp_set : false;
+      const baseLabel = ACCT_FIELD_LABELS[f] || (f.charAt(0).toUpperCase() + f.slice(1));
+      const ph = isSecret ? (setFlag ? 'Leave blank to keep current' : baseLabel) : baseLabel;
+      const val = isSecret ? '' : escValue(a[f] || '');
+      return `<input id="acct-edit-${a.id}-${f}" type="${isSecret ? 'password' : 'text'}" value="${val}" placeholder="${ph}" class="form-control premium-input acct-input">`;
+    }).join('');
+    return `
+      <div class="acct-row">
+        <div class="acct-edit-form">
+          <input type="text" value="${escValue(a.label)}" readonly title="Label is the account's identity — delete & re-add to rename" class="form-control premium-input acct-input acct-input-readonly">
+          ${inputs}
+          <button class="btn btn-primary acct-add-btn" onclick="window.SettingsPage.saveEditAccount(${a.id})">Save</button>
+          <button class="acct-test" onclick="window.SettingsPage.cancelEditAccount()">Cancel</button>
+        </div>
+      </div>`;
+  }
+
+  function editAccount(id) {
+    window.state._editingAcct = id;
+    rerenderAccounts();
+  }
+
+  function cancelEditAccount() {
+    window.state._editingAcct = null;
+    rerenderAccounts();
+  }
+
+  async function saveEditAccount(id) {
+    const a = (window.state._accounts || []).find((x) => x.id === id);
+    if (!a) { window.state._editingAcct = null; rerenderAccounts(); return; }
+    const p = ACCT_PLATFORMS.find((x) => x.id === a.platform);
+    if (!p) return;
+    // Keep the label (identity); submit updated fields. Blank secrets are preserved
+    // server-side, so only non-empty values overwrite what's stored.
+    const body = { platform: a.platform, label: a.label, enabled: a.enabled };
+    for (const f of p.fields) {
+      body[f] = (document.getElementById(`acct-edit-${id}-${f}`)?.value || '').trim();
+    }
+    try {
+      await window.apiPost('/api/accounts', body);
+      window.state._editingAcct = null;
+      window.showToast('success', 'Account updated', `${a.label} saved.`);
+      // Drop the cached test status so the edited credential re-tests on reload.
+      if (window.state._acctStatus) delete window.state._acctStatus[id];
+      await loadSettingsAccounts();
+    } catch (e) {
+      window.showToast('error', 'Update failed', e.message);
     }
   }
 
@@ -831,6 +900,9 @@
     settingsTab,
     loadSettingsAccounts,
     addAccount,
+    editAccount,
+    cancelEditAccount,
+    saveEditAccount,
     toggleAccount,
     deleteAccount,
     checkAccount,

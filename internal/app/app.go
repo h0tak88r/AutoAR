@@ -70,6 +70,11 @@ func StartAPI() error {
 	// over the container env for these keys; keys never saved via the UI are left
 	// as the container env provides them.
 	if os.Getenv("DB_HOST") != "" {
+		// Copy any persisted setting (webhook, provider keys, ...) that lives only in
+		// the container env into the DB once, so it survives a redeploy and the env
+		// var can be dropped from the deployment. Runs BEFORE HydrateEnvFromDB so the
+		// just-seeded values are loaded back into the process env in the same boot.
+		api.SeedDBFromEnv()
 		api.HydrateEnvFromDB()
 		// Import the legacy single-account env credentials into the DB accounts
 		// table (one-shot) so the Settings accounts manager is the single source of
