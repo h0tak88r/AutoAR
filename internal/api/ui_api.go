@@ -649,7 +649,9 @@ func apiRetryCnames(c *gin.Context) {
 					cnamesStr := strings.Join(results.CNAME, ",")
 
 					// Update DB if we actually found something
-					_ = db.UpdateSubdomainCNAME(sub.Domain, sub.Subdomain, cnamesStr)
+					if err := db.UpdateSubdomainCNAME(sub.Domain, sub.Subdomain, cnamesStr); err != nil {
+						log.Printf("[ERROR] failed to persist CNAME for %s (column will be stale): %v", sub.Subdomain, err)
+					}
 
 					// Check match string
 					if matchStr != "" && strings.Contains(strings.ToLower(cnamesStr), matchStr) {

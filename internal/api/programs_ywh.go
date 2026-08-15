@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -77,7 +78,9 @@ func isYWHUnauthorized(err error) bool {
 // fetches reuse it instead of logging in again.
 func ywhPersistToken(a accounts.Account, jwt string) {
 	if a.ID > 0 && jwt != "" {
-		_ = db.UpdateBBPAccountToken(a.ID, jwt)
+		if err := db.UpdateBBPAccountToken(a.ID, jwt); err != nil {
+			log.Printf("[ERROR] failed to cache YWH token for account %d (will re-auth next cycle): %v", a.ID, err)
+		}
 	}
 }
 
