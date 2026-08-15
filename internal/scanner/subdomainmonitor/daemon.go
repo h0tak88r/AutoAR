@@ -50,6 +50,7 @@ func StartDaemon() error {
 	daemonWg.Add(1)
 	go func() {
 		defer daemonWg.Done()
+		defer utils.RecoverPanic("subdomain-monitor:loop")
 		runDaemonLoop()
 	}()
 
@@ -140,6 +141,7 @@ func checkAllRunningTargets() {
 		monitorInFlightMu.Unlock()
 
 		go func(t db.SubdomainMonitorTarget) {
+			defer utils.RecoverPanic("subdomain-monitor:check:" + t.Domain)
 			defer func() {
 				monitorInFlightMu.Lock()
 				delete(monitorInFlight, t.ID)

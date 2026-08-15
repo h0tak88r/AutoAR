@@ -59,6 +59,7 @@ func StartDaemon() error {
 	daemonWg.Add(1)
 	go func() {
 		defer daemonWg.Done()
+		defer utils.RecoverPanic("hunter-monitor:loop")
 		runDaemonLoop()
 	}()
 
@@ -143,16 +144,15 @@ func checkAllRunningTargets() {
 		monitorInFlightMu.Unlock()
 
 		go func(t db.HunterMonitorTarget) {
+			// The daemon shares the process with the gin API. A panic in checkTarget
+			// (a future nil-deref in a DB or format path) would otherwise unwind past
+			// this cleanup and crash the whole server. RecoverPanic (declared first,
+			// so it runs last) contains it after the in-flight cleanup below.
+			defer utils.RecoverPanic("hunter-monitor:check:" + t.Username)
 			defer func() {
 				monitorInFlightMu.Lock()
 				delete(monitorInFlight, t.ID)
 				monitorInFlightMu.Unlock()
-				// The daemon shares the process with the gin API. A panic in checkTarget
-				// (a future nil-deref in a DB or format path) would otherwise unwind past
-				// this cleanup and crash the whole server. Contain it here.
-				if r := recover(); r != nil {
-					logger.GetLogger().Infof("[ERROR] Hunter monitor %s: recovered panic: %v", t.Username, r)
-				}
 			}()
 			checkTarget(t)
 		}(target)

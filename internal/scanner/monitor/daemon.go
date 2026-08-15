@@ -39,6 +39,7 @@ func StartURLMonitorDaemon() {
 	urlDaemonWg.Add(1)
 	go func() {
 		defer urlDaemonWg.Done()
+		defer utils.RecoverPanic("url-monitor:loop")
 		defer func() {
 			urlDaemonMu.Lock()
 			urlDaemonRunning = false
@@ -98,6 +99,7 @@ func checkAllURLTargets() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer utils.RecoverPanic("url-monitor:check:" + t.URL)
 			checkTarget(client, t)
 		}()
 	}

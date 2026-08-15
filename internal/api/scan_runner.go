@@ -96,10 +96,16 @@ const orphanGracePeriod = 15 * time.Minute
 // (and past the grace period) has no worker and never will.
 func StartOrphanedScanReaper() {
 	go func() {
+		defer utils.RecoverPanic("scan-reaper")
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			reapOrphanedScans()
+			// Per-tick barrier: a panic in one reap sweep must not kill the reaper
+			// for the life of the process, or orphaned scans would pile up silently.
+			func() {
+				defer utils.RecoverPanic("scan-reaper:tick")
+				reapOrphanedScans()
+			}()
 		}
 	}()
 }
@@ -339,10 +345,9 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 
 	// Give SSE clients a moment to drain, then close the bus for this scan.
 	go func() {
-		select {
-		case <-time.After(5 * time.Second):
-			globalLogBus.Close(scanID)
-		}
+		defer utils.RecoverPanic("scan-logbus-close")
+		<-time.After(5 * time.Second)
+		globalLogBus.Close(scanID)
 	}()
 
 	// If fn is still running (it ignored the deadline/cancel), keep holding the
