@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -375,7 +376,7 @@ func (p *PostgresDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_domain ON monitor_changes(domain);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
-	
+
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
 		id SERIAL PRIMARY KEY,
@@ -490,6 +491,30 @@ func (p *PostgresDB) InitSchema() error {
 		return fmt.Errorf("failed to create schema: %v", err)
 	}
 
+	// subdomain_hosts presents each subdomain as a probed URL (https://host) while
+	// the base table keeps the bare hostname as its unique dedup key. This is the
+	// SQL twin of SubdomainStatus.BestURL, so raw queries and external tooling see
+	// URLs without the storage ever holding one. CREATE OR REPLACE keeps it in
+	// sync if the formula changes.
+	// DROP+CREATE rather than CREATE OR REPLACE: the view selects s.*, and
+	// CREATE OR REPLACE VIEW cannot reorder existing columns. The next time a
+	// column is added to subdomains (via the idempotent ALTER pattern used
+	// elsewhere), s.* would shift `host`'s position and CREATE OR REPLACE would
+	// fail with "cannot change name of view column" — breaking InitSchema and
+	// the whole boot. Dropping first sidesteps that; the view is a leaf nothing
+	// depends on, so a plain DROP (no CASCADE) is safe.
+	if _, err = p.pool.Exec(p.ctx, `DROP VIEW IF EXISTS subdomain_hosts`); err != nil {
+		return fmt.Errorf("failed to drop subdomain_hosts view: %v", err)
+	}
+	_, err = p.pool.Exec(p.ctx, `
+		CREATE VIEW subdomain_hosts AS
+		SELECT s.*,
+		       COALESCE(NULLIF(s.https_url, ''), NULLIF(s.http_url, ''), 'https://' || s.subdomain) AS host
+		FROM subdomains s`)
+	if err != nil {
+		return fmt.Errorf("failed to create subdomain_hosts view: %v", err)
+	}
+
 	// Migrate legacy DBs: CREATE TABLE IF NOT EXISTS does not add new columns to existing scans tables.
 	_, err = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS result_url TEXT`)
 	if err != nil {
@@ -592,7 +617,7 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 
 	count := 0
 	for _, subdomain := range subdomains {
-		subdomain = strings.TrimSpace(subdomain)
+		subdomain = SanitizeHostname(subdomain)
 		if subdomain == "" {
 			continue
 		}
@@ -615,6 +640,9 @@ func (p *PostgresDB) BatchInsertSubdomains(domain string, subdomains []string, i
 
 // InsertSubdomain inserts or updates a single subdomain
 func (p *PostgresDB) InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL string, httpStatus, httpsStatus int) error {
+	if subdomain = SanitizeHostname(subdomain); subdomain == "" {
+		return nil
+	}
 	domainID, err := p.InsertOrGetDomain(domain)
 	if err != nil {
 		return fmt.Errorf("failed to get domain ID: %v", err)
@@ -1679,28 +1707,24 @@ func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) e
 
 // AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
 func (p *PostgresDB) AppendScanPhase(scanID, phaseName string, failed bool) error {
+	// col is a fixed identifier (never user input), so interpolating it is safe.
 	col := "completed_phases"
 	if failed {
 		col = "failed_phases"
 	}
-	// Read current value, append, write back
-	var raw []byte
-	err := p.pool.QueryRow(p.ctx, fmt.Sprintf(`SELECT %s FROM scans WHERE scan_id = $1`, col), scanID).Scan(&raw)
-	if err != nil {
-		return fmt.Errorf("AppendScanPhase read: %v", err)
-	}
-	var phases []string
-	unmarshalPhaseJSON(string(raw), &phases)
-	// Avoid duplicates
-	for _, ph := range phases {
-		if ph == phaseName {
-			return nil
-		}
-	}
-	phases = append(phases, phaseName)
-	data := marshalPhaseJSON(phases)
-	_, err = p.pool.Exec(p.ctx, fmt.Sprintf(`UPDATE scans SET %s = $1, last_update = NOW(), updated_at = NOW() WHERE scan_id = $2`, col), data, scanID)
-	if err != nil {
+	// Single atomic statement instead of read-modify-write: concurrent phases of the
+	// same scan (runParallelPhase launches each in its own goroutine) both used to
+	// SELECT the same array, append locally, and clobber each other's UPDATE — losing
+	// completed-phase entries so IsPhaseCompleted re-ran finished work. The `@>`
+	// containment guard keeps the dedup the old code had; `||` appends. If the phase
+	// is already present the WHERE excludes the row → no-op, no error.
+	sql := fmt.Sprintf(`
+		UPDATE scans
+		SET %s = COALESCE(%s, '[]'::jsonb) || to_jsonb($1::text),
+		    last_update = NOW(), updated_at = NOW()
+		WHERE scan_id = $2
+		  AND NOT (COALESCE(%s, '[]'::jsonb) @> to_jsonb($1::text))`, col, col, col)
+	if _, err := p.pool.Exec(p.ctx, sql, phaseName, scanID); err != nil {
 		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
 	return nil
@@ -1747,7 +1771,7 @@ func (p *PostgresDB) UpdateScanStatus(scanID string, status string) error {
 	now := time.Now()
 	var err error
 	
-	if status == "completed" || status == "failed" || status == "cancelled" {
+	if status == "completed" || status == "failed" || status == "cancelled" || status == "timed_out" {
 		_, err = p.pool.Exec(p.ctx, `
 			UPDATE scans SET
 				status = $1,
@@ -1886,7 +1910,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
 			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
-		WHERE status IN ('completed', 'failed', 'cancelled')
+		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
 		LIMIT $1;
 	`, limit)
@@ -2109,11 +2133,14 @@ func (p *PostgresDB) GetSetting(key string) (string, error) {
 	var value string
 	err := p.pool.QueryRow(p.ctx, `SELECT value FROM settings WHERE key = $1 LIMIT 1`, key).Scan(&value)
 	if err != nil {
-		if err.Error() == "no rows in result set" || err.Error() == "context canceled" {
-			return "", nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil // genuinely absent — not an error
 		}
-		// pgx.ErrNoRows check by string (avoids import cycle)
-		return "", nil
+		// A real failure (pool exhausted, query error, cancellation) must NOT be
+		// masked as "" — that made a transient blip indistinguishable from "setting
+		// absent", so a configured API key (settings now back the provider keys)
+		// would read as unset instead of surfacing the failure.
+		return "", fmt.Errorf("GetSetting %q: %w", key, err)
 	}
 	return value, nil
 }

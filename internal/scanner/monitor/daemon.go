@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -39,6 +39,7 @@ func StartURLMonitorDaemon() {
 	urlDaemonWg.Add(1)
 	go func() {
 		defer urlDaemonWg.Done()
+		defer utils.RecoverPanic("url-monitor:loop")
 		defer func() {
 			urlDaemonMu.Lock()
 			urlDaemonRunning = false
@@ -98,6 +99,7 @@ func checkAllURLTargets() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer utils.RecoverPanic("url-monitor:check:" + t.URL)
 			checkTarget(client, t)
 		}()
 	}
@@ -139,12 +141,12 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 	// First run — just store the baseline hash, no alert
 	if t.LastHash == "" {
 		logger.GetLogger().Infof("[URL-MONITOR] First check for %s — storing baseline hash", t.URL)
-		_ = db.UpdateMonitorTargetLastRun(t.ID, currentHash, false)
+		advanceBaseline(t, currentHash, false)
 		return
 	}
 
 	if currentHash == t.LastHash {
-		_ = db.UpdateMonitorTargetLastRun(t.ID, currentHash, false)
+		advanceBaseline(t, currentHash, false)
 		return
 	}
 
@@ -156,7 +158,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 		"old_hash": t.LastHash,
 		"new_hash": currentHash,
 	})
-	_ = db.InsertMonitorChange(&db.MonitorChange{
+	recordChange(&db.MonitorChange{
 		TargetType: "url",
 		TargetID:   t.ID,
 		Domain:     t.URL,
@@ -164,7 +166,7 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 		Detail:     string(detail),
 		Notified:   true,
 	})
-	_ = db.UpdateMonitorTargetLastRun(t.ID, currentHash, true)
+	advanceBaseline(t, currentHash, true)
 
 	oldShort, newShort := t.LastHash, currentHash
 	if len(oldShort) > 8 {
@@ -179,6 +181,24 @@ func checkTargetHash(t db.MonitorTarget, body []byte) {
 	)
 	logger.GetLogger().Infof("[URL-MONITOR] Alert: %s", msg)
 	utils.SendMonitorWebhook(msg)
+}
+
+// advanceBaseline persists the monitor's new baseline (last_hash / last_match) and
+// logs on failure. A silently-dropped advance is a real bug: when notified is true
+// the same change re-fires the Discord alert every interval (re-alert loop); on a
+// first run the target never establishes a baseline and stays non-functional.
+func advanceBaseline(t db.MonitorTarget, value string, notified bool) {
+	if err := db.UpdateMonitorTargetLastRun(t.ID, value, notified); err != nil {
+		logger.GetLogger().Errorf("[URL-MONITOR] failed to advance baseline for %s (will re-alert until this succeeds): %v", t.URL, err)
+	}
+}
+
+// recordChange writes the monitor change-history row and logs on failure, so a
+// dropped changelog entry is diagnosable instead of silently missing from the UI.
+func recordChange(c *db.MonitorChange) {
+	if err := db.InsertMonitorChange(c); err != nil {
+		logger.GetLogger().Errorf("[URL-MONITOR] failed to record change history for %s: %v", c.Domain, err)
+	}
 }
 
 // looksLikeSHA256Hex reports whether s is a 64-char hex string (legacy hash baseline).
@@ -232,7 +252,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 
 	if baseline == "" {
 		logger.GetLogger().Infof("[URL-MONITOR] First check for %s — storing baseline regex match", t.URL)
-		_ = db.UpdateMonitorTargetLastRun(t.ID, match, false)
+		advanceBaseline(t, match, false)
 		return
 	}
 
@@ -244,7 +264,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 	// falls back to lexical compare for arbitrary patterns.
 	cmp := compareWatchValue(match, baseline)
 	if cmp == 0 {
-		_ = db.UpdateMonitorTargetLastRun(t.ID, match, false)
+		advanceBaseline(t, match, false)
 		return
 	}
 	if cmp < 0 {
@@ -264,7 +284,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 	}
 	detail, _ := json.Marshal(detailObj)
 
-	_ = db.InsertMonitorChange(&db.MonitorChange{
+	recordChange(&db.MonitorChange{
 		TargetType: "url",
 		TargetID:   t.ID,
 		Domain:     t.URL,
@@ -272,7 +292,7 @@ func checkTargetRegex(t db.MonitorTarget, body []byte) {
 		Detail:     string(detail),
 		Notified:   true,
 	})
-	_ = db.UpdateMonitorTargetLastRun(t.ID, match, true)
+	advanceBaseline(t, match, true)
 
 	oldDisp, newDisp := baseline, match
 	if len(oldDisp) > 80 {

@@ -294,13 +294,79 @@
     return detail;
   }
 
+  // ── Collapsible panels ────────────────────────────────────────────────────
+  // Open/closed state is remembered per section so the page comes back the way
+  // the user left it. Keys are the data-acc values in index.html.
+  const ACC_KEY = 'autoar.monitor.acc';
+
+  function accLoad() {
+    try { return JSON.parse(localStorage.getItem(ACC_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function accSave(state) {
+    try { localStorage.setItem(ACC_KEY, JSON.stringify(state)); } catch (e) { /* storage may be unavailable */ }
+  }
+
+  function setAccOpen(toggle, open) {
+    const panel = document.getElementById(toggle.getAttribute('aria-controls'));
+    if (!panel) return;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    panel.classList.toggle('open', open);
+    const head = toggle.closest('.card-header');
+    if (head) head.classList.toggle('collapsed', !open);
+  }
+
+  let accWired = false;
+  function wireMonitorAccordionsOnce() {
+    if (accWired) return;
+    const view = document.getElementById('view-monitor');
+    if (!view) return;
+    accWired = true;
+
+    const saved = accLoad();
+    view.querySelectorAll('.acc-toggle[data-acc]').forEach((t) => {
+      const key = t.getAttribute('data-acc');
+      // Fall back to whatever the markup declares when nothing is stored yet.
+      const open = Object.prototype.hasOwnProperty.call(saved, key)
+        ? !!saved[key]
+        : t.getAttribute('aria-expanded') === 'true';
+      setAccOpen(t, open);
+    });
+
+    view.addEventListener('click', (e) => {
+      const t = e.target.closest('.acc-toggle[data-acc]');
+      if (!t || !view.contains(t)) return;
+      const open = t.getAttribute('aria-expanded') !== 'true';
+      setAccOpen(t, open);
+      const state = accLoad();
+      state[t.getAttribute('data-acc')] = open;
+      accSave(state);
+    });
+  }
+
+  function setAccChip(id, text, on) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('on', !!on);
+  }
+
+  // Summary shown in the header so a collapsed panel still tells you the state.
+  function targetsChip(list) {
+    if (!list || !list.length) return { text: 'none', on: false };
+    const running = list.filter(t => !!(t.IsRunning ?? t.is_running)).length;
+    return { text: `${running}/${list.length} running`, on: running > 0 };
+  }
+
   function renderMonitor() {
+    wireMonitorAccordionsOnce();
+
     const urlContainer = document.getElementById('monitor-url-container');
     const subContainer = document.getElementById('monitor-sub-container');
     const feedContainer = document.getElementById('monitor-changes-feed');
     if (!urlContainer || !subContainer || !feedContainer) return;
 
     const targets = window.state.monitorTargets;
+    { const c = targetsChip(targets); setAccChip('monitor-url-chip', c.text, c.on); }
     if (!targets.length) {
       urlContainer.innerHTML = window.emptyState('', 'No URL monitors yet', 'Use Quick launch above, or CLI: autoar monitor updates add -u <url>');
     } else {
@@ -328,6 +394,7 @@
     }
 
     const subTargets = window.state.subMonitorTargets;
+    { const c = targetsChip(subTargets); setAccChip('monitor-sub-chip', c.text, c.on); }
     if (!subTargets.length) {
       subContainer.innerHTML = window.emptyState('', 'No subdomain monitors yet', 'Use Quick launch above, or CLI: autoar monitor subdomains manage add -d <domain>');
     } else {
@@ -354,6 +421,7 @@
     }
 
     const changes = window.state.monitorChanges;
+    setAccChip('monitor-changes-chip', changes.length ? `${changes.length} recent` : 'none', changes.length > 0);
     if (!changes.length) {
       feedContainer.innerHTML = window.emptyState('', 'No changes recorded', 'Changes will appear here once monitors run.');
     } else {

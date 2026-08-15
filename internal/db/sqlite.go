@@ -41,7 +41,7 @@ func (s *SQLiteDB) Init() error {
 	}
 
 	// Open database connection
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return fmt.Errorf("failed to open SQLite database: %v", err)
 	}
@@ -222,7 +222,7 @@ func (s *SQLiteDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_domain ON monitor_changes(domain);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
-	
+
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -337,6 +337,19 @@ func (s *SQLiteDB) InitSchema() error {
 	_, err := s.db.Exec(schema)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %v", err)
+	}
+	// subdomain_hosts view: bare hostname stays the dedup key, host is the probed
+	// URL (SQL twin of BestURL). DROP+CREATE keeps it in sync (SQLite has no
+	// CREATE OR REPLACE VIEW).
+	if _, verr := s.db.Exec(`DROP VIEW IF EXISTS subdomain_hosts`); verr != nil {
+		return fmt.Errorf("failed to drop subdomain_hosts view: %v", verr)
+	}
+	if _, verr := s.db.Exec(`
+		CREATE VIEW subdomain_hosts AS
+		SELECT s.*,
+		       COALESCE(NULLIF(s.https_url, ''), NULLIF(s.http_url, ''), 'https://' || s.subdomain) AS host
+		FROM subdomains s`); verr != nil {
+		return fmt.Errorf("failed to create subdomain_hosts view: %v", verr)
 	}
 	// Migrate legacy scans table: ensure result_url exists (CREATE TABLE IF NOT EXISTS does not add columns)
 	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN result_url TEXT`); merr != nil {
@@ -465,7 +478,7 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 	count := 0
 	now := time.Now()
 	for _, subdomain := range subdomains {
-		subdomain = strings.TrimSpace(subdomain)
+		subdomain = SanitizeHostname(subdomain)
 		if subdomain == "" {
 			continue
 		}
@@ -488,6 +501,9 @@ func (s *SQLiteDB) BatchInsertSubdomains(domain string, subdomains []string, isL
 
 // InsertSubdomain inserts or updates a single subdomain
 func (s *SQLiteDB) InsertSubdomain(domain, subdomain string, isLive bool, httpURL, httpsURL string, httpStatus, httpsStatus int) error {
+	if subdomain = SanitizeHostname(subdomain); subdomain == "" {
+		return nil
+	}
 	domainID, err := s.InsertOrGetDomain(domain)
 	if err != nil {
 		return fmt.Errorf("failed to get domain ID: %v", err)
@@ -1617,28 +1633,23 @@ func (s *SQLiteDB) UpdateScanProgress(scanID string, progress *ScanProgress) err
 
 // AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
 func (s *SQLiteDB) AppendScanPhase(scanID, phaseName string, failed bool) error {
+	// col is a fixed identifier (never user input), so interpolating it is safe.
 	col := "completed_phases"
 	if failed {
 		col = "failed_phases"
 	}
-	var raw string
-	err := s.db.QueryRow(fmt.Sprintf(`SELECT %s FROM scans WHERE scan_id = ?`, col), scanID).Scan(&raw)
-	if err != nil {
-		return fmt.Errorf("AppendScanPhase read: %v", err)
-	}
-	var phases []string
-	if raw != "" {
-		unmarshalPhaseJSON(raw, &phases)
-	}
-	for _, ph := range phases {
-		if ph == phaseName {
-			return nil
-		}
-	}
-	phases = append(phases, phaseName)
-	data := marshalPhaseJSON(phases)
-	_, err = s.db.Exec(fmt.Sprintf(`UPDATE scans SET %s = ?, last_update = ?, updated_at = datetime('now') WHERE scan_id = ?`, col), data, time.Now(), scanID)
-	if err != nil {
+	// Single atomic statement instead of read-modify-write — see the Postgres twin.
+	// json_insert(..,'$[#]',?) appends to the array; the NOT EXISTS(json_each ..) guard
+	// preserves the old dedup. Already-present phase → WHERE excludes → no-op.
+	sql := fmt.Sprintf(`
+		UPDATE scans
+		SET %s = json_insert(COALESCE(NULLIF(%s, ''), '[]'), '$[#]', ?),
+		    last_update = ?, updated_at = datetime('now')
+		WHERE scan_id = ?
+		  AND NOT EXISTS (
+		      SELECT 1 FROM json_each(COALESCE(NULLIF(%s, ''), '[]')) WHERE value = ?
+		  )`, col, col, col)
+	if _, err := s.db.Exec(sql, phaseName, time.Now(), scanID, phaseName); err != nil {
 		return fmt.Errorf("AppendScanPhase write: %v", err)
 	}
 	return nil
@@ -1685,7 +1696,7 @@ func (s *SQLiteDB) UpdateScanStatus(scanID string, status string) error {
 	now := time.Now()
 	var err error
 	
-	if status == "completed" || status == "failed" || status == "cancelled" {
+	if status == "completed" || status == "failed" || status == "cancelled" || status == "timed_out" {
 		_, err = s.db.Exec(`
 			UPDATE scans SET
 				status = ?,
@@ -1840,7 +1851,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
 			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
 		FROM scans
-		WHERE status IN ('completed', 'failed', 'cancelled')
+		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
 		LIMIT ?;
 	`, limit)

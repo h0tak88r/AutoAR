@@ -277,7 +277,7 @@
           window.showToast('error', 'Nothing to copy', 'No subdomains match the current filters.');
           return;
         }
-        await window.copyToClipboard(all.map((s) => s.subdomain).join('\n'));
+        await window.copyToClipboard(all.map((s) => s.host || s.subdomain).join('\n'));
         window.showToast('success', 'Copied!', `${all.length} subdomains copied to clipboard`);
       } catch (e) {
         window.showToast('error', 'Copy failed', e.message || String(e));

@@ -80,6 +80,12 @@ func StartAPI() error {
 	// Ensure scans don't remain "running" across restarts (single-instance mode).
 	reconcileStaleScansOnStartup()
 
+	// Startup reconcile only catches rows orphaned by a restart. This closes rows
+	// that lose their worker while the process keeps running — otherwise they stay
+	// "running" until the next restart, inflating the active count and making
+	// "wait until all scans finish" never return.
+	api.StartOrphanedScanReaper()
+
 	// Monitor daemons are in-memory goroutines that don't survive a process restart,
 	// but the DB keeps is_running=true — so the dashboard would show monitors "running"
 	// while nothing actually polls. Resume the daemons for any still-running targets so

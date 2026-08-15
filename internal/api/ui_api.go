@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/apikeys"
 	"github.com/h0tak88r/AutoAR/internal/brain"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/r2storage"
@@ -53,7 +54,16 @@ func apiConfigHandler(c *gin.Context) {
 		}
 		return n
 	}
+	// Shodan keys — list (SHODAN_API_KEYS) plus legacy single SHODAN_API_KEY.
+	// Only the count is exposed via the config endpoint, never the keys themselves.
+	shodanKeyCount := len(utils.ParseKeyList(os.Getenv("SHODAN_API_KEYS") + "," + os.Getenv("SHODAN_API_KEY")))
+	// Per-provider key counts (DB-first via apikeys) so the UI can show "N keys".
+	subfinderKeyCounts := make(map[string]int, len(subfinderProviderKeys))
+	for _, k := range subfinderProviderKeys {
+		subfinderKeyCounts[k] = len(apikeys.All(k))
+	}
 	c.JSON(http.StatusOK, gin.H{
+		"subfinder_key_counts": subfinderKeyCounts,
 		"version":         version.Version,
 		"r2_enabled":      r2storage.IsEnabled(),
 		"r2_public_url":   os.Getenv("R2_PUBLIC_URL"),
@@ -87,6 +97,8 @@ func apiConfigHandler(c *gin.Context) {
 		"ha_token_set":      strings.TrimSpace(os.Getenv("HACKADVISOR_TOKEN")) != "",
 		"ha_include_native": strings.EqualFold(strings.TrimSpace(os.Getenv("HACKADVISOR_INCLUDE_NATIVE")), "true"),
 		"chaos_key_set":     strings.TrimSpace(os.Getenv("CHAOS_API_KEY")) != "",
+		"shodan_keys_set":   shodanKeyCount > 0,
+		"shodan_keys_count": shodanKeyCount,
 		// Models — fall back to defaults when env is unset so the UI always shows something.
 		"opencode_model":   utils.GetEnv("OPENCODE_MODEL", "deepseek-v4-flash-free"),
 		"openrouter_model": utils.GetEnv("OPENROUTER_MODEL", "z-ai/glm-4.5-air:free"),
@@ -124,6 +136,16 @@ type UpdateSettingsBody struct {
 	HackAdvisorKey  string  `json:"ha_token"`
 	HAIncludeNative *bool   `json:"ha_include_native,omitempty"`
 	ChaosKey        string  `json:"chaos_key"`
+	// ShodanKeys is a *string so the dashboard can replace OR clear the whole list
+	// (empty string clears). Accepts comma/newline-separated keys.
+	ShodanKeys *string `json:"shodan_keys,omitempty"`
+	// SubfinderKeys REPLACES a provider's whole value (map env-var name -> value).
+	// Only allowlisted names; a blank value keeps the current one.
+	SubfinderKeys map[string]string `json:"subfinder_keys,omitempty"`
+	// SubfinderKeysAppend ADDS key(s) to a provider's existing list without
+	// replacing it (the "+" action). Value may itself be a comma/space list.
+	// Merged and deduplicated against what is already stored.
+	SubfinderKeysAppend map[string]string `json:"subfinder_keys_append,omitempty"`
 	// AI model overrides — empty string keeps the current value, "default" clears the override.
 	OpenRouterModel *string `json:"openrouter_model,omitempty"`
 	OpenCodeModel   *string `json:"opencode_model,omitempty"`
@@ -187,6 +209,28 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	}
 	if body.ChaosKey != "" {
 		saveEnvSetting("CHAOS_API_KEY", strings.TrimSpace(body.ChaosKey))
+	}
+	// Shodan key list — pointer field, so an explicit empty value clears all keys.
+	// Normalized to a comma-separated list; persisted to DB via saveEnvSetting.
+	if body.ShodanKeys != nil {
+		keys := utils.ParseKeyList(*body.ShodanKeys)
+		saveEnvSetting("SHODAN_API_KEYS", strings.Join(keys, ","))
+	}
+	// Subfinder provider keys — only allowlisted names. Replace (whole value) and
+	// append (add to the existing list) are both supported; blank keeps current.
+	for k, v := range body.SubfinderKeys {
+		if !subfinderProviderKeySet[k] || strings.TrimSpace(v) == "" {
+			continue
+		}
+		saveEnvSetting(k, strings.Join(utils.ParseKeyList(v), ","))
+	}
+	for k, v := range body.SubfinderKeysAppend {
+		if !subfinderProviderKeySet[k] || strings.TrimSpace(v) == "" {
+			continue
+		}
+		// Merge the new key(s) into whatever is already stored, deduped.
+		merged := apikeys.Append(k, utils.ParseKeyList(v))
+		saveEnvSetting(k, strings.Join(merged, ","))
 	}
 	if body.HAIncludeNative != nil {
 		v := "false"
@@ -430,6 +474,9 @@ func apiListSubdomains(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	for i := range subs {
+		subs[i].Host = subs[i].BestURL()
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"domain":     domain,
@@ -474,6 +521,9 @@ func apiAllSubdomainsPaginated(c *gin.Context) {
 	}
 	if subs == nil {
 		subs = make([]db.GlobalSubdomain, 0)
+	}
+	for i := range subs {
+		subs[i].Host = subs[i].BestURL()
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -599,7 +649,9 @@ func apiRetryCnames(c *gin.Context) {
 					cnamesStr := strings.Join(results.CNAME, ",")
 
 					// Update DB if we actually found something
-					_ = db.UpdateSubdomainCNAME(sub.Domain, sub.Subdomain, cnamesStr)
+					if err := db.UpdateSubdomainCNAME(sub.Domain, sub.Subdomain, cnamesStr); err != nil {
+						log.Printf("[ERROR] failed to persist CNAME for %s (column will be stale): %v", sub.Subdomain, err)
+					}
 
 					// Check match string
 					if matchStr != "" && strings.Contains(strings.ToLower(cnamesStr), matchStr) {

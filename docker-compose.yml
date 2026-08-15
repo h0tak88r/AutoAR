@@ -110,18 +110,8 @@ services:
             - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
             - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
 
-            # iOS App Store (ipatool) Configuration
-            - IPATOOL_EMAIL=${IPATOOL_EMAIL:-}
-            - IPATOOL_PASSWORD=${IPATOOL_PASSWORD:-}
-            - IPATOOL_KEYCHAIN_PASSPHRASE=${IPATOOL_KEYCHAIN_PASSPHRASE:-}
-            - IPATOOL_AUTH_CODE=${IPATOOL_AUTH_CODE:-}
-
             # General Settings
             - VERBOSE=${VERBOSE:-true}
-            
-            # APKX Performance Settings (optimized for 4-core, 8GB RAM VPS with no swap)
-            - APKX_WORKERS=${APKX_WORKERS:-2}
-            - APKX_MAX_FILES=${APKX_MAX_FILES:-12000}
 
             # Dashboard (Supabase JWT) + R2 — pass through from .env (see docs/DASHBOARD_AUTH.md)
             - SUPABASE_URL=${SUPABASE_URL:-}

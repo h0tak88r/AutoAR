@@ -602,6 +602,13 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 				p.LatestTarget = summary.LatestTarget
 				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
 				p.LatestTargetBrief = summary.LatestTargetBrief
+				// Assets is the full in-scope identifier list. Dropping it here left
+				// ProgramSummary.Assets empty for every H1 program, which silently gave
+				// the root pipeline zero H1 roots to enumerate — it then only ever
+				// re-processed roots already in the domains table and could never
+				// discover a new one. ScopeTargets is just the count; it is not a
+				// substitute.
+				p.Assets = summary.Assets
 				// Persist last-known-good — failed/rate-limited fetches don't
 				// reach here, so a transient 429 never overwrites real data.
 				_ = db.UpsertProgramScope(db.PersistedProgramScope{
@@ -824,6 +831,7 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 				p.LatestTarget = summary.LatestTarget
 				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
 				p.LatestTargetBrief = summary.LatestTargetBrief
+				p.Assets = summary.Assets // see enrichH1ScopeCounts — the pipeline needs this
 				_ = db.UpsertProgramScope(db.PersistedProgramScope{
 					Platform: p.Platform, Handle: p.Handle,
 					ScopeTargets: p.ScopeTargets, LatestTarget: p.LatestTarget,
@@ -1101,6 +1109,7 @@ func enrichITScopeCounts(programs []ProgramSummary, token string) {
 				// scope-update watch fires on every program edit (bounty bump, etc.)
 				// not just on real scope changes.
 				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
+				p.Assets = summary.Assets // see enrichH1ScopeCounts — the pipeline needs this
 				_ = db.UpsertProgramScope(db.PersistedProgramScope{
 					Platform: p.Platform, Handle: p.Handle,
 					ScopeTargets: p.ScopeTargets, LatestTarget: p.LatestTarget,

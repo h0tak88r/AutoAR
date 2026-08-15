@@ -242,7 +242,10 @@ func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 		strings.EqualFold(strings.TrimSpace(rec.Status), "done") ||
 		strings.EqualFold(strings.TrimSpace(rec.Status), "success")
 	scanFailed := strings.EqualFold(strings.TrimSpace(rec.Status), "failed") ||
-		strings.EqualFold(strings.TrimSpace(rec.Status), "error")
+		strings.EqualFold(strings.TrimSpace(rec.Status), "error") ||
+		// A timed-out scan is terminal, not mid-flight — without this its untracked
+		// phases infer as "pending" and the results view shows it still running.
+		strings.EqualFold(strings.TrimSpace(rec.Status), "timed_out")
 
 	for _, spec := range specs {
 		status := "pending"
@@ -742,7 +745,7 @@ func apiScanResultsSummary(c *gin.Context) {
 
 	st := strings.ToLower(strings.TrimSpace(rec.Status))
 	switch st {
-	case "completed", "done", "failed", "cancelled", "error":
+	case "completed", "done", "failed", "cancelled", "timed_out", "error":
 		c.Header("Cache-Control", "private, max-age=60")
 	}
 

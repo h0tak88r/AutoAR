@@ -26,13 +26,15 @@
 
   function renderSubdomainObjectTable(items) {
     const rows = items.map((item) => {
-      const subdomain = item.subdomain || item.domain || item.host || '—';
+      // Prefer the probed URL (host = https://sub.domain.com from BestURL); fall
+      // back to the bare hostname for rows that predate the host field.
+      const shown = item.host || item.subdomain || item.domain || '—';
       const isLive = item.is_live || item.live || item.status === 'live';
       const httpStatus = item.http_status || item.http || null;
       const httpsStatus = item.https_status || item.https || null;
-      return `<tr><td><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent-cyan)">${esc(String(subdomain))}</div></td><td><span class="badge ${isLive ? 'badge-live' : 'badge-dead'}">${isLive ? '* live' : '* dead'}</span></td><td style="color:var(--text-muted);font-family:'JetBrains Mono',monospace">${httpStatus ? `<span style="color:${getStatusColor(httpStatus)}">${httpStatus}</span>` : '—'}</td><td style="color:var(--text-muted);font-family:'JetBrains Mono',monospace">${httpsStatus ? `<span style="color:${getStatusColor(httpsStatus)}">${httpsStatus}</span>` : '—'}</td></tr>`;
+      return `<tr><td><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent-cyan)">${esc(String(shown))}</div></td><td><span class="badge ${isLive ? 'badge-live' : 'badge-dead'}">${isLive ? '* live' : '* dead'}</span></td><td style="color:var(--text-muted);font-family:'JetBrains Mono',monospace">${httpStatus ? `<span style="color:${getStatusColor(httpStatus)}">${httpStatus}</span>` : '—'}</td><td style="color:var(--text-muted);font-family:'JetBrains Mono',monospace">${httpsStatus ? `<span style="color:${getStatusColor(httpsStatus)}">${httpsStatus}</span>` : '—'}</td></tr>`;
     }).join('');
-    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>SUBDOMAIN</th><th>STATUS</th><th>HTTP</th><th>HTTPS</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>HOST</th><th>STATUS</th><th>HTTP</th><th>HTTPS</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderHTTPXTable(items) {

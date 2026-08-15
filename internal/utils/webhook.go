@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -58,6 +59,8 @@ func SendScanNotification(event, scanID, target, scanType, status string, findin
 			resultEmoji = ""
 		} else if status == "cancelled" {
 			resultEmoji = "⏹"
+		} else if status == "timed_out" {
+			resultEmoji = "⏱"
 		}
 		
 		findingsStr := "No findings"
@@ -180,22 +183,48 @@ func postDiscordContent(webhookURL, content string) error {
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create webhook POST request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send webhook alert: %w", err)
-	}
-	defer resp.Body.Close()
+	// Retry on 429 honoring Retry-After. A multi-chunk bulk alert (the subdomain
+	// monitor listing many changes) posts chunks back-to-back; Discord rate-limits
+	// and returns 429, and previously the caller aborted the loop — silently
+	// dropping every remaining chunk. Retrying here keeps the whole alert intact.
+	for attempt := 0; attempt < 4; attempt++ {
+		req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return fmt.Errorf("failed to create webhook POST request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
 
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, string(b))
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send webhook alert: %w", err)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			wait := parseRetryAfter(resp.Header.Get("Retry-After"))
+			resp.Body.Close()
+			time.Sleep(wait)
+			continue
+		}
+		if resp.StatusCode >= 400 {
+			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, string(b))
+		}
+		resp.Body.Close()
+		return nil
 	}
-	return nil
+	return fmt.Errorf("webhook still rate-limited after retries")
+}
+
+// parseRetryAfter reads Discord's Retry-After header (seconds, may be fractional),
+// clamped to a sane range so a bad value can't stall or busy-loop the sender.
+func parseRetryAfter(h string) time.Duration {
+	secs, err := strconv.ParseFloat(strings.TrimSpace(h), 64)
+	if err != nil || secs <= 0 {
+		secs = 1
+	}
+	if secs > 10 {
+		secs = 10
+	}
+	return time.Duration(secs*1000) * time.Millisecond
 }

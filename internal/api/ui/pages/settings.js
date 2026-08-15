@@ -188,6 +188,58 @@
               </div>
             </div>
             ${tokenRow('Chaos (ProjectDiscovery)', 'Subdomain-dataset API key — powers the <strong>Chaos</strong> lookup in the Targets tab. Get one at <a href="https://cloud.projectdiscovery.io" target="_blank" rel="noopener">cloud.projectdiscovery.io</a>.', 'chaos-key-input', 'window.SettingsPage.saveChaosKey()', 'chaos API key', cfg.chaos_key_set)}
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Shodan API Keys</div>
+                <div class="settings-hint">One or more Shodan keys — comma-separated or one per line. All keys are passed to subfinder for subdomain enumeration. Stored in the database. ${cfg.shodan_keys_set ? `<span class="badge badge-done">${cfg.shodan_keys_count} key(s) configured</span>` : '<span class="badge badge-failed">not set</span>'}</div>
+              </div>
+              <div class="settings-control" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <textarea id="shodan-keys-input" rows="3" placeholder="${cfg.shodan_keys_set ? '••••••• (saved — paste new keys to replace all)' : 'key1, key2, key3'}" class="form-control premium-input" style="resize:vertical;font-family:monospace;"></textarea>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn btn-primary" onclick="window.SettingsPage.saveShodanKeys()">Save</button>
+                  ${cfg.shodan_keys_set ? '<button class="btn btn-secondary" onclick="window.SettingsPage.clearShodanKeys()">Clear all</button>' : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="platforms">
+          <div class="settings-section-header"> Subfinder Provider Keys</div>
+          <div class="settings-section-description">
+            Passive-source API keys for subdomain enumeration. Saved to the database and used
+            by subfinder on its next run — a stored key overrides the container env of the same
+            name; leave a field blank to keep the current value. Chaos and Shodan are configured above.
+          </div>
+          <div class="settings-section-body">
+            <div class="settings-timeout-grid">
+              ${SUBFINDER_PROVIDERS.map((p) => {
+                const n = (cfg.subfinder_key_counts || {})[p.env] || 0;
+                // Single-valued fields (credential pairs, usernames) are set/replaced,
+                // not appended — appending would make a bogus "old,new" 2-item list.
+                const badge = p.single
+                  ? (n > 0 ? '<span class="badge badge-done">set</span>' : '')
+                  : (n > 0 ? `<span class="badge badge-done">${n} key${n > 1 ? 's' : ''}</span>` : '');
+                const btn = p.single
+                  ? `<button class="btn btn-secondary" title="Set this value (replaces)"
+                            onclick="window.SettingsPage.setSubfinderKey('${p.env}')">Set</button>`
+                  : `<button class="btn btn-secondary" title="Add this key (keeps existing)"
+                            onclick="window.SettingsPage.addSubfinderKey('${p.env}')">＋</button>`;
+                return `<div class="timeout-field">
+                  <label>${p.label} ${badge}</label>
+                  <div style="display:flex;gap:6px;">
+                    <input type="password" id="sf-${p.env}" data-sf-env="${p.env}" data-sf-single="${p.single ? 1 : 0}" value=""
+                           placeholder="${n > 0 ? (p.single ? '••••••• (saved)' : 'add another key') : (p.ph || p.env)}"
+                           class="form-control premium-input" autocomplete="off" style="flex:1;" />
+                    ${btn}
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>
+            <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+              <button class="btn btn-primary" onclick="window.SettingsPage.saveSubfinderKeys()">Save all filled fields</button>
+              <span style="font-size:11px;color:var(--text-muted);">List keys append (＋, existing kept); credential/username fields replace (Set).</span>
+            </div>
           </div>
         </div>
 
@@ -651,10 +703,96 @@
     } catch (e) { window.showToast('error', 'Error', e.message); }
   }
 
+  // Subfinder passive-source providers exposed in Settings. env must match the
+  // provider-key names in the backend allowlist (subfinderProviderKeys).
+  // env must match the backend allowlist (subfinderProviderKeys). single:true marks
+  // credential/username fields that hold ONE value — appending to them would create a
+  // bogus "old,new" list, so those replace instead of append.
+  const SUBFINDER_PROVIDERS = [
+    { env: 'VIRUSTOTAL_API_KEY',     label: 'VirusTotal' },
+    { env: 'SECURITYTRAILS_API_KEY', label: 'SecurityTrails' },
+    { env: 'GITHUB_TOKEN',           label: 'GitHub token' },
+    { env: 'CENSYS_API_ID',          label: 'Censys API ID',     single: true },
+    { env: 'CENSYS_API_SECRET',      label: 'Censys API secret', single: true },
+    { env: 'BINARYEDGE_API_KEY',     label: 'BinaryEdge' },
+    { env: 'BEVIGIL_API_KEY',        label: 'BeVigil' },
+    { env: 'CERTSPOTTER_API_KEY',    label: 'CertSpotter' },
+    { env: 'FULLHUNT_API_KEY',       label: 'FullHunt' },
+    { env: 'INTELX_API_KEY',         label: 'IntelX' },
+    { env: 'URLSCAN_API_KEY',        label: 'urlscan.io' },
+    { env: 'WHOISXMLAPI_API_KEY',    label: 'WhoisXML API' },
+    { env: 'THREATBOOK_API_KEY',     label: 'ThreatBook' },
+    { env: 'FOFA_EMAIL',             label: 'FOFA email',        single: true },
+    { env: 'FOFA_KEY',               label: 'FOFA key',          single: true },
+    { env: 'PASSIVETOTAL_USERNAME',  label: 'PassiveTotal user', single: true },
+    { env: 'PASSIVETOTAL_API_KEY',   label: 'PassiveTotal key',  single: true },
+    { env: 'ZOOMEYEAPI_API_KEY',     label: 'ZoomEye API' },
+  ];
+
+  // Append one list-provider's key without replacing its existing list (the "+").
+  async function addSubfinderKey(env) {
+    const el = document.getElementById('sf-' + env);
+    const v = el ? el.value.trim() : '';
+    if (!v) { window.showToast('info', 'Nothing to add', 'Enter a key first.'); return; }
+    try {
+      await postSettings({ subfinder_keys_append: { [env]: v } }, `Key added to ${env}.`);
+      if (el) el.value = '';
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
+  // Replace a single-valued field (credential / username) — no append.
+  async function setSubfinderKey(env) {
+    const el = document.getElementById('sf-' + env);
+    const v = el ? el.value.trim() : '';
+    if (!v) { window.showToast('info', 'Nothing to set', 'Enter a value first.'); return; }
+    try {
+      await postSettings({ subfinder_keys: { [env]: v } }, `${env} set.`);
+      if (el) el.value = '';
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
+  // Save every filled field: list fields append, single fields replace.
+  async function saveSubfinderKeys() {
+    const append = {}, replace = {};
+    document.querySelectorAll('input[data-sf-env]').forEach((el) => {
+      const v = el.value.trim();
+      if (!v) return;
+      const env = el.getAttribute('data-sf-env');
+      if (el.getAttribute('data-sf-single') === '1') replace[env] = v; else append[env] = v;
+    });
+    const total = Object.keys(append).length + Object.keys(replace).length;
+    if (total === 0) { window.showToast('info', 'No change', 'Fill at least one field.'); return; }
+    const body = {};
+    if (Object.keys(append).length) body.subfinder_keys_append = append;
+    if (Object.keys(replace).length) body.subfinder_keys = replace;
+    try {
+      await postSettings(body, `${total} subfinder field(s) saved.`);
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
   function saveBugcrowdToken()  { return savePlatformToken('bc_token', 'bc-token-input', 'Bugcrowd token'); }
   function saveIntigritiToken() { return savePlatformToken('it_token', 'it-token-input', 'Intigriti token'); }
   function saveYWHToken()       { return savePlatformToken('ywh_token', 'ywh-token-input', 'YesWeHack token'); }
   function saveChaosKey()       { return savePlatformToken('chaos_key', 'chaos-key-input', 'Chaos API key'); }
+
+  // Shodan multi-key list — the whole textarea replaces the stored list
+  // (server normalizes comma/newline-separated input).
+  async function saveShodanKeys() {
+    const input = document.getElementById('shodan-keys-input');
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) { window.showToast('info', 'No change', 'Paste one or more Shodan keys (comma-separated or one per line), or use Clear all.'); return; }
+    try {
+      await postSettings({ shodan_keys: val }, 'Shodan API keys saved.');
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
+
+  async function clearShodanKeys() {
+    if (!window.confirm('Remove all stored Shodan API keys?')) return;
+    try {
+      await postSettings({ shodan_keys: '' }, 'Shodan API keys cleared.');
+    } catch (e) { window.showToast('error', 'Error', e.message); }
+  }
 
   async function saveH1Creds() {
     const u = document.getElementById('h1-username-input');
@@ -710,5 +848,11 @@
     saveYWHToken,
     saveHackAdvisorCreds,
     saveChaosKey,
+    saveShodanKeys,
+    clearShodanKeys,
+    saveSubfinderKeys,
+    addSubfinderKey,
+    setSubfinderKey,
+    SUBFINDER_PROVIDERS,
   };
 })();

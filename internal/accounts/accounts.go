@@ -6,6 +6,7 @@
 package accounts
 
 import (
+	"log"
 	"os"
 	"strings"
 
@@ -160,10 +161,18 @@ func MigrateEnvAccounts() {
 		if exists {
 			continue
 		}
-		_, _ = db.UpsertBBPAccount(db.BBPAccount{
+		if _, err := db.UpsertBBPAccount(db.BBPAccount{
 			Platform: p, Label: "default", Username: env.Username,
 			Token: env.Token, Email: env.Email, Password: env.Password, Enabled: true,
-		})
+		}); err != nil {
+			// Do NOT mark the migration done if a persist failed — otherwise a
+			// partial failure (the account write fails but the marker write succeeds)
+			// permanently drops that env credential: it's not in the DB, and For()
+			// stops falling back to env once the marker is set. Leave the marker
+			// unset so the next boot retries; env still resolves meanwhile.
+			log.Printf("[accounts] env->DB migration for %s failed, will retry next boot: %v", p, err)
+			return
+		}
 	}
 	_ = db.SetSetting(envMigratedMarker, "done")
 }

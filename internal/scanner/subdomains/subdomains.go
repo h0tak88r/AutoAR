@@ -12,7 +12,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/apikeys"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
@@ -162,6 +164,13 @@ func EnumerateFresh(domain string, threads int) ([]string, error) {
 	return results, nil
 }
 
+// passiveSourceClient bounds every passive-source HTTP call with a timeout.
+// Without one, a stalled TCP read (crt.sh is prone to this under load) makes
+// getSubdomainsFromAPIs' wg.Wait() block forever — wedging a pipeline enumeration
+// worker slot and leaking the socket/goroutine, since Go cannot interrupt an
+// in-flight blocking read.
+var passiveSourceClient = &http.Client{Timeout: 30 * time.Second}
+
 // getSubdomainsFromAPIs collects subdomains from multiple passive DNS and CT sources in parallel
 func getSubdomainsFromAPIs(domain string) []string {
 	var results []string
@@ -181,7 +190,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, err := http.Get(fmt.Sprintf("https://api.hackertarget.com/hostsearch/?q=%s", domain))
+		resp, err := passiveSourceClient.Get(fmt.Sprintf("https://api.hackertarget.com/hostsearch/?q=%s", domain))
 		if err != nil {
 			return
 		}
@@ -195,7 +204,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, err := http.Get(fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain))
+		resp, err := passiveSourceClient.Get(fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain))
 		if err != nil {
 			return
 		}
@@ -227,8 +236,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 		if apiKey := os.Getenv("URLSCAN_API_KEY"); apiKey != "" {
 			req.Header.Set("API-Key", apiKey)
 		}
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -272,8 +280,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 		if apiKey := os.Getenv("CERTSPOTTER_API_KEY"); apiKey != "" {
 			req.Header.Set("Authorization", "Bearer "+apiKey)
 		}
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -306,8 +313,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 		if apiKey := os.Getenv("OTX_API_KEY"); apiKey != "" {
 			req.Header.Set("X-OTX-API-KEY", apiKey)
 		}
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -340,8 +346,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -361,8 +366,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AutoAR/1.0)")
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := passiveSourceClient.Do(req)
 		if err != nil {
 			return
 		}
@@ -466,7 +470,6 @@ func generateSubfinderConfigFromEnv() (string, error) {
 	providerMap := map[string]string{
 		"GITHUB_TOKEN":           "github",
 		"SECURITYTRAILS_API_KEY": "securitytrails",
-		"SHODAN_API_KEY":         "shodan",
 		"VIRUSTOTAL_API_KEY":     "virustotal",
 		"WORDPRESS_API_KEY":      "wordpress",
 		"BEVIGIL_API_KEY":        "bevigil",
@@ -500,43 +503,59 @@ func generateSubfinderConfigFromEnv() (string, error) {
 
 	// Handle special cases first (multi-value providers)
 	// Censys needs both ID and SECRET
-	if censysID := os.Getenv("CENSYS_API_ID"); censysID != "" {
-		if censysSecret := os.Getenv("CENSYS_API_SECRET"); censysSecret != "" {
-			builder.WriteString(fmt.Sprintf("censys: [\"%s\", \"%s\"]\n", censysID, censysSecret))
+	if censysID := apikeys.Get("CENSYS_API_ID"); censysID != "" {
+		if censysSecret := apikeys.Get("CENSYS_API_SECRET"); censysSecret != "" {
+			builder.WriteString(fmt.Sprintf("censys: [%q, %q]\n", censysID, censysSecret))
 			writtenProviders["censys"] = true
 		}
 	}
 
 	// FOFA needs both EMAIL and KEY
-	if fofaEmail := os.Getenv("FOFA_EMAIL"); fofaEmail != "" {
-		if fofaKey := os.Getenv("FOFA_KEY"); fofaKey != "" {
-			builder.WriteString(fmt.Sprintf("fofa: [\"%s\", \"%s\"]\n", fofaEmail, fofaKey))
+	if fofaEmail := apikeys.Get("FOFA_EMAIL"); fofaEmail != "" {
+		if fofaKey := apikeys.Get("FOFA_KEY"); fofaKey != "" {
+			builder.WriteString(fmt.Sprintf("fofa: [%q, %q]\n", fofaEmail, fofaKey))
 			writtenProviders["fofa"] = true
 		}
 	}
 
 	// Passivetotal needs both USERNAME and API_KEY
-	if ptUsername := os.Getenv("PASSIVETOTAL_USERNAME"); ptUsername != "" {
-		if ptAPIKey := os.Getenv("PASSIVETOTAL_API_KEY"); ptAPIKey != "" {
-			builder.WriteString(fmt.Sprintf("passivetotal: [\"%s\", \"%s\"]\n", ptUsername, ptAPIKey))
+	if ptUsername := apikeys.Get("PASSIVETOTAL_USERNAME"); ptUsername != "" {
+		if ptAPIKey := apikeys.Get("PASSIVETOTAL_API_KEY"); ptAPIKey != "" {
+			builder.WriteString(fmt.Sprintf("passivetotal: [%q, %q]\n", ptUsername, ptAPIKey))
 			writtenProviders["passivetotal"] = true
 		}
 	}
 
 	// Quake needs both USERNAME and PASSWORD
-	if quakeUsername := os.Getenv("QUAKE_USERNAME"); quakeUsername != "" {
-		if quakePassword := os.Getenv("QUAKE_PASSWORD"); quakePassword != "" {
-			builder.WriteString(fmt.Sprintf("quake: [\"%s\", \"%s\"]\n", quakeUsername, quakePassword))
+	if quakeUsername := apikeys.Get("QUAKE_USERNAME"); quakeUsername != "" {
+		if quakePassword := apikeys.Get("QUAKE_PASSWORD"); quakePassword != "" {
+			builder.WriteString(fmt.Sprintf("quake: [%q, %q]\n", quakeUsername, quakePassword))
 			writtenProviders["quake"] = true
 		}
 	}
 
 	// Zoomeye needs both USERNAME and PASSWORD
-	if zoomeyeUsername := os.Getenv("ZOOMEYE_USERNAME"); zoomeyeUsername != "" {
-		if zoomeyePassword := os.Getenv("ZOOMEYE_PASSWORD"); zoomeyePassword != "" {
-			builder.WriteString(fmt.Sprintf("zoomeye: [\"%s\", \"%s\"]\n", zoomeyeUsername, zoomeyePassword))
+	if zoomeyeUsername := apikeys.Get("ZOOMEYE_USERNAME"); zoomeyeUsername != "" {
+		if zoomeyePassword := apikeys.Get("ZOOMEYE_PASSWORD"); zoomeyePassword != "" {
+			builder.WriteString(fmt.Sprintf("zoomeye: [%q, %q]\n", zoomeyeUsername, zoomeyePassword))
 			writtenProviders["zoomeye"] = true
 		}
+	}
+
+	// Shodan accepts multiple API keys — SHODAN_API_KEYS (comma/newline-separated
+	// list, settable from the dashboard) plus the legacy single SHODAN_API_KEY.
+	shodanKeys := apikeys.All("SHODAN_API_KEYS")
+	if legacy := apikeys.Get("SHODAN_API_KEY"); legacy != "" {
+		// Merge the legacy single key in front, then re-parse to dedup.
+		shodanKeys = utils.ParseKeyList(strings.Join(append([]string{legacy}, shodanKeys...), ","))
+	}
+	if len(shodanKeys) > 0 {
+		quoted := make([]string, len(shodanKeys))
+		for i, k := range shodanKeys {
+			quoted[i] = fmt.Sprintf("%q", k)
+		}
+		builder.WriteString(fmt.Sprintf("shodan: [%s]\n", strings.Join(quoted, ", ")))
+		writtenProviders["shodan"] = true
 	}
 
 	// Handle single-value providers
@@ -546,16 +565,21 @@ func generateSubfinderConfigFromEnv() (string, error) {
 			continue
 		}
 
-		// Skip censys, fofa, passivetotal, quake, zoomeye (already handled)
-		if providerName == "censys" || providerName == "fofa" || providerName == "passivetotal" || providerName == "quake" || providerName == "zoomeye" {
+		// Skip censys, fofa, passivetotal, quake, zoomeye, shodan (already handled)
+		if providerName == "censys" || providerName == "fofa" || providerName == "passivetotal" || providerName == "quake" || providerName == "zoomeye" || providerName == "shodan" {
 			continue
 		}
 
-		if value := os.Getenv(envVar); value != "" {
-			if !writtenProviders[providerName] {
-				builder.WriteString(fmt.Sprintf("%s: [\"%s\"]\n", providerName, value))
-				writtenProviders[providerName] = true
+		// apikeys.All is DB-first (Settings) with env fallback and returns every
+		// key configured for this provider — subfinder accepts a list, so all of
+		// them are used, not just the first.
+		if keys := apikeys.All(envVar); len(keys) > 0 && !writtenProviders[providerName] {
+			quoted := make([]string, len(keys))
+			for i, k := range keys {
+				quoted[i] = fmt.Sprintf("%q", k)
 			}
+			builder.WriteString(fmt.Sprintf("%s: [%s]\n", providerName, strings.Join(quoted, ", ")))
+			writtenProviders[providerName] = true
 		}
 	}
 

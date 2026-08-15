@@ -384,6 +384,11 @@ type SubdomainStatus struct {
 	IsLive      bool   `json:"is_live"`
 	Techs       string `json:"techs,omitempty"`
 	CNAMEs      string `json:"cnames,omitempty"`
+	// Host is the scheme-prefixed probed URL (https://sub.domain.com) for display
+	// and export. It is computed from the probe results via BestURL, not stored —
+	// the subdomain column stays a bare hostname (the unique dedup key). Populated
+	// by the API layer before returning; empty in raw DB reads.
+	Host string `json:"host,omitempty"`
 }
 
 // BestURL returns the scheme-prefixed URL to use for this subdomain, preferring

@@ -525,11 +525,20 @@
         <!-- URL Monitor Targets -->
         <div class="card" style="margin-bottom:20px">
           <div class="card-header">
-            <div class="card-title"><span class="card-title-icon"></span>URL Monitor Targets</div>
+            <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-url" data-acc="url">
+              <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="card-title"><span class="card-title-icon"></span>URL Monitor Targets</span>
+              <span class="acc-chip" id="monitor-url-chip">—</span>
+            </button>
           </div>
+          <div class="acc-panel open" id="acc-panel-url"><div class="acc-inner">
           <div class="card-body">
             <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
-              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:10px">Quick launch</div>
+              <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-url-form" data-acc="url-form">
+                <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                <span class="acc-sub-title">Quick launch</span>
+              </button>
+              <div class="acc-panel" id="acc-panel-url-form"><div class="acc-inner"><div style="padding-top:12px">
               <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
                 <div style="flex:1;min-width:220px">
                   <label for="monitor-url-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Page URL</label>
@@ -552,9 +561,14 @@
                 <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddUrlMonitor()">Add monitor</button>
               </div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Registers the target in the database. When “Start checking now” is on, marks it running and wakes the URL monitor worker (same as CLI <code style="font-size:10px;opacity:.85">monitor updates add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
+              </div></div></div>
             </div>
             <div class="monitor-ai-suggest" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(30,40,60,.25)">
-              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px">AI-assisted URLs</div>
+              <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-url-ai" data-acc="url-ai">
+                <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                <span class="acc-sub-title">AI-assisted URLs</span>
+              </button>
+              <div class="acc-panel" id="acc-panel-url-ai"><div class="acc-inner"><div style="padding-top:10px">
               <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.45">Enter a <strong>target domain</strong>. The server probes common release/changelog/blog paths, then ranks pages with <strong>OpenRouter</strong> (or heuristics if no API key). Select rows and add them as URL monitors.</div>
               <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
                 <div style="flex:1;min-width:200px">
@@ -565,21 +579,32 @@
               </div>
               <div id="monitor-ai-suggest-meta" style="font-size:11px;color:var(--text-muted);margin-top:8px;display:none"></div>
               <div id="monitor-ai-suggest-results" style="margin-top:14px;display:none"></div>
+              </div></div></div>
             </div>
             <div id="monitor-url-container">
               <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
             </div>
           </div>
+          </div></div>
         </div>
 
         <!-- Subdomain Monitor Targets -->
         <div class="card" style="margin-bottom:20px">
           <div class="card-header">
-            <div class="card-title"><span class="card-title-icon"></span>Subdomain Monitor Targets</div>
+            <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-sub" data-acc="sub">
+              <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="card-title"><span class="card-title-icon"></span>Subdomain Monitor Targets</span>
+              <span class="acc-chip" id="monitor-sub-chip">—</span>
+            </button>
           </div>
+          <div class="acc-panel open" id="acc-panel-sub"><div class="acc-inner">
           <div class="card-body">
             <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
-              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:10px">Quick launch</div>
+              <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-sub-form" data-acc="sub-form">
+                <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                <span class="acc-sub-title">Quick launch</span>
+              </button>
+              <div class="acc-panel" id="acc-panel-sub-form"><div class="acc-inner"><div style="padding-top:12px">
               <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
                 <div style="flex:1;min-width:200px">
                   <label for="monitor-sub-domain-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Root domain</label>
@@ -605,22 +630,30 @@
                 <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddSubdomainMonitor()">Add monitor</button>
               </div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Adds a subdomain watch target and optionally starts the subdomain monitor daemon (same idea as CLI <code style="font-size:10px;opacity:.85">monitor subdomains manage add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
+              </div></div></div>
             </div>
             <div id="monitor-sub-container">
               <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
             </div>
           </div>
+          </div></div>
         </div>
 
         <!-- Change History Feed -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title"><span class="card-title-icon"></span>Change History</div>
+            <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-changes" data-acc="changes">
+              <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="card-title"><span class="card-title-icon"></span>Change History</span>
+              <span class="acc-chip" id="monitor-changes-chip">—</span>
+            </button>
             <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="clearMonitorChangeHistory()">Clear history</button>
           </div>
+          <div class="acc-panel open" id="acc-panel-changes"><div class="acc-inner">
           <div class="card-body change-feed" id="monitor-changes-feed">
             <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
           </div>
+          </div></div>
         </div>
 
       </div><!-- /view-monitor -->

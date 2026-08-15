@@ -211,7 +211,9 @@ func CollectCNAMEsWithOptions(opts Options) (*Result, error) {
 					// leaked unbounded goroutines and could outlive the function).
 					// Use the derived root `domain`, not opts.Domain, so the key is
 					// correct in Targets/Subdomain modes too.
-					_ = db.UpdateSubdomainCNAME(domain, target, strings.Join(results.CNAME, ","))
+					if err := db.UpdateSubdomainCNAME(domain, target, strings.Join(results.CNAME, ",")); err != nil {
+						logger.GetLogger().Errorf("[CNAME] failed to persist CNAME for %s (column will be stale): %v", target, err)
+					}
 				}
 			}
 		}()

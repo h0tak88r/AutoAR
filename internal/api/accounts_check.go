@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -101,7 +102,9 @@ func checkAccountCredential(a db.BBPAccount) (status, detail string) {
 				return "invalid", "re-auth failed: "+trimErr(rerr.Error())
 			}
 			if a.ID > 0 {
-				_ = db.UpdateBBPAccountToken(a.ID, jwt)
+				if err := db.UpdateBBPAccountToken(a.ID, jwt); err != nil {
+					log.Printf("[ERROR] failed to cache re-auth token for account %d (will re-auth next cycle): %v", a.ID, err)
+				}
 			}
 			return "valid", "re-authenticated via email/password"
 		}
