@@ -27,6 +27,9 @@ var persistedEnvKeys = []string{
 	"HACKADVISOR_TOKEN", "HACKADVISOR_INCLUDE_NATIVE",
 	"CHAOS_API_KEY",
 	"SHODAN_API_KEY", "SHODAN_API_KEYS",
+	// Cloudflare R2 storage — managed from Settings ▸ System ▸ Cloudflare R2.
+	"USE_R2_STORAGE", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_KEY",
+	"R2_BUCKET_NAME", "R2_PUBLIC_URL",
 }
 
 // subfinderProviderKeys are the subfinder passive-source API keys manageable from

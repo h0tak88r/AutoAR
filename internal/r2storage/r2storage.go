@@ -131,6 +131,17 @@ func IsEnabled() bool {
 	return isEnabled && r2Config != nil && r2Config.Enabled
 }
 
+// Reload re-reads the R2 configuration from the environment and rebuilds the
+// client, so changes made from the dashboard Settings page (R2_* / USE_R2_STORAGE)
+// take effect immediately instead of only after a restart. The config and client
+// are otherwise cached after first use (see LoadConfig/IsEnabled). Safe to call
+// when R2 is being turned off — it resets to the disabled state.
+func Reload() {
+	isEnabled = false
+	r2Client = nil
+	r2Config = LoadConfig() // repopulates isEnabled/r2Config/r2Client from current env
+}
+
 // UploadResultFileAndLog uploads a result file to R2 only if it's non-empty.
 // The r2Key is the object key (e.g. "results/example.com/subs/subdomains.txt").
 // It prints a prominent [R2-RESULT-URL] log line so AI agents can extract the URL.

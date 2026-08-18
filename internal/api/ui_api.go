@@ -68,6 +68,11 @@ func apiConfigHandler(c *gin.Context) {
 		"r2_enabled":      r2storage.IsEnabled(),
 		"r2_public_url":   os.Getenv("R2_PUBLIC_URL"),
 		"r2_bucket":       os.Getenv("R2_BUCKET_NAME"),
+		// R2 account ID is an identifier (appears in the endpoint URL), safe to echo so
+		// the field prefills; the two API keys are secrets — only their set-state is returned.
+		"r2_account_id":     os.Getenv("R2_ACCOUNT_ID"),
+		"r2_access_key_set": strings.TrimSpace(os.Getenv("R2_ACCESS_KEY_ID")) != "",
+		"r2_secret_key_set": strings.TrimSpace(os.Getenv("R2_SECRET_KEY")) != "",
 		"auth_enabled":    authOn,
 		"auth_provider":   "local",
 		"db_type":         utils.GetEnv("DB_TYPE", "postgresql"),
@@ -156,6 +161,14 @@ type UpdateSettingsBody struct {
 	TimeoutMisconfig *int `json:"timeout_misconfig,omitempty"`
 	TimeoutKatana    *int `json:"timeout_katana,omitempty"`
 	TimeoutXss       *int `json:"timeout_xss,omitempty"`
+	// Cloudflare R2 storage. The non-secret fields are *T (present = set/clear); the
+	// two API keys are plain strings where "" = keep the stored value (masked edit).
+	UseR2       *bool   `json:"use_r2,omitempty"`
+	R2AccountID *string `json:"r2_account_id,omitempty"`
+	R2Bucket    *string `json:"r2_bucket,omitempty"`
+	R2PublicURL *string `json:"r2_public_url,omitempty"`
+	R2AccessKey string  `json:"r2_access_key"`
+	R2SecretKey string  `json:"r2_secret_key"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -280,6 +293,43 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	saveTimeout("misconfig", "AUTOAR_TIMEOUT_MISCONFIG", body.TimeoutMisconfig)
 	saveTimeout("katana", "AUTOAR_TIMEOUT_KATANA", body.TimeoutKatana)
 	saveTimeout("xss", "AUTOAR_TIMEOUT_XSS", body.TimeoutXss)
+
+	// Cloudflare R2 storage. Non-secret fields (pointers) are applied when present so
+	// they can be set or cleared; the two API keys are kept when submitted blank
+	// (masked edit). All persist to the DB via saveEnvSetting. If anything changed we
+	// Reload the R2 client so the new config takes effect without a restart.
+	r2Changed := false
+	if body.UseR2 != nil {
+		v := "false"
+		if *body.UseR2 {
+			v = "true"
+		}
+		saveEnvSetting("USE_R2_STORAGE", v)
+		r2Changed = true
+	}
+	if body.R2AccountID != nil {
+		saveEnvSetting("R2_ACCOUNT_ID", strings.TrimSpace(*body.R2AccountID))
+		r2Changed = true
+	}
+	if body.R2Bucket != nil {
+		saveEnvSetting("R2_BUCKET_NAME", strings.TrimSpace(*body.R2Bucket))
+		r2Changed = true
+	}
+	if body.R2PublicURL != nil {
+		saveEnvSetting("R2_PUBLIC_URL", strings.TrimSpace(*body.R2PublicURL))
+		r2Changed = true
+	}
+	if strings.TrimSpace(body.R2AccessKey) != "" {
+		saveEnvSetting("R2_ACCESS_KEY_ID", strings.TrimSpace(body.R2AccessKey))
+		r2Changed = true
+	}
+	if strings.TrimSpace(body.R2SecretKey) != "" {
+		saveEnvSetting("R2_SECRET_KEY", strings.TrimSpace(body.R2SecretKey))
+		r2Changed = true
+	}
+	if r2Changed {
+		r2storage.Reload()
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})
 }
