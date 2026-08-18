@@ -306,11 +306,41 @@
         </div>
 
         <div class="settings-section" data-tab="status">
-          <div class="settings-section-header"> Cloudflare R2 Infrastructure</div>
+          <div class="settings-section-header"> Cloudflare R2 Storage</div>
           <div class="settings-section-body">
-            ${item('R2 Status', cfg.r2_enabled ? 'Connected' : 'Not Configured', 'Cloud artifact storage', cfg.r2_enabled ? 'ok' : 'warn')}
-            ${item('Storage Bucket', cfg.r2_bucket || '—', 'R2 target bucket')}
-            ${item('Public Access URL', cfg.r2_public_url || '—', 'Base URL for indexed assets')}
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Enable R2 storage</div>
+                <div class="settings-hint">Store scan artifacts in Cloudflare R2. All fields below are stored in the database and survive redeploys — no R2 env vars required. ${cfg.r2_enabled ? '<span class="badge badge-done">connected</span>' : '<span class="badge badge-failed">not configured</span>'}</div>
+              </div>
+              <div class="settings-control">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="r2-enabled-input" ${cfg.r2_enabled ? 'checked' : ''}/> Use R2</label>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-title">Account ID</div><div class="settings-hint">Cloudflare account ID — used to build the R2 endpoint.</div></div>
+              <div class="settings-control"><input type="text" id="r2-account-id-input" value="${escValue(cfg.r2_account_id || '')}" placeholder="Cloudflare account ID" class="form-control premium-input"></div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-title">Access Key ID</div><div class="settings-hint">R2 API token access key. ${cfg.r2_access_key_set ? '<span class="badge badge-done">set</span>' : '<span class="badge badge-failed">not set</span>'}</div></div>
+              <div class="settings-control"><input type="password" id="r2-access-key-input" value="" placeholder="${cfg.r2_access_key_set ? 'Leave blank to keep current' : 'R2 access key ID'}" class="form-control premium-input"></div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-title">Secret Access Key</div><div class="settings-hint">R2 API token secret. ${cfg.r2_secret_key_set ? '<span class="badge badge-done">set</span>' : '<span class="badge badge-failed">not set</span>'}</div></div>
+              <div class="settings-control"><input type="password" id="r2-secret-key-input" value="" placeholder="${cfg.r2_secret_key_set ? 'Leave blank to keep current' : 'R2 secret access key'}" class="form-control premium-input"></div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-title">Bucket</div><div class="settings-hint">Target R2 bucket name.</div></div>
+              <div class="settings-control"><input type="text" id="r2-bucket-input" value="${escValue(cfg.r2_bucket || '')}" placeholder="autoar" class="form-control premium-input"></div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-title">Public URL</div><div class="settings-hint">Base public URL for served artifacts (r2.dev or a custom domain).</div></div>
+              <div class="settings-control"><input type="text" id="r2-public-url-input" value="${escValue(cfg.r2_public_url || '')}" placeholder="https://pub-....r2.dev" class="form-control premium-input"></div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-hint">Enter the Access Key ID and Secret together when first setting up or rotating. Changes apply immediately — no redeploy.</div></div>
+              <div class="settings-control"><button class="btn btn-primary" onclick="window.SettingsPage.saveR2Settings()">Save R2 settings</button></div>
+            </div>
           </div>
         </div>
 
@@ -752,6 +782,27 @@
     }
   }
 
+  // Save the Cloudflare R2 storage settings. Non-secret fields are always sent
+  // (set/clear); the two API keys are sent only when non-blank so a blank submit
+  // keeps the stored secret. The server persists everything to the DB and reloads
+  // the R2 client so the change applies without a redeploy.
+  async function saveR2Settings() {
+    const val = (id) => (document.getElementById(id)?.value || '').trim();
+    const payload = {
+      use_r2: !!document.getElementById('r2-enabled-input')?.checked,
+      r2_account_id: val('r2-account-id-input'),
+      r2_bucket: val('r2-bucket-input'),
+      r2_public_url: val('r2-public-url-input'),
+      r2_access_key: val('r2-access-key-input'),
+      r2_secret_key: val('r2-secret-key-input'),
+    };
+    try {
+      await postSettings(payload, 'R2 storage settings saved.');
+    } catch (e) {
+      window.showToast('error', 'Error', e.message);
+    }
+  }
+
   // postSettings sends a partial settings body and reloads the config on success.
   async function postSettings(payload, successMsg) {
     const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
@@ -914,6 +965,7 @@
     saveGeminiKey,
     saveTimeoutSettings,
     saveWebhookSettings,
+    saveR2Settings,
     saveH1Creds,
     saveBugcrowdToken,
     saveIntigritiToken,
