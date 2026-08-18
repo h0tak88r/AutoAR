@@ -42,7 +42,8 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **AI Agent**        | Full AI hunt loop from the CLI (`autoar agent` / `autoar explain`) — defaults to **deepseek-v4-flash-free via OpenCode Zen** — free tier, no card required |
 |  **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 |  **Smart Alerts**    | Rich webhook notifications for zero-findings scans — no more empty files or spam                                                       |
-|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
+|  **Web dashboard**  | **v4.3+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
+|  **DB-backed Settings** | Configure a running instance from the dashboard — platform accounts (multi-account, editable), provider/subfinder keys (multi-key), webhook, Cloudflare R2, AI keys, scan timeouts. Stored in the database, survives redeploys; env vars become optional seeds |
 
 
 ---
@@ -371,7 +372,7 @@ When multiple keys are configured, AutoAR tries them in this order — each prov
 
 ### Configuring from the dashboard
 
-The web dashboard (`/ui/settings`) exposes all four keys and the two model overrides. You can paste keys, change models, and reset to defaults without touching `.env`. Existing keys are masked in the input — leave the field blank to keep the saved value, type a new value to overwrite.
+The web dashboard (`/ui/settings` → **AI Providers**) exposes all four keys and the two model overrides. You can paste keys, change models, and reset to defaults without touching `.env`. Existing keys are masked in the input — leave the field blank to keep the saved value, type a new value to overwrite. This is one tab of the broader DB-backed [Dashboard Settings](#dashboard-settings).
 
 ### Database & Results
 
@@ -465,7 +466,17 @@ go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
 
 ##  Configuration
 
-Copy `.env.example` to `.env` and fill in your values:
+> **Dashboard-first (recommended).** Most settings below can be set from the web dashboard
+> **Settings** page instead of `.env` — platform accounts, subfinder/recon provider keys, the
+> monitor webhook, Cloudflare R2 storage, AI keys/models, and scan timeouts. Anything set there is
+> **stored in the database and survives redeploys**, so the matching environment variables become
+> optional. On boot AutoAR seeds any env-only value into the DB once (so you can then drop it from
+> your deployment) and the DB value wins thereafter. Truly required in `.env`: the database
+> connection (`DB_TYPE`/`DB_HOST`), server bind (`API_HOST`/`API_PORT`), dashboard login
+> (`DASHBOARD_USER`/`DASHBOARD_PASSWORD`, `AUTOAR_JWT_SECRET`), and runtime paths — these bootstrap
+> the app before the DB exists. See [Dashboard Settings](#dashboard-settings) below.
+
+Copy `.env.example` to `.env` and fill in your values (or configure via the dashboard):
 
 ```bash
 cp .env.example .env
@@ -494,6 +505,8 @@ The monitoring daemon posts change alerts to a webhook of your choice. Leave it 
 MONITOR_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
+> Or set it in **Settings → Notifications** — it's stored in the DB and survives redeploys, so the env var isn't required.
+
 ### Cloudflare R2 Storage (Highly Recommended)
 
 AutoAR automatically uploads every non-empty result file to R2 and prints a public URL in the scan output. AI assistants can see and share these links directly.
@@ -513,9 +526,19 @@ Creating R2 Credentials:
 2. Account Settings → API Tokens → Create R2 Token (read+write)
 3. Enable public access: Bucket Settings → Public Access → Allow
 
+> Or configure all of the above in **Settings → System → Cloudflare R2** — the fields are DB-backed
+> (survive redeploys) and applied live on save, so you can switch buckets or rotate keys without a
+> redeploy and without setting any `R2_*` env vars.
+
 ### API Keys for Maximum Subdomain Coverage
 
-All keys are optional but recommended. AutoAR uses whichever are provided:
+All keys are optional but recommended. AutoAR uses whichever are provided.
+
+> Prefer the dashboard: **Settings → Platforms & Keys** manages the recon/subfinder provider keys
+> (multiple keys per provider, add without replacing via the `+` action) and the bug-bounty platform
+> accounts (multiple accounts per platform, each with **Test / Edit / enable / delete**). Everything
+> is DB-backed and survives redeploys — a stored value overrides the env of the same name. The env
+> vars below are just an alternative / initial seed.
 
 ```env
 # Subdomain enumeration sources
@@ -576,6 +599,27 @@ DOMAIN_RUN_TIMEOUT=18000    # 5 hours for full domain runs
 AUTOAR_TIMEOUT_MISCONFIG=1800
 AUTOAR_TIMEOUT_NUCLEI=0
 ```
+
+> Per-phase scan timeouts are also editable in **Settings → Scan Timeouts** (DB-backed as
+> `timeout_<phase>`; the DB value wins over `AUTOAR_TIMEOUT_<PHASE>`).
+
+<a id="dashboard-settings"></a>
+### Dashboard Settings
+
+The web dashboard **Settings** page is the primary way to configure a running instance. Every value
+here is written to the database (so it survives container/Dokploy redeploys that reset `.env`); the
+matching env var becomes an optional seed. Tabs:
+
+| Tab | What you manage |
+| --- | --- |
+| **Platforms & Keys** | Bug-bounty accounts — multiple per platform (HackerOne, Bugcrowd, Intigriti, YesWeHack), each with **Test / Edit / enable / delete** (editing keeps a stored secret when the field is left blank). External aggregator keys (Shodan, Chaos) and the **Subfinder provider keys** (multi-key, `+` to append without replacing). |
+| **AI Providers** | OpenRouter / OpenCode / Gemini keys and the two model overrides — masked, blank keeps the saved value. |
+| **Scan Timeouts** | Per-phase timeouts (nuclei, misconfig, katana, xss, …). |
+| **Notifications** | Monitor webhook URL (Discord-compatible). |
+| **System** | **Cloudflare R2 storage** (account ID, keys, bucket, public URL, enable toggle — applied live on save), plus system status and API endpoints. |
+
+Secrets are never returned by the API — inputs render masked and show a "set / not set" badge; submit
+a blank field to keep the stored value or a new value to overwrite.
 
 ---
 
