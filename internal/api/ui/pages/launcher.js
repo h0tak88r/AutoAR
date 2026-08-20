@@ -20,6 +20,7 @@
     dns_dangling: { path: 'dns', modes: ['domain', 'domain_list'], extra: { dns_type: 'dangling-ip' }, placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_takeover: { path: 'dns-takeover', modes: ['domain', 'domain_list'], placeholders: { domain: 'example.com', domain_list: 'one domain per line' } },
     dns_cf1016: { path: 'dns-cf1016', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'api.example.com', domain_list: 'one domain per line', subdomain_list: 'one subdomain per line' } },
+    firebase: { path: 'firebase', modes: ['domain', 'subdomain', 'domain_list', 'subdomain_list'], placeholders: { domain: 'example.com', subdomain: 'app.example.com', domain_list: 'one domain per line', subdomain_list: 'one host per line' } },
     s3: { path: 's3', modes: ['bucket', 'bucket_list', 'domain', 'domain_list'], placeholders: { bucket: 'bucket-name or bucket.s3.ap-south-1.amazonaws.com', bucket_list: 'one bucket name or s3 URL per line', domain: 'example.com', domain_list: 'one domain per line' } },
     github: { path: 'github', modes: ['repo', 'repo_list'], placeholders: { repo: 'owner/repository or github.com/owner/repo', repo_list: 'one owner/repo per line' } },
     github_org: { path: 'github_org', modes: ['domain', 'domain_list'], placeholders: { domain: 'org-name or github.com/org', domain_list: 'one org per line' } },
@@ -411,7 +412,7 @@
   // of these, otherwise the <select> silently falls back to its first option.
   const LAUNCH_DROPDOWN_KEYS = new Set([
     'recon', 'domain_scan', 'subdomain_scan', 'asr', 'urls', 'tech', 'nuclei', 'ports',
-    'dns', 'dns_dangling', 'dns_cf1016', 's3', 'github', 'github_org', 'js', 'reflection',
+    'dns', 'dns_dangling', 'dns_cf1016', 'firebase', 's3', 'github', 'github_org', 'js', 'reflection',
     'gf', 'backup', 'misconfig', 'zerodays', 'ffuf',
   ]);
 

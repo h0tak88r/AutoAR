@@ -22,6 +22,7 @@ import (
 	backupmod "github.com/h0tak88r/AutoAR/internal/scanner/backup"
 	cf1016mod "github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
 	cnamesmod "github.com/h0tak88r/AutoAR/internal/scanner/cnames"
+	firebasemod "github.com/h0tak88r/AutoAR/internal/scanner/firebase"
 	"github.com/h0tak88r/AutoAR/internal/scanner/mcpdiscovery"
 	dnsmod "github.com/h0tak88r/AutoAR/internal/scanner/dns"
 	domainmod "github.com/h0tak88r/AutoAR/internal/scanner/domain"
@@ -488,6 +489,49 @@ func scanDNSCF1016(c *gin.Context) {
 	okStarted(c, scanID, fmt.Sprintf("Cloudflare 1016 dangling DNS scan started for %s", target))
 }
 
+// ── Firebase ────────────────────────────────────────────────────────────────
+func scanFirebase(c *gin.Context) {
+	var req ScanRequest
+	if !bindOrBad(c, &req) {
+		return
+	}
+	var target string
+	switch {
+	case req.Domain != nil && *req.Domain != "":
+		target = *req.Domain
+	case req.Subdomain != nil && *req.Subdomain != "":
+		target = *req.Subdomain
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain is required"})
+		return
+	}
+	scanID := generateScanID()
+	go RunScanInProcess(scanID, "firebase", target, func() error {
+		clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
+		parts := strings.Split(clean, ".")
+		if len(parts) > 2 {
+			// Single host — scan only this host (don't enumerate subdomains of it).
+			tmp, err := os.CreateTemp("", "autoar-firebase-*.txt")
+			if err != nil {
+				return fmt.Errorf("firebase: failed to create temp file: %w", err)
+			}
+			defer os.Remove(tmp.Name())
+			if _, err := fmt.Fprintln(tmp, clean); err != nil {
+				tmp.Close()
+				return err
+			}
+			tmp.Close()
+			rootDomain := strings.Join(parts[len(parts)-2:], ".")
+			_, err = firebasemod.Run(firebasemod.Options{Domain: rootDomain, LiveHostsFile: tmp.Name(), Threads: 20, Timeout: 15 * time.Second})
+			return err
+		}
+		// Root domain — scan its stored/live hosts.
+		_, err := firebasemod.Run(firebasemod.Options{Domain: clean, Threads: 20, Timeout: 15 * time.Second})
+		return err
+	})
+	okStarted(c, scanID, fmt.Sprintf("Firebase exposure scan started for %s", target))
+}
+
 // ── FFuf ──────────────────────────────────────────────────────────────────────
 
 func scanFFuf(c *gin.Context) {
@@ -892,6 +936,29 @@ func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
 				Timeout:   10 * time.Second,
 				OutputDir: filepath.Join("new-results", clean, "vulnerabilities", "dns-takeover"),
 			})
+			return err
+		})
+		return newScanID, true
+	case "firebase":
+		go RunScanInProcess(newScanID, "firebase", target, func() error {
+			clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
+			parts := strings.Split(clean, ".")
+			if len(parts) > 2 {
+				tmp, err := os.CreateTemp("", "autoar-firebase-*.txt")
+				if err != nil {
+					return fmt.Errorf("firebase rescan: failed to create temp file: %w", err)
+				}
+				defer os.Remove(tmp.Name())
+				if _, err := fmt.Fprintln(tmp, clean); err != nil {
+					tmp.Close()
+					return err
+				}
+				tmp.Close()
+				rootDomain := strings.Join(parts[len(parts)-2:], ".")
+				_, err = firebasemod.Run(firebasemod.Options{Domain: rootDomain, LiveHostsFile: tmp.Name(), Threads: 20, Timeout: 15 * time.Second})
+				return err
+			}
+			_, err := firebasemod.Run(firebasemod.Options{Domain: clean, Threads: 20, Timeout: 15 * time.Second})
 			return err
 		})
 		return newScanID, true

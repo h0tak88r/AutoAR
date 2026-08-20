@@ -643,6 +643,7 @@ func SetupAPI() *gin.Engine {
 		api.POST("/dns-takeover", scanDNSTakeover)
 		api.POST("/dns", scanDNS)              // New unified DNS endpoint (supports takeover and dangling-ip)
 		api.POST("/dns-cf1016", scanDNSCF1016) // Cloudflare 1016 dangling DNS scan
+		api.POST("/firebase", scanFirebase)    // Firebase misconfiguration exposure scan
 		api.POST("/mcp-discovery", scanMCPDiscovery)
 		api.POST("/s3", scanS3)
 		api.POST("/js-endpoints", scanJSEndpoints)
@@ -1467,6 +1468,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	if initialTotalPhases == 0 {
 		scanLabel := map[string]string{
 			"dns_cf1016": "CF1016 Dangling DNS", "dns-cf1016": "CF1016 Dangling DNS",
+			"firebase":      "Firebase Exposure",
 			"mcp-discovery": "MCP Discovery",
 			"misconfig":     "Misconfiguration", "s3": "S3 Bucket",
 			"github": "GitHub Recon", "github_org": "GitHub Org Recon",
