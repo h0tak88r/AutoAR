@@ -380,6 +380,7 @@ type ScanRequest struct {
 	Provider          *string `json:"provider"`
 	APIKey            *string `json:"api_key"`
 	Resolvers         *string `json:"resolvers"`
+	Aggressive        *bool   `json:"aggressive"` // firebase: enable write tests (opt-in)
 	// FFuf options
 	Target         *string            `json:"target"`          // FFuf target URL
 	Wordlist       *string            `json:"wordlist"`        // FFuf wordlist path

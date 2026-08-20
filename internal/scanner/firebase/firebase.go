@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -80,6 +81,12 @@ type Options struct {
 	Threads       int           // host concurrency (default 20)
 	Timeout       time.Duration // per-request timeout (default 15s)
 	OutputDir     string        // reserved; JSON is written to the scan dir
+	// Aggressive enables WRITE tests (RTDB PUT, Storage upload, Firestore create)
+	// in addition to the read-only probes. Each write goes to a clearly-labelled
+	// `_autoar_wtest_<ts>` path with benign content and is DELETED immediately after,
+	// so no attacker data is left behind. Off by default — writing to a target's
+	// Firebase is a deliberate, authorized-engagement choice.
+	Aggressive bool
 }
 
 // Result holds all findings.
@@ -105,9 +112,13 @@ func Run(opts Options) (*Result, error) {
 		return &Result{}, nil
 	}
 
-	logger.GetLogger().Infof("[firebase] Scanning %d host(s) for Firebase exposure (threads=%d)", len(hosts), opts.Threads)
+	mode := "read-only"
+	if opts.Aggressive {
+		mode = "read+write (aggressive)"
+	}
+	logger.GetLogger().Infof("[firebase] Scanning %d host(s) for Firebase exposure (threads=%d, mode=%s)", len(hosts), opts.Threads, mode)
 
-	findings := scanAll(hosts, opts.Threads, opts.Timeout)
+	findings := scanAll(hosts, opts.Threads, opts.Timeout, opts.Aggressive)
 
 	// Persist structured JSON for the dashboard (R2 + DB indexing are automatic).
 	if scanID := utils.GetCurrentScanID(); scanID != "" {
@@ -233,7 +244,7 @@ func normalizeHost(line string) string {
 
 // ---- worker pool -----------------------------------------------------------
 
-func scanAll(hosts []string, threads int, timeout time.Duration) []Finding {
+func scanAll(hosts []string, threads int, timeout time.Duration, aggressive bool) []Finding {
 	client := &http.Client{
 		Timeout: timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -253,7 +264,7 @@ func scanAll(hosts []string, threads int, timeout time.Duration) []Finding {
 			defer wg.Done()
 			defer utils.RecoverPanic("firebase:worker")
 			for host := range jobCh {
-				if fs := scanHost(client, host); len(fs) > 0 {
+				if fs := scanHost(client, host, aggressive); len(fs) > 0 {
 					resultCh <- fs
 				}
 			}
@@ -277,10 +288,14 @@ func scanAll(hosts []string, threads int, timeout time.Duration) []Finding {
 	return findings
 }
 
-// scanHost fingerprints one host and, if Firebase is detected, runs the read-only
-// service exposure tests. Returns the fingerprint (info) plus one finding per
-// exposed service.
-func scanHost(client *http.Client, host string) []Finding {
+// serviceExists reports whether a read probe reached a live service (so it's
+// worth a write test) — anything but "not-found" / no-response.
+func serviceExists(access string) bool { return access != "" && access != "not-found" }
+
+// scanHost fingerprints one host and, if Firebase is detected, runs the service
+// exposure tests. When aggressive is set it also runs WRITE tests (with immediate
+// cleanup). Returns the fingerprint (info) plus one finding per exposed service.
+func scanHost(client *http.Client, host string, aggressive bool) []Finding {
 	detected, cfg, evidence := fingerprint(client, host)
 	if !detected {
 		return nil
@@ -288,7 +303,7 @@ func scanHost(client *http.Client, host string) []Finding {
 
 	var findings []Finding
 
-	// Test each derived service read-only.
+	// Test each derived service. Track the read/write access per service.
 	var svcSummary []string
 	svc := func(label, access string) { svcSummary = append(svcSummary, label+"="+access) }
 
@@ -306,6 +321,16 @@ func scanHost(client *http.Client, host string) []Finding {
 				Title: "Firebase Realtime Database world-readable (unauthenticated)",
 			})
 		}
+		if aggressive && serviceExists(access) {
+			if writable, wurl, wev := testRealtimeDBWrite(client, dbURL); writable {
+				svc("rtdb-write", "public-write")
+				findings = append(findings, Finding{
+					Host: host, ProjectID: cfg.ProjectID, Service: "realtime-db-write", Access: "public-write",
+					Severity: "critical", URL: wurl, Evidence: wev,
+					Title: "Firebase Realtime Database world-WRITABLE (unauthenticated)",
+				})
+			}
+		}
 		break // one working RTDB URL is enough
 	}
 
@@ -320,6 +345,16 @@ func scanHost(client *http.Client, host string) []Finding {
 					Severity: "high", URL: url, Evidence: ev,
 					Title: "Firebase Cloud Firestore world-readable (unauthenticated)",
 				})
+			}
+			if aggressive && serviceExists(access) {
+				if writable, wurl, wev := testFirestoreWrite(client, cfg.ProjectID); writable {
+					svc("firestore-write", "public-write")
+					findings = append(findings, Finding{
+						Host: host, ProjectID: cfg.ProjectID, Service: "firestore-write", Access: "public-write",
+						Severity: "critical", URL: wurl, Evidence: wev,
+						Title: "Firebase Cloud Firestore world-WRITABLE (unauthenticated)",
+					})
+				}
 			}
 		}
 	}
@@ -337,6 +372,16 @@ func scanHost(client *http.Client, host string) []Finding {
 				Severity: "high", URL: url, Evidence: ev,
 				Title: "Firebase Storage bucket listing world-readable (unauthenticated)",
 			})
+		}
+		if aggressive && serviceExists(access) {
+			if writable, wurl, wev := testStorageWrite(client, bucket); writable {
+				svc("storage-write", "public-write")
+				findings = append(findings, Finding{
+					Host: host, ProjectID: cfg.ProjectID, Service: "storage-write", Access: "public-write",
+					Severity: "critical", URL: wurl, Evidence: wev,
+					Title: "Firebase Storage bucket world-WRITABLE (unauthenticated)",
+				})
+			}
 		}
 		break
 	}
@@ -566,7 +611,87 @@ func testStorage(client *http.Client, bucket string) (access, url, evidence stri
 	return "", url, ""
 }
 
+// ---- write tests (aggressive; each cleans up after itself) ------------------
+
+// wtestName is a clearly-labelled, unique key for a write probe so it can never
+// collide with real data and is obvious in the target's logs.
+func wtestName() string {
+	return "_autoar_wtest_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+// testRealtimeDBWrite PUTs a benign marker to a labelled test key, and DELETEs it
+// immediately on success. Confirms unauthenticated write without leaving data.
+func testRealtimeDBWrite(client *http.Client, dbURL string) (writable bool, url, evidence string) {
+	url = strings.TrimRight(dbURL, "/") + "/" + wtestName() + ".json"
+	code := send(client, http.MethodPut, url, "application/json", `{"autoar":"authorized-write-test","note":"safe to delete"}`)
+	if code == 200 {
+		_ = del(client, url) // clean up immediately — leave nothing behind
+		return true, url, "PUT 200 — test key written and deleted"
+	}
+	return false, url, ""
+}
+
+// testFirestoreWrite creates a benign document in an autoar_wtest collection and
+// deletes it on success.
+func testFirestoreWrite(client *http.Client, projectID string) (writable bool, url, evidence string) {
+	docID := wtestName()
+	base := "https://firestore.googleapis.com/v1/projects/" + projectID + "/databases/(default)/documents/autoar_wtest"
+	url = base + "?documentId=" + docID
+	code := send(client, http.MethodPost, url, "application/json", `{"fields":{"autoar":{"stringValue":"authorized-write-test"}}}`)
+	if code == 200 || code == 201 {
+		_ = del(client, base+"/"+docID) // clean up
+		return true, url, "createDocument " + strconv.Itoa(code) + " — test doc written and deleted"
+	}
+	return false, url, ""
+}
+
+// testStorageWrite uploads a small benign object to a labelled name and deletes it
+// on success.
+func testStorageWrite(client *http.Client, bucket string) (writable bool, url, evidence string) {
+	name := wtestName() + ".txt"
+	url = "https://firebasestorage.googleapis.com/v0/b/" + bucket + "/o?name=" + name
+	code := send(client, http.MethodPost, url, "text/plain", "autoar authorized write test — safe to delete")
+	if code == 200 {
+		_ = del(client, "https://firebasestorage.googleapis.com/v0/b/"+bucket+"/o/"+name) // clean up
+		return true, url, "upload 200 — test object written and deleted"
+	}
+	return false, url, ""
+}
+
 // ---- http helper -----------------------------------------------------------
+
+// send performs a write request (PUT/POST) and returns the status code (0 on
+// network error). The body is discarded — only the code matters.
+func send(client *http.Client, method, url, contentType, body string) int {
+	req, err := http.NewRequest(method, url, strings.NewReader(body))
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", browserUA())
+	req.Header.Set("Content-Type", contentType)
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// del removes a write-probe object (best-effort cleanup so nothing is left behind).
+func del(client *http.Client, url string) int {
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", browserUA())
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
 
 // get performs a single GET and returns a (capped) body + status code. Network
 // errors return code 0.

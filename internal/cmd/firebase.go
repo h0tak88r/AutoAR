@@ -22,6 +22,7 @@ var firebaseScanCmd = &cobra.Command{
 		subdomain, _ := cmd.Flags().GetString("subdomain")
 		listFile, _ := cmd.Flags().GetString("live-hosts")
 		threads, _ := cmd.Flags().GetInt("threads")
+		aggressive, _ := cmd.Flags().GetBool("aggressive")
 
 		if domain == "" && subdomain == "" && listFile == "" {
 			return fmt.Errorf("domain (-d), subdomain (-s), or hosts file (-l) is required")
@@ -42,6 +43,7 @@ var firebaseScanCmd = &cobra.Command{
 			LiveHostsFile: listFile,
 			Threads:       threads,
 			Timeout:       15 * time.Second,
+			Aggressive:    aggressive,
 		}
 
 		// Single host (-s) with no list → write a one-line temp file.
@@ -75,4 +77,5 @@ func init() {
 	// NOTE: no "-l" shorthand — it's the global --log-level (rootCmd persistent flag).
 	firebaseScanCmd.Flags().String("live-hosts", "", "Path to a file of hosts (one per line)")
 	firebaseScanCmd.Flags().IntP("threads", "t", 20, "Concurrency")
+	firebaseScanCmd.Flags().Bool("aggressive", false, "Also run WRITE tests (RTDB/Firestore/Storage) — writes a labelled marker and deletes it immediately. Authorized engagements only.")
 }

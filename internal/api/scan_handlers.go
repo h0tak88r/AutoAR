@@ -505,6 +505,7 @@ func scanFirebase(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain is required"})
 		return
 	}
+	aggressive := req.Aggressive != nil && *req.Aggressive
 	scanID := generateScanID()
 	go RunScanInProcess(scanID, "firebase", target, func() error {
 		clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
@@ -522,14 +523,18 @@ func scanFirebase(c *gin.Context) {
 			}
 			tmp.Close()
 			rootDomain := strings.Join(parts[len(parts)-2:], ".")
-			_, err = firebasemod.Run(firebasemod.Options{Domain: rootDomain, LiveHostsFile: tmp.Name(), Threads: 20, Timeout: 15 * time.Second})
+			_, err = firebasemod.Run(firebasemod.Options{Domain: rootDomain, LiveHostsFile: tmp.Name(), Threads: 20, Timeout: 15 * time.Second, Aggressive: aggressive})
 			return err
 		}
 		// Root domain — scan its stored/live hosts.
-		_, err := firebasemod.Run(firebasemod.Options{Domain: clean, Threads: 20, Timeout: 15 * time.Second})
+		_, err := firebasemod.Run(firebasemod.Options{Domain: clean, Threads: 20, Timeout: 15 * time.Second, Aggressive: aggressive})
 		return err
 	})
-	okStarted(c, scanID, fmt.Sprintf("Firebase exposure scan started for %s", target))
+	msg := "Firebase exposure scan started for " + target
+	if aggressive {
+		msg += " (aggressive: write tests enabled)"
+	}
+	okStarted(c, scanID, msg)
 }
 
 // ── FFuf ──────────────────────────────────────────────────────────────────────

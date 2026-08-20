@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -154,6 +155,71 @@ func TestFingerprintFromHandlerJS(t *testing.T) {
 	}
 	if evidence != "auth/handler.js" {
 		t.Errorf("evidence: got %q", evidence)
+	}
+}
+
+// TestRealtimeDBWriteCleansUp verifies the write probe PUTs a marker and then
+// DELETEs the same key (leaves nothing behind) when the write succeeds.
+func TestRealtimeDBWriteCleansUp(t *testing.T) {
+	var mu sync.Mutex
+	var calls []string // "METHOD path"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	writable, url, _ := testRealtimeDBWrite(testClient(), srv.URL)
+	if !writable {
+		t.Fatal("expected writable=true on a 200 PUT")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 2 {
+		t.Fatalf("expected a PUT then a DELETE, got %v", calls)
+	}
+	if !strings.HasPrefix(calls[0], "PUT ") {
+		t.Errorf("first call should be PUT, got %q", calls[0])
+	}
+	if !strings.HasPrefix(calls[1], "DELETE ") {
+		t.Errorf("cleanup call should be DELETE, got %q", calls[1])
+	}
+	// PUT and DELETE must target the same key path (from the returned url).
+	if !strings.Contains(url, "_autoar_wtest_") {
+		t.Errorf("write url not labelled: %q", url)
+	}
+	putPath := strings.TrimPrefix(calls[0], "PUT ")
+	delPath := strings.TrimPrefix(calls[1], "DELETE ")
+	if putPath != delPath {
+		t.Errorf("cleanup targeted a different key: PUT %q vs DELETE %q", putPath, delPath)
+	}
+}
+
+// TestRealtimeDBWriteDeniedNoCleanup: a denied write does not report writable and
+// performs no DELETE.
+func TestRealtimeDBWriteDeniedNoCleanup(t *testing.T) {
+	var mu sync.Mutex
+	deletes := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			mu.Lock()
+			deletes++
+			mu.Unlock()
+		}
+		w.WriteHeader(403)
+	}))
+	defer srv.Close()
+
+	writable, _, _ := testRealtimeDBWrite(testClient(), srv.URL)
+	if writable {
+		t.Error("expected writable=false on a 403 PUT")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if deletes != 0 {
+		t.Errorf("no cleanup DELETE should happen when the write is denied, got %d", deletes)
 	}
 }
 
