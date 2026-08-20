@@ -10,6 +10,7 @@ import (
 
 	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/db"
+	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,10 +30,16 @@ import (
 const (
 	programsCacheSettingKey = "programs_cache_v1"
 	// programsCacheTTL is how long a cached payload is considered fresh. Past it,
-	// the cache is still served but a background refresh is triggered.
-	programsCacheTTL = 10 * time.Minute
-	// programsWarmInterval is the background refresh cadence.
-	programsWarmInterval = 10 * time.Minute
+	// the cache is still served but a background refresh is triggered. Kept in step
+	// with programsWarmInterval so a page load doesn't kick an on-demand refresh on
+	// top of the background one.
+	programsCacheTTL = 2 * time.Hour
+	// programsWarmInterval is the REST period between background refreshes (applied
+	// AFTER each refresh completes — see StartProgramsWarmer). A full refresh of the
+	// ~2000-program catalogue takes ~20 min; the old 10m ticker fired mid-refresh so
+	// ticks queued and it refreshed back-to-back at ~100% CPU. Resting 2h between
+	// refreshes drops the duty cycle to ~15% while keeping scope data fresh enough.
+	programsWarmInterval = 2 * time.Hour
 )
 
 // programsCachePayload is the full assembled program list persisted as one JSON
@@ -271,12 +278,16 @@ func refreshProgramsCacheAsync() {
 // refreshes it on a ticker. Call once from the API server start path.
 func StartProgramsWarmer() {
 	go func() {
+		defer utils.RecoverPanic("programs-warmer")
 		if payload, ok := loadProgramsCache(); !ok || time.Since(payload.GeneratedAt) > programsCacheTTL {
 			refreshProgramsCache()
 		}
-		ticker := time.NewTicker(programsWarmInterval)
-		defer ticker.Stop()
-		for range ticker.C {
+		// Sleep AFTER each refresh completes (not a fixed ticker): a full refresh of
+		// the ~2000-program catalogue can take ~20 min, and a ticker shorter than that
+		// queues ticks and re-fires immediately, pegging CPU/DB non-stop. This gives a
+		// guaranteed rest gap regardless of how long a refresh takes.
+		for {
+			time.Sleep(programsWarmInterval)
 			refreshProgramsCache()
 		}
 	}()
