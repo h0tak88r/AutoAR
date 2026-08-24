@@ -167,6 +167,28 @@ live in container logs: `watcher started (interval 30m0s, autorun=true)` +
 baseline seeded from PDCP. The PDCP key resolves from the DB-hydrated
 CHAOS_API_KEY (no extra env needed).
 
+Follow-up fixes (same day, after the first watcher run hit production):
+
+- **Un-cancellable nuclei scans**: `RunGlobalTemplate` built its engine on
+  `context.Background()`, so UI cancel marked the DB row but the engine kept
+  sweeping all hosts and firing webhooks. Fixed by threading the scan lifetime
+  context: `ScanInfo.Ctx` (`scans.go`) set by `RunScanInProcessWithCommand`,
+  read via `scanContext(scanID)` and passed into
+  `nuclei.RunGlobalTemplate(ctx, …)` (signature changed — ctx is the first
+  param; callers: `ui_api.go::runGlobalNucleiScan`,
+  `pipeline_api.go::runRootPipeline`). Verified empirically: engine stops ~0s
+  after cancel (`err=context canceled`).
+  NOTE: the domain-scan nuclei path (`runNucleiCommand` in nuclei.go) still
+  uses `context.Background()` — same fix applies if cancel is wanted there.
+- **Duplicate alerts/runs per template**: the PDCP search index returns BOTH
+  the public and draft document of a template (same `id`, same `uri`,
+  different raw revision). The watcher now dedupes each batch by template ID.
+- **Empty Target in Discord hits**: `event.Matched` can be empty for some
+  event shapes; both nuclei callbacks now fall back Matched → URL → Host.
+- The leaked staging dir from a cancelled scan (`/tmp/nuclei-watch-templates-*`)
+  is wiped by the fn cleanup when the engine actually stops — with ctx now
+  wired, cancel → engine stops → cleanup runs.
+
 ## Conventions worth following (observed in this codebase)
 
 - Settings that must survive Dokploy redeploys: env var + entry in

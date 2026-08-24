@@ -598,7 +598,12 @@ func scanRequestHeaders() []string {
 	return []string{"User-Agent: " + ua}
 }
 
-func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, onResult func(event *nucleiOutput.ResultEvent)) error {
+// RunGlobalTemplate runs one template path/ID/dir over a target file. ctx should
+// be the owning scan's context so UI cancel/timeout actually stops the engine.
+func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath string, threads int, onResult func(event *nucleiOutput.ResultEvent)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	targets, err := readTargetLines(targetFile)
 	if err != nil {
 		return fmt.Errorf("failed to read targets: %w", err)
@@ -625,7 +630,7 @@ func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, on
 	defer jsonWriter.Close()
 
 	engine, err := nucleiSDK.NewNucleiEngineCtx(
-		context.Background(),
+		ctx,
 		nucleiSDK.DisableUpdateCheck(),
 		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
 		nucleiSDK.WithHeaders(scanRequestHeaders()),

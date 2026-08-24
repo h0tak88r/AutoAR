@@ -30,8 +30,7 @@ func init() {
 	})
 }
 
-type ScanInfo struct {
-	ScanID      string
+type ScanInfo struct {	ScanID      string
 	Type        string
 	ScanType    string // For API compatibility
 	Target      string
@@ -41,6 +40,7 @@ type ScanInfo struct {
 	CompletedAt *time.Time
 	Command     string
 	CancelFunc  context.CancelFunc // Function to cancel the scan
+	Ctx         context.Context    `json:"-"` // scan lifetime context — in-process modules (nuclei) read it so cancel actually stops them
 	ExecCmd     *exec.Cmd          `json:"-"` // API executeScan: child process (kill / pause via signals)
 	CancelRequested bool           `json:"-"` // API: user requested stop; Wait() will mark cancelled
 
@@ -56,6 +56,20 @@ type ScanInfo struct {
 	FilesUploaded int       // Number of files uploaded
 	ErrorCount    int       // Number of errors encountered
 	LastUpdate    time.Time // Last progress update time
+}
+
+// scanContext returns the live lifetime context of a running in-process scan,
+// or context.Background() when the scan isn't tracked. In-process modules pass
+// this into their engines so CancelScanByID/timeout genuinely stop the work
+// (a nuclei engine built on context.Background() ignores UI cancels and keeps
+// sweeping hosts + firing webhooks).
+func scanContext(scanID string) context.Context {
+	ScansMutex.RLock()
+	defer ScansMutex.RUnlock()
+	if si, ok := ActiveScans[scanID]; ok && si.Ctx != nil {
+		return si.Ctx
+	}
+	return context.Background()
 }
 
 // CancelScanByID stops a running scan

@@ -183,6 +183,7 @@ func RunScanInProcessWithCommand(scanID, scanType, target, command string, fn fu
 		Target:     target,
 		StartedAt:  startedAt,
 		Command:    command,
+		Ctx:        ctx,      // exposed so in-process modules can wire cancellation into their engines
 		CancelFunc: cancelCtx, // wired so CancelScanByID() can call it
 	}
 	ScansMutex.Unlock()

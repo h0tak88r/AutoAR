@@ -872,13 +872,22 @@ func runGlobalNucleiScan(scanID, template string) error {
 	outPath := filepath.Join(outDir, "nuclei-"+scanID+".json")
 
 	matches := 0
-	err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
+	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
 		if event != nil && event.TemplateID != "" {
 			matches++
+			// Matched is empty for some event shapes (flow steps, non-http
+			// protocols) — fall back so the alert always names a target.
+			matched := event.Matched
+			if matched == "" {
+				matched = event.URL
+			}
+			if matched == "" {
+				matched = event.Host
+			}
 			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-				event.TemplateID, event.Info.Name, event.Matched, event.Info.SeverityHolder.Severity.String())
+				event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String())
 			utils.SendWebhookLogAsync(msg)
-			stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.Matched)
+			stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 		}
 	})
 

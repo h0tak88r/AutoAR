@@ -240,15 +240,22 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 
 	stdLog(scanID, "[INFO] running nuclei template %q on %d subdomains", tplName, len(allSubs))
 	matches := 0
-	err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, threads, func(event *output.ResultEvent) {
+	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, threads, func(event *output.ResultEvent) {
 		if event == nil || event.TemplateID == "" {
 			return
 		}
 		matches++
+		matched := event.Matched
+		if matched == "" {
+			matched = event.URL
+		}
+		if matched == "" {
+			matched = event.Host
+		}
 		msg := fmt.Sprintf(" **Root Pipeline Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-			event.TemplateID, event.Info.Name, event.Matched, event.Info.SeverityHolder.Severity.String())
+			event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String())
 		utils.SendMonitorWebhook(msg)
-		stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.Matched)
+		stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 	})
 	if err != nil {
 		return fmt.Errorf("nuclei scan failed: %w", err)

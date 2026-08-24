@@ -188,6 +188,20 @@ func nucleiTemplateWatchCycle() {
 		return
 	}
 
+	// The PDCP index returns BOTH the public and the draft document for the same
+	// template (same id/uri, different raw revision). Dedupe within the batch —
+	// otherwise every alert lists the template twice and nuclei runs it twice.
+	deduped := fresh[:0]
+	seenIDs := make(map[string]bool, len(fresh))
+	for _, t := range fresh {
+		if t.ID == "" || seenIDs[t.ID] {
+			continue
+		}
+		seenIDs[t.ID] = true
+		deduped = append(deduped, t)
+	}
+	fresh = deduped
+
 	logger.GetLogger().Infof("[NUCLEI-WATCH] %d new template(s) since %s", len(fresh), watermark)
 	nucleiWatchNotify(fresh)
 
