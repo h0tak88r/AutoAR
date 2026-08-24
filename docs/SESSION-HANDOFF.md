@@ -158,6 +158,15 @@ per-process (not per-IP) API rate limiter; `loginAttempts` map never prunes;
 `scans.go` ExecCmd read-after-unlock race; lexical `created_at` comparison in
 the watcher (fractional-second edge).
 
+## Status at end of session
+
+Commits `1562872` (template watch + nuclei rescan) and `a1daf67` (security
+review fixes) are pushed to private `testing` + `master` and DEPLOYED on
+Dokploy (verified healthy 2026-08-24 ~22:10 VPS time). The watcher confirmed
+live in container logs: `watcher started (interval 30m0s, autorun=true)` +
+baseline seeded from PDCP. The PDCP key resolves from the DB-hydrated
+CHAOS_API_KEY (no extra env needed).
+
 ## Conventions worth following (observed in this codebase)
 
 - Settings that must survive Dokploy redeploys: env var + entry in
