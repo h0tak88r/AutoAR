@@ -210,8 +210,17 @@ func nucleiTemplateWatchCycle() {
 	// poll interval should measure from the poll, not from scan completion.
 	nucleiWatchSaveState(fresh[0].CreatedAt, fresh)
 
-	if nucleiTemplateAutoRunEnabled() {
-		dir, downloaded, cleanup, err := nucleiWatchStage(fresh)
+	// info-severity templates (panels, tech-detects) are alert-only — running them
+	// against every live host is scan budget spent on noise.
+	var runnable []pdcpTemplate
+	for _, t := range fresh {
+		if nucleiWatchRunnable(t) {
+			runnable = append(runnable, t)
+		}
+	}
+
+	if nucleiTemplateAutoRunEnabled() && len(runnable) > 0 {
+		dir, downloaded, cleanup, err := nucleiWatchStage(runnable)
 		if err != nil || len(downloaded) == 0 {
 			cleanup()
 			logger.GetLogger().Infof("[NUCLEI-WATCH] staging templates failed: %v", err)
@@ -232,7 +241,16 @@ func nucleiTemplateWatchCycle() {
 				cleanup()
 			}
 		}
+	} else if nucleiTemplateAutoRunEnabled() {
+		logger.GetLogger().Infof("[NUCLEI-WATCH] all %d new template(s) are info-severity — alert sent, auto-run skipped", len(fresh))
 	}
+}
+
+// nucleiWatchRunnable reports whether a newly published template should be
+// auto-run against all live hosts. info-severity templates (panels,
+// tech-detects) are alert-only. Empty/unknown severity runs (fail-open).
+func nucleiWatchRunnable(t pdcpTemplate) bool {
+	return !strings.EqualFold(strings.TrimSpace(t.Severity), "info")
 }
 
 // nucleiWatchSearch fetches the newest public templates, sorted by creation

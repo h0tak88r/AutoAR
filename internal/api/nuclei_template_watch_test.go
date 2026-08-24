@@ -67,3 +67,25 @@ func TestNucleiTemplateAPIKeyFallback(t *testing.T) {
 		t.Error("watch should be disabled when no PDCP/CHAOS key is set")
 	}
 }
+
+func TestNucleiWatchRunnable(t *testing.T) {
+	cases := []struct {
+		severity string
+		want     bool
+	}{
+		{"info", false},
+		{"INFO", false},
+		{" info ", false},
+		{"low", true},
+		{"medium", true},
+		{"high", true},
+		{"critical", true},
+		{"unknown", true}, // fail-open
+		{"", true},        // fail-open
+	}
+	for _, tc := range cases {
+		if got := nucleiWatchRunnable(pdcpTemplate{Severity: tc.severity}); got != tc.want {
+			t.Errorf("nucleiWatchRunnable(severity=%q) = %v, want %v", tc.severity, got, tc.want)
+		}
+	}
+}

@@ -185,6 +185,10 @@ Follow-up fixes (same day, after the first watcher run hit production):
   different raw revision). The watcher now dedupes each batch by template ID.
 - **Empty Target in Discord hits**: `event.Matched` can be empty for some
   event shapes; both nuclei callbacks now fall back Matched → URL → Host.
+- **info-severity templates are alert-only**: the watcher still announces them
+  on Discord but never auto-runs them (`nucleiWatchRunnable` — panels and
+  tech-detects aren't worth a full live-host sweep). Empty/unknown severity
+  fails open (runs).
 - The leaked staging dir from a cancelled scan (`/tmp/nuclei-watch-templates-*`)
   is wiped by the fn cleanup when the engine actually stops — with ctx now
   wired, cancel → engine stops → cleanup runs.
