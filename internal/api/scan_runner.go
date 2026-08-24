@@ -137,6 +137,14 @@ func reapOrphanedScans() {
 // runScanInProcess is the generic in-process scan runner. fn should call the
 // module's Go API directly. target is used for display and notifications.
 func RunScanInProcess(scanID, scanType, target string, fn func() error) {
+	RunScanInProcessWithCommand(scanID, scanType, target,
+		fmt.Sprintf("inprocess:%s target=%s", scanType, target), fn)
+}
+
+// RunScanInProcessWithCommand is RunScanInProcess with an explicit stored
+// command string. Use it when rescan needs more than scanType+target to replay
+// the scan (e.g. nuclei scans also need the template).
+func RunScanInProcessWithCommand(scanID, scanType, target, command string, fn func() error) {
 	startedAt := time.Now()
 
 	scanSemaphore <- struct{}{}
@@ -149,7 +157,7 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		Status:     "running",
 		StartedAt:  startedAt,
 		LastUpdate: startedAt,
-		Command:    fmt.Sprintf("inprocess:%s target=%s", scanType, target),
+		Command:    command,
 	}
 	if err := db.CreateScan(dbRecord); err != nil {
 		// Without a DB record the scan would be invisible to the UI — abort rather
@@ -174,7 +182,7 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		ScanType:   scanType,
 		Target:     target,
 		StartedAt:  startedAt,
-		Command:    fmt.Sprintf("inprocess:%s target=%s", scanType, target),
+		Command:    command,
 		CancelFunc: cancelCtx, // wired so CancelScanByID() can call it
 	}
 	ScansMutex.Unlock()

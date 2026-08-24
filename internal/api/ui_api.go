@@ -64,19 +64,19 @@ func apiConfigHandler(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"subfinder_key_counts": subfinderKeyCounts,
-		"version":         version.Version,
-		"r2_enabled":      r2storage.IsEnabled(),
-		"r2_public_url":   os.Getenv("R2_PUBLIC_URL"),
-		"r2_bucket":       os.Getenv("R2_BUCKET_NAME"),
+		"version":              version.Version,
+		"r2_enabled":           r2storage.IsEnabled(),
+		"r2_public_url":        os.Getenv("R2_PUBLIC_URL"),
+		"r2_bucket":            os.Getenv("R2_BUCKET_NAME"),
 		// R2 account ID is an identifier (appears in the endpoint URL), safe to echo so
 		// the field prefills; the two API keys are secrets — only their set-state is returned.
 		"r2_account_id":     os.Getenv("R2_ACCOUNT_ID"),
 		"r2_access_key_set": strings.TrimSpace(os.Getenv("R2_ACCESS_KEY_ID")) != "",
 		"r2_secret_key_set": strings.TrimSpace(os.Getenv("R2_SECRET_KEY")) != "",
-		"auth_enabled":    authOn,
-		"auth_provider":   "local",
-		"db_type":         utils.GetEnv("DB_TYPE", "postgresql"),
-		"mode":            utils.GetEnv("AUTOAR_MODE", "api"),
+		"auth_enabled":      authOn,
+		"auth_provider":     "local",
+		"db_type":           utils.GetEnv("DB_TYPE", "postgresql"),
+		"mode":              utils.GetEnv("AUTOAR_MODE", "api"),
 		// Secret webhook URL is never returned on this public endpoint — only
 		// whether one is configured (the raw value carries a Discord/Slack token).
 		"monitor_webhook_set": strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL")) != "",
@@ -91,9 +91,9 @@ func apiConfigHandler(c *gin.Context) {
 		// each is configured. This endpoint is public (read pre-login), so we don't
 		// echo the H1 username value either (it's an identity handle) — just whether
 		// it's set. HackAdvisor's include-native flag is a plain non-secret bool.
-		"h1_username_set":   strings.TrimSpace(os.Getenv("H1_USERNAME")) != "",
-		"h1_token_set":      strings.TrimSpace(os.Getenv("H1_TOKEN")) != "",
-		"bc_token_set":      strings.TrimSpace(os.Getenv("BUGCROWD_TOKEN")) != "",
+		"h1_username_set": strings.TrimSpace(os.Getenv("H1_USERNAME")) != "",
+		"h1_token_set":    strings.TrimSpace(os.Getenv("H1_TOKEN")) != "",
+		"bc_token_set":    strings.TrimSpace(os.Getenv("BUGCROWD_TOKEN")) != "",
 		// hasIntigritiToken accepts both INTIGRITI_TOKEN and the INTIGRITI_API_KEY
 		// alias — a raw INTIGRITI_TOKEN check would wrongly show "not set" when only
 		// the alias is configured (even though Intigriti fetching works fine).
@@ -758,100 +758,131 @@ func apiRunGlobalNuclei(c *gin.Context) {
 	scanID := "scan-" + time.Now().Format("20060102150405")
 	target := "global-subdomains"
 
+	// Raw YAML templates are written to a durable per-scan file (instead of a
+	// deleted temp file) so the scan can be RE-RUN later via /api/scans/:id/rescan —
+	// the stored command records the template path. Path/ID templates are stored
+	// verbatim (nuclei resolves them against its template dir).
+	templateForRun := template
+	if strings.Contains(template, "\n") || strings.HasPrefix(template, "id:") {
+		persistDir := filepath.Join(utils.GetResultsDir(), target, "templates")
+		if err := os.MkdirAll(persistDir, 0o755); err != nil {
+			c.JSON(500, gin.H{"error": "failed to prepare template dir: " + err.Error()})
+			return
+		}
+		templateForRun = filepath.Join(persistDir, scanID+".yaml")
+		if err := os.WriteFile(templateForRun, []byte(template), 0o600); err != nil {
+			c.JSON(500, gin.H{"error": "failed to persist template: " + err.Error()})
+			return
+		}
+	}
+
+	// Template values are single-line (raw YAML was converted to a path above), so
+	// a space-delimited " template=" suffix round-trips through strings.Fields.
+	command := fmt.Sprintf("inprocess:nuclei target=%s template=%s", target, templateForRun)
+
 	c.JSON(200, gin.H{"status": "started", "message": "Scan started! Redirecting to Scans page...", "scan_id": scanID})
 
-	go RunScanInProcess(scanID, "nuclei", target, func() error {
-		stdLog(scanID, "[INFO] Starting global Nuclei scan...")
-
-		// 1. Dump all subdomains to a temp file
-		tmpFile, err := os.CreateTemp("", "global-nuclei-targets-*.txt")
-		if err != nil {
-			return fmt.Errorf("failed to create temp file: %w", err)
-		}
-		defer os.Remove(tmpFile.Name())
-
-		limit := 10000
-		totalSubs := 0
-		for offset := 0; ; offset += limit {
-			// liveOnly=true: only pull hosts already probed live via httpx. Each is
-			// written as its stored scheme-prefixed URL (https://host), so nuclei runs
-			// the template directly against it and never re-probes (no httpx step).
-			subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, true, limit, offset)
-			if err != nil || len(subs) == 0 {
-				break
-			}
-			for _, s := range subs {
-				target := s.BestURL()
-				if target == "" {
-					target = s.Subdomain
-				}
-				if target != "" {
-					tmpFile.WriteString(target + "\n")
-					totalSubs++
-				}
-			}
-		}
-		tmpFile.Close()
-
-		if totalSubs == 0 {
-			return fmt.Errorf("no live hosts found in the database — run a scan/httpx first so there are live URLs to test")
-		}
-
-		stdLog(scanID, "[INFO] Loaded %d live host(s) from the database (httpx skipped)", totalSubs)
-
-		var templatePath string
-		var cleanupTemplate func()
-		var templateNameForLog string
-
-		// If the template contains newlines or starts with 'id:', assume it's raw YAML content
-		if strings.Contains(template, "\n") || strings.HasPrefix(template, "id:") {
-			tmpTpl, err := os.CreateTemp("", "custom-template-*.yaml")
-			if err != nil {
-				return fmt.Errorf("failed to create temp template file: %w", err)
-			}
-			tmpTpl.WriteString(template)
-			tmpTpl.Close()
-			templatePath = tmpTpl.Name()
-			cleanupTemplate = func() { os.Remove(templatePath) }
-			stdLog(scanID, "[INFO] Using custom raw YAML template")
-			templateNameForLog = "Custom Raw Template"
-		} else {
-			templatePath = template
-			cleanupTemplate = func() {}
-			templateNameForLog = template
-		}
-		defer cleanupTemplate()
-
-		utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d\nScan ID: `%s`", templateNameForLog, totalSubs, scanID))
-
-		// create output file so it's indexed
-		outDir := filepath.Join(utils.GetResultsDir(), target, "vulnerabilities")
-		os.MkdirAll(outDir, 0755)
-		outPath := filepath.Join(outDir, "nuclei-global.json")
-
-		matches := 0
-		err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
-			if event != nil && event.TemplateID != "" {
-				matches++
-				msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-					event.TemplateID, event.Info.Name, event.Matched, event.Info.SeverityHolder.Severity.String())
-				utils.SendWebhookLogAsync(msg)
-				stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.Matched)
-			}
-		})
-
-		if err != nil {
-			return fmt.Errorf("nuclei SDK scan failed: %w", err)
-		}
-
-		// Record the finding count so the Scans page shows the "N findings" tag.
-		_ = db.UpdateScanStats(scanID, matches, 0)
-
-		stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches)
-		utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
-
-		return nil
+	go RunScanInProcessWithCommand(scanID, "nuclei", target, command, func() error {
+		return runGlobalNucleiScan(scanID, templateForRun)
 	})
+}
+
+// runGlobalNucleiScan runs one nuclei template (path/ID or raw YAML) against
+// every live host stored in the DB, streaming hits to the webhooks. Shared by
+// the "Run Nuclei Template" endpoint and the nuclei-templates watcher (which
+// passes a temp directory of freshly-downloaded templates).
+func runGlobalNucleiScan(scanID, template string) error {
+	stdLog(scanID, "[INFO] Starting global Nuclei scan...")
+
+	// 1. Dump all subdomains to a temp file
+	tmpFile, err := os.CreateTemp("", "global-nuclei-targets-*.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	limit := 10000
+	totalSubs := 0
+	for offset := 0; ; offset += limit {
+		// liveOnly=true: only pull hosts already probed live via httpx. Each is
+		// written as its stored scheme-prefixed URL (https://host), so nuclei runs
+		// the template directly against it and never re-probes (no httpx step).
+		subs, _, err := db.ListAllSubdomainsPaginated("", "", "", 0, true, limit, offset)
+		if err != nil || len(subs) == 0 {
+			break
+		}
+		for _, s := range subs {
+			target := s.BestURL()
+			if target == "" {
+				target = s.Subdomain
+			}
+			if target != "" {
+				tmpFile.WriteString(target + "\n")
+				totalSubs++
+			}
+		}
+	}
+	tmpFile.Close()
+
+	if totalSubs == 0 {
+		return fmt.Errorf("no live hosts found in the database — run a scan/httpx first so there are live URLs to test")
+	}
+
+	stdLog(scanID, "[INFO] Loaded %d live host(s) from the database (httpx skipped)", totalSubs)
+
+	var templatePath string
+	var cleanupTemplate func()
+	var templateNameForLog string
+
+	// If the template contains newlines or starts with 'id:', assume it's raw YAML content
+	if strings.Contains(template, "\n") || strings.HasPrefix(template, "id:") {
+		tmpTpl, err := os.CreateTemp("", "custom-template-*.yaml")
+		if err != nil {
+			return fmt.Errorf("failed to create temp template file: %w", err)
+		}
+		tmpTpl.WriteString(template)
+		tmpTpl.Close()
+		templatePath = tmpTpl.Name()
+		cleanupTemplate = func() { os.Remove(templatePath) }
+		stdLog(scanID, "[INFO] Using custom raw YAML template")
+		templateNameForLog = "Custom Raw Template"
+	} else {
+		templatePath = template
+		cleanupTemplate = func() {}
+		templateNameForLog = template
+	}
+	defer cleanupTemplate()
+
+	utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Started**\nTemplate: `%s`\nTargets: %d\nScan ID: `%s`", templateNameForLog, totalSubs, scanID))
+
+	// create output file so it's indexed
+	target := "global-subdomains"
+	outDir := filepath.Join(utils.GetResultsDir(), target, "vulnerabilities")
+	os.MkdirAll(outDir, 0755)
+	outPath := filepath.Join(outDir, "nuclei-global.json")
+
+	matches := 0
+	err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
+		if event != nil && event.TemplateID != "" {
+			matches++
+			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
+				event.TemplateID, event.Info.Name, event.Matched, event.Info.SeverityHolder.Severity.String())
+			utils.SendWebhookLogAsync(msg)
+			stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.Matched)
+		}
+	})
+
+	if err != nil {
+		return fmt.Errorf("nuclei SDK scan failed: %w", err)
+	}
+
+	// Record the finding count so the Scans page shows the "N findings" tag.
+	_ = db.UpdateScanStats(scanID, matches, 0)
+
+	stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches)
+	utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
+
+	return nil
 }
 
 // POST /api/subdomains/import
@@ -1400,7 +1431,14 @@ func apiRescan(c *gin.Context) {
 	// These store "inprocess:<scanType> target=<target>" as their Command.
 	// There is no external binary to re-exec; delegate to runInProcessRescan.
 	if strings.HasPrefix(record.Command, "inprocess:") {
-		newScanID, ok := runInProcessRescan(record.ScanType, record.Target)
+		// Nuclei scans need the template recorded at start time; scans from before
+		// template tracking don't have it, so give a specific error instead of the
+		// generic "not supported".
+		if strings.EqualFold(record.ScanType, "nuclei") && !strings.Contains(record.Command, " template=") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "this nuclei scan predates template tracking — re-run the template from the Scans page instead"})
+			return
+		}
+		newScanID, ok := runInProcessRescan(record.ScanType, record.Target, record.Command)
 		if !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "in-process scan type " + record.ScanType + " does not support rescan yet"})
 			return
@@ -1411,7 +1449,7 @@ func apiRescan(c *gin.Context) {
 			"new_scan_id": newScanID,
 			"target":      record.Target,
 			"scan_type":   record.ScanType,
-			"command":     fmt.Sprintf("inprocess:%s target=%s", record.ScanType, record.Target),
+			"command":     record.Command,
 			"message":     "Rescan started",
 		})
 		return

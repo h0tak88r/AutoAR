@@ -114,6 +114,12 @@ func StartAPI() error {
 	// Programs page loads instantly instead of fetching ~1000 upstream calls per visit.
 	if os.Getenv("DB_HOST") != "" {
 		api.StartProgramsWarmer()
+
+		// Nuclei-templates watch: polls projectdiscovery/nuclei-templates for newly
+		// added templates, announces them on the Discord monitor webhook, and
+		// auto-runs them against all live hosts (disable: NUCLEI_TEMPLATE_WATCH=off).
+		// Needs the DB for its commit-SHA watermark.
+		api.StartNucleiTemplateWatch()
 	}
 
 	// Ensure database is closed on exit

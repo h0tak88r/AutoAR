@@ -9,6 +9,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -883,9 +884,11 @@ func keyhackValidate(c *gin.Context) {
 var execCommand = exec.Command
 
 // runInProcessRescan re-runs an in-process scan (domain_run, subdomain_run, …)
-// using the correct Go module. Returns the new scan ID and true if the scan
-// type is handled; returns "", false if the scan type is not supported.
-func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
+// using the correct Go module. command is the scan's stored Command string —
+// some scan types (nuclei) need extra parameters from it to replay. Returns the
+// new scan ID and true if the scan type is handled; returns "", false if the
+// scan type is not supported.
+func runInProcessRescan(scanType, target, command string) (newScanID string, ok bool) {
 	newScanID = generateScanID()
 	st := strings.ToLower(strings.TrimSpace(scanType))
 	switch st {
@@ -965,6 +968,30 @@ func runInProcessRescan(scanType, target string) (newScanID string, ok bool) {
 			}
 			_, err := firebasemod.Run(firebasemod.Options{Domain: clean, Threads: 20, Timeout: 15 * time.Second})
 			return err
+		})
+		return newScanID, true
+	case "nuclei":
+		// The template was stored in the command ("inprocess:nuclei target=…
+		// template=…") when the scan started; without it there is nothing to replay.
+		template := ""
+		if idx := strings.Index(command, " template="); idx >= 0 {
+			template = strings.TrimSpace(command[idx+len(" template="):])
+		}
+		if template == "" {
+			log.Printf("[rescan] nuclei scan %s has no template in its stored command — cannot rescan", target)
+			return "", false
+		}
+		// Absolute paths are the per-scan persisted raw-YAML templates; if the file
+		// is gone the scan is not replayable. Relative values are nuclei template
+		// IDs/paths resolved by nuclei itself, so they pass through unchecked.
+		if filepath.IsAbs(template) {
+			if _, err := os.Stat(template); err != nil {
+				log.Printf("[rescan] nuclei template file %s no longer exists: %v", template, err)
+				return "", false
+			}
+		}
+		go RunScanInProcessWithCommand(newScanID, "nuclei", target, command, func() error {
+			return runGlobalNucleiScan(newScanID, template)
 		})
 		return newScanID, true
 	}
