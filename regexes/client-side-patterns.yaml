@@ -1,0 +1,107 @@
+# Client-side bug candidate patterns for JS scanning.
+# These detect *candidates* (sources, sinks, and dangerous idioms) in JavaScript
+# files — each finding still needs manual verification that attacker-controlled
+# input actually reaches the sink. Pattern names carry the bug class as a
+# prefix ("DOM XSS Sink: ...") which the scanner uses for severity mapping.
+#
+# Regex syntax must be RE2-compatible (Go regexp): no lookahead/backreferences.
+
+patterns:
+  # ── DOM XSS: attacker-controlled sources ─────────────────────────────────
+  - pattern:
+      name: "DOM XSS Source: location.hash"
+      regex: "location\\.hash"
+  - pattern:
+      name: "DOM XSS Source: location.search"
+      regex: "location\\.search"
+  - pattern:
+      name: "DOM XSS Source: document.referrer"
+      regex: "document\\.referrer"
+  - pattern:
+      name: "DOM XSS Source: window.name"
+      regex: "window\\.name"
+  - pattern:
+      name: "DOM XSS Source: document.URL"
+      regex: "document\\.(URL|documentURI|baseURI)"
+
+  # ── DOM XSS: dangerous sinks ─────────────────────────────────────────────
+  - pattern:
+      name: "DOM XSS Sink: innerHTML"
+      regex: "\\.innerHTML\\s*="
+  - pattern:
+      name: "DOM XSS Sink: outerHTML"
+      regex: "\\.outerHTML\\s*="
+  - pattern:
+      name: "DOM XSS Sink: document.write"
+      regex: "document\\.writeln?\\s*\\("
+  - pattern:
+      name: "DOM XSS Sink: insertAdjacentHTML"
+      regex: "\\.insertAdjacentHTML\\s*\\("
+  - pattern:
+      name: "DOM XSS Sink: jQuery .html()"
+      regex: "\\$\\([^)]{0,60}\\)\\.html\\s*\\("
+  - pattern:
+      name: "DOM XSS Sink: dangerouslySetInnerHTML"
+      regex: "dangerouslySetInnerHTML"
+
+  # ── Dynamic code execution (DOM XSS-adjacent) ────────────────────────────
+  - pattern:
+      name: "Dynamic Code Execution: eval()"
+      regex: "[^a-zA-Z0-9_.]eval\\s*\\("
+  - pattern:
+      name: "Dynamic Code Execution: new Function()"
+      regex: "new\\s+Function\\s*\\("
+  - pattern:
+      name: "Dynamic Code Execution: setTimeout/setInterval with string"
+      regex: "set(Timeout|Interval)\\s*\\(\\s*[\"'`]"
+
+  # ── postMessage (cross-origin messaging) ─────────────────────────────────
+  - pattern:
+      name: "postMessage: message listener (verify origin check)"
+      regex: "addEventListener\\s*\\(\\s*[\"']message[\"']"
+  - pattern:
+      name: "postMessage: wildcard target origin '*'"
+      regex: "\\.postMessage\\s*\\([^)]{0,200},\\s*[\"']\\*[\"']"
+
+  # ── Open redirect sinks ──────────────────────────────────────────────────
+  - pattern:
+      name: "Open Redirect Sink: location.href assignment"
+      regex: "location\\.href\\s*=[^=]"
+  - pattern:
+      name: "Open Redirect Sink: location.assign/replace"
+      regex: "location\\.(assign|replace)\\s*\\("
+  - pattern:
+      name: "Open Redirect Sink: window.open"
+      regex: "window\\.open\\s*\\("
+
+  # ── Prototype pollution ──────────────────────────────────────────────────
+  - pattern:
+      name: "Prototype Pollution: __proto__ reference"
+      regex: "__proto__"
+  - pattern:
+      name: "Prototype Pollution: constructor.prototype access"
+      regex: "\\.constructor\\.prototype"
+  - pattern:
+      name: "Prototype Pollution: computed prototype assignment"
+      regex: "prototype\\s*\\[[^\\]]{1,60}\\]\\s*="
+
+  # ── Sensitive data in web storage ────────────────────────────────────────
+  - pattern:
+      name: "Sensitive Storage: credential stored via setItem"
+      regex: "(?i)(localStorage|sessionStorage)\\.setItem\\s*\\(\\s*[\"'`][^\"'`]{0,40}(token|jwt|session|auth|secret|passw|api[-_]?key)"
+  - pattern:
+      name: "Sensitive Storage: credential property assignment"
+      regex: "(?i)(localStorage|sessionStorage)\\s*\\.\\s*[a-zA-Z0-9_]*(token|jwt|session|secret|api[-_]?key)[a-zA-Z0-9_]*\\s*="
+
+  # ── CORS hints embedded in JS ────────────────────────────────────────────
+  - pattern:
+      name: "CORS Hint: wildcard Access-Control-Allow-Origin"
+      regex: "(?i)access-control-allow-origin[\"']?\\s*[:=]\\s*[\"']\\*"
+  - pattern:
+      name: "CORS Hint: credentials included cross-origin"
+      regex: "(withCredentials\\s*[:=]\\s*true|credentials\\s*:\\s*[\"']include[\"'])"
+
+  # ── WebSocket ────────────────────────────────────────────────────────────
+  - pattern:
+      name: "Insecure WebSocket: ws:// endpoint"
+      regex: "new\\s+WebSocket\\s*\\(\\s*[\"'`]ws://"

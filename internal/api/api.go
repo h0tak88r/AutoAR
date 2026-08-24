@@ -1817,6 +1817,7 @@ func shouldSkipArtifact(path string) bool {
 		"exposure-findings.txt",
 		"wp-confusion-results.txt",
 		"js-secrets.txt",
+		"js-clientside.txt",
 		"nuclei-summary.txt",
 		"all-subs.txt",
 		"live-subs.txt",

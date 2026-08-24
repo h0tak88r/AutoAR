@@ -24,40 +24,49 @@ type PatternConfig struct {
 	} `yaml:"patterns"`
 }
 
+// LoadPatternFile loads regex patterns from a single YAML file in regexesDir.
+// Missing files are tolerated (empty map, no error); malformed YAML is not.
+func LoadPatternFile(regexesDir, filename string) (map[string][]*regexp.Regexp, error) {
+	patterns := make(map[string][]*regexp.Regexp)
+
+	// Try common locations if directory not found
+	if _, err := os.Stat(regexesDir); err != nil {
+		rootDir := GetRootDir()
+		regexesDir = filepath.Join(rootDir, "regexes")
+	}
+
+	file := filepath.Join(regexesDir, filename)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return patterns, nil
+		}
+		return nil, err
+	}
+	var config PatternConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal yaml in %s: %w", filename, err)
+	}
+	for _, p := range config.Patterns {
+		pattern := p.Pattern
+		var regexes []string
+		if pattern.Regex != "" {
+			regexes = []string{pattern.Regex}
+		} else {
+			regexes = pattern.Regexes
+		}
+		for _, regexStr := range regexes {
+			if re, err := regexp.Compile(regexStr); err == nil {
+				patterns[pattern.Name] = append(patterns[pattern.Name], re)
+			}
+		}
+	}
+	return patterns, nil
+}
+
 // LoadSecretPatterns loads regex patterns from a directory (usually "regexes")
 func LoadSecretPatterns(regexesDir string) (map[string][]*regexp.Regexp, error) {
 	patterns := make(map[string][]*regexp.Regexp)
-
-	// Helper to load a file
-	loadFile := func(filename string) error {
-		file := filepath.Join(regexesDir, filename)
-		data, err := os.ReadFile(file)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return err
-		}
-		var config PatternConfig
-		if err := yaml.Unmarshal(data, &config); err != nil {
-			return fmt.Errorf("failed to unmarshal yaml in %s: %w", filename, err)
-		}
-		for _, p := range config.Patterns {
-			pattern := p.Pattern
-			var regexes []string
-			if pattern.Regex != "" {
-				regexes = []string{pattern.Regex}
-			} else {
-				regexes = pattern.Regexes
-			}
-			for _, regexStr := range regexes {
-				if re, err := regexp.Compile(regexStr); err == nil {
-					patterns[pattern.Name] = append(patterns[pattern.Name], re)
-				}
-			}
-		}
-		return nil
-	}
 
 	// Try common locations if directory not found
 	if _, err := os.Stat(regexesDir); err != nil {
@@ -66,11 +75,14 @@ func LoadSecretPatterns(regexesDir string) (map[string][]*regexp.Regexp, error) 
 		regexesDir = filepath.Join(rootDir, "regexes")
 	}
 
-	if err := loadFile("confident-regexes.yaml"); err != nil {
-		return nil, fmt.Errorf("failed to load confident-regexes.yaml: %w", err)
-	}
-	if err := loadFile("risky-regexes.yaml"); err != nil {
-		return nil, fmt.Errorf("failed to load risky-regexes.yaml: %w", err)
+	for _, file := range []string{"confident-regexes.yaml", "risky-regexes.yaml"} {
+		loaded, err := LoadPatternFile(regexesDir, file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load %s: %w", file, err)
+		}
+		for name, res := range loaded {
+			patterns[name] = append(patterns[name], res...)
+		}
 	}
 
 	return patterns, nil

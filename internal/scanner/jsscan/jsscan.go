@@ -180,64 +180,30 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
-	// Perform actual secret scanning on JS files
-	logger.GetLogger().Infof("[INFO] JS scan: Starting secret scanning on %d JS URLs...", totalJS)
+	// Perform pattern scanning on JS files: secrets + client-side bug candidates.
+	// Both pattern sets run in a single download pass over the JS files.
+	logger.GetLogger().Infof("[INFO] JS scan: Starting pattern scanning on %d JS URLs...", totalJS)
+	secretPatterns, err := utils.LoadSecretPatterns("regexes")
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] JS scan: Failed to load secret patterns: %v", err)
+	}
+	clientSidePatterns, err := utils.LoadPatternFile("regexes", "client-side-patterns.yaml")
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] JS scan: Failed to load client-side patterns: %v", err)
+	}
+
 	secretsFile := filepath.Join(jsVulnDir, "js-secrets.txt")
-	if err := scanJSForSecrets(targetJS, secretsFile, opts.Threads); err != nil {
-		logger.GetLogger().Infof("[WARN] JS scan: Secret scanning failed: %v", err)
+	clientSideFile := filepath.Join(jsVulnDir, "js-clientside.txt")
+	scanErr := scanJSFiles(targetJS, []jsScanTarget{
+		{name: "secrets", patterns: secretPatterns, outputFile: secretsFile},
+		{name: "client-side", patterns: clientSidePatterns, outputFile: clientSideFile},
+	}, opts.Threads)
+	if scanErr != nil {
+		logger.GetLogger().Infof("[WARN] JS scan: Pattern scanning failed: %v", scanErr)
 	} else {
 		scanID := utils.GetCurrentScanID()
-		if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
-			logger.GetLogger().Infof("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
-
-			if scanID != "" {
-				data, readErr := os.ReadFile(secretsFile)
-				if readErr == nil {
-					type secretFinding struct {
-						TemplateID string `json:"template-id"`
-						MatchedAt  string `json:"matched-at"`
-						Severity   string `json:"severity"`
-						Finding    string `json:"finding"`
-						Module     string `json:"module"`
-						SecretType string `json:"secret_type,omitempty"`
-						Secret     string `json:"secret,omitempty"`
-					}
-					var findings []secretFinding
-					seen := make(map[string]struct{})
-					for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-						if strings.TrimSpace(line) == "" {
-							continue
-						}
-						target, secretType, secretValue := parseSecretLine(line)
-						if target == "" {
-							continue
-						}
-						key := target + "|" + secretType + "|" + secretValue
-						if _, ok := seen[key]; ok {
-							continue
-						}
-						seen[key] = struct{}{}
-						findings = append(findings, secretFinding{
-							TemplateID: "JS Secret Exposure" + ternary(secretType != "", " ("+secretType+")", ""),
-							MatchedAt:  target,
-							Severity:   "high",
-							Finding:    line,
-							Module:     "js-secrets",
-							SecretType: secretType,
-							Secret:     secretValue,
-						})
-					}
-					if len(findings) > 0 {
-						_ = utils.WriteJSONToScanDir(scanID, "js-secrets-vulnerabilities.json", findings)
-					}
-				}
-			}
-		} else {
-			logger.GetLogger().Infof("[INFO] JS scan: No secrets found in JS files")
-			if scanID != "" {
-				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "js-scan", "js-secrets-vulnerabilities.json")
-			}
-		}
+		emitSecretFindings(scanID, opts.Domain, secretsFile)
+		emitClientSideFindings(scanID, opts.Domain, clientSideFile)
 	}
 
 	logger.GetLogger().Infof("[INFO] JS scan: Final result - %d JS URLs processed", totalJS)
@@ -379,42 +345,57 @@ func ternary(cond bool, yes, no string) string {
 	return no
 }
 
-func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
+// jsScanTarget describes one pattern set to apply to every downloaded JS file.
+type jsScanTarget struct {
+	name       string
+	patterns   map[string][]*regexp.Regexp
+	outputFile string
+	count      int
+}
+
+// scanJSFiles downloads each JS file once and scans it with every target's
+// pattern set, writing findings (one "[Pattern] URL -> match" line each) to
+// the target's output file. Output files are always created, even when empty.
+func scanJSFiles(jsURLsFile string, targets []jsScanTarget, threads int) error {
 	if threads <= 0 {
 		threads = 50
 	}
-
-	// Load regex patterns
-	patterns, err := utils.LoadSecretPatterns("regexes")
-	if err != nil {
-		return fmt.Errorf("failed to load secret patterns: %w", err)
-	}
-	logger.GetLogger().Infof("[INFO] JS scan: Loaded %d secret patterns", len(patterns))
 
 	// Read JS URLs
 	jsURLs, err := readLines(jsURLsFile)
 	if err != nil {
 		return fmt.Errorf("failed to read JS URLs file: %w", err)
 	}
-	// Create output file (always create it even if empty)
-	outFile, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
+
+	// Create output files and writers (always created even if empty)
+	writers := make([]*bufio.Writer, len(targets))
+	files := make([]*os.File, len(targets))
+	for i := range targets {
+		f, err := os.Create(targets[i].outputFile)
+		if err != nil {
+			for _, opened := range files[:i] {
+				opened.Close()
+			}
+			return fmt.Errorf("failed to create output file %s: %w", targets[i].outputFile, err)
+		}
+		files[i] = f
+		writers[i] = bufio.NewWriter(f)
 	}
-	defer outFile.Close()
+	defer func() {
+		for i := range files {
+			writers[i].Flush()
+			files[i].Close()
+		}
+	}()
 
 	if len(jsURLs) == 0 {
 		return nil
 	}
 
-	writer := bufio.NewWriter(outFile)
-	defer writer.Flush()
-
 	// Worker pool for downloading and scanning
 	sem := make(chan struct{}, threads)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	findingsCount := 0
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -441,28 +422,161 @@ func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
 				return // Silently skip failed downloads
 			}
 
-			// Scan for secrets
-			findings := scanContentForSecrets(content, url, patterns)
-			if len(findings) > 0 {
-				mu.Lock()
-				for _, finding := range findings {
-					writer.WriteString(finding + "\n")
-					findingsCount++
+			// Scan with every pattern set
+			for i := range targets {
+				if len(targets[i].patterns) == 0 {
+					continue
 				}
-				writer.Flush()
-				mu.Unlock()
+				findings := utils.ScanContentForSecrets(content, url, targets[i].patterns)
+				if len(findings) > 0 {
+					mu.Lock()
+					for _, finding := range findings {
+						writers[i].WriteString(finding + "\n")
+						targets[i].count++
+					}
+					writers[i].Flush()
+					mu.Unlock()
+				}
 			}
 		}(jsURL)
 	}
 
 	wg.Wait()
-	logger.GetLogger().Infof("[INFO] JS scan: Secret scanning completed, found %d secrets", findingsCount)
+	for i := range targets {
+		logger.GetLogger().Infof("[INFO] JS scan: %s scanning completed, found %d matches", targets[i].name, targets[i].count)
+	}
 	return nil
 }
 
-// scanContentForSecrets scans JS content for secrets using loaded patterns
-func scanContentForSecrets(content, url string, patterns map[string][]*regexp.Regexp) []string {
-	return utils.ScanContentForSecrets(content, url, patterns)
+// emitSecretFindings converts js-secrets.txt lines into the structured
+// js-secrets-vulnerabilities.json artifact for the current scan.
+func emitSecretFindings(scanID, domain, secretsFile string) {
+	if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
+		logger.GetLogger().Infof("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
+
+		if scanID != "" {
+			data, readErr := os.ReadFile(secretsFile)
+			if readErr == nil {
+				type secretFinding struct {
+					TemplateID string `json:"template-id"`
+					MatchedAt  string `json:"matched-at"`
+					Severity   string `json:"severity"`
+					Finding    string `json:"finding"`
+					Module     string `json:"module"`
+					SecretType string `json:"secret_type,omitempty"`
+					Secret     string `json:"secret,omitempty"`
+				}
+				var findings []secretFinding
+				seen := make(map[string]struct{})
+				for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+					target, secretType, secretValue := parseSecretLine(line)
+					if target == "" {
+						continue
+					}
+					key := target + "|" + secretType + "|" + secretValue
+					if _, ok := seen[key]; ok {
+						continue
+					}
+					seen[key] = struct{}{}
+					findings = append(findings, secretFinding{
+						TemplateID: "JS Secret Exposure" + ternary(secretType != "", " ("+secretType+")", ""),
+						MatchedAt:  target,
+						Severity:   "high",
+						Finding:    line,
+						Module:     "js-secrets",
+						SecretType: secretType,
+						Secret:     secretValue,
+					})
+				}
+				if len(findings) > 0 {
+					_ = utils.WriteJSONToScanDir(scanID, "js-secrets-vulnerabilities.json", findings)
+				}
+			}
+		}
+	} else {
+		logger.GetLogger().Infof("[INFO] JS scan: No secrets found in JS files")
+		if scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "js-scan", "js-secrets-vulnerabilities.json")
+		}
+	}
+}
+
+// emitClientSideFindings converts js-clientside.txt lines into the structured
+// js-clientside-vulnerabilities.json artifact. These are *candidates* — they
+// flag dangerous sources/sinks/idioms that still need manual verification —
+// so severities stay below the hard "high" used for exposed secrets.
+func emitClientSideFindings(scanID, domain, clientSideFile string) {
+	if info, err := os.Stat(clientSideFile); err == nil && info.Size() > 0 {
+		logger.GetLogger().Infof("[OK] JS scan: Found client-side bug candidates, saved to: %s", clientSideFile)
+
+		if scanID != "" {
+			data, readErr := os.ReadFile(clientSideFile)
+			if readErr == nil {
+				type clientSideFinding struct {
+					TemplateID  string `json:"template-id"`
+					MatchedAt   string `json:"matched-at"`
+					Severity    string `json:"severity"`
+					Finding     string `json:"finding"`
+					Module      string `json:"module"`
+					PatternType string `json:"pattern_type,omitempty"`
+					Match       string `json:"match,omitempty"`
+				}
+				var findings []clientSideFinding
+				seen := make(map[string]struct{})
+				for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+					target, patternType, match := parseSecretLine(line)
+					if target == "" {
+						continue
+					}
+					key := target + "|" + patternType + "|" + match
+					if _, ok := seen[key]; ok {
+						continue
+					}
+					seen[key] = struct{}{}
+					findings = append(findings, clientSideFinding{
+						TemplateID:  "JS Client-Side Candidate" + ternary(patternType != "", " ("+patternType+")", ""),
+						MatchedAt:   target,
+						Severity:    clientSideSeverity(patternType),
+						Finding:     line,
+						Module:      "js-clientside",
+						PatternType: patternType,
+						Match:       match,
+					})
+				}
+				if len(findings) > 0 {
+					_ = utils.WriteJSONToScanDir(scanID, "js-clientside-vulnerabilities.json", findings)
+				}
+			}
+		}
+	} else {
+		logger.GetLogger().Infof("[INFO] JS scan: No client-side bug candidates found")
+		if scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "js-scan", "js-clientside-vulnerabilities.json")
+		}
+	}
+}
+
+// clientSideSeverity maps a client-side pattern class (the name prefix from
+// regexes/client-side-patterns.yaml) to a severity. Sources alone are "info";
+// exploitable sinks and dangerous idioms are "medium"; the rest are "low".
+func clientSideSeverity(patternType string) string {
+	switch {
+	case strings.HasPrefix(patternType, "DOM XSS Source"):
+		return "info"
+	case strings.HasPrefix(patternType, "DOM XSS Sink"),
+		strings.HasPrefix(patternType, "Dynamic Code Execution"),
+		strings.HasPrefix(patternType, "postMessage"),
+		strings.HasPrefix(patternType, "Prototype Pollution"):
+		return "medium"
+	default:
+		return "low"
+	}
 }
 
 // downloadJSFile downloads a JS file from a URL

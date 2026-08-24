@@ -404,7 +404,7 @@ func inferModuleFromFileName(name string) string {
 	case strings.Contains(n, "js-endpoint"):
 		return "js-endpoints"
 	// js-secrets / js-exposure: actual secret/vuln findings from JS analysis
-	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure"):
+	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure") || strings.Contains(n, "js-clientside"):
 		return "js-analysis"
 	case strings.Contains(n, "github-secret") || strings.Contains(n, "github-secrets") || (strings.Contains(n, "github") && strings.Contains(n, "secret")):
 		return "github-scan"
@@ -1844,6 +1844,8 @@ func apiScanParsedResults(c *gin.Context) {
 		"exposure-findings.txt":      "exposure-vulnerabilities.json",
 		// js-secrets.txt is superseded by js-secrets-vulnerabilities.json
 		"js-secrets.txt":             "js-secrets-vulnerabilities.json",
+		// js-clientside.txt is superseded by js-clientside-vulnerabilities.json
+		"js-clientside.txt":          "js-clientside-vulnerabilities.json",
 		"wp-confusion-results.txt":   "wp-confusion-vulnerabilities.json",
 		// URL corpus files — never findings; these are pipeline inputs (lists of URLs/JS files to feed into later scanners)
 		"js-urls.json": "__pipeline_input__",

@@ -92,7 +92,7 @@
     // JS secret artifacts (check this before generic github/secret checks)
     if (n.includes('js-endpoint')) return 'js-endpoints';
     if (n.includes('katana')) return 'katana-crawler';
-    if (n.includes('js-secret') || n.includes('js-exposure') || n.includes('js-analysis') || n.startsWith('js-sec')) return 'js-analysis';
+    if (n.includes('js-secret') || n.includes('js-exposure') || n.includes('js-analysis') || n.includes('js-clientside') || n.startsWith('js-sec')) return 'js-analysis';
     // GitHub must be BEFORE generic "secret" match
     if (n.includes('github-secret') || n.includes('github-secrets') || (n.includes('github') && n.includes('secret'))) return 'github-scan';
     if (n.includes('github') || n.includes('trufflehog') || (n.endsWith('.json') && n.includes('github')) || n.includes('git-secret')) return 'github-scan';

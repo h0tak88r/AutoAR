@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -108,4 +109,64 @@ func TestScanContentForSecretsEmptyPatterns(t *testing.T) {
 	if len(findings) != 0 {
 		t.Errorf("ScanContentForSecrets() with nil patterns = %v, want 0 findings", findings)
 	}
+}
+
+// TestClientSidePatternsFileLoads ensures every regex in the shipped
+// client-side-patterns.yaml compiles (LoadPatternFile silently drops
+// non-compiling regexes, so a typo would silently kill a detection) and that
+// representative patterns fire on realistic JS snippets.
+func TestClientSidePatternsFileLoads(t *testing.T) {
+	patterns := loadClientSidePatternsForTest(t)
+	if len(patterns) == 0 {
+		t.Fatal("no client-side patterns loaded — every regex may have failed to compile")
+	}
+	// Every named pattern must have at least one compiled regex.
+	for name, res := range patterns {
+		if len(res) == 0 {
+			t.Errorf("pattern %q has no compiled regexes", name)
+		}
+	}
+
+	samples := []struct {
+		patternName string
+		js          string
+	}{
+		{"DOM XSS Sink: innerHTML", `el.innerHTML = data;`},
+		{"DOM XSS Source: location.hash", `var x = location.hash;`},
+		{"Dynamic Code Execution: eval()", `var r = eval(userInput);`},
+		{"postMessage: wildcard target origin '*'", `w.postMessage(payload, '*');`},
+		{"postMessage: message listener (verify origin check)", `window.addEventListener('message', h);`},
+		{"Open Redirect Sink: location.assign/replace", `location.assign(next);`},
+		{"Prototype Pollution: __proto__ reference", `obj[key] = v; if (key === '__proto__') return;`},
+		{"Sensitive Storage: credential stored via setItem", `localStorage.setItem("auth_token", t);`},
+		{"Insecure WebSocket: ws:// endpoint", `const ws = new WebSocket("ws://example.com/s");`},
+		{"CORS Hint: credentials included cross-origin", `fetch(u, {credentials: 'include'})`},
+	}
+	for _, s := range samples {
+		t.Run(s.patternName, func(t *testing.T) {
+			res, ok := patterns[s.patternName]
+			if !ok || len(res) == 0 {
+				t.Fatalf("pattern %q not loaded", s.patternName)
+			}
+			matched := false
+			for _, re := range res {
+				if re.MatchString(s.js) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				t.Errorf("pattern %q did not match sample JS: %s", s.patternName, s.js)
+			}
+		})
+	}
+}
+
+func loadClientSidePatternsForTest(t *testing.T) map[string][]*regexp.Regexp {
+	t.Helper()
+	patterns, err := LoadPatternFile(filepath.Join("..", "..", "regexes"), "client-side-patterns.yaml")
+	if err != nil {
+		t.Fatalf("LoadPatternFile() error = %v", err)
+	}
+	return patterns
 }
