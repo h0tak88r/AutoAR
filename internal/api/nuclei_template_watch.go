@@ -152,6 +152,11 @@ func nucleiTemplateWatchCycle() {
 		return
 	}
 	if len(templates) == 0 || templates[0].CreatedAt == "" {
+		if len(templates) > 0 {
+			// Without a created_at on the newest result the watermark can never
+			// advance — log it instead of silently looping forever.
+			logger.GetLogger().Infof("[NUCLEI-WATCH] newest template %q has no created_at — skipping cycle", templates[0].ID)
+		}
 		return
 	}
 
@@ -186,25 +191,34 @@ func nucleiTemplateWatchCycle() {
 	logger.GetLogger().Infof("[NUCLEI-WATCH] %d new template(s) since %s", len(fresh), watermark)
 	nucleiWatchNotify(fresh)
 
+	// Persist the watermark/seen-IDs BEFORE the (potentially hours-long) scan: a
+	// restart mid-scan must not re-announce and re-run the whole batch, and the
+	// poll interval should measure from the poll, not from scan completion.
+	nucleiWatchSaveState(fresh[0].CreatedAt, fresh)
+
 	if nucleiTemplateAutoRunEnabled() {
 		dir, downloaded, cleanup, err := nucleiWatchStage(fresh)
 		if err != nil || len(downloaded) == 0 {
+			cleanup()
 			logger.GetLogger().Infof("[NUCLEI-WATCH] staging templates failed: %v", err)
 			utils.SendMonitorWebhook("⚠️ **Nuclei template watch** — failed to stage the new templates, skipping auto-run.")
 		} else {
 			scanID := "nuclei-watch-" + time.Now().Format("20060102150405")
 			utils.SendMonitorWebhook(fmt.Sprintf(
 				"⚡ **Auto-running %d new template(s)** against all live hosts (scan `%s`)…", len(downloaded), scanID))
+			fnRan := false
 			RunScanInProcess(scanID, "nuclei", "nuclei-templates-watch", func() error {
+				fnRan = true
 				defer cleanup()
 				return runGlobalNucleiScan(scanID, dir)
 			})
+			// RunScanInProcess aborts WITHOUT calling fn when the DB record can't be
+			// created — the staged dir would leak in $TMPDIR on every DB hiccup.
+			if !fnRan {
+				cleanup()
+			}
 		}
 	}
-
-	// Advance the watermark even if the run failed — retrying would re-run heavy
-	// scans for templates we already announced.
-	nucleiWatchSaveState(fresh[0].CreatedAt, fresh)
 }
 
 // nucleiWatchSearch fetches the newest public templates, sorted by creation

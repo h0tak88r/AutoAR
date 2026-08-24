@@ -1940,6 +1940,13 @@ func apiStreamScanLogs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
 		return
 	}
+	// The fallback path tails <resultsDir>/<scanID>/module.log — reject anything
+	// that could traverse out of the results root (":id" is one path segment, so
+	// a literal ".." would read one level up).
+	if strings.Contains(scanID, "..") || strings.ContainsAny(scanID, `/\`) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan id"})
+		return
+	}
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")

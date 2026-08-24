@@ -1251,6 +1251,17 @@ func generateScanID() string {
 	return uuid.New().String()
 }
 
+// storedCommand renders a scan's command line for persistence/display. Secrets
+// passed as argv are redacted so they can't be read back via /api/scans/:id —
+// keyhack validate takes the provider's API key as its last argument.
+func storedCommand(scanType string, command []string) string {
+	redacted := append([]string(nil), command...)
+	if scanType == "keyhack_validate" && len(redacted) > 1 {
+		redacted[len(redacted)-1] = "***"
+	}
+	return strings.Join(redacted, " ")
+}
+
 // extractScanTargetFromCommand infers the human-readable target from command arguments (#11).
 func extractScanTargetFromCommand(command []string, scanType string) string {
 	if len(command) == 0 {
@@ -1312,7 +1323,7 @@ func executeScan(scanID string, command []string, scanType string) {
 			Status:     "failed",
 			StartedAt:  startedAt,
 			LastUpdate: completedAt,
-			Command:    strings.Join(command, " "),
+			Command:    storedCommand(scanType, command),
 		})
 		_ = db.UpdateScanResult(scanID, "failed", "")
 		writeScanManifest(scanID, scanType, target, startedAt, completedAt, moduleExecutionEntry{
@@ -1322,7 +1333,7 @@ func executeScan(scanID string, command []string, scanType string) {
 			CompletedAt:    completedAt,
 			DurationMS:     completedAt.Sub(startedAt).Milliseconds(),
 			ScannerVersion: version.Version,
-			Command:        strings.Join(command, " "),
+			Command:        storedCommand(scanType, command),
 		})
 		apiScansMutex.Lock()
 		result := &ScanResult{
@@ -1349,7 +1360,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		ScanType:  scanType,
 		Target:    target,
 		StartedAt: startedAt,
-		Command:   strings.Join(command, " "),
+		Command:   storedCommand(scanType, command),
 	}
 	ScansMutex.Unlock()
 
@@ -1371,7 +1382,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		TotalPhases: initialTotalPhases,
 		StartedAt:   startedAt,
 		LastUpdate:  startedAt,
-		Command:     strings.Join(command, " "),
+		Command:     storedCommand(scanType, command),
 	}
 	if err := db.CreateScan(dbRecord); err != nil {
 		utils.GetLogger().Infof("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
@@ -1381,7 +1392,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		Status:         "started",
 		StartedAt:      startedAt,
 		ScannerVersion: version.Version,
-		Command:        strings.Join(command, " "),
+		Command:        storedCommand(scanType, command),
 	})
 
 	// Notify scan start via webhook
@@ -1540,7 +1551,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		DurationMS:     durationMS,
 		OutputFiles:    outputFiles,
 		ScannerVersion: version.Version,
-		Command:        strings.Join(command, " "),
+		Command:        storedCommand(scanType, command),
 	})
 
 	ScansMutex.Lock()
@@ -1641,6 +1652,12 @@ func indexScanArtifacts(scanID, scanType, target string) {
 				return nil
 			}
 			if shouldSkipArtifact(path) {
+				return nil
+			}
+			// Raw nuclei templates persisted for rescan
+			// (new-results/<target>/templates/) are inputs, not findings — never
+			// index or copy them into scan result dirs.
+			if strings.Contains(filepath.ToSlash(path), "/templates/") && strings.HasSuffix(strings.ToLower(path), ".yaml") {
 				return nil
 			}
 			if _, ok := seen[path]; ok {

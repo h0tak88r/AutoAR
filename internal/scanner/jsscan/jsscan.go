@@ -397,11 +397,37 @@ func scanJSFiles(jsURLsFile string, targets []jsScanTarget, threads int) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// If every pattern set failed to load there is nothing to scan for — don't
+	// download thousands of JS files just to discard them.
+	anyPatterns := false
+	for i := range targets {
+		if len(targets[i].patterns) > 0 {
+			anyPatterns = true
+			break
+		}
+	}
+	if !anyPatterns {
+		logger.GetLogger().Infof("[WARN] JS scan: no patterns loaded — skipping downloads")
+		return nil
+	}
+
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 		Timeout: 15 * time.Second,
+		// A target-controlled JS URL can 302 to a different host (e.g. cloud
+		// metadata endpoints) whose body would then be secret-scanned and shipped
+		// to artifacts/webhooks — refuse to follow redirects off the original host.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 && !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+				return fmt.Errorf("refusing cross-host redirect to %s", req.URL.Hostname())
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
 	}
 
 	for _, jsURL := range jsURLs {

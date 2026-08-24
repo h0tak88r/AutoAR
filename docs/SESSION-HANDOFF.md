@@ -112,6 +112,52 @@ does not support rescan yet" because the stored command had no template.
   user to re-run from the Scans page. Watcher-triggered scans store no template
   (temp dir is deleted after the run) — rescanning them gives the same message.
 
+## Feature 5 — Pre-deploy security review + fixes (DONE)
+
+A 4-agent review (API layer, DB/scanner layers, dashboard JS XSS, the session's
+own commits) produced ~30 findings. Fixed before this deploy:
+
+- **HIGH — URL monitor SSRF** (`internal/scanner/monitor/daemon.go`,
+  `internal/utils/ssrf.go` new): monitor fetched arbitrary URLs and the regex
+  strategy shipped body content to Discord — a working cloud-metadata
+  credential-exfil channel. Now: scheme allowlist + private/loopback/link-local
+  IP rejection (incl. per-redirect revalidation via `utils.NewPublicHTTPClient`),
+  5 MB body cap, 20-way concurrency bound.
+- **jsscan redirect-SSRF** (`jsscan.go`): JS downloads refuse cross-host
+  redirects (a target's /x.js 302ing to 169.254.169.254 would be secret-scanned
+  and shipped to artifacts/webhooks).
+- **keyhack API key leak** (`api.go`): `storedCommand()` redacts the keyhack
+  validate API key from the persisted/displayed scan command (was readable via
+  GET /api/scans/:id).
+- **scan-ID collisions** (`ui_api.go`): global nuclei runs now use
+  `scan-<ts>-<uuid8>` — two runs in one second previously collided on the
+  CreateScan insert AND the persisted template path.
+- **Watcher fixes** (`nuclei_template_watch.go`): watermark persisted BEFORE the
+  scan dispatches (restart mid-scan no longer re-announces); staged temp dir
+  cleaned when the runner aborts without calling fn; empty-created_at cycle
+  logs instead of silently looping.
+- **Per-scan nuclei output** (`ui_api.go`): `nuclei-<scanID>.json` instead of
+  the shared `nuclei-global.json` that overlapping runs truncated.
+- **Artifact indexing** (`api.go`): `new-results/<target>/templates/*.yaml`
+  (rescan inputs) are never indexed/copied as scan findings.
+- **Log-stream traversal guard** (`scan_results_api.go`): `/api/scans/:id/logs/stream`
+  rejects IDs with `..`/separators (a literal `..` read one level above the
+  results root via the log-file fallback).
+
+Deferred (known, documented, not blocking): URL-monitor `regex` strategy still
+stores matched body content in the DB detail (fetch is now guarded, content
+handling is by design); Postgres `BatchInsertSubdomains` aborts the whole batch
+on one bad row (tx semantics, silent data loss — worth fixing later);
+`BatchInsertSubdomains` hostname validation gaps; nuclei URL-mode results-dir
+traversal (`internal/scanner/nuclei/nuclei.go:81` missing SanitizeTargetSegment);
+SQLite backup is a raw file copy under WAL (use VACUUM INTO); subfinder config
+persists keys at a predictable temp path; `jsscan.extractRootDomain` is naive
+(use utils.ParseSubdomainAndRoot if its callers change); dashboard
+`ops-tools.js generateScanReport` document.write XSS (scan target not escaped);
+per-process (not per-IP) API rate limiter; `loginAttempts` map never prunes;
+`scans.go` ExecCmd read-after-unlock race; lexical `created_at` comparison in
+the watcher (fractional-second edge).
+
 ## Conventions worth following (observed in this codebase)
 
 - Settings that must survive Dokploy redeploys: env var + entry in

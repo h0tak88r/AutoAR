@@ -755,7 +755,10 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		return
 	}
 
-	scanID := "scan-" + time.Now().Format("20060102150405")
+	// Unique scan ID: second-resolution timestamps collide when two runs start in
+	// the same second (duplicate CreateScan insert → the second run silently aborts
+	// after the client was told "started", and both would share one template file).
+	scanID := fmt.Sprintf("scan-%s-%s", time.Now().Format("20060102150405"), generateScanID()[:8])
 	target := "global-subdomains"
 
 	// Raw YAML templates are written to a durable per-scan file (instead of a
@@ -773,6 +776,11 @@ func apiRunGlobalNuclei(c *gin.Context) {
 		if err := os.WriteFile(templateForRun, []byte(template), 0o600); err != nil {
 			c.JSON(500, gin.H{"error": "failed to persist template: " + err.Error()})
 			return
+		}
+		// Absolute path: the rescan replay guard (os.Stat on absolute paths only)
+		// and CWD-independence both depend on it.
+		if abs, err := filepath.Abs(templateForRun); err == nil {
+			templateForRun = abs
 		}
 	}
 
@@ -859,7 +867,9 @@ func runGlobalNucleiScan(scanID, template string) error {
 	target := "global-subdomains"
 	outDir := filepath.Join(utils.GetResultsDir(), target, "vulnerabilities")
 	os.MkdirAll(outDir, 0755)
-	outPath := filepath.Join(outDir, "nuclei-global.json")
+	// Per-scan output file — a shared name would let overlapping runs (manual +
+	// rescan + watcher) truncate each other's JSON artifact.
+	outPath := filepath.Join(outDir, "nuclei-"+scanID+".json")
 
 	matches := 0
 	err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
