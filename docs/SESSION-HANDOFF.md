@@ -32,6 +32,33 @@
 >   stored config still has the port and no volume — a Dokploy redeploy would
 >   revert the direct `docker service update`); rotate the expired Intigriti
 >   token (Settings → Platforms & Keys; logs show 401).
+>
+> **Update later 2026-08-25 (results UI + deploy + verification):**
+>
+> - Commits `85ebec05` (security fixes) + `6cb350f0` (results UI) pushed to
+>   private `testing` + `master`, built and deployed.
+> - **Results page:** js secrets and js client-side candidates now have
+>   SEPARATE tabs/views. Root causes fixed: `json_output.go` indexed
+>   `js-clientside-vulnerabilities.json` under bogus module `js` (prefix
+>   fallback); `inferReconKind` didn't know the file (kind "other"); both
+>   artifact types rendered through the secrets-styled view. New: parser branch
+>   for jsscan rows (structured Target/Finding/Kind + normalized raw fields),
+>   `jsclient` module view (JS FILE / SEV / BUG CLASS / MATCHED CODE),
+>   `mod:js`-duplicate-tab fix, legacy `js` module normalized, raw-file viewer
+>   renders structured jsscan objects. UI test suite now 4/4 green (fixed
+>   harness to load scan-detail-manifest.js; run via `npm run test:ui`).
+> - **Deploy without the Dokploy API key** (works from the VPS as root):
+>   1. Extract the deploy key:
+>      `docker exec $(docker ps -q -f name=dokploy-postgres) psql -U dokploy -d dokploy -t -A -c 'SELECT "privateKey" FROM "ssh-key" WHERE "sshKeyId"='<id-from-application-table>' > key; tr -d '\r' < key > /root/.ssh/dokploy_deploy_key; chmod 600`
+>   2. `cd /etc/dokploy/applications/autoar-api-ifqfw7/code && sudo git fetch origin master && sudo git reset --hard origin/master`
+>   3. `sudo docker build -t autoar-api-ifqfw7:latest .` (~6 min with warm cache)
+>   4. `docker service update --force --image autoar-api-ifqfw7:latest autoar-api-ifqfw7`
+>      — plain `--image` did NOT recreate the task; `--force` was required.
+>   5. Delete `/root/.ssh/dokploy_deploy_key` afterwards.
+> - **Verified live:** global nuclei run (user's Zulip CVE-2025-31478 template)
+>   logged `Loaded 432963 live host(s) from the database (httpx skipped)` —
+>   no httpx re-probe; scan cancellable; template persisted under
+>   `templates/<scanID>.yaml` for rescan (now on the persistent volume).
 
 Purpose: everything done in this session, where it lives, and what is still
 pending, so another agent can pick up without re-discovering the context.
