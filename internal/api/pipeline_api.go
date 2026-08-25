@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -239,12 +240,14 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	outPath := filepath.Join(outDir, "nuclei-"+scanID+".json")
 
 	stdLog(scanID, "[INFO] running nuclei template %q on %d subdomains", tplName, len(allSubs))
-	matches := 0
+	// Result callbacks run concurrently in the SDK — atomic counter, or hits
+	// get lost and the "N findings" stat is wrong.
+	var matches atomic.Int64
 	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, threads, func(event *output.ResultEvent) {
 		if event == nil || event.TemplateID == "" {
 			return
 		}
-		matches++
+		matches.Add(1)
 		matched := event.Matched
 		if matched == "" {
 			matched = event.URL
@@ -262,11 +265,11 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	}
 
 	// Record the finding count so the Scans page shows the "N findings" tag.
-	_ = db.UpdateScanStats(scanID, matches, 0)
+	_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
 
-	stdLog(scanID, "[OK] Root Pipeline complete — %d roots, %d subs, %d matches", len(targetRoots), len(allSubs), matches)
+	stdLog(scanID, "[OK] Root Pipeline complete — %d roots, %d subs, %d matches", len(targetRoots), len(allSubs), matches.Load())
 	utils.SendMonitorWebhook(fmt.Sprintf(" **Root Pipeline complete**\nTemplate: `%s`\nNew roots: %d\nSubdomains: %d\nMatches: %d",
-		tplName, len(targetRoots), len(allSubs), matches))
+		tplName, len(targetRoots), len(allSubs), matches.Load()))
 	return nil
 }
 

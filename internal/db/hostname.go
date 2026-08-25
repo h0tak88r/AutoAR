@@ -1,6 +1,9 @@
 package db
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // SanitizeHostname normalizes a value destined for the subdomains.subdomain
 // column to a bare, lowercase hostname. The column is the unique dedup key, so
@@ -14,6 +17,14 @@ import "strings"
 func SanitizeHostname(raw string) string {
 	h := strings.TrimSpace(raw)
 	if h == "" {
+		return ""
+	}
+	// Reject invalid UTF-8 BEFORE any transformation: strings.ToLower would
+	// silently replace invalid bytes with U+FFFD (mangled host stored), and the
+	// raw bytes reaching Postgres would poison the BatchInsertSubdomains
+	// transaction ("invalid byte sequence for encoding UTF8") and roll back the
+	// ENTIRE batch. Skip the row instead.
+	if !utf8.ValidString(h) {
 		return ""
 	}
 	// Drop a scheme if one slipped in (http://host/path -> host/path).

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
@@ -77,8 +78,13 @@ func RunNuclei(opts Options) (*Result, error) {
 		logger.GetLogger().Infof("[INFO] Single URL mode: %s", opts.URL)
 		targetName = opts.URL
 
-		// Extract domain from URL for directory structure
-		extractedDomain := extractDomainFromURL(opts.URL)
+		// Extract domain from URL for directory structure. SanitizeTargetSegment
+		// strips path separators and ".." so a crafted URL (e.g. "https://..../")
+		// can't build a results path outside the results root.
+		extractedDomain := utils.SanitizeTargetSegment(extractDomainFromURL(opts.URL))
+		if extractedDomain == "" {
+			return nil, fmt.Errorf("invalid URL: could not derive a safe target directory from %q", opts.URL)
+		}
 		domainDir := filepath.Join(resultsDir, extractedDomain)
 		outputDir = filepath.Join(domainDir, "vulnerabilities")
 		if err := utils.EnsureDir(outputDir); err != nil {
@@ -510,6 +516,15 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 //   template-id, matched-at, info.severity, info.name, host, etc.
 // This lets the dashboard parse clean vulnerability names instead of raw text.
 func runNucleiCommand(targetFile, templateDir string, threads int, outputFile string) error {
+	// Build the engine on the owning scan's lifetime context so UI cancel and
+	// the scan timeout genuinely stop it (utils.CurrentScanContext resolves to
+	// context.Background() for CLI runs, where nothing can cancel it).
+	ctx := utils.CurrentScanContext()
+	if err := ctx.Err(); err != nil {
+		// Don't start another template batch after the scan was cancelled —
+		// mode scans chain several runNucleiCommand calls back to back.
+		return fmt.Errorf("scan cancelled before nuclei run: %w", err)
+	}
 	targets, err := readTargetLines(targetFile)
 	if err != nil {
 		return fmt.Errorf("failed to read nuclei targets: %w", err)
@@ -539,7 +554,7 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 		logger.GetLogger().Infof("[WARN] Failed to prepare nuclei ignore file: %v", err)
 	}
 	engine, err := nucleiSDK.NewNucleiEngineCtx(
-		context.Background(),
+		ctx,
 		nucleiSDK.DisableUpdateCheck(),
 		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
 		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{
@@ -561,13 +576,17 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 	defer engine.Close()
 
 	engine.LoadTargets(targets, false)
-	writeErr := error(nil)
+	// The SDK invokes result callbacks concurrently from protocol-executor
+	// goroutines (its own writer holds an internal mutex; our closure must not
+	// share unsynchronized state). sync.Once keeps the first write error.
+	var writeErr error
+	var writeErrOnce sync.Once
 	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
-		if event == nil || writeErr != nil {
+		if event == nil {
 			return
 		}
 		if wErr := jsonWriter.Write(event); wErr != nil {
-			writeErr = wErr
+			writeErrOnce.Do(func() { writeErr = wErr })
 		}
 	})
 	if writeErr != nil {
@@ -653,13 +672,17 @@ func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath st
 	defer engine.Close()
 
 	engine.LoadTargets(targets, false)
-	writeErr := error(nil)
+	// See runNucleiCommand: callbacks run concurrently — no unsynchronized
+	// shared state inside the closure (writeErr via sync.Once).
+	var writeErr error
+	var writeErrOnce sync.Once
 	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
-		if event == nil || writeErr != nil {
+		if event == nil {
 			return
 		}
 		if wErr := jsonWriter.Write(event); wErr != nil {
-			writeErr = wErr
+			writeErrOnce.Do(func() { writeErr = wErr })
+			return
 		}
 		if onResult != nil {
 			onResult(event)

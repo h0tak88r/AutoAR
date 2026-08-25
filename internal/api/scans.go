@@ -28,6 +28,10 @@ func init() {
 		si, ok := ActiveScans[scanID]
 		return ok && si != nil && si.CancelRequested
 	})
+	// Register the scan-context resolver so scanner modules (nuclei etc.) can
+	// build their engines on the scan's lifetime context via
+	// utils.CurrentScanContext() — cancel/timeout then genuinely stops them.
+	utils.RegisterScanContextResolver(scanContext)
 }
 
 type ScanInfo struct {	ScanID      string

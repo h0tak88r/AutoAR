@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -871,10 +872,12 @@ func runGlobalNucleiScan(scanID, template string) error {
 	// rescan + watcher) truncate each other's JSON artifact.
 	outPath := filepath.Join(outDir, "nuclei-"+scanID+".json")
 
-	matches := 0
+	// The SDK invokes result callbacks concurrently from executor goroutines —
+	// the counter must be atomic or hits get lost (wrong "N findings" stats).
+	var matches atomic.Int64
 	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
 		if event != nil && event.TemplateID != "" {
-			matches++
+			matches.Add(1)
 			// Matched is empty for some event shapes (flow steps, non-http
 			// protocols) — fall back so the alert always names a target.
 			matched := event.Matched
@@ -896,10 +899,10 @@ func runGlobalNucleiScan(scanID, template string) error {
 	}
 
 	// Record the finding count so the Scans page shows the "N findings" tag.
-	_ = db.UpdateScanStats(scanID, matches, 0)
+	_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
 
-	stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches)
-	utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches))
+	stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches.Load())
+	utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches.Load()))
 
 	return nil
 }

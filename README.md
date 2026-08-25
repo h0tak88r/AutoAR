@@ -28,10 +28,12 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **Subdomains**      | Enumerate using 15+ sources: Subfinder, CertSpotter, SecurityTrails, Chaos, crt.sh, OTX, VirusTotal, and more                          |
 |  **Live Hosts**      | Detect alive hosts using httpx with follow-redirects and status detection                                                              |
 |  **DNS Takeovers**  | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, dangling-IP, and **CF-1016 Cloudflare dangling record** vulnerabilities                  |
-|  **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting                                                             |
-|  **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                     |
-|  **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
-|  **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
+|  **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting. Scans are **cancellable** from the UI, and past scans support **rescan** (incl. raw-template runs) |
+|  **Nuclei Template Watch** | Daemon polling the PDCP API for **newly published nuclei templates** — Discord alert (name/severity/CVE/link) and optional auto-run against all live hosts. Info-severity (panels, tech-detects) is alert-only |
+|  **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                                                                                             |
+|  **Firebase**        | Read-only Firebase misconfiguration scanner — fingerprints Firebase on live hosts and tests Realtime DB / Firestore / Storage for unauthenticated exposure (opt-in aggressive write tests)                        |
+|  **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                                                                                                    |
+|  **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files — plus **client-side bug candidates** (DOM XSS sources/sinks, postMessage, open-redirect sinks, prototype pollution) via 25 RE2 patterns               |
 |  **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
 |  **APK Auditor**     | Browser-based Android analysis: DEX decompiler, manifest + cert parsing, tracker detection, MASVS mapping, and regex-driven findings with APX secret patterns. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
 |  **IPA Auditor**     | Browser-based iOS IPA analysis: plist + Mach-O inspection, binary strings extraction, and findings tab powered by 200+ regex signatures plus MASVS-style rules. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
@@ -87,6 +89,8 @@ autoar ports scan      -d <domain>            Port scan with naabu
 
 ```
 autoar nuclei run      -d <domain>            Run Nuclei templates on all live hosts
+autoar firebase scan   -d <domain>            Fingerprint Firebase on live hosts and test Realtime DB /
+                                              Firestore / Storage for unauthenticated exposure
 autoar zerodays scan   -d <domain>            Smart CVE scanning based on detected tech
                        -s <subdomain>         Scan a specific subdomain
                        -f <domains_file>      Scan domains from a file
@@ -296,6 +300,28 @@ autoar monitor updates manage start     [--id <id>] [--all]
 autoar monitor updates manage list
 ```
 
+### Nuclei Template Watch (PDCP)
+
+A daemon (started automatically in API mode when a PDCP key is configured) polls the
+ProjectDiscovery Cloud Platform API every 30 minutes for **newly published nuclei templates**:
+
+- **Alerts** to `MONITOR_WEBHOOK_URL` (Discord) with template name, severity, CVE IDs and a GitHub link.
+- **Auto-runs** new templates against **all live hosts** in the DB (same engine as *Run Nuclei Template*).
+  Runs appear on the Scans page as `nuclei-watch-<timestamp>`. Info-severity templates (panels,
+  tech-detects) are **alert-only** and never auto-run.
+- Watermark is persisted in the settings DB — restarts don't re-announce old templates. The first
+  run baselines silently. Each batch is deduped by template ID (the API returns public + draft
+  revisions) and capped at 10 templates staged/run per cycle.
+
+```env
+PDCP_API_KEY=...                          # required (falls back to CHAOS_API_KEY — same key)
+NUCLEI_TEMPLATE_WATCH_INTERVAL_MINUTES=30 # floor 5
+NUCLEI_TEMPLATE_AUTORUN=off               # "off" = notify only, never auto-run
+NUCLEI_TEMPLATE_WATCH=off                 # "off" = disable the watcher entirely
+```
+
+> The key can also be stored from the dashboard (Settings) — it's DB-backed and survives redeploys.
+
 ### AI Agent Commands
 
 Autonomous bug hunting directly from the terminal.
@@ -377,15 +403,14 @@ The web dashboard (`/ui/settings` → **AI Providers**) exposes all four keys an
 ### Database & Results
 
 ```
-autoar db domains list                         List all scanned domains
-autoar db domains delete    -d <domain>        Remove a domain from the database
-autoar db subdomains list   -d <domain>        List all stored subdomains for a domain
-autoar db subdomains export -d <domain>        Export subdomains to a file
-                            [-o <output.txt>]
-autoar db js list           -d <domain>        List stored JS endpoints for a domain
 autoar db backup                               Create a database backup
              [--upload-r2]                     Also upload the backup to Cloudflare R2
 ```
+
+> Schedule this (cron / Dokploy schedule) on any deployment you care about — see
+> [Backups & growth](#backups--growth-production). Domain/subdomain listing and
+> deletion is available from the dashboard (Domains page, subdomain search) and
+> the REST API rather than the CLI.
 
 ### Utilities
 
@@ -430,6 +455,40 @@ The easiest way to run AutoAR with all dependencies (Go, Nuclei, FFUF, APK Audit
    # Build and start the API + Dashboard (add --profile localdb to also start PostgreSQL)
    docker compose --profile localdb up -d
    ```
+
+### Option 1b — Dokploy (VPS deployment with Traefik)
+
+AutoAR runs well on a single VPS managed by [Dokploy](https://dokploy.com): Dokploy builds the
+`Dockerfile` from your Git repo (use a **private** repo remote for this), and Traefik — Dokploy's
+bundled reverse proxy — terminates TLS for your domain and routes to the `autoar-api` service.
+PostgreSQL runs as a second Dokploy service with its own volume; no ports need to be published for
+it (the app talks to it over the internal Docker network).
+
+Setup outline:
+
+1. Create a Dokploy **project** → application pointing at your repo's `master` and the `Dockerfile`.
+2. Create a **PostgreSQL service** in the same project; set `DB_TYPE=postgresql` and
+   `DB_HOST=postgresql://<user>:<pass>@<postgres-service>:5432/bughunt?sslmode=disable` in the
+   application env. Schema init happens automatically on boot.
+3. Attach your domain (e.g. `autoar.example.com`) — Traefik gets a Let's Encrypt cert and adds an
+   HTTP→HTTPS redirect.
+4. Set `DASHBOARD_USER` / `DASHBOARD_PASSWORD` / `AUTOAR_JWT_SECRET` in the app env — the server
+   refuses to start with a public bind and no auth.
+
+Production checklist (things to get right on a public VPS):
+
+- **Don't publish the API port.** If the service publishes `8000` on the host, the dashboard is
+  reachable over plain HTTP on the raw VPS IP, bypassing Traefik's TLS. Let Traefik reach the
+  service over the internal network instead.
+- **Persist results.** Mount a volume at `/app/new-results` (or a host bind) if you want scan
+  output files and rescan template files to survive redeploys. Without a volume, container
+  rebuilds wipe local files — R2 uploads and DB rows survive either way.
+- **Back up the database.** Dokploy's volume backups are opt-in. Either enable them for the
+  Postgres volume or schedule `autoar db backup --upload-r2` (uploads a DB dump to your R2 bucket).
+  Do one of these — Postgres holds all scans, subdomains, settings and monitor history.
+- **Set `POSTGRES_PASSWORD`** (don't rely on defaults) and keep the Postgres port unpublished.
+- **Add resource limits** (`deploy.resources.limits`) — nuclei/ffuf bursts can otherwise starve
+  other stacks on the box.
 
 
 
@@ -786,6 +845,15 @@ DB_TYPE=sqlite
 DB_HOST=./bughunt.db
 ```
 
+### Backups & growth (production)
+
+- **Backups:** `autoar db backup --upload-r2` creates a DB dump and (optionally) uploads it to your
+  R2 bucket. Schedule it (cron / Dokploy schedule) on any deployment you care about — scan history,
+  subdomains, settings and monitor state all live in the DB.
+- **Growth:** `subdomains`, `scan_artifacts` and `monitor_changes` grow without bound by design.
+  On long-running instances, prune old rows periodically (e.g. delete scans older than N months and
+  run `VACUUM`/`pg_repack` on Postgres) — 800k+ subdomain rows are normal for active targets.
+
 ---
 
 ##  Troubleshooting
@@ -832,6 +900,19 @@ For PostgreSQL, ensure:
 - The DB_HOST URL is correct and the server is running
 - Network allows connections (firewall rules, VPN)
 - For Supabase: use the **pooler** (port 6543) not the direct port (5432)
+
+### Program/Scope Fetches Fail with 401
+
+The Programs page refresh logs `[PROGRAMS] Intigriti fetch failed: ... (401)` (or similar for other
+platforms) when a stored platform token expired or was rotated. Fix it in **Settings → Platforms &
+Keys** — edit the account, paste the fresh token, and use **Test** to verify. Stale-token failures
+don't clear existing cached programs (last-known-good scope is preserved).
+
+### Scan Results Missing After a Redeploy
+
+Scan output files live under `/app/new-results` inside the container. If no volume is mounted
+there, a container rebuild wipes them (DB records and R2 uploads survive). Mount a volume at
+`/app/new-results` to keep files across redeploys — see the Dokploy checklist above.
 
 ---
 

@@ -1,5 +1,38 @@
 # Session Handoff — 2026-08-24
 
+> **Update 2026-08-25 (review + fixes session):** a full code/DB/CI review ran
+> (the one deferred below), followed by fixes. See `git log` for
+> `fix(...)` commits of that date. Summary of what changed:
+>
+> - **Code:** nuclei `runNucleiCommand` now builds its engine on
+>   `utils.CurrentScanContext()` (new hook, registered in `api/scans.go init()`)
+>   → `/scan/nuclei` + domain/subdomain workflows are cancellable; atomic match
+>   counters in `ui_api.go` / `pipeline_api.go`; `writeErr` via `sync.Once` in
+>   both nuclei callbacks; `SanitizeHostname` rejects invalid UTF-8 *before*
+>   `strings.ToLower` mangles it (was a silent batch-killer on PG);
+>   `InsertJSFile` (both dialects) normalizes via `SanitizeHostname`;
+>   jsscan initial fetches gated by `utils.ValidatePublicHTTPURL` (SSRF);
+>   `r2storage` globals now guarded by RWMutex + snapshot (safe live Reload);
+>   nuclei URL-mode results dir sanitized (`SanitizeTargetSegment`); ops-tools
+>   report `document.write` escapes interpolations; `autoar db backup
+>   [--upload-r2]` CLI command added (README previously documented it — the
+>   implementation existed but nothing invoked it); CI/release workflows use
+>   `go-version-file: go.mod`. New tests: `internal/db/hostname_test.go`.
+>   `go build` / `go vet` / `go test ./...` (38 pkgs) green.
+> - **VPS (169.58.14.255):** nightly Postgres backup cron 03:15
+>   (`/home/sallam/backups/autoar-db/backup.sh`, 14-day retention, pg_dump
+>   inside the postgres container); swarm service `autoar-api-ifqfw7` updated —
+>   published port 8000 REMOVED and `autoar-results` volume mounted at
+>   `/app/new-results` (results + rescan templates now survive redeploys);
+>   iptables drop of external :8000 + root @reboot cron re-applying it
+>   (defense in depth). Verified: domain https 200, raw IP :8000 closed,
+>   container healthy, watcher restarted.
+> - **Still on the user:** deploy the new build via Dokploy (the fixes need a
+>   rebuild); mirror the port-removal + volume in the **Dokploy UI** (Dokploy's
+>   stored config still has the port and no volume — a Dokploy redeploy would
+>   revert the direct `docker service update`); rotate the expired Intigriti
+>   token (Settings → Platforms & Keys; logs show 401).
+
 Purpose: everything done in this session, where it lives, and what is still
 pending, so another agent can pick up without re-discovering the context.
 

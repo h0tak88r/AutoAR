@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/logger"
@@ -20,10 +21,24 @@ import (
 )
 
 var (
+	// mu guards the package-level state below. Reload() (dashboard Settings
+	// save) mutates it while scan goroutines concurrently call the exported
+	// functions — without the lock a caller can pass IsEnabled() on stale state
+	// and then deref a nil client.
+	mu         sync.RWMutex
 	r2Client   *s3.Client
 	r2Config   *R2Config
 	isEnabled  bool
 )
+
+// r2Snapshot returns a consistent (client, config) pair captured under one read
+// lock, so a caller never sees a config from one Reload generation paired with
+// a client (or nil) from another.
+func r2Snapshot() (*s3.Client, *R2Config) {
+	mu.RLock()
+	defer mu.RUnlock()
+	return r2Client, r2Config
+}
 
 // r2ctxBg returns a background context with a 10-minute timeout for R2 I/O.
 func r2ctxBg() context.Context {
@@ -70,32 +85,40 @@ func LoadConfig() *R2Config {
 		return config
 	}
 
-	isEnabled = true
-	r2Config = config
-
-	// Initialize R2 client
-	if err := initR2Client(); err != nil {
-		logger.GetLogger().Infof("[R2]   Failed to initialize R2 client: %v", err)
+	// Build the client BEFORE publishing the new state, so readers either see
+	// the old (working) generation or the fully-built new one — never
+	// enabled-with-nil-client.
+	client := buildR2Client(config)
+	if client == nil {
+		logger.GetLogger().Infof("[R2]   Failed to initialize R2 client (missing config or AWS config load failed)")
 		config.Enabled = false
+		mu.Lock()
 		isEnabled = false
+		mu.Unlock()
 		return config
 	}
+
+	mu.Lock()
+	isEnabled = true
+	r2Config = config
+	r2Client = client
+	mu.Unlock()
 
 	logger.GetLogger().Infof("[R2] [ + ]R2 storage initialized (bucket: %s)", config.BucketName)
 	return config
 }
 
-// initR2Client initializes the S3-compatible R2 client
-func initR2Client() error {
-	if r2Config == nil || !r2Config.Enabled {
-		return fmt.Errorf("R2 not enabled or not configured")
+// buildR2Client constructs the S3-compatible R2 client for a config.
+func buildR2Client(r2cfg *R2Config) *s3.Client {
+	if r2cfg == nil || !r2cfg.Enabled {
+		return nil
 	}
 
 	// Create custom resolver for R2 endpoint
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		if service == s3.ServiceID {
 			return aws.Endpoint{
-				URL:           r2Config.Endpoint,
+				URL:           r2cfg.Endpoint,
 				SigningRegion: "auto",
 			}, nil
 		}
@@ -106,29 +129,33 @@ func initR2Client() error {
 	cfg, err := config.LoadDefaultConfig(r2ctxBg(),
 		config.WithEndpointResolverWithOptions(customResolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			r2Config.AccessKeyID,
-			r2Config.SecretKey,
+			r2cfg.AccessKeyID,
+			r2cfg.SecretKey,
 			"",
 		)),
 		config.WithRegion("auto"),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return nil
 	}
 
-	r2Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
 	})
-
-	return nil
 }
 
 // IsEnabled returns whether R2 storage is enabled
 func IsEnabled() bool {
-	if r2Config == nil {
-		r2Config = LoadConfig()
+	client, cfg := r2Snapshot()
+	if cfg == nil {
+		// Lazy first-use init (mainly CLI runs); API mode calls LoadConfig at boot.
+		LoadConfig()
+		client, cfg = r2Snapshot()
 	}
-	return isEnabled && r2Config != nil && r2Config.Enabled
+	mu.RLock()
+	enabled := isEnabled
+	mu.RUnlock()
+	return enabled && cfg != nil && cfg.Enabled && client != nil
 }
 
 // Reload re-reads the R2 configuration from the environment and rebuilds the
@@ -137,9 +164,12 @@ func IsEnabled() bool {
 // are otherwise cached after first use (see LoadConfig/IsEnabled). Safe to call
 // when R2 is being turned off — it resets to the disabled state.
 func Reload() {
+	mu.Lock()
 	isEnabled = false
 	r2Client = nil
-	r2Config = LoadConfig() // repopulates isEnabled/r2Config/r2Client from current env
+	r2Config = nil
+	mu.Unlock()
+	LoadConfig() // repopulates the published state from current env under its own lock
 }
 
 // UploadResultFileAndLog uploads a result file to R2 only if it's non-empty.
@@ -210,9 +240,14 @@ func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) 
 
 	logger.GetLogger().Infof("[R2]  Uploading file to R2: %s (%d bytes)", objectKey, fileInfo.Size())
 
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
+		return "", fmt.Errorf("R2 client not initialized")
+	}
+
 	// Upload file
-	_, err = r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
-		Bucket:        aws.String(r2Config.BucketName),
+	_, err = client.PutObject(r2ctxBg(), &s3.PutObjectInput{
+		Bucket:        aws.String(cfg.BucketName),
 		Key:           aws.String(objectKey),
 		Body:          file,
 		ContentLength: aws.Int64(fileInfo.Size()),
@@ -224,15 +259,7 @@ func UploadFile(filePath, objectKey string, skipTimestamp bool) (string, error) 
 	}
 
 	// Generate public URL
-	var publicURL string
-	if r2Config.PublicURL != "" {
-		// Use custom public URL if provided
-		publicURL = strings.TrimSuffix(r2Config.PublicURL, "/") + "/" + objectKey
-	} else {
-		// Use default R2 public URL format
-		publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, objectKey)
-	}
-
+	publicURL := publicURLForKey(cfg, objectKey)
 	logger.GetLogger().Infof("[R2] [ + ]File uploaded successfully: %s", publicURL)
 	return publicURL, nil
 }
@@ -259,9 +286,14 @@ func UploadFileWithReader(reader io.Reader, objectKey string, size int64, conten
 
 	logger.GetLogger().Infof("[R2]  Uploading file to R2: %s (%d bytes)", objectKey, size)
 
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
+		return "", fmt.Errorf("R2 client not initialized")
+	}
+
 	// Upload file
-	_, err := r2Client.PutObject(r2ctxBg(), &s3.PutObjectInput{
-		Bucket:        aws.String(r2Config.BucketName),
+	_, err := client.PutObject(r2ctxBg(), &s3.PutObjectInput{
+		Bucket:        aws.String(cfg.BucketName),
 		Key:           aws.String(objectKey),
 		Body:          reader,
 		ContentLength: aws.Int64(size),
@@ -273,13 +305,7 @@ func UploadFileWithReader(reader io.Reader, objectKey string, size int64, conten
 	}
 
 	// Generate public URL
-	var publicURL string
-	if r2Config.PublicURL != "" {
-		publicURL = strings.TrimSuffix(r2Config.PublicURL, "/") + "/" + objectKey
-	} else {
-		publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, objectKey)
-	}
-
+	publicURL := publicURLForKey(cfg, objectKey)
 	logger.GetLogger().Infof("[R2] [ + ]File uploaded successfully: %s", publicURL)
 	return publicURL, nil
 }
@@ -357,9 +383,14 @@ func FileExists(objectKey string) (bool, error) {
 		objectKey = objectKey[1:]
 	}
 
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
+		return false, fmt.Errorf("R2 client not initialized")
+	}
+
 	// Check if file exists
-	_, err := r2Client.HeadObject(r2ctxBg(), &s3.HeadObjectInput{
-		Bucket: aws.String(r2Config.BucketName),
+	_, err := client.HeadObject(r2ctxBg(), &s3.HeadObjectInput{
+		Bucket: aws.String(cfg.BucketName),
 		Key:    aws.String(objectKey),
 	})
 
@@ -381,13 +412,18 @@ func FindExistingFile(fileName string) (string, error) {
 		return "", fmt.Errorf("R2 storage is not enabled")
 	}
 
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
+		return "", fmt.Errorf("R2 client not initialized")
+	}
+
 	// List objects with the filename
 	listInput := &s3.ListObjectsV2Input{
-		Bucket: aws.String(r2Config.BucketName),
+		Bucket: aws.String(cfg.BucketName),
 		Prefix: aws.String(""), // Search all
 	}
 
-	paginator := s3.NewListObjectsV2Paginator(r2Client, listInput)
+	paginator := s3.NewListObjectsV2Paginator(client, listInput)
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(r2ctxBg())
 		if err != nil {
@@ -421,12 +457,8 @@ func UploadFileIfNotExists(filePath, objectKey string) (string, bool, error) {
 	existingKey, err := FindExistingFile(filepath.Base(filePath))
 	if err == nil && existingKey != "" {
 		// File exists, return existing URL
-		var publicURL string
-		if r2Config.PublicURL != "" {
-			publicURL = strings.TrimSuffix(r2Config.PublicURL, "/") + "/" + existingKey
-		} else {
-			publicURL = fmt.Sprintf("https://pub-%s.r2.dev/%s", r2Config.AccountID, existingKey)
-		}
+		_, cfg := r2Snapshot()
+		publicURL := publicURLForKey(cfg, existingKey)
 		logger.GetLogger().Infof("[R2] [ + ]File already exists in R2: %s", publicURL)
 		return publicURL, false, nil
 	}
@@ -566,14 +598,19 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 		return fmt.Errorf("failed to create local directory: %w", err)
 	}
 
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
+		return fmt.Errorf("R2 client not initialized")
+	}
+
 	// List objects with the prefix
 	listInput := &s3.ListObjectsV2Input{
-		Bucket: aws.String(r2Config.BucketName),
+		Bucket: aws.String(cfg.BucketName),
 		Prefix: aws.String(r2Prefix),
 	}
 
 	downloadedCount := 0
-	paginator := s3.NewListObjectsV2Paginator(r2Client, listInput)
+	paginator := s3.NewListObjectsV2Paginator(client, listInput)
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(r2ctxBg())
 		if err != nil {
@@ -598,11 +635,11 @@ func DownloadDirectory(r2Prefix, localPath string) error {
 
 			// Download object
 			getInput := &s3.GetObjectInput{
-				Bucket: aws.String(r2Config.BucketName),
+				Bucket: aws.String(cfg.BucketName),
 				Key:    obj.Key,
 			}
 
-			result, err := r2Client.GetObject(r2ctxBg(), getInput)
+			result, err := client.GetObject(r2ctxBg(), getInput)
 			if err != nil {
 				logger.GetLogger().Infof("[R2]   Failed to download %s: %v", *obj.Key, err)
 				continue
@@ -649,8 +686,9 @@ func ExtractObjectKeyFromPublicURL(publicURL string) string {
 		return ""
 	}
 	path := strings.TrimPrefix(u.Path, "/")
-	if r2Config != nil && r2Config.PublicURL != "" {
-		base, berr := url.Parse(r2Config.PublicURL)
+	_, cfg := r2Snapshot()
+	if cfg != nil && cfg.PublicURL != "" {
+		base, berr := url.Parse(cfg.PublicURL)
 		if berr == nil && strings.EqualFold(base.Host, u.Host) {
 			basePath := strings.Trim(strings.TrimPrefix(base.Path, "/"), "/")
 			if basePath != "" && strings.HasPrefix(path, basePath+"/") {
@@ -668,21 +706,40 @@ type ListedObject struct {
 	LastModified time.Time
 }
 
+// publicURLForKey builds the public URL for an object key from an explicit
+// config snapshot (race-free; see r2Snapshot).
+func publicURLForKey(cfg *R2Config, objectKey string) string {
+	if cfg == nil {
+		return ""
+	}
+	if cfg.PublicURL != "" {
+		// Use custom public URL if provided
+		return strings.TrimSuffix(cfg.PublicURL, "/") + "/" + objectKey
+	}
+	// Use default R2 public URL format
+	return fmt.Sprintf("https://pub-%s.r2.dev/%s", cfg.AccountID, objectKey)
+}
+
 // PublicURLForKey returns the public CDN URL for an object key, or empty if not configured.
 func PublicURLForKey(objectKey string) string {
-	if r2Config == nil || !r2Config.Enabled || strings.TrimSpace(r2Config.PublicURL) == "" {
+	_, cfg := r2Snapshot()
+	if cfg == nil || !cfg.Enabled || strings.TrimSpace(cfg.PublicURL) == "" {
 		return ""
 	}
 	k := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
 	if k == "" {
 		return ""
 	}
-	return strings.TrimSuffix(r2Config.PublicURL, "/") + "/" + k
+	return strings.TrimSuffix(cfg.PublicURL, "/") + "/" + k
 }
 
 // ListObjectsRecursive lists all objects under prefix (full recursion; no delimiter).
 func ListObjectsRecursive(prefix string) ([]ListedObject, error) {
-	if !IsEnabled() || r2Client == nil || r2Config == nil {
+	if !IsEnabled() {
+		return nil, fmt.Errorf("R2 not available")
+	}
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
 		return nil, fmt.Errorf("R2 not available")
 	}
 	listPrefix := strings.TrimPrefix(strings.TrimSpace(prefix), "/")
@@ -690,13 +747,13 @@ func ListObjectsRecursive(prefix string) ([]ListedObject, error) {
 		listPrefix += "/"
 	}
 	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String(r2Config.BucketName),
+		Bucket: aws.String(cfg.BucketName),
 	}
 	if listPrefix != "" {
 		input.Prefix = aws.String(listPrefix)
 	}
 	var out []ListedObject
-	paginator := s3.NewListObjectsV2Paginator(r2Client, input)
+	paginator := s3.NewListObjectsV2Paginator(client, input)
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(r2ctxBg())
 		if err != nil {
@@ -745,15 +802,19 @@ const MaxGetObjectBytes = 25 * 1024 * 1024
 
 // GetObjectBytes downloads an object from R2 by key (full key as stored in the bucket).
 func GetObjectBytes(objectKey string) ([]byte, error) {
-	if !IsEnabled() || r2Client == nil || r2Config == nil {
+	if !IsEnabled() {
+		return nil, fmt.Errorf("R2 not available")
+	}
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
 		return nil, fmt.Errorf("R2 not available")
 	}
 	key := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
 	if key == "" {
 		return nil, fmt.Errorf("empty object key")
 	}
-	out, err := r2Client.GetObject(r2ctxBg(), &s3.GetObjectInput{
-		Bucket: aws.String(r2Config.BucketName),
+	out, err := client.GetObject(r2ctxBg(), &s3.GetObjectInput{
+		Bucket: aws.String(cfg.BucketName),
 		Key:    aws.String(key),
 	})
 	if err != nil {
@@ -775,6 +836,10 @@ func DeleteObjects(keys []string) error {
 	if !IsEnabled() {
 		return nil
 	}
+	client, cfg := r2Snapshot()
+	if client == nil || cfg == nil {
+		return fmt.Errorf("R2 not available")
+	}
 	uniq := map[string]struct{}{}
 	for _, k := range keys {
 		k = strings.TrimSpace(strings.TrimPrefix(k, "/"))
@@ -784,8 +849,8 @@ func DeleteObjects(keys []string) error {
 		uniq[k] = struct{}{}
 	}
 	for k := range uniq {
-		_, err := r2Client.DeleteObject(r2ctxBg(), &s3.DeleteObjectInput{
-			Bucket: aws.String(r2Config.BucketName),
+		_, err := client.DeleteObject(r2ctxBg(), &s3.DeleteObjectInput{
+			Bucket: aws.String(cfg.BucketName),
 			Key:    aws.String(k),
 		})
 		if err != nil {

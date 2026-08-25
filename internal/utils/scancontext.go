@@ -14,6 +14,7 @@ package utils
 // falls back to the env var for subprocess compatibility.
 
 import (
+	"context"
 	"os"
 	"runtime"
 	"strconv"
@@ -100,4 +101,31 @@ func IsScanCancelled(scanID string) bool {
 		return false
 	}
 	return isCancelledFn(scanID)
+}
+
+// scanContextFn is a hook registered by the api package (same circular-import
+// avoidance as RegisterCancelChecker): it resolves a scan ID to the scan's
+// lifetime context, which CancelScanByID and the scan timeout can cancel.
+var scanContextFn func(scanID string) context.Context
+
+// RegisterScanContextResolver lets the api package inject its scanID →
+// context.Context lookup once at startup.
+func RegisterScanContextResolver(fn func(scanID string) context.Context) {
+	scanContextFn = fn
+}
+
+// CurrentScanContext returns the lifetime context of the scan running on this
+// goroutine (see GetCurrentScanID), or context.Background() when no scan is
+// active (CLI runs). Scanner engines must be built on this context — one built
+// on context.Background() ignores UI cancels and the scan timeout, and keeps
+// sweeping hosts + firing webhooks after the scan was marked done.
+func CurrentScanContext() context.Context {
+	id := GetCurrentScanID()
+	if id == "" || scanContextFn == nil {
+		return context.Background()
+	}
+	if ctx := scanContextFn(id); ctx != nil {
+		return ctx
+	}
+	return context.Background()
 }

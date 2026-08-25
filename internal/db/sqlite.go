@@ -572,12 +572,19 @@ func (s *SQLiteDB) InsertSubdomain(domain, subdomain string, isLive bool, httpUR
 // InsertJSFile inserts or updates a JS file for a subdomain.
 // #15: Use net/url.Parse to correctly extract hostnames (handles ports, auth, etc.).
 func (s *SQLiteDB) InsertJSFile(domain, jsURL, contentHash string) error {
-	// Extract hostname from JS URL — correctly handles ports.
+	// Extract hostname from JS URL — correctly handles ports. SanitizeHostname
+	// additionally normalizes case and rejects over-long/non-UTF-8 values so the
+	// row lands on the same unique key as every other writer.
 	var subdomain string
 	if parsed, err := url.Parse(jsURL); err == nil && parsed.Hostname() != "" {
-		subdomain = parsed.Hostname() // strips port correctly (e.g. sub.example.com:8080 → sub.example.com)
+		subdomain = SanitizeHostname(parsed.Hostname()) // strips port correctly (e.g. sub.example.com:8080 → sub.example.com)
 	} else {
-		subdomain = jsURL // fallback: store as-is if not a valid URL
+		subdomain = SanitizeHostname(jsURL) // fallback: store normalized if not a valid URL
+	}
+	if subdomain == "" {
+		// Not a usable hostname — there is no subdomains row to attach the JS
+		// file to; skip rather than insert an empty key.
+		return nil
 	}
 
 	domainID, err := s.InsertOrGetDomain(domain)

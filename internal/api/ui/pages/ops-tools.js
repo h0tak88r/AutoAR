@@ -58,13 +58,17 @@
   async function generateScanReport(scanId) {
     window.showToast('info', 'Generating Report', `Gathering data for scan ${scanId}`);
     try {
+      const esc = window.HtmlEscapePage?.esc || ((s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
       const data = await window.apiFetch(`/api/scans/${encodeURIComponent(scanId)}/report`);
       const reportWindow = window.open('', '_blank');
+      // scanId / target / file names are attacker-influenceable (scan targets,
+      // remote-controlled result file names) — everything interpolated into the
+      // document.write'd report MUST be escaped.
       const html = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>AutoAR Scan Report - ${scanId}</title>
+        <title>AutoAR Scan Report - ${esc(scanId)}</title>
         <style>
           body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; padding: 40px; max-width: 900px; margin: auto; }
           h1 { border-bottom: 2px solid #06b6d4; padding-bottom: 10px; color: #0f172a; }
@@ -78,9 +82,9 @@
       <body>
         <h1>Security Scan Report</h1>
         <div class="meta">
-          <div><strong>Target:</strong> ${data.scan_info?.target || 'N/A'}</div>
-          <div><strong>Type:</strong> ${data.scan_info?.scan_type || 'N/A'}</div>
-          <div><strong>Status:</strong> ${data.scan_info?.status || 'N/A'}</div>
+          <div><strong>Target:</strong> ${esc(data.scan_info?.target || 'N/A')}</div>
+          <div><strong>Type:</strong> ${esc(data.scan_info?.scan_type || 'N/A')}</div>
+          <div><strong>Status:</strong> ${esc(data.scan_info?.status || 'N/A')}</div>
           <div><strong>Generated:</strong> ${new Date().toLocaleString()}</div>
         </div>
         <h2>Summary of Findings</h2>
@@ -88,7 +92,7 @@
         <div id="findings">
           ${data.files?.map((f) => `
             <div class="finding-card">
-              <strong>${f.file_name}</strong> (${f.module})
+              <strong>${esc(f.file_name)}</strong> (${esc(f.module)})
               <div style="font-size: 13px; color: #64748b">Size: ${f.size_bytes} bytes</div>
             </div>
           `).join('')}
