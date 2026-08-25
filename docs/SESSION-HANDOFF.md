@@ -293,3 +293,35 @@ Follow-up fixes (same day, after the first watcher run hit production):
   died on a billing-quota 403. Only build/vet/tests were verified. If wanted,
   redo a focused review of `internal/api` (auth, SQL string building) and
   scanner command construction.
+
+## Session update — 2026-08-25 (evening): platform-account token errors
+
+User reported Settings → Platforms & Keys showing Bugcrowd + Intigriti errors.
+
+**Root cause (verified live from the VPS, not a code bug):**
+- Bugcrowd both accounts (`0x88`, `h0x88`): `GET bugcrowd.com/dashboard` with
+  the stored `_crowdcontrol_session_key` → `302 → /user/sign_in` = session
+  cookies expired (last good sync 2026-08-21, 277 programs cached).
+- Intigriti (`h0tak88r`): researcher API → `401 invalid token`.
+  Only user can rotate: fresh BC cookie from browser DevTools; new IT token
+  from app.intigriti.com → Profile → API.
+
+**Code fixes shipped (commit 37885b97, deployed 20:47Z, container healthy):**
+1. `/api/config` `*_token_set` flags were env-only — after the env→DB account
+   migration they lied "not set". Now `env set OR accounts.Count(platform) > 0`
+   (`ui_api.go`).
+2. `POST /api/accounts` now kicks `bbcatalog.SyncAsync()` when a credential is
+   new/rotated (was: wait ≤2h for the warm cycle) — `accounts_api.go`.
+3. `bbcatalog.Sync()` buffers per-platform fetches across accounts and only
+   writes after clearing the source's rows when ≥1 account succeeds; when all
+   accounts fail it preserves last-known-good (same semantics as as93).
+   Previously upsert-only, so a degenerate row lingered forever — deleted the
+   stale Intigriti `handle='detail'` row (pre-fix parser artifact) from
+   `bbp_catalog_programs` on the live DB.
+
+Dokploy API note: endpoint is `/api/application.deploy` (singular) with the
+`x-api-key` header + JSON body `{"applicationId": ...}`; poll the `deployment`
+table (`"createdAt"` quoted camelCase) in the dokploy-postgres container.
+
+Program lookup kept working throughout off cached catalog rows
+(h1 1229, as93 1592, bc 277, ywh 217).
