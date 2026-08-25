@@ -9,6 +9,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	scopemod "github.com/h0tak88r/AutoAR/internal/scanner/scope"
+	bbscope "github.com/sw33tLie/bbscope/pkg/scope"
 )
 
 // SyncResult summarises a catalog sync.
@@ -94,7 +95,18 @@ func Sync() (SyncResult, error) {
 		"ywh": scopemod.PlatformYesWeHack,
 	}
 	for code, plat := range plats {
-		for _, a := range accounts.For(code) {
+		accts := accounts.For(code)
+		if len(accts) == 0 {
+			continue
+		}
+		// Buffer every account's fetch before writing: only when at least one
+		// account succeeds do we clear the source's rows and rewrite them, so a
+		// fully-expired platform (all accounts 401) keeps its last-known-good
+		// catalog while a successful sync also prunes stale rows (e.g. handles
+		// mangled by an older parser) that plain upserts would leave behind.
+		var buffered []bbscope.ProgramData
+		okAny := false
+		for _, a := range accts {
 			progs, err := scopemod.FetchScope(scopemod.Options{
 				Platform: plat, Username: a.Username, Token: a.Token, Email: a.Email, Password: a.Password,
 				Categories: "all", Concurrency: 5, BBPOnly: true, IncludeOOS: true,
@@ -103,35 +115,40 @@ func Sync() (SyncResult, error) {
 				res.Errors = append(res.Errors, code+"/"+a.Label+": "+err.Error())
 				continue
 			}
-			for _, pd := range progs {
-				handle := handleFromURL(pd.Url)
-				if handle == "" {
-					continue
-				}
-				id, err := db.UpsertCatalogProgram(db.CatalogProgram{
-					Source: code, Company: titleize(handle), Handle: handle, URL: scopemod.PublicProgramURL(pd.Url), OffersBounty: true,
-				})
-				if err != nil {
-					continue
-				}
-				// In-scope wins when a root appears in both lists.
-				domMap := map[string]bool{}
-				for _, r := range scopemod.OutScopeRoots(pd) {
-					domMap[r] = false
-				}
-				for _, r := range scopemod.InScopeRoots(pd) {
-					domMap[r] = true
-				}
-				doms := make([]db.CatalogDomain, 0, len(domMap))
-				for d, in := range domMap {
-					doms = append(doms, db.CatalogDomain{Domain: d, InScope: in})
-				}
-				if err := db.ReplaceCatalogDomains(id, doms); err == nil {
-					res.Domains += len(doms)
-				}
-				res.Sources[code]++
-				res.Programs++
+			okAny = true
+			buffered = append(buffered, progs...)
+		}
+		if okAny {
+			_ = db.ClearCatalogSource(code)
+		}
+		for _, pd := range buffered {
+			handle := handleFromURL(pd.Url)
+			if handle == "" {
+				continue
 			}
+			id, err := db.UpsertCatalogProgram(db.CatalogProgram{
+				Source: code, Company: titleize(handle), Handle: handle, URL: scopemod.PublicProgramURL(pd.Url), OffersBounty: true,
+			})
+			if err != nil {
+				continue
+			}
+			// In-scope wins when a root appears in both lists.
+			domMap := map[string]bool{}
+			for _, r := range scopemod.OutScopeRoots(pd) {
+				domMap[r] = false
+			}
+			for _, r := range scopemod.InScopeRoots(pd) {
+				domMap[r] = true
+			}
+			doms := make([]db.CatalogDomain, 0, len(domMap))
+			for d, in := range domMap {
+				doms = append(doms, db.CatalogDomain{Domain: d, InScope: in})
+			}
+			if err := db.ReplaceCatalogDomains(id, doms); err == nil {
+				res.Domains += len(doms)
+			}
+			res.Sources[code]++
+			res.Programs++
 		}
 	}
 	return res, nil

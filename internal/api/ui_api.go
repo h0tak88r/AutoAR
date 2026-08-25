@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/apikeys"
 	"github.com/h0tak88r/AutoAR/internal/brain"
 	"github.com/h0tak88r/AutoAR/internal/db"
@@ -89,17 +90,19 @@ func apiConfigHandler(c *gin.Context) {
 		"openrouter_key_set": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "",
 		"gemini_key_set":     strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
 		// Bug-bounty platform credentials — tokens are never returned, only whether
-		// each is configured. This endpoint is public (read pre-login), so we don't
-		// echo the H1 username value either (it's an identity handle) — just whether
-		// it's set. HackAdvisor's include-native flag is a plain non-secret bool.
-		"h1_username_set": strings.TrimSpace(os.Getenv("H1_USERNAME")) != "",
-		"h1_token_set":    strings.TrimSpace(os.Getenv("H1_TOKEN")) != "",
-		"bc_token_set":    strings.TrimSpace(os.Getenv("BUGCROWD_TOKEN")) != "",
+		// each is configured. Env vars AND stored accounts (bbp_accounts, where
+		// credentials live after the env→DB migration) both count, so a platform
+		// with a DB account no longer shows "not set". This endpoint is public
+		// (read pre-login), so we don't echo the H1 username value either (it's an
+		// identity handle) — just whether it's set.
+		"h1_username_set": strings.TrimSpace(os.Getenv("H1_USERNAME")) != "" || accounts.Count("h1") > 0,
+		"h1_token_set":    strings.TrimSpace(os.Getenv("H1_TOKEN")) != "" || accounts.Count("h1") > 0,
+		"bc_token_set":    strings.TrimSpace(os.Getenv("BUGCROWD_TOKEN")) != "" || accounts.Count("bc") > 0,
 		// hasIntigritiToken accepts both INTIGRITI_TOKEN and the INTIGRITI_API_KEY
 		// alias — a raw INTIGRITI_TOKEN check would wrongly show "not set" when only
 		// the alias is configured (even though Intigriti fetching works fine).
-		"it_token_set":      hasIntigritiToken(),
-		"ywh_token_set":     strings.TrimSpace(os.Getenv("YWH_TOKEN")) != "",
+		"it_token_set":  hasIntigritiToken() || accounts.Count("it") > 0,
+		"ywh_token_set": strings.TrimSpace(os.Getenv("YWH_TOKEN")) != "" || accounts.Count("ywh") > 0,
 		"ha_token_set":      strings.TrimSpace(os.Getenv("HACKADVISOR_TOKEN")) != "",
 		"ha_include_native": strings.EqualFold(strings.TrimSpace(os.Getenv("HACKADVISOR_INCLUDE_NATIVE")), "true"),
 		"chaos_key_set":     strings.TrimSpace(os.Getenv("CHAOS_API_KEY")) != "",

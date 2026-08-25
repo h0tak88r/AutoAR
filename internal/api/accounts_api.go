@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/accounts"
+	"github.com/h0tak88r/AutoAR/internal/bbcatalog"
 	"github.com/h0tak88r/AutoAR/internal/db"
 )
 
@@ -94,10 +95,14 @@ func apiUpsertBBPAccount(c *gin.Context) {
 	password := b.Password
 	totpSecret := strings.TrimSpace(b.TOTPSecret)
 	// Preserve stored secrets when the body omits them (masked-edit case).
+	prevToken, prevPassword := "", ""
+	existed := false
 	if token == "" || password == "" || totpSecret == "" {
 		if existing, err := db.ListBBPAccounts(p); err == nil {
 			for _, e := range existing {
 				if e.Label == label {
+					existed = true
+					prevToken, prevPassword = e.Token, e.Password
 					if token == "" {
 						token = e.Token
 					}
@@ -126,6 +131,12 @@ func apiUpsertBBPAccount(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	// A new or rotated credential can unblock platform fetching — refresh the
+	// program catalog right away instead of waiting for the 2h background warm
+	// cycle. SyncAsync is single-flight, so concurrent saves kick one sync.
+	if !existed || token != prevToken || password != prevPassword {
+		go bbcatalog.SyncAsync()
 	}
 	c.JSON(http.StatusOK, gin.H{"id": id, "platform": p, "label": label, "enabled": enabled})
 }
