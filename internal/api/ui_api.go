@@ -406,37 +406,42 @@ func apiDashboardStats(c *gin.Context) {
 // GET /api/domains — list tracked root domains
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Domain-count listing cache: the aggregate scans ~800k subdomain rows
+// (~0.9s on the production DB). Counts only change when scans insert, so a
+// short TTL turns repeat dashboard loads into an instant response while
+// keeping the data fresh enough for a dashboard listing.
+var (
+	domainCountsCache    []db.DomainWithCounts
+	domainCountsCachedAt time.Time
+	domainCountsCacheMu  sync.RWMutex
+)
+
+const domainCountsCacheTTL = 30 * time.Second
+
 func apiListDomains(c *gin.Context) {
 	_ = db.Init()
 	_ = db.EnsureSchema()
 
-	domains, err := db.ListDomains()
+	domainCountsCacheMu.RLock()
+	cached, fresh := domainCountsCache, time.Since(domainCountsCachedAt) < domainCountsCacheTTL
+	domainCountsCacheMu.RUnlock()
+	if fresh {
+		c.JSON(http.StatusOK, gin.H{"domains": cached, "total": len(cached)})
+		return
+	}
+
+	// Single aggregate query. The previous shape called ListSubdomainsWithStatus
+	// once per domain — 4.5k queries pulling all ~800k subdomain rows through
+	// Go just to count them (~13s on the production DB).
+	result, err := db.ListDomainsWithCounts()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	type DomainInfo struct {
-		Domain         string `json:"domain"`
-		SubdomainCount int    `json:"subdomain_count"`
-		LiveCount      int    `json:"live_count"`
-	}
-
-	result := make([]DomainInfo, 0, len(domains))
-	for _, d := range domains {
-		subs, _ := db.ListSubdomainsWithStatus(d)
-		liveCount := 0
-		for _, s := range subs {
-			if s.IsLive {
-				liveCount++
-			}
-		}
-		result = append(result, DomainInfo{
-			Domain:         d,
-			SubdomainCount: len(subs),
-			LiveCount:      liveCount,
-		})
-	}
+	domainCountsCacheMu.Lock()
+	domainCountsCache, domainCountsCachedAt = result, time.Now()
+	domainCountsCacheMu.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{"domains": result, "total": len(result)})
 }

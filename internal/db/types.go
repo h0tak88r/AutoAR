@@ -45,6 +45,12 @@ type DB interface {
 	// ListDomains returns all distinct domains stored in the database
 	ListDomains() ([]string, error)
 
+	// ListDomainsWithCounts returns every domain with its subdomain and live
+	// counts in ONE aggregate query. Replaces the old pattern of calling
+	// ListSubdomainsWithStatus per domain (an N+1 that pulled all ~800k
+	// subdomain rows through Go just to count them).
+	ListDomainsWithCounts() ([]DomainWithCounts, error)
+
 	// ListSubdomains returns all subdomains for a given domain
 	ListSubdomains(domain string) ([]string, error)
 	// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain
@@ -466,6 +472,13 @@ func (s SubdomainStatus) BestURL() string {
 type GlobalSubdomain struct {
 	SubdomainStatus
 	Domain string `json:"domain"`
+}
+
+// DomainWithCounts is one row of the domain listing aggregate.
+type DomainWithCounts struct {
+	Domain         string `json:"domain"`
+	SubdomainCount int    `json:"subdomain_count"`
+	LiveCount      int    `json:"live_count"`
 }
 
 

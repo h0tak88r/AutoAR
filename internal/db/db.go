@@ -293,6 +293,17 @@ func ListDomains() ([]string, error) {
 	return dbInstance.ListDomains()
 }
 
+// ListDomainsWithCounts returns every domain with subdomain/live counts in one
+// aggregate query (see the DB interface for why this exists).
+func ListDomainsWithCounts() ([]DomainWithCounts, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListDomainsWithCounts()
+}
+
 // ListSubdomains returns all subdomains for a given domain.
 func ListSubdomains(domain string) ([]string, error) {
 	if dbInstance == nil {

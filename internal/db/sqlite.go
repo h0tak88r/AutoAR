@@ -303,6 +303,8 @@ func (s *SQLiteDB) InitSchema() error {
 	-- Create indexes
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
+	-- Covering index for per-domain count aggregates (ListDomainsWithCounts).
+	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_live ON subdomains(domain_id, is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
 	CREATE INDEX IF NOT EXISTS idx_report_templates_name ON report_templates(name);
@@ -1003,6 +1005,39 @@ func (s *SQLiteDB) ListDomains() ([]string, error) {
 		return nil, fmt.Errorf("failed to iterate domains: %v", rows.Err())
 	}
 	return domains, nil
+}
+
+// ListDomainsWithCounts returns every domain with subdomain/live counts in one
+// aggregate (SQLite has no FILTER — use SUM(CASE)).
+func (s *SQLiteDB) ListDomainsWithCounts() ([]DomainWithCounts, error) {
+	rows, err := s.db.Query(`
+		SELECT d.domain,
+		       COUNT(s.id) AS subdomain_count,
+		       SUM(CASE WHEN s.is_live THEN 1 ELSE 0 END) AS live_count
+		FROM domains d
+		LEFT JOIN subdomains s ON s.domain_id = d.id
+		GROUP BY d.id, d.domain
+		ORDER BY d.domain;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query domain counts: %v", err)
+	}
+	defer rows.Close()
+
+	out := make([]DomainWithCounts, 0, 128)
+	for rows.Next() {
+		var r DomainWithCounts
+		var live int
+		if err := rows.Scan(&r.Domain, &r.SubdomainCount, &live); err != nil {
+			return nil, fmt.Errorf("failed to scan domain counts: %v", err)
+		}
+		r.LiveCount = live
+		out = append(out, r)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate domain counts: %v", rows.Err())
+	}
+	return out, nil
 }
 
 // ListSubdomains returns all subdomains for a given domain.

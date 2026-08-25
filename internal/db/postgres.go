@@ -456,6 +456,9 @@ func (p *PostgresDB) InitSchema() error {
 	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
+	-- Covering index for per-domain count aggregates (index-only scans):
+	-- ListDomainsWithCounts and the liveOnly COUNT both avoid heap fetches.
+	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_live ON subdomains(domain_id, is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
 	CREATE INDEX IF NOT EXISTS idx_updates_targets_url ON updates_targets(url);
@@ -1131,6 +1134,37 @@ func (p *PostgresDB) ListDomains() ([]string, error) {
 		return nil, fmt.Errorf("failed to iterate domains: %v", rows.Err())
 	}
 	return domains, nil
+}
+
+// ListDomainsWithCounts returns every domain with subdomain/live counts in one
+// aggregate. With idx_subdomains_domain_live this runs as an index-only scan.
+func (p *PostgresDB) ListDomainsWithCounts() ([]DomainWithCounts, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT d.domain,
+		       COUNT(s.id) AS subdomain_count,
+		       COUNT(s.id) FILTER (WHERE s.is_live) AS live_count
+		FROM domains d
+		LEFT JOIN subdomains s ON s.domain_id = d.id
+		GROUP BY d.id, d.domain
+		ORDER BY d.domain;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query domain counts: %v", err)
+	}
+	defer rows.Close()
+
+	out := make([]DomainWithCounts, 0, 128)
+	for rows.Next() {
+		var r DomainWithCounts
+		if err := rows.Scan(&r.Domain, &r.SubdomainCount, &r.LiveCount); err != nil {
+			return nil, fmt.Errorf("failed to scan domain counts: %v", err)
+		}
+		out = append(out, r)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate domain counts: %v", rows.Err())
+	}
+	return out, nil
 }
 
 // ListSubdomains returns all subdomains for a given domain.
