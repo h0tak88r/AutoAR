@@ -254,9 +254,34 @@ func nucleiTemplateWatchCycle() {
 
 // nucleiWatchRunnable reports whether a newly published template should be
 // auto-run against all live hosts. info-severity templates (panels,
-// tech-detects) are alert-only. Empty/unknown severity runs (fail-open).
+// tech-detects) are alert-only, and IDs listed in NUCLEI_TEMPLATE_IGNORE
+// (comma-separated) are skipped entirely — that blocklist is for templates
+// whose matchers are known-broken (mass false positives against every live
+// host). Empty/unknown severity runs (fail-open).
 func nucleiWatchRunnable(t pdcpTemplate) bool {
-	return !strings.EqualFold(strings.TrimSpace(t.Severity), "info")
+	if strings.EqualFold(strings.TrimSpace(t.Severity), "info") {
+		return false
+	}
+	return !nucleiTemplateBlocked(t.ID)
+}
+
+// nucleiTemplateBlocked reports whether a template ID is listed in the
+// NUCLEI_TEMPLATE_IGNORE blocklist (comma-separated, case-insensitive).
+func nucleiTemplateBlocked(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	list := strings.TrimSpace(utils.GetEnv("NUCLEI_TEMPLATE_IGNORE", ""))
+	if list == "" {
+		return false
+	}
+	for _, item := range strings.Split(list, ",") {
+		if item = strings.TrimSpace(item); item != "" && strings.EqualFold(item, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // nucleiWatchSearch fetches the newest public templates, sorted by creation

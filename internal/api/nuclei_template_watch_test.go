@@ -89,3 +89,32 @@ func TestNucleiWatchRunnable(t *testing.T) {
 		}
 	}
 }
+
+func TestNucleiTemplateBlocked(t *testing.T) {
+	t.Setenv("NUCLEI_TEMPLATE_IGNORE", "CVE-2026-32475, cve-2026-73570 ,")
+	cases := []struct {
+		id   string
+		want bool
+	}{
+		{"CVE-2026-32475", true},
+		{"cve-2026-32475", true},   // case-insensitive
+		{"CVE-2026-73570", true},   // whitespace-trimmed entry
+		{"CVE-2026-77806", false},  // not listed
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := nucleiTemplateBlocked(tc.id); got != tc.want {
+			t.Errorf("nucleiTemplateBlocked(%q) = %v, want %v", tc.id, got, tc.want)
+		}
+	}
+	if !nucleiWatchRunnable(pdcpTemplate{ID: "CVE-2026-77806", Severity: "critical"}) {
+		t.Error("non-blocklisted template must be runnable")
+	}
+	if nucleiWatchRunnable(pdcpTemplate{ID: "CVE-2026-32475", Severity: "critical"}) {
+		t.Error("blocklisted template must not be runnable")
+	}
+	t.Setenv("NUCLEI_TEMPLATE_IGNORE", "")
+	if nucleiTemplateBlocked("CVE-2026-32475") {
+		t.Error("empty blocklist must not block anything")
+	}
+}

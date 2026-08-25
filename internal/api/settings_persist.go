@@ -30,6 +30,9 @@ var persistedEnvKeys = []string{
 	// ProjectDiscovery Cloud key — powers the nuclei template watch (falls back
 	// to CHAOS_API_KEY when unset).
 	"PDCP_API_KEY",
+	// Nuclei template blocklist (comma-separated IDs) for templates with
+	// known-broken matchers — see nucleiTemplateBlocked.
+	"NUCLEI_TEMPLATE_IGNORE",
 	// Cloudflare R2 storage — managed from Settings ▸ System ▸ Cloudflare R2.
 	"USE_R2_STORAGE", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_KEY",
 	"R2_BUCKET_NAME", "R2_PUBLIC_URL",
