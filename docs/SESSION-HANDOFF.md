@@ -59,6 +59,28 @@
 >   logged `Loaded 432963 live host(s) from the database (httpx skipped)` —
 >   no httpx re-probe; scan cancellable; template persisted under
 >   `templates/<scanID>.yaml` for rescan (now on the persistent volume).
+>
+> **Update 2026-08-25 (perf + Dokploy API):**
+>
+> - **Dokploy API key** provided by the user; stored at
+>   `/home/sallam/.dokploy-api-key` on the VPS (600 perms, NEVER commit it).
+>   `POST /api/application.deploy` with x-api-key works; GET application.one
+>   to poll. Deploy via API verified end-to-end (17:03Z deployment, done).
+> - **Dokploy stored config synced** with the live service: published port
+>   8000 deleted via `/api/port.delete`, `autoar-results` volume added via
+>   `/api/mounts.create` (that endpoint takes `serviceId`+`serviceType`, NOT
+>   `applicationId`). Dokploy deploys now keep the volume and stay unexposed.
+> - **Perf fix** (commit `0985bcb6`): `/api/domains` was an N+1 —
+>   ListSubdomainsWithStatus × 4,582 domains pulling all 823k rows through Go
+>   (13.25s measured). Now one GROUP BY aggregate (`ListDomainsWithCounts`)
+>   + covering index `idx_subdomains_domain_live` + 30s handler cache.
+>   Result: 13.25s → 0.59s cold → ~5ms cached. Index also created live with
+>   CONCURRENTLY; added to InitSchema for fresh installs.
+> - **Postgres tuned** via ALTER SYSTEM (persists in the data volume):
+>   shared_buffers 512MB (was 128MB default), work_mem 16MB; service
+>   force-restarted once; app pool reconnected cleanly.
+> - Resources are NOT the bottleneck: 6 cores / 11GB RAM with ~8.6GB available;
+>   the 245MB DB fits comfortably in cache after tuning.
 
 Purpose: everything done in this session, where it lives, and what is still
 pending, so another agent can pick up without re-discovering the context.
