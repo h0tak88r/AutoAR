@@ -72,29 +72,39 @@
 
   function renderJSFindingsTable(items) {
     const rows = items.map((item) => {
-      let url = item.url || item.endpoint || '—';
-      let secret = item.secret || item.key || item.type || '—';
-      let details = item.details || item.description || '—';
-      let tag = '';
-      let matcher = '';
-      const rawStr = typeof item === 'string' ? item : (item.url && item.url.includes(' -> ') ? item.url : '');
-      if (rawStr) {
-        const tagMatch = rawStr.match(/^\[(.*?)\]/);
+      if (typeof item === 'string') {
+        // Raw "[Type] URL -> match" line format.
+        let url = item, tag = '', matcher = '';
+        const tagMatch = item.match(/^\[(.*?)\]/);
         if (tagMatch) {
           tag = tagMatch[1];
-          const rest = rawStr.substring(tagMatch[0].length).trim();
+          const rest = item.substring(tagMatch[0].length).trim();
           if (rest.includes(' -> ')) {
             const parts = rest.split(' -> ');
             url = parts[0].trim();
-            matcher = parts[1].trim();
+            matcher = parts.slice(1).join(' -> ').trim();
           } else {
             url = rest;
           }
         }
+        return `<tr><td><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(url)}">${esc(url)}</div></td><td>${tag ? `<span class="badge badge-info" style="background:rgba(56,189,248,0.15);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.3)">${esc(tag)}</span>` : '—'}</td><td>${matcher ? `<code style="font-size:11px;background:rgba(234,179,8,0.1);color:#eab308;padding:2px 6px;border-radius:4px;border:1px solid rgba(234,179,8,0.2)">${esc(matcher)}</code>` : '—'}</td></tr>`;
       }
-      return `<tr><td><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(url)}">${esc(url)}</div></td><td>${tag ? `<span class="badge badge-info" style="background:rgba(56,189,248,0.15);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.3)">${esc(tag)}</span>` : `<span class="badge badge-running">${esc(secret)}</span>`}</td><td>${matcher ? `<code style="font-size:11px;background:rgba(234,179,8,0.1);color:#eab308;padding:2px 6px;border-radius:4px;border:1px solid rgba(234,179,8,0.2)">${esc(matcher)}</code>` : `<span style="font-size:12px;color:var(--text-muted)">${esc(details)}</span>`}</td></tr>`;
+      // Structured jsscan objects: {template-id, matched-at, severity, module,
+      // secret_type, secret} (secrets) or {…, pattern_type, match} (client-side).
+      const url = String(item['matched-at'] || item.matched_at || item.url || item.endpoint || '—');
+      const isClient = item.module === 'js-clientside' || item.pattern_type != null;
+      const tag = String(item.secret_type || item.pattern_type || item.type || item.key || (() => {
+        const t = String(item['template-id'] || '');
+        const m = t.match(/\(([^)]+)\)/);
+        return m ? m[1] : t;
+      })() || '—');
+      const leak = String(item.secret || item.match || item.matcher || item.value || '—');
+      const sev = String(item.severity || '').toLowerCase();
+      const sevColor = sev === 'high' ? '#f87171' : sev === 'medium' ? '#fb923c' : isClient ? '#a78bfa' : '#22d3ee';
+      const sevLabel = sev ? sev.toUpperCase() : (isClient ? 'CANDIDATE' : 'FINDING');
+      return `<tr><td><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(url)}">${esc(url)}</div></td><td><span class="badge badge-info" style="background:rgba(56,189,248,0.15);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.3)">${esc(tag)}</span></td><td><code style="font-size:11px;background:rgba(234,179,8,0.1);color:${sevColor};padding:2px 6px;border-radius:4px;border:1px solid rgba(234,179,8,0.2)" title="${esc(leak)}">${esc(leak.length > 120 ? leak.slice(0, 117) + '...' : leak)}</code></td><td><span style="font-size:9px;font-weight:800;letter-spacing:.7px;color:${sevColor}">${esc(sevLabel)}</span></td></tr>`;
     }).join('');
-    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>TARGET (JS FILE)</th><th>VULN TYPE</th><th>MATCH / LEAK</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<div class="result-table-wrap"><table class="result-table"><thead><tr><th>TARGET (JS FILE)</th><th>TYPE</th><th>MATCH / LEAK</th><th>SEV</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderXSSFindingsTable(items) {

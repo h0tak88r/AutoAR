@@ -57,7 +57,7 @@
       if (first.url || first.domain) return 'katana-crawler';
     }
     if (module === 'js-analysis' || (fileName.includes('js-') && !fileName.includes('js-endpoint'))) {
-      if (first.url || first.endpoint || first.secret || first.key) return 'js-findings';
+      if (first['matched-at'] || first['template-id'] || first.secret_type || first.pattern_type || first.secret || first.key) return 'js-findings';
     }
     if (module === 'xss-detection' || fileName.includes('dalfox') || fileName.includes('kxss')) {
       if (first.url && (first.payload || first.parameter || first.finding)) return 'xss-findings';

@@ -74,8 +74,9 @@
     'nuclei': 'nuclei', 'mod:nuclei': 'nuclei',
     'ffuf': 'ffuf', 'ffuf-fuzzing': 'ffuf', 'mod:ffuf': 'ffuf',
     'gf-patterns': 'gf', 'mod:gf': 'gf',
-    // JS modules — three distinct modules:
+    // JS modules — four distinct views:
     'js-analysis': 'js', 'mod:js': 'js', 'js': 'js',           // secrets/vuln findings
+    'js-clientside': 'jsclient', 'mod:js-clientside': 'jsclient', // client-side bug candidates (DOM XSS sinks etc.)
     'js-endpoints': 'js-endpoints', 'mod:js-endpoints': 'js-endpoints', // API paths extracted from JS
     'katana-crawler': 'katana', 'mod:katana': 'katana',
     'reflection': 'reflection', 'mod:reflection': 'reflection',
@@ -423,6 +424,73 @@
           })(), { code: true }],
           ['Severity',    s(r.severity)],
           ['Raw Finding', finding, { full: true }],
+        ]);
+      },
+    },
+
+    /* ── JS Client-Side Candidates (DOM XSS sinks/sources, postMessage, …) ── */
+    jsclient: {
+      columns: [
+        { id: 'file',  label: 'JS FILE',      flex: '2', type: 'link-amber'  },
+        { id: 'sev',   label: 'SEV',          w: '68px', type: 'sev-badge',  align: 'center' },
+        { id: 'cls',   label: 'BUG CLASS',    flex: '1', type: 'badge-pill'  },
+        { id: 'match', label: 'MATCHED CODE', flex: '3', type: 'mono-trunc'  },
+      ],
+      extract(r) {
+        const raw = r.raw || {};
+        const file = s(r.target || raw.matched_at || r.source_file || '-');
+
+        // Bug class: raw.pattern_type → bracket in finding → template-id prefix
+        let cls = s(raw.pattern_type || raw.patternType || '');
+        if (!cls) {
+          const m = s(r.finding || '').match(/^\[([^\]]+)\]/);
+          if (m) cls = m[1];
+        }
+        if (!cls) {
+          cls = s(raw.template_id || r.finding || '—')
+            .replace(/^JS Client-Side Candidate\s*\(?\s*/i, '')
+            .replace(/\)$/, '');
+        }
+
+        // Matched code: raw.match → after "->" in the raw finding line
+        let match = s(raw.match || '');
+        if (!match) {
+          const finding = s(r.finding || raw.finding || '');
+          const arrowIdx = finding.indexOf('->');
+          if (arrowIdx !== -1) match = finding.slice(arrowIdx + 2).trim();
+        }
+        if (!match) match = '—';
+
+        // Class-based colouring: sinks/dangerous idioms hot, sources cool.
+        const tl = cls.toLowerCase();
+        const color = /sink|dynamic code|prototype/.test(tl) ? '#fb923c'
+          : /postmessage/.test(tl) ? '#fbbf24'
+          : /source/.test(tl) ? '#22d3ee'
+          : '#a78bfa';
+
+        return {
+          file:  { href: toHref(file), label: file, color: '#f59e0b' },
+          sev:   sevMeta(r.severity || 'low'),
+          cls:   { label: cls || 'unknown', color },
+          match,
+        };
+      },
+      detail(r) {
+        const raw = r.raw || {};
+        const file    = s(r.target || raw.matched_at || r.source_file || '');
+        const finding = s(r.finding || raw.finding || '');
+        const cls     = s(raw.pattern_type || raw.patternType || '');
+        const match   = s(raw.match || '');
+        return buildFields([
+          ['JS File',       file, { isLink: true }],
+          ['Bug Class',     cls],
+          ['Matched Code',  match || (() => {
+            const ai = finding.indexOf('->');
+            return ai !== -1 ? finding.slice(ai + 2).trim() : '';
+          })(), { full: true, code: true }],
+          ['Severity',      s(r.severity)],
+          ['Note',          'Candidates need manual validation — a source/sink match is not a confirmed exploit.'],
+          ['Raw Finding',   finding, { full: true }],
         ]);
       },
     },

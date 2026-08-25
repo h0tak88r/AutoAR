@@ -113,6 +113,7 @@
     if (n.includes('gospider')) return 'url-enum';
     if (n.includes('dns') || n.includes('takeover')) return 'dns-takeover';
     if (n.includes('tech-detect') || n.includes('wappalyzer')) return 'tech-detect';
+    if (n.includes('live-subs') || n.includes('live-host') || n.includes('livehosts') || n.includes('httpx')) return 'httpx';
     if (n.includes('port-scan') || n.includes('ports') || n.includes('nmap') || n.includes('masscan')) return 'port-scan';
     if (n.includes('github') || n.includes('github-scan') || n.includes('gh-')) return 'github-scan';
     if (n.includes('ffuf') || n.includes('fuzz')) return 'ffuf-fuzzing';
@@ -137,6 +138,9 @@
       unknowns: 'unknown',
       github: 'github-scan',
       'github-secrets': 'github-scan',
+      // Old artifacts indexed js-clientside-vulnerabilities.json under the
+      // generic prefix fallback "js" before the module inference was fixed.
+      js: 'js-analysis',
     };
     return aliases[raw] || raw;
   }
@@ -149,6 +153,7 @@
       httpx: { icon: '', name: 'Live Hosts', color: '#22c55e' },
       apkx: { icon: '', name: 'APK Analysis', color: '#22d3ee' },
       'js-analysis': { icon: '', name: 'JS Secrets', color: '#eab308' },
+      'js-clientside': { icon: '', name: 'JS Client-Side', color: '#a78bfa' },
       'js-endpoints': { icon: '', name: 'JS Endpoints', color: '#10b981' },
       'katana-crawler': { icon: '', name: 'Katana Crawler', color: '#8b5cf6' },
       'xss-detection': { icon: '', name: 'XSS Detection', color: '#f97316' },

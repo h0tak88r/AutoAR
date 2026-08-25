@@ -414,6 +414,10 @@
         else if (looksLikeKatana) kind = 'katana-crawler';
         else if (looksLikeJSMatcher) kind = 'js-analysis';
         else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
+        // jsscan emits two distinct artifact types — split them into their own
+        // views (secrets vs client-side candidates) instead of mixing both
+        // under the secrets-styled js-analysis view.
+        if (file.includes('js-clientside')) kind = 'js-clientside';
         if (isAPKScan) kind = 'apkx';
 
         // Do not treat GitHub/TruffleHog rows as JS just because the blob URL ends in .js
@@ -474,6 +478,7 @@
       assets: ' Assets',
       urls: ' Links',
       'js-analysis': ' JS Secrets',
+      'js-clientside': ' JS Client-Side',
       'js-endpoints': ' JS Endpoints',
       'katana-crawler': ' Katana',
       'gf-patterns': ' GF Patterns',
@@ -497,7 +502,7 @@
 
     dynamicKinds.forEach(k => {
       if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k) || k === 'github-scan') {
-        if (['js-analysis', 'js-endpoints', 'katana-crawler', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'xss-detection', 'github-scan', 'github'].includes(k)) {
+        if (['js-analysis', 'js-clientside', 'js-endpoints', 'katana-crawler', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'xss-detection', 'github-scan', 'github'].includes(k)) {
           DATASET_TABS.push([k, TAB_LABELS[k] || k]);
         }
         return;
@@ -545,6 +550,12 @@
     for (const k of [...coveredDatasetKinds]) {
       const norm = window.normalizeModuleKey(k);
       if (norm !== k) coveredDatasetKinds.add(norm);
+    }
+    // js-secrets and js-clientside artifacts both index under module
+    // js-analysis — either dataset tab covers that module, so the module rail
+    // shouldn't add a duplicate mod:js-analysis tab when only one has rows.
+    if (coveredDatasetKinds.has('js-clientside') || coveredDatasetKinds.has('js-analysis')) {
+      coveredDatasetKinds.add('js-analysis');
     }
 
     const moduleTabs = usedModules.filter((mod) => {

@@ -62,7 +62,10 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		module = "github-scan"
 	} else if strings.Contains(lf, "js-endpoint") {
 		module = "js-endpoints"
-	} else if strings.Contains(lf, "js-secret") || strings.Contains(lf, "js-exposure") {
+	} else if strings.Contains(lf, "js-secret") || strings.Contains(lf, "js-exposure") || strings.Contains(lf, "js-clientside") {
+		// Both jsscan artifacts belong to js-analysis; without the explicit
+		// js-clientside case the generic prefix fallback indexed it as module
+		// "js", which the dashboard treats as an unknown module.
 		module = "js-analysis"
 	} else if strings.Contains(lf, "url") {
 		module = "url-collection"

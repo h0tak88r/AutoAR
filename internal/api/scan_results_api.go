@@ -1115,6 +1115,10 @@ func inferReconKind(fileName string) string {
 	// JS URLs
 	case strings.Contains(b, "js-url") || strings.Contains(b, "jsurl") || strings.Contains(b, "js-enum"):
 		return "js_urls"
+	// JS client-side bug candidates — their own dataset kind so the dashboard
+	// can show them in a dedicated view (not mixed into secrets).
+	case strings.Contains(b, "js-clientside"):
+		return "js-clientside"
 	// JS secrets / exposures -> js-analysis (do not use strings.Contains(b,"js") — it matches ".json")
 	case strings.Contains(b, "js-secret") || strings.Contains(b, "js-exposure") ||
 		(strings.Contains(b, "javascript") && (strings.Contains(b, "secret") || strings.Contains(b, "exposure"))):
@@ -1446,6 +1450,29 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "high"),
 			Target:   firstNonEmpty(fmt.Sprint(v["file"])),
 			Finding:  fmt.Sprintf("[%s]: %s", secType, v["secret"]),
+		}
+	}
+
+	// jsscan structured findings (emitSecretFindings / emitClientSideFindings):
+	// {template-id, matched-at, severity, finding, module, secret_type, secret}
+	// or {…, pattern_type, match}. Give them an explicit Kind so the dashboard
+	// can route secrets and client-side candidates to their own views instead
+	// of re-guessing from the raw finding string.
+	if jsMod, _ := v["module"].(string); (v["matched-at"] != nil && (v["secret_type"] != nil || v["pattern_type"] != nil)) || jsMod == "js-secrets" || jsMod == "js-clientside" {
+		kind := "js-secret"
+		if jsMod == "js-clientside" || v["pattern_type"] != nil {
+			kind = "js-clientside"
+		}
+		normRawJS := make(map[string]interface{}, len(v)+4)
+		for k, val := range v {
+			normRawJS[strings.ReplaceAll(k, "-", "_")] = val
+		}
+		return parsedFinding{
+			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
+			Target:   firstNonEmpty(fmt.Sprint(v["matched-at"])),
+			Finding:  firstNonEmpty(fmt.Sprint(v["template-id"]), fmt.Sprint(v["finding"])),
+			Kind:     kind,
+			Raw:      normRawJS,
 		}
 	}
 
