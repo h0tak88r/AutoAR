@@ -342,3 +342,33 @@ Program lookup kept working throughout off cached catalog rows
   `reports/reply-to-triager-whoami-request.md`.
 - Expect nuclei-watch CVE-2026-77806 alerts on these hosts to stop matching
   going forward (WAF pages won't satisfy the matcher).
+
+## Session update — 2026-08-26 (cont): CVE-2026-32475 batch validation + blocklist
+
+Validated the second Elementor Pro alert batch (35 hosts: 32 wpengine.com +
+ganaenergia.com + eslfaceitgroup.com; the zircuit/yandex/zapier targets in the
+user's paste were the older pre-fix batch, already known FP).
+
+**All 35 = false positives as exploitation evidence.** The template matcher
+(`"success":false` in body AND NOT "This file type is not allowed.") fires on
+any Elementor form that fails validation for any reason: patched 4.2.2 hosts
+(academycf, academyins, ahderm, aatriallaw) matched; the exploit multipart
+hardcodes upload field name "dosya" which binds to nothing on these forms, so
+nothing is ever uploaded. No verification that a file landed.
+
+Residue worth one disclosure to WP Engine (6 of 7 are *.wpengine.com): hosts
+running Elementor Pro <= 4.2.1 (advisory-affected versions) — a1autoglaze
+4.2.1, eslfaceitgroup.com 4.2.1, aheartsjourney 4.0.4, alignn 3.25-3.26,
+aktivelife 3.11.1, aijob 3.0.4, academy529 3.0.5. None showed a file-upload
+form on home/page_id=6/contact/upload/apply → no demonstrated exploitable
+instance; "outdated plugin" severity only. Version fingerprint method:
+`elementor-pro/assets/css/*.min.css?ver=` in page source (readme.txt blocked).
+
+**NUCLEI_TEMPLATE_IGNORE blocklist shipped** (commit 395039aa, deployed
+22:50Z, healthy): comma-separated template IDs skipped by the watcher
+auto-run; env/DB-persisted. Set in DB: CVE-2026-32475,CVE-2026-73570.
+Hydration verified (31 settings on boot). Note: docker exec env can't see
+os.Setenv values — trust the hydrate log line.
+
+Also in watcher outputs, unvalidated: CVE-2026-78003 (50 hits) — new template,
+not yet reviewed.
