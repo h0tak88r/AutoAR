@@ -892,8 +892,16 @@ func runGlobalNucleiScan(scanID, template string) error {
 			if matched == "" {
 				matched = event.Host
 			}
-			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-				event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String())
+			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
+				event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
+			// First reference link (advisory/NVD) so the alert is actionable
+			// without opening the dashboard; the full template is embedded in
+			// the scan's nuclei JSONL output (template-encoded).
+			if event.Info.Reference != nil {
+				if refs := event.Info.Reference.ToSlice(); len(refs) > 0 {
+					msg += fmt.Sprintf("\n**Ref:** %s", refs[0])
+				}
+			}
 			utils.SendWebhookLogAsync(msg)
 			stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 		}

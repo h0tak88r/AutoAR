@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -220,23 +221,28 @@ func nucleiTemplateWatchCycle() {
 	}
 
 	if nucleiTemplateAutoRunEnabled() && len(runnable) > 0 {
-		dir, downloaded, cleanup, err := nucleiWatchStage(runnable)
+		// Scan ID up front so the staged template dir is per-scan and durable —
+		// the stored command records the path, making these scans rescanable
+		// (temp-dir staging made every watcher scan un-rescanable before).
+		scanID := "nuclei-watch-" + time.Now().Format("20060102150405")
+		dir, downloaded, cleanup, err := nucleiWatchStage(scanID, runnable)
 		if err != nil || len(downloaded) == 0 {
 			cleanup()
 			logger.GetLogger().Infof("[NUCLEI-WATCH] staging templates failed: %v", err)
 			utils.SendMonitorWebhook("⚠️ **Nuclei template watch** — failed to stage the new templates, skipping auto-run.")
 		} else {
-			scanID := "nuclei-watch-" + time.Now().Format("20060102150405")
+			command := fmt.Sprintf("inprocess:nuclei target=global-subdomains template=%s", dir)
 			utils.SendMonitorWebhook(fmt.Sprintf(
 				"⚡ **Auto-running %d new template(s)** against all live hosts (scan `%s`)…", len(downloaded), scanID))
 			fnRan := false
-			RunScanInProcess(scanID, "nuclei", "nuclei-templates-watch", func() error {
+			RunScanInProcessWithCommand(scanID, "nuclei", "nuclei-templates-watch", command, func() error {
 				fnRan = true
-				defer cleanup()
+				// Intentionally NO cleanup: the staged templates are the scan's
+				// durable record (rescan input + retrievable from the dashboard).
 				return runGlobalNucleiScan(scanID, dir)
 			})
 			// RunScanInProcess aborts WITHOUT calling fn when the DB record can't be
-			// created — the staged dir would leak in $TMPDIR on every DB hiccup.
+			// created — the staged dir would leak; remove it in that case only.
 			if !fnRan {
 				cleanup()
 			}
@@ -370,13 +376,17 @@ func nucleiWatchNotify(fresh []pdcpTemplate) {
 }
 
 // nucleiWatchStage writes the raw YAML of up to nucleiWatchMaxTemplates
-// templates into a fresh temp dir (nuclei accepts a directory as -t).
+// templates into a DURABLE per-scan dir under
+// new-results/global-subdomains/templates/<scanID>/ (nuclei accepts a
+// directory as -t). Durable — not a deleted temp dir — so the exact templates
+// a watcher scan ran are always retrievable from the dashboard and the scan
+// can be re-run via rescan (the stored command records this path).
 // Templates without a raw body are skipped. Returns the dir, the template IDs
-// staged, and a cleanup func.
-func nucleiWatchStage(fresh []pdcpTemplate) (dir string, staged []string, cleanup func(), err error) {
-	dir, err = os.MkdirTemp("", "nuclei-watch-templates-*")
-	if err != nil {
-		return "", nil, func() {}, fmt.Errorf("create temp dir: %w", err)
+// staged, and a cleanup func that must be called when the scan never runs.
+func nucleiWatchStage(scanID string, fresh []pdcpTemplate) (dir string, staged []string, cleanup func(), err error) {
+	dir = filepath.Join(utils.GetResultsDir(), "global-subdomains", "templates", scanID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, func() {}, fmt.Errorf("create template dir: %w", err)
 	}
 	cleanup = func() { os.RemoveAll(dir) }
 

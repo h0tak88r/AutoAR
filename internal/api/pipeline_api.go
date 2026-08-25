@@ -255,8 +255,13 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 		if matched == "" {
 			matched = event.Host
 		}
-		msg := fmt.Sprintf(" **Root Pipeline Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-			event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String())
+		msg := fmt.Sprintf(" **Root Pipeline Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
+			event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
+		if event.Info.Reference != nil {
+			if refs := event.Info.Reference.ToSlice(); len(refs) > 0 {
+				msg += fmt.Sprintf("\n**Ref:** %s", refs[0])
+			}
+		}
 		utils.SendMonitorWebhook(msg)
 		stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 	})
