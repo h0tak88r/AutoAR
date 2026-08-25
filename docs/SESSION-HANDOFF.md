@@ -325,3 +325,20 @@ table (`"createdAt"` quoted camelCase) in the dokploy-postgres container.
 
 Program lookup kept working throughout off cached catalog rows
 (h1 1229, as93 1592, bc 277, ywh 217).
+
+## Session update — 2026-08-26: SPIP hosts WAF-mitigated; reports split per host
+
+- Reports split one-per-subdomain (7 files, `reports/CVE-2026-77806-<host>.md`),
+  PoC host verified per file. `.gitignore` now explicitly excludes `/reports/`,
+  `/validate-*.sh`, `/capture-*.sh` (reports were never pushed anywhere — the
+  broad `*.md` rule was already catching them; now explicit for non-md files).
+- H1 triager asked for identity-command evidence (`whoami`). Re-ran capture
+  from VPS + local: ALL 7 hosts across all 3 orgs now sit behind an aggressive
+  shared WAF posture (Radware bot challenge + F5 ASM rejecting spip.php even
+  parameterless, support IDs captured). Identical from two IPs — provider-side
+  virtual patch of CVE-2026-77806, deployed between 08-25 ~23:00Z and 08-26.
+- NO WAF bypass attempted (out of disclosure scope). Evidence + triager reply
+  drafted: `reports/evidence-waf-mitigation-2026-08-26.txt`,
+  `reports/reply-to-triager-whoami-request.md`.
+- Expect nuclei-watch CVE-2026-77806 alerts on these hosts to stop matching
+  going forward (WAF pages won't satisfy the matcher).
