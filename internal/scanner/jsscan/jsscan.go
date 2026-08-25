@@ -435,6 +435,15 @@ func scanJSFiles(jsURLsFile string, targets []jsScanTarget, threads int) error {
 		if jsURL == "" {
 			continue
 		}
+		// These URLs come from crawled pages (katana/wayback) and are therefore
+		// target-influenceable. The same SSRF gate the URL monitor uses: refuse
+		// private/loopback/link-local hosts so a page linking the cloud metadata
+		// endpoint can't get its response secret-scanned and shipped to
+		// artifacts/webhooks.
+		if err := utils.ValidatePublicHTTPURL(jsURL); err != nil {
+			logger.GetLogger().Infof("[WARN] JS scan: skipping non-public URL %q: %v", jsURL, err)
+			continue
+		}
 
 		wg.Add(1)
 		go func(url string) {
