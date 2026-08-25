@@ -372,3 +372,51 @@ os.Setenv values — trust the hydrate log line.
 
 Also in watcher outputs, unvalidated: CVE-2026-78003 (50 hits) — new template,
 not yet reviewed.
+
+## Session update — 2026-08-26 (evening): full Discord alert triage (3,144 alerts)
+
+Read all alerts Aug 24 22:47Z → Aug 25 16:06Z via Discord API (channel
+1538176729552781362). Distribution: 78003×1582, 32475×571, 77806×517,
+donetick×227, 26216×74, 42878×53, documenso×43, signoz×42, 18963×26,
+73570×5, silverbullet×3, 68273×1.
+
+**84% of alert volume was garbage**: 2,642 alerts carried bare scan-input
+origins instead of match URLs (old-build bugs: shared outPath, scan-ID
+collisions, batch re-announce — all since fixed in a1daf67b/6fd69624).
+Proven by SDK probe test: current engine fires events ONLY for real matches
+with correct full-URL `Matched` (givewp/deere matched with readme paths; 4
+garbage targets produced zero events). Discriminator: real match alerts carry
+the request PATH (readme.txt/admin-ajax/spip.php); bare origin = noise.
+
+**Real findings (all path-carrying, == disk JSONL counts):**
+1. CVE-2026-78003 Mailgun ≤2.2.0 SSRF: 46/47 hosts STILL verified live via
+   passive readme.txt (versions 1.7.1–2.2.0). Groups: JFrog ×5 (jfrog.com,
+   join/liquidsoftware/jfrog.co.jp/jfrogchina, 1.7.7–1.7.9), StellarWP/Awome
+   Motive family ×19 (givewp ×3, learndash ×7, stellarwp ×4, orderable ×5),
+   Instapage ×2, ces2026.deere.com (2.1.9), WP Engine customers ×20, bio-rad
+   (gone). NO exploit attempts — passive version fingerprint only. Impact
+   caveat: plugin ACTIVE + configured API key required for the
+   mail-route-interception takeover; readme = installed, not necessarily
+   configured. Template itself is GOOD (passive version check, low FP).
+2. CVE-2026-77806 SPIP: 20 real matcher hits = 7 real RCE (reported) + 13 FP.
+   FP class: echo/whoami services (sbb.ch echo-*, adswizz whoami, dmxleo
+   web-demo, Akamai headers.edgekey.net debug endpoint, VGS card-tokenizer
+   echo) — they reflect path+body, defeating BOTH the spip fingerprint step
+   AND the marker match. mleidon-sec*.edgekey.net + card-tokenizer.vgs.
+   careem-pay.com initially looked EXECUTED but whoami echoed the literal
+   request body → reflection, not execution. Discriminator for future:
+   `echo $((6*7))` must return 42, not the literal string.
+3. CVE-2026-32475: 35 real matcher hits, all FP as exploitation (proven
+   earlier); 7 of those hosts run vulnerable plugin versions anyway.
+4. CVE-2026-26216 Crawl4AI: 74 alerts ALL garbage (0 real records); template
+   itself is excellent (canary+/etc/passwd matcher) — worth a proper re-run.
+5. CVE-2026-18963 Keycloak + CVE-2026-42878 FacturaScripts: alerts had EMPTY
+   targets (multi-request templates, pre-fix build); source scans failed so
+   no disk record — unrecoverable. Both templates have solid matchers; re-run
+   manually when convenient (18963 YAML saved at /tmp/CVE-2026-18963.yaml on
+   the Mac).
+6. Panels (donetick/documenso/signoz/silverbullet): info-detect noise; the
+   info-severity skip (deployed Aug 25) stops future auto-runs.
+
+Blocklist state: NUCLEI_TEMPLATE_IGNORE=CVE-2026-32475,CVE-2026-73570
+(78003 and 26216 deliberately NOT blocklisted — sound matchers).
