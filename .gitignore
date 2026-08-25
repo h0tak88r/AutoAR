@@ -119,3 +119,8 @@ autoar
 /backups/
 nuclei-templates/
 Rules.ymlsupabase_export.sql
+
+# Vulnerability disclosure reports and target-specific validation evidence — never publish
+/reports/
+/validate-*.sh
+/capture-*.sh
