@@ -355,6 +355,8 @@
 
     // Restore last-active tab (default: Platforms & Keys — the most-used surface).
     settingsTab(window.state._settingsTab || 'platforms');
+    // ⧉ copy buttons for every stored key field on this page.
+    attachCopyButtons();
     // Populate the multi-account manager (async — fills the placeholder in-place).
     loadSettingsAccounts();
   }
@@ -411,6 +413,92 @@
     }
   }
 
+  // ── Copy-to-clipboard for stored secrets ────────────────────────────────
+  // Clipboard API requires a secure context (https / localhost); fall back to
+  // a hidden textarea + execCommand so plain-HTTP dashboard access still works.
+  function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise((resolve, reject) => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy') ? resolve() : reject(new Error('copy blocked')); }
+      catch (e) { reject(e); } finally { ta.remove(); }
+    });
+  }
+
+  function flashBtn(btn, label) {
+    if (!btn) return;
+    const old = btn.textContent;
+    btn.textContent = label;
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 1200);
+  }
+
+  // Copy one allowlisted env/DB secret (server gates the key list).
+  async function copyEnvSecret(key, btn) {
+    try {
+      const d = await window.apiFetch('/api/config/reveal?key=' + encodeURIComponent(key));
+      if (!d || !d.set) { window.showToast('error', 'Nothing to copy', key + ' is not set.'); return; }
+      await copyToClipboard(d.value);
+      flashBtn(btn, '✓');
+      window.showToast('success', 'Copied', key + ' copied to clipboard.');
+    } catch (e) {
+      window.showToast('error', 'Copy failed', e.message || String(e));
+    }
+  }
+
+  // Copy one field of a stored platform account (token/password).
+  async function copyAccountField(id, field, btn) {
+    try {
+      const a = await window.apiFetch('/api/accounts/' + id + '/reveal');
+      const v = a ? (a[field] || '') : '';
+      if (!v) { window.showToast('error', 'Nothing to copy', 'No ' + field.replace('_', ' ') + ' stored.'); return; }
+      await copyToClipboard(v);
+      flashBtn(btn, '✓');
+      window.showToast('success', 'Copied', field.replace('_', ' ') + ' copied to clipboard.');
+    } catch (e) {
+      window.showToast('error', 'Copy failed', e.message || String(e));
+    }
+  }
+
+  // Input IDs on this page whose stored secret can be revealed server-side.
+  const REVEAL_INPUTS = {
+    'opencode-key-input': 'OPENCODE_API_KEY',
+    'or-key-input': 'OPENROUTER_API_KEY',
+    'gemini-key-input': 'GEMINI_API_KEY',
+    'ha-token-input': 'HACKADVISOR_TOKEN',
+    'chaos-key-input': 'CHAOS_API_KEY',
+    'r2-access-key-input': 'R2_ACCESS_KEY_ID',
+    'r2-secret-key-input': 'R2_SECRET_KEY',
+    'shodan-keys-input': 'SHODAN_API_KEYS',
+    'h1-token-input': 'H1_TOKEN',
+    'bc-token-input': 'BUGCROWD_TOKEN',
+    'it-token-input': 'INTIGRITI_TOKEN',
+    'ywh-token-input': 'YWH_TOKEN',
+  };
+
+  // Attach a small ⧉ copy button next to every revealable key input
+  // (idempotent — safe on every re-render).
+  function attachCopyButtons() {
+    document.querySelectorAll('input[id], textarea[id]').forEach((el) => {
+      const key = REVEAL_INPUTS[el.id] || (el.id && el.id.indexOf('sf-') === 0 ? el.id.slice(3) : null);
+      if (!key || el.dataset.copyBtn) return;
+      el.dataset.copyBtn = '1';
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-secondary';
+      btn.type = 'button';
+      btn.title = 'Copy stored value to clipboard';
+      btn.textContent = '⧉';
+      btn.style.padding = '4px 10px';
+      btn.onclick = () => copyEnvSecret(key, btn);
+      if (el.parentElement) el.parentElement.insertBefore(btn, el.nextSibling);
+    });
+  }
+
   function renderSettingsAccounts(host, accts) {
     const byPlatform = {};
     for (const a of accts) (byPlatform[a.platform] = byPlatform[a.platform] || []).push(a);
@@ -432,6 +520,11 @@
             <span class="acct-status ${m.cls}" data-acct="${a.id}" title="${escValue(st ? st.detail : 'Not yet tested')}">${m.label}</span>
             <button class="acct-edit" onclick="window.SettingsPage.editAccount(${a.id})" title="Edit this account">Edit</button>
             <button class="acct-test" onclick="window.SettingsPage.checkAccount(${a.id})" title="Test this credential">Test</button>
+            ${a.token_set
+              ? `<button class="acct-copy" onclick="window.SettingsPage.copyAccountField(${a.id}, 'token', this)" title="Copy token to clipboard">⧉ Token</button>`
+              : (a.password_set
+                ? `<button class="acct-copy" onclick="window.SettingsPage.copyAccountField(${a.id}, 'password', this)" title="Copy password to clipboard">⧉ Pass</button>`
+                : '')}
             <button class="acct-toggle ${a.enabled ? 'on' : 'off'}" onclick="window.SettingsPage.toggleAccount(${a.id}, ${a.enabled ? 'false' : 'true'})">${a.enabled ? 'On' : 'Off'}</button>
             <button class="acct-del" title="Delete" onclick="window.SettingsPage.deleteAccount(${a.id})">✕</button>
           </div>`;
@@ -958,6 +1051,8 @@
     deleteAccount,
     checkAccount,
     checkAllAccounts,
+    copyEnvSecret,
+    copyAccountField,
     saveOpenRouterKey,
     saveOpenCodeKey,
     saveOpenCodeModel,
