@@ -420,3 +420,24 @@ the request PATH (readme.txt/admin-ajax/spip.php); bare origin = noise.
 
 Blocklist state: NUCLEI_TEMPLATE_IGNORE=CVE-2026-32475,CVE-2026-73570
 (78003 and 26216 deliberately NOT blocklisted — sound matchers).
+
+## Session update — 2026-08-26 (night): Mailgun reports + settings copy buttons
+
+**Disclosure reports written** (reports/CVE-2026-78003-*.md, gitignored):
+jfrog (5 hosts 1.7.7–1.7.9, → security@jfrog.com), stellarwp (18 hosts
+givewp/learndash/stellarwp/orderable), instapage (2 × 1.7.1), deere
+(ces2026.deere.com 2.1.9 → Deere PSIRT), wpengine (19 customer sites →
+security@wpengine.com). All passive-readme evidence only, no exploitation;
+reports state the installed≠active caveat. Note: stellarwp list has 18 rows
+(one dup?) vs 19 counted — recount before sending.
+
+**Settings copy-to-clipboard shipped** (commit ce985ac3):
+- GET /api/accounts/:id/reveal (authed) — full stored credential for one
+  account; powers the ⧉ Token / ⧉ Pass buttons in the accounts manager rows.
+- GET /api/config/reveal?key=NAME (authed) — allowlist = persistedEnvKeys
+  minus revealDenyKeys (models/flags/handles/bucket coords NOT revealable);
+  subfinder provider keys read DB-first via apikeys.All; everything else 404s.
+- settings.js: attachCopyButtons() injects ⧉ next to every key input (AI
+  keys, Chaos, Shodan, R2, platform tokens, sf-* providers) after each
+  render; copyToClipboard falls back to hidden-textarea+execCommand for
+  plain-HTTP dashboard origins (navigator.clipboard needs a secure context).
