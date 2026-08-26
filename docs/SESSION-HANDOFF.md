@@ -441,3 +441,25 @@ reports state the installed≠active caveat. Note: stellarwp list has 18 rows
   keys, Chaos, Shodan, R2, platform tokens, sf-* providers) after each
   render; copyToClipboard falls back to hidden-textarea+execCommand for
   plain-HTTP dashboard origins (navigator.clipboard needs a secure context).
+
+## Session update — 2026-08-26 (cont): platform-ready submissions for Mailgun batch
+
+Checked the program catalog + live H1 scopes per org:
+- **JFrog** → H1 `jfrog_bbp`: www.jfrog.com/.co.jp/.jfrogchina.com all
+  submission-eligible (no bounty). join./liquidsoftware.jfrog.com NOT in
+  declared scope → mentioned in-body only.
+- **John Deere** → H1 `john-deere` (`john_deere_bbp` handle 404s on the API):
+  `deere.com` in scope → ces2026.deere.com covered.
+- **WP Engine** → **Bugcrowd** (bugcrowd.com/wpengine), not H1.
+- StellarWP family + Instapage → no program anywhere; email reports remain.
+
+Files (all gitignored):
+- reports/h1/CVE-2026-78003-jfrog-h1.md
+- reports/h1/CVE-2026-78003-john-deere-h1.md
+- reports/bugcrowd/CVE-2026-78003-wpengine-bugcrowd.md (VRT SSM→Other +
+  mapping note + P3 severity-request paragraph per bugcrowd-reporting skill)
+Each carries a verbatim-verified passive bash PoC (readme.txt fingerprint +
+`sort -V` ≤2.2.0 verdict). NOTE: PoC curl needs `-L` — www.jfrog.com 301s to
+apex (caught when first run returned "plugin not found").
+Severity suggested High (H1) / P3 (BC) with explicit "pending activation
+check" reasoning — evidence is version presence only, no exploit attempted.
