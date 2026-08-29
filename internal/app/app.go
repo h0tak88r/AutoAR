@@ -115,6 +115,11 @@ func StartAPI() error {
 	if os.Getenv("DB_HOST") != "" {
 		api.StartProgramsWarmer()
 
+		// Fast program-watch loop: cheap list fetch every PROGRAM_WATCH_INTERVAL
+		// (default 5m) so scope-update alerts land minutes after a platform change
+		// instead of waiting for the ~20-minute full cache refresh (2h cycle).
+		api.StartProgramWatchFastLoop()
+
 		// Nuclei-templates watch: polls projectdiscovery/nuclei-templates for newly
 		// added templates, announces them on the Discord monitor webhook, and
 		// auto-runs them against all live hosts (disable: NUCLEI_TEMPLATE_WATCH=off).

@@ -68,6 +68,71 @@ func programWatchPlatformAllowed(platform string) bool {
 	return strings.Contains(allow, strings.ToLower(platform))
 }
 
+// StartProgramWatchFastLoop feeds the scope-update watch from lightweight
+// program-LIST fetches (no per-program scope enrichment), independent of the
+// full cache refresh. The full refresh is expensive (~20 min: it pulls every
+// program's scope) and rests 2h between runs, which made watch alerts lag by
+// hours. This loop runs the cheap list fetch that still carries
+// LatestTargetUpdatedAt — all the watch needs — every PROGRAM_WATCH_INTERVAL
+// (default 5m, minimum 1m) so alerts land minutes after a platform change.
+func StartProgramWatchFastLoop() {
+	go func() {
+		defer utils.RecoverPanic("program-watch-fast")
+		for {
+			if programWatchEnabled() {
+				start := time.Now()
+				progs := fetchProgramsLight()
+				if len(progs) > 0 {
+					ProgramWatchOnRefresh(progs)
+					logger.GetLogger().Infof("[PROGRAM-WATCH] fast check: %d programs in %s", len(progs), time.Since(start).Round(time.Second))
+				}
+			}
+			time.Sleep(programWatchFastInterval())
+		}
+	}()
+}
+
+// programWatchFastInterval resolves the fast-loop period from
+// PROGRAM_WATCH_INTERVAL (e.g. "90s", "5m", "10m"). Floor of one minute so a
+// typo can't turn this into a platform-API hammer.
+func programWatchFastInterval() time.Duration {
+	if d, err := time.ParseDuration(strings.TrimSpace(os.Getenv("PROGRAM_WATCH_INTERVAL"))); err == nil && d >= time.Minute {
+		return d
+	}
+	return 5 * time.Minute
+}
+
+// fetchProgramsLight fetches every platform's program list WITHOUT scope
+// enrichment — a handful of paginated list calls total instead of thousands of
+// per-program scope requests.
+func fetchProgramsLight() []ProgramSummary {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var all []ProgramSummary
+	add := func(progs []ProgramSummary, err error, platform string) {
+		if err != nil {
+			logger.GetLogger().Infof("[PROGRAM-WATCH] light %s fetch failed: %v", platform, err)
+			return
+		}
+		mu.Lock()
+		all = append(all, progs...)
+		mu.Unlock()
+	}
+
+	wg.Add(4)
+	go func() { defer wg.Done(); p, e := fetchH1Programs(true, false); add(p, e, "h1") }()
+	go func() { defer wg.Done(); p, e := fetchBCPrograms(true, false); add(p, e, "bc") }()
+	go func() { defer wg.Done(); p, e := fetchITPrograms(true, false); add(p, e, "it") }()
+	go func() { defer wg.Done(); p, e := fetchYWHPrograms(true, false); add(p, e, "ywh") }()
+	wg.Wait()
+
+	// HackAdvisor: single-arg fetch, list already carries scope timestamps.
+	progs, err := fetchHackAdvisorPrograms(true)
+	add(progs, err, "hackadvisor")
+
+	return all
+}
+
 // ProgramWatchOnRefresh is called by the warmer after every cache rebuild. It
 // inspects the freshly-fetched programs, fires Discord alerts for any newer than
 // the persisted watermark, and persists the new watermark. Safe to call with an
