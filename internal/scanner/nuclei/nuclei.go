@@ -541,14 +541,27 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 		return fmt.Errorf("failed to create nuclei output file: %w", err)
 	}
 	defer fh.Close()
-	jsonWriter, err := nucleiOutput.NewWriter(
-		nucleiOutput.WithWriter(fh),
-		nucleiOutput.WithJson(true, false),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to initialize nuclei JSON writer: %w", err)
+
+	// Write JSONL directly from the result callback instead of the SDK's
+	// buffered writer. The SDK writer silently dropped events in production
+	// (result files missing findings the engine had matched), and the workflow
+	// mode scans gate their webhook alerts on countLines(outputFile) — so a
+	// dropped event suppressed both the dashboard finding AND its alert.
+	// Mirrors the SDK's formatJSON (Request/Response cleared, stdlib marshal).
+	var fileMu sync.Mutex
+	writeEvent := func(event *nucleiOutput.ResultEvent) error {
+		event.Request = ""
+		event.Response = ""
+		data, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		fileMu.Lock()
+		defer fileMu.Unlock()
+		_, err = fh.Write(data)
+		return err
 	}
-	defer jsonWriter.Close()
 
 	logger.GetLogger().Infof("[EXEC] Running nuclei SDK with templates: %s (targets=%d, threads=%d)", templateDir, len(targets), threads)
 	if err := ensureNucleiIgnoreFile(); err != nil {
@@ -578,15 +591,15 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 
 	engine.LoadTargets(targets, false)
 	// The SDK invokes result callbacks concurrently from protocol-executor
-	// goroutines (its own writer holds an internal mutex; our closure must not
-	// share unsynchronized state). sync.Once keeps the first write error.
+	// goroutines — writeEvent serializes file appends; sync.Once keeps the
+	// first write error.
 	var writeErr error
 	var writeErrOnce sync.Once
 	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
 		if event == nil {
 			return
 		}
-		if wErr := jsonWriter.Write(event); wErr != nil {
+		if wErr := writeEvent(event); wErr != nil {
 			writeErrOnce.Do(func() { writeErr = wErr })
 		}
 	})

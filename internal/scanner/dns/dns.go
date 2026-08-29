@@ -2,7 +2,7 @@ package dns
 
 import (
 	"bufio"
-	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/h0tak88r/AutoAR/internal/logger"
@@ -556,20 +556,32 @@ func runNucleiTakeoverSDK(targetFile, templateDir, outputFile string) error {
 	}
 	defer fh.Close()
 
-	writer, err := nucleiOutput.NewWriter(
-		nucleiOutput.WithWriter(fh),
-		nucleiOutput.WithJson(true, false),
-	)
-	if err != nil {
-		return fmt.Errorf("init nuclei output writer: %w", err)
+	// Write JSONL directly from the result callback instead of the SDK's
+	// buffered writer — same silent event-dropping bug as the nuclei workflow
+	// scans (see runNucleiCommand / RunGlobalTemplate). Mirrors the SDK's
+	// formatJSON (Request/Response cleared, stdlib marshal).
+	var fileMu sync.Mutex
+	writeEvent := func(event *nucleiOutput.ResultEvent) error {
+		event.Request = ""
+		event.Response = ""
+		data, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		fileMu.Lock()
+		defer fileMu.Unlock()
+		_, err = fh.Write(data)
+		return err
 	}
-	defer writer.Close()
 	if err := ensureNucleiIgnoreFile(); err != nil {
 		logger.GetLogger().Infof("[WARN] Failed to prepare nuclei ignore file: %v", err)
 	}
 
+	// Owning scan's lifetime context (cancel + timeout stop the engine);
+	// resolves to context.Background() for CLI runs where nothing can cancel.
 	ne, err := nucleiSDK.NewNucleiEngineCtx(
-		context.Background(),
+		utils.CurrentScanContext(),
 		nucleiSDK.DisableUpdateCheck(),
 		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
 		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{
@@ -596,7 +608,7 @@ func runNucleiTakeoverSDK(targetFile, templateDir, outputFile string) error {
 		if event == nil || writeErr != nil {
 			return
 		}
-		if wErr := writer.Write(event); wErr != nil {
+		if wErr := writeEvent(event); wErr != nil {
 			writeErr = wErr
 		}
 	})
