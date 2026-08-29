@@ -478,3 +478,19 @@ Verified in autoar-bot.log: cycles at 00:44 and 00:49 (5:00 apart), 1,977
 programs per check, ~55s per fetch. Full 2h refresh still owns dashboard
 scope data. Intigriti still 401s in the light fetch (expired token —
 alerts for IT platforms resume when the user rotates it).
+
+## Session update — 2026-08-29 (scan timeout + partial-results preservation)
+
+**User report:** watcher nuclei scan (row 1688, `nuclei-watch-20260829051433`) showed timed_out at exactly 6h with "0 findings / no indexed artifacts" despite 13 hits on disk.
+
+**Root causes (3 stacked):**
+1. `scanTimeoutFor` gave non-pipeline scans a 6h budget; the 432k-target watcher run hit it.
+2. `runGlobalNucleiScan` wrote `db.UpdateScanStats` only AFTER a successful return — timeout/cancel/engine-error exited early, so the findings count was never recorded (row stayed files_uploaded=0).
+3. Artifact indexing walks `new-results/<target>/` by the runner's target label; the watcher passes target `nuclei-templates-watch` while results go to `new-results/global-subdomains/vulnerabilities/` — no match, nothing indexed (true for every watcher scan, even successful ones).
+
+**Fixes (commit 13c09478, deployed + verified in binary):**
+- Default scan budget 6h → **24h** (`AUTOAR_SCAN_TIMEOUT` / `AUTOAR_PIPELINE_TIMEOUT` overrides unchanged).
+- `runGlobalNucleiScan` + pipeline nuclei phase: deferred finalize on EVERY exit path copies the JSONL into `new-results/<scanID>/`, indexes it (`IndexExistingResultFile` → scan_artifacts + R2), records `UpdateScanStats`, and (global variant) sends an "Ended Early — N matches preserved" webhook when partials exist.
+- `loadFileContent` serves only from `new-results/<scanID>/` or R2 — hence the copy step.
+
+**Backfill:** scan 1688 → files_uploaded=13, scan_artifacts row + JSONL copy in its scan dir (script /tmp/backfill1688.sh on VPS). Triage result of those 13: 3 real grafana-loki-unauth-api (documented earlier), 10 FP.
