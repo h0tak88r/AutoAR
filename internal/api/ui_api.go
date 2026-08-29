@@ -883,6 +883,37 @@ func runGlobalNucleiScan(scanID, template string) error {
 	// The SDK invokes result callbacks concurrently from executor goroutines —
 	// the counter must be atomic or hits get lost (wrong "N findings" stats).
 	var matches atomic.Int64
+	// Persist whatever the engine already captured, on EVERY exit path. A
+	// timeout or engine error used to skip UpdateScanStats entirely and the
+	// watcher's target label ("nuclei-templates-watch") never matched the
+	// artifact walker's roots, so a 6h-timeout run showed "0 findings / no
+	// indexed artifacts" while its JSONL held 13 real hits. The JSONL on disk
+	// holds every hit emitted before the stop — index it and record the count
+	// even when we return an error below (AppendScanArtifact upserts on
+	// r2_key, so the success path doesn't double-index).
+	defer func() {
+		if matches.Load() == 0 {
+			return
+		}
+		// Copy into the scan's own results dir: loadFileContent serves files
+		// from <resultsDir>/<scanID>/, not from the artifact's LocalPath, so
+		// without the copy the partial JSONL is invisible on local-only
+		// installs (R2-enabled ones fall back to the uploaded copy).
+		scanDir := utils.GetScanResultsDir(scanID)
+		if mkErr := os.MkdirAll(scanDir, 0o755); mkErr == nil {
+			dest := filepath.Join(scanDir, filepath.Base(outPath))
+			if _, statErr := os.Stat(dest); statErr != nil {
+				if data, readErr := os.ReadFile(outPath); readErr == nil {
+					_ = os.WriteFile(dest, data, 0o644)
+				}
+			}
+		}
+		if _, idxErr := utils.IndexExistingResultFile(scanID, outPath); idxErr != nil {
+			stdLog(scanID, "[WARN] failed to index nuclei output %s: %v", outPath, idxErr)
+		}
+		_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
+	}()
+
 	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
 		if event != nil && event.TemplateID != "" {
 			matches.Add(1)
@@ -911,11 +942,14 @@ func runGlobalNucleiScan(scanID, template string) error {
 	})
 
 	if err != nil {
+		// Partial results were already persisted by the deferred indexer above;
+		// surface them so the operator knows the run ended early WITH findings.
+		if matches.Load() > 0 {
+			stdLog(scanID, "[WARN] Global Nuclei scan ended early (%v) — %d match(es) so far were preserved", err, matches.Load())
+			utils.SendWebhookLogAsync(fmt.Sprintf(" ⚠️ **Global Nuclei Scan Ended Early**\nTemplate: `%s`\nTargets: %d\nMatches so far: **%d** (partial results preserved in scan `%s`)", templateNameForLog, totalSubs, matches.Load(), scanID))
+		}
 		return fmt.Errorf("nuclei SDK scan failed: %w", err)
 	}
-
-	// Record the finding count so the Scans page shows the "N findings" tag.
-	_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
 
 	stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches.Load())
 	utils.SendWebhookLogAsync(fmt.Sprintf(" **Global Nuclei Scan Completed**\nTemplate: `%s`\nTargets: %d\nMatches: %d", templateNameForLog, totalSubs, matches.Load()))

@@ -38,17 +38,16 @@ func stdLog(scanID, format string, args ...interface{}) {
 
 // scanTimeoutFor returns the wall-clock budget for a scan type.
 //
-// The 6h default is sized for a single-domain scan. Fleet-wide jobs (the root
-// pipeline walks thousands of roots) legitimately run far longer, and sharing
-// the single-domain budget meant the pipeline was killed mid-collection every
-// time — a 3511-root run reached 1567 roots in 6h and never got as far as
-// nuclei, so six hours of enumeration produced zero template results. These
-// jobs still get a ceiling, just one matched to their scale.
+// The 24h default matches the "whole working day" ceiling the operator asked
+// for: a fleet-wide global nuclei run over every live host legitimately needs
+// far more than the old 6h single-domain budget (a 432k-target watcher run
+// was killed at exactly 6h with 13 hits already captured). Pipeline/collect
+// jobs share the same ceiling via `long`.
 //
 // AUTOAR_SCAN_TIMEOUT overrides the default; AUTOAR_PIPELINE_TIMEOUT overrides
 // the long-job budget.
 func scanTimeoutFor(scanType string) time.Duration {
-	def, long := 6*time.Hour, 24*time.Hour
+	def, long := 24*time.Hour, 24*time.Hour
 	if d := os.Getenv("AUTOAR_SCAN_TIMEOUT"); d != "" {
 		if p, err := time.ParseDuration(d); err == nil && p > 0 {
 			def = p

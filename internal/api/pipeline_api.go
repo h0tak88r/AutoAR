@@ -243,6 +243,26 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	// Result callbacks run concurrently in the SDK — atomic counter, or hits
 	// get lost and the "N findings" stat is wrong.
 	var matches atomic.Int64
+	// Persist partial hits on every exit path — a timeout/engine error must not
+	// zero out findings the engine already emitted (see runGlobalNucleiScan).
+	defer func() {
+		if matches.Load() == 0 {
+			return
+		}
+		scanDir := utils.GetScanResultsDir(scanID)
+		if mkErr := os.MkdirAll(scanDir, 0o755); mkErr == nil {
+			dest := filepath.Join(scanDir, filepath.Base(outPath))
+			if _, statErr := os.Stat(dest); statErr != nil {
+				if data, readErr := os.ReadFile(outPath); readErr == nil {
+					_ = os.WriteFile(dest, data, 0o644)
+				}
+			}
+		}
+		if _, idxErr := utils.IndexExistingResultFile(scanID, outPath); idxErr != nil {
+			stdLog(scanID, "[WARN] failed to index pipeline nuclei output %s: %v", outPath, idxErr)
+		}
+		_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
+	}()
 	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, threads, func(event *output.ResultEvent) {
 		if event == nil || event.TemplateID == "" {
 			return
@@ -266,11 +286,11 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 		stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 	})
 	if err != nil {
+		if matches.Load() > 0 {
+			stdLog(scanID, "[WARN] pipeline nuclei phase ended early (%v) — %d match(es) preserved", err, matches.Load())
+		}
 		return fmt.Errorf("nuclei scan failed: %w", err)
 	}
-
-	// Record the finding count so the Scans page shows the "N findings" tag.
-	_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
 
 	stdLog(scanID, "[OK] Root Pipeline complete — %d roots, %d subs, %d matches", len(targetRoots), len(allSubs), matches.Load())
 	utils.SendMonitorWebhook(fmt.Sprintf(" **Root Pipeline complete**\nTemplate: `%s`\nNew roots: %d\nSubdomains: %d\nMatches: %d",
