@@ -494,3 +494,24 @@ alerts for IT platforms resume when the user rotates it).
 - `loadFileContent` serves only from `new-results/<scanID>/` or R2 — hence the copy step.
 
 **Backfill:** scan 1688 → files_uploaded=13, scan_artifacts row + JSONL copy in its scan dir (script /tmp/backfill1688.sh on VPS). Triage result of those 13: 3 real grafana-loki-unauth-api (documented earlier), 10 FP.
+
+## Session update — 2026-08-29 evening (audit: same writer bug in workflow + DNS scans)
+
+Owner asked to audit the codebase for the scan-1688 bug class and confirm push/deploy state.
+
+**Confirmed pushed+deployed:** 13c09478 (24h budget + partial findings) and 8a5d682b
+(callback JSONL writer in RunGlobalTemplate) — remote master == local, container healthy.
+
+**Audit found the same silent-drop SDK writer in two more places, fixed in 24a17fbb:**
+1. `runNucleiCommand` (internal/scanner/nuclei/nuclei.go) — the workhorse for ALL
+   per-domain workflow scans (full/CVEs/panels/default-logins/vulnerabilities/DAST).
+   Dropped events hit twice: missing JSONL findings AND suppressed webhook alerts
+   (mode scans gate SendWebhookFileAsync on countLines(output)).
+2. `runNucleiTakeoverSDK` (internal/scanner/dns/dns.go) — same writer, plus it ran on
+   context.Background() so it could never be cancelled/timed out — now uses
+   utils.CurrentScanContext().
+
+Both now serialize ResultEvents directly in the callback (stdlib marshal,
+Request/Response cleared — byte-compatible with the SDK's formatJSON).
+Also audited clean: RunGlobalTemplate callers, runner artifact indexing (runs on all
+terminal statuses), remaining UpdateScanStats sites.
