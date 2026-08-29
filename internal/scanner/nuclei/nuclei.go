@@ -2,6 +2,7 @@ package nuclei
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"github.com/h0tak88r/AutoAR/internal/logger"
@@ -639,14 +640,28 @@ func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath st
 	}
 	defer fh.Close()
 
-	jsonWriter, err := nucleiOutput.NewWriter(
-		nucleiOutput.WithWriter(fh),
-		nucleiOutput.WithJson(true, false),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to initialize JSON writer: %w", err)
+	// Write JSONL directly from the result callback instead of the SDK's
+	// buffered writer. The SDK writer silently dropped events in production:
+	// whole scans left 0-byte result files while thousands of callback alerts
+	// fired, and the CVE-2021-42392 interactsh match on scan
+	// nuclei-watch-20260829051433 reached the webhook but never the file, so
+	// file-based triage never saw it. Serializing here makes the callback the
+	// single writer — anything onResult sees is already on disk. Mirrors the
+	// SDK's formatJSON (stdlib-compatible marshal, Request/Response cleared).
+	var fileMu sync.Mutex
+	writeEvent := func(event *nucleiOutput.ResultEvent) error {
+		event.Request = ""
+		event.Response = ""
+		data, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		fileMu.Lock()
+		defer fileMu.Unlock()
+		_, err = fh.Write(data)
+		return err
 	}
-	defer jsonWriter.Close()
 
 	engine, err := nucleiSDK.NewNucleiEngineCtx(
 		ctx,
@@ -680,7 +695,7 @@ func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath st
 		if event == nil {
 			return
 		}
-		if wErr := jsonWriter.Write(event); wErr != nil {
+		if wErr := writeEvent(event); wErr != nil {
 			writeErrOnce.Do(func() { writeErr = wErr })
 			return
 		}
