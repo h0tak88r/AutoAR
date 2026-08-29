@@ -463,3 +463,18 @@ Each carries a verbatim-verified passive bash PoC (readme.txt fingerprint +
 apex (caught when first run returned "plugin not found").
 Severity suggested High (H1) / P3 (BC) with explicit "pending activation
 check" reasoning — evidence is version presence only, no exploit attempted.
+
+## Session update — 2026-08-29: program-watch alerts now 5-minute cadence
+
+User reported program-monitor Discord alerts arriving late. Root cause: the
+scope-update watch rode the full catalog refresh (per-program scope fetches,
+~20 min runtime) which rests 2h between runs → up to ~2h20m alert lag.
+
+Shipped (commit 927fb5ba, deployed 2026-08-29, verified): 
+StartProgramWatchFastLoop — light program-LIST fetch (no scope enrichment;
+the lists already carry LatestTargetUpdatedAt) every PROGRAM_WATCH_INTERVAL
+(default 5m, 1m floor), feeding the same ProgramWatchOnRefresh + watermark.
+Verified in autoar-bot.log: cycles at 00:44 and 00:49 (5:00 apart), 1,977
+programs per check, ~55s per fetch. Full 2h refresh still owns dashboard
+scope data. Intigriti still 401s in the light fetch (expired token —
+alerts for IT platforms resume when the user rotates it).
