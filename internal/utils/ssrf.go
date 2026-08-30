@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -53,7 +54,10 @@ func ValidatePublicHTTPURL(raw string) error {
 		}
 		return nil
 	}
-	ips, err := net.DefaultResolver.LookupIP(nil, "ip", host)
+	// nil ctx would panic inside the resolver (nil interface deref in
+	// lookupIPAddr) — and this guard runs on every jsscan URL, taking the
+	// whole API process (and every in-flight scan) down with it.
+	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", host)
 	if err != nil {
 		return fmt.Errorf("cannot resolve host %s: %w", host, err)
 	}
