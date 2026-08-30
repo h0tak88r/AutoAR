@@ -275,8 +275,17 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 		if matched == "" {
 			matched = event.Host
 		}
-		msg := fmt.Sprintf(" **Root Pipeline Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
+		msg := fmt.Sprintf(" **Root Pipeline Hit!**\n**Template:** `%s` (%s)\n**Matched-At:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
 			event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
+		if event.Host != "" && event.Host != matched {
+			msg += fmt.Sprintf("\n**Target:** `%s`", event.Host)
+		}
+		if cc := strings.TrimSpace(event.CURLCommand); cc != "" {
+			if len(cc) > 220 {
+				cc = cc[:220] + "…"
+			}
+			msg += fmt.Sprintf("\n**curl:** `%s`", cc)
+		}
 		if event.Info.Reference != nil {
 			if refs := event.Info.Reference.ToSlice(); len(refs) > 0 {
 				msg += fmt.Sprintf("\n**Ref:** %s", refs[0])

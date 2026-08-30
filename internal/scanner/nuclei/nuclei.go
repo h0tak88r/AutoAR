@@ -599,6 +599,15 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 		if event == nil {
 			return
 		}
+		// The SDK delivers NON-match events through this callback too: skip/error
+		// records for unresponsive targets carry MatcherStatus=false and
+		// Error="host was skipped as it was found unresponsive". Treating those
+		// as findings caused bare-origin alert storms (scan 1688's 5,554 "hits"
+		// were these; scan 1696 alerted CVE-2017-8225 "critical" on hosts the
+		// engine never even reached). Only genuine matches are written.
+		if !event.MatcherStatus || event.Error != "" {
+			return
+		}
 		if wErr := writeEvent(event); wErr != nil {
 			writeErrOnce.Do(func() { writeErr = wErr })
 		}
@@ -706,6 +715,12 @@ func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath st
 	var writeErrOnce sync.Once
 	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
 		if event == nil {
+			return
+		}
+		// Same non-match filter as runNucleiCommand: skip/error events
+		// (MatcherStatus=false / Error set) must not reach the results file or
+		// the caller's webhook callback — they are not findings.
+		if !event.MatcherStatus || event.Error != "" {
 			return
 		}
 		if wErr := writeEvent(event); wErr != nil {

@@ -917,8 +917,10 @@ func runGlobalNucleiScan(scanID, template string) error {
 	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
 		if event != nil && event.TemplateID != "" {
 			matches.Add(1)
-			// Matched is empty for some event shapes (flow steps, non-http
-			// protocols) — fall back so the alert always names a target.
+			// event.Matched ("matched-at") is the full request URL that matched —
+			// including the payload path — and is what makes the alert actionable.
+			// Fall back for event shapes that leave it empty (flow steps,
+			// non-http protocols) so the alert always names a target.
 			matched := event.Matched
 			if matched == "" {
 				matched = event.URL
@@ -926,8 +928,18 @@ func runGlobalNucleiScan(scanID, template string) error {
 			if matched == "" {
 				matched = event.Host
 			}
-			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
+			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Matched-At:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
 				event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
+			if event.Host != "" && event.Host != matched {
+				msg += fmt.Sprintf("\n**Target:** `%s`", event.Host)
+			}
+			// Reproduction command straight from the match, trimmed for chat limits.
+			if cc := strings.TrimSpace(event.CURLCommand); cc != "" {
+				if len(cc) > 220 {
+					cc = cc[:220] + "…"
+				}
+				msg += fmt.Sprintf("\n**curl:** `%s`", cc)
+			}
 			// First reference link (advisory/NVD) so the alert is actionable
 			// without opening the dashboard; the full template is embedded in
 			// the scan's nuclei JSONL output (template-encoded).
