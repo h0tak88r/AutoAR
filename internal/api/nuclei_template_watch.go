@@ -95,6 +95,13 @@ func nucleiTemplateWatchEnabled() bool {
 }
 
 func nucleiTemplateAutoRunEnabled() bool {
+	// DB setting wins over env so the operator can stop wide auto-scans without
+	// a redeploy ( abuse-complaint kill switch: set NUCLEI_TEMPLATE_AUTORUN=off
+	// in the settings table and the watcher keeps catalog intel but never
+	// launches a global scan ).
+	if v, _ := db.GetSetting("NUCLEI_TEMPLATE_AUTORUN"); strings.EqualFold(strings.TrimSpace(v), "off") {
+		return false
+	}
 	return !strings.EqualFold(strings.TrimSpace(os.Getenv("NUCLEI_TEMPLATE_AUTORUN")), "off")
 }
 
