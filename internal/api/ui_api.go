@@ -811,15 +811,36 @@ func apiRunGlobalNuclei(c *gin.Context) {
 func runGlobalNucleiScan(scanID, template string) error {
 	stdLog(scanID, "[INFO] Starting global Nuclei scan...")
 
-	// 1. Dump all subdomains to a temp file
-	tmpFile, err := os.CreateTemp("", "global-nuclei-targets-*.txt")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer os.Remove(tmpFile.Name())
+	// 1. Dump all subdomains to temp files in bounded batches. nuclei' internal
+	// per-host state grows over a run, and one engine fed all ~430K live hosts
+	// was OOM-killed by the host kernel three times (scans 1709/1710/1712 —
+	// deaths at 27m, 3h32m and 47m). Sequential 25K-host batches cap peak
+	// memory: each engine closes between batches and GC reclaims before the
+	// next one starts.
+	const batchMax = 25000
+	var batchFiles []string
+	defer func() {
+		for _, f := range batchFiles {
+			os.Remove(f)
+		}
+	}()
 
 	limit := 10000
 	totalSubs := 0
+	var curBatch *os.File
+	curCount := 0
+	newBatch := func() error {
+		f, err := os.CreateTemp("", "global-nuclei-targets-*.txt")
+		if err != nil {
+			return fmt.Errorf("failed to create temp file: %w", err)
+		}
+		batchFiles = append(batchFiles, f.Name())
+		curBatch, curCount = f, 0
+		return nil
+	}
+	if err := newBatch(); err != nil {
+		return err
+	}
 	for offset := 0; ; offset += limit {
 		// liveOnly=true: only pull hosts already probed live via httpx. Each is
 		// written as its stored scheme-prefixed URL (https://host), so nuclei runs
@@ -833,19 +854,27 @@ func runGlobalNucleiScan(scanID, template string) error {
 			if target == "" {
 				target = s.Subdomain
 			}
-			if target != "" {
-				tmpFile.WriteString(target + "\n")
-				totalSubs++
+			if target == "" {
+				continue
 			}
+			if curCount >= batchMax {
+				curBatch.Close()
+				if err := newBatch(); err != nil {
+					return err
+				}
+			}
+			curBatch.WriteString(target + "\n")
+			curCount++
+			totalSubs++
 		}
 	}
-	tmpFile.Close()
+	curBatch.Close()
 
 	if totalSubs == 0 {
 		return fmt.Errorf("no live hosts found in the database — run a scan/httpx first so there are live URLs to test")
 	}
 
-	stdLog(scanID, "[INFO] Loaded %d live host(s) from the database (httpx skipped)", totalSubs)
+	stdLog(scanID, "[INFO] Loaded %d live host(s) from the database into %d batch(es) of ≤%d (httpx skipped)", totalSubs, len(batchFiles), batchMax)
 
 	var templatePath string
 	var cleanupTemplate func()
@@ -914,7 +943,7 @@ func runGlobalNucleiScan(scanID, template string) error {
 		_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
 	}()
 
-	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, 50, func(event *output.ResultEvent) {
+	onResult := func(event *output.ResultEvent) {
 		if event != nil && event.TemplateID != "" {
 			matches.Add(1)
 			// event.Matched ("matched-at") is the full request URL that matched —
@@ -951,16 +980,24 @@ func runGlobalNucleiScan(scanID, template string) error {
 			utils.SendWebhookLogAsync(msg)
 			stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 		}
-	})
+	}
 
-	if err != nil {
-		// Partial results were already persisted by the deferred indexer above;
-		// surface them so the operator knows the run ended early WITH findings.
-		if matches.Load() > 0 {
-			stdLog(scanID, "[WARN] Global Nuclei scan ended early (%v) — %d match(es) so far were preserved", err, matches.Load())
-			utils.SendWebhookLogAsync(fmt.Sprintf(" ⚠️ **Global Nuclei Scan Ended Early**\nTemplate: `%s`\nTargets: %d\nMatches so far: **%d** (partial results preserved in scan `%s`)", templateNameForLog, totalSubs, matches.Load(), scanID))
+	for i, batchFile := range batchFiles {
+		ctx := scanContext(scanID)
+		if err := ctx.Err(); err != nil {
+			// Cancelled mid-sweep — partials were already persisted above.
+			return fmt.Errorf("scan cancelled after batch %d/%d: %w", i, len(batchFiles), err)
 		}
-		return fmt.Errorf("nuclei SDK scan failed: %w", err)
+		stdLog(scanID, "[INFO] Running batch %d/%d (%s)", i+1, len(batchFiles), filepath.Base(batchFile))
+		if err := nuclei.RunGlobalTemplate(ctx, batchFile, templatePath, outPath, 50, onResult); err != nil {
+			// Partial results were already persisted by the deferred indexer above;
+			// surface them so the operator knows the run ended early WITH findings.
+			if matches.Load() > 0 {
+				stdLog(scanID, "[WARN] Global Nuclei scan ended early (%v) — %d match(es) so far were preserved", err, matches.Load())
+				utils.SendWebhookLogAsync(fmt.Sprintf(" ⚠️ **Global Nuclei Scan Ended Early**\nTemplate: `%s`\nTargets: %d\nMatches so far: **%d** (partial results preserved in scan `%s`)", templateNameForLog, totalSubs, matches.Load(), scanID))
+			}
+			return fmt.Errorf("nuclei SDK scan failed on batch %d/%d: %w", i+1, len(batchFiles), err)
+		}
 	}
 
 	stdLog(scanID, "[OK] Global Nuclei scan completed. Matches: %d", matches.Load())

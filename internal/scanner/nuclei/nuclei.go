@@ -656,7 +656,10 @@ func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath st
 	if err := utils.EnsureDir(filepath.Dir(outPath)); err != nil {
 		return fmt.Errorf("failed to ensure output dir: %w", err)
 	}
-	fh, err := os.Create(outPath)
+	// O_APPEND so a caller may run several sequential batches against one
+	// output file (see runGlobalNucleiScan chunking) without truncating the
+	// matches already written by earlier batches.
+	fh, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
