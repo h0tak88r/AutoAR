@@ -746,7 +746,7 @@ func fetchBCProgramsWithToken(token string, bbpOnly, includeScope bool) ([]Progr
 			if err != nil {
 				break
 			}
-			req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+			req.Header.Set("Cookie", "_bugcrowd_session="+token)
 			req.Header.Set("User-Agent", "AutoAR/1.0")
 			req.Header.Set("Accept", "application/json")
 
@@ -862,7 +862,7 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 	if err != nil {
 		return summary
 	}
-	req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	req.Header.Set("Cookie", "_bugcrowd_session="+token)
 	req.Header.Set("User-Agent", "AutoAR/1.0")
 
 	resp, err := client.Do(req)
@@ -893,7 +893,7 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 
 	scopeURL := "https://bugcrowd.com" + parsed + ".json"
 	scopeReq, _ := http.NewRequest("GET", scopeURL, nil)
-	scopeReq.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	scopeReq.Header.Set("Cookie", "_bugcrowd_session="+token)
 	scopeReq.Header.Set("User-Agent", "AutoAR/1.0")
 	scopeResp, scopeErr := client.Do(scopeReq)
 	if scopeErr != nil {

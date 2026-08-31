@@ -117,11 +117,11 @@ func checkAccountCredential(a db.BBPAccount) (status, detail string) {
 		if a.Token == "" {
 			return "invalid", "missing session cookie"
 		}
-		// /dashboard requires an authenticated session: a valid _crowdcontrol_session_key
+		// /dashboard requires an authenticated session: a valid _bugcrowd_session JWT
 		// returns 200, an expired/invalid one 302-redirects to /user/sign_in. (The public
 		// engagements.json list is NOT auth-gated, so it can't tell a good token from a bad one.)
 		req, _ := http.NewRequest("GET", "https://bugcrowd.com/dashboard", nil)
-		req.Header.Set("Cookie", "_crowdcontrol_session_key="+a.Token)
+		req.Header.Set("Cookie", "_bugcrowd_session="+a.Token)
 		req.Header.Set("User-Agent", acctCheckUA)
 		return interpretBugcrowd(client.Do(req))
 
