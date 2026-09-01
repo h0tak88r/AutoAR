@@ -144,7 +144,10 @@ func MonitorDomain(domain string) error {
 
 func monitorDomain(t db.JSMonitorTarget) {
 	start := time.Now()
-	logger.GetLogger().Infof("[JS-MONITOR] sweep start: %s (threads=%d)", t.Domain, t.Threads)
+	// Baseline sweep (target never ran): record the inventory silently —
+	// alerting "new file" for every existing script would flood the channel.
+	baseline := t.LastRunAt == nil
+	logger.GetLogger().Infof("[JS-MONITOR] sweep start: %s (threads=%d, baseline=%v)", t.Domain, t.Threads, baseline)
 
 	// 1. Discover the domain's current JS file URLs via the standard collector
 	//    (writes new-results/<domain>/urls/js-urls.txt; sources include
@@ -208,7 +211,9 @@ func monitorDomain(t db.JSMonitorTarget) {
 				mu.Lock()
 				newFiles++
 				mu.Unlock()
-				alertNewFile(t.Domain, jsURL, int64(len(body)), len(eps), len(secs), secs)
+				if !baseline {
+					alertNewFile(t.Domain, jsURL, int64(len(body)), len(eps), len(secs), secs)
+				}
 				return
 			}
 			if prev.SHA256 == sha {
@@ -239,8 +244,8 @@ func monitorDomain(t db.JSMonitorTarget) {
 	}
 	wg.Wait()
 	_ = db.TouchJSMonitorRun(t.ID)
-	logger.GetLogger().Infof("[JS-MONITOR] sweep done: %s in %s — %d js urls, new=%d changed=%d unchanged=%d failed=%d",
-		t.Domain, time.Since(start).Round(time.Second), len(jsURLs), newFiles, changedFiles, unchanged, failed)
+	logger.GetLogger().Infof("[JS-MONITOR] sweep done: %s in %s — %d js urls, new=%d changed=%d unchanged=%d failed=%d (baseline=%v)",
+		t.Domain, time.Since(start).Round(time.Second), len(jsURLs), newFiles, changedFiles, unchanged, failed, baseline)
 }
 
 func fetchJS(client *http.Client, jsURL string) (int, []byte, error) {
