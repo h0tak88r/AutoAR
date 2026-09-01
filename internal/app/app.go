@@ -13,6 +13,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
 	"github.com/h0tak88r/AutoAR/internal/scanner/huntermonitor"
+	"github.com/h0tak88r/AutoAR/internal/scanner/jsmonitor"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitor"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomainmonitor"
 	"github.com/h0tak88r/AutoAR/internal/utils"
@@ -244,6 +245,20 @@ func resumeMonitorsOnStartup() {
 		if running > 0 {
 			monitor.StartURLMonitorDaemon()
 			log.Printf("[INFO] Resumed URL monitor daemon for %d running target(s) after restart.", running)
+		}
+	}
+
+	// JS file monitors.
+	if targets, err := db.ListJSMonitorTargets(); err == nil {
+		running := 0
+		for _, t := range targets {
+			if t.IsRunning {
+				running++
+			}
+		}
+		if running > 0 {
+			jsmonitor.StartDaemon()
+			log.Printf("[INFO] Resumed JS monitor daemon for %d running target(s) after restart.", running)
 		}
 	}
 

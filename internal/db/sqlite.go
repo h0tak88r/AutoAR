@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -249,6 +250,34 @@ func (s *SQLiteDB) InitSchema() error {
 		UNIQUE(target_id, report_id)
 	);
 	CREATE INDEX IF NOT EXISTS idx_hunter_monitor_seen_target ON hunter_monitor_seen_reports(target_id);
+
+	-- JS file monitor: per-domain inventory of discovered JS files with content hashes.
+	CREATE TABLE IF NOT EXISTS js_monitor_targets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		domain TEXT NOT NULL UNIQUE,
+		interval_seconds INTEGER DEFAULT 21600,
+		threads INTEGER DEFAULT 30,
+		is_running INTEGER DEFAULT 1,
+		last_run_at TIMESTAMP,
+		created_at TIMESTAMP DEFAULT (datetime('now')),
+		updated_at TIMESTAMP DEFAULT (datetime('now'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_monitor_targets_is_running ON js_monitor_targets(is_running);
+
+	CREATE TABLE IF NOT EXISTS js_monitor_files (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		target_id INTEGER NOT NULL REFERENCES js_monitor_targets(id) ON DELETE CASCADE,
+		domain TEXT NOT NULL DEFAULT '',
+		url TEXT NOT NULL UNIQUE,
+		sha256 TEXT NOT NULL DEFAULT '',
+		endpoints TEXT NOT NULL DEFAULT '[]',
+		secrets TEXT NOT NULL DEFAULT '[]',
+		content_length INTEGER DEFAULT 0,
+		last_status INTEGER DEFAULT 0,
+		first_seen TIMESTAMP DEFAULT (datetime('now')),
+		last_seen TIMESTAMP DEFAULT (datetime('now'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_monitor_files_target ON js_monitor_files(target_id);
 
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
@@ -2498,4 +2527,107 @@ func (s *SQLiteDB) Close() {
 	if s.db != nil {
 		s.db.Close()
 	}
+}
+
+// ── JS file monitor (SQLite backend) ─────────────────────────────────────────
+
+func (s *SQLiteDB) ListJSMonitorTargets() ([]JSMonitorTarget, error) {
+	rows, err := s.db.Query(`
+		SELECT t.id, t.domain, t.interval_seconds, t.threads, t.is_running, t.last_run_at, t.created_at, t.updated_at,
+		       (SELECT count(*) FROM js_monitor_files f WHERE f.target_id = t.id)
+		FROM js_monitor_targets t ORDER BY t.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []JSMonitorTarget
+	for rows.Next() {
+		var t JSMonitorTarget
+		if err := rows.Scan(&t.ID, &t.Domain, &t.IntervalSeconds, &t.Threads, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt, &t.FileCount); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) AddJSMonitorTarget(domain string, intervalSeconds, threads int) (int, error) {
+	if intervalSeconds <= 0 {
+		intervalSeconds = 21600
+	}
+	if threads <= 0 {
+		threads = 30
+	}
+	var id int
+	err := s.db.QueryRow(`
+		INSERT INTO js_monitor_targets (domain, interval_seconds, threads, is_running)
+		VALUES (?, ?, ?, 1)
+		ON CONFLICT(domain) DO UPDATE SET interval_seconds = excluded.interval_seconds, threads = excluded.threads, is_running = 1, updated_at = CURRENT_TIMESTAMP
+		RETURNING id`, domain, intervalSeconds, threads).Scan(&id)
+	return id, err
+}
+
+func (s *SQLiteDB) DeleteJSMonitorTarget(id int) error {
+	_, err := s.db.Exec(`DELETE FROM js_monitor_targets WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) SetJSMonitorRunning(id int, running bool) error {
+	_, err := s.db.Exec(`UPDATE js_monitor_targets SET is_running = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, running, id)
+	return err
+}
+
+func (s *SQLiteDB) TouchJSMonitorRun(id int) error {
+	_, err := s.db.Exec(`UPDATE js_monitor_targets SET last_run_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) ListJSMonitorFiles(targetID int) ([]JSMonitorFile, error) {
+	rows, err := s.db.Query(`
+		SELECT id, target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen
+		FROM js_monitor_files WHERE target_id = ? ORDER BY url`, targetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []JSMonitorFile
+	for rows.Next() {
+		var f JSMonitorFile
+		if err := rows.Scan(&f.ID, &f.TargetID, &f.Domain, &f.URL, &f.SHA256, &f.Endpoints, &f.Secrets, &f.ContentLength, &f.LastStatus, &f.FirstSeen, &f.LastSeen); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) GetJSMonitorFileByURL(rawURL string) (*JSMonitorFile, error) {
+	var f JSMonitorFile
+	err := s.db.QueryRow(`
+		SELECT id, target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen
+		FROM js_monitor_files WHERE url = ?`, rawURL).Scan(
+		&f.ID, &f.TargetID, &f.Domain, &f.URL, &f.SHA256, &f.Endpoints, &f.Secrets, &f.ContentLength, &f.LastStatus, &f.FirstSeen, &f.LastSeen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (s *SQLiteDB) UpsertJSMonitorFile(f JSMonitorFile) error {
+	_, err := s.db.Exec(`
+		INSERT INTO js_monitor_files (target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(url) DO UPDATE SET
+			sha256 = excluded.sha256, endpoints = excluded.endpoints, secrets = excluded.secrets,
+			content_length = excluded.content_length, last_status = excluded.last_status, last_seen = CURRENT_TIMESTAMP`,
+		f.TargetID, f.Domain, f.URL, f.SHA256, f.Endpoints, f.Secrets, f.ContentLength, f.LastStatus)
+	return err
+}
+
+func (s *SQLiteDB) MarkJSMonitorFileSeen(id int64, status int) error {
+	_, err := s.db.Exec(`UPDATE js_monitor_files SET last_seen = CURRENT_TIMESTAMP, last_status = ? WHERE id = ?`, status, id)
+	return err
 }

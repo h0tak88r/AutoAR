@@ -861,3 +861,68 @@ func getEnv(key, defaultValue string) string {
 	}
 	return defaultValue
 }
+
+// ── JS file monitor (package-level wrappers) ─────────────────────────────────
+
+func ListJSMonitorTargets() ([]JSMonitorTarget, error) {
+	if err := Init(); err != nil {
+		return nil, err
+	}
+	return dbInstance.ListJSMonitorTargets()
+}
+
+func AddJSMonitorTarget(domain string, intervalSeconds, threads int) (int, error) {
+	if err := Init(); err != nil {
+		return 0, err
+	}
+	return dbInstance.AddJSMonitorTarget(domain, intervalSeconds, threads)
+}
+
+func DeleteJSMonitorTarget(id int) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.DeleteJSMonitorTarget(id)
+}
+
+func SetJSMonitorRunning(id int, running bool) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.SetJSMonitorRunning(id, running)
+}
+
+func TouchJSMonitorRun(id int) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.TouchJSMonitorRun(id)
+}
+
+func ListJSMonitorFiles(targetID int) ([]JSMonitorFile, error) {
+	if err := Init(); err != nil {
+		return nil, err
+	}
+	return dbInstance.ListJSMonitorFiles(targetID)
+}
+
+func GetJSMonitorFileByURL(rawURL string) (*JSMonitorFile, error) {
+	if err := Init(); err != nil {
+		return nil, err
+	}
+	return dbInstance.GetJSMonitorFileByURL(rawURL)
+}
+
+func UpsertJSMonitorFile(f JSMonitorFile) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.UpsertJSMonitorFile(f)
+}
+
+func MarkJSMonitorFileSeen(id int64, status int) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.MarkJSMonitorFileSeen(id, status)
+}

@@ -109,6 +109,18 @@ type DB interface {
 	// UpdateSubdomainMonitorLastRun updates last_run_at to now for a subdomain monitor target
 	UpdateSubdomainMonitorLastRun(id int) error
 
+	// JS file monitor (per-domain inventory of JS files, diffed for
+	// new-file / content-change / new-secret / new-endpoint alerts).
+	ListJSMonitorTargets() ([]JSMonitorTarget, error)
+	AddJSMonitorTarget(domain string, intervalSeconds, threads int) (int, error)
+	DeleteJSMonitorTarget(id int) error
+	SetJSMonitorRunning(id int, running bool) error
+	TouchJSMonitorRun(id int) error
+	ListJSMonitorFiles(targetID int) ([]JSMonitorFile, error)
+	GetJSMonitorFileByURL(rawURL string) (*JSMonitorFile, error)
+	UpsertJSMonitorFile(f JSMonitorFile) error
+	MarkJSMonitorFileSeen(id int64, status int) error
+
 	// Hunter monitoring targets (tracks a HackerOne username's public reputation
 	// and resolved-report hacktivity, alerting on Discord when either changes).
 	ListHunterMonitorTargets() ([]HunterMonitorTarget, error)
@@ -482,3 +494,32 @@ type DomainWithCounts struct {
 }
 
 
+
+// JSMonitorTarget is one root domain enrolled in the JS-file monitor.
+type JSMonitorTarget struct {
+	ID              int
+	Domain          string
+	IntervalSeconds int
+	Threads         int
+	IsRunning       bool
+	LastRunAt       *time.Time
+	FileCount       int // filled by ListJSMonitorTargets for the dashboard
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// JSMonitorFile is one discovered JS file with its last-seen content fingerprint
+// and the endpoints/secrets extracted from that snapshot.
+type JSMonitorFile struct {
+	ID            int64
+	TargetID      int
+	Domain        string
+	URL           string
+	SHA256        string
+	Endpoints     string // JSON array of endpoint paths
+	Secrets       string // JSON array of "type: value" strings
+	ContentLength int64
+	LastStatus    int
+	FirstSeen     time.Time
+	LastSeen      time.Time
+}
