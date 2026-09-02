@@ -2661,3 +2661,16 @@ func (p *PostgresDB) MarkJSMonitorFileSeen(id int64, status int) error {
 	}
 	return nil
 }
+
+// CountRunningScansForTarget reports how many scans are currently in a
+// non-terminal state for a target (e.g. "global-subdomains") — used by the
+// template watcher to avoid launching a second global scan on a busy box.
+func (p *PostgresDB) CountRunningScansForTarget(target string) (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx,
+		`SELECT count(*) FROM scans WHERE target = $1 AND status = 'running'`, target).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count running scans: %w", err)
+	}
+	return n, nil
+}

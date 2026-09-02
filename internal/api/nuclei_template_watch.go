@@ -211,7 +211,26 @@ func nucleiTemplateWatchCycle() {
 	fresh = deduped
 
 	logger.GetLogger().Infof("[NUCLEI-WATCH] %d new template(s) since %s", len(fresh), watermark)
-	nucleiWatchNotify(fresh)
+	nucleiWatchNotifyOnce(fresh)
+
+	// Auto-run gate: one global scan at a time. If one is already in flight,
+	// defer this batch WITHOUT advancing the watermark — the next tick
+	// re-discovers the same templates and retries once the box is free.
+	// (NotifyOnce above suppresses re-announcing on those retry ticks.)
+	if nucleiTemplateAutoRunEnabled() {
+		runnableNow := 0
+		for _, t := range fresh {
+			if nucleiWatchRunnable(t) {
+				runnableNow++
+			}
+		}
+		if runnableNow > 0 {
+			if n, err := db.CountRunningScansForTarget("global-subdomains"); err == nil && n > 0 {
+				logger.GetLogger().Infof("[NUCLEI-WATCH] %d global scan(s) in flight — deferring auto-run of %d template(s) to next cycle", n, runnableNow)
+				return
+			}
+		}
+	}
 
 	// Persist the watermark/seen-IDs BEFORE the (potentially hours-long) scan: a
 	// restart mid-scan must not re-announce and re-run the whole batch, and the
@@ -373,6 +392,29 @@ func nucleiWatchSaveState(watermark string, batch []pdcpTemplate) {
 		ids = ids[:nucleiWatchSeenCap]
 	}
 	_ = db.SetSetting(nucleiWatchSeenKey, strings.Join(ids, ","))
+}
+
+// nucleiWatchNotifyOnce announces only templates not yet announced this
+// process. Deferred batches (global scan in flight) retry on later ticks
+// without advancing the watermark — without this dedup they would re-alert
+// every cycle until the box frees up.
+var nucleiWatchAnnouncedMu sync.Mutex
+var nucleiWatchAnnounced = make(map[string]bool)
+
+func nucleiWatchNotifyOnce(fresh []pdcpTemplate) {
+	nucleiWatchAnnouncedMu.Lock()
+	pending := make([]pdcpTemplate, 0, len(fresh))
+	for _, t := range fresh {
+		if !nucleiWatchAnnounced[t.ID] {
+			nucleiWatchAnnounced[t.ID] = true
+			pending = append(pending, t)
+		}
+	}
+	nucleiWatchAnnouncedMu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+	nucleiWatchNotify(pending)
 }
 
 // nucleiWatchNotify posts the Discord alert listing the new templates.

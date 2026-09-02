@@ -121,6 +121,10 @@ type DB interface {
 	UpsertJSMonitorFile(f JSMonitorFile) error
 	MarkJSMonitorFileSeen(id int64, status int) error
 
+	// CountRunningScansForTarget reports in-flight (status='running') scans
+	// for a target — the watcher's auto-run gate against double global scans.
+	CountRunningScansForTarget(target string) (int, error)
+
 	// Hunter monitoring targets (tracks a HackerOne username's public reputation
 	// and resolved-report hacktivity, alerting on Discord when either changes).
 	ListHunterMonitorTargets() ([]HunterMonitorTarget, error)

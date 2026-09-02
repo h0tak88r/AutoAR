@@ -2631,3 +2631,9 @@ func (s *SQLiteDB) MarkJSMonitorFileSeen(id int64, status int) error {
 	_, err := s.db.Exec(`UPDATE js_monitor_files SET last_seen = CURRENT_TIMESTAMP, last_status = ? WHERE id = ?`, status, id)
 	return err
 }
+
+func (s *SQLiteDB) CountRunningScansForTarget(target string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT count(*) FROM scans WHERE target = ? AND status = 'running'`, target).Scan(&n)
+	return n, err
+}

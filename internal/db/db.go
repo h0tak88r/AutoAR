@@ -926,3 +926,10 @@ func MarkJSMonitorFileSeen(id int64, status int) error {
 	}
 	return dbInstance.MarkJSMonitorFileSeen(id, status)
 }
+
+func CountRunningScansForTarget(target string) (int, error) {
+	if err := Init(); err != nil {
+		return 0, err
+	}
+	return dbInstance.CountRunningScansForTarget(target)
+}
