@@ -74,7 +74,15 @@ type pdcpTemplate struct {
 	Tags      []string `json:"tags"`
 	Raw       string   `json:"raw"`
 	IsNew     bool     `json:"is_new"`
-	Class     struct {
+	// Stage fields: PDCP lists community submissions (pull-request/draft) side
+	// by side with templates merged into the official repo. template_id carries
+	// a "-draft" suffix for PR-stage revisions; is_github=false means the file
+	// is NOT on the repo main branch yet — linking the blob URL for those 404s.
+	TemplateID string `json:"template_id"`
+	IsDraft    bool   `json:"is_draft"`
+	IsEarly    bool   `json:"is_early"`
+	IsGithub   bool   `json:"is_github"`
+	Class      struct {
 		CVEs []string `json:"cve-id"`
 	} `json:"classification"`
 }
@@ -313,7 +321,7 @@ func nucleiTemplateBlocked(id string) bool {
 // nucleiWatchSearch fetches the newest public templates, sorted by creation
 // time descending. withRaw includes the full YAML in each result.
 func nucleiWatchSearch(limit int, withRaw bool) ([]pdcpTemplate, error) {
-	fields := "id,name,severity,created_at,uri,tags,is_new,classification"
+	fields := "id,name,severity,created_at,uri,tags,is_new,classification,template_id,is_draft,is_early,is_github"
 	if withRaw {
 		fields += ",raw"
 	}
@@ -437,7 +445,18 @@ func nucleiWatchNotify(fresh []pdcpTemplate) {
 		if label == "" {
 			label = t.ID
 		}
-		fmt.Fprintf(&b, "• **%s** [`%s`](%s/blob/main/%s) — `%s`", label, t.ID, nucleiWatchRepoURL, t.URI, sev)
+		// Link by merge stage: PDCP lists PR-stage community submissions
+		// (is_github=false, template_id suffixed "-draft") next to templates
+		// already on the repo main branch. The blob URL only exists for the
+		// latter — drafts get a GitHub code-search link for the ID instead
+		// (valid immediately, finds the template the moment its PR merges).
+		link := fmt.Sprintf("%s/blob/main/%s", nucleiWatchRepoURL, t.URI)
+		stage := ""
+		if !t.IsGithub {
+			link = fmt.Sprintf("https://github.com/search?q=repo%%3Aprojectdiscovery%%2Fnuclei-templates+%s&type=code", url.PathEscape(t.ID))
+			stage = " · ⏳ draft/PR — not merged yet"
+		}
+		fmt.Fprintf(&b, "• **%s** [`%s`](%s) — `%s`%s", label, t.ID, link, sev, stage)
 		if len(t.Class.CVEs) > 0 {
 			fmt.Fprintf(&b, " · %s", strings.Join(t.Class.CVEs, ", "))
 		}
