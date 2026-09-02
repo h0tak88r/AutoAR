@@ -1597,11 +1597,16 @@ func indexScanArtifacts(scanID, scanType, target string) {
 
 	// Scan types that write to new-results/<target>/ (the full domain dir).
 	// These are workflow scans that own the entire target directory.
+	// "nuclei" is deliberately NOT a domain-root type: every nuclei runner
+	// (wrapper + runGlobalNucleiScan) already copies and indexes its OWN output
+	// into its scan dir. Walking the shared target tree here copied every OTHER
+	// nuclei scan's output (nuclei-<other-scan>.json) into this scan's dir,
+	// attributing foreign findings — and staged template YAMLs — to it.
 	domainRootTypes := map[string]bool{
 		"domain_run": true, "subdomain_run": true,
 		"subdomains": true, "livehosts": true, "cnames": true,
 		"urls": true, "js": true, "jsscan": true, "reflection": true,
-		"nuclei": true, "tech": true, "ports": true, "gf": true,
+		"tech": true, "ports": true, "gf": true,
 		"backup": true, "aem": true, "depconfusion": true, "wp_confusion": true,
 		"zerodays": true, "pipeline": true,
 	}
@@ -1830,6 +1835,15 @@ func shouldSkipArtifact(path string) bool {
 
 	base := strings.ToLower(filepath.Base(path))
 	if base == "scan-manifest.json" || base == "cache_info.json" || base == "report-table.json" {
+		return true
+	}
+
+	// Nuclei template YAMLs (persisted for rescan under <target>/templates/ or
+	// staged by the watcher) are scanner INPUTS — never findings. Parsing them
+	// line-by-line produced garbage rows ("id:", "author:", "severity:") tagged
+	// as unrelated modules (filenames containing "cve" became "zerodays").
+	ext := strings.ToLower(filepath.Ext(base))
+	if ext == ".yaml" || ext == ".yml" {
 		return true
 	}
 
