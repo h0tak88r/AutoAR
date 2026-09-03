@@ -97,9 +97,10 @@ func SendWebhookFile(_, _ string) error { return nil }
 // SendWebhookFileAsync is a no-op stub — currently not implemented for generic webhooks.
 func SendWebhookFileAsync(_, _ string) {}
 
-// MonitorWebhookConfigured reports whether MONITOR_WEBHOOK_URL is set.
+// MonitorWebhookConfigured reports whether any monitoring webhook is set
+// (dedicated WEBHOOK_MONITORING or the legacy MONITOR_WEBHOOK_URL fallback).
 func MonitorWebhookConfigured() bool {
-	return strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL")) != ""
+	return PurposeWebhookURL("monitoring") != ""
 }
 
 // SendMonitorWebhook posts msg to MONITOR_WEBHOOK_URL (logs the error on failure).
@@ -119,13 +120,34 @@ func SendMonitorWebhook(msg string) {
 // while short per-URL alerts did.
 const discordContentLimit = 1900
 
-// SendMonitorWebhookErr posts msg to MONITOR_WEBHOOK_URL and returns the delivery
-// error (or a "not configured" error). Messages longer than Discord's limit are
-// split into multiple posts so nothing is dropped.
-func SendMonitorWebhookErr(msg string) error {
-	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
+// PurposeWebhookURL resolves the Discord webhook URL for a purpose:
+// "new_scopes" (program/scope announcements), "findings" (AI-validated
+// findings), or "monitoring" (everything else). Each checks its dedicated
+// key first — WEBHOOK_NEW_SCOPES / WEBHOOK_FINDINGS / WEBHOOK_MONITORING,
+// all managed from the Settings page and DB-persisted — and falls back to
+// MONITOR_WEBHOOK_URL so a single-channel setup keeps working unchanged.
+func PurposeWebhookURL(purpose string) string {
+	var dedicated string
+	switch strings.ToLower(strings.TrimSpace(purpose)) {
+	case "new_scopes", "scope":
+		dedicated = os.Getenv("WEBHOOK_NEW_SCOPES")
+	case "findings":
+		dedicated = os.Getenv("WEBHOOK_FINDINGS")
+	default:
+		dedicated = os.Getenv("WEBHOOK_MONITORING")
+	}
+	if u := strings.TrimSpace(dedicated); u != "" {
+		return u
+	}
+	return strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
+}
+
+// SendPurposeWebhookErr posts msg to the webhook configured for the purpose
+// (see PurposeWebhookURL) and returns the delivery error.
+func SendPurposeWebhookErr(purpose, msg string) error {
+	webhookURL := PurposeWebhookURL(purpose)
 	if webhookURL == "" {
-		return fmt.Errorf("MONITOR_WEBHOOK_URL is not set")
+		return fmt.Errorf("no webhook configured for purpose %q", purpose)
 	}
 	for _, chunk := range chunkDiscordContent(msg, discordContentLimit) {
 		if err := postDiscordContent(webhookURL, chunk); err != nil {
@@ -133,6 +155,27 @@ func SendMonitorWebhookErr(msg string) error {
 		}
 	}
 	return nil
+}
+
+// SendScopeWebhookErr posts to the new-scopes channel (WEBHOOK_NEW_SCOPES,
+// falling back to the monitor webhook). Used by the program/scope watcher.
+func SendScopeWebhookErr(msg string) error { return SendPurposeWebhookErr("new_scopes", msg) }
+
+// SendScopeWebhook is the fire-and-forget variant of SendScopeWebhookErr.
+func SendScopeWebhook(msg string) { _ = SendScopeWebhookErr(msg) }
+
+// SendFindingsWebhookErr posts to the AI-findings channel (WEBHOOK_FINDINGS,
+// falling back to the monitor webhook).
+func SendFindingsWebhookErr(msg string) error { return SendPurposeWebhookErr("findings", msg) }
+
+// SendFindingsWebhook is the fire-and-forget variant of SendFindingsWebhookErr.
+func SendFindingsWebhook(msg string) { _ = SendFindingsWebhookErr(msg) }
+
+// SendMonitorWebhookErr posts msg to the monitoring webhook and returns the
+// delivery error (or a "not configured" error). Messages longer than Discord's
+// limit are split into multiple posts so nothing is dropped.
+func SendMonitorWebhookErr(msg string) error {
+	return SendPurposeWebhookErr("monitoring", msg)
 }
 
 // chunkDiscordContent splits content into pieces no larger than max, breaking on

@@ -247,7 +247,7 @@ func sendProgramIntroDiscord(p ProgramSummary) {
 	if p.URL != "" {
 		msg += "\n" + p.URL
 	}
-	if err := utils.SendMonitorWebhookErr(msg); err != nil {
+	if err := utils.SendScopeWebhookErr(msg); err != nil {
 		logger.GetLogger().Infof("[PROGRAM-WATCH] intro send failed: %v", err)
 		return
 	}
@@ -264,7 +264,7 @@ func sendProgramUpdateDiscord(p ProgramSummary) {
 	if p.URL != "" {
 		msg += "\n" + p.URL
 	}
-	if err := utils.SendMonitorWebhookErr(msg); err != nil {
+	if err := utils.SendScopeWebhookErr(msg); err != nil {
 		logger.GetLogger().Infof("[PROGRAM-WATCH] update send failed for %s: %v", p.Handle, err)
 		return
 	}
@@ -379,7 +379,7 @@ func apiProgramWatchTest(c *gin.Context) {
 	}
 	msg := fmt.Sprintf("✅ **AutoAR scope-watch test** — webhook is reachable. Sent at %s.",
 		time.Now().UTC().Format(time.RFC3339))
-	if err := utils.SendMonitorWebhookErr(msg); err != nil {
+	if err := utils.SendScopeWebhookErr(msg); err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": err.Error()})
 		return
 	}

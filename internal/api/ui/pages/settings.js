@@ -188,6 +188,7 @@
               </div>
             </div>
             ${tokenRow('Chaos (ProjectDiscovery)', 'Subdomain-dataset API key — powers the <strong>Chaos</strong> lookup in the Targets tab. Get one at <a href="https://cloud.projectdiscovery.io" target="_blank" rel="noopener">cloud.projectdiscovery.io</a>.', 'chaos-key-input', 'window.SettingsPage.saveChaosKey()', 'chaos API key', cfg.chaos_key_set)}
+            ${tokenRow('PDCP (ProjectDiscovery Cloud)', 'API key powering the <strong>nuclei template watch</strong> (new-template discovery &amp; auto-scan). Falls back to the Chaos key when unset. Get one at <a href="https://cloud.projectdiscovery.io" target="_blank" rel="noopener">cloud.projectdiscovery.io</a>.', 'pdcp-key-input', 'window.SettingsPage.savePDCPKey()', 'PDCP API key', cfg.pdcp_key_set)}
             <div class="settings-item">
               <div class="settings-label">
                 <div class="settings-title">Shodan API Keys</div>
@@ -252,6 +253,16 @@
           <div class="settings-section-body">
             <div class="settings-timeout-grid">
               <div class="timeout-field">
+                <label>🌍 Global Scan Ceiling</label>
+                <input id="timeout-scan-ceiling-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.scan_timeout_hours ?? 24))}" />
+                <span>hours (0 = 24h default)</span>
+              </div>
+              <div class="timeout-field">
+                <label>🌍 Pipeline Ceiling</label>
+                <input id="timeout-pipeline-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.pipeline_timeout_hours ?? 24))}" />
+                <span>hours (0 = 24h default)</span>
+              </div>
+              <div class="timeout-field">
                 <label> Zerodays</label>
                 <input id="timeout-zerodays-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_zerodays ?? 600))}" />
                 <span>seconds</span>
@@ -291,11 +302,44 @@
 
         <div class="settings-section" data-tab="notifications">
           <div class="settings-section-header"> Notifications</div>
+          <div class="settings-section-description">
+            Route alerts to separate Discord channels. Each channel falls back to the Monitor Webhook below when unset — set all four to fully split your streams.
+          </div>
           <div class="settings-section-body">
             <div class="settings-item">
               <div class="settings-label">
-                <div class="settings-title">Monitor Webhook</div>
-                <div class="settings-hint">Where monitor change alerts are sent. Discord webhook URLs work out of the box. Stored in the database and survives redeploys — no <code>MONITOR_WEBHOOK_URL</code> env var required. ${cfg.monitor_webhook_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
+                <div class="settings-title">🆕 New Scopes Webhook</div>
+                <div class="settings-hint">New programs &amp; scope-watch announcements. ${cfg.webhook_new_scopes_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">fallback → monitor</span>'}</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="webhook-new-scopes-input" value="" placeholder="${cfg.webhook_new_scopes_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveWebhookField('webhook_new_scopes', 'webhook-new-scopes-input', 'New-scopes webhook')">Save</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">📡 Monitoring Webhook</div>
+                <div class="settings-hint">Platform operations: scan start/finish, template-watch announcements, JS/subdomain monitors, unauth API audits. ${cfg.webhook_monitoring_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">fallback → monitor</span>'}</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="webhook-monitoring-input" value="" placeholder="${cfg.webhook_monitoring_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveWebhookField('webhook_monitoring', 'webhook-monitoring-input', 'Monitoring webhook')">Save</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">🚨 AI Findings Webhook</div>
+                <div class="settings-hint">Validated findings &amp; AI triage verdicts. ${cfg.webhook_findings_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">fallback → monitor</span>'}</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="webhook-findings-input" value="" placeholder="${cfg.webhook_findings_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveWebhookField('webhook_findings', 'webhook-findings-input', 'AI-findings webhook')">Save</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">Monitor Webhook (fallback)</div>
+                <div class="settings-hint">Where alerts are sent when a purpose channel above is unset. Discord webhook URLs work out of the box. Stored in the database and survives redeploys — no <code>MONITOR_WEBHOOK_URL</code> env var required. ${cfg.monitor_webhook_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">not set</span>'}</div>
               </div>
               <div class="settings-control">
                 <input type="text" id="monitor-webhook-input" value="" placeholder="${cfg.monitor_webhook_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
@@ -472,6 +516,7 @@
     'gemini-key-input': 'GEMINI_API_KEY',
     'ha-token-input': 'HACKADVISOR_TOKEN',
     'chaos-key-input': 'CHAOS_API_KEY',
+    'pdcp-key-input': 'PDCP_API_KEY',
     'r2-access-key-input': 'R2_ACCESS_KEY_ID',
     'r2-secret-key-input': 'R2_SECRET_KEY',
     'shodan-keys-input': 'SHODAN_API_KEYS',
@@ -806,6 +851,8 @@
   }
 
   async function saveTimeoutSettings() {
+    const scInput  = document.getElementById('timeout-scan-ceiling-input');
+    const plInput  = document.getElementById('timeout-pipeline-input');
     const zdInput  = document.getElementById('timeout-zerodays-input');
     const nuInput  = document.getElementById('timeout-nuclei-input');
     const buInput  = document.getElementById('timeout-backup-input');
@@ -814,14 +861,16 @@
     const xsInput  = document.getElementById('timeout-xss-input');
     const btn      = document.getElementById('timeout-save-btn');
     const note     = document.getElementById('timeout-save-note');
-    if (!zdInput || !nuInput || !buInput || !mcInput || !kaInput || !xsInput) return;
+    if (!scInput || !plInput || !zdInput || !nuInput || !buInput || !mcInput || !kaInput || !xsInput) return;
+    const scVal = parseInt(scInput.value, 10);
+    const plVal = parseInt(plInput.value, 10);
     const zdVal = parseInt(zdInput.value, 10);
     const nuVal = parseInt(nuInput.value, 10);
     const buVal = parseInt(buInput.value, 10);
     const mcVal = parseInt(mcInput.value, 10);
     const kaVal = parseInt(kaInput.value, 10);
     const xsVal = parseInt(xsInput.value, 10);
-    if ([zdVal, nuVal, buVal, mcVal, kaVal, xsVal].some(v => isNaN(v) || v < 0)) {
+    if ([scVal, plVal, zdVal, nuVal, buVal, mcVal, kaVal, xsVal].some(v => isNaN(v) || v < 0)) {
       window.showToast('error', 'Invalid value', 'Timeouts must be 0 or a positive integer.');
       return;
     }
@@ -832,6 +881,8 @@
         method: 'POST',
         headers,
         body: JSON.stringify({
+          scan_timeout_hours: scVal,
+          pipeline_timeout_hours: plVal,
           timeout_zerodays: zdVal,
           timeout_nuclei:   nuVal,
           timeout_backup:   buVal,
@@ -841,13 +892,28 @@
         })
       });
       if (!res.ok) throw new Error('Failed to update timeout settings');
-      window.showToast('success', 'Saved!', `Zerodays: ${zdVal}s · Nuclei: ${nuVal}s · Backup: ${buVal}s · Misconfig: ${mcVal}s · Katana: ${kaVal}s · XSS: ${xsVal}s  (0 = unlimited)`);
+      window.showToast('success', 'Saved!', `Ceilings: scan ${scVal}h · pipeline ${plVal}h · Phases: ZD ${zdVal}s · Nuclei ${nuVal}s · Backup ${buVal}s · Misconfig ${mcVal}s · Katana ${kaVal}s · XSS ${xsVal}s`);
       if (note) note.textContent = ` Saved to DB at ${new Date().toLocaleTimeString()} — persists across redeployments`;
       try { window.state.config = await window.apiFetch('/api/config'); } catch(_) {}
     } catch (e) {
       window.showToast('error', 'Error', e.message);
     }
     if (btn) { btn.disabled = false; btn.textContent = ' Save all timeouts'; }
+  }
+
+  async function saveWebhookField(field, inputId, label) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const webhook = input.value.trim();
+    if (!webhook) { window.showToast('info', 'No change', 'Enter a webhook URL to set or replace it.'); return; }
+    try {
+      const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
+      const res = await fetch('/api/settings', { method: 'POST', headers, body: JSON.stringify({ [field]: webhook }) });
+      if (!res.ok) throw new Error('Failed to update webhook');
+      window.showToast('success', 'Saved!', label + ' updated.');
+      input.value = '';
+      try { window.state.config = await window.apiFetch('/api/config'); renderSettings(); } catch(_) {}
+    } catch (e) { window.showToast('error', 'Error', e.message); }
   }
 
   async function saveWebhookSettings() {
@@ -987,6 +1053,7 @@
   function saveIntigritiToken() { return savePlatformToken('it_token', 'it-token-input', 'Intigriti token'); }
   function saveYWHToken()       { return savePlatformToken('ywh_token', 'ywh-token-input', 'YesWeHack token'); }
   function saveChaosKey()       { return savePlatformToken('chaos_key', 'chaos-key-input', 'Chaos API key'); }
+  function savePDCPKey()       { return savePlatformToken('pdcp_key', 'pdcp-key-input', 'PDCP API key'); }
 
   // Shodan multi-key list — the whole textarea replaces the stored list
   // (server normalizes comma/newline-separated input).
@@ -1067,6 +1134,8 @@
     saveYWHToken,
     saveHackAdvisorCreds,
     saveChaosKey,
+    savePDCPKey,
+    saveWebhookField,
     saveShodanKeys,
     clearShodanKeys,
     saveSubfinderKeys,

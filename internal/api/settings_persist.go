@@ -36,6 +36,12 @@ var persistedEnvKeys = []string{
 	// Cloudflare R2 storage — managed from Settings ▸ System ▸ Cloudflare R2.
 	"USE_R2_STORAGE", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_KEY",
 	"R2_BUCKET_NAME", "R2_PUBLIC_URL",
+	// Global wall-clock scan ceilings (Go duration strings, e.g. "72h").
+	// Managed from Settings ▸ Timeouts; 0 in the UI resets to the 24h default.
+	"AUTOAR_SCAN_TIMEOUT", "AUTOAR_PIPELINE_TIMEOUT",
+	// Purpose-routed Discord webhooks — Settings ▸ Notifications. Each falls
+	// back to MONITOR_WEBHOOK_URL when unset.
+	"WEBHOOK_NEW_SCOPES", "WEBHOOK_MONITORING", "WEBHOOK_FINDINGS",
 }
 
 // subfinderProviderKeys are the subfinder passive-source API keys manageable from

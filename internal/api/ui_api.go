@@ -44,6 +44,16 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 
 func apiConfigHandler(c *gin.Context) {
+	// ceilingHours parses a Go-duration env value (e.g. "72h") into whole hours
+	// for the /api/config timeout fields; unparsable/absent → the 24h default.
+	ceilingHours := func(key string) int {
+		if d := strings.TrimSpace(os.Getenv(key)); d != "" {
+			if p, err := time.ParseDuration(d); err == nil && p > 0 {
+				return int(p.Hours())
+			}
+		}
+		return 24
+	}
 	// Must match supabaseJWTAuth / dashboardAPIAuthEnforced (UI sends Bearer only when this is true).
 	authOn := dashboardAPIAuthEnforced()
 	getIntEnvOr := func(key string, def int) int {
@@ -83,6 +93,15 @@ func apiConfigHandler(c *gin.Context) {
 		// Secret webhook URL is never returned on this public endpoint — only
 		// whether one is configured (the raw value carries a Discord/Slack token).
 		"monitor_webhook_set": strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL")) != "",
+		// Purpose-routed webhooks (Settings ▸ Notifications) — set-state only.
+		"webhook_new_scopes_set": strings.TrimSpace(os.Getenv("WEBHOOK_NEW_SCOPES")) != "",
+		"webhook_monitoring_set": strings.TrimSpace(os.Getenv("WEBHOOK_MONITORING")) != "",
+		"webhook_findings_set":   strings.TrimSpace(os.Getenv("WEBHOOK_FINDINGS")) != "",
+		// ProjectDiscovery Cloud key (nuclei template watch).
+		"pdcp_key_set": strings.TrimSpace(os.Getenv("PDCP_API_KEY")) != "",
+		// Global wall-clock ceilings, effective value in hours (Settings ▸ Timeouts).
+		"scan_timeout_hours":     ceilingHours("AUTOAR_SCAN_TIMEOUT"),
+		"pipeline_timeout_hours": ceilingHours("AUTOAR_PIPELINE_TIMEOUT"),
 		"monitor_ai_available": strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("OPENCODE_API_KEY")) != "" ||
 			strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
@@ -174,6 +193,17 @@ type UpdateSettingsBody struct {
 	R2PublicURL *string `json:"r2_public_url,omitempty"`
 	R2AccessKey string  `json:"r2_access_key"`
 	R2SecretKey string  `json:"r2_secret_key"`
+	// Global wall-clock ceilings in HOURS (0 = reset to the 24h default).
+	// Persisted as AUTOAR_SCAN_TIMEOUT / AUTOAR_PIPELINE_TIMEOUT durations.
+	ScanTimeoutHours     *int `json:"scan_timeout_hours,omitempty"`
+	PipelineTimeoutHours *int `json:"pipeline_timeout_hours,omitempty"`
+	// Purpose-routed Discord webhooks ("" = keep current). Each falls back to
+	// MONITOR_WEBHOOK_URL server-side when unset.
+	WebhookNewScopes string `json:"webhook_new_scopes"`
+	WebhookMonitoring string `json:"webhook_monitoring"`
+	WebhookFindings   string `json:"webhook_findings"`
+	// ProjectDiscovery Cloud key for the nuclei template watch.
+	PDCPKey string `json:"pdcp_key"`
 }
 
 func apiUpdateSettingsHandler(c *gin.Context) {
@@ -185,6 +215,34 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 
 	if body.MonitorWebhook != "" {
 		saveEnvSetting("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
+	}
+	if body.WebhookNewScopes != "" {
+		saveEnvSetting("WEBHOOK_NEW_SCOPES", strings.TrimSpace(body.WebhookNewScopes))
+	}
+	if body.WebhookMonitoring != "" {
+		saveEnvSetting("WEBHOOK_MONITORING", strings.TrimSpace(body.WebhookMonitoring))
+	}
+	if body.WebhookFindings != "" {
+		saveEnvSetting("WEBHOOK_FINDINGS", strings.TrimSpace(body.WebhookFindings))
+	}
+	if body.PDCPKey != "" {
+		saveEnvSetting("PDCP_API_KEY", strings.TrimSpace(body.PDCPKey))
+	}
+	// Global ceilings: >0 hours persists a duration; 0 resets to the 24h default
+	// (an empty env value is skipped by scanTimeoutFor).
+	if body.ScanTimeoutHours != nil {
+		if h := *body.ScanTimeoutHours; h > 0 {
+			saveEnvSetting("AUTOAR_SCAN_TIMEOUT", fmt.Sprintf("%dh", h))
+		} else {
+			saveEnvSetting("AUTOAR_SCAN_TIMEOUT", "")
+		}
+	}
+	if body.PipelineTimeoutHours != nil {
+		if h := *body.PipelineTimeoutHours; h > 0 {
+			saveEnvSetting("AUTOAR_PIPELINE_TIMEOUT", fmt.Sprintf("%dh", h))
+		} else {
+			saveEnvSetting("AUTOAR_PIPELINE_TIMEOUT", "")
+		}
 	}
 	if body.OpenRouterKey != "" {
 		saveEnvSetting("OPENROUTER_API_KEY", strings.TrimSpace(body.OpenRouterKey))
