@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"html"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/h0tak88r/AutoAR/internal/scanner/apidocs"
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/utils"
@@ -104,8 +105,6 @@ func RunNuclei(opts Options) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		
-
 
 		// Index each JSONL result file into the scan directory so the dashboard can find them.
 		// We preserve the nuclei JSONL format rather than re-wrapping lines, so template-id,
@@ -118,6 +117,8 @@ func RunNuclei(opts Options) (*Result, error) {
 					continue
 				}
 				foundVulnerabilities = true
+				// Queue any exposed API-doc hits for the unauth endpoint audit
+				apidocs.OfferFromFile(rf)
 				// Copy file into scan dir
 				scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
 				if data, readErr := os.ReadFile(rf); readErr == nil {
@@ -208,6 +209,8 @@ func RunNuclei(opts Options) (*Result, error) {
 				continue
 			}
 			foundVulnerabilities = true
+			// Queue any exposed API-doc hits for the unauth endpoint audit
+			apidocs.OfferFromFile(rf)
 			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
 			if data, readErr := os.ReadFile(rf); readErr == nil {
 				if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
@@ -222,8 +225,6 @@ func RunNuclei(opts Options) (*Result, error) {
 			_ = utils.WriteNoFindingsJSON(scanID, targetName, "nuclei", "nuclei-results.json")
 		}
 	}
-
-
 
 	return &Result{TargetName: targetName, Mode: opts.Mode, ResultFiles: resultFiles}, nil
 }
@@ -432,7 +433,7 @@ func runDefaultLoginsScan(targetFile, outputDir string, threads int, targetName,
 	logger.GetLogger().Infof("[INFO] === Running Default Logins scan ===")
 	var resultFiles []string
 
-		// Custom default logins templates
+	// Custom default logins templates
 	customDir := filepath.Join(root, "nuclei_templates", "default-logins")
 	if dirExists(customDir) {
 		logger.GetLogger().Infof("[INFO] Scanning with custom default logins templates...")
@@ -514,7 +515,9 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 
 // runNucleiCommand runs nuclei with JSONL output (-json flag).
 // Each line of the output file is a self-contained JSON object with fields:
-//   template-id, matched-at, info.severity, info.name, host, etc.
+//
+//	template-id, matched-at, info.severity, info.name, host, etc.
+//
 // This lets the dashboard parse clean vulnerability names instead of raw text.
 func runNucleiCommand(targetFile, templateDir string, threads int, outputFile string) error {
 	// Build the engine on the owning scan's lifetime context so UI cancel and

@@ -28,6 +28,7 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/brain"
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/r2storage"
+	"github.com/h0tak88r/AutoAR/internal/scanner/apidocs"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitor"
 	"github.com/h0tak88r/AutoAR/internal/scanner/monitorsuggest"
 	"github.com/h0tak88r/AutoAR/internal/scanner/nuclei"
@@ -957,6 +958,9 @@ func runGlobalNucleiScan(scanID, template string) error {
 			if matched == "" {
 				matched = event.Host
 			}
+			// Exposed API docs (swagger/openapi/api-docs) get queued for the
+			// unauthenticated endpoint audit (non-blocking; deduped internally).
+			apidocs.Offer(event.TemplateID, matched)
 			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Matched-At:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
 				event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
 			if event.Host != "" && event.Host != matched {

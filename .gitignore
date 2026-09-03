@@ -127,3 +127,5 @@ Rules.ymlsupabase_export.sql
 
 # Scheduled-agent state (new-scope auto-runner)
 /.scope-agent-state.json
+!internal/scanner/apidocs/
+!internal/scanner/apidocs/**
