@@ -50,7 +50,7 @@ var (
 	queue        chan docJob
 	seenMu       sync.Mutex
 	seenMap      map[string]time.Time
-	failCooldown map[string]time.Time
+	failCooldown = map[string]time.Time{}
 	defaultRe    = regexp.MustCompile(defaultTriggerRe)
 	interestRe   = regexp.MustCompile(`(?i)(admin|user|account|token|key|secret|config|internal|debug|private|customer|employee|export|dump|backup|password|credential|session|auth)`)
 	// mask obvious credentials before anything reaches Discord
@@ -203,17 +203,32 @@ func persistSeen() {
 func startWorker() {
 	queue = make(chan docJob, queueSize)
 	go func() {
-		for job := range queue {
-			if err := runTests(job); err != nil {
-				// Failed fetch/parse: unmark so a later hit retries (a 24h dedupe
-				// mark on failure would permanently swallow the doc), but cool the
-				// URL down for 30 min so one scan's repeated hits don't hot-loop.
-				seenMu.Lock()
-				delete(seenMap, normalizeDocURL(job.DocURL))
-				failCooldown[normalizeDocURL(job.DocURL)] = time.Now()
-				seenMu.Unlock()
-				log().Infof("[API-TEST] %s: %v (will retry on a later hit)", job.DocURL, err)
+		defer func() {
+			// Belt and suspenders: a panic anywhere in this goroutine would take
+			// down the whole API process (killing every running scan) — degrade
+			// to a log line instead.
+			if r := recover(); r != nil {
+				log().Errorf("[API-TEST] worker panic: %v", r)
 			}
+		}()
+		for job := range queue {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log().Errorf("[API-TEST] panic on %s: %v (job skipped)", job.DocURL, r)
+					}
+				}()
+				if err := runTests(job); err != nil {
+					// Failed fetch/parse: unmark so a later hit retries (a 24h
+					// dedupe mark on failure would permanently swallow the doc),
+					// but cool the URL down so one scan's hits don't hot-loop.
+					seenMu.Lock()
+					delete(seenMap, normalizeDocURL(job.DocURL))
+					failCooldown[normalizeDocURL(job.DocURL)] = time.Now()
+					seenMu.Unlock()
+					log().Infof("[API-TEST] %s: %v (will retry on a later hit)", job.DocURL, err)
+				}
+			}()
 			persistSeen()
 		}
 	}()
