@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -45,12 +46,13 @@ const (
 )
 
 var (
-	once       sync.Once
-	queue      chan docJob
-	seenMu     sync.Mutex
-	seenMap    map[string]time.Time
-	defaultRe  = regexp.MustCompile(defaultTriggerRe)
-	interestRe = regexp.MustCompile(`(?i)(admin|user|account|token|key|secret|config|internal|debug|private|customer|employee|export|dump|backup|password|credential|session|auth)`)
+	once         sync.Once
+	queue        chan docJob
+	seenMu       sync.Mutex
+	seenMap      map[string]time.Time
+	failCooldown map[string]time.Time
+	defaultRe    = regexp.MustCompile(defaultTriggerRe)
+	interestRe   = regexp.MustCompile(`(?i)(admin|user|account|token|key|secret|config|internal|debug|private|customer|employee|export|dump|backup|password|credential|session|auth)`)
 	// mask obvious credentials before anything reaches Discord
 	redactRe = regexp.MustCompile(`(?i)((?:bearer|api[_-]?key|token|secret|password|authorization)"?\s*[:=]\s*"?)[A-Za-z0-9._\-+/=]{8,}`)
 	uuidRe   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -59,6 +61,7 @@ var (
 type docJob struct {
 	TemplateID string
 	DocURL     string
+	SpecURL    string // discovered spec URL when the hit was an HTML doc page
 }
 
 func log() *logrus.Logger { return logger.GetLogger() }
@@ -109,11 +112,16 @@ func Offer(templateID, matchedURL string) {
 	if seenMap == nil {
 		seenMap = loadSeen()
 	}
-	if t, ok := seenMap[normalizeDocURL(raw)]; ok && time.Since(t) < 24*time.Hour {
+	k := normalizeDocURL(raw)
+	if t, ok := seenMap[k]; ok && time.Since(t) < 24*time.Hour {
 		seenMu.Unlock()
 		return // already tested within the dedupe window
 	}
-	seenMap[normalizeDocURL(raw)] = time.Now()
+	if t, ok := failCooldown[k]; ok && time.Since(t) < 30*time.Minute {
+		seenMu.Unlock()
+		return // recent fetch/parse failure — let the cooldown expire
+	}
+	seenMap[k] = time.Now()
 	seenMu.Unlock()
 
 	select {
@@ -196,7 +204,16 @@ func startWorker() {
 	queue = make(chan docJob, queueSize)
 	go func() {
 		for job := range queue {
-			runTests(job)
+			if err := runTests(job); err != nil {
+				// Failed fetch/parse: unmark so a later hit retries (a 24h dedupe
+				// mark on failure would permanently swallow the doc), but cool the
+				// URL down for 30 min so one scan's repeated hits don't hot-loop.
+				seenMu.Lock()
+				delete(seenMap, normalizeDocURL(job.DocURL))
+				failCooldown[normalizeDocURL(job.DocURL)] = time.Now()
+				seenMu.Unlock()
+				log().Infof("[API-TEST] %s: %v (will retry on a later hit)", job.DocURL, err)
+			}
 			persistSeen()
 		}
 	}()
@@ -409,6 +426,113 @@ var bypassMatrix = []bypassHeaders{
 	{"original-url", map[string]string{"X-Original-URL": "/", "X-Rewrite-URL": "/"}},
 }
 
+// ---- spec discovery for HTML doc pages ----
+
+// specScrapeRes pull the machine-readable spec URL out of a rendered docs UI.
+// swagger-ui init: url: "/v2/api-docs" · configUrl: ... · redoc/rapidoc:
+// spec-url="..." · scalar: data-url="..." · plus a generic quoted-path catch.
+var specScrapeRes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\burl\s*[:=]\s*["']([^"'\s]+\.(?:json|ya?ml))["']`),
+	// spec endpoints frequently have no extension (e.g. /v3/api-docs) — accept
+	// url: values that name a spec by keyword
+	regexp.MustCompile(`(?i)\burl\s*[:=]\s*["']([^"'\s]*(?:api-docs|openapi|swagger|spec)[^"'\s]*)["']`),
+	regexp.MustCompile(`(?i)\bspec-url\s*=\s*["']([^"'\s]+)["']`),
+	regexp.MustCompile(`(?i)\bdata-url\s*=\s*["']([^"'\s]+\.(?:json|ya?ml))["']`),
+	regexp.MustCompile(`(?i)\bconfigUrl\s*[:=]\s*["']([^"'\s]+\.(?:json|ya?ml))["']`),
+	regexp.MustCompile(`(?i)["']([^"'\s]*(?:api-docs|openapi|swagger)[^"'\s]*\.(?:json|ya?ml))["']`),
+}
+
+// specProbePaths are the conventional spec locations, tried against the origin
+// and against the doc page's own directory (FastAPI /docs → /openapi.json).
+var specProbePaths = []string{
+	"/v3/api-docs", "/v2/api-docs", "/api-docs", "/swagger.json", "/openapi.json",
+	"/swagger/v1/swagger.json", "/api/swagger.json", "/api/openapi.json",
+	"/api/v3/api-docs", "/api-docs/swagger.json",
+}
+
+// looksLikeSpec does a cheap shape check so probes stop at real specs.
+func looksLikeSpec(body []byte) bool {
+	t := strings.TrimSpace(string(body))
+	if !strings.HasPrefix(t, "{") || len(t) < 16 {
+		return false
+	}
+	return strings.Contains(t, "\"paths\"") ||
+		strings.Contains(t, "\"openapi\"") || strings.Contains(t, "\"swagger\"")
+}
+
+// resolveRef absolutizes a scraped spec reference against the doc page URL.
+func resolveRef(pageURL, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.HasPrefix(ref, "#") {
+		return ""
+	}
+	if strings.HasPrefix(ref, "//") {
+		return "https:" + ref
+	}
+	b, err := url.Parse(pageURL)
+	if err != nil {
+		return ""
+	}
+	r, err := b.Parse(ref)
+	if err != nil {
+		return ""
+	}
+	return r.String()
+}
+
+// findSpecURL locates the JSON/YAML spec behind an HTML docs page: scrape the
+// page's own references first (most reliable), then probe conventional paths.
+func findSpecURL(client *http.Client, ctx context.Context, pageURL string, pageBody []byte) string {
+	for _, re := range specScrapeRes {
+		for _, m := range re.FindAllSubmatch(pageBody, 3) {
+			if u := resolveRef(pageURL, string(m[1])); u != "" && strings.HasPrefix(u, "http") {
+				if err := utils.ValidatePublicHTTPURL(u); err != nil {
+					continue
+				}
+				resp, body, err := send(client, http.MethodGet, u, nil)
+				if err == nil && resp.StatusCode == 200 && looksLikeSpec(body) {
+					return u
+				}
+				time.Sleep(150 * time.Millisecond)
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return ""
+	}
+	origin := ""
+	pageDir := ""
+	if b, err := url.Parse(pageURL); err == nil {
+		origin = b.Scheme + "://" + b.Host
+		pageDir = strings.TrimRight(origin+path.Dir(b.Path), "/")
+	}
+	tried := map[string]bool{}
+	for _, rel := range append([]string{}, specProbePaths...) {
+		for _, base := range []string{origin, pageDir} {
+			if base == "" {
+				continue
+			}
+			u := base + rel
+			if tried[u] {
+				continue
+			}
+			tried[u] = true
+			if err := utils.ValidatePublicHTTPURL(u); err != nil {
+				continue
+			}
+			resp, body, err := send(client, http.MethodGet, u, nil)
+			if err == nil && resp.StatusCode == 200 && looksLikeSpec(body) {
+				return u
+			}
+			time.Sleep(150 * time.Millisecond)
+			if ctx.Err() != nil {
+				return ""
+			}
+		}
+	}
+	return ""
+}
+
 func send(client *http.Client, method, u string, hdr map[string]string) (*http.Response, []byte, error) {
 	var body io.Reader
 	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
@@ -449,10 +573,11 @@ func redact(s string) string {
 	return redactRe.ReplaceAllString(s, "$1[REDACTED]")
 }
 
-func runTests(job docJob) {
+func runTests(job docJob) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log().Errorf("[API-TEST] panic testing %s: %v", job.DocURL, r)
+			retErr = fmt.Errorf("panic: %v", r)
 		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), perDocDeadline)
@@ -462,13 +587,27 @@ func runTests(job docJob) {
 	client := utils.NewPublicHTTPClient(requestTimeout)
 	resp, data, err := send(client, http.MethodGet, job.DocURL, nil)
 	if err != nil || resp.StatusCode != 200 {
-		log().Infof("[API-TEST] doc fetch failed for %s: status=%v err=%v", job.DocURL, statusOf(resp), err)
-		return
+		return fmt.Errorf("doc fetch failed: status=%v err=%v", statusOf(resp), err)
 	}
-	doc, err := parseAPIDoc(data, job.DocURL)
-	if err != nil {
-		log().Infof("[API-TEST] parse failed for %s: %v", job.DocURL, err)
-		return
+	doc, parseErr := parseAPIDoc(data, job.DocURL)
+	if parseErr != nil {
+		// HTML doc page (swagger-ui / redoc / rapidoc / scalar UIs) — find the
+		// machine-readable spec it renders: scrape the page for spec references
+		// first, then probe the conventional spec paths.
+		specURL := findSpecURL(client, ctx, job.DocURL, data)
+		if specURL == "" {
+			return fmt.Errorf("no parseable spec (HTML page, no discoverable spec URL): %v", parseErr)
+		}
+		sresp, sdata, serr := send(client, http.MethodGet, specURL, nil)
+		if serr != nil || sresp.StatusCode != 200 {
+			return fmt.Errorf("discovered spec %s not fetchable: status=%v err=%v", specURL, statusOf(sresp), serr)
+		}
+		doc, parseErr = parseAPIDoc(sdata, specURL)
+		if parseErr != nil {
+			return fmt.Errorf("discovered spec %s unparseable: %v", specURL, parseErr)
+		}
+		job.SpecURL = specURL
+		log().Infof("[API-TEST] %s: using discovered spec %s", job.DocURL, specURL)
 	}
 
 	maxEndpoints := db.GetSettingInt("API_DOCS_MAX_ENDPOINTS", defaultMaxEndpoints)
@@ -559,7 +698,7 @@ func runTests(job docJob) {
 	_ = os.MkdirAll(outDir, 0o755)
 	fname := fmt.Sprintf("%s-%d.json", sanitize(host), time.Now().Unix())
 	artifact := map[string]interface{}{
-		"doc_url": job.DocURL, "template_id": job.TemplateID,
+		"doc_url": job.DocURL, "spec_url": job.SpecURL, "template_id": job.TemplateID,
 		"title": doc.Title, "version": doc.Version, "base_url": doc.BaseURL,
 		"endpoints_in_doc": len(doc.Paths), "tested": len(results),
 		"accessible": accessible, "bypassed": bypassed, "interesting": interesting,
@@ -570,9 +709,10 @@ func runTests(job docJob) {
 
 	if accessible == 0 {
 		log().Infof("[API-TEST] %s: %d endpoints tested, none accessible unauth — artifact only", host, len(results))
-		return
+		return nil
 	}
 	notifyDiscord(host, job, len(doc.Paths), len(results), accessible, bypassed, interesting, results, fname)
+	return nil
 }
 
 func statusOf(r *http.Response) int {

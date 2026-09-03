@@ -112,3 +112,66 @@ func stringsContains(s, sub string) bool {
 		return false
 	})()
 }
+
+func TestFindSpecURLScrape(t *testing.T) {
+	cases := []struct{ name, page, html string }{
+		{"swagger-ui-init", "https://api.example.com/swagger-ui/index.html",
+			`<script>window.onload = () => { const ui = SwaggerUIBundle({ url: "https://api.example.com/v3/api-docs", dom_id: '#swagger-ui' }) }</script>`},
+		{"swagger-ui-relative", "https://api.example.com/docs",
+			`SwaggerUIBundle({ url: "/v2/api-docs", ...`},
+		{"redoc", "https://api.example.com/redoc",
+			`<redoc spec-url="https://api.example.com/openapi.json"></redoc>`},
+		{"rapidoc-relative", "https://api.example.com/api/rapidoc",
+			`<rapi-doc spec-url="./openapi.json" />`},
+		{"scalar", "https://api.example.com/scalar",
+			`<script id="api-reference" data-url="/openapi.json"></script>`},
+	}
+	for _, tc := range cases {
+		got := ""
+		for _, re := range specScrapeRes {
+			if m := re.FindSubmatch([]byte(tc.html)); m != nil {
+				if u := resolveRef(tc.page, string(m[1])); u != "" {
+					got = u
+					break
+				}
+			}
+		}
+		if got == "" {
+			t.Fatalf("%s: no spec ref scraped from %s", tc.name, tc.html)
+		}
+		switch tc.name {
+		case "swagger-ui-init":
+			if got != "https://api.example.com/v3/api-docs" {
+				t.Fatalf("%s: got %q", tc.name, got)
+			}
+		case "swagger-ui-relative":
+			if got != "https://api.example.com/v2/api-docs" {
+				t.Fatalf("%s: got %q", tc.name, got)
+			}
+		case "redoc":
+			if got != "https://api.example.com/openapi.json" {
+				t.Fatalf("%s: got %q", tc.name, got)
+			}
+		case "rapidoc-relative":
+			if got != "https://api.example.com/api/openapi.json" {
+				t.Fatalf("%s: got %q", tc.name, got)
+			}
+		case "scalar":
+			if got != "https://api.example.com/openapi.json" {
+				t.Fatalf("%s: got %q", tc.name, got)
+			}
+		}
+	}
+}
+
+func TestLooksLikeSpec(t *testing.T) {
+	if !looksLikeSpec([]byte(`{"openapi":"3.0.0","paths":{}}`)) {
+		t.Fatal("valid spec shape not detected")
+	}
+	if looksLikeSpec([]byte(`<html><body>Swagger UI</body></html>`)) {
+		t.Fatal("HTML accepted as spec")
+	}
+	if looksLikeSpec([]byte(`{"hello":"world"}`)) {
+		t.Fatal("plain JSON accepted as spec")
+	}
+}
