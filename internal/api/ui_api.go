@@ -976,6 +976,10 @@ func runGlobalNucleiScan(scanID, template string) error {
 	// The SDK invokes result callbacks concurrently from executor goroutines —
 	// the counter must be atomic or hits get lost (wrong "N findings" stats).
 	var matches atomic.Int64
+	// Per-hit webhook budget: bounds channel flooding when a template matches
+	// thousands of times in one scan (set in addition to the info-severity gate).
+	const perScanWebhookBudget = 25
+	var webhookBudget atomic.Int64
 	// Persist whatever the engine already captured, on EVERY exit path. A
 	// timeout or engine error used to skip UpdateScanStats entirely and the
 	// watcher's target label ("nuclei-templates-watch") never matched the
@@ -1024,27 +1028,35 @@ func runGlobalNucleiScan(scanID, template string) error {
 			// Exposed API docs (swagger/openapi/api-docs) get queued for the
 			// unauthenticated endpoint audit (non-blocking; deduped internally).
 			apidocs.Offer(event.TemplateID, matched)
-			msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Matched-At:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
-				event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
-			if event.Host != "" && event.Host != matched {
-				msg += fmt.Sprintf("\n**Target:** `%s`", event.Host)
-			}
-			// Reproduction command straight from the match, trimmed for chat limits.
-			if cc := strings.TrimSpace(event.CURLCommand); cc != "" {
-				if len(cc) > 220 {
-					cc = cc[:220] + "…"
+			// Per-hit webhook: info-severity templates match thousands of times
+			// (loose matchers, 25-path doc probes) — flooding the channel and
+			// hammering Discord into 429s. Info hits are already covered by the
+			// apidocs audit summaries; all other severities cap at 25 messages
+			// per scan (totals come from the scan-finish notification).
+			sev := strings.ToLower(event.Info.SeverityHolder.Severity.String())
+			if sev != "info" && sev != "unknown" && webhookBudget.Add(1) <= perScanWebhookBudget {
+				msg := fmt.Sprintf(" **Global Nuclei Hit!**\n**Template:** `%s` (%s)\n**Matched-At:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
+					event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
+				if event.Host != "" && event.Host != matched {
+					msg += fmt.Sprintf("\n**Target:** `%s`", event.Host)
 				}
-				msg += fmt.Sprintf("\n**curl:** `%s`", cc)
-			}
-			// First reference link (advisory/NVD) so the alert is actionable
-			// without opening the dashboard; the full template is embedded in
-			// the scan's nuclei JSONL output (template-encoded).
-			if event.Info.Reference != nil {
-				if refs := event.Info.Reference.ToSlice(); len(refs) > 0 {
-					msg += fmt.Sprintf("\n**Ref:** %s", refs[0])
+				// Reproduction command straight from the match, trimmed for chat limits.
+				if cc := strings.TrimSpace(event.CURLCommand); cc != "" {
+					if len(cc) > 220 {
+						cc = cc[:220] + "…"
+					}
+					msg += fmt.Sprintf("\n**curl:** `%s`", cc)
 				}
+				// First reference link (advisory/NVD) so the alert is actionable
+				// without opening the dashboard; the full template is embedded in
+				// the scan's nuclei JSONL output (template-encoded).
+				if event.Info.Reference != nil {
+					if refs := event.Info.Reference.ToSlice(); len(refs) > 0 {
+						msg += fmt.Sprintf("\n**Ref:** %s", refs[0])
+					}
+				}
+				utils.SendWebhookLogAsync(msg)
 			}
-			utils.SendWebhookLogAsync(msg)
 			stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 		}
 	}
