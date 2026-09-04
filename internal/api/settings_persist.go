@@ -41,7 +41,7 @@ var persistedEnvKeys = []string{
 	"AUTOAR_SCAN_TIMEOUT", "AUTOAR_PIPELINE_TIMEOUT",
 	// Purpose-routed Discord webhooks — Settings ▸ Notifications. Each falls
 	// back to MONITOR_WEBHOOK_URL when unset.
-	"WEBHOOK_NEW_SCOPES", "WEBHOOK_MONITORING", "WEBHOOK_FINDINGS",
+	"WEBHOOK_SCANS", "WEBHOOK_NEW_SCOPES", "WEBHOOK_MONITORING", "WEBHOOK_FINDINGS",
 }
 
 // subfinderProviderKeys are the subfinder passive-source API keys manageable from

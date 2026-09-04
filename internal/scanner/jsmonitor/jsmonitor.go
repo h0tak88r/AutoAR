@@ -303,7 +303,7 @@ func alertNewFile(domain, jsURL string, size int64, eps, secs int, secSamples []
 	if len(secSamples) > 0 {
 		msg += "\n**Secrets:**\n" + strings.Join(prefixEach("- `", secSamples[:min(5, len(secSamples))], "`"), "\n")
 	}
-	utils.SendWebhookLogAsync(msg)
+	utils.SendMonitorWebhook(msg)
 }
 
 func alertChangedFile(domain, jsURL string, size int64, freshEps, freshSecs []string) {
@@ -318,7 +318,7 @@ func alertChangedFile(domain, jsURL string, size int64, freshEps, freshSecs []st
 	if len(freshEps) > 0 {
 		msg += fmt.Sprintf("\n**New endpoints (%d):**\n", len(freshEps)) + strings.Join(prefixEach("- `", freshEps[:min(10, len(freshEps))], "`"), "\n")
 	}
-	utils.SendWebhookLogAsync(msg)
+	utils.SendMonitorWebhook(msg)
 }
 
 func diffLists(old, cur []string) []string {

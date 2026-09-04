@@ -94,6 +94,7 @@ func apiConfigHandler(c *gin.Context) {
 		// whether one is configured (the raw value carries a Discord/Slack token).
 		"monitor_webhook_set": strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL")) != "",
 		// Purpose-routed webhooks (Settings ▸ Notifications) — set-state only.
+		"webhook_scans_set":      strings.TrimSpace(os.Getenv("WEBHOOK_SCANS")) != "",
 		"webhook_new_scopes_set": strings.TrimSpace(os.Getenv("WEBHOOK_NEW_SCOPES")) != "",
 		"webhook_monitoring_set": strings.TrimSpace(os.Getenv("WEBHOOK_MONITORING")) != "",
 		"webhook_findings_set":   strings.TrimSpace(os.Getenv("WEBHOOK_FINDINGS")) != "",
@@ -199,6 +200,7 @@ type UpdateSettingsBody struct {
 	PipelineTimeoutHours *int `json:"pipeline_timeout_hours,omitempty"`
 	// Purpose-routed Discord webhooks ("" = keep current). Each falls back to
 	// MONITOR_WEBHOOK_URL server-side when unset.
+	WebhookScans     string `json:"webhook_scans"`
 	WebhookNewScopes string `json:"webhook_new_scopes"`
 	WebhookMonitoring string `json:"webhook_monitoring"`
 	WebhookFindings   string `json:"webhook_findings"`
@@ -215,6 +217,9 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 
 	if body.MonitorWebhook != "" {
 		saveEnvSetting("MONITOR_WEBHOOK_URL", strings.TrimSpace(body.MonitorWebhook))
+	}
+	if body.WebhookScans != "" {
+		saveEnvSetting("WEBHOOK_SCANS", strings.TrimSpace(body.WebhookScans))
 	}
 	if body.WebhookNewScopes != "" {
 		saveEnvSetting("WEBHOOK_NEW_SCOPES", strings.TrimSpace(body.WebhookNewScopes))

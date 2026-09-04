@@ -12,9 +12,11 @@ import (
 	"time"
 )
 
-// SendWebhook sends a generic JSON payload to the MONITOR_WEBHOOK_URL if configured.
+// SendWebhook sends a scan-lifecycle/hit message to the scans webhook
+// (WEBHOOK_SCANS, falling back to MONITOR_WEBHOOK_URL) if configured.
+// The raw senders on this path are scan notifications and scan hits.
 func SendWebhook(msg string) {
-	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
+	webhookURL := PurposeWebhookURL("scans")
 	if webhookURL == "" {
 		return
 	}
@@ -129,6 +131,8 @@ const discordContentLimit = 1900
 func PurposeWebhookURL(purpose string) string {
 	var dedicated string
 	switch strings.ToLower(strings.TrimSpace(purpose)) {
+	case "scans":
+		dedicated = os.Getenv("WEBHOOK_SCANS")
 	case "new_scopes", "scope":
 		dedicated = os.Getenv("WEBHOOK_NEW_SCOPES")
 	case "findings":

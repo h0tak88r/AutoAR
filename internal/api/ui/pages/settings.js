@@ -303,7 +303,7 @@
         <div class="settings-section" data-tab="notifications">
           <div class="settings-section-header"> Notifications</div>
           <div class="settings-section-description">
-            Route alerts to separate Discord channels. Each channel falls back to the Monitor Webhook below when unset — set all four to fully split your streams.
+            Route alerts to separate Discord channels: scans &amp; hits, monitoring, new scopes, and AI findings. Each falls back to the Monitor Webhook below when unset.
           </div>
           <div class="settings-section-body">
             <div class="settings-item">
@@ -318,8 +318,18 @@
             </div>
             <div class="settings-item">
               <div class="settings-label">
-                <div class="settings-title">📡 Monitoring Webhook</div>
-                <div class="settings-hint">Platform operations: scan start/finish, template-watch announcements, JS/subdomain monitors, unauth API audits. ${cfg.webhook_monitoring_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">fallback → monitor</span>'}</div>
+                <div class="settings-title">🖥️ Scans &amp; Hits Webhook</div>
+                <div class="settings-hint">Scan start/finish events, live nuclei hits, and unauth API-audit summaries. ${cfg.webhook_scans_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">fallback → monitor</span>'}</div>
+              </div>
+              <div class="settings-control">
+                <input type="text" id="webhook-scans-input" value="" placeholder="${cfg.webhook_scans_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
+                <button class="btn btn-primary" onclick="window.SettingsPage.saveWebhookField('webhook_scans', 'webhook-scans-input', 'Scans &amp; hits webhook')">Save</button>
+              </div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-title">🛰️ Monitoring Webhook</div>
+                <div class="settings-hint">All monitoring purposes: hunter/subdomain/URL/JS monitors, template-watch announcements. ${cfg.webhook_monitoring_set ? '<span class="badge badge-done">configured</span>' : '<span class="badge badge-failed">fallback → monitor</span>'}</div>
               </div>
               <div class="settings-control">
                 <input type="text" id="webhook-monitoring-input" value="" placeholder="${cfg.webhook_monitoring_set ? 'Configured — enter a new URL to replace it' : 'https://discord.com/api/webhooks/...'}" class="form-control premium-input">
