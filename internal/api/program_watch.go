@@ -1,13 +1,16 @@
 package api
 
 import (
+	"crypto/md5"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -199,8 +202,16 @@ func ProgramWatchOnRefresh(programs []ProgramSummary) {
 	if len(capped) > programWatchMaxAlertsCyc {
 		capped = capped[:programWatchMaxAlertsCyc]
 	}
+	alerted := 0
 	for _, p := range capped {
+		if !programWatchGate(p) {
+			continue
+		}
 		sendProgramUpdateDiscord(p)
+		alerted++
+	}
+	if alerted == 0 && len(updates) > 0 {
+		logger.GetLogger().Infof("[PROGRAM-WATCH] %d timestamp update(s) suppressed (no real scope change / closed / empty)", len(updates))
 	}
 	if len(updates) > len(capped) {
 		logger.GetLogger().Infof("[PROGRAM-WATCH] capped %d updates -> %d alerts this cycle", len(updates), len(capped))
@@ -236,8 +247,71 @@ func ProgramWatchCheckProgram(p ProgramSummary) {
 	if !isNewerProgramTime(p.LatestTargetUpdatedAt, watermark) {
 		return
 	}
+	if !programWatchGate(p) {
+		_ = db.SetSetting(programWatchWatermarkKey, p.LatestTargetUpdatedAt)
+		return
+	}
 	sendProgramUpdateDiscord(p)
 	_ = db.SetSetting(programWatchWatermarkKey, p.LatestTargetUpdatedAt)
+}
+
+// programWatchFPKey is the settings key holding per-program scope fingerprints
+// (platform|handle -> md5 of latest_target + scope count). A timestamp bump
+// with an unchanged fingerprint is churn (ended Standoff programs do this
+// constantly) and must not be announced.
+const programWatchFPKey = "PROGRAM_WATCH_FP"
+
+func programWatchFingerprint(p ProgramSummary) string {
+	h := md5.Sum([]byte(p.Platform + "|" + p.Handle + "|" + p.LatestTarget + "|" + strconv.Itoa(p.ScopeTargets)))
+	return hex.EncodeToString(h[:])
+}
+
+// programWatchLoadFPs loads the fingerprint map (empty on any parse error —
+// worst case we re-alert once, same as a fresh install).
+func programWatchLoadFPs() map[string]string {
+	m := map[string]string{}
+	if v, _ := db.GetSetting(programWatchFPKey); v != "" {
+		_ = json.Unmarshal([]byte(v), &m)
+	}
+	return m
+}
+
+func programWatchSaveFPs(m map[string]string) {
+	if len(m) == 0 {
+		return
+	}
+	// Cap so a growing catalog can't balloon the settings row.
+	for k := range m {
+		if len(m) > 20000 {
+			delete(m, k)
+		}
+	}
+	if b, err := json.Marshal(m); err == nil {
+		_ = db.SetSetting(programWatchFPKey, string(b))
+	}
+}
+
+// programWatchGate reports whether a program update is worth announcing.
+// Filters out (a) programs whose submissions are closed/ended, (b) updates
+// with zero substance (no latest target AND no scope entries — the
+// "Latest asset: —" class), and (c) timestamp churn with an unchanged scope
+// fingerprint. Records the fingerprint so the same churn never re-alerts.
+func programWatchGate(p ProgramSummary) bool {
+	if strings.EqualFold(strings.TrimSpace(p.SubmissionState), "closed") {
+		return false
+	}
+	if strings.TrimSpace(p.LatestTarget) == "" && p.ScopeTargets == 0 && len(p.Assets) == 0 {
+		return false
+	}
+	fps := programWatchLoadFPs()
+	k := p.Platform + "|" + p.Handle
+	fp := programWatchFingerprint(p)
+	if prev, seen := fps[k]; seen && prev == fp {
+		return false // nothing actually changed
+	}
+	fps[k] = fp
+	programWatchSaveFPs(fps)
+	return true
 }
 
 func sendProgramIntroDiscord(p ProgramSummary) {
