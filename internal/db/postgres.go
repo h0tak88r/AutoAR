@@ -522,6 +522,18 @@ func (p *PostgresDB) InitSchema() error {
 		UNIQUE(platform, label)
 	);
 
+	-- Dashboard login accounts (multi-user auth: role admin/viewer).
+	CREATE TABLE IF NOT EXISTS users (
+		id            BIGSERIAL PRIMARY KEY,
+		username      TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role          TEXT NOT NULL DEFAULT 'viewer',
+		disabled      BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at    TIMESTAMP DEFAULT NOW(),
+		updated_at    TIMESTAMP DEFAULT NOW(),
+		last_login_at TIMESTAMP
+	);
+
 	-- Bug-bounty program catalog for keyword/domain lookup.
 	CREATE TABLE IF NOT EXISTS bbp_catalog_programs (
 		id            BIGSERIAL PRIMARY KEY,
@@ -2400,6 +2412,88 @@ func (p *PostgresDB) UpdateBBPAccountToken(id int64, token string) error {
 func (p *PostgresDB) DeleteBBPAccount(id int64) error {
 	_, err := p.pool.Exec(p.ctx, `DELETE FROM bbp_accounts WHERE id = $1`, id)
 	return err
+}
+
+// ── Dashboard users ──────────────────────────────────────────────────────────
+
+func scanPgUser(row interface{ Scan(...any) error }) (*User, error) {
+	var u User
+	var last *time.Time
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Disabled, &u.CreatedAt, &u.UpdatedAt, &last); err != nil {
+		return nil, err
+	}
+	u.LastLoginAt = last
+	return &u, nil
+}
+
+func (p *PostgresDB) ListUsers() ([]User, error) {
+	rows, err := p.pool.Query(p.ctx, `SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at FROM users ORDER BY username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		u, err := scanPgUser(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresDB) GetUserByID(id int64) (*User, error) {
+	row := p.pool.QueryRow(p.ctx, `SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at FROM users WHERE id = $1`, id)
+	return scanPgUser(row)
+}
+
+func (p *PostgresDB) GetUserByUsername(username string) (*User, error) {
+	row := p.pool.QueryRow(p.ctx, `SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at FROM users WHERE username = $1`, username)
+	return scanPgUser(row)
+}
+
+func (p *PostgresDB) CreateUser(username, passwordHash, role string) (int64, error) {
+	var id int64
+	err := p.pool.QueryRow(p.ctx, `INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id`, username, passwordHash, role).Scan(&id)
+	return id, err
+}
+
+func (p *PostgresDB) UpdateUserPassword(id int64, passwordHash string) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1`, id, passwordHash)
+	return err
+}
+
+func (p *PostgresDB) UpdateUserRole(id int64, role string) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET role = $2, updated_at = NOW() WHERE id = $1`, id, role)
+	return err
+}
+
+func (p *PostgresDB) SetUserDisabled(id int64, disabled bool) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET disabled = $2, updated_at = NOW() WHERE id = $1`, id, disabled)
+	return err
+}
+
+func (p *PostgresDB) TouchUserLogin(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET last_login_at = NOW() WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresDB) DeleteUser(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM users WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresDB) CountUsers() (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (p *PostgresDB) CountAdmins() (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = FALSE`).Scan(&n)
+	return n, err
 }
 
 // ── Bug-bounty program catalog ───────────────────────────────────────────────

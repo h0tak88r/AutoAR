@@ -82,6 +82,12 @@ func StartAPI() error {
 		// table (one-shot) so the Settings accounts manager is the single source of
 		// truth. Runs after HydrateEnvFromDB so UI-saved values are picked up too.
 		accounts.MigrateEnvAccounts()
+
+		// Seed the initial admin from DASHBOARD_USER/DASHBOARD_PASSWORD when the users
+		// table is empty, so existing single-login deployments migrate to multi-user
+		// auth with the same credentials (now as an admin) and enforcement stays on.
+		// Idempotent; also latches "users exist" for the hot auth path.
+		api.SeedInitialAdmin()
 	}
 
 	// Ensure scans don't remain "running" across restarts (single-instance mode).

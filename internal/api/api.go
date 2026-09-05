@@ -522,11 +522,26 @@ func SetupAPI() *gin.Engine {
 	r.POST("/api/settings", auth, apiUpdateSettingsHandler)
 	r.POST("/api/auth/login", apiLocalAuthLogin)
 	r.POST("/api/auth/logout", auth, apiLocalAuthLogout)
+	// Self-service (any authenticated user, viewers included).
+	r.GET("/api/auth/me", auth, apiAuthMe)
+	r.POST("/api/auth/change-password", auth, apiAuthChangePassword)
 
 	// ── Dashboard data API (protected when DASHBOARD_USER/PASSWORD is set) ───
 	apiGroup := r.Group("/api")
 	apiGroup.Use(auth)
 	{
+		// User management (admin only). Viewer mutations are already rejected by the
+		// auth middleware's read-only check; requireAdmin also hides the list/CRUD
+		// from non-admins.
+		users := apiGroup.Group("/users")
+		users.Use(requireAdmin())
+		{
+			users.GET("", apiListUsers)
+			users.POST("", apiCreateUser)
+			users.PUT("/:id", apiUpdateUser)
+			users.DELETE("/:id", apiDeleteUser)
+		}
+
 		apiGroup.GET("/dashboard/stats", apiDashboardStats)
 		apiGroup.GET("/domains", apiListDomains)
 		apiGroup.POST("/domains", apiAddDomain)           // single add

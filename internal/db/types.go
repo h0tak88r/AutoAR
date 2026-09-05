@@ -226,6 +226,19 @@ type DB interface {
 	UpdateBBPAccountToken(id int64, token string) error
 	DeleteBBPAccount(id int64) error
 
+	// Dashboard users (multi-user auth: roles admin/viewer, shared workspace).
+	ListUsers() ([]User, error)
+	GetUserByID(id int64) (*User, error)
+	GetUserByUsername(username string) (*User, error)
+	CreateUser(username, passwordHash, role string) (int64, error)
+	UpdateUserPassword(id int64, passwordHash string) error
+	UpdateUserRole(id int64, role string) error
+	SetUserDisabled(id int64, disabled bool) error
+	TouchUserLogin(id int64) error
+	DeleteUser(id int64) error
+	CountUsers() (int, error)
+	CountAdmins() (int, error)
+
 	// Bug-bounty program catalog (for keyword/domain program lookup).
 	UpsertCatalogProgram(p CatalogProgram) (int64, error)
 	ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error
@@ -255,6 +268,20 @@ type BBPAccount struct {
 	TOTPSecret string    `json:"totp_secret"` // base32 2FA seed, for auto-reauth (YWH)
 	Enabled    bool      `json:"enabled"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+// User is one dashboard login account. Roles: "admin" (full access, can manage
+// users) or "viewer" (read-only — the auth middleware rejects mutating requests).
+// PasswordHash is a bcrypt hash and is never serialized to API responses.
+type User struct {
+	ID           int64      `json:"id"`
+	Username     string     `json:"username"`
+	PasswordHash string     `json:"-"`
+	Role         string     `json:"role"`
+	Disabled     bool       `json:"disabled"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 }
 
 // CatalogProgram is one bug-bounty program in the lookup catalog.

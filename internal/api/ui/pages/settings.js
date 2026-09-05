@@ -50,6 +50,7 @@
           <button class="settings-tab" data-tab="ai" onclick="window.SettingsPage.settingsTab('ai')">AI Providers</button>
           <button class="settings-tab" data-tab="timeouts" onclick="window.SettingsPage.settingsTab('timeouts')">Scan Timeouts</button>
           <button class="settings-tab" data-tab="notifications" onclick="window.SettingsPage.settingsTab('notifications')">Notifications</button>
+          <button class="settings-tab" data-tab="users" onclick="window.SettingsPage.settingsTab('users')">Users</button>
           <button class="settings-tab" data-tab="status" onclick="window.SettingsPage.settingsTab('status')">System</button>
         </div>
         <div class="settings-section" data-tab="status">
@@ -405,6 +406,30 @@
             ${item('Health Check', window.location.origin + '/health', 'Service status monitor')}
           </div>
         </div>
+
+        <div class="settings-section" data-tab="users">
+          <div class="settings-section-header"> Dashboard Users</div>
+          <div class="settings-section-body">
+            <div id="settings-users-manager">
+              <div style="color:var(--text-secondary);font-size:13px;">Loading users…</div>
+            </div>
+          </div>
+          <div class="settings-section-header"> Change My Password</div>
+          <div class="settings-section-body">
+            <div class="settings-hint" id="settings-me-label" style="margin-bottom:10px;"></div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-title">Current password</div></div>
+              <div class="settings-control"><input type="password" id="chpw-old" class="form-control premium-input" placeholder="Current password"></div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label"><div class="settings-title">New password</div><div class="settings-hint">At least 8 characters</div></div>
+              <div class="settings-control">
+                <input type="password" id="chpw-new" class="form-control premium-input" placeholder="New password">
+                <button class="btn btn-primary" onclick="window.SettingsPage.changeMyPassword()">Update</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>`;
 
     // Restore last-active tab (default: Platforms & Keys — the most-used surface).
@@ -413,6 +438,8 @@
     attachCopyButtons();
     // Populate the multi-account manager (async — fills the placeholder in-place).
     loadSettingsAccounts();
+    // Populate the Users tab (identity + admin-only user manager), async.
+    loadUsersPanel();
   }
 
   // ── Multi-account manager (Platforms & Keys tab) ──────────────────────────
@@ -1115,6 +1142,140 @@
     } catch (e) { window.showToast('error', 'Error', e.message); }
   }
 
+  // ── Dashboard users (multi-user auth) ─────────────────────────────────────
+  // The Users tab: current identity + change-own-password (everyone) and the
+  // admin-only user manager (list / add / role / disable / reset / delete).
+  async function loadUsersPanel() {
+    let me = { username: '', role: '', is_admin: false, auth_enforced: false };
+    try { me = await window.apiFetch('/api/auth/me'); } catch (e) { /* not signed in / no auth */ }
+    window.state._me = me;
+
+    const label = document.getElementById('settings-me-label');
+    if (label) {
+      if (me.username) {
+        const badge = me.role === 'admin' ? 'badge-done' : 'badge-neutral';
+        label.innerHTML = `Signed in as <strong>${escValue(me.username)}</strong> <span class="badge ${badge}">${escValue(me.role || 'user')}</span>`;
+      } else {
+        label.textContent = me.auth_enforced ? '' : 'Authentication is disabled — set DASHBOARD_USER / DASHBOARD_PASSWORD, or add users below to require login.';
+      }
+    }
+
+    const host = document.getElementById('settings-users-manager');
+    if (!host) return;
+    if (!me.is_admin) {
+      host.innerHTML = `<div style="color:var(--text-secondary);font-size:13px;">Only admins can manage users. Ask an administrator to create or change accounts. You can still change your own password below.</div>`;
+      return;
+    }
+    let users = [];
+    try {
+      const data = await window.apiFetch('/api/users');
+      users = data.users || [];
+    } catch (e) {
+      host.innerHTML = `<div style="color:var(--accent-amber);font-size:13px;">Failed to load users: ${escValue(e.message || String(e))}</div>`;
+      return;
+    }
+    window.state._users = users;
+    renderUsersManager(host, users, me);
+  }
+
+  function renderUsersManager(host, users, me) {
+    const rows = (users || []).map((u) => {
+      const isSelf = me && u.username === me.username;
+      const last = u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'never';
+      return `
+        <div class="settings-item">
+          <div class="settings-label">
+            <div class="settings-title">${escValue(u.username)}${isSelf ? ' <span class="badge badge-neutral">you</span>' : ''}${u.disabled ? ' <span class="badge badge-failed">disabled</span>' : ''}</div>
+            <div class="settings-hint">last login: ${escValue(last)}</div>
+          </div>
+          <div class="settings-control" style="flex-wrap:wrap;gap:6px;">
+            <select class="form-control premium-input" onchange="window.SettingsPage.setUserRole(${u.id}, this.value)">
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+              <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>viewer</option>
+            </select>
+            <button class="btn btn-secondary" onclick="window.SettingsPage.toggleUserDisabled(${u.id}, ${u.disabled ? 'false' : 'true'})">${u.disabled ? 'Enable' : 'Disable'}</button>
+            <button class="btn btn-secondary" onclick="window.SettingsPage.resetUserPassword(${u.id}, '${escValue(u.username)}')">Reset password</button>
+            <button class="btn btn-secondary" style="color:#e5484d" onclick="window.SettingsPage.deleteUser(${u.id}, '${escValue(u.username)}')">Delete</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    host.innerHTML = `
+      ${rows || '<div style="color:var(--text-secondary);font-size:13px;">No users yet.</div>'}
+      <div class="settings-item" style="margin-top:10px;border-top:1px solid var(--border);padding-top:12px;">
+        <div class="settings-label"><div class="settings-title">Add user</div><div class="settings-hint">Password must be at least 8 characters</div></div>
+        <div class="settings-control" style="flex-wrap:wrap;gap:6px;">
+          <input id="newuser-name" class="form-control premium-input" placeholder="username">
+          <input id="newuser-pass" type="password" class="form-control premium-input" placeholder="password">
+          <select id="newuser-role" class="form-control premium-input">
+            <option value="viewer">viewer</option>
+            <option value="admin">admin</option>
+          </select>
+          <button class="btn btn-primary" onclick="window.SettingsPage.addUser()">Add</button>
+        </div>
+      </div>`;
+  }
+
+  async function addUser() {
+    const name = ((document.getElementById('newuser-name') || {}).value || '').trim();
+    const pass = (document.getElementById('newuser-pass') || {}).value || '';
+    const role = (document.getElementById('newuser-role') || {}).value || 'viewer';
+    if (!name) { window.showToast('error', 'Missing username', 'Enter a username.'); return; }
+    if (pass.length < 8) { window.showToast('error', 'Weak password', 'Password must be at least 8 characters.'); return; }
+    try {
+      await window.apiPost('/api/users', { username: name, password: pass, role });
+      window.showToast('success', 'User created', `${name} added as ${role}.`);
+      loadUsersPanel();
+    } catch (e) { window.showToast('error', 'Create failed', e.message || String(e)); }
+  }
+
+  async function setUserRole(id, role) {
+    try {
+      await window.apiPut(`/api/users/${id}`, { role });
+      window.showToast('success', 'Role updated', `Set to ${role}.`);
+      loadUsersPanel();
+    } catch (e) { window.showToast('error', 'Update failed', e.message || String(e)); loadUsersPanel(); }
+  }
+
+  async function toggleUserDisabled(id, disabled) {
+    try {
+      await window.apiPut(`/api/users/${id}`, { disabled });
+      window.showToast('success', disabled ? 'User disabled' : 'User enabled', '');
+      loadUsersPanel();
+    } catch (e) { window.showToast('error', 'Update failed', e.message || String(e)); loadUsersPanel(); }
+  }
+
+  async function resetUserPassword(id, name) {
+    const pass = window.prompt(`New password for ${name} (min 8 chars):`);
+    if (pass === null) return;
+    if (pass.length < 8) { window.showToast('error', 'Weak password', 'Password must be at least 8 characters.'); return; }
+    try {
+      await window.apiPut(`/api/users/${id}`, { password: pass });
+      window.showToast('success', 'Password reset', `${name}'s password updated.`);
+    } catch (e) { window.showToast('error', 'Reset failed', e.message || String(e)); }
+  }
+
+  async function deleteUser(id, name) {
+    if (!window.confirm(`Delete user ${name}? This cannot be undone.`)) return;
+    try {
+      await window.apiDelete(`/api/users/${id}`);
+      window.showToast('success', 'User deleted', `${name} removed.`);
+      loadUsersPanel();
+    } catch (e) { window.showToast('error', 'Delete failed', e.message || String(e)); }
+  }
+
+  async function changeMyPassword() {
+    const oldp = (document.getElementById('chpw-old') || {}).value || '';
+    const newp = (document.getElementById('chpw-new') || {}).value || '';
+    if (newp.length < 8) { window.showToast('error', 'Weak password', 'New password must be at least 8 characters.'); return; }
+    try {
+      await window.apiPost('/api/auth/change-password', { old_password: oldp, new_password: newp });
+      window.showToast('success', 'Password changed', 'Use your new password next time you sign in.');
+      const o = document.getElementById('chpw-old'); if (o) o.value = '';
+      const n = document.getElementById('chpw-new'); if (n) n.value = '';
+    } catch (e) { window.showToast('error', 'Change failed', e.message || String(e)); }
+  }
+
   window.SettingsPage = {
     loadConfig,
     renderSettings,
@@ -1152,5 +1313,12 @@
     addSubfinderKey,
     setSubfinderKey,
     SUBFINDER_PROVIDERS,
+    loadUsersPanel,
+    addUser,
+    setUserRole,
+    toggleUserDisabled,
+    resetUserPassword,
+    deleteUser,
+    changeMyPassword,
   };
 })();

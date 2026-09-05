@@ -42,6 +42,24 @@
     return res.json();
   }
 
+  async function apiPut(path, body, customHeaders = {}) {
+    const headers = await buildAuthHeaders({ 'Content-Type': 'application/json', ...customHeaders });
+    const res = await fetch(`${window.API}${path}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401) {
+      handleAuthError();
+      throw new Error('Session expired — sign in again');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
   async function apiDelete(path) {
     const headers = await buildAuthHeaders();
     const res = await fetch(`${window.API}${path}`, { method: 'DELETE', headers });
@@ -61,6 +79,7 @@
     handleAuthError,
     apiFetch,
     apiPost,
+    apiPut,
     apiDelete,
   };
 })();

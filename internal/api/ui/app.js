@@ -88,6 +88,12 @@ async function apiPost(path, body, customHeaders = {}) {
   throw new Error('apiPost unavailable');
 }
 
+async function apiPut(path, body, customHeaders = {}) {
+  const v = callPageMethod('ApiClientPage', 'apiPut', [path, body, customHeaders]);
+  if (v !== undefined) return v;
+  throw new Error('apiPut unavailable');
+}
+
 async function apiDelete(path) {
   const v = callPageMethod('ApiClientPage', 'apiDelete', [path]);
   if (v !== undefined) return v;

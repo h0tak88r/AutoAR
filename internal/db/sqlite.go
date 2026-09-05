@@ -369,6 +369,18 @@ func (s *SQLiteDB) InitSchema() error {
 		UNIQUE(platform, label)
 	);
 
+	-- Dashboard login accounts (multi-user auth: role admin/viewer).
+	CREATE TABLE IF NOT EXISTS users (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		username      TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role          TEXT NOT NULL DEFAULT 'viewer',
+		disabled      INTEGER NOT NULL DEFAULT 0,
+		created_at    TIMESTAMP DEFAULT (datetime('now')),
+		updated_at    TIMESTAMP DEFAULT (datetime('now')),
+		last_login_at TIMESTAMP
+	);
+
 	-- Bug-bounty program catalog for keyword/domain lookup.
 	CREATE TABLE IF NOT EXISTS bbp_catalog_programs (
 		id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2380,6 +2392,98 @@ func (s *SQLiteDB) UpdateBBPAccountToken(id int64, token string) error {
 func (s *SQLiteDB) DeleteBBPAccount(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM bbp_accounts WHERE id = ?`, id)
 	return err
+}
+
+// ── Dashboard users ──────────────────────────────────────────────────────────
+
+func (s *SQLiteDB) scanUser(row interface{ Scan(...any) error }) (*User, error) {
+	var u User
+	var disabled int
+	var last sql.NullTime
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &disabled, &u.CreatedAt, &u.UpdatedAt, &last); err != nil {
+		return nil, err
+	}
+	u.Disabled = disabled != 0
+	if last.Valid {
+		u.LastLoginAt = &last.Time
+	}
+	return &u, nil
+}
+
+func (s *SQLiteDB) ListUsers() ([]User, error) {
+	rows, err := s.db.Query(`SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at FROM users ORDER BY username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		u, err := s.scanUser(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) GetUserByID(id int64) (*User, error) {
+	row := s.db.QueryRow(`SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at FROM users WHERE id = ?`, id)
+	return s.scanUser(row)
+}
+
+func (s *SQLiteDB) GetUserByUsername(username string) (*User, error) {
+	row := s.db.QueryRow(`SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at FROM users WHERE username = ?`, username)
+	return s.scanUser(row)
+}
+
+func (s *SQLiteDB) CreateUser(username, passwordHash, role string) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)`, username, passwordHash, role)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *SQLiteDB) UpdateUserPassword(id int64, passwordHash string) error {
+	_, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`, passwordHash, id)
+	return err
+}
+
+func (s *SQLiteDB) UpdateUserRole(id int64, role string) error {
+	_, err := s.db.Exec(`UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`, role, id)
+	return err
+}
+
+func (s *SQLiteDB) SetUserDisabled(id int64, disabled bool) error {
+	d := 0
+	if disabled {
+		d = 1
+	}
+	_, err := s.db.Exec(`UPDATE users SET disabled = ?, updated_at = datetime('now') WHERE id = ?`, d, id)
+	return err
+}
+
+func (s *SQLiteDB) TouchUserLogin(id int64) error {
+	_, err := s.db.Exec(`UPDATE users SET last_login_at = datetime('now') WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) DeleteUser(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) CountUsers() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (s *SQLiteDB) CountAdmins() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&n)
+	return n, err
 }
 
 // ── Bug-bounty program catalog ───────────────────────────────────────────────

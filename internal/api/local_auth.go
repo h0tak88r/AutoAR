@@ -5,15 +5,18 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/h0tak88r/AutoAR/internal/db"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -29,6 +32,13 @@ var (
 	// (server-side "logout"/logout-all). Zero value = nothing revoked.
 	tokensRevokedBefore   time.Time
 	tokensRevokedBeforeMu sync.RWMutex
+
+	// usersExistLatch is a process-lifetime latch: true once at least one DB user
+	// is known to exist. Set at boot by SeedInitialAdmin and whenever a user is
+	// created, so the hot auth path never queries the DB just to decide whether
+	// multi-user mode is active. It stays false in unit tests (which never seed),
+	// keeping localAuthEnabled / CheckAuthBindSafety free of DB access.
+	usersExistLatch atomic.Bool
 )
 
 // localAuthJWTSecret returns the HS256 signing secret.
@@ -61,20 +71,86 @@ func localAuthJWTSecret() []byte {
 }
 
 // localAuthEnabled returns true when DASHBOARD_USER and DASHBOARD_PASSWORD are set.
+// It is intentionally env-only (no DB access) so it stays safe to call from unit
+// tests and from the pre-DB bind-safety check.
 func localAuthEnabled() bool {
 	user := strings.TrimSpace(os.Getenv("DASHBOARD_USER"))
 	pass := strings.TrimSpace(os.Getenv("DASHBOARD_PASSWORD"))
 	return user != "" && pass != ""
 }
 
+// usersExist reports whether at least one dashboard user row exists. Reads the
+// process-lifetime latch only (no DB round-trip on the hot path).
+func usersExist() bool { return usersExistLatch.Load() }
+
+func markUsersExist() { usersExistLatch.Store(true) }
+
+// authConfigured reports whether any authentication is in effect: either the
+// legacy DASHBOARD_USER/PASSWORD env pair, or one or more DB users.
+func authConfigured() bool { return localAuthEnabled() || usersExist() }
+
+// hashPassword returns a bcrypt hash of a plaintext password.
+func hashPassword(plain string) (string, error) {
+	b, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	return string(b), err
+}
+
+// checkPassword reports whether plain matches a stored bcrypt hash.
+func checkPassword(hash, plain string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
+}
+
+// SeedInitialAdmin makes multi-user auth backward compatible. On boot, if no
+// users exist yet but the legacy DASHBOARD_USER/DASHBOARD_PASSWORD env pair is
+// set, it creates that account as the first admin — so existing single-login
+// deployments keep working with the same credentials, now as an admin who can add
+// more users from Settings ▸ Users. Idempotent: it never touches a non-empty
+// users table. Call AFTER db.EnsureSchema().
+func SeedInitialAdmin() {
+	n, err := db.CountUsers()
+	if err != nil {
+		log.Printf("[users] seed: count failed: %v", err)
+		return
+	}
+	if n == 0 {
+		u := strings.TrimSpace(os.Getenv("DASHBOARD_USER"))
+		p := strings.TrimSpace(os.Getenv("DASHBOARD_PASSWORD"))
+		if u != "" && p != "" {
+			hash, herr := hashPassword(p)
+			if herr != nil {
+				log.Printf("[users] seed: hash failed: %v", herr)
+				return
+			}
+			if _, cerr := db.CreateUser(u, hash, "admin"); cerr != nil {
+				log.Printf("[users] seed: create admin %q failed: %v", u, cerr)
+				return
+			}
+			log.Printf("[users] seeded initial admin %q from DASHBOARD_USER (manage users in Settings ▸ Users)", u)
+			n = 1
+		}
+	}
+	if n > 0 {
+		markUsersExist()
+	}
+}
+
 // issueLocalJWT creates a signed HS256 JWT for the given username (24h expiry).
 func issueLocalJWT(username string) (string, error) {
+	return issueLocalJWTWithRole(username, "")
+}
+
+// issueLocalJWTWithRole is issueLocalJWT plus a "role" claim (admin/viewer). An
+// empty role omits the claim (legacy/no-auth tokens carry no role).
+func issueLocalJWTWithRole(username, role string) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub": username,
 		"iss": localAuthIssuer,
 		"iat": now.Unix(),
 		"exp": now.Add(24 * time.Hour).Unix(),
+	}
+	if role != "" {
+		claims["role"] = role
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return tok.SignedString(localAuthJWTSecret())
@@ -118,6 +194,49 @@ func verifyLocalJWT(raw string) error {
 		}
 	}
 	return nil
+}
+
+// verifyLocalJWTClaims validates a token like verifyLocalJWT and additionally
+// resolves the subject and role for the request context. In DB-users mode the
+// role is read authoritatively from the users table, so a role change or a
+// disable/delete takes effect on the very next request (no wait for the token to
+// expire) and a missing/disabled user is rejected. In legacy env-only mode the
+// subject must equal DASHBOARD_USER and the role is "admin". When no auth is
+// configured the caller uses the passthrough and never invokes this.
+func verifyLocalJWTClaims(raw string) (sub, role string, err error) {
+	secret := localAuthJWTSecret()
+	claims := jwt.MapClaims{}
+	_, err = jwt.ParseWithClaims(raw, claims, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return secret, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(localAuthIssuer))
+	if err != nil {
+		return "", "", err
+	}
+	if iat, e := claims.GetIssuedAt(); e == nil && iat != nil && tokenIssuedBeforeRevocation(iat.Time) {
+		return "", "", fmt.Errorf("token revoked")
+	}
+	sub, _ = claims["sub"].(string)
+	role, _ = claims["role"].(string)
+
+	if usersExist() {
+		u, e := db.GetUserByUsername(sub)
+		if e != nil || u == nil || u.Disabled {
+			return "", "", fmt.Errorf("user not found or disabled")
+		}
+		return u.Username, u.Role, nil // DB role is authoritative
+	}
+	if localAuthEnabled() {
+		if sub != strings.TrimSpace(os.Getenv("DASHBOARD_USER")) {
+			return "", "", fmt.Errorf("subject not authorized")
+		}
+		if role == "" {
+			role = "admin"
+		}
+	}
+	return sub, role, nil
 }
 
 // ── Login brute-force lockout (keyed by client IP) ───────────────────────────
@@ -177,8 +296,16 @@ func loginReset(key string) {
 	loginAttemptsMu.Unlock()
 }
 
-// POST /api/auth/login — accepts { "username": "...", "password": "..." }
-// and returns { "token": "<jwt>", "expires_in": 86400 }.
+// POST /api/auth/login — accepts { "username": "...", "password": "..." } and
+// returns { "token": "<jwt>", "expires_in": 86400, "role": "admin|viewer" }.
+//
+// Resolution order:
+//  1. No auth configured (no users AND no env pair) → issue a token for anyone
+//     (dev / no-op auth), matching the previous single-login behavior.
+//  2. Users exist → authenticate against the DB with bcrypt, honoring the role
+//     and the disabled flag.
+//  3. Legacy fallback (env pair set but no users seeded yet, e.g. a boot-time
+//     seed failure) → constant-time compare against the env pair as an admin.
 func apiLocalAuthLogin(c *gin.Context) {
 	var body struct {
 		Username string `json:"username"`
@@ -188,18 +315,16 @@ func apiLocalAuthLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
 		return
 	}
+	body.Username = strings.TrimSpace(body.Username)
 
-	expectedUser := strings.TrimSpace(os.Getenv("DASHBOARD_USER"))
-	expectedPass := strings.TrimSpace(os.Getenv("DASHBOARD_PASSWORD"))
-
-	if expectedUser == "" || expectedPass == "" {
-		// Auth is disabled; issue a token for anyone (no-op auth).
-		tok, err := issueLocalJWT(body.Username)
+	// (1) Nothing configured → no-op auth (issue a token for anyone).
+	if !authConfigured() {
+		tok, err := issueLocalJWTWithRole(body.Username, "admin")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue token"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"token": tok, "expires_in": 86400})
+		c.JSON(http.StatusOK, gin.H{"token": tok, "expires_in": 86400, "role": "admin"})
 		return
 	}
 
@@ -211,8 +336,29 @@ func apiLocalAuthLogin(c *gin.Context) {
 		return
 	}
 
-	// Constant-time, no short-circuit: both fields are always compared so neither
-	// username validity nor password prefix length leaks via timing.
+	// (2) DB users mode.
+	if usersExist() {
+		u, err := db.GetUserByUsername(body.Username)
+		if err != nil || u == nil || u.Disabled || !checkPassword(u.PasswordHash, body.Password) {
+			loginRecordFailure(ipKey)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+		loginReset(ipKey)
+		_ = db.TouchUserLogin(u.ID)
+		tok, err := issueLocalJWTWithRole(u.Username, u.Role)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue token"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": tok, "expires_in": 86400, "role": u.Role})
+		return
+	}
+
+	// (3) Legacy env-only fallback (no users seeded yet). Constant-time compare of
+	// both fields so neither username validity nor password length leaks via timing.
+	expectedUser := strings.TrimSpace(os.Getenv("DASHBOARD_USER"))
+	expectedPass := strings.TrimSpace(os.Getenv("DASHBOARD_PASSWORD"))
 	userOK := subtle.ConstantTimeCompare([]byte(body.Username), []byte(expectedUser)) == 1
 	passOK := subtle.ConstantTimeCompare([]byte(body.Password), []byte(expectedPass)) == 1
 	if !(userOK && passOK) {
@@ -221,13 +367,12 @@ func apiLocalAuthLogin(c *gin.Context) {
 		return
 	}
 	loginReset(ipKey)
-
-	tok, err := issueLocalJWT(body.Username)
+	tok, err := issueLocalJWTWithRole(body.Username, "admin")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue token"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": tok, "expires_in": 86400})
+	c.JSON(http.StatusOK, gin.H{"token": tok, "expires_in": 86400, "role": "admin"})
 }
 
 // redactTokenInPath replaces the value of a `token=` query parameter with
