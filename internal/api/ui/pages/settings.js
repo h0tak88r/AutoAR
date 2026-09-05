@@ -51,6 +51,7 @@
           <button class="settings-tab" data-tab="timeouts" onclick="window.SettingsPage.settingsTab('timeouts')">Scan Timeouts</button>
           <button class="settings-tab" data-tab="notifications" onclick="window.SettingsPage.settingsTab('notifications')">Notifications</button>
           <button class="settings-tab" data-tab="users" onclick="window.SettingsPage.settingsTab('users')">Users</button>
+          <button class="settings-tab" data-tab="audit" onclick="window.SettingsPage.settingsTab('audit')">Audit</button>
           <button class="settings-tab" data-tab="status" onclick="window.SettingsPage.settingsTab('status')">System</button>
         </div>
         <div class="settings-section" data-tab="status">
@@ -430,6 +431,15 @@
             </div>
           </div>
         </div>
+
+        <div class="settings-section" data-tab="audit">
+          <div class="settings-section-header"> Activity Log</div>
+          <div class="settings-section-body">
+            <div id="settings-audit-log">
+              <div style="color:var(--text-secondary);font-size:13px;">Loading activity…</div>
+            </div>
+          </div>
+        </div>
       </div>`;
 
     // Restore last-active tab (default: Platforms & Keys — the most-used surface).
@@ -440,6 +450,8 @@
     loadSettingsAccounts();
     // Populate the Users tab (identity + admin-only user manager), async.
     loadUsersPanel();
+    // Populate the admin-only Audit activity log, async.
+    loadAuditLog();
   }
 
   // ── Multi-account manager (Platforms & Keys tab) ──────────────────────────
@@ -1276,6 +1288,60 @@
     } catch (e) { window.showToast('error', 'Change failed', e.message || String(e)); }
   }
 
+  // ── Audit activity log (admin only) ───────────────────────────────────────
+  const AUDIT_ACTION_LABELS = {
+    'scan.launch': 'launched scan', 'scan.delete': 'deleted scan', 'scan.bulk_delete': 'bulk-deleted scans',
+    'settings.update': 'updated settings', 'user.create': 'created user', 'user.update': 'updated user',
+    'user.delete': 'deleted user', 'auth.login': 'signed in', 'auth.login_failed': 'failed sign-in', 'auth.logout': 'signed out',
+  };
+
+  async function loadAuditLog() {
+    const host = document.getElementById('settings-audit-log');
+    if (!host) return;
+    // Gate on the identity loaded by loadUsersPanel; fall back to a probe.
+    let me = window.state._me;
+    if (me === undefined || me === null) {
+      try { me = await window.apiFetch('/api/auth/me'); window.state._me = me; } catch (e) { me = null; }
+    }
+    if (!me || !me.is_admin) {
+      host.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;">The activity log is visible to admins only.</div>';
+      return;
+    }
+    let events = [];
+    try {
+      const data = await window.apiFetch('/api/audit?limit=200');
+      events = data.events || [];
+    } catch (e) {
+      host.innerHTML = `<div style="color:var(--accent-amber);font-size:13px;">Failed to load activity: ${escValue(e.message || String(e))}</div>`;
+      return;
+    }
+    if (!events.length) {
+      host.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;">No activity recorded yet.</div>';
+      return;
+    }
+    const rows = events.map((ev) => {
+      const when = ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '';
+      const action = AUDIT_ACTION_LABELS[ev.action] || ev.action;
+      const failed = ev.action === 'auth.login_failed';
+      const detail = [ev.target, ev.detail].filter(Boolean).map(escValue).join(' — ');
+      return `<tr>
+        <td style="font-size:11px;color:var(--text-muted);white-space:nowrap">${escValue(when)}</td>
+        <td style="font-size:12px;font-weight:600">${escValue(ev.actor || '—')}</td>
+        <td style="font-size:12px;${failed ? 'color:var(--accent-red)' : ''}">${escValue(action)}</td>
+        <td style="font-size:12px;color:var(--text-secondary)">${detail || ''}</td>
+        <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted)">${escValue(ev.ip || '')}</td>
+      </tr>`;
+    }).join('');
+    host.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="data-table" style="width:100%">
+          <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th><th>IP</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px">Showing the ${events.length} most recent events.</div>`;
+  }
+
   window.SettingsPage = {
     loadConfig,
     renderSettings,
@@ -1320,5 +1386,6 @@
     resetUserPassword,
     deleteUser,
     changeMyPassword,
+    loadAuditLog,
   };
 })();

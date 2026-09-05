@@ -399,6 +399,7 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 		r2storage.Reload()
 	}
 
+	audit(c, "settings.update", "", "")
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully", "ok": true})
 }
 
@@ -1464,6 +1465,7 @@ func apiDeleteScan(c *gin.Context) {
 		return
 	}
 
+	audit(c, "scan.delete", id, "")
 	c.JSON(http.StatusOK, gin.H{
 		"ok":              true,
 		"scan_id":         id,
@@ -1518,6 +1520,7 @@ func apiBulkDeleteScans(c *gin.Context) {
 		deleted++
 	}
 
+	audit(c, "scan.bulk_delete", "", fmt.Sprintf("%d deleted, %d skipped-active, %d failed", deleted, skippedActive, failed))
 	c.JSON(http.StatusOK, gin.H{
 		"ok":             failed == 0,
 		"deleted":        deleted,
@@ -1555,6 +1558,7 @@ func apiClearAllScans(c *gin.Context) {
 		deleted++
 	}
 
+	audit(c, "scan.bulk_delete", "", fmt.Sprintf("%d deleted, %d skipped-active, %d failed", deleted, skippedActive, failed))
 	c.JSON(http.StatusOK, gin.H{
 		"ok":             failed == 0,
 		"deleted":        deleted,

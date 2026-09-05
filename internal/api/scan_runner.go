@@ -167,6 +167,7 @@ func RunScanInProcessWithCommand(scanID, scanType, target, command string, fn fu
 		// again here would unbalance the semaphore (steal another scan's slot).
 		return
 	}
+	auditActor(dbRecord.CreatedBy, "scan.launch", target, scanType+" ("+scanID+")")
 
 	// Create a cancel context with a configurable maximum duration so that a
 	// hung scanner (e.g. waiting on an unreachable host) doesn't hold a

@@ -382,6 +382,17 @@ func (s *SQLiteDB) InitSchema() error {
 		last_login_at TIMESTAMP
 	);
 
+	-- Admin activity log (who did what).
+	CREATE TABLE IF NOT EXISTS audit_events (
+		id     INTEGER PRIMARY KEY AUTOINCREMENT,
+		ts     TIMESTAMP DEFAULT (datetime('now')),
+		actor  TEXT NOT NULL DEFAULT '',
+		action TEXT NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		detail TEXT NOT NULL DEFAULT '',
+		ip     TEXT NOT NULL DEFAULT ''
+	);
+
 	-- Bug-bounty program catalog for keyword/domain lookup.
 	CREATE TABLE IF NOT EXISTS bbp_catalog_programs (
 		id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2489,6 +2500,50 @@ func (s *SQLiteDB) CountAdmins() (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&n)
 	return n, err
+}
+
+// ── Audit log ────────────────────────────────────────────────────────────────
+
+func (s *SQLiteDB) InsertAuditEvent(e AuditEvent) error {
+	_, err := s.db.Exec(`INSERT INTO audit_events (actor, action, target, detail, ip) VALUES (?, ?, ?, ?, ?)`,
+		e.Actor, e.Action, e.Target, e.Detail, e.IP)
+	return err
+}
+
+func (s *SQLiteDB) ListAuditEvents(limit int, actor, action string) ([]AuditEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	q := `SELECT id, ts, actor, action, target, detail, ip FROM audit_events`
+	var conds []string
+	var args []any
+	if actor != "" {
+		conds = append(conds, "actor = ?")
+		args = append(args, actor)
+	}
+	if action != "" {
+		conds = append(conds, "action = ?")
+		args = append(args, action)
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	q += " ORDER BY id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Actor, &e.Action, &e.Target, &e.Detail, &e.IP); err != nil {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // ── Bug-bounty program catalog ───────────────────────────────────────────────

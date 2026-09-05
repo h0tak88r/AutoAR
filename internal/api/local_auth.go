@@ -296,6 +296,13 @@ func loginReset(key string) {
 	loginAttemptsMu.Unlock()
 }
 
+// auditLogin records a login attempt in the audit log with the attempted username
+// and source IP (the request has no auth context yet, so the generic audit() would
+// mis-attribute it to "system").
+func auditLogin(c *gin.Context, username, action string) {
+	_ = db.InsertAuditEvent(db.AuditEvent{Actor: strings.TrimSpace(username), Action: action, IP: c.ClientIP()})
+}
+
 // POST /api/auth/login — accepts { "username": "...", "password": "..." } and
 // returns { "token": "<jwt>", "expires_in": 86400, "role": "admin|viewer" }.
 //
@@ -340,12 +347,14 @@ func apiLocalAuthLogin(c *gin.Context) {
 	if usersExist() {
 		u, err := db.GetUserByUsername(body.Username)
 		if err != nil || u == nil || u.Disabled || !checkPassword(u.PasswordHash, body.Password) {
+			auditLogin(c, body.Username, "auth.login_failed")
 			loginRecordFailure(ipKey)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
 		}
 		loginReset(ipKey)
 		_ = db.TouchUserLogin(u.ID)
+		auditLogin(c, u.Username, "auth.login")
 		tok, err := issueLocalJWTWithRole(u.Username, u.Role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue token"})
@@ -362,11 +371,13 @@ func apiLocalAuthLogin(c *gin.Context) {
 	userOK := subtle.ConstantTimeCompare([]byte(body.Username), []byte(expectedUser)) == 1
 	passOK := subtle.ConstantTimeCompare([]byte(body.Password), []byte(expectedPass)) == 1
 	if !(userOK && passOK) {
+		auditLogin(c, body.Username, "auth.login_failed")
 		loginRecordFailure(ipKey)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
 	loginReset(ipKey)
+	auditLogin(c, body.Username, "auth.login")
 	tok, err := issueLocalJWTWithRole(body.Username, "admin")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue token"})
@@ -392,6 +403,7 @@ func redactTokenInPath(path string) string {
 
 // POST /api/auth/logout — revokes all tokens issued before now (server-side).
 func apiLocalAuthLogout(c *gin.Context) {
+	audit(c, "auth.logout", "", "revoked all sessions")
 	revokeAllTokens()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

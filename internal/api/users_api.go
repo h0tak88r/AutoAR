@@ -81,6 +81,7 @@ func apiCreateUser(c *gin.Context) {
 		return
 	}
 	markUsersExist()
+	audit(c, "user.create", body.Username, "role="+body.Role)
 	u, _ := db.GetUserByID(id)
 	c.JSON(http.StatusCreated, u)
 }
@@ -150,6 +151,7 @@ func apiUpdateUser(c *gin.Context) {
 			return
 		}
 	}
+	audit(c, "user.update", u.Username, "")
 	nu, _ := db.GetUserByID(id)
 	c.JSON(http.StatusOK, nu)
 }
@@ -177,6 +179,7 @@ func apiDeleteUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not delete user"})
 		return
 	}
+	audit(c, "user.delete", u.Username, "")
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

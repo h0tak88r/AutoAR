@@ -535,6 +535,17 @@ func (p *PostgresDB) InitSchema() error {
 		last_login_at TIMESTAMP
 	);
 
+	-- Admin activity log (who did what).
+	CREATE TABLE IF NOT EXISTS audit_events (
+		id     BIGSERIAL PRIMARY KEY,
+		ts     TIMESTAMP DEFAULT NOW(),
+		actor  TEXT NOT NULL DEFAULT '',
+		action TEXT NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		detail TEXT NOT NULL DEFAULT '',
+		ip     TEXT NOT NULL DEFAULT ''
+	);
+
 	-- Bug-bounty program catalog for keyword/domain lookup.
 	CREATE TABLE IF NOT EXISTS bbp_catalog_programs (
 		id            BIGSERIAL PRIMARY KEY,
@@ -2496,6 +2507,53 @@ func (p *PostgresDB) CountAdmins() (int, error) {
 	var n int
 	err := p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = FALSE`).Scan(&n)
 	return n, err
+}
+
+// ── Audit log ────────────────────────────────────────────────────────────────
+
+func (p *PostgresDB) InsertAuditEvent(e AuditEvent) error {
+	_, err := p.pool.Exec(p.ctx, `INSERT INTO audit_events (actor, action, target, detail, ip) VALUES ($1, $2, $3, $4, $5)`,
+		e.Actor, e.Action, e.Target, e.Detail, e.IP)
+	return err
+}
+
+func (p *PostgresDB) ListAuditEvents(limit int, actor, action string) ([]AuditEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	q := `SELECT id, ts, actor, action, target, detail, ip FROM audit_events`
+	var conds []string
+	var args []any
+	i := 1
+	if actor != "" {
+		conds = append(conds, fmt.Sprintf("actor = $%d", i))
+		args = append(args, actor)
+		i++
+	}
+	if action != "" {
+		conds = append(conds, fmt.Sprintf("action = $%d", i))
+		args = append(args, action)
+		i++
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	q += fmt.Sprintf(" ORDER BY id DESC LIMIT $%d", i)
+	args = append(args, limit)
+	rows, err := p.pool.Query(p.ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Actor, &e.Action, &e.Target, &e.Detail, &e.IP); err != nil {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // ── Bug-bounty program catalog ───────────────────────────────────────────────

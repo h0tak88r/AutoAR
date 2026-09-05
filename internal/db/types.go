@@ -239,6 +239,10 @@ type DB interface {
 	CountUsers() (int, error)
 	CountAdmins() (int, error)
 
+	// Audit log (who did what — admin-visible activity trail).
+	InsertAuditEvent(e AuditEvent) error
+	ListAuditEvents(limit int, actor, action string) ([]AuditEvent, error)
+
 	// Bug-bounty program catalog (for keyword/domain program lookup).
 	UpsertCatalogProgram(p CatalogProgram) (int64, error)
 	ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error
@@ -282,6 +286,19 @@ type User struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
+}
+
+// AuditEvent is one entry in the admin activity log: who (Actor) did what
+// (Action, e.g. "scan.launch", "user.delete", "settings.update") to what
+// (Target), with optional Detail and the source IP.
+type AuditEvent struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Actor     string    `json:"actor"`
+	Action    string    `json:"action"`
+	Target    string    `json:"target,omitempty"`
+	Detail    string    `json:"detail,omitempty"`
+	IP        string    `json:"ip,omitempty"`
 }
 
 // CatalogProgram is one bug-bounty program in the lookup catalog.

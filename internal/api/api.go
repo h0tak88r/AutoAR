@@ -542,6 +542,9 @@ func SetupAPI() *gin.Engine {
 			users.DELETE("/:id", apiDeleteUser)
 		}
 
+		// Admin activity log (who did what).
+		apiGroup.GET("/audit", requireAdmin(), apiListAudit)
+
 		apiGroup.GET("/dashboard/stats", apiDashboardStats)
 		apiGroup.GET("/domains", apiListDomains)
 		apiGroup.POST("/domains", apiAddDomain)           // single add
