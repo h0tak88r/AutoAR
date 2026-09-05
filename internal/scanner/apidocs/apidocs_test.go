@@ -175,3 +175,32 @@ func TestLooksLikeSpec(t *testing.T) {
 		t.Fatal("plain JSON accepted as spec")
 	}
 }
+
+// TestRegistrableSuffix guards the off-target skip: an upstream/default spec host
+// (petstore.swagger.io) or an internal IP must resolve to a different registrable
+// suffix than the target, while same-org sibling subdomains must match.
+func TestRegistrableSuffix(t *testing.T) {
+	cases := map[string]string{
+		"petstore.swagger.io": "swagger.io",
+		"auth-us3.zepp.com":   "zepp.com",
+		"open-vsx.org":        "open-vsx.org",
+		"windsurf.com":        "windsurf.com",
+		"a.b.c.example.com":   "example.com",
+		"169.254.169.254":     "169.254",
+		"localhost":           "localhost",
+	}
+	for in, want := range cases {
+		if got := registrableSuffix(in); got != want {
+			t.Errorf("registrableSuffix(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if registrableSuffix("petstore.swagger.io") == registrableSuffix("auth-us3.zepp.com") {
+		t.Error("petstore must read as off-target vs zepp")
+	}
+	if registrableSuffix("open-vsx.org") == registrableSuffix("marketplace.windsurf.com") {
+		t.Error("open-vsx must read as off-target vs windsurf")
+	}
+	if registrableSuffix("api.windsurf.com") != registrableSuffix("marketplace.windsurf.com") {
+		t.Error("same-org subdomains must match (api vs marketplace .windsurf.com)")
+	}
+}

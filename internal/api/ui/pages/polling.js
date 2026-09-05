@@ -5,25 +5,33 @@
       clearTimeout(state.pollTimer);
       state.pollTimer = null;
     }
+    // Generation token: a later startPolling() supersedes any in-flight tick. A tick
+    // that was already awaiting when we (re)started must not reschedule, or two
+    // overlapping timer chains accumulate and hammer the API.
+    const myGen = (state.pollGen = (state.pollGen || 0) + 1);
+    // active_scans records are db.ScanRecord — the string id is `scan_id` (the DB
+    // integer `id` never matches state.scanDetailId, which is the scan_id string).
+    const isDetailScanActive = () =>
+      (state.scans?.active_scans || [])
+        .map((s) => String(s.scan_id || s.ScanID || ''))
+        .includes(String(state.scanDetailId));
     const tick = async () => {
+      if (myGen !== state.pollGen) return;
       try {
         await window.loadStats();
         await window.loadScans();
         if (state.view === 'monitor') await window.loadMonitor();
 
-        if (state.view === 'scan-detail' && state.scanDetailId) {
-          const activeIds = (state.scans?.active_scans || []).map((s) => String(s.id || s.Id || ''));
-          if (activeIds.includes(String(state.scanDetailId))) window.refreshScanDetailIfRunning(state.scanDetailId);
+        if (state.view === 'scan-detail' && state.scanDetailId && isDetailScanActive()) {
+          window.refreshScanDetailIfRunning(state.scanDetailId);
         }
       } catch (e) { /* ignore */ }
 
+      if (myGen !== state.pollGen) return; // superseded while awaiting — stop this chain
+
       const n = state.stats?.active_scans ?? 0;
       const onScans = state.view === 'scans';
-      let isViewingActiveScan = false;
-      if (state.view === 'scan-detail' && state.scanDetailId) {
-        const activeIds = (state.scans?.active_scans || []).map((s) => String(s.id || s.Id || ''));
-        if (activeIds.includes(String(state.scanDetailId))) isViewingActiveScan = true;
-      }
+      const isViewingActiveScan = state.view === 'scan-detail' && state.scanDetailId && isDetailScanActive();
 
       let ms = window.POLL_INTERVAL;
       if ((onScans || isViewingActiveScan) && n > 0) ms = window.POLL_FAST_SCANS;

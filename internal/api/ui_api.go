@@ -1415,8 +1415,11 @@ func performScanDelete(scanID string) (int, error) {
 		mergeWorkflowTargetR2TreeIntoKeySet(scanID, scan, keySet)
 	}
 	keys := r2KeySetToSlice(keySet)
+	// Best-effort R2 cleanup: a transient R2 error must NOT abort the delete and
+	// strand the DB row + local dir (which makes the scan reappear with dangling
+	// state and remain undeletable). Log and proceed to the authoritative deletes.
 	if err := r2storage.DeleteObjects(keys); err != nil {
-		return 0, err
+		log.Printf("[WARN] R2 cleanup for scan %s incomplete (continuing with DB/local delete): %v", scanID, err)
 	}
 	if err := db.DeleteScan(scanID); err != nil {
 		return 0, err

@@ -848,6 +848,10 @@ func DeleteObjects(keys []string) error {
 		}
 		uniq[k] = struct{}{}
 	}
+	// Best-effort: attempt every key even if one fails, so a single transient error
+	// doesn't leave the rest of a scan's objects orphaned. Return the first real
+	// error (for the caller to log) once all keys have been attempted.
+	var firstErr error
 	for k := range uniq {
 		_, err := client.DeleteObject(r2ctxBg(), &s3.DeleteObjectInput{
 			Bucket: aws.String(cfg.BucketName),
@@ -858,10 +862,13 @@ func DeleteObjects(keys []string) error {
 			if strings.Contains(low, "nosuchkey") || strings.Contains(low, "notfound") || strings.Contains(low, "404") {
 				continue
 			}
-			return fmt.Errorf("delete object %s: %w", k, err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("delete object %s: %w", k, err)
+			}
+			continue
 		}
 	}
-	return nil
+	return firstErr
 }
 
 // ZipAndUploadDirectory creates a zip file of the directory and uploads it to R2

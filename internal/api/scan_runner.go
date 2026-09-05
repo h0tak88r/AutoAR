@@ -280,6 +280,19 @@ func RunScanInProcessWithCommand(scanID, scanType, target, command string, fn fu
 		log.Printf("[runner] scan %s (%s) failed: %v", scanID, scanType, err)
 	}
 
+	// Reconcile the in-memory entry's Status with the terminal outcome NOW. When fn
+	// is still winding down (fnDone=false) the entry is intentionally kept below for
+	// the cooperative-stop signal, but it must no longer look "running" — otherwise
+	// ScanIsActiveInMemory reports a timed_out/cancelled/failed scan as active and
+	// every delete endpoint refuses it ("scan is still active; stop it first") until
+	// fn finally exits, up to another full budget (24h/72h). Leave CancelRequested
+	// untouched: IsScanCancelled relies on it, not Status.
+	ScansMutex.Lock()
+	if si := ActiveScans[scanID]; si != nil {
+		si.Status = status
+	}
+	ScansMutex.Unlock()
+
 	// Do NOT discard this error. It is the only write that moves a scan out of
 	// "running", so a silent failure strands the row as permanently active — the
 	// worker is gone but the dashboard still shows it running, and "wait for all

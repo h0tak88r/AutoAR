@@ -127,7 +127,13 @@ func Offer(templateID, matchedURL string) {
 	select {
 	case queue <- docJob{TemplateID: templateID, DocURL: raw}:
 	default:
-		log().Infof("[API-TEST] queue full, dropping %s", raw)
+		// Queue full: revert the seen mark so a later hit re-offers this doc instead
+		// of it being suppressed for the whole 24h dedupe window. (Marking seen
+		// before enqueue still prevents a concurrent double-enqueue of the same URL.)
+		seenMu.Lock()
+		delete(seenMap, k)
+		seenMu.Unlock()
+		log().Infof("[API-TEST] queue full, dropping %s (will retry on a later hit)", raw)
 	}
 }
 
@@ -186,6 +192,15 @@ func loadSeen() map[string]time.Time {
 func persistSeen() {
 	seenMu.Lock()
 	defer seenMu.Unlock()
+	// Prune expired failure cooldowns under the same lock so failCooldown can't grow
+	// unbounded over the process lifetime (an entry older than the 30m cooldown is
+	// already inert; see the failCooldown check in Offer).
+	cdCut := time.Now().Add(-30 * time.Minute)
+	for k, t := range failCooldown {
+		if t.Before(cdCut) {
+			delete(failCooldown, k)
+		}
+	}
 	if len(seenMap) == 0 {
 		return
 	}
@@ -635,10 +650,33 @@ func runTests(job docJob) (retErr error) {
 		host = u.Host
 	}
 
+	// Off-target guard: when the resolved base host is a different registrable
+	// domain than where the doc was found, the spec is an upstream/default (e.g.
+	// swagger-ui's petstore.swagger.io, an open-vsx.org mirror) or points at an
+	// internal host — probing it neither tests the target nor can be attributed to
+	// it, and produced the bulk of false-positive "unauth access" alerts. Skip it.
+	docHost := host
+	if u, err := url.Parse(job.DocURL); err == nil {
+		docHost = u.Hostname()
+	}
+	if bu, err := url.Parse(doc.BaseURL); err == nil {
+		if bh := bu.Hostname(); registrableSuffix(bh) != registrableSuffix(docHost) {
+			log().Infof("[API-TEST] %s: spec base %s is off-target (≠ %s) — skipping (upstream/default spec or internal host)", job.DocURL, doc.BaseURL, docHost)
+			return nil
+		}
+	}
+
 	// soft-404 canary: a random nonexistent path; endpoints whose status+length
-	// match it are discounted (catch-all routes / SPA fallbacks).
-	_, canaryBody, _ := send(client, http.MethodGet, doc.BaseURL+"/api-probe-canary-"+fmt.Sprintf("%d", time.Now().UnixNano()%1e6), nil)
-	canaryLen := len(canaryBody)
+	// match it are discounted (catch-all routes / SPA fallbacks). Validate the URL
+	// like every other probe — doc.BaseURL comes from the untrusted spec, so an
+	// internal/metadata host must never be fetched here (SSRF).
+	canaryLen := 0
+	canaryURL := doc.BaseURL + "/api-probe-canary-" + fmt.Sprintf("%d", time.Now().UnixNano()%1e6)
+	if err := utils.ValidatePublicHTTPURL(canaryURL); err == nil {
+		if _, canaryBody, cerr := send(client, http.MethodGet, canaryURL, nil); cerr == nil {
+			canaryLen = len(canaryBody)
+		}
+	}
 
 	results := make([]endpointResult, 0, len(paths))
 	accessible, bypassed, interesting := 0, 0, 0
@@ -689,9 +727,14 @@ func runTests(job docJob) (retErr error) {
 			}
 		}
 
-		soft404 := r.StatusCode == 200 && canaryLen > 0 && len(data) == canaryLen
+		// Compare the ENDPOINT response body (rdata), NOT the swagger doc body
+		// (data, fetched once above and constant across the loop): using `data` here
+		// meant soft-404 was never detected and every 2xx counted as accessible,
+		// flooding the operator with false "unauth access" alerts on SPA/catch-all
+		// hosts whose every path returns the same index.html.
+		soft404 := r.StatusCode == 200 && canaryLen > 0 && len(rdata) == canaryLen
 		if (r.StatusCode >= 200 && r.StatusCode < 300 && !soft404) || res.Bypassed {
-			if len(data) > 0 {
+			if len(rdata) > 0 {
 				accessible++
 			}
 			if res.Interesting {
@@ -741,6 +784,22 @@ func sanitize(s string) string {
 	s = strings.ToLower(s)
 	s = regexp.MustCompile(`[^a-z0-9.-]+`).ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
+}
+
+// registrableSuffix returns the last two dot-labels of a host — a naive eTLD+1
+// good enough to tell an upstream/default spec host (petstore.swagger.io →
+// swagger.io, open-vsx.org) from the target (auth.zepp.com → zepp.com) and to
+// reject internal hosts/IPs. Not a public-suffix-accurate parse; it only needs to
+// separate clearly-different registrable domains, and is biased toward skipping on
+// doubt (a false skip costs one untested doc; a false match costs a mis-attributed
+// alert).
+func registrableSuffix(host string) string {
+	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "."))
+	labels := strings.Split(host, ".")
+	if len(labels) <= 2 {
+		return host
+	}
+	return strings.Join(labels[len(labels)-2:], ".")
 }
 
 func notifyDiscord(host string, job docJob, total, tested, accessible, bypassed, interesting int, results []endpointResult, fname string) {
