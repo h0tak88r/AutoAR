@@ -255,6 +255,11 @@
   function renderScans() {
     const container = document.getElementById('scans-container');
     if (!container) return;
+    // Load the current user once so the "My scans" filter option can appear.
+    if (window.state._me === undefined) {
+      window.state._me = null; // guard against duplicate in-flight fetches
+      window.apiFetch('/api/auth/me').then((me) => { window.state._me = me; if (window.state.view === 'scans') renderScans(); }).catch(() => {});
+    }
     const scanErr = window.state.error.scans;
     const { active_scans = [], recent_scans = [] } = window.state.scans;
     const sUI = window.state.scanListUI;
@@ -271,8 +276,15 @@
       const matchesType = sUI.typeFilter === 'all' || type === tf || type.startsWith(`${tf}-`) || type.startsWith(`${tf}_`);
       let matchesStatus = sUI.statusFilter === 'all' || status === sUI.statusFilter.toLowerCase();
       if (sUI.statusFilter === 'stopped' && (status === 'cancelled' || status === 'stopped' || status === 'timed_out')) matchesStatus = true;
-      return matchesSearch && matchesType && matchesStatus;
+      const by = (s.created_by || s.CreatedBy || '').toLowerCase();
+      const uf = sUI.userFilter || 'all';
+      let matchesUser = true;
+      if (uf === '__mine__') matchesUser = by === ((window.state._me && window.state._me.username) || '').toLowerCase();
+      else if (uf !== 'all') matchesUser = by === uf.toLowerCase();
+      return matchesSearch && matchesType && matchesStatus && matchesUser;
     };
+    const scanUsers = [...new Set([...active_scans, ...recent_scans].map((s) => s.created_by || s.CreatedBy || '').filter(Boolean))].sort();
+    const myName = window.state._me && window.state._me.username;
     const filteredActive = active_scans.filter(filterFn);
     const filteredRecent = recent_scans.filter(filterFn);
     let html = '';
@@ -378,6 +390,11 @@
         <option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option>
         <option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option>
       </select>
+      <select id="scan-user-filter" class="input scans-toolbar-select" title="Filter by who initiated the scan">
+        <option value="all" ${(sUI.userFilter || 'all') === 'all' ? 'selected' : ''}>All Users</option>
+        ${myName ? `<option value="__mine__" ${sUI.userFilter === '__mine__' ? 'selected' : ''}>My scans</option>` : ''}
+        ${scanUsers.length ? `<optgroup label="By user">${scanUsers.map((u) => `<option value="${window.esc(u)}" ${sUI.userFilter === u ? 'selected' : ''}>${window.esc(u)}</option>`).join('')}</optgroup>` : ''}
+      </select>
     </div>`;
     if (filteredActive.length) {
       html += `<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title"> Active Scans <span class="badge badge-running">${filteredActive.length}</span></div></div><div class="card-body">${filteredActive.map((s) => scanItemHtml(s)).join('')}</div></div>`;
@@ -399,6 +416,8 @@
     if (typeSel) typeSel.onchange = (e) => { window.state.scanListUI.typeFilter = e.target.value; renderScans(); };
     const statusSel = container.querySelector('#scan-status-filter');
     if (statusSel) statusSel.onchange = (e) => { window.state.scanListUI.statusFilter = e.target.value; renderScans(); };
+    const userSel = container.querySelector('#scan-user-filter');
+    if (userSel) userSel.onchange = (e) => { window.state.scanListUI.userFilter = e.target.value; renderScans(); };
     const launchBtn = container.querySelector('#launch-btn');
     const launchType = container.querySelector('#launch-type');
     const launchTargetMode = container.querySelector('#launch-target-mode');
