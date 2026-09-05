@@ -53,6 +53,10 @@ var (
 	failCooldown = map[string]time.Time{}
 	defaultRe    = regexp.MustCompile(defaultTriggerRe)
 	interestRe   = regexp.MustCompile(`(?i)(admin|user|account|token|key|secret|config|internal|debug|private|customer|employee|export|dump|backup|password|credential|session|auth)`)
+	// benignPathRe matches public-by-design endpoints (liveness/health, feature
+	// flags, spec docs, no-op logout). A 2xx here is not "unauth access" and must
+	// not inflate the accessible count or fire an alert — unless an auth-bypass hit.
+	benignPathRe = regexp.MustCompile(`(?i)(^|/)(health(z|check)?|livez|readyz|ping|status|statusz|monitoring|heartbeat|version|metrics|actuator(/health)?|system-features|login/status|webapp/access-mode|logout|api-?docs?|openapi|swagger)(/|\.|$)`)
 	// mask obvious credentials before anything reaches Discord
 	redactRe = regexp.MustCompile(`(?i)((?:bearer|api[_-]?key|token|secret|password|authorization)"?\s*[:=]\s*"?)[A-Za-z0-9._\-+/=]{8,}`)
 	uuidRe   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -442,6 +446,7 @@ type endpointResult struct {
 	Bypassed    bool   `json:"bypassed,omitempty"`
 	BypassVia   string `json:"bypass_via,omitempty"`
 	Interesting bool   `json:"interesting,omitempty"`
+	Benign      bool   `json:"benign,omitempty"` // public-by-design path (health/logout/spec) — excluded from accessible
 	Sample      string `json:"sample,omitempty"`
 }
 
@@ -733,11 +738,15 @@ func runTests(job docJob) (retErr error) {
 		// flooding the operator with false "unauth access" alerts on SPA/catch-all
 		// hosts whose every path returns the same index.html.
 		soft404 := r.StatusCode == 200 && canaryLen > 0 && len(rdata) == canaryLen
+		// A 2xx on a public-by-design path (health/liveness/logout/spec) is not real
+		// unauth access — mark it benign and keep it out of the counts, unless an
+		// auth-bypass actually succeeded on it.
+		res.Benign = benignPathRe.MatchString(pm.Path) && !res.Bypassed
 		if (r.StatusCode >= 200 && r.StatusCode < 300 && !soft404) || res.Bypassed {
-			if len(rdata) > 0 {
+			if len(rdata) > 0 && !res.Benign {
 				accessible++
 			}
-			if res.Interesting {
+			if res.Interesting && !res.Benign {
 				interesting++
 			}
 			if res.Bypassed {
@@ -769,8 +778,41 @@ func runTests(job docJob) (retErr error) {
 		log().Infof("[API-TEST] %s: %d endpoints tested, none accessible unauth — artifact only", host, len(results))
 		return nil
 	}
+	// Public-by-design hosts (open-data / statistics portals) expose their data
+	// unauthenticated on purpose — keep the artifact for audit but don't alert,
+	// unless an actual auth-bypass succeeded.
+	if bypassed == 0 && isBenignHost(host) {
+		log().Infof("[API-TEST] %s: %d accessible but host is public-by-design (open-data) — artifact only", host, accessible)
+		return nil
+	}
 	notifyDiscord(host, job, len(doc.Paths), len(results), accessible, bypassed, interesting, results, fname)
 	return nil
+}
+
+// benignHostSubstrings marks hosts as public-by-design (open-data / stats
+// portals). Tunable via the API_DOCS_BENIGN_HOSTS setting (comma-separated
+// substrings); defaults cover common open-data naming.
+func benignHostSubstrings() []string {
+	if v, _ := db.GetSetting("API_DOCS_BENIGN_HOSTS"); strings.TrimSpace(v) != "" {
+		var out []string
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.ToLower(strings.TrimSpace(p)); p != "" {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	return []string{"opendata", "open-data", "datapublicatie", "data.gov"}
+}
+
+func isBenignHost(host string) bool {
+	h := strings.ToLower(host)
+	for _, s := range benignHostSubstrings() {
+		if strings.Contains(h, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func statusOf(r *http.Response) int {

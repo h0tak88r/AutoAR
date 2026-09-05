@@ -204,3 +204,24 @@ func TestRegistrableSuffix(t *testing.T) {
 		t.Error("same-org subdomains must match (api vs marketplace .windsurf.com)")
 	}
 }
+
+// TestBenignPathRe verifies the public-by-design path suppression (health/liveness/
+// logout/spec) that keeps false-positive "unauth access" alerts from firing.
+func TestBenignPathRe(t *testing.T) {
+	benign := []string{
+		"/health", "/healthz", "/healthcheck", "/api/v1/Heartbeat/statusdb", "/monitoring",
+		"/status", "/version", "/metrics", "/actuator/health", "/system-features",
+		"/login/status", "/webapp/access-mode", "/logout", "/openapi.json", "/v3/api-docs",
+	}
+	for _, p := range benign {
+		if !benignPathRe.MatchString(p) {
+			t.Errorf("expected %q to match benignPathRe", p)
+		}
+	}
+	sensitive := []string{"/api/v1/users", "/admin/config", "/account/export", "/orders/1", "/customers"}
+	for _, p := range sensitive {
+		if benignPathRe.MatchString(p) {
+			t.Errorf("expected %q to NOT be treated as benign", p)
+		}
+	}
+}
