@@ -831,7 +831,8 @@ func apiRunGlobalNuclei(c *gin.Context) {
 	// Unique scan ID: second-resolution timestamps collide when two runs start in
 	// the same second (duplicate CreateScan insert → the second run silently aborts
 	// after the client was told "started", and both would share one template file).
-	scanID := fmt.Sprintf("scan-%s-%s", time.Now().Format("20060102150405"), generateScanID()[:8])
+	scanID := fmt.Sprintf("scan-%s-%s", time.Now().Format("20060102150405"), generateScanID(nil)[:8])
+	recordScanInitiator(scanID, currentUsername(c)) // derived id — record the real one
 	target := "global-subdomains"
 
 	// Raw YAML templates are written to a durable per-scan file (instead of a
@@ -1641,7 +1642,7 @@ func apiRescan(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "this nuclei scan predates template tracking — re-run the template from the Scans page instead"})
 			return
 		}
-		newScanID, ok := runInProcessRescan(record.ScanType, record.Target, record.Command)
+		newScanID, ok := runInProcessRescan(record.ScanType, record.Target, record.Command, currentUsername(c))
 		if !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "in-process scan type " + record.ScanType + " does not support rescan yet"})
 			return
@@ -1670,7 +1671,7 @@ func apiRescan(c *gin.Context) {
 	// Replace the binary path with the current binary to handle path changes.
 	parts[0] = utils.GetAutoarScriptPath()
 
-	newScanID := generateScanID()
+	newScanID := generateScanID(c)
 	go executeScan(newScanID, parts, record.ScanType)
 
 	log.Printf("[rescan] Re-running scan for %s (original: %s) → new scan ID: %s", record.Target, id, newScanID)

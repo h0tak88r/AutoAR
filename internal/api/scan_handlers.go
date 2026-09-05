@@ -95,7 +95,7 @@ func scanSubdomains(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "subdomains", domain, func() error {
 		_, err := subdomainsmod.EnumerateSubdomains(domain, 0)
 		return err
@@ -115,7 +115,7 @@ func scanDomainRun(c *gin.Context) {
 	}
 	domain := *req.Domain
 	skipFFuf := req.SkipFFuf != nil && *req.SkipFFuf
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "domain_run", domain, func() error {
 		_, err := domainmod.RunDomain(domainmod.ScanOptions{Domain: domain, SkipFFuf: skipFFuf})
 		return err
@@ -135,7 +135,7 @@ func scanSubdomainRun(c *gin.Context) {
 	}
 	sub := *req.Subdomain
 	skipFFuf := req.SkipFFuf != nil && *req.SkipFFuf
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "subdomain_run", sub, func() error {
 		_, err := subdomainmod.RunSubdomainWithOptions(sub, subdomainmod.RunOptions{SkipFFuf: skipFFuf})
 		return err
@@ -154,7 +154,7 @@ func scanLivehosts(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "livehosts", domain, func() error {
 		_, err := livehostsmod.FilterLiveHosts(domain, 0, false)
 		return err
@@ -173,7 +173,7 @@ func scanCnames(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "cnames", domain, func() error {
 		_, err := cnamesmod.CollectCNAMEs(domain)
 		return err
@@ -193,7 +193,7 @@ func scanURLs(c *gin.Context) {
 	}
 	domain := *req.Domain
 	skipEnum := req.SkipSubdomainEnum != nil && *req.SkipSubdomainEnum
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "urls", domain, func() error {
 		_, err := urlsmod.CollectURLs(domain, 0, skipEnum)
 		return err
@@ -216,7 +216,7 @@ func scanJS(c *gin.Context) {
 	if req.Subdomain != nil {
 		sub = *req.Subdomain
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "js", domain, func() error {
 		_, err := jsscanmod.Run(jsscanmod.Options{Domain: domain, Subdomain: sub})
 		return err
@@ -235,7 +235,7 @@ func scanReflection(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "reflection", domain, func() error {
 		_, err := reflectionmod.ScanReflection(domain)
 		return err
@@ -276,7 +276,7 @@ func scanNuclei(c *gin.Context) {
 		target = *req.URL
 		opts.URL = target
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, fmt.Sprintf("nuclei-%s", mode), target, func() error {
 		_, err := nucleimod.RunNuclei(opts)
 		return err
@@ -295,7 +295,7 @@ func scanRecon(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "recon", domain, func() error {
 		_, err := reconmod.RunFullRecon(domain, 0)
 		return err
@@ -314,7 +314,7 @@ func scanTech(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "tech", domain, func() error {
 		_, err := techmod.DetectTech(domain, 0)
 		return err
@@ -333,7 +333,7 @@ func scanPorts(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "ports", domain, func() error {
 		_, err := portsmod.ScanPorts(domain, 0)
 		return err
@@ -352,7 +352,7 @@ func scanGF(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "gf", domain, func() error {
 		_, err := gfmod.ScanGF(domain)
 		return err
@@ -371,7 +371,7 @@ func scanDNSTakeover(c *gin.Context) {
 		return
 	}
 	domain := *req.Domain
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "dns-takeover", domain, func() error {
 		return dnsmod.Takeover(domain)
 	})
@@ -397,7 +397,7 @@ func scanDNS(c *gin.Context) {
 			return
 		}
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, fmt.Sprintf("dns-%s", dnsType), domain, func() error {
 		if dnsType == "dangling-ip" {
 			return dnsmod.DanglingIP(domain)
@@ -424,7 +424,7 @@ func scanMCPDiscovery(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain is required"})
 		return
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "mcp-discovery", target, func() error {
 		_, err := mcpdiscovery.Run(mcpdiscovery.Options{Target: target, Threads: 15})
 		return err
@@ -447,7 +447,7 @@ func scanDNSCF1016(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain is required"})
 		return
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "dns_cf1016", target, func() error {
 		// Determine if target is a single subdomain (has >2 parts) or a root domain.
 		// For a single host we pass it directly as SubdomainsFile so CF1016 doesn't
@@ -507,7 +507,7 @@ func scanFirebase(c *gin.Context) {
 		return
 	}
 	aggressive := req.Aggressive != nil && *req.Aggressive
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "firebase", target, func() error {
 		clean := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
 		parts := strings.Split(clean, ".")
@@ -571,7 +571,7 @@ func scanFFuf(c *gin.Context) {
 	if req.CustomHeaders != nil {
 		opts.CustomHeaders = *req.CustomHeaders
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "ffuf", target, func() error {
 		_, err := ffufmod.RunFFuf(opts)
 		return err
@@ -594,7 +594,7 @@ func scanBackup(c *gin.Context) {
 	if req.Threads != nil && *req.Threads > 0 {
 		opts.Threads = *req.Threads
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "backup", domain, func() error {
 		_, err := backupmod.Run(opts)
 		return err
@@ -626,7 +626,7 @@ func scanMisconfig(c *gin.Context) {
 	if req.Permutations != nil {
 		opts.EnablePerms = *req.Permutations
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "misconfig", domain, func() error {
 		return misconfigmod.Run(opts)
 	})
@@ -681,7 +681,7 @@ func scanZerodays(c *gin.Context) {
 	if req.Silent != nil {
 		opts.Silent = *req.Silent
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "zerodays", target, func() error {
 		_, err := zerodaysmod.Run(opts)
 		return err
@@ -720,7 +720,7 @@ func scanASR(c *gin.Context) {
 		opts.Resolvers = *req.Resolvers
 	}
 	
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "asr", domain, func() error {
 		return asrmod.Run(context.Background(), opts)
 	})
@@ -744,7 +744,7 @@ func scanS3(c *gin.Context) {
 		if req.Threads != nil && *req.Threads > 0 {
 			opts.Threads = *req.Threads
 		}
-		scanID := generateScanID()
+		scanID := generateScanID(c)
 		go RunScanInProcess(scanID, "s3", domain, func() error {
 			return s3mod.Run(opts)
 		})
@@ -769,7 +769,7 @@ func scanS3(c *gin.Context) {
 			opts.Region = r
 		}
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "s3", bucket, func() error {
 		return s3mod.Run(opts)
 	})
@@ -793,7 +793,7 @@ func scanJSEndpoints(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "domain or subdomain required"})
 		return
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "js-endpoints", domain, func() error {
 		_, err := jsendpointsmod.Run(jsendpointsmod.Options{Domain: domain, Threads: 30})
 		return err
@@ -812,7 +812,7 @@ func scanGitHub(c *gin.Context) {
 		return
 	}
 	repo := *req.Repo
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "github", repo, func() error {
 		_, err := githubmod.Run(githubmod.Options{Mode: githubmod.ModeRepo, Repo: repo})
 		return err
@@ -837,7 +837,7 @@ func scanGitHubOrg(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Organization name is required (use 'domain' field)"})
 		return
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	go RunScanInProcess(scanID, "github_org", org, func() error {
 		_, err := githubmod.Run(githubmod.Options{Mode: githubmod.ModeOrg, Org: org})
 		return err
@@ -857,7 +857,7 @@ func keyhackSearch(c *gin.Context) {
 		return
 	}
 	query := *req.Query
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	cmd := []string{utils.GetAutoarScriptPath(), "keyhack", "search", query}
 	go executeScan(scanID, cmd, "keyhack_search")
 	okStarted(c, scanID, fmt.Sprintf("Searching for templates matching: %s", query))
@@ -874,7 +874,7 @@ func keyhackValidate(c *gin.Context) {
 	if !requireField(c, req.APIKey, "API key") {
 		return
 	}
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	cmd := []string{utils.GetAutoarScriptPath(), "keyhack", "validate", *req.Provider, *req.APIKey}
 	go executeScan(scanID, cmd, "keyhack_validate")
 	okStarted(c, scanID, fmt.Sprintf("Generating validation command for %s", *req.Provider))
@@ -888,8 +888,9 @@ var execCommand = exec.Command
 // some scan types (nuclei) need extra parameters from it to replay. Returns the
 // new scan ID and true if the scan type is handled; returns "", false if the
 // scan type is not supported.
-func runInProcessRescan(scanType, target, command string) (newScanID string, ok bool) {
-	newScanID = generateScanID()
+func runInProcessRescan(scanType, target, command, createdBy string) (newScanID string, ok bool) {
+	newScanID = generateScanID(nil)
+	recordScanInitiator(newScanID, createdBy)
 	st := strings.ToLower(strings.TrimSpace(scanType))
 	switch st {
 	case "domain_run":

@@ -827,7 +827,7 @@ func metricsHandler(c *gin.Context) {
 
 func cleanupHandler(c *gin.Context) {
 	// Execute cleanup via CLI command to avoid import cycle
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	command := []string{
 		utils.GetAutoarScriptPath(),
 		"cleanup",
@@ -1269,8 +1269,14 @@ func downloadScanResults(c *gin.Context) {
 
 // generateScanID returns a cryptographically random UUID v4 (#1).
 // Using time.Now().UnixNano() was collision-prone under concurrent load and guessable.
-func generateScanID() string {
-	return uuid.New().String()
+// generateScanID mints a scan id and records the initiating dashboard user (from
+// the request context) so the runner can stamp ScanRecord.CreatedBy. Pass nil for
+// non-user/system contexts. Recording happens synchronously here, before the scan
+// goroutine starts, so there is no race with CreateScan.
+func generateScanID(c *gin.Context) string {
+	id := uuid.New().String()
+	recordScanInitiator(id, currentUsername(c))
+	return id
 }
 
 // storedCommand renders a scan's command line for persistence/display. Secrets

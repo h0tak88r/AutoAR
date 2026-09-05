@@ -88,6 +88,7 @@ func apiRunRootPipeline(c *gin.Context) {
 		msg = "Root collection started — filling in roots and hosts. Run nuclei separately when it finishes."
 	}
 	scanID := scanType + "-" + time.Now().Format("20060102150405")
+	recordScanInitiator(scanID, currentUsername(c))
 	c.JSON(200, gin.H{
 		"status":  "started",
 		"scan_id": scanID,

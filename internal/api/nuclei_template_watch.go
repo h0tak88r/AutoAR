@@ -259,6 +259,7 @@ func nucleiTemplateWatchCycle() {
 		// the stored command records the path, making these scans rescanable
 		// (temp-dir staging made every watcher scan un-rescanable before).
 		scanID := "nuclei-watch-" + time.Now().Format("20060102150405")
+		recordScanInitiator(scanID, "system") // automated watcher, not a user
 		dir, downloaded, cleanup, err := nucleiWatchStage(scanID, runnable)
 		if err != nil || len(downloaded) == 0 {
 			cleanup()

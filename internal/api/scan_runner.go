@@ -157,6 +157,7 @@ func RunScanInProcessWithCommand(scanID, scanType, target, command string, fn fu
 		StartedAt:  startedAt,
 		LastUpdate: startedAt,
 		Command:    command,
+		CreatedBy:  takeScanInitiator(scanID), // dashboard user that launched it ("" = system)
 	}
 	if err := db.CreateScan(dbRecord); err != nil {
 		// Without a DB record the scan would be invisible to the UI — abort rather

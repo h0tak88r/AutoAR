@@ -456,6 +456,7 @@ func (p *PostgresDB) InitSchema() error {
 		last_update TIMESTAMP NOT NULL,
 		command TEXT,
 		result_url TEXT,
+		created_by TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
@@ -587,6 +588,7 @@ func (p *PostgresDB) InitSchema() error {
 	}
 
 	// Migrate legacy DBs: CREATE TABLE IF NOT EXISTS does not add new columns to existing scans tables.
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT ''`)
 	_, err = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS result_url TEXT`)
 	if err != nil {
 		return fmt.Errorf("failed to migrate scans.result_url: %v", err)
@@ -1861,12 +1863,12 @@ func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
 			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
 			current_phase, total_phases, phase_name, phase_start_time,
 			completed_phases, failed_phases, files_uploaded, error_count,
-			started_at, last_update, command, result_url
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19);
+			started_at, last_update, command, result_url, created_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20);
 	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
 		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
 		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
-		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL)
+		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL, scan.CreatedBy)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create scan: %v", err)
@@ -2005,14 +2007,14 @@ func (p *PostgresDB) GetScan(scanID string) (*ScanRecord, error) {
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
 			files_uploaded, error_count, started_at, completed_at, last_update, 
-			COALESCE(command, ''), COALESCE(result_url, '')
+			COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, '')
 		FROM scans WHERE scan_id = $1;
 	`, scanID).Scan(
 		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 		&completedPhasesJSON, &failedPhasesJSON,
-		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy)
 	
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("scan not found: %s", scanID)
@@ -2038,7 +2040,7 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, '')
 		FROM scans
 		WHERE status IN ('running', 'starting', 'paused')
 		ORDER BY started_at DESC;
@@ -2059,7 +2061,7 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -2105,7 +2107,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, '')
 		FROM scans
 		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
@@ -2127,7 +2129,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)

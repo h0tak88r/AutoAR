@@ -171,7 +171,7 @@
             <span style="font-size:11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 7px;color:var(--text-secondary)" title="${window.esc(scanType)}">${window.esc(scanTypeLabel(scanType))}</span>
             ${badge}
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Started ${elapsed} ago</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Started ${elapsed} ago${(s.created_by || s.CreatedBy) ? ` · by ${window.esc(s.created_by || s.CreatedBy)}` : ''}</div>
         </div>
       </div>
       ${actions}
@@ -235,10 +235,15 @@
       : '';
     const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" onclick='event.stopPropagation();deleteScan(${JSON.stringify(scanID)}, ${JSON.stringify(target)})'>Delete</button>`;
     const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${window.esc(scanID)}" onclick="event.stopPropagation()" aria-label="Select scan" />`;
+    const createdBy = s.created_by || s.CreatedBy || '';
+    const byCell = createdBy
+      ? `<span style="font-size:11px;color:var(--text-secondary)" title="Initiated by ${window.esc(createdBy)}">${window.esc(createdBy)}</span>`
+      : '<span style="font-size:11px;color:var(--text-muted)">—</span>';
     return `<tr class="clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})'>
     <td onclick="event.stopPropagation()">${rowSelect}</td>
     <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${window.esc(target)}</span></td>
     <td><span class="scan-type" title="${window.esc(scanType)}">${window.esc(scanTypeLabel(scanType))}</span></td>
+    <td>${byCell}</td>
     <td>${badge}</td>
     <td>${phaseCol}</td>
     <td style="font-size:11px;color:var(--text-muted)">${window.fmtDate(startedAt)}</td>
@@ -384,7 +389,7 @@
     } else if (!filteredRecent.length && recent_scans.length > 0) {
       html += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No completed scans match the current filter</div>';
     } else if (filteredRecent.length > 0) {
-      html += `<table class="data-table" id="recent-scans-table"><thead><tr><th style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" title="Select all" aria-label="Select all" onclick="event.stopPropagation();toggleSelectAllRecentScans(this)" /></th><th>Target</th><th>Type</th><th>Status</th><th>Phase</th><th>Started</th><th>Elapsed</th><th>Results</th></tr></thead><tbody>${filteredRecent.map((s) => scanRowHtml(s)).join('')}</tbody></table>`;
+      html += `<table class="data-table" id="recent-scans-table"><thead><tr><th style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" title="Select all" aria-label="Select all" onclick="event.stopPropagation();toggleSelectAllRecentScans(this)" /></th><th>Target</th><th>Type</th><th>By</th><th>Status</th><th>Phase</th><th>Started</th><th>Elapsed</th><th>Results</th></tr></thead><tbody>${filteredRecent.map((s) => scanRowHtml(s)).join('')}</tbody></table>`;
     }
     html += '</div></div>';
     container.innerHTML = html;

@@ -302,6 +302,7 @@ func (s *SQLiteDB) InitSchema() error {
 		last_update TIMESTAMP NOT NULL,
 		command TEXT,
 		result_url TEXT,
+		created_by TEXT DEFAULT '',
 		created_at TIMESTAMP DEFAULT (datetime('now')),
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
 	);
@@ -420,6 +421,10 @@ func (s *SQLiteDB) InitSchema() error {
 		       COALESCE(NULLIF(s.https_url, ''), NULLIF(s.http_url, ''), 'https://' || s.subdomain) AS host
 		FROM subdomains s`); verr != nil {
 		return fmt.Errorf("failed to create subdomain_hosts view: %v", verr)
+	}
+	// Migrate legacy scans table: ensure created_by exists (scan initiator username).
+	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN created_by TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		logger.GetLogger().Debugf("[SQLite] scans.created_by migration: %v", merr)
 	}
 	// Migrate legacy scans table: ensure result_url exists (CREATE TABLE IF NOT EXISTS does not add columns)
 	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN result_url TEXT`); merr != nil {
@@ -1802,12 +1807,12 @@ func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
 			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
 			current_phase, total_phases, phase_name, phase_start_time,
 			completed_phases, failed_phases, files_uploaded, error_count,
-			started_at, last_update, command, result_url
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+			started_at, last_update, command, result_url, created_by
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
 		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
 		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
-		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL)
+		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL, scan.CreatedBy)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create scan: %v", err)
@@ -1944,14 +1949,14 @@ func (s *SQLiteDB) GetScan(scanID string) (*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, '')
 		FROM scans WHERE scan_id = ?;
 	`, scanID).Scan(
 		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 		&completedPhasesJSON, &failedPhasesJSON,
-		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy)
 	
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("scan not found: %s", scanID)
@@ -1985,7 +1990,7 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, '')
 		FROM scans
 		WHERE status IN ('running', 'starting', 'paused')
 		ORDER BY started_at DESC;
@@ -2006,7 +2011,7 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -2061,7 +2066,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, '')
 		FROM scans
 		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
@@ -2083,7 +2088,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)

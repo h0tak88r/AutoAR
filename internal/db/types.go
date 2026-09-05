@@ -334,6 +334,7 @@ type ScanRecord struct {
 	LastUpdate      time.Time  `json:"last_update"`
 	Command         string     `json:"command,omitempty"`
 	ResultURL       string     `json:"result_url,omitempty"`
+	CreatedBy       string     `json:"created_by,omitempty"` // dashboard username that started the scan ("" = system/automated)
 }
 
 // ScanArtifact represents an output artifact produced by a scan and stored in R2.
