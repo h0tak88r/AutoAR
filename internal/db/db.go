@@ -688,6 +688,16 @@ func CreateScan(scan *ScanRecord) error {
 	return dbInstance.CreateScan(scan)
 }
 
+// ReactivateScan re-opens an existing scan for a phase-level resume.
+func ReactivateScan(scanID string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.ReactivateScan(scanID)
+}
+
 // UpdateScanProgress updates scan progress
 func UpdateScanProgress(scanID string, progress *ScanProgress) error {
 	if dbInstance == nil {

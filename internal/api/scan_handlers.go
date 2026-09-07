@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/h0tak88r/AutoAR/internal/db"
 	asrmod "github.com/h0tak88r/AutoAR/internal/scanner/asr"
 	backupmod "github.com/h0tak88r/AutoAR/internal/scanner/backup"
 	cf1016mod "github.com/h0tak88r/AutoAR/internal/scanner/cf1016"
@@ -878,6 +879,57 @@ func keyhackValidate(c *gin.Context) {
 	cmd := []string{utils.GetAutoarScriptPath(), "keyhack", "validate", *req.Provider, *req.APIKey}
 	go executeScan(scanID, cmd, "keyhack_validate")
 	okStarted(c, scanID, fmt.Sprintf("Generating validation command for %s", *req.Provider))
+}
+
+// apiResumeScanFromCheckpoint resumes a failed/timed_out/cancelled workflow scan
+// from its last completed phase, reusing the SAME scan id so already-completed
+// phases are skipped via db.IsPhaseCompleted (see utils.RunWorkflowPhase). Only
+// the phase-checkpointed workflows (domain_run, subdomain_run) support this;
+// recon/pipeline have no per-phase checkpoints and must be rescanned from scratch.
+// POST /api/scans/:id/resume-run
+func apiResumeScanFromCheckpoint(c *gin.Context) {
+	_ = db.Init()
+	_ = db.EnsureSchema()
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	if ScanIsActiveInMemory(id) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan is still active"})
+		return
+	}
+	rec, err := db.GetScan(id)
+	if err != nil || rec == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
+		return
+	}
+	switch strings.ToLower(rec.Status) {
+	case "failed", "timed_out", "cancelled", "stopped":
+		// resumable
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only failed / timed-out / cancelled scans can be resumed"})
+		return
+	}
+	scanType := strings.ToLower(strings.TrimSpace(rec.ScanType))
+	target := rec.Target
+	recordScanInitiator(id, currentUsername(c))
+	switch scanType {
+	case "domain_run":
+		go ResumeScanInProcess(id, scanType, target, func() error {
+			_, e := domainmod.RunDomain(domainmod.ScanOptions{Domain: target})
+			return e
+		})
+	case "subdomain_run":
+		go ResumeScanInProcess(id, scanType, target, func() error {
+			_, e := subdomainmod.RunSubdomainWithOptions(target, subdomainmod.RunOptions{})
+			return e
+		})
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "resume is only supported for domain_run and subdomain_run (recon/pipeline restart from scratch — use Rescan)"})
+		return
+	}
+	okStarted(c, id, fmt.Sprintf("Resuming %s for %s from the last completed phase", scanType, target))
 }
 
 // execCommand is a local alias so tests and future refactors can swap it out.

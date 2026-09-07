@@ -144,30 +144,52 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 // command string. Use it when rescan needs more than scanType+target to replay
 // the scan (e.g. nuclei scans also need the template).
 func RunScanInProcessWithCommand(scanID, scanType, target, command string, fn func() error) {
+	runScanInProcessImpl(scanID, scanType, target, command, false, fn)
+}
+
+// ResumeScanInProcess resumes an existing (failed/timed_out/cancelled) scan under
+// its SAME scan id, so the workflow's per-phase IsPhaseCompleted checks skip the
+// phases already recorded in completed_phases and execution continues where it
+// stopped. Only meaningful for phase-checkpointed workflows (domain_run/subdomain_run).
+func ResumeScanInProcess(scanID, scanType, target string, fn func() error) {
+	runScanInProcessImpl(scanID, scanType, target, fmt.Sprintf("inprocess:%s target=%s (resumed)", scanType, target), true, fn)
+}
+
+func runScanInProcessImpl(scanID, scanType, target, command string, resume bool, fn func() error) {
 	startedAt := time.Now()
 
 	scanSemaphore <- struct{}{}
 	defer func() { <-scanSemaphore }()
 
-	dbRecord := &db.ScanRecord{
-		ScanID:     scanID,
-		ScanType:   scanType,
-		Target:     target,
-		Status:     "running",
-		StartedAt:  startedAt,
-		LastUpdate: startedAt,
-		Command:    command,
-		CreatedBy:  takeScanInitiator(scanID), // dashboard user that launched it ("" = system)
+	if resume {
+		// Reuse the existing row so completed_phases survives (finished phases skip);
+		// clear failed_phases and mark it running again.
+		if err := db.ReactivateScan(scanID); err != nil {
+			log.Printf("[runner] ABORT resume: reactivate %s (%s) failed: %v", scanID, scanType, err)
+			return
+		}
+		auditActor(takeScanInitiator(scanID), "scan.resume", target, scanType+" ("+scanID+")")
+	} else {
+		dbRecord := &db.ScanRecord{
+			ScanID:     scanID,
+			ScanType:   scanType,
+			Target:     target,
+			Status:     "running",
+			StartedAt:  startedAt,
+			LastUpdate: startedAt,
+			Command:    command,
+			CreatedBy:  takeScanInitiator(scanID), // dashboard user that launched it ("" = system)
+		}
+		if err := db.CreateScan(dbRecord); err != nil {
+			// Without a DB record the scan would be invisible to the UI — abort rather
+			// than run an orphaned scan whose results can never be retrieved.
+			log.Printf("[runner] ABORT: failed to create DB record for %s (%s): %v", scanID, scanType, err)
+			// The deferred release above already frees the acquired slot; releasing
+			// again here would unbalance the semaphore (steal another scan's slot).
+			return
+		}
+		auditActor(dbRecord.CreatedBy, "scan.launch", target, scanType+" ("+scanID+")")
 	}
-	if err := db.CreateScan(dbRecord); err != nil {
-		// Without a DB record the scan would be invisible to the UI — abort rather
-		// than run an orphaned scan whose results can never be retrieved.
-		log.Printf("[runner] ABORT: failed to create DB record for %s (%s): %v", scanID, scanType, err)
-		// The deferred release above already frees the acquired slot; releasing
-		// again here would unbalance the semaphore (steal another scan's slot).
-		return
-	}
-	auditActor(dbRecord.CreatedBy, "scan.launch", target, scanType+" ("+scanID+")")
 
 	// Create a cancel context with a configurable maximum duration so that a
 	// hung scanner (e.g. waiting on an unreachable host) doesn't hold a

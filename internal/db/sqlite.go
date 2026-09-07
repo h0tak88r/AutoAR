@@ -1831,6 +1831,14 @@ func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
 	return nil
 }
 
+// ReactivateScan re-opens an existing scan for a phase-resume: sets status
+// running and clears failed_phases while KEEPING completed_phases so finished
+// phases are skipped on the resumed run.
+func (s *SQLiteDB) ReactivateScan(scanID string) error {
+	_, err := s.db.Exec(`UPDATE scans SET status = 'running', failed_phases = '[]', completed_at = NULL, last_update = ?, updated_at = datetime('now') WHERE scan_id = ?`, time.Now(), scanID)
+	return err
+}
+
 // UpdateScanProgress updates scan progress
 func (s *SQLiteDB) UpdateScanProgress(scanID string, progress *ScanProgress) error {
 	completedPhasesJSON := marshalPhaseJSON(progress.CompletedPhases)

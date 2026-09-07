@@ -75,6 +75,15 @@
     }
     window.startMetricsPolling();
     await window.loadStats();
+    // Load the current user's role up front so we can gate admin-only surfaces
+    // (the System category: Settings / R2 Browser / Report Templates) for viewers,
+    // before the first view renders (avoids a flash of the restricted nav).
+    try {
+      window.state._me = await window.apiFetch('/api/auth/me');
+    } catch (e) { /* not signed in / no auth — leave nav as-is */ }
+    if (window.state._me && window.state._me.role === 'viewer') {
+      document.getElementById('nav-group-system')?.closest('.nav-group')?.setAttribute('hidden', '');
+    }
     const deepScan = window.pathScanId();
     if (deepScan) {
       await window.openScanResultsPage(deepScan, { replace: true });

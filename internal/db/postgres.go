@@ -1887,6 +1887,12 @@ func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
 	return nil
 }
 
+// ReactivateScan re-opens an existing scan for a phase-resume (see the SQLite twin).
+func (p *PostgresDB) ReactivateScan(scanID string) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE scans SET status = 'running', failed_phases = '[]'::jsonb, completed_at = NULL, last_update = $2, updated_at = NOW() WHERE scan_id = $1`, scanID, time.Now())
+	return err
+}
+
 // UpdateScanProgress updates scan progress
 func (p *PostgresDB) UpdateScanProgress(scanID string, progress *ScanProgress) error {
 	completedPhasesJSON := marshalPhaseJSON(progress.CompletedPhases)

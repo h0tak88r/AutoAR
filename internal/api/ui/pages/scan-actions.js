@@ -37,6 +37,19 @@
     }
   }
 
+  // Resume a failed/timed-out domain_run/subdomain_run from its last completed
+  // phase (reuses the same scan id; already-done phases are skipped server-side).
+  async function resumeScan(scanID) {
+    try {
+      await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/resume-run`, {});
+      window.showToast('success', 'Resuming scan', 'Continuing from the last completed phase.');
+      window.loadScans();
+      setTimeout(() => window.goToScanResultsPage(scanID), 900);
+    } catch (e) {
+      window.showToast('error', 'Resume failed', e.message);
+    }
+  }
+
   function toggleSelectAllRecentScans(master) {
     const on = master.checked;
     document.querySelectorAll('#recent-scans-table .scan-row-select').forEach((cb) => { cb.checked = on; });
@@ -132,6 +145,7 @@
 
   window.ScanActionsPage = {
     cancelScan,
+    resumeScan,
     deleteScan,
     rescanScan,
     toggleSelectAllRecentScans,

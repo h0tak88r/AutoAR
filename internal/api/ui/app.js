@@ -120,6 +120,10 @@ async function rescanScan(scanID) {
   return callPageMethod('ScanActionsPage', 'rescanScan', [scanID]);
 }
 
+async function resumeScan(scanID) {
+  return callPageMethod('ScanActionsPage', 'resumeScan', [scanID]);
+}
+
 function toggleSelectAllRecentScans(master) {
   return callPageMethod('ScanActionsPage', 'toggleSelectAllRecentScans', [master]);
 }

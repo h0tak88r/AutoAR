@@ -576,7 +576,8 @@ func SetupAPI() *gin.Engine {
 		apiGroup.DELETE("/scans/:id", apiDeleteScan)
 		apiGroup.POST("/scans/:id/cancel", apiCancelScan)
 		apiGroup.POST("/scans/:id/pause", apiPauseScan)
-		apiGroup.POST("/scans/:id/resume", apiResumeScan)
+		apiGroup.POST("/scans/:id/resume", apiResumeScan)                       // SIGCONT a paused live process
+		apiGroup.POST("/scans/:id/resume-run", apiResumeScanFromCheckpoint)     // resume a failed/timed-out workflow from its last completed phase
 		apiGroup.POST("/scans/:id/rescan", apiRescan)
 		apiGroup.POST("/scans/recount-findings", func(c *gin.Context) {
 			go utils.BackfillFindingsCounts()
@@ -612,12 +613,14 @@ func SetupAPI() *gin.Engine {
 		apiGroup.POST("/chaos/subdomains", apiChaosSubdomains) // Chaos dataset subdomain lookup
 		apiGroup.GET("/scope/platforms", apiScopePlatforms)
 		// Multi-account management (multiple accounts per platform)
-		apiGroup.GET("/accounts", apiListBBPAccounts)
+		// Account inventory + credential reveals are admin-only: viewers must not
+		// read platform tokens/keys (the read-only middleware only blocks mutations).
+		apiGroup.GET("/accounts", requireAdmin(), apiListBBPAccounts)
 		apiGroup.POST("/accounts", apiUpsertBBPAccount)
 		apiGroup.POST("/accounts/:id/toggle", apiToggleBBPAccount)
-		apiGroup.GET("/accounts/:id/check", apiCheckBBPAccount)
-		apiGroup.GET("/accounts/:id/reveal", apiRevealBBPAccount)
-		apiGroup.GET("/config/reveal", apiRevealEnvSecret)
+		apiGroup.GET("/accounts/:id/check", requireAdmin(), apiCheckBBPAccount)
+		apiGroup.GET("/accounts/:id/reveal", requireAdmin(), apiRevealBBPAccount)
+		apiGroup.GET("/config/reveal", requireAdmin(), apiRevealEnvSecret)
 		apiGroup.DELETE("/accounts/:id", apiDeleteBBPAccount)
 		// Program Lookup (keyword/domain → bug-bounty program) catalog
 		apiGroup.GET("/assets/program-lookup", apiProgramLookup)

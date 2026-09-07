@@ -233,6 +233,12 @@
     const cloneBtn = !running
       ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(34,211,238,.35);color:var(--accent-cyan)" onclick='event.stopPropagation();cloneScanToLauncher(${JSON.stringify(scanType)}, ${JSON.stringify(target)})' title="Prefill the launcher to re-run with edits">Clone</button>`
       : '';
+    // Resume: only failed/timed-out/cancelled workflow scans (domain_run / subdomain_run)
+    // can continue from their last completed phase; other types must Rescan from scratch.
+    const resumable = !running && ['failed', 'timed_out', 'cancelled', 'stopped'].includes(statusLc) && ['domain_run', 'subdomain_run'].includes(scanType);
+    const resumeBtn = resumable
+      ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.45);color:var(--accent-emerald)" onclick='event.stopPropagation();resumeScan(${JSON.stringify(scanID)})' title="Resume from the last completed phase">▶ Resume</button>`
+      : '';
     const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" onclick='event.stopPropagation();deleteScan(${JSON.stringify(scanID)}, ${JSON.stringify(target)})'>Delete</button>`;
     const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${window.esc(scanID)}" onclick="event.stopPropagation()" aria-label="Select scan" />`;
     const createdBy = s.created_by || s.CreatedBy || '';
@@ -248,7 +254,7 @@
     <td>${phaseCol}</td>
     <td style="font-size:11px;color:var(--text-muted)">${window.fmtDate(startedAt)}</td>
     <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted)">${elapsed}</td>
-    <td onclick="event.stopPropagation()">${resultsCell}${rescanBtn}${cloneBtn}${deleteBtn}</td>
+    <td onclick="event.stopPropagation()">${resultsCell}${resumeBtn}${rescanBtn}${cloneBtn}${deleteBtn}</td>
   </tr>`;
   }
 

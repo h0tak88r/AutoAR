@@ -191,6 +191,9 @@ type DB interface {
 
 	// Scan tracking
 	CreateScan(scan *ScanRecord) error
+	// ReactivateScan re-opens an existing scan row for a phase-level resume:
+	// status→running, clears failed_phases, keeps completed_phases.
+	ReactivateScan(scanID string) error
 	UpdateScanProgress(scanID string, progress *ScanProgress) error
 	UpdateScanStatus(scanID string, status string) error
 	UpdateScanResult(scanID, status, resultURL string) error
