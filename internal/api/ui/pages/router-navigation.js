@@ -1,5 +1,6 @@
 (() => {
-  function navigateTo(view) {
+  function navigateTo(view, opts) {
+    opts = opts || {};
     const state = window.state;
     // Admin-only System views: keep viewers out even via a programmatic navigate
     // (the backend also 403s the sensitive endpoints — this is the UX half).
@@ -7,13 +8,17 @@
       if (typeof window.showToast === 'function') window.showToast('error', 'Admins only', 'That section is restricted to administrators.');
       view = 'overview';
     }
-    const prev = state.view;
     state.view = view;
     if (view !== 'scan-detail') {
       state.scanDetailId = null;
       document.getElementById('view-scan-detail')?.classList.remove('active');
-      if (prev === 'scan-detail' && /^\/scans\//.test(location.pathname)) {
-        try { history.pushState({}, '', '/ui'); } catch (e) { /* ignore */ }
+      // Sync the browser URL to this view so it's bookmarkable and back/forward
+      // works. popstate-driven navigation passes noHistory to avoid re-pushing.
+      if (!opts.noHistory) {
+        const target = window.pathForView ? window.pathForView(view) : '/ui';
+        if (location.pathname !== target) {
+          try { history.pushState({ view }, '', target); } catch (e) { /* ignore */ }
+        }
       }
     }
 

@@ -60,16 +60,9 @@
         if (sid) {
           window.openScanResultsPage(sid, { noHistory: true });
         } else {
-          state.scanDetailId = null;
-          state.view = 'overview';
-          document.getElementById('view-scan-detail')?.classList.remove('active');
-          (window.VIEWS || []).forEach((v) => {
-            document.getElementById(`view-${v}`)?.classList.toggle('active', v === 'overview');
-            document.getElementById(`nav-${v}`)?.classList.toggle('active', v === 'overview');
-          });
-          document.getElementById('topbar-title').textContent = 'Overview';
-          window.refreshCurrentView();
-          window.startPolling();
+          // Restore the view for the current URL (back/forward between sections)
+          // without pushing a new history entry.
+          window.navigateTo((window.viewForPath && window.viewForPath(location.pathname)) || 'overview', { noHistory: true });
         }
       });
     }
@@ -88,7 +81,8 @@
     if (deepScan) {
       await window.openScanResultsPage(deepScan, { replace: true });
     } else {
-      window.navigateTo('overview');
+      // Honor a per-view deep link on hard load (e.g. /settings, /monitor).
+      window.navigateTo((window.viewForPath && window.viewForPath(location.pathname)) || 'overview');
     }
     state._dashboardStarted = true;
   }

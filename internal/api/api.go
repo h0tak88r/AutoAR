@@ -513,6 +513,13 @@ func SetupAPI() *gin.Engine {
 	// Deep link: /scans/:scanId (same SPA; client router reads pathname)
 	r.GET("/scans", serveDashboardUI)
 	r.GET("/scans/*filepath", serveDashboardUI)
+	// Per-view deep-link URLs: serve the SPA for each top-level view path so every
+	// section is bookmarkable/shareable with working back/forward (the client
+	// router selects the view from the pathname). Overview stays at /ui; scans is
+	// handled above. Kept in sync with VIEW_PATHS in ui/pages/router-core.js.
+	for _, v := range []string{"monitor", "domains", "subdomains", "targets", "programs", "program-lookup", "keyhacks", "r2", "settings", "report-templates"} {
+		r.GET("/"+v, serveDashboardUI)
+	}
 
 	// Static data files (JSON reference tables)
 	r.GET("/static/data/*filepath", serveStaticData)

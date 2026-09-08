@@ -42,8 +42,8 @@ function openAuditorInNewTab(view) {
   return callPageMethod('NavigationUIPage', 'openAuditorInNewTab', [view]);
 }
 
-function navigateTo(view) {
-  return callPageMethod('RouterNavigationPage', 'navigateTo', [view]);
+function navigateTo(view, opts) {
+  return callPageMethod('RouterNavigationPage', 'navigateTo', [view, opts]);
 }
 
 /** Deep-linked scan results page (/scans/:id). */
