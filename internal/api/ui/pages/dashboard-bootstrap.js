@@ -76,6 +76,7 @@
     } catch (e) { /* not signed in / no auth — leave nav as-is */ }
     if (window.state._me && window.state._me.role === 'viewer') {
       document.getElementById('nav-group-system')?.closest('.nav-group')?.setAttribute('hidden', '');
+      document.getElementById('nav-monitor')?.setAttribute('hidden', '');
     }
     const deepScan = window.pathScanId();
     if (deepScan) {

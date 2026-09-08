@@ -4,7 +4,7 @@
     const state = window.state;
     // Admin-only System views: keep viewers out even via a programmatic navigate
     // (the backend also 403s the sensitive endpoints — this is the UX half).
-    if (['settings', 'r2', 'report-templates'].includes(view) && state._me && state._me.role === 'viewer') {
+    if (['settings', 'r2', 'report-templates', 'monitor'].includes(view) && state._me && state._me.role === 'viewer') {
       if (typeof window.showToast === 'function') window.showToast('error', 'Admins only', 'That section is restricted to administrators.');
       view = 'overview';
     }
