@@ -253,6 +253,39 @@ func startWorker() {
 	}()
 }
 
+// specSeenKey marks a *discovered spec* as audited so sibling doc pages of the
+// same host (e.g. /docs, /redoc, /rapidoc all rendering one openapi.json) don't
+// each trigger a full audit of the same endpoints within the dedupe window.
+func specSeenKey(specURL string) string {
+	return "spec:" + normalizeDocURL(specURL)
+}
+
+// specRecentlyAudited reports whether this spec (by URL) was audited within the
+// dedupe window. Best-effort: callers still audit when it returns false.
+func specRecentlyAudited(specURL string) bool {
+	if specURL == "" {
+		return false
+	}
+	seenMu.Lock()
+	defer seenMu.Unlock()
+	k := specSeenKey(specURL)
+	if t, ok := seenMap[k]; ok && time.Since(t) < 24*time.Hour {
+		return true
+	}
+	return false
+}
+
+// markSpecAudited records a completed spec audit in the shared seen map
+// (persisted along with the doc-URL marks by persistSeen).
+func markSpecAudited(specURL string) {
+	if specURL == "" {
+		return
+	}
+	seenMu.Lock()
+	seenMap[specSeenKey(specURL)] = time.Now()
+	seenMu.Unlock()
+}
+
 // ---- OpenAPI / Swagger parsing ----
 
 type apiDoc struct {
@@ -645,6 +678,18 @@ func runTests(job docJob) (retErr error) {
 		log().Infof("[API-TEST] %s: using discovered spec %s", job.DocURL, specURL)
 	}
 
+	// Spec-level dedupe: sibling doc pages of one host (/docs, /redoc, /rapidoc)
+	// often resolve to the SAME openapi.json — audit each spec once per window
+	// instead of once per doc page that renders it.
+	effectiveSpec := job.SpecURL
+	if effectiveSpec == "" {
+		effectiveSpec = job.DocURL // the matched URL was itself the JSON spec
+	}
+	if specRecentlyAudited(effectiveSpec) {
+		log().Infof("[API-TEST] %s: spec %s already audited within dedupe window — skipping duplicate", job.DocURL, effectiveSpec)
+		return nil
+	}
+
 	maxEndpoints := db.GetSettingInt("API_DOCS_MAX_ENDPOINTS", defaultMaxEndpoints)
 	paths := doc.Paths
 	if len(paths) > maxEndpoints {
@@ -773,6 +818,7 @@ func runTests(job docJob) (retErr error) {
 	}
 	b, _ := json.MarshalIndent(artifact, "", "  ")
 	_ = os.WriteFile(filepath.Join(outDir, fname), b, 0o644)
+	markSpecAudited(effectiveSpec)
 
 	if accessible == 0 {
 		log().Infof("[API-TEST] %s: %d endpoints tested, none accessible unauth — artifact only", host, len(results))
