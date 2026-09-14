@@ -254,6 +254,24 @@ func nucleiTemplateWatchCycle() {
 		}
 	}
 
+	// Race pass: high/critical CVE templates get an immediate fingerprint-scoped
+	// run against just the hosts that look like that technology — minutes ahead
+	// of the full-host auto-run. Tiny footprint, so it deliberately does NOT
+	// wait for the global-scan in-flight gate below. It stages drafts and alerts
+	// only; NOTHING is ever submitted to a platform automatically.
+	if racePassEnabled() && nucleiTemplateAutoRunEnabled() {
+		launched := 0
+		for _, t := range runnable {
+			if launched >= racePassMaxScansPerCycle {
+				break
+			}
+			if racePassEligible(t) {
+				launched++
+				go runRacePass(t)
+			}
+		}
+	}
+
 	if nucleiTemplateAutoRunEnabled() && len(runnable) > 0 {
 		// Scan ID up front so the staged template dir is per-scan and durable —
 		// the stored command records the path, making these scans rescanable
