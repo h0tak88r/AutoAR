@@ -94,9 +94,12 @@ func racePassHostCapSetting() int {
 }
 
 // racePassEligible reports whether a freshly watched template should get the
-// fast-pass treatment: exploitable severity and a CVE anchor.
+// fast-pass treatment: exploitable severity and a CVE anchor. The CVE anchor
+// comes from the PDCP classification field when present, with a fallback to
+// the template ID/URI — PDCP's classification index often lags the template
+// itself by hours (exactly the window the race pass exists for).
 func racePassEligible(t pdcpTemplate) bool {
-	if len(t.Class.CVEs) == 0 {
+	if racePassCVE(t) == "" {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(t.Severity)) {
@@ -104,6 +107,19 @@ func racePassEligible(t pdcpTemplate) bool {
 		return strings.TrimSpace(t.Raw) != ""
 	}
 	return false
+}
+
+// racePassCVE resolves the CVE a template targets: classification first, then
+// the template ID, then the repo URI (http/cves/2026/CVE-2026-1234.yaml).
+func racePassCVE(t pdcpTemplate) string {
+	if len(t.Class.CVEs) > 0 && strings.HasPrefix(t.Class.CVEs[0], "CVE-") {
+		return t.Class.CVEs[0]
+	}
+	cveRe := regexp.MustCompile(`CVE-\d{4}-\d{4,}`)
+	if m := cveRe.FindString(t.ID); m != "" {
+		return m
+	}
+	return cveRe.FindString(t.URI)
 }
 
 // raceTechKeywords extracts the technology-identifying tags from a template,
@@ -267,7 +283,7 @@ func runRacePass(t pdcpTemplate) {
 		racePassMu.Unlock()
 	}()
 
-	cve := t.Class.CVEs[0]
+	cve := racePassCVE(t)
 	keywords := raceTechKeywords(t)
 	if len(keywords) == 0 {
 		return

@@ -261,14 +261,22 @@ func nucleiTemplateWatchCycle() {
 	// only; NOTHING is ever submitted to a platform automatically.
 	if racePassEnabled() && nucleiTemplateAutoRunEnabled() {
 		launched := 0
+		eligible := 0
 		for _, t := range runnable {
+			if !racePassEligible(t) {
+				continue
+			}
+			eligible++
 			if launched >= racePassMaxScansPerCycle {
-				break
+				continue
 			}
-			if racePassEligible(t) {
-				launched++
-				go runRacePass(t)
-			}
+			launched++
+			logger.GetLogger().Infof("[RACE-PASS] %s (%s, %s) is race-eligible — launching fast pass",
+				racePassCVE(t), t.ID, t.Severity)
+			go runRacePass(t)
+		}
+		if eligible > 0 {
+			logger.GetLogger().Infof("[RACE-PASS] %d race-eligible template(s) in batch, %d fast pass(es) launched", eligible, launched)
 		}
 	}
 
