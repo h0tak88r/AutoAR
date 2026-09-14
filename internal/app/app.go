@@ -132,6 +132,12 @@ func StartAPI() error {
 		// auto-runs them against all live hosts (disable: NUCLEI_TEMPLATE_WATCH=off).
 		// Needs the DB for its commit-SHA watermark.
 		api.StartNucleiTemplateWatch()
+
+		// CVE radar: polls NVD + GitHub advisories for freshly PUBLISHED CVEs
+		// (PoC or not) and alerts on the Discord monitor webhook for manual
+		// applicability checks — CVSS >= 9.0 any product, >= 7.0 on watched
+		// products (disable: CVE_RADAR=off).
+		api.StartCVERadar()
 	}
 
 	// Ensure database is closed on exit
