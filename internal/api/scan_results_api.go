@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1628,6 +1629,53 @@ func isNoiseFinding(finding, target string) bool {
 	return false
 }
 
+// parseOversizedJSONLFile streams a JSONL results file larger than
+// scanResultMaxBody (watch-scan output embeds the encoded template in every
+// row, so a few thousand hits easily exceed the inline-load cap). Lines are
+// fed to parseArtifactFindings in bounded batches — memory stays flat and
+// parsing stops as soon as maxRows findings are collected.
+func parseOversizedJSONLFile(path, module, category string, maxRows int) []parsedFinding {
+	if maxRows < 1 {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	out := make([]parsedFinding, 0, minInt(maxRows, 256))
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // single JSONL lines can reach ~1 MB with encoded templates
+	var batch strings.Builder
+	batchLines := 0
+	flush := func() {
+		if batchLines == 0 || len(out) >= maxRows {
+			batch.Reset()
+			batchLines = 0
+			return
+		}
+		for _, r := range parseArtifactFindings([]byte(batch.String()), module, category, maxRows-len(out)) {
+			if len(out) >= maxRows {
+				break
+			}
+			out = append(out, r)
+		}
+		batch.Reset()
+		batchLines = 0
+	}
+	for sc.Scan() && len(out) < maxRows {
+		batch.Write(sc.Bytes())
+		batch.WriteByte('\n')
+		batchLines++
+		if batchLines >= 2000 { // ~2000 × ~5 KB rows ≈ 10 MB worst case, under the inline cap
+			flush()
+		}
+	}
+	flush()
+	return out
+}
+
 func parseArtifactFindings(raw []byte, module, category string, maxRows int) []parsedFinding {
 	if maxRows < 1 {
 		maxRows = 1
@@ -1936,6 +1984,14 @@ func apiScanParsedResults(c *gin.Context) {
 			continue
 		}
 		if len(raw) > scanResultMaxBody {
+			// Oversized result file (e.g. watch-scan JSONL where every row
+			// embeds the encoded template): the 12 MB load cap exists to
+			// protect memory, not to hide findings — stream-parse JSONL from
+			// disk in bounded batches instead of silently dropping the file.
+			if e.IsJSON && e.LocalPath != "" {
+				ps := parseOversizedJSONLFile(e.LocalPath, e.Module, e.Category, limit-len(rows))
+				appendRows(ps, e)
+			}
 			continue
 		}
 		ps := parseArtifactFindings(raw, e.Module, e.Category, 250)
