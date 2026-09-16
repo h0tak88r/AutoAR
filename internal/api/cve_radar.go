@@ -20,28 +20,32 @@ import (
 
 // ─── CVE Radar ────────────────────────────────────────────────────────────────
 // Polls NVD's publication feed + GitHub Security Advisories for freshly
-// PUBLISHED CVEs — PoC or not. The point is early awareness so the operator
-// can manually check applicability to the attack surface and hunt before the
-// crowd: several programs' biggest losses are pure first-to-file races on
-// fresh CVEs (e.g. the Krafton GitLab duplicate on CVE-2026-85706).
+// PUBLISHED CVEs, and alerts ONLY when a public PoC exists — a CVE without a
+// weapon is noise for hunting purposes. PoCs usually appear hours after
+// publication, so a CVE that crossed the alert bar but has no PoC yet waits in
+// a persistent pending queue and is re-checked every cycle; if no PoC appears
+// within cveRadarPendingTTL it is dropped silently (no alert ever).
 //
-// Alert bar (tunable via env):
-//   - CVSS >= CVE_RADAR_CRITICAL_MIN (default 9.0)  -> alert regardless of product
-//   - CVSS >= CVE_RADAR_HIGH_MIN    (default 7.0)   -> alert when the description
+// Alert bar (tunable via env), both stages required before any Discord ping:
+//   - CVSS >= CVE_RADAR_CRITICAL_MIN (default 9.0)  -> candidate regardless of product
+//   - CVSS >= CVE_RADAR_HIGH_MIN    (default 7.0)   -> candidate when the description
 //     names one of the watched products (built-in keyword list, extendable live
 //     via the CVE_RADAR_EXTRA_KEYWORDS setting).
+//   - AND a GitHub repo search referencing the CVE confirms a public PoC.
 //
-// On critical alerts a best-effort GitHub repo search answers "is a PoC public
-// yet?" (max pocSearchMaxPerCycle per cycle — the search API is rate limited).
+// The PoC search runs for every candidate (max pocSearchMaxPerCycle per list,
+// fresh + pending — the search API is rate limited); overflow candidates go to
+// the pending queue for the next cycle rather than being skipped.
 //
-// The watermark (last successful poll) and the recently-seen CVE-ID set live
-// in the settings table so they survive redeploys. First-ever run baselines
-// silently — otherwise a fresh install would "discover" years of NVD at once.
+// The watermark (last successful poll), the recently-seen CVE-ID set, and the
+// pending queue live in the settings table so they survive redeploys. First-ever
+// run baselines silently — otherwise a fresh install would "discover" years of
+// NVD at once.
 //
 // Config:
 //   CVE_RADAR=off                     — disable (env or settings-table kill switch)
 //   CVE_RADAR_INTERVAL_MINUTES        — poll interval (default 15, min 5)
-//   CVE_RADAR_CRITICAL_MIN            — always-alert score (default 9.0)
+//   CVE_RADAR_CRITICAL_MIN            — always-candidate score (default 9.0)
 //   CVE_RADAR_HIGH_MIN                — keyword-gated score (default 7.0)
 //   CVE_RADAR_EXTRA_KEYWORDS setting  — comma-separated product keywords added
 //                                       to the built-in list without a redeploy
@@ -49,11 +53,14 @@ import (
 const (
 	cveRadarWatermarkKey = "cve_radar_last_run"
 	cveRadarSeenKey      = "cve_radar_seen_ids"
+	cveRadarPendingKey   = "cve_radar_pending"
 	cveRadarSeenCap      = 500
-	cveRadarListLimit    = 10 // max CVEs listed in one Discord alert
-	pocSearchMaxPerCycle = 5
+	cveRadarPendingCap   = 100
+	cveRadarListLimit    = 10                                            // max CVEs listed in one Discord alert
+	pocSearchMaxPerCycle = 5                                             // per list (fresh + pending); GitHub search is rate limited
 	nvdPageLimit         = 200
-	cveRadarMaxLookback  = 6 * time.Hour // downtime catch-up must never flood
+	cveRadarMaxLookback  = 6 * time.Hour                                 // downtime catch-up must never flood
+	cveRadarPendingTTL   = 48 * time.Hour                                // keep re-checking a no-PoC CVE this long, then drop silently
 )
 
 // cveRadarKeywords are products that actually appear across the platform's
@@ -82,7 +89,17 @@ type cveRadarItem struct {
 	Desc  string
 	CVSS  float64
 	Link  string
-	Proof string // "N repo(s) reference it — url" when the GitHub PoC search hit
+	Proof string // "N repo(s) — url" when the GitHub PoC search confirmed a public PoC
+}
+
+// cveRadarPendingItem is a CVE that crossed the alert bar but has no public
+// PoC yet; it is re-checked each cycle until one appears or the TTL elapses.
+type cveRadarPendingItem struct {
+	ID        string  `json:"id"`
+	Desc      string  `json:"desc"`
+	CVSS      float64 `json:"cvss"`
+	Link      string  `json:"link"`
+	FirstSeen int64   `json:"first_seen"` // unix seconds
 }
 
 // nvdCVEEntry is the subset of an NVD 2.0 CVE record the radar uses. Metrics
@@ -277,32 +294,64 @@ func cveRadarCycle() {
 	// Always advance the watermark once both sources answered — seen-IDs carry
 	// dedup, so an unalerted-but-seen CVE is correctly silent forever.
 	_ = db.SetSetting(cveRadarWatermarkKey, strconv.FormatInt(now.Unix(), 10))
-	if len(fresh) == 0 {
-		return
-	}
 
-	// Highest CVSS first; attach the PoC signal to criticals while respecting
-	// the GitHub search rate limit.
+	pending := cveRadarLoadPending()
+	nowUnix := now.Unix()
+
+	// PoC gate: a fresh CVE only alerts once a public PoC exists. PoCs usually
+	// appear hours after publication, so unproven CVEs wait in the pending list
+	// and are re-checked every cycle until the TTL elapses (then silent drop).
+	// Highest CVSS first so the search budget favors the worst candidates.
 	for i := 1; i < len(fresh); i++ {
 		for j := i; j > 0 && fresh[j].CVSS > fresh[j-1].CVSS; j-- {
 			fresh[j], fresh[j-1] = fresh[j-1], fresh[j]
 		}
 	}
+	var confirmed []cveRadarItem
 	searches := 0
-	for i := range fresh {
-		if fresh[i].CVSS >= cveRadarCriticalMin() && searches < pocSearchMaxPerCycle {
-			fresh[i].Proof = cveRadarPocSignal(fresh[i].ID)
-			searches++
+	for _, it := range fresh {
+		if searches >= pocSearchMaxPerCycle {
+			pending = append(pending, cveRadarPendingItem{ID: it.ID, Desc: it.Desc, CVSS: it.CVSS, Link: it.Link, FirstSeen: nowUnix})
+			continue
+		}
+		searches++
+		if ok, proof := cveRadarPocSignal(it.ID); ok {
+			it.Proof = proof
+			confirmed = append(confirmed, it)
+		} else {
+			pending = append(pending, cveRadarPendingItem{ID: it.ID, Desc: it.Desc, CVSS: it.CVSS, Link: it.Link, FirstSeen: nowUnix})
 		}
 	}
 
-	cveRadarNotify(fresh)
+	// Re-check pending oldest-first: alert on PoC appearance, drop past TTL.
+	var keptPending []cveRadarPendingItem
+	for _, p := range pending {
+		if nowUnix-p.FirstSeen > int64(cveRadarPendingTTL/time.Second) {
+			continue // no public PoC within the TTL — silent drop
+		}
+		if searches >= 2*pocSearchMaxPerCycle {
+			keptPending = append(keptPending, p)
+			continue
+		}
+		searches++
+		if ok, proof := cveRadarPocSignal(p.ID); ok {
+			confirmed = append(confirmed, cveRadarItem{ID: p.ID, Desc: p.Desc, CVSS: p.CVSS, Link: p.Link, Proof: proof})
+		} else {
+			keptPending = append(keptPending, p)
+		}
+	}
+
+	if len(confirmed) > 0 {
+		cveRadarNotify(confirmed, len(keptPending))
+	}
 
 	for _, it := range fresh {
 		seen[it.ID] = true
 	}
 	cveRadarSaveSeen(seen)
-	logger.GetLogger().Infof("[CVE-RADAR] %d fresh CVE(s) alerted", len(fresh))
+	cveRadarSavePending(keptPending)
+	logger.GetLogger().Infof("[CVE-RADAR] %d fresh, %d PoC-confirmed alerted, %d pending, %d searches",
+		len(fresh), len(confirmed), len(keptPending), searches)
 }
 
 // cveRadarPoll fetches both sources for everything published since `since`.
@@ -419,12 +468,13 @@ func cveRadarPasses(desc string, score float64, kwRE *regexp.Regexp) bool {
 }
 
 // cveRadarPocSignal answers "is a PoC public yet?" with one GitHub repo search.
-// Best-effort: on any error it reports nothing rather than failing the cycle.
-func cveRadarPocSignal(cveID string) string {
+// Best-effort: on any error it reports no PoC rather than failing the cycle —
+// the caller then keeps the CVE pending for a later re-check.
+func cveRadarPocSignal(cveID string) (bool, string) {
 	q := url.Values{"q": {`"` + cveID + `"`}, "sort": {"updated"}, "per_page": {"1"}}
 	body, err := cveRadarHTTP("https://api.github.com/search/repositories?" + q.Encode())
 	if err != nil {
-		return ""
+		return false, ""
 	}
 	var res struct {
 		TotalCount int `json:"total_count"`
@@ -433,38 +483,44 @@ func cveRadarPocSignal(cveID string) string {
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil || res.TotalCount == 0 {
-		return ""
+		return false, ""
 	}
 	link := ""
 	if len(res.Items) > 0 {
 		link = res.Items[0].HTMLURL
 	}
-	return fmt.Sprintf("%d repo(s) reference it%s", res.TotalCount, ternaryStr(link != "", " — "+link, ""))
+	if link != "" {
+		return true, fmt.Sprintf("%d repo(s) — %s", res.TotalCount, link)
+	}
+	return true, fmt.Sprintf("%d repo(s) reference it", res.TotalCount)
 }
 
-// cveRadarNotify posts one Discord alert listing the fresh CVEs.
-func cveRadarNotify(fresh []cveRadarItem) {
+// cveRadarNotify posts one Discord alert listing PoC-confirmed CVEs.
+func cveRadarNotify(confirmed []cveRadarItem, pendingCount int) {
 	if !utils.MonitorWebhookConfigured() {
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "🛰️ **%d fresh CVE publication(s)** — manual check: in our attack surface?\n", len(fresh))
-	listed := fresh
+	fmt.Fprintf(&b, "🛰️ **%d fresh CVE(s) with public PoC** — actionable now:\n", len(confirmed))
+	listed := confirmed
 	if len(listed) > cveRadarListLimit {
 		listed = listed[:cveRadarListLimit]
 	}
 	for _, it := range listed {
 		fmt.Fprintf(&b, "• **%s** — CVSS **%.1f** — <%s>", it.ID, it.CVSS, it.Link)
 		if it.Proof != "" {
-			fmt.Fprintf(&b, " · ⚠️ %s", it.Proof)
+			fmt.Fprintf(&b, " · ⚠️ PoC: %s", it.Proof)
 		}
 		if ex := truncateStr(strings.ReplaceAll(it.Desc, "\n", " "), 160); ex != "" {
 			fmt.Fprintf(&b, "\n  %s", ex)
 		}
 		b.WriteString("\n")
 	}
-	if len(fresh) > len(listed) {
-		fmt.Fprintf(&b, "• …and %d more\n", len(fresh)-len(listed))
+	if len(confirmed) > len(listed) {
+		fmt.Fprintf(&b, "• …and %d more\n", len(confirmed)-len(listed))
+	}
+	if pendingCount > 0 {
+		fmt.Fprintf(&b, "*%d more awaiting a public PoC (auto re-checked, no alert unless one appears)*\n", pendingCount)
 	}
 	utils.SendMonitorWebhook(b.String())
 }
@@ -493,6 +549,29 @@ func cveRadarSaveSeen(seen map[string]bool) {
 		ids = ids[:cveRadarSeenCap]
 	}
 	_ = db.SetSetting(cveRadarSeenKey, strings.Join(ids, ","))
+}
+
+// cveRadarLoadPending reads the no-PoC-yet re-check queue.
+func cveRadarLoadPending() []cveRadarPendingItem {
+	var out []cveRadarPendingItem
+	v, _ := db.GetSetting(cveRadarPendingKey)
+	if v == "" {
+		return out
+	}
+	_ = json.Unmarshal([]byte(v), &out)
+	return out
+}
+
+// cveRadarSavePending persists the pending queue (capped).
+func cveRadarSavePending(items []cveRadarPendingItem) {
+	if len(items) > cveRadarPendingCap {
+		items = items[:cveRadarPendingCap]
+	}
+	b, err := json.Marshal(items)
+	if err != nil {
+		return
+	}
+	_ = db.SetSetting(cveRadarPendingKey, string(b))
 }
 
 func cveRadarParseWatermark() time.Time {
