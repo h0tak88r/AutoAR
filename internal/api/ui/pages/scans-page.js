@@ -110,7 +110,7 @@
       ${statusRaw !== 'paused' && statusRaw !== 'cancelling'
     ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseScan('${window.esc(scanID)}')"> Pause</button>` : ''}
       ${statusRaw === 'paused'
-    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeScan('${window.esc(scanID)}')"> Resume</button>` : ''}
+    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumePausedScan('${window.esc(scanID)}')"> Resume</button>` : ''}
       <button type="button" class="btn btn-ghost scan-btn-stop" style="font-size:11px;padding:4px 10px" onclick="cancelScan('${window.esc(scanID)}')"> Stop</button>
       <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="goToScanResultsPage('${window.esc(scanID)}');event.stopPropagation()">→ View</button>
     </div>` : '';

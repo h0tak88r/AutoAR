@@ -148,8 +148,8 @@ async function pauseScan(scanID) {
   return callPageMethod('ScanActionsPage', 'pauseScan', [scanID]);
 }
 
-async function resumeScan(scanID) {
-  return callPageMethod('ScanActionsPage', 'resumeScan', [scanID]);
+async function resumePausedScan(scanID) {
+  return callPageMethod('ScanActionsPage', 'resumePausedScan', [scanID]);
 }
 
 async function loadResource(key, path, stateKey) {

@@ -132,7 +132,11 @@
     }
   }
 
-  async function resumeScan(scanID) {
+  // Resume a PAUSED scan process group (SIGCONT). Distinct from the workflow
+  // resumeScan above — a same-scope duplicate `resumeScan` declaration was
+  // silently shadowing it, so every Resume button hit this SIGCONT path and
+  // failed with "not found or not active" on failed/completed scans.
+  async function resumePausedScan(scanID) {
     try {
       await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/resume`, {});
       window.showToast('success', 'Scan resumed', '');
@@ -142,6 +146,7 @@
       window.showToast('error', 'Resume failed', e.message);
     }
   }
+
 
   window.ScanActionsPage = {
     cancelScan,
@@ -153,6 +158,6 @@
     clearAllScans,
     deleteScansNoFindings,
     pauseScan,
-    resumeScan,
+    resumePausedScan,
   };
 })();
