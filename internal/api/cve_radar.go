@@ -26,21 +26,31 @@ import (
 // a persistent pending queue and is re-checked every cycle; if no PoC appears
 // within cveRadarPendingTTL it is dropped silently (no alert ever).
 //
+// PoC sources (web-wide):
+//   1. GitHub repo search ("CVE-ID", top-2 links with repo name + description)
+//      — token-authed via the GITHUB_TOKEN setting when present (30/min vs 10).
+//   2. Exploit-DB feed — commit messages of exploit-database/exploitdb since
+//      the last cycle; any CVE id mentioned = curated PoC published, commit
+//      URL linked in the alert.
+//
+// Every confirmed PoC link is persisted to the settings-backed memory
+// (cve_radar_poc_log, newest-first, capped) for later querying.
+//
 // Alert bar (tunable via env), both stages required before any Discord ping:
 //   - CVSS >= CVE_RADAR_CRITICAL_MIN (default 9.0)  -> candidate regardless of product
 //   - CVSS >= CVE_RADAR_HIGH_MIN    (default 7.0)   -> candidate when the description
 //     names one of the watched products (built-in keyword list, extendable live
 //     via the CVE_RADAR_EXTRA_KEYWORDS setting).
-//   - AND a GitHub repo search referencing the CVE confirms a public PoC.
+//   - AND a PoC source above confirms a public weapon.
 //
 // The PoC search runs for every candidate (max pocSearchMaxPerCycle per list,
 // fresh + pending — the search API is rate limited); overflow candidates go to
 // the pending queue for the next cycle rather than being skipped.
 //
-// The watermark (last successful poll), the recently-seen CVE-ID set, and the
-// pending queue live in the settings table so they survive redeploys. First-ever
-// run baselines silently — otherwise a fresh install would "discover" years of
-// NVD at once.
+// The watermarks (poll + exploit-db), the recently-seen CVE-ID set, the
+// pending queue, and the PoC log live in the settings table so they survive
+// redeploys. First-ever run baselines silently — otherwise a fresh install
+// would "discover" years of NVD at once.
 //
 // Config:
 //   CVE_RADAR=off                     — disable (env or settings-table kill switch)
@@ -49,19 +59,26 @@ import (
 //   CVE_RADAR_HIGH_MIN                — keyword-gated score (default 7.0)
 //   CVE_RADAR_EXTRA_KEYWORDS setting  — comma-separated product keywords added
 //                                       to the built-in list without a redeploy
+//   GITHUB_TOKEN setting              — optional; steadies/raises search limits
 
 const (
-	cveRadarWatermarkKey = "cve_radar_last_run"
-	cveRadarSeenKey      = "cve_radar_seen_ids"
-	cveRadarPendingKey   = "cve_radar_pending"
-	cveRadarSeenCap      = 500
-	cveRadarPendingCap   = 100
-	cveRadarListLimit    = 10                                            // max CVEs listed in one Discord alert
-	pocSearchMaxPerCycle = 5                                             // per list (fresh + pending); GitHub search is rate limited
-	nvdPageLimit         = 200
-	cveRadarMaxLookback  = 6 * time.Hour                                 // downtime catch-up must never flood
-	cveRadarPendingTTL   = 48 * time.Hour                                // keep re-checking a no-PoC CVE this long, then drop silently
+	cveRadarWatermarkKey    = "cve_radar_last_run"
+	cveRadarSeenKey         = "cve_radar_seen_ids"
+	cveRadarPendingKey      = "cve_radar_pending"
+	cveRadarEDBWatermarkKey = "cve_radar_edb_watermark"
+	cveRadarPoCLogKey       = "cve_radar_poc_log"
+	cveRadarSeenCap         = 500
+	cveRadarPendingCap      = 100
+	cveRadarPoCLogCap       = 500
+	cveRadarListLimit       = 10 // max CVEs listed in one Discord alert
+	pocSearchMaxPerCycle    = 5  // per list (fresh + pending); GitHub search is rate limited
+	nvdPageLimit            = 200
+	cveRadarMaxLookback     = 6 * time.Hour  // downtime catch-up must never flood
+	cveRadarPendingTTL      = 48 * time.Hour // keep re-checking a no-PoC CVE this long, then drop silently
 )
+
+// cveRE extracts CVE ids from free text (Exploit-DB commit messages).
+var cveRE = regexp.MustCompile(`CVE-\d{4}-\d{4,7}`)
 
 // cveRadarKeywords are products that actually appear across the platform's
 // target base. Matched case-insensitively as substrings of the description.
@@ -298,6 +315,11 @@ func cveRadarCycle() {
 	pending := cveRadarLoadPending()
 	nowUnix := now.Unix()
 
+	// Exploit-DB commit feed: one curated web-wide PoC source. Parsed BEFORE
+	// gating so both fresh and pending CVEs can confirm from it without
+	// spending GitHub search budget.
+	edb := cveRadarExploitDBFeed()
+
 	// PoC gate: a fresh CVE only alerts once a public PoC exists. PoCs usually
 	// appear hours after publication, so unproven CVEs wait in the pending list
 	// and are re-checked every cycle until the TTL elapses (then silent drop).
@@ -310,14 +332,24 @@ func cveRadarCycle() {
 	var confirmed []cveRadarItem
 	searches := 0
 	for _, it := range fresh {
+		edbLink := edb[it.ID]
+		if edbLink != "" {
+			it.Proof = "Exploit-DB commit: " + edbLink
+			confirmed = append(confirmed, it)
+			cveRadarLogPoC(it.ID, it.CVSS, "exploitdb", edbLink)
+			continue
+		}
 		if searches >= pocSearchMaxPerCycle {
 			pending = append(pending, cveRadarPendingItem{ID: it.ID, Desc: it.Desc, CVSS: it.CVSS, Link: it.Link, FirstSeen: nowUnix})
 			continue
 		}
 		searches++
-		if ok, proof := cveRadarPocSignal(it.ID); ok {
-			it.Proof = proof
+		if links := cveRadarPocLinks(it.ID); len(links) > 0 {
+			it.Proof = strings.Join(links, " · ")
 			confirmed = append(confirmed, it)
+			for _, l := range links {
+				cveRadarLogPoC(it.ID, it.CVSS, "github", l)
+			}
 		} else {
 			pending = append(pending, cveRadarPendingItem{ID: it.ID, Desc: it.Desc, CVSS: it.CVSS, Link: it.Link, FirstSeen: nowUnix})
 		}
@@ -329,13 +361,22 @@ func cveRadarCycle() {
 		if nowUnix-p.FirstSeen > int64(cveRadarPendingTTL/time.Second) {
 			continue // no public PoC within the TTL — silent drop
 		}
+		edbLink := edb[p.ID]
+		if edbLink != "" {
+			confirmed = append(confirmed, cveRadarItem{ID: p.ID, Desc: p.Desc, CVSS: p.CVSS, Link: p.Link, Proof: "Exploit-DB commit: " + edbLink})
+			cveRadarLogPoC(p.ID, p.CVSS, "exploitdb", edbLink)
+			continue
+		}
 		if searches >= 2*pocSearchMaxPerCycle {
 			keptPending = append(keptPending, p)
 			continue
 		}
 		searches++
-		if ok, proof := cveRadarPocSignal(p.ID); ok {
-			confirmed = append(confirmed, cveRadarItem{ID: p.ID, Desc: p.Desc, CVSS: p.CVSS, Link: p.Link, Proof: proof})
+		if links := cveRadarPocLinks(p.ID); len(links) > 0 {
+			confirmed = append(confirmed, cveRadarItem{ID: p.ID, Desc: p.Desc, CVSS: p.CVSS, Link: p.Link, Proof: strings.Join(links, " · ")})
+			for _, l := range links {
+				cveRadarLogPoC(p.ID, p.CVSS, "github", l)
+			}
 		} else {
 			keptPending = append(keptPending, p)
 		}
@@ -350,8 +391,129 @@ func cveRadarCycle() {
 	}
 	cveRadarSaveSeen(seen)
 	cveRadarSavePending(keptPending)
-	logger.GetLogger().Infof("[CVE-RADAR] %d fresh, %d PoC-confirmed alerted, %d pending, %d searches",
-		len(fresh), len(confirmed), len(keptPending), searches)
+	logger.GetLogger().Infof("[CVE-RADAR] %d fresh, %d PoC-confirmed alerted, %d pending, %d searches, %d edb hits",
+		len(fresh), len(confirmed), len(keptPending), searches, len(edb))
+}
+
+// cveRadarGitHubToken returns the Authorization header value from the platform
+// settings when a GitHub token is configured — raises the search rate limit
+// from 10/min (unauthenticated) to 30/min and steadies the API.
+func cveRadarGitHubToken() string {
+	if tok, _ := db.GetSetting("GITHUB_TOKEN"); strings.TrimSpace(tok) != "" {
+		return "Bearer " + strings.TrimSpace(tok)
+	}
+	return ""
+}
+
+// cveRadarExploitDBFeed polls the exploit-database/exploitdb repo commits since
+// the last watermark and maps every CVE id mentioned in a commit message to
+// that commit's URL. One API call per cycle; failures keep the watermark.
+func cveRadarExploitDBFeed() map[string]string {
+	out := map[string]string{}
+	since := cveRadarParseWatermarkSetting(cveRadarEDBWatermarkKey)
+	if since.IsZero() {
+		since = time.Now().UTC().Add(-time.Hour) // short silent baseline
+	}
+	u := "https://api.github.com/repos/exploit-database/exploitdb/commits?per_page=50&since=" +
+		url.QueryEscape(since.UTC().Format("2006-01-02T15:04:05Z"))
+	headers := map[string]string{}
+	if tok := cveRadarGitHubToken(); tok != "" {
+		headers["Authorization"] = tok
+	}
+	body, err := cveRadarHTTPWithHeaders(u, headers)
+	if err != nil {
+		return out
+	}
+	var commits []struct {
+		HTMLURL string `json:"html_url"`
+		Commit  struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+	}
+	if err := json.Unmarshal(body, &commits); err != nil {
+		return out
+	}
+	for _, c := range commits {
+		for _, m := range cveRE.FindAllString(c.Commit.Message, -1) {
+			if out[m] == "" {
+				out[m] = c.HTMLURL
+			}
+		}
+	}
+	// Advance watermark to now regardless of hits (dedup is by CVE map above).
+	_ = db.SetSetting(cveRadarEDBWatermarkKey, strconv.FormatInt(time.Now().UTC().Unix(), 10))
+	return out
+}
+
+// cveRadarPocLinks searches GitHub for public PoC repos and returns up to two
+// display strings with clickable links ("owner/repo — <url> — desc").
+func cveRadarPocLinks(cveID string) []string {
+	q := url.Values{"q": {`"` + cveID + `"`}, "sort": {"updated"}, "per_page": {"5"}}
+	headers := map[string]string{"Accept": "application/vnd.github+json"}
+	if tok := cveRadarGitHubToken(); tok != "" {
+		headers["Authorization"] = tok
+	}
+	body, err := cveRadarHTTPWithHeaders("https://api.github.com/search/repositories?"+q.Encode(), headers)
+	if err != nil {
+		return nil
+	}
+	var res struct {
+		TotalCount int `json:"total_count"`
+		Items      []struct {
+			FullName    string `json:"full_name"`
+			HTMLURL     string `json:"html_url"`
+			Description string `json:"description"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil || res.TotalCount == 0 {
+		return nil
+	}
+	links := make([]string, 0, 2)
+	for _, it := range res.Items {
+		if len(links) >= 2 {
+			break
+		}
+		s := it.FullName + " — " + it.HTMLURL
+		if d := truncateStr(it.Description, 80); d != "" {
+			s += " — " + d
+		}
+		links = append(links, s)
+	}
+	if len(links) == 0 {
+		links = append(links, fmt.Sprintf("%d repo(s) reference it", res.TotalCount))
+	}
+	return links
+}
+
+// cveRadarLogPoC persists a confirmed PoC to the settings-backed memory
+// (cve_radar_poc_log, newest-first, capped) so the platform keeps a durable
+// web-searchable record of every PoC link it ever alerted on.
+func cveRadarLogPoC(cveID string, cvss float64, source, link string) {
+	type pocEntry struct {
+		CVE    string  `json:"cve"`
+		CVSS   float64 `json:"cvss"`
+		Source string  `json:"source"`
+		Link   string  `json:"link"`
+		SeenAt string  `json:"seen_at"`
+	}
+	var log []pocEntry
+	if v, _ := db.GetSetting(cveRadarPoCLogKey); v != "" {
+		_ = json.Unmarshal([]byte(v), &log)
+	}
+	// dedup on cve+link
+	for _, e := range log {
+		if e.CVE == cveID && e.Link == link {
+			return
+		}
+	}
+	log = append([]pocEntry{{CVE: cveID, CVSS: cvss, Source: source, Link: link,
+		SeenAt: time.Now().UTC().Format(time.RFC3339)}}, log...)
+	if len(log) > cveRadarPoCLogCap {
+		log = log[:cveRadarPoCLogCap]
+	}
+	if b, err := json.Marshal(log); err == nil {
+		_ = db.SetSetting(cveRadarPoCLogKey, string(b))
+	}
 }
 
 // cveRadarPoll fetches both sources for everything published since `since`.
@@ -467,33 +629,9 @@ func cveRadarPasses(desc string, score float64, kwRE *regexp.Regexp) bool {
 	return score >= cveRadarHighMin() && kwRE != nil && kwRE.MatchString(desc)
 }
 
-// cveRadarPocSignal answers "is a PoC public yet?" with one GitHub repo search.
-// Best-effort: on any error it reports no PoC rather than failing the cycle —
-// the caller then keeps the CVE pending for a later re-check.
-func cveRadarPocSignal(cveID string) (bool, string) {
-	q := url.Values{"q": {`"` + cveID + `"`}, "sort": {"updated"}, "per_page": {"1"}}
-	body, err := cveRadarHTTP("https://api.github.com/search/repositories?" + q.Encode())
-	if err != nil {
-		return false, ""
-	}
-	var res struct {
-		TotalCount int `json:"total_count"`
-		Items      []struct {
-			HTMLURL string `json:"html_url"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(body, &res); err != nil || res.TotalCount == 0 {
-		return false, ""
-	}
-	link := ""
-	if len(res.Items) > 0 {
-		link = res.Items[0].HTMLURL
-	}
-	if link != "" {
-		return true, fmt.Sprintf("%d repo(s) — %s", res.TotalCount, link)
-	}
-	return true, fmt.Sprintf("%d repo(s) reference it", res.TotalCount)
-}
+// cveRadarPocLinks replaced cveRadarPocSignal (see above); kept this comment
+// block as the search-rate note: GitHub search allows 10/min unauthenticated
+// and 30/min with a token — the per-cycle budgets stay well under both.
 
 // cveRadarNotify posts one Discord alert listing PoC-confirmed CVEs.
 func cveRadarNotify(confirmed []cveRadarItem, pendingCount int) {
@@ -589,6 +727,50 @@ func cveRadarParseWatermark() time.Time {
 // cveRadarHTTP is the shared outbound HTTP helper. A custom User-Agent is
 // mandatory: NVD, GitHub, and Discord's edge all reject default client
 // fingerprints (Discord 403s python-urllib; NVD wants a descriptive UA).
+// cveRadarHTTPWithHeaders is cveRadarHTTP with extra request headers (used to
+// attach the GitHub token Authorization header for api.github.com calls).
+func cveRadarHTTPWithHeaders(target string, headers map[string]string) ([]byte, error) {
+	req, err := http.NewRequest("GET", target, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "AutoAR-CVE-Radar/1.0")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("rate limited -> %d", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%.60s -> %d", target, resp.StatusCode)
+	}
+	return body, nil
+}
+
+// cveRadarParseWatermarkSetting is the generic watermark parser (shared by the
+// NVD/GHSA poll watermark and the Exploit-DB feed watermark).
+func cveRadarParseWatermarkSetting(key string) time.Time {
+	v, _ := db.GetSetting(key)
+	if v == "" {
+		return time.Time{}
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.Unix(n, 0).UTC()
+}
+
 func cveRadarHTTP(target string) ([]byte, error) {
 	req, err := http.NewRequest("GET", target, nil)
 	if err != nil {
