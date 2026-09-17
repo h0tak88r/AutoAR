@@ -570,6 +570,12 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 	if err := ensureNucleiIgnoreFile(); err != nil {
 		logger.GetLogger().Infof("[WARN] Failed to prepare nuclei ignore file: %v", err)
 	}
+	// Serialize ENGINE CONSTRUCTION process-wide: concurrent NewNucleiEngineCtx
+	// calls race on the shared nuclei config/template cache and can leave the
+	// loser with zero compiled templates ("No templates available" — observed
+	// when two global scans start in the same minute). Engines still RUN
+	// concurrently after init; only construction is mutually exclusive.
+	nucleiEngineInitMu.Lock()
 	engine, err := nucleiSDK.NewNucleiEngineCtx(
 		ctx,
 		nucleiSDK.DisableUpdateCheck(),
@@ -587,6 +593,7 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 			ProbeConcurrency:              max(1, min(threads, 50)),
 		}),
 	)
+	nucleiEngineInitMu.Unlock()
 	if err != nil {
 		return fmt.Errorf("failed to initialize nuclei SDK: %w", err)
 	}
@@ -691,6 +698,8 @@ func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath st
 		return err
 	}
 
+	// See runNucleiCommand for why engine construction is serialized.
+	nucleiEngineInitMu.Lock()
 	engine, err := nucleiSDK.NewNucleiEngineCtx(
 		ctx,
 		nucleiSDK.DisableUpdateCheck(),
@@ -709,6 +718,7 @@ func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath st
 			ProbeConcurrency:              max(1, min(threads, 50)),
 		}),
 	)
+	nucleiEngineInitMu.Unlock()
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
@@ -808,6 +818,10 @@ func readTargetLines(path string) ([]string, error) {
 }
 
 var hostOnlyPattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+(:[0-9]{1,5})?$`)
+
+// nucleiEngineInitMu serializes nuclei SDK engine construction (see the
+// comment at each construction site for the failure it prevents).
+var nucleiEngineInitMu sync.Mutex
 
 func sanitizeNucleiTarget(raw string) (string, bool) {
 	t := strings.TrimSpace(html.UnescapeString(raw))

@@ -122,8 +122,8 @@ func apiConfigHandler(c *gin.Context) {
 		// hasIntigritiToken accepts both INTIGRITI_TOKEN and the INTIGRITI_API_KEY
 		// alias — a raw INTIGRITI_TOKEN check would wrongly show "not set" when only
 		// the alias is configured (even though Intigriti fetching works fine).
-		"it_token_set":  hasIntigritiToken() || accounts.Count("it") > 0,
-		"ywh_token_set": strings.TrimSpace(os.Getenv("YWH_TOKEN")) != "" || accounts.Count("ywh") > 0,
+		"it_token_set":      hasIntigritiToken() || accounts.Count("it") > 0,
+		"ywh_token_set":     strings.TrimSpace(os.Getenv("YWH_TOKEN")) != "" || accounts.Count("ywh") > 0,
 		"ha_token_set":      strings.TrimSpace(os.Getenv("HACKADVISOR_TOKEN")) != "",
 		"ha_include_native": strings.EqualFold(strings.TrimSpace(os.Getenv("HACKADVISOR_INCLUDE_NATIVE")), "true"),
 		"chaos_key_set":     strings.TrimSpace(os.Getenv("CHAOS_API_KEY")) != "",
@@ -140,6 +140,8 @@ func apiConfigHandler(c *gin.Context) {
 		"timeout_misconfig": utils.GetTimeout("misconfig", 1800),
 		"timeout_katana":    utils.GetTimeout("katana", 600),
 		"timeout_xss":       utils.GetTimeout("xss", 1200),
+		// Scan engine concurrency — same DB/env/default resolution, clamped [10, 250].
+		"nuclei_threads": utils.GetThreads("nuclei", 150, 10, 250),
 		// Also include raw env fallbacks for legacy callers.
 		"timeout_zerodays_env": getIntEnvOr("AUTOAR_TIMEOUT_ZERODAYS", 600),
 		"timeout_nuclei_env":   getIntEnvOr("AUTOAR_TIMEOUT_NUCLEI", 1200),
@@ -186,6 +188,9 @@ type UpdateSettingsBody struct {
 	TimeoutMisconfig *int `json:"timeout_misconfig,omitempty"`
 	TimeoutKatana    *int `json:"timeout_katana,omitempty"`
 	TimeoutXss       *int `json:"timeout_xss,omitempty"`
+	// Scan engine concurrency (host concurrency for the nuclei SDK; clamped
+	// server-side to 10-250, omit to keep current)
+	NucleiThreads *int `json:"nuclei_threads,omitempty"`
 	// Cloudflare R2 storage. The non-secret fields are *T (present = set/clear); the
 	// two API keys are plain strings where "" = keep the stored value (masked edit).
 	UseR2       *bool   `json:"use_r2,omitempty"`
@@ -200,8 +205,8 @@ type UpdateSettingsBody struct {
 	PipelineTimeoutHours *int `json:"pipeline_timeout_hours,omitempty"`
 	// Purpose-routed Discord webhooks ("" = keep current). Each falls back to
 	// MONITOR_WEBHOOK_URL server-side when unset.
-	WebhookScans     string `json:"webhook_scans"`
-	WebhookNewScopes string `json:"webhook_new_scopes"`
+	WebhookScans      string `json:"webhook_scans"`
+	WebhookNewScopes  string `json:"webhook_new_scopes"`
 	WebhookMonitoring string `json:"webhook_monitoring"`
 	WebhookFindings   string `json:"webhook_findings"`
 	// ProjectDiscovery Cloud key for the nuclei template watch.
@@ -361,6 +366,19 @@ func apiUpdateSettingsHandler(c *gin.Context) {
 	saveTimeout("misconfig", "AUTOAR_TIMEOUT_MISCONFIG", body.TimeoutMisconfig)
 	saveTimeout("katana", "AUTOAR_TIMEOUT_KATANA", body.TimeoutKatana)
 	saveTimeout("xss", "AUTOAR_TIMEOUT_XSS", body.TimeoutXss)
+
+	// Scan engine concurrency — clamped here so every reader (GetThreads) and
+	// this write agree on the valid range without trusting the client.
+	if body.NucleiThreads != nil {
+		t := *body.NucleiThreads
+		if t < 10 {
+			t = 10
+		}
+		if t > 250 {
+			t = 250
+		}
+		_ = db.SetSetting("threads_nuclei", strconv.Itoa(t))
+	}
 
 	// Cloudflare R2 storage. Non-secret fields (pointers) are applied when present so
 	// they can be set or cleared; the two API keys are kept when submitted blank
@@ -1063,14 +1081,19 @@ func runGlobalNucleiScan(scanID, template string) error {
 		}
 	}
 
+	// Host concurrency is settings-managed (Settings ▸ Scan Timeouts ▸ "Nuclei
+	// Threads", DB key threads_nuclei, clamped 10-250). The old hardcoded 50
+	// made 600K-host sweeps take days; the box is network-bound with headroom.
+	nucleiHostThreads := utils.GetThreads("nuclei", 150, 10, 250)
+
 	for i, batchFile := range batchFiles {
 		ctx := scanContext(scanID)
 		if err := ctx.Err(); err != nil {
 			// Cancelled mid-sweep — partials were already persisted above.
 			return fmt.Errorf("scan cancelled after batch %d/%d: %w", i, len(batchFiles), err)
 		}
-		stdLog(scanID, "[INFO] Running batch %d/%d (%s)", i+1, len(batchFiles), filepath.Base(batchFile))
-		if err := nuclei.RunGlobalTemplate(ctx, batchFile, templatePath, outPath, 50, onResult); err != nil {
+		stdLog(scanID, "[INFO] Running batch %d/%d (%s) [threads=%d]", i+1, len(batchFiles), filepath.Base(batchFile), nucleiHostThreads)
+		if err := nuclei.RunGlobalTemplate(ctx, batchFile, templatePath, outPath, nucleiHostThreads, onResult); err != nil {
 			// Partial results were already persisted by the deferred indexer above;
 			// surface them so the operator knows the run ended early WITH findings.
 			if matches.Load() > 0 {

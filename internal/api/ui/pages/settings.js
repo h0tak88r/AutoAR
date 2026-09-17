@@ -294,6 +294,11 @@
                 <input id="timeout-xss-input" type="number" min="0" class="form-control premium-input" value="${escValue(String(cfg.timeout_xss ?? 1200))}" />
                 <span>seconds</span>
               </div>
+              <div class="timeout-field">
+                <label>⚡ Nuclei Threads</label>
+                <input id="nuclei-threads-input" type="number" min="10" max="250" class="form-control premium-input" value="${escValue(String(cfg.nuclei_threads ?? 150))}" />
+                <span>host concurrency (10-250; higher = faster sweeps)</span>
+              </div>
             </div>
             <div style="margin-top: 20px; display: flex; align-items: center; gap: 15px;">
               <button class="btn btn-primary" onclick="window.SettingsPage.saveTimeoutSettings()" id="timeout-save-btn"> Save All Timeouts</button>
@@ -908,6 +913,7 @@
     const mcInput  = document.getElementById('timeout-misconfig-input');
     const kaInput  = document.getElementById('timeout-katana-input');
     const xsInput  = document.getElementById('timeout-xss-input');
+    const thInput  = document.getElementById('nuclei-threads-input');
     const btn      = document.getElementById('timeout-save-btn');
     const note     = document.getElementById('timeout-save-note');
     if (!scInput || !plInput || !zdInput || !nuInput || !buInput || !mcInput || !kaInput || !xsInput) return;
@@ -923,6 +929,10 @@
       window.showToast('error', 'Invalid value', 'Timeouts must be 0 or a positive integer.');
       return;
     }
+    let thVal = thInput ? parseInt(thInput.value, 10) : NaN;
+    if (isNaN(thVal)) thVal = 150;
+    if (thVal < 10) thVal = 10;
+    if (thVal > 250) thVal = 250;
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     try {
       const headers = await window.buildAuthHeaders({ 'Content-Type': 'application/json' });
@@ -938,10 +948,11 @@
           timeout_misconfig: mcVal,
           timeout_katana:   kaVal,
           timeout_xss:      xsVal,
+          nuclei_threads:   thVal,
         })
       });
       if (!res.ok) throw new Error('Failed to update timeout settings');
-      window.showToast('success', 'Saved!', `Ceilings: scan ${scVal}h · pipeline ${plVal}h · Phases: ZD ${zdVal}s · Nuclei ${nuVal}s · Backup ${buVal}s · Misconfig ${mcVal}s · Katana ${kaVal}s · XSS ${xsVal}s`);
+      window.showToast('success', 'Saved!', `Ceilings: scan ${scVal}h · pipeline ${plVal}h · Phases: ZD ${zdVal}s · Nuclei ${nuVal}s · Backup ${buVal}s · Misconfig ${mcVal}s · Katana ${kaVal}s · XSS ${xsVal}s · Threads ${thVal}`);
       if (note) note.textContent = ` Saved to DB at ${new Date().toLocaleTimeString()} — persists across redeployments`;
       try { window.state.config = await window.apiFetch('/api/config'); } catch(_) {}
     } catch (e) {
